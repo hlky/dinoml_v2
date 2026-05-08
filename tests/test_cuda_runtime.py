@@ -149,6 +149,16 @@ class SoftmaxLastDim(dml.Module):
         return dml.ops.output(dml.ops.softmax(x, dim=-1), "y")
 
 
+class ReductionLastDim(dml.Module):
+    def __init__(self, op_name: str, keepdim: bool = False):
+        self.op_name = op_name
+        self.keepdim = keepdim
+
+    def forward(self, x):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(x, dim=-1, keepdim=self.keepdim), "y")
+
+
 def test_cuda_fused_elementwise_emits_float4_vector_path(tmp_path):
     spec = dml.trace(
         VectorizableScalarChain(),
@@ -195,6 +205,56 @@ def test_cuda_generated_softmax_matches_numpy_for_attention_rows(tmp_path):
     session.close()
     module.close()
 
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "numpy_op"),
+    [
+        ("reduce_sum", np.sum),
+        ("reduce_max", np.max),
+        ("reduce_min", np.min),
+        ("reduce_mean", np.mean),
+    ],
+)
+def test_cuda_generated_reductions_match_numpy(tmp_path, op_name, numpy_op):
+    spec = dml.trace(
+        ReductionLastDim(op_name),
+        inputs={"x": dml.TensorSpec([64, 257], "float32")},
+        name=f"{op_name}_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert f"{op_name}_" in generated
+    assert "block * sizeof(float)" in generated
+
+    x = np.random.default_rng(91).standard_normal((64, 257)).astype(np.float32)
+    expected = numpy_op(x, axis=-1).astype(np.float32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cuda_generated_reduction_keepdim_shape(tmp_path):
+    spec = dml.trace(
+        ReductionLastDim("reduce_sum", keepdim=True),
+        inputs={"x": dml.TensorSpec([8, 16, 33], "float32")},
+        name="reduce_sum_keepdim_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "reduce_sum_keepdim_cuda.dinoml")
+    x = np.random.default_rng(92).standard_normal((8, 16, 33)).astype(np.float32)
+    expected = np.sum(x, axis=-1, keepdims=True).astype(np.float32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    assert actual.shape == (8, 16, 1)
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 

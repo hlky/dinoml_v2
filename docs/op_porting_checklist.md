@@ -97,8 +97,15 @@ add xsimd or `std::simd` only where measurable.
 
 ### Reductions and Softmax
 
-- [ ] Reductions: `reduce_max`, `reduce_mean`, `reduce_min`, `reduce_sum`,
-  `var`, `vector_norm`.
+- [x] Basic reductions: `reduce_max`, `reduce_mean`, `reduce_min`,
+  `reduce_sum` for dense contiguous float32 tensors over a positive static last
+  dimension, with negative dim normalization and `keepdim`. CPU and CUDA use
+  simple generated row reductions and validate against NumPy/Torch-style
+  semantics. Remaining parity work: non-last dimensions, multi-axis rejection
+  that mirrors v1 more closely, optional output dtype, fp16/bf16 accumulation
+  policy, v1 CUTLASS/`reduce_3d` strategy, profiler selection, and reduction ops
+  `var`/`vector_norm`.
+- [ ] `var`, `vector_norm`.
 - [x] `softmax`: initial public `dml.ops.softmax(x, dim=-1)` port for dense
   contiguous float32 tensors on CPU and CUDA. Current implementation supports
   only the last dimension with a positive static reduction extent, uses stable

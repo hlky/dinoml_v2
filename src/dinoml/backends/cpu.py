@@ -44,6 +44,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_softmax(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         else:
             raise ValueError(f"Unsupported op: {node['op']}")
 
@@ -155,6 +162,28 @@ def _execute_softmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarr
     shifted = value - np.max(value, axis=dim, keepdims=True)
     exp_value = np.exp(shifted)
     return np.asarray(exp_value / np.sum(exp_value, axis=dim, keepdims=True), dtype=np.float32)
+
+
+def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    dim = int(attrs.get("dim", -1))
+    if dim < 0:
+        dim += value.ndim
+    if dim != value.ndim - 1:
+        raise NotImplementedError("CPU reference reductions currently support only the last dimension")
+    keepdim = bool(attrs.get("keepdim", False))
+    if op == "reduce_sum":
+        result = np.sum(value, axis=dim, keepdims=keepdim)
+    elif op == "reduce_max":
+        result = np.max(value, axis=dim, keepdims=keepdim)
+    elif op == "reduce_min":
+        result = np.min(value, axis=dim, keepdims=keepdim)
+    elif op == "reduce_mean":
+        result = np.mean(value, axis=dim, keepdims=keepdim)
+    else:
+        raise ValueError(f"Unsupported reduction op: {op}")
+    if result.shape == ():
+        result = np.reshape(result, [1])
+    return np.asarray(result, dtype=np.float32)
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

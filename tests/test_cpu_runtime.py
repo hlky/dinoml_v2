@@ -33,6 +33,16 @@ class SoftmaxNonLastDim(dml.Module):
         return dml.ops.output(dml.ops.softmax(x, dim=0), "y")
 
 
+class ReductionLastDim(dml.Module):
+    def __init__(self, op_name: str, keepdim: bool = False):
+        self.op_name = op_name
+        self.keepdim = keepdim
+
+    def forward(self, x):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(x, dim=-1, keepdim=self.keepdim), "y")
+
+
 class PublicShapeViewOutputs(dml.Module):
     def forward(self, x, z):
         return {
@@ -398,6 +408,63 @@ def test_cpu_artifact_runs_generated_softmax_for_attention_rows(tmp_path):
     module.close()
 
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "numpy_op"),
+    [
+        ("reduce_sum", np.sum),
+        ("reduce_max", np.max),
+        ("reduce_min", np.min),
+        ("reduce_mean", np.mean),
+    ],
+)
+def test_cpu_reference_reductions_match_numpy(op_name, numpy_op):
+    spec = dml.trace(
+        ReductionLastDim(op_name),
+        inputs={"x": dml.TensorSpec([3, 5, 7], "float32")},
+        name=f"{op_name}_reference",
+    )
+    x = np.random.default_rng(41).standard_normal((3, 5, 7)).astype(np.float32)
+    expected = numpy_op(x, axis=-1).astype(np.float32)
+    actual = execute_cpu(spec, {"x": x})["y"]
+    np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):
+    spec = dml.trace(
+        ReductionLastDim("reduce_mean", keepdim=True),
+        inputs={"x": dml.TensorSpec([4, 8, 16], "float32")},
+        name="reduce_mean_keepdim_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "reduce_mean_keepdim_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "reduce_mean_" in generated
+    assert "runtime_rows" in generated
+
+    x = np.random.default_rng(42).standard_normal((4, 8, 16)).astype(np.float32)
+    expected = np.mean(x, axis=-1, keepdims=True).astype(np.float32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    assert actual.shape == (4, 8, 1)
+    np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+def test_reduction_rejects_non_last_dim():
+    class ReduceNonLastDim(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.reduce_sum(x, dim=0), "y")
+
+    with pytest.raises(NotImplementedError, match="last dimension"):
+        dml.trace(
+            ReduceNonLastDim(),
+            inputs={"x": dml.TensorSpec([4, 8], "float32")},
+            name="reduce_non_last",
+        )
 
 
 def test_softmax_rejects_non_last_dim():

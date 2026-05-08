@@ -1,0 +1,48 @@
+__global__ void {{ kernel }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  extern __shared__ float shared[];
+  const int row = static_cast<int>(blockIdx.x);
+  if (row >= rows) {
+    return;
+  }
+  const int tid = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+
+  float acc = {{ initial_value }};
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    const float value = x[base + col];
+    acc = {{ combine_expr }};
+  }
+  shared[tid] = acc;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      const float value = shared[tid + stride];
+      acc = shared[tid];
+      shared[tid] = {{ combine_expr }};
+    }
+    __syncthreads();
+  }
+  if (tid == 0) {
+    acc = shared[0];
+    y[row] = {{ final_expr }};
+  }
+}
+
+static int {{ func }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t runtime_rows,
+    cudaStream_t stream) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  {{ kernel }}<<<static_cast<unsigned int>(runtime_rows), block, block * sizeof(float), stream>>>(x, y, runtime_rows);
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

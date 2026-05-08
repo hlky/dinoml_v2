@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dinoml.ops.elementwise import register_elementwise_ops
+from dinoml.ops.reductions import register_reduction_ops
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
 from dinoml.ops.softmax import register_softmax_op
 
@@ -8,6 +9,7 @@ from dinoml.ops.softmax import register_softmax_op
 OP_REGISTRY = OpRegistry()
 register_elementwise_ops(OP_REGISTRY)
 register_softmax_op(OP_REGISTRY)
+register_reduction_ops(OP_REGISTRY)
 OP_DEFINITIONS = OP_REGISTRY.definitions
 
 

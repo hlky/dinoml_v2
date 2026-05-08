@@ -6,6 +6,7 @@ import numpy as np
 
 from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.ops.definitions import get_op_def
+from dinoml.ops.reductions import REDUCTION_OPS, infer_reduction_with_attrs
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError, validate_view_metadata
 
@@ -22,7 +23,10 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
     for node in ir["nodes"]:
         inputs = [tensors[name] for name in node["inputs"]]
         op_def = get_op_def(node["op"])
-        expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
+        if node["op"] in REDUCTION_OPS:
+            expected_shape = infer_reduction_with_attrs(inputs[0]["shape"], bool(node.get("attrs", {}).get("keepdim", False)))
+        else:
+            expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
         expected_dtype = inputs[0]["dtype"] if inputs else tensors[node["outputs"][0]]["dtype"]
         for output_name in node["outputs"]:
             out = tensors[output_name]

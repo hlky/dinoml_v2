@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
+from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
 
@@ -105,6 +106,10 @@ __all__ = [
     "make_frontend_op",
     "output",
     "reshape",
+    "reduce_max",
+    "reduce_mean",
+    "reduce_min",
+    "reduce_sum",
     "softmax",
     "squeeze",
     "unsqueeze",

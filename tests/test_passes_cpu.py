@@ -225,6 +225,41 @@ def test_softmax_cuda_source_policy_selects_warp_and_shared_paths():
     assert "block * sizeof(float)" in shared_sources["kernels"][0]
 
 
+def test_reduction_manifest_and_keepdim_shape_inference():
+    import dinoml as dml
+
+    class ReduceModel(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.reduce_mean(x, keepdim=True), "y")
+
+    spec = dml.trace(
+        ReduceModel(),
+        inputs={"x": dml.TensorSpec([2, 3, 4], "float32")},
+        name="reduce_mean_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    output_tensor = tensor_map[lowered["outputs"][0]["tensor"]]
+    assert output_tensor["shape"] == [2, 3, 1]
+    assert output_tensor["shape_spec"] == [2, 3, 1]
+
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    assert manifest["required_kernels"] == [
+        {
+            "op": "reduce_mean",
+            "kernel_symbol": "generated_reduction",
+            "kernel_library": "model",
+            "profiler_symbol": None,
+            "has_profiler": False,
+        }
+    ]
+
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 1
+    assert "reduce_mean_" in sources["kernels"][0]
+    assert "acc / 4.00000000f" in sources["kernels"][0]
+
+
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
     tensor_map = {
         "x": {

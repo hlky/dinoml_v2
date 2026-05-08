@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.ir import dtype_runtime_enum
+from dinoml.ir import dtype_nbytes, dtype_runtime_enum
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
     dynamic_dim_sources,
@@ -42,7 +42,7 @@ def render_cuda_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str
             "constants": [_constant_context(item) for item in ir["constants"]],
             "temporaries": [_temporary_context(item) for item in temporaries],
             "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
-            "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"]),
+            "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
             "generated_kernels": list(generated_kernels)
             if generated_kernels is not None
             else render_generated_kernels("cuda", ir["nodes"], tensor_map),
@@ -88,14 +88,19 @@ def _io_context(index: int, name: str, shape: Iterable[int], dtype: str, shape_s
 
 
 def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
+    dims = _dim_ranges(item.get("shape_spec", item["shape"]))
     return {
         "name": item["name"],
         "ident": _c_ident(item["tensor"]),
         "offset": int(item["offset"]),
         "nbytes": int(item["nbytes"]),
         "shape_literal": shape_literal(item["shape"]),
+        "min_shape_literal": shape_literal(dim["min"] for dim in dims),
+        "max_shape_literal": shape_literal(dim["max"] for dim in dims),
+        "divisible_by_literal": shape_literal(dim["divisible_by"] for dim in dims),
         "dtype": item["dtype"],
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
+        "dtype_nbytes": dtype_nbytes(item["dtype"]),
     }
 
 
@@ -129,9 +134,12 @@ def _pointer_decls(
     for tensor_name in constant_tensors:
         ident = _c_ident(tensor_name)
         cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
-        for axis, dim in enumerate(tensor_map[tensor_name]["shape"]):
-            yield f"static constexpr int64_t shape_{ident}_{axis} = {int(dim)};"
+        rank = len(tensor_map[tensor_name]["shape"])
+        for axis in range(rank):
+            yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
+        yield f"DINO_CUDA_CHECK(cudaMemcpy(session->shape_{ident}, module->const_shape_{ident}.data(), sizeof(int64_t) * {rank}, cudaMemcpyHostToDevice));"
         yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, rank)};"
         yield (
             f"const {cpp_type}* ptr_{ident} = "
             f"static_cast<const {cpp_type}*>(module->const_{ident});"
@@ -259,7 +267,11 @@ def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:
     return dims
 
 
-def _shape_equal_checks(inputs: Iterable[Mapping[str, Any]], outputs: Iterable[Mapping[str, Any]]) -> list[str]:
+def _shape_equal_checks(
+    inputs: Iterable[Mapping[str, Any]],
+    outputs: Iterable[Mapping[str, Any]],
+    constants: Iterable[Mapping[str, Any]],
+) -> list[str]:
     dim_sources: dict[str, tuple[str, int, str]] = {}
     checks: list[str] = []
     indexed_inputs = list(enumerate(list(inputs)))
@@ -278,6 +290,20 @@ def _shape_equal_checks(inputs: Iterable[Mapping[str, Any]], outputs: Iterable[M
                     checks.append(
                         f'  if ({expr} != {source_expr}) return dinoml::module::fail("Dynamic dimension {name} mismatch between {source_name} and {item["name"]}");'
                     )
+    for item in constants:
+        ident = _c_ident(str(item["tensor"]))
+        for axis, dim in enumerate(item.get("shape_spec", item["shape"])):
+            if isinstance(dim, int):
+                continue
+            name = str(dim["name"])
+            expr = f"session->module->const_shape_{ident}[{axis}]"
+            if name not in dim_sources:
+                dim_sources[name] = (expr, -1, item["name"])
+            else:
+                source_expr, _source_idx, source_name = dim_sources[name]
+                checks.append(
+                    f'  if ({expr} != {source_expr}) return dinoml::module::fail("Dynamic dimension {name} mismatch between {source_name} and {item["name"]}");'
+                )
     return checks
 
 

@@ -22,6 +22,7 @@ struct DinoModule {
   std::string metadata_json;
 {% for constant in constants %}
   std::vector<float> const_{{ constant.ident }};
+  std::vector<int64_t> const_shape_{{ constant.ident }};
   bool const_{{ constant.ident }}_loaded = false;
 {% endfor %}
 };
@@ -59,6 +60,7 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
     return dinoml::module::fail("constants file is too small for {{ constant.name }}");
   }
   module->const_{{ constant.ident }}.resize({{ constant.numel }});
+  module->const_shape_{{ constant.ident }} = std::vector<int64_t>{ {{ constant.shape_literal }} };
   std::memcpy(
       module->const_{{ constant.ident }}.data(),
       constants.data() + {{ constant.offset }},
@@ -77,11 +79,26 @@ DINO_EXPORT int dino_module_set_constant(
   }
 {% for constant in constants %}
   if (std::strcmp(name, "{{ constant.name }}") == 0) {
-    if (int err = dinoml::module::check_tensor(*tensor, "{{ constant.name }}", std::vector<int64_t>{ {{ constant.shape_literal }} }, {{ constant.dtype_enum }}, "{{ constant.dtype }}")) {
+    if (int err = dinoml::module::check_tensor_dynamic(
+            *tensor,
+            "{{ constant.name }}",
+            std::vector<int64_t>{ {{ constant.min_shape_literal }} },
+            std::vector<int64_t>{ {{ constant.max_shape_literal }} },
+            std::vector<int64_t>{ {{ constant.divisible_by_literal }} },
+            {{ constant.dtype_enum }},
+            "{{ constant.dtype }}")) {
       return err;
     }
-    module->const_{{ constant.ident }}.resize({{ constant.numel }});
-    std::memcpy(module->const_{{ constant.ident }}.data(), tensor->data, {{ constant.nbytes }});
+    const int64_t runtime_numel = dinoml::module::tensor_numel(*tensor);
+    module->const_{{ constant.ident }}.resize(static_cast<size_t>(runtime_numel));
+    module->const_shape_{{ constant.ident }}.clear();
+    if (tensor->ndim > 0) {
+      module->const_shape_{{ constant.ident }}.assign(tensor->shape, tensor->shape + tensor->ndim);
+    }
+    std::memcpy(
+        module->const_{{ constant.ident }}.data(),
+        tensor->data,
+        static_cast<size_t>(runtime_numel) * {{ constant.dtype_nbytes }});
     module->const_{{ constant.ident }}_loaded = true;
     return 0;
   }

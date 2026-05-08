@@ -273,6 +273,14 @@ class DynamicGenericBroadcast(dml.Module):
         return dml.ops.output(dml.ops.relu(x + z), "y")
 
 
+class DynamicConstantBias(dml.Module):
+    def __init__(self, batch):
+        self.bias = dml.Parameter([batch, 1], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(x + self.bias, "y")
+
+
 def test_cuda_runtime_supports_dynamic_shapes(tmp_path):
     constants = {
         "scale": np.array([0.5, -1.0, 2.0, 0.25], dtype=np.float32),
@@ -313,6 +321,40 @@ def test_cuda_runtime_supports_dynamic_shapes(tmp_path):
         np.testing.assert_allclose(y_torch.cpu().numpy(), expected_torch.cpu().numpy(), atol=1e-5, rtol=1e-5)
     session.close()
     module.close()
+
+
+def test_cuda_runtime_set_constant_accepts_dynamic_shape(tmp_path):
+    batch = dml.Dim("batch", min=1, max=4)
+    spec = dml.trace(
+        DynamicConstantBias(batch),
+        inputs={"x": dml.TensorSpec([batch, 4], "float32")},
+        constants={"bias": np.zeros((4, 1), dtype=np.float32)},
+        name="dynamic_constant_bias_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "dynamic_constant_bias_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "std::vector<int64_t> const_shape_bias;" in generated
+    assert 'check_tensor_dynamic(\n            *tensor,\n            "bias"' in generated
+    assert "const int64_t shape_bias_0 = module->const_shape_bias[0];" in generated
+    assert "Dynamic dimension batch mismatch between x and bias" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    bias = np.array([[10.0], [20.0]], dtype=np.float32)
+    x = np.arange(8, dtype=np.float32).reshape(2, 4)
+    try:
+        module.set_constant_numpy("bias", bias)
+        actual = session.run_numpy({"x": x})["y"]
+        with pytest.raises(ValueError, match=r"bias axis 0 .*expected \[1, 4\]"):
+            module.set_constant_numpy("bias", np.zeros((5, 1), dtype=np.float32))
+        module.set_constant_numpy("bias", np.zeros((3, 1), dtype=np.float32))
+        with pytest.raises(RuntimeError, match="Dynamic dimension batch mismatch between x and bias"):
+            session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual, x + bias, atol=1e-5, rtol=1e-5)
 
 
 def test_cuda_runtime_supports_dynamic_generic_broadcast(tmp_path):

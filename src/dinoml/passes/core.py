@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Set
+from typing import Any, Dict, Mapping, Sequence, Set
 
 import numpy as np
 
 from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.ops.definitions import get_op_def
+from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.reductions import REDUCTION_OPS, infer_reduction_with_attrs
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError, validate_view_metadata
+
+ELEMENTWISE_SHAPE_SPEC_OPS = frozenset((*FUSABLE_ELEMENTWISE_OPS, "fused_elementwise"))
 
 
 def canonicalize(ir: Dict[str, Any]) -> Dict[str, Any]:
@@ -24,21 +27,81 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         inputs = [tensors[name] for name in node["inputs"]]
         op_def = get_op_def(node["op"])
         if node["op"] in REDUCTION_OPS:
-            expected_shape = infer_reduction_with_attrs(inputs[0]["shape"], bool(node.get("attrs", {}).get("keepdim", False)))
+            expected_shape = infer_reduction_with_attrs(
+                inputs[0]["shape"],
+                bool(node.get("attrs", {}).get("keepdim", False)),
+            )
         else:
             expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
+        expected_shape_spec = _infer_node_shape_spec(node, inputs, expected_shape)
         expected_dtype = inputs[0]["dtype"] if inputs else tensors[node["outputs"][0]]["dtype"]
         for output_name in node["outputs"]:
             out = tensors[output_name]
             out["shape"] = expected_shape
+            if expected_shape_spec is not None:
+                out["shape_spec"] = _copy_shape_spec(expected_shape_spec)
             out["dtype"] = expected_dtype
             out["nbytes"] = int(np.prod(expected_shape, dtype=np.int64) * dtype_nbytes(expected_dtype))
     ir["tensors"] = list(tensors.values())
     for output in ir["outputs"]:
         tensor = tensors[output["tensor"]]
         output["shape"] = tensor["shape"]
+        output["shape_spec"] = _copy_shape_spec(tensor.get("shape_spec", tensor["shape"]))
         output["dtype"] = tensor["dtype"]
     return ir
+
+
+def _infer_node_shape_spec(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    expected_shape: Sequence[int],
+) -> list[Any] | None:
+    if node["op"] in ELEMENTWISE_SHAPE_SPEC_OPS:
+        return _infer_broadcast_shape_spec(
+            [input_info.get("shape_spec", input_info["shape"]) for input_info in inputs],
+            expected_shape,
+        )
+    if node["op"] in REDUCTION_OPS:
+        keepdim = bool(node.get("attrs", {}).get("keepdim", False))
+        return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
+    return None
+
+
+def _infer_broadcast_shape_spec(shape_specs: Sequence[Sequence[Any]], expected_shape: Sequence[int]) -> list[Any]:
+    if not shape_specs:
+        return list(expected_shape)
+    result: list[Any] = []
+    max_rank = max(len(shape_spec) for shape_spec in shape_specs)
+    aligned = [[1] * (max_rank - len(shape_spec)) + list(shape_spec) for shape_spec in shape_specs]
+    for dims in zip(*aligned):
+        chosen = dims[0]
+        for dim in dims[1:]:
+            if _dim_is_one(chosen):
+                chosen = dim
+            elif _dim_is_one(dim):
+                continue
+            elif dim == chosen:
+                continue
+            else:
+                return list(expected_shape)
+        result.append(chosen)
+    return result
+
+
+def _infer_reduction_shape_spec(shape_spec: Sequence[Any], keepdim: bool) -> list[Any]:
+    if keepdim:
+        output_shape_spec = list(shape_spec)
+        output_shape_spec[-1] = 1
+        return output_shape_spec
+    return list(shape_spec[:-1]) or [1]
+
+
+def _dim_is_one(dim: Any) -> bool:
+    return isinstance(dim, int) and int(dim) == 1
+
+
+def _copy_shape_spec(shape_spec: Sequence[Any]) -> list[Any]:
+    return [dict(dim) if isinstance(dim, Mapping) else dim for dim in shape_spec]
 
 
 def constant_bind(ir: Dict[str, Any]) -> Dict[str, Any]:

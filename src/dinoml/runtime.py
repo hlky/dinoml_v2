@@ -84,13 +84,11 @@ class RuntimeModule:
             raise ValueError(f"Unknown constant: {name}")
         constant_spec = constants[name]
         array = array_to_storage(value, str(constant_spec["dtype"]))
-        expected_shape = tuple(int(dim) for dim in constant_spec["shape"])
-        if array.shape != expected_shape:
-            raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
+        actual_shape = validate_runtime_shape(name, array.shape, constant_spec)
         dtype_enum = dtype_runtime_enum(constant_spec["dtype"])
         if self.target_name == "cpu":
-            shape = _shape_buffer(array.shape)
-            tensor = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(array.shape), dtype_enum)
+            shape = _shape_buffer(actual_shape)
+            tensor = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(actual_shape), dtype_enum)
             self._check(
                 self._dll.dino_module_set_constant(
                     self._handle,
@@ -103,8 +101,8 @@ class RuntimeModule:
             raise RuntimeError("CUDA runtime library is not loaded")
         ptr = ctypes.c_void_p()
         self._check(self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes)))
-        shape = _shape_buffer(array.shape)
-        tensor = _DinoTensor(ptr, shape, len(array.shape), dtype_enum)
+        shape = _shape_buffer(actual_shape)
+        tensor = _DinoTensor(ptr, shape, len(actual_shape), dtype_enum)
         try:
             self._check(
                 self._cuda_runtime_dll.dino_copy_host_to_device(
@@ -130,13 +128,11 @@ class RuntimeModule:
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
         constant_spec = constants[name]
-        expected_shape = tuple(int(dim) for dim in constant_spec["shape"])
-        if tuple(int(dim) for dim in shape) != expected_shape:
-            raise ValueError(f"Constant {name} has shape {tuple(shape)}, expected {expected_shape}")
+        actual_shape = validate_runtime_shape(name, shape, constant_spec)
         if str(dtype) != str(constant_spec["dtype"]):
             raise ValueError(f"Constant {name} has dtype {dtype}, expected {constant_spec['dtype']}")
-        shape_buffer = _shape_buffer(expected_shape)
-        tensor = _DinoTensor(ctypes.c_void_p(int(ptr)), shape_buffer, len(expected_shape), dtype_runtime_enum(str(dtype)))
+        shape_buffer = _shape_buffer(actual_shape)
+        tensor = _DinoTensor(ctypes.c_void_p(int(ptr)), shape_buffer, len(actual_shape), dtype_runtime_enum(str(dtype)))
         self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
 
     def set_constant_torch(self, name: str, value: object) -> None:
@@ -145,13 +141,11 @@ class RuntimeModule:
         if not value.is_contiguous():
             raise ValueError(f"Constant {name} must be contiguous")
         spec = {constant["name"]: constant for constant in self.metadata["constants"]}[name]
-        expected_shape = tuple(int(dim) for dim in spec["shape"])
-        if tuple(int(dim) for dim in value.shape) != expected_shape:
-            raise ValueError(f"Constant {name} has shape {tuple(value.shape)}, expected {expected_shape}")
+        actual_shape = validate_runtime_shape(name, tuple(int(dim) for dim in value.shape), spec)
         self.set_constant_device_pointer(
             name,
             _torch_data_ptr(value),
-            expected_shape,
+            actual_shape,
             _torch_dtype_name(value),
         )
 

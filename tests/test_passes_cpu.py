@@ -271,6 +271,135 @@ def test_reduction_manifest_and_keepdim_shape_inference():
     assert "acc / 4.00000000f" in sources["kernels"][0]
 
 
+def test_shape_type_infer_propagates_dynamic_shape_spec_through_elementwise_broadcast():
+    batch = {"kind": "dim", "name": "batch", "min": 1, "max": 4}
+    ir = {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": "dynamic_add_shape_spec",
+        "inputs": [
+            {
+                "name": "x",
+                "tensor": "x",
+                "shape": [4, 16],
+                "shape_spec": [batch, 16],
+                "dtype": "float32",
+            },
+            {
+                "name": "bias",
+                "tensor": "bias",
+                "shape": [1, 16],
+                "shape_spec": [1, 16],
+                "dtype": "float32",
+            },
+        ],
+        "constants": [],
+        "outputs": [{"name": "y", "tensor": "y", "shape": [4, 16], "shape_spec": [4, 16], "dtype": "float32"}],
+        "nodes": [{"id": "n0", "op": "add", "inputs": ["x", "bias"], "outputs": ["y"], "attrs": {}}],
+        "tensors": [
+            {
+                "name": "x",
+                "shape": [4, 16],
+                "shape_spec": [batch, 16],
+                "dtype": "float32",
+                "kind": "input",
+                "nbytes": 256,
+            },
+            {
+                "name": "bias",
+                "shape": [1, 16],
+                "shape_spec": [1, 16],
+                "dtype": "float32",
+                "kind": "input",
+                "nbytes": 64,
+            },
+            {"name": "y", "shape": [4, 16], "shape_spec": [4, 16], "dtype": "float32", "kind": "output", "nbytes": 256},
+        ],
+        "metadata": {},
+    }
+
+    lowered, _ = PassManager(pipeline=("shape_type_infer",)).run(ir)
+
+    tensors = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    assert tensors["y"]["shape_spec"] == [batch, 16]
+    assert lowered["outputs"][0]["shape_spec"] == [batch, 16]
+
+
+def test_shape_type_infer_propagates_dynamic_shape_spec_through_reductions():
+    batch = {"kind": "dim", "name": "batch", "min": 1, "max": 4}
+    rows = {"kind": "dim", "name": "rows", "min": 2, "max": 8}
+    ir = {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": "dynamic_reduce_shape_spec",
+        "inputs": [
+            {
+                "name": "x",
+                "tensor": "x",
+                "shape": [4, 8, 16],
+                "shape_spec": [batch, rows, 16],
+                "dtype": "float32",
+            }
+        ],
+        "constants": [],
+        "outputs": [
+            {"name": "sum", "tensor": "sum", "shape": [4, 8], "shape_spec": [4, 8], "dtype": "float32"},
+            {"name": "mean", "tensor": "mean", "shape": [4, 8, 1], "shape_spec": [4, 8, 1], "dtype": "float32"},
+        ],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": "reduce_sum",
+                "inputs": ["x"],
+                "outputs": ["sum"],
+                "attrs": {"dim": -1, "keepdim": False},
+            },
+            {
+                "id": "n1",
+                "op": "reduce_mean",
+                "inputs": ["x"],
+                "outputs": ["mean"],
+                "attrs": {"dim": -1, "keepdim": True},
+            },
+        ],
+        "tensors": [
+            {
+                "name": "x",
+                "shape": [4, 8, 16],
+                "shape_spec": [batch, rows, 16],
+                "dtype": "float32",
+                "kind": "input",
+                "nbytes": 2048,
+            },
+            {
+                "name": "sum",
+                "shape": [4, 8],
+                "shape_spec": [4, 8],
+                "dtype": "float32",
+                "kind": "output",
+                "nbytes": 128,
+            },
+            {
+                "name": "mean",
+                "shape": [4, 8, 1],
+                "shape_spec": [4, 8, 1],
+                "dtype": "float32",
+                "kind": "output",
+                "nbytes": 128,
+            },
+        ],
+        "metadata": {},
+    }
+
+    lowered, _ = PassManager(pipeline=("shape_type_infer",)).run(ir)
+
+    tensors = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    assert tensors["sum"]["shape_spec"] == [batch, rows]
+    assert tensors["mean"]["shape_spec"] == [batch, rows, 1]
+    assert {output["name"]: output["shape_spec"] for output in lowered["outputs"]} == {
+        "sum": [batch, rows],
+        "mean": [batch, rows, 1],
+    }
+
+
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
     tensor_map = {
         "x": {

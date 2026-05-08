@@ -4,6 +4,7 @@ from math import prod
 from typing import Any, Mapping, Sequence
 
 from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
+from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES
 from dinoml.passes.utils import tensor_map
@@ -30,6 +31,11 @@ def validate_ir(ir: Mapping[str, Any]) -> None:
                 validate_shape_spec(tensor["shape_spec"], tensor["shape"])
             except ValueError as exc:
                 raise ValidationError(f"Tensor {tensor['name']} has invalid shape_spec: {exc}") from exc
+        if "layout" in tensor:
+            try:
+                validate_layout(tensor["layout"], tensor["shape"])
+            except ValueError as exc:
+                raise ValidationError(f"Tensor {tensor['name']} has invalid layout: {exc}") from exc
     for node in ir["nodes"]:
         for name in node["inputs"]:
             if name not in tensors:

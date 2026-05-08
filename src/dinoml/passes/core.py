@@ -5,6 +5,7 @@ from typing import Any, Dict, Mapping, Sequence, Set
 import numpy as np
 
 from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
+from dinoml.layout import dense_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.reductions import REDUCTION_OPS, infer_reduction_with_attrs
@@ -40,6 +41,7 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             out["shape"] = expected_shape
             if expected_shape_spec is not None:
                 out["shape_spec"] = _copy_shape_spec(expected_shape_spec)
+            out["layout"] = dense_layout(expected_shape)
             out["dtype"] = expected_dtype
             out["nbytes"] = int(np.prod(expected_shape, dtype=np.int64) * dtype_nbytes(expected_dtype))
     ir["tensors"] = list(tensors.values())
@@ -47,6 +49,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         tensor = tensors[output["tensor"]]
         output["shape"] = tensor["shape"]
         output["shape_spec"] = _copy_shape_spec(tensor.get("shape_spec", tensor["shape"]))
+        if "layout" in tensor:
+            output["layout"] = dict(tensor["layout"])
         output["dtype"] = tensor["dtype"]
     return ir
 

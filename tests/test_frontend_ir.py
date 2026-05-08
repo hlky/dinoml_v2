@@ -32,6 +32,19 @@ def test_parameters_are_symbolic_and_constants_bind_later():
     assert bound.value.shape == (2, 3)
 
 
+def test_frontend_emits_dense_layout_metadata():
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([2, 3])}, name="layout_identity")
+
+    input_info = spec.ir["inputs"][0]
+    output_info = spec.ir["outputs"][0]
+    tensor_info = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == output_info["tensor"])
+
+    assert input_info["layout"]["kind"] == "dense"
+    assert input_info["layout"]["strides"] == [3, 1]
+    assert output_info["layout"]["strides"] == [3, 1]
+    assert tensor_info["layout"]["order"] == "row_major"
+
+
 def test_tensor_spec_records_dynamic_shape_metadata():
     batch = dml.Dim("batch", min=1, max=4, typical=2)
     spec = dml.TensorSpec([batch, 16], "fp32")

@@ -48,6 +48,20 @@ def test_memory_plan_records_shape_only_view_alias_metadata():
     assert lowered["metadata"]["memory_plan"]["temporaries"] == []
 
 
+def test_validation_rejects_invalid_dense_layout_metadata():
+    ir = _shape_view_ir()
+    ir["tensors"][0]["layout"] = {
+        "schema_version": 1,
+        "kind": "dense",
+        "order": "row_major",
+        "strides": [1, 2],
+        "storage_offset": 0,
+    }
+
+    with pytest.raises(ValidationError, match="invalid layout"):
+        validate_ir(ir)
+
+
 def test_view_alias_validation_requires_shape_only_element_count():
     ir = _shape_view_ir(output_shape=[4, 2])
 

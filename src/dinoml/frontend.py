@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 import numpy as np
 
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, VIEW_METADATA_VERSION, array_to_storage, dtype_nbytes, normalize_dtype
+from dinoml.layout import dense_layout
 from dinoml.shapes import Dim, Shape, shape_constraints, shape_numel
 
 
@@ -234,6 +235,7 @@ class GraphBuilder:
                 "tensor": name,
                 "shape": tensor.shape,
                 "shape_spec": tensor.shape_spec,
+                "layout": dense_layout(tensor.shape),
                 "dtype": tensor.dtype,
                 "offset": None,
                 "nbytes": nbytes,
@@ -315,6 +317,7 @@ class GraphBuilder:
                     "tensor": output_tensor.name,
                     "shape": output_tensor.shape,
                     "shape_spec": output_tensor.shape_spec,
+                    "layout": dense_layout(output_tensor.shape),
                     "dtype": output_tensor.dtype,
                 }
             )
@@ -373,6 +376,7 @@ def _tensor_info(tensor: Tensor) -> Dict[str, Any]:
         "name": tensor.name,
         "shape": list(tensor.shape),
         "shape_spec": list(tensor.shape_spec),
+        "layout": dense_layout(tensor.shape),
         "dtype": tensor.dtype,
         "kind": tensor.kind,
         "nbytes": int(shape_numel(tensor.shape) * dtype_nbytes(tensor.dtype)),
@@ -386,6 +390,7 @@ def _io_info(name: str, tensor: Tensor) -> Dict[str, Any]:
         "tensor": tensor.name,
         "shape": tensor.shape,
         "shape_spec": tensor.shape_spec,
+        "layout": dense_layout(tensor.shape),
         "dtype": tensor.dtype,
     }
 

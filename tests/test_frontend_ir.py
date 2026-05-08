@@ -259,6 +259,18 @@ def test_gemm_frontend_emits_explicit_layout_ops():
     assert all(node["op"] != "matmul" for node in [*rrr.ir["nodes"], *rcr.ir["nodes"]])
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_gemm_frontend_accepts_reduced_precision_dtype(dtype):
+    spec = dml.trace(
+        GemmRRRModule(),
+        inputs={"a": dml.TensorSpec([4, 8], dtype), "b": dml.TensorSpec([8, 6], dtype)},
+        name=f"gemm_rrr_{dtype}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == "gemm_rrr"
+    assert spec.ir["outputs"][0]["dtype"] == dtype
+
+
 @pytest.mark.parametrize(
     ("module", "b_spec", "n_axis"),
     [

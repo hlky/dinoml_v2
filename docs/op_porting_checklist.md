@@ -126,10 +126,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
 
 ### GEMM, BMM, and Fused Linear Families
 
-- [x] Base GEMM layouts: `gemm_rcr`, `gemm_rrr` are explicit float32 CUDA ops
-  backed by cached CUTLASS launchers, with CPU reference execution but no CPU
-  compiled GEMM. Public `matmul` should wait until layout selection and broader
-  dtype/reference contracts are ready.
+- [x] Base GEMM layouts: `gemm_rcr`, `gemm_rrr` are explicit CUDA ops for
+  `float32`, `float16`, and `bfloat16`, backed by cached CUTLASS launchers with
+  CPU reference execution but no CPU compiled GEMM. Public `matmul` should wait
+  until layout selection, profiler selection, and epilogue contracts are ready.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Bias/broadcast epilogues: `gemm_rcr_bias*`, `gemm_rrr_bias*`, including

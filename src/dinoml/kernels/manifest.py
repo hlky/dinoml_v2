@@ -17,19 +17,22 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> d
     target_name = target["name"]
     required = []
     seen = set()
+    tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
-        key = (node["op"], binding.symbol)
+        output_name = str(node["outputs"][0])
+        resolved = binding.resolve(str(tensor_map[output_name]["dtype"]))
+        key = (node["op"], resolved.symbol)
         if key in seen:
             continue
         seen.add(key)
         required.append(
             {
                 "op": node["op"],
-                "kernel_symbol": binding.symbol,
-                "kernel_library": binding.library,
-                "profiler_symbol": binding.profiler_symbol,
+                "kernel_symbol": resolved.symbol,
+                "kernel_library": resolved.library,
+                "profiler_symbol": resolved.profiler_symbol,
                 "has_profiler": op_def.profiler,
             }
         )

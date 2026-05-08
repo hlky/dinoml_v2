@@ -718,24 +718,30 @@ def test_cpu_reference_reductions_match_numpy(op_name, numpy_op):
 
 
 @pytest.mark.parametrize(
-    ("op_name", "a_shape", "b_shape"),
+    ("op_name", "a_shape", "b_shape", "dtype", "atol", "rtol"),
     [
-        ("gemm_rrr", (4, 8), (8, 6)),
-        ("gemm_rcr", (4, 8), (6, 8)),
+        ("gemm_rrr", (4, 8), (8, 6), "float32", 1e-5, 1e-5),
+        ("gemm_rcr", (4, 8), (6, 8), "float32", 1e-5, 1e-5),
+        ("gemm_rrr", (4, 8), (8, 6), "float16", 2e-3, 2e-3),
+        ("gemm_rcr", (4, 8), (6, 8), "float16", 2e-3, 2e-3),
+        ("gemm_rrr", (4, 8), (8, 6), "bfloat16", 2e-2, 2e-2),
+        ("gemm_rcr", (4, 8), (6, 8), "bfloat16", 2e-2, 2e-2),
     ],
 )
-def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape):
+def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape, dtype, atol, rtol):
     spec = dml.trace(
         GemmModule(op_name),
-        inputs={"a": dml.TensorSpec(a_shape, "float32"), "b": dml.TensorSpec(b_shape, "float32")},
-        name=f"{op_name}_reference",
+        inputs={"a": dml.TensorSpec(a_shape, dtype), "b": dml.TensorSpec(b_shape, dtype)},
+        name=f"{op_name}_{dtype}_reference",
     )
     rng = np.random.default_rng(991)
     a = rng.standard_normal(a_shape).astype(np.float32)
     b = rng.standard_normal(b_shape).astype(np.float32)
-    expected = a @ (b if op_name == "gemm_rrr" else b.T)
+    a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+    b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+    expected = array_from_storage(array_to_storage(a_reference @ (b_reference if op_name == "gemm_rrr" else b_reference.T), dtype), dtype)
     actual = execute_cpu(spec, {"a": a, "b": b})["y"]
-    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 
 def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):

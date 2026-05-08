@@ -32,7 +32,9 @@ porting. It intentionally excludes the op inventory, which lives in
   `BackendSpec` registry for target defaults, dtype validation, support
   libraries, and build dispatch. Missing pieces: richer backend capability
   metadata for profiler generation, external-library availability, layout
-  support, and future ROCm/Metal/Vulkan parity.
+  support, and future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
+  `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
+  bindings, but the profiler runner still needs to consume those variants.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests and codegen-plan
   hooks, but no profiler runner or persistent result cache.

@@ -85,7 +85,7 @@ Current dtype support matrix:
 | CUDA torch/device-pointer runtime | yes | yes | yes |
 | CUDA runtime constants | yes | yes | yes |
 | CUDA softmax/reductions | yes | no | no |
-| CUTLASS GEMM runtime | yes | planned | planned |
+| CUTLASS GEMM runtime | yes | yes | yes |
 
 CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
 default for fp16/bf16; the op may opt into native storage accumulation through
@@ -141,15 +141,16 @@ large raw string in generated source. Fixed reusable kernels and future
 CUTLASS/CK/CUB profiler libraries stay in shared support libraries and are
 cached by manifest key.
 
-The first CUTLASS path is concrete but narrow: `dinoml.backends.cutlass`
-generates a cached `libdinoml_cutlass_gemm.so` with real float32 CUTLASS
-`gemm_rcr` and `gemm_rrr` launchers plus profiler entrypoints. Public
-`dml.ops.gemm_rcr` and `dml.ops.gemm_rrr` lower into calls to that support
-library, so model wrappers bind pointers/shapes and link
-`libdinoml_cutlass_gemm.so` without embedding a handwritten matmul. These ops
-preserve dynamic `M/N` metadata and launch with runtime `M/N/K`; profiling cache
-selection, additional dtypes, bias/activation epilogues, and public `matmul`
-layout selection remain follow-up work.
+The first CUTLASS path is concrete but still intentionally compact:
+`dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
+real CUTLASS `gemm_rcr` and `gemm_rrr` launchers plus profiler entrypoints for
+`float32`, `float16`, and `bfloat16`. Public `dml.ops.gemm_rcr` and
+`dml.ops.gemm_rrr` lower into dtype-resolved calls to that support library, so
+model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so` without
+embedding a handwritten matmul. These ops preserve dynamic `M/N` metadata and
+launch with runtime `M/N/K`; profiling cache selection, candidate enumeration,
+bias/activation epilogues, and public `matmul` layout selection remain
+follow-up work.
 
 Common runtime helper code used by generated modules lives in C++ headers under
 `runtime/include/dinoml/`, so the Jinja2 templates only carry the model-specific

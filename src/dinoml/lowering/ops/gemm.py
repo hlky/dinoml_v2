@@ -4,6 +4,7 @@ import re
 from typing import Any, Mapping
 
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.ops.definitions import get_op_def
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
@@ -23,6 +24,8 @@ def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str,
     b_ident = _c_ident(b_name)
     c_ident = _c_ident(c_name)
     _validate_static_contract(op_name, tensor_map[a_name], tensor_map[b_name], tensor_map[c_name])
+    dtype = str(tensor_map[c_name]["dtype"])
+    symbol = get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
 
     m_expr = f"shape_{a_ident}_0"
     k_expr = f"shape_{a_ident}_1"
@@ -30,12 +33,10 @@ def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str,
         n_expr = f"shape_{b_ident}_1"
         k_check = f"shape_{a_ident}_1 != shape_{b_ident}_0"
         output_check = f"shape_{c_ident}_0 != shape_{a_ident}_0 || shape_{c_ident}_1 != shape_{b_ident}_1"
-        symbol = "dinoml_cutlass_gemm_rrr_f32"
     else:
         n_expr = f"shape_{b_ident}_0"
         k_check = f"shape_{a_ident}_1 != shape_{b_ident}_1"
         output_check = f"shape_{c_ident}_0 != shape_{a_ident}_0 || shape_{c_ident}_1 != shape_{b_ident}_0"
-        symbol = "dinoml_cutlass_gemm_rcr_f32"
 
     return "\n".join(
         [
@@ -66,8 +67,11 @@ def _validate_static_contract(
     b_info: Mapping[str, Any],
     c_info: Mapping[str, Any],
 ) -> None:
-    if a_info["dtype"] != "float32" or b_info["dtype"] != "float32" or c_info["dtype"] != "float32":
-        raise NotImplementedError(f"{op_name} CUDA lowering currently supports only float32")
+    op_def = get_op_def(op_name)
+    if a_info["dtype"] != b_info["dtype"] or a_info["dtype"] != c_info["dtype"]:
+        raise NotImplementedError(f"{op_name} CUDA lowering requires matching input/output dtypes")
+    if str(c_info["dtype"]) not in op_def.allowed_dtypes:
+        raise NotImplementedError(f"{op_name} CUDA lowering does not support dtype {c_info['dtype']}")
     if len(a_info["shape"]) != 2 or len(b_info["shape"]) != 2 or len(c_info["shape"]) != 2:
         raise NotImplementedError(f"{op_name} CUDA lowering currently supports rank-2 tensors only")
 

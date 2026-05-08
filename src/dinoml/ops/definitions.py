@@ -3,7 +3,7 @@ from __future__ import annotations
 from dinoml.ops.elementwise import register_elementwise_ops
 from dinoml.ops.gemm import register_gemm_ops
 from dinoml.ops.reductions import register_reduction_ops
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
 from dinoml.ops.softmax import register_softmax_op
 
 
@@ -27,6 +27,7 @@ __all__ = [
     "AttrDef",
     "FrontendBinding",
     "KernelBinding",
+    "KernelVariant",
     "OP_DEFINITIONS",
     "OP_REGISTRY",
     "OpDef",

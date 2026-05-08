@@ -182,13 +182,25 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rcr"]["provider"] == "cutlass"
     assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
     assert families["gemm_rcr"]["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
+    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["float16"] == "dinoml_cutlass_gemm_rcr_f16"
+    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["bfloat16"] == "dinoml_cutlass_gemm_rcr_bf16"
     assert families["gemm_rrr"]["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f32"
+    assert families["gemm_rrr"]["profiler_symbols_by_dtype"]["float16"] == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
+    assert families["gemm_rrr"]["attrs"]["supported_dtypes"] == ["float16", "float32", "bfloat16"]
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
 
 
-def test_gemm_kernel_manifest_uses_cutlass_external_library():
+@pytest.mark.parametrize(
+    ("dtype", "suffix"),
+    [
+        ("float32", "f32"),
+        ("float16", "f16"),
+        ("bfloat16", "bf16"),
+    ],
+)
+def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     import dinoml as dml
     from dinoml.lowering.ops import collect_generated_sources
 
@@ -198,8 +210,8 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library():
 
     spec = dml.trace(
         GemmModel(),
-        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
-        name="gemm_manifest",
+        inputs={"a": dml.TensorSpec([4, 8], dtype), "b": dml.TensorSpec([8, 6], dtype)},
+        name=f"gemm_{dtype}_manifest",
     )
     lowered, _ = PassManager().run(spec.ir)
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
@@ -211,16 +223,44 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library():
     assert manifest["required_kernels"] == [
         {
             "op": "gemm_rrr",
-            "kernel_symbol": "dinoml_cutlass_gemm_rrr_f32",
+            "kernel_symbol": f"dinoml_cutlass_gemm_rrr_{suffix}",
             "kernel_library": "cutlass_gemm",
-            "profiler_symbol": "dinoml_profile_cutlass_gemm_rrr_f32",
+            "profiler_symbol": f"dinoml_profile_cutlass_gemm_rrr_{suffix}",
             "has_profiler": True,
         }
     ]
-    assert plan.kernel_symbols == ("dinoml_cutlass_gemm_rrr_f32",)
-    assert plan.profiler_symbols == ("dinoml_profile_cutlass_gemm_rrr_f32",)
+    assert plan.kernel_symbols == (f"dinoml_cutlass_gemm_rrr_{suffix}",)
+    assert plan.profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
     assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
+
+
+def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a32, b32, a16, b16):
+            y32 = dml.ops.gemm_rrr(a32, b32)
+            y16 = dml.ops.gemm_rrr(a16, b16)
+            return {"y32": y32, "y16": y16}
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={
+            "a32": dml.TensorSpec([4, 8], "float32"),
+            "b32": dml.TensorSpec([8, 6], "float32"),
+            "a16": dml.TensorSpec([4, 8], "float16"),
+            "b16": dml.TensorSpec([8, 6], "float16"),
+        },
+        name="gemm_mixed_dtype_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    assert [item["kernel_symbol"] for item in manifest["required_kernels"]] == [
+        "dinoml_cutlass_gemm_rrr_f32",
+        "dinoml_cutlass_gemm_rrr_f16",
+    ]
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

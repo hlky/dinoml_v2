@@ -8,11 +8,33 @@ ShapeFn = Callable[[Sequence[Sequence[int]]], list[int]]
 
 
 @dataclass(frozen=True)
+class KernelVariant:
+    symbol: str
+    profiler_symbol: str | None = None
+
+
+@dataclass(frozen=True)
 class KernelBinding:
     symbol: str
     library: str
     profiler_symbol: str | None = None
     source_template: str | None = None
+    dtype_variants: Mapping[str, KernelVariant] = field(default_factory=dict)
+
+    def resolve(self, dtype: str | None = None) -> KernelBinding:
+        if not self.dtype_variants or dtype is None:
+            return self
+        try:
+            variant = self.dtype_variants[dtype]
+        except KeyError as exc:
+            supported = ", ".join(sorted(self.dtype_variants))
+            raise ValueError(f"Kernel binding does not support dtype {dtype!r}; supported dtypes: {supported}") from exc
+        return KernelBinding(
+            symbol=variant.symbol,
+            library=self.library,
+            profiler_symbol=variant.profiler_symbol,
+            source_template=self.source_template,
+        )
 
 
 @dataclass(frozen=True)

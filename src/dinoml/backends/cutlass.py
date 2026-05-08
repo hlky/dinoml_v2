@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,13 +39,28 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
     source = src_dir / "dinoml_cutlass_gemm.cu"
     library = lib_dir / "libdinoml_cutlass_gemm.so"
     manifest = lib_dir / "cutlass_gemm_manifest.json"
-    source.write_text(_cutlass_gemm_source(), encoding="utf-8")
-
-    include_args = []
+    repo_source = _repo_cutlass_gemm_source()
     include_roots = (
         *cutlass.include_roots,
         *(root.parent / "tools" / "util" / "include" for root in cutlass.include_roots if root.name == "include"),
     )
+    source_hash = _file_sha256(repo_source)
+    if (
+        library.exists()
+        and manifest.exists()
+        and source.exists()
+        and _file_sha256(source) == source_hash
+        and _cached_manifest_matches(manifest, source_hash)
+    ):
+        return CutlassSupportLib(
+            library=library,
+            include_roots=tuple(root for root in include_roots if root.exists()),
+            source=source,
+            manifest=manifest,
+        )
+    shutil.copy2(repo_source, source)
+
+    include_args = []
     for root in include_roots:
         if root.exists():
             include_args.append(f"-I{root}")
@@ -52,6 +70,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
             "-std=c++17",
             "-O3",
             "--use_fast_math",
+            "--expt-relaxed-constexpr",
             "-shared",
             "-Xcompiler=-fPIC",
             f"-arch=sm_{arch_num}",
@@ -71,6 +90,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
             "families": [family.to_json() for family in external_kernel_families(provider="cutlass", backend="cuda")],
             "library": library.name,
             "source": source.name,
+            "source_sha256": source_hash,
             "cache_key": manifest_key,
         },
     )
@@ -82,131 +102,24 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
     )
 
 
-def _cutlass_gemm_source() -> str:
-    return r'''
-#include <cuda_runtime.h>
+def _repo_cutlass_gemm_source() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    source = repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm.cu"
+    if not source.exists():
+        raise FileNotFoundError(f"Missing CUTLASS GEMM source: {source}")
+    return source
 
-#include <cutlass/cutlass.h>
-#include <cutlass/gemm/device/gemm.h>
-#include <cutlass/layout/matrix.h>
 
-namespace {
+def _file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
-template <typename LayoutB>
-int launch_gemm(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    int ldb,
-    cudaStream_t stream) {
-  if (a == nullptr || b == nullptr || c == nullptr) {
-    return 1;
-  }
-  if (m <= 0 || n <= 0 || k <= 0) {
-    return 2;
-  }
-  using Gemm = cutlass::gemm::device::Gemm<
-      float,
-      cutlass::layout::RowMajor,
-      float,
-      LayoutB,
-      float,
-      cutlass::layout::RowMajor>;
-  Gemm gemm;
-  typename Gemm::Arguments args(
-      {m, n, k},
-      {a, k},
-      {b, ldb},
-      {c, n},
-      {c, n},
-      {1.0f, 0.0f});
-  cutlass::Status status = gemm(args, nullptr, stream);
-  return status == cutlass::Status::kSuccess ? 0 : 3;
-}
 
-template <typename LayoutB>
-float profile_gemm(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    int ldb,
-    int iterations,
-    cudaStream_t stream) {
-  if (iterations <= 0) {
-    iterations = 20;
-  }
-  cudaEvent_t start;
-  cudaEvent_t end;
-  cudaEventCreate(&start);
-  cudaEventCreate(&end);
-  launch_gemm<LayoutB>(a, b, c, m, n, k, ldb, stream);
-  cudaEventRecord(start, stream);
-  for (int i = 0; i < iterations; ++i) {
-    launch_gemm<LayoutB>(a, b, c, m, n, k, ldb, stream);
-  }
-  cudaEventRecord(end, stream);
-  cudaEventSynchronize(end);
-  float ms = 0.0f;
-  cudaEventElapsedTime(&ms, start, end);
-  cudaEventDestroy(start);
-  cudaEventDestroy(end);
-  return ms / static_cast<float>(iterations);
-}
-
-}  // namespace
-
-extern "C" int dinoml_cutlass_gemm_rrr_f32(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    cudaStream_t stream) {
-  return launch_gemm<cutlass::layout::RowMajor>(a, b, c, m, n, k, n, stream);
-}
-
-extern "C" int dinoml_cutlass_gemm_rcr_f32(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    cudaStream_t stream) {
-  return launch_gemm<cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, stream);
-}
-
-extern "C" float dinoml_profile_cutlass_gemm_rrr_f32(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    int iterations,
-    cudaStream_t stream) {
-  return profile_gemm<cutlass::layout::RowMajor>(a, b, c, m, n, k, n, iterations, stream);
-}
-
-extern "C" float dinoml_profile_cutlass_gemm_rcr_f32(
-    const float* a,
-    const float* b,
-    float* c,
-    int m,
-    int n,
-    int k,
-    int iterations,
-    cudaStream_t stream) {
-  return profile_gemm<cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, iterations, stream);
-}
-'''
+def _cached_manifest_matches(path: Path, source_hash: str) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    return payload.get("source_sha256") == source_hash
 
 
 def _run_nvcc(cmd: list[str], *, cwd: Path) -> None:

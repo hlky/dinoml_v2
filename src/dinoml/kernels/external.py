@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from dinoml.kernels.gemm import GEMM_SUPPORTED_DTYPES, cutlass_gemm_profiler_symbol, cutlass_gemm_symbol
+
 
 @dataclass(frozen=True)
 class ExternalKernelFamily:
@@ -14,6 +16,8 @@ class ExternalKernelFamily:
     profiler_symbol: str
     kernel_symbol: str
     attrs: Mapping[str, Any]
+    kernel_symbols_by_dtype: Mapping[str, str] | None = None
+    profiler_symbols_by_dtype: Mapping[str, str] | None = None
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -24,6 +28,8 @@ class ExternalKernelFamily:
             "required_libraries": list(self.required_libraries),
             "profiler_symbol": self.profiler_symbol,
             "kernel_symbol": self.kernel_symbol,
+            "kernel_symbols_by_dtype": dict(self.kernel_symbols_by_dtype or {}),
+            "profiler_symbols_by_dtype": dict(self.profiler_symbols_by_dtype or {}),
             "attrs": dict(self.attrs),
         }
 
@@ -35,9 +41,17 @@ CUTLASS_GEMM_FAMILIES = (
         provider="cutlass",
         family="gemm_universal",
         required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol="dinoml_profile_cutlass_gemm_rcr_f32",
-        kernel_symbol="dinoml_cutlass_gemm_rcr_f32",
-        attrs={"a_layout": "row", "b_layout": "column", "c_layout": "row", "epilogue": "linear_combination"},
+        profiler_symbol=cutlass_gemm_profiler_symbol("gemm_rcr", "float32"),
+        kernel_symbol=cutlass_gemm_symbol("gemm_rcr", "float32"),
+        kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        attrs={
+            "a_layout": "row",
+            "b_layout": "column",
+            "c_layout": "row",
+            "epilogue": "linear_combination",
+            "supported_dtypes": list(GEMM_SUPPORTED_DTYPES),
+        },
     ),
     ExternalKernelFamily(
         op_name="gemm_rrr",
@@ -45,9 +59,17 @@ CUTLASS_GEMM_FAMILIES = (
         provider="cutlass",
         family="gemm_universal",
         required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol="dinoml_profile_cutlass_gemm_rrr_f32",
-        kernel_symbol="dinoml_cutlass_gemm_rrr_f32",
-        attrs={"a_layout": "row", "b_layout": "row", "c_layout": "row", "epilogue": "linear_combination"},
+        profiler_symbol=cutlass_gemm_profiler_symbol("gemm_rrr", "float32"),
+        kernel_symbol=cutlass_gemm_symbol("gemm_rrr", "float32"),
+        kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        attrs={
+            "a_layout": "row",
+            "b_layout": "row",
+            "c_layout": "row",
+            "epilogue": "linear_combination",
+            "supported_dtypes": list(GEMM_SUPPORTED_DTYPES),
+        },
     ),
 )
 

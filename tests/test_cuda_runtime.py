@@ -162,13 +162,17 @@ def test_cuda_fused_elementwise_supports_reduced_precision_torch_pointers(tmp_pa
 
 
 @pytest.mark.parametrize(
-    ("op_name", "a_shape", "b_shape"),
+    ("op_name", "a_shape", "b_shape", "dtype", "torch_dtype", "suffix", "atol", "rtol"),
     [
-        ("gemm_rrr", (16, 32), (32, 24)),
-        ("gemm_rcr", (16, 32), (24, 32)),
+        ("gemm_rrr", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rcr", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rrr", (16, 32), (32, 24), "float16", "float16", "f16", 2e-2, 2e-2),
+        ("gemm_rcr", (16, 32), (24, 32), "float16", "float16", "f16", 2e-2, 2e-2),
+        ("gemm_rrr", (16, 32), (32, 24), "bfloat16", "bfloat16", "bf16", 3e-2, 3e-2),
+        ("gemm_rcr", (16, 32), (24, 32), "bfloat16", "bfloat16", "bf16", 3e-2, 3e-2),
     ],
 )
-def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name, a_shape, b_shape):
+def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name, a_shape, b_shape, dtype, torch_dtype, suffix, atol, rtol):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
@@ -176,12 +180,13 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
         pytest.skip("CUTLASS headers are not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
+    torch_dtype_obj = getattr(torch, torch_dtype)
     spec = dml.trace(
         GemmModule(op_name),
-        inputs={"a": dml.TensorSpec(a_shape, "float32"), "b": dml.TensorSpec(b_shape, "float32")},
-        name=f"{op_name}_cutlass_cuda",
+        inputs={"a": dml.TensorSpec(a_shape, dtype), "b": dml.TensorSpec(b_shape, dtype)},
+        name=f"{op_name}_{dtype}_cutlass_cuda",
     )
-    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_cutlass_cuda.dinoml")
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_{dtype}_cutlass_cuda.dinoml")
     manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
@@ -190,23 +195,25 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
     assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
     assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
+    assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
     assert source_manifest["sources"] == []
-    assert f"dinoml_cutlass_{op_name}_f32" in generated
+    assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
 
     torch.manual_seed(47)
-    a = torch.randn(a_shape, device="cuda", dtype=torch.float32)
-    b = torch.randn(b_shape, device="cuda", dtype=torch.float32)
+    a = torch.randn(a_shape, device="cuda", dtype=torch_dtype_obj)
+    b = torch.randn(b_shape, device="cuda", dtype=torch_dtype_obj)
     expected = a @ (b if op_name == "gemm_rrr" else b.t())
 
     module = runtime.load(artifact.path)
     session = module.create_session()
     actual_torch = session.run_torch({"a": a, "b": b})["y"]
-    actual_numpy = session.run_numpy({"a": a.cpu().numpy(), "b": b.cpu().numpy()})["y"]
+    actual_numpy = session.run_numpy({"a": a.float().cpu().numpy(), "b": b.float().cpu().numpy()})["y"]
     session.close()
     module.close()
 
-    torch.testing.assert_close(actual_torch, expected, atol=1e-4, rtol=1e-4)
-    np.testing.assert_allclose(actual_numpy, expected.cpu().numpy(), atol=1e-4, rtol=1e-4)
+    assert actual_torch.dtype == torch_dtype_obj
+    torch.testing.assert_close(actual_torch, expected, atol=atol, rtol=rtol)
+    np.testing.assert_allclose(actual_numpy.astype(np.float32), expected.float().cpu().numpy(), atol=atol, rtol=rtol)
 
 
 @pytest.mark.parametrize(

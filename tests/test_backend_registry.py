@@ -86,7 +86,11 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert support.manifest.exists()
     manifest = read_json(support.manifest)
     assert manifest["provider"] == "cutlass"
+    assert len(manifest["source_sha256"]) == 64
     assert {family["op_name"] for family in manifest["families"]} == {"gemm_rcr", "gemm_rrr"}
+    for family in manifest["families"]:
+        assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
+        assert sorted(family["profiler_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -99,7 +103,14 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass-run")
     dll = ctypes.CDLL(str(support.library))
-    for name in ("dinoml_cutlass_gemm_rrr_f32", "dinoml_cutlass_gemm_rcr_f32"):
+    for name in (
+        "dinoml_cutlass_gemm_rrr_f32",
+        "dinoml_cutlass_gemm_rcr_f32",
+        "dinoml_cutlass_gemm_rrr_f16",
+        "dinoml_cutlass_gemm_rcr_f16",
+        "dinoml_cutlass_gemm_rrr_bf16",
+        "dinoml_cutlass_gemm_rcr_bf16",
+    ):
         fn = getattr(dll, name)
         fn.argtypes = [
             ctypes.c_void_p,
@@ -113,36 +124,41 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         fn.restype = ctypes.c_int
 
     torch.manual_seed(7)
-    a = torch.randn((16, 32), device="cuda", dtype=torch.float32)
-    b_rrr = torch.randn((32, 24), device="cuda", dtype=torch.float32)
-    c_rrr = torch.empty((16, 24), device="cuda", dtype=torch.float32)
-    err = dll.dinoml_cutlass_gemm_rrr_f32(
-        ctypes.c_void_p(a.data_ptr()),
-        ctypes.c_void_p(b_rrr.data_ptr()),
-        ctypes.c_void_p(c_rrr.data_ptr()),
-        ctypes.c_int(16),
-        ctypes.c_int(24),
-        ctypes.c_int(32),
-        ctypes.c_void_p(0),
-    )
-    assert err == 0
-    torch.cuda.synchronize()
-    torch.testing.assert_close(c_rrr, a @ b_rrr, atol=1e-4, rtol=1e-4)
+    for torch_dtype, suffix, atol, rtol in (
+        (torch.float32, "f32", 1e-4, 1e-4),
+        (torch.float16, "f16", 2e-2, 2e-2),
+        (torch.bfloat16, "bf16", 3e-2, 3e-2),
+    ):
+        a = torch.randn((16, 32), device="cuda", dtype=torch_dtype)
+        b_rrr = torch.randn((32, 24), device="cuda", dtype=torch_dtype)
+        c_rrr = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rrr_{suffix}")(
+            ctypes.c_void_p(a.data_ptr()),
+            ctypes.c_void_p(b_rrr.data_ptr()),
+            ctypes.c_void_p(c_rrr.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_rrr, a @ b_rrr, atol=atol, rtol=rtol)
 
-    b_rcr = torch.randn((24, 32), device="cuda", dtype=torch.float32)
-    c_rcr = torch.empty((16, 24), device="cuda", dtype=torch.float32)
-    err = dll.dinoml_cutlass_gemm_rcr_f32(
-        ctypes.c_void_p(a.data_ptr()),
-        ctypes.c_void_p(b_rcr.data_ptr()),
-        ctypes.c_void_p(c_rcr.data_ptr()),
-        ctypes.c_int(16),
-        ctypes.c_int(24),
-        ctypes.c_int(32),
-        ctypes.c_void_p(0),
-    )
-    assert err == 0
-    torch.cuda.synchronize()
-    torch.testing.assert_close(c_rcr, a @ b_rcr.t(), atol=1e-4, rtol=1e-4)
+        b_rcr = torch.randn((24, 32), device="cuda", dtype=torch_dtype)
+        c_rcr = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_{suffix}")(
+            ctypes.c_void_p(a.data_ptr()),
+            ctypes.c_void_p(b_rcr.data_ptr()),
+            ctypes.c_void_p(c_rcr.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_rcr, a @ b_rcr.t(), atol=atol, rtol=rtol)
 
 
 def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path, monkeypatch):

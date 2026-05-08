@@ -11,6 +11,7 @@ from typing import Any, Mapping
 from dinoml.ir import write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cuda import render_cuda_module, render_template
+from dinoml.lowering.ops import collect_generated_sources
 
 
 @dataclass(frozen=True)
@@ -42,8 +43,15 @@ def build_cuda_module(
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
+    tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    generated_sources = collect_generated_sources(
+        "cuda",
+        ir["nodes"],
+        tensor_map,
+        generated_src_dir=generated_src_dir,
+    )
     (generated_src_dir / "module.cu").write_text(
-        render_cuda_module(ir),
+        render_cuda_module(ir, generated_kernels=generated_sources["kernels"]),
         encoding="utf-8",
     )
     (generated_src_dir / "CMakeLists.txt").write_text(

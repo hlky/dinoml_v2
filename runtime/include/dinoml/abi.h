@@ -9,7 +9,7 @@
 #define DINO_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define DINO_RUNTIME_ABI_VERSION 2
+#define DINO_RUNTIME_ABI_VERSION 3
 
 enum DinoDtype {
   DINO_DTYPE_FLOAT16 = 1,
@@ -33,10 +33,14 @@ struct DinoTensor {
   int dtype;
 };
 
+struct DinoModule;
+struct DinoSession;
+
 extern "C" {
 
 DINO_EXPORT int dino_runtime_fail(const char* message);
 DINO_EXPORT int dino_abi_version();
 DINO_EXPORT const char* dino_get_last_error();
+DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream);
 
 }

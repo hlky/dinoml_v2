@@ -18,8 +18,10 @@ porting. It intentionally excludes the op inventory, which lives in
   non-elementwise lowering remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
-  pools, and profiling. V2 has a smaller C ABI and should grow these contracts
-  before op-specific runtime assumptions spread.
+  pools, and profiling. V2 now has minimal per-session CUDA stream binding via
+  `dino_session_set_stream`, while the remaining allocator, graph, output-shape,
+  pool, and profiling contracts should grow before op-specific runtime
+  assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now keeps `Target` under
   `dinoml.backends`, but still needs a richer backend registry and capability
@@ -47,7 +49,7 @@ porting. It intentionally excludes the op inventory, which lives in
   cache keys that cover ABI, dtype, layout, target, and toolchain.
 - Codegen templates: v1 templates cover dynamic dims, bucket guards, constants,
   profiling, multistream paths, and debug metadata. V2 templates now cover
-  runtime dynamic shape buffers, constants, and generated fused elementwise, but
-  still need stream ownership, bucket guards, profiler integration, richer debug
-  metadata, per-op generated source files, source dedup by normalized codegen
-  signature, and stable artifact source manifests.
+  runtime dynamic shape buffers, constants, minimal externally supplied CUDA
+  streams, generated fused elementwise, per-op debug source files, and source
+  manifests. Remaining gaps: bucket guards, profiler integration, richer debug
+  metadata, and source dedup by normalized codegen signature.

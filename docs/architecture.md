@@ -114,6 +114,10 @@ artifact/
     pass_dumps/
     generated_src/
       module.cpp | module.cu
+      source_manifest.json
+      ops/
+        <op>/
+          <source-hash>.cpp | <source-hash>.cu
       CMakeLists.txt
       build/
 ```
@@ -121,31 +125,35 @@ artifact/
 Recent cleanup moved runtime metadata into `metadata.json`, changed generated
 fused-elementwise function names to signature hashes such as
 `fused_elementwise_<hash>`, and added baseline exact source-key deduplication for
-generated kernels inside one artifact. The next cleanup should make generated
-sources more normalized and easier to inspect without changing the runtime ABI.
+generated kernels inside one artifact. Artifacts now also emit reviewable
+per-op generated source files under `debug/generated_src/ops/` plus
+`debug/generated_src/source_manifest.json`. The wrapper module remains the
+compiled translation unit and still contains the generated kernel bodies until
+multi-translation-unit module builds are wired deliberately.
 
 Source dedup should happen in levels:
 
 - Level 0: current behavior, one rendered module translation unit containing
   wrapper code plus model-generated kernels, with exact source-key deduplication
   where an op lowering provides a stable key.
-- Level 1: suppress equivalent generated kernels inside one artifact by hashing a
+- Level 1: current debug layout, write a source manifest and per-op generated
+  files keyed by exact source-key hash while keeping the wrapper module as the
+  compiled translation unit.
+- Level 2: suppress equivalent generated kernels inside one artifact by hashing a
   normalized codegen signature and emitting one function body with multiple
   launches pointing at it.
-- Level 2: split model-generated kernels into per-op source files under
-  `debug/generated_src/ops/<op>/<hash>.<cpp|cu>` and keep the module source as
-  ABI wrapper plus includes/launch sequencing.
 - Level 3: promote reusable generated kernels to the support-library cache when
   their normalized signature no longer depends on model-local tensor names,
   strides, constants, or dynamic-shape symbols.
 
-Per-op generated files should be keyed by a normalized signature that rewrites
-operands and temporaries to positional names before hashing. The existing
-per-node signature is still useful for stable launch names because generated
-parameter and local variable names currently include tensor identifiers. Once
-per-op files exist, the debug layout should include a small source manifest that
-maps graph node id, launch symbol, normalized kernel hash, source path, template
-name, target, dtype/layout assumptions, and dynamic-shape dependencies.
+Today, per-op generated files are keyed by exact source-key hash, matching the
+deduplication used inside the rendered module. The existing per-node signature is
+still useful for stable launch names because generated parameter and local
+variable names currently include tensor identifiers. A future normalized dedup
+pass should rewrite operands and temporaries to positional names before hashing.
+The source manifest maps graph node id, op, target, generated function name,
+source key/hash, emitted source path, and whether that node emitted a new source
+or reused an existing one.
 
 Launch names should remain stable and human-scannable:
 
@@ -205,8 +213,11 @@ kept scalar and portable for now.
 The next foundations to settle before broad op porting are:
 
 - richer target/backend registry beyond the current `dinoml.backends.Target`
-- runtime/container contract for streams, allocators, graph mode, metadata,
-  output-shape reporting, and externally supplied shape buffers
+- runtime/container contract for allocators, graph mode, metadata,
+  output-shape reporting, and externally supplied shape buffers. V2 now exposes
+  `dino_session_set_stream(DinoSession*, void*)`; CUDA generated modules store a
+  per-session stream, pass it to generated launches, and preserve synchronous
+  default `run_numpy` behavior when no external stream is set.
 - profiler source generation, runner, and cache schema
 - liveness-based memory planning with alias/view support
 - layout/accessor metadata for strides, alignment, and channel-last conventions

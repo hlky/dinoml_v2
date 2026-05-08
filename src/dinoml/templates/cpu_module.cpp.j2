@@ -142,6 +142,14 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
   return 0;
 }
 
+DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream) {
+  (void)stream;
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_set_stream received null session");
+  }
+  return 0;
+}
+
 DINO_EXPORT int dino_session_run(
     DinoSession* session,
     const DinoTensor* inputs,

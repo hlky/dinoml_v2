@@ -183,6 +183,8 @@ class RuntimeModule:
         self._dll.dino_session_create.restype = ctypes.c_int
         self._dll.dino_session_destroy.argtypes = [ctypes.c_void_p]
         self._dll.dino_session_destroy.restype = ctypes.c_int
+        self._dll.dino_session_set_stream.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        self._dll.dino_session_set_stream.restype = ctypes.c_int
         self._dll.dino_session_run.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(_DinoTensor),
@@ -221,6 +223,9 @@ class Session:
         if self.module.target_name == "cpu":
             return self._run_numpy_cpu(inputs)
         return self._run_numpy_cuda(inputs)
+
+    def set_stream(self, stream: object | None) -> None:
+        self.module._check(self.module._dll.dino_session_set_stream(self._handle, _as_c_void_p(stream)))
 
     def run_device_pointers(
         self,
@@ -422,6 +427,21 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
 def _shape_buffer(shape: object) -> ctypes.Array:
     values = [int(dim) for dim in shape]
     return (ctypes.c_int64 * len(values))(*values)
+
+
+def _as_c_void_p(value: object | None) -> ctypes.c_void_p:
+    if value is None:
+        return ctypes.c_void_p()
+    if isinstance(value, ctypes.c_void_p):
+        return value
+    if hasattr(value, "cuda_stream"):
+        return ctypes.c_void_p(int(value.cuda_stream))
+    if hasattr(value, "value"):
+        return ctypes.c_void_p(int(value.value or 0))
+    try:
+        return ctypes.c_void_p(int(value))
+    except (TypeError, ValueError):
+        return ctypes.cast(value, ctypes.c_void_p)
 
 
 def _torch_data_ptr(tensor: object) -> int:

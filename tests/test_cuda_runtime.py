@@ -32,13 +32,19 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert "dino_fused_" not in generated_text
     assert "dinoml::math::mul" in generated_text
     assert "dinoml::math::sigmoid" in generated_text
+    assert "dino_session_set_stream" in generated_text
+    assert "session->stream" in generated_text
+    assert ", session->stream)) return err;" in generated_text
+    assert "if (!session->external_stream)" in generated_text
 
     inputs = build_validation_inputs()
     expected = execute_cpu(spec, inputs)
 
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
+    assert hasattr(module._dll, "dino_session_set_stream")
     session = module.create_session()
+    session.set_stream(0)
     actual = session.run_numpy(inputs)
     repeated = session.run_numpy(inputs)
     assert session._cuda_buffers

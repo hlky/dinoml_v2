@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dinoml.ir import canonical_json
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
@@ -17,23 +20,90 @@ def render_generated_kernels(
     nodes: Sequence[Mapping[str, Any]],
     tensor_map: Mapping[str, Mapping[str, Any]],
 ) -> list[str]:
-    kernels = []
-    seen_source_keys: set[str] = set()
+    return collect_generated_sources(target, nodes, tensor_map)["kernels"]
+
+
+def collect_generated_sources(
+    target: str,
+    nodes: Sequence[Mapping[str, Any]],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    generated_src_dir: Path | None = None,
+) -> dict[str, Any]:
+    kernels: list[str] = []
+    manifest_sources: list[dict[str, Any]] = []
+    seen_source_keys: dict[str, dict[str, Any]] = {}
+    extension = _source_extension(target)
     for node in nodes:
         lowering = OP_LOWERINGS.get(node["op"])
         if lowering is None:
             continue
         source_key = lowering.source_key(target, node, tensor_map) if lowering.source_key else None
-        if source_key is not None and source_key in seen_source_keys:
-            continue
-        kernel = lowering.render_generated_kernel(target, node, tensor_map)
+        function_name = None
+        if lowering.generated_function_name:
+            function_name = lowering.generated_function_name(target, node, tensor_map)
+        kernel = (
+            None
+            if source_key is not None and source_key in seen_source_keys
+            else lowering.render_generated_kernel(target, node, tensor_map)
+        )
         if kernel:
             source_key = source_key or kernel
-            if source_key in seen_source_keys:
+        if source_key is None:
+            continue
+        existing = seen_source_keys.get(source_key)
+        if existing is None:
+            if not kernel:
                 continue
-            seen_source_keys.add(source_key)
+            source_hash = _source_hash(source_key)
+            source_path = Path("ops") / str(node["op"]) / f"{source_hash}.{extension}"
             kernels.append(kernel)
-    return kernels
+            if generated_src_dir is not None:
+                full_source_path = generated_src_dir / source_path
+                full_source_path.parent.mkdir(parents=True, exist_ok=True)
+                full_source_path.write_text(kernel, encoding="utf-8")
+            existing = {
+                "source_hash": source_hash,
+                "emitted_source_path": source_path.as_posix(),
+            }
+            seen_source_keys[source_key] = existing
+            emitted_new_source = True
+        else:
+            emitted_new_source = False
+        manifest_sources.append(
+            {
+                "node_id": node.get("id"),
+                "op": node["op"],
+                "target": target,
+                "generated_function_name": function_name,
+                "source_key": source_key,
+                "source_hash": existing["source_hash"],
+                "emitted_source_path": existing["emitted_source_path"],
+                "emitted_new_source": emitted_new_source,
+            }
+        )
+    manifest = {
+        "schema_version": 1,
+        "target": target,
+        "deduplication": "exact_source_key",
+        "sources": manifest_sources,
+    }
+    if generated_src_dir is not None:
+        generated_src_dir.mkdir(parents=True, exist_ok=True)
+        (generated_src_dir / "source_manifest.json").write_text(canonical_json(manifest), encoding="utf-8")
+    return {"kernels": kernels, "manifest": manifest}
+
+
+def _source_extension(target: str) -> str:
+    if target == "cpu":
+        return "cpp"
+    if target == "cuda":
+        return "cu"
+    raise ValueError(f"Unsupported generated source target: {target}")
+
+
+def _source_hash(source_key: str) -> str:
+    return hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:16]
 
 
 def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -46,4 +116,4 @@ def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str,
     return lowering.render_launch(target, node, tensor_map)
 
 
-__all__ = ["OP_LOWERINGS", "render_generated_kernels", "render_launch"]
+__all__ = ["OP_LOWERINGS", "collect_generated_sources", "render_generated_kernels", "render_launch"]

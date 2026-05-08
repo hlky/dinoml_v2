@@ -12,6 +12,7 @@ import numpy as np
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, dtype_numpy, write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
+from dinoml.lowering.ops import collect_generated_sources
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
 
 
@@ -187,7 +188,17 @@ def build_cpu_module(
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
-    (generated_src_dir / "module.cpp").write_text(render_cpu_module(ir), encoding="utf-8")
+    tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    generated_sources = collect_generated_sources(
+        "cpu",
+        ir["nodes"],
+        tensor_map,
+        generated_src_dir=generated_src_dir,
+    )
+    (generated_src_dir / "module.cpp").write_text(
+        render_cpu_module(ir, generated_kernels=generated_sources["kernels"]),
+        encoding="utf-8",
+    )
     (generated_src_dir / "CMakeLists.txt").write_text(
         render_template(
             "cpu_module_cmake.txt.j2",

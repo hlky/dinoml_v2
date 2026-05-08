@@ -19,7 +19,7 @@ from dinoml.lowering.shape_buffers import (
 )
 
 
-def render_cpu_module(ir: Mapping[str, Any]) -> str:
+def render_cpu_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str] | None = None) -> str:
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     input_map = {item["tensor"]: idx for idx, item in enumerate(ir["inputs"])}
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
@@ -42,7 +42,9 @@ def render_cpu_module(ir: Mapping[str, Any]) -> str:
             "temporaries": [_temporary_context(item) for item in temporaries],
             "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"]),
-            "generated_kernels": render_generated_kernels("cpu", ir["nodes"], tensor_map),
+            "generated_kernels": list(generated_kernels)
+            if generated_kernels is not None
+            else render_generated_kernels("cpu", ir["nodes"], tensor_map),
             "pointer_decls": list(
                 _pointer_decls(
                     input_map=input_map,

@@ -12,7 +12,7 @@ import numpy as np
 
 IR_SCHEMA_VERSION = 1
 ARTIFACT_SCHEMA_VERSION = 1
-RUNTIME_ABI_VERSION = 2
+RUNTIME_ABI_VERSION = 3
 
 
 @dataclass(frozen=True)

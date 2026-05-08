@@ -40,7 +40,7 @@ def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str,
     if target == "cpu":
         return f"if (int err = {func}({', '.join(args)})) return err;"
     if target == "cuda":
-        return f"if (int err = {func}({', '.join(args)}, 0)) return err;"
+        return f"if (int err = {func}({', '.join(args)}, session->stream)) return err;"
     raise ValueError(f"Unsupported fused_elementwise target: {target}")
 
 
@@ -49,6 +49,11 @@ def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Ma
     if target not in {"cpu", "cuda"}:
         raise ValueError(f"Unsupported fused_elementwise target: {target}")
     return f"{target}:{_function_name(node)}"
+
+
+def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    del target, tensor_map
+    return _function_name(node)
 
 
 def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
@@ -608,4 +613,5 @@ FUSED_ELEMENTWISE_LOWERING = OpLowering(
     render_generated_kernel=render_generated_kernel,
     render_launch=render_launch,
     source_key=source_key,
+    generated_function_name=generated_function_name,
 )

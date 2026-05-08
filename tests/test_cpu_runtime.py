@@ -1,3 +1,5 @@
+import ctypes
+
 import numpy as np
 
 import dinoml as dml
@@ -33,13 +35,27 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "kMetadataJson" not in generated
     assert "R\"DINOJSON" not in generated
+    assert "dino_session_set_stream" in generated
+    source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
+    sources = source_manifest["sources"]
+    assert source_manifest["deduplication"] == "exact_source_key"
+    assert len(sources) == 1
+    assert sources[0]["op"] == "fused_elementwise"
+    assert sources[0]["target"] == "cpu"
+    assert sources[0]["emitted_new_source"] is True
+    per_op_source = artifact.path / "debug" / "generated_src" / sources[0]["emitted_source_path"]
+    assert per_op_source.exists()
+    assert per_op_source.read_text(encoding="utf-8") in generated
 
     inputs = build_validation_inputs()
     expected = execute_cpu(spec, inputs)
 
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
+    assert hasattr(module._dll, "dino_session_set_stream")
     session = module.create_session()
+    session.set_stream(ctypes.c_void_p(0))
+    session.set_stream(None)
     actual = session.run_numpy(inputs)
     module.set_constant_numpy("scale", np.zeros_like(spec.constants["scale"]))
     module.set_constant_numpy("bias", np.zeros_like(spec.constants["bias"]))

@@ -3,7 +3,7 @@ import numpy as np
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
-from dinoml.lowering.ops import render_generated_kernels, render_launch
+from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
@@ -115,7 +115,7 @@ def test_fused_elementwise_function_names_are_stable_and_clean():
     assert _broadcast_function_name(node, "x") == f"{name}_idx_x"
 
 
-def test_render_generated_kernels_deduplicates_exact_fused_sources():
+def test_render_generated_kernels_deduplicates_exact_fused_sources(tmp_path):
     node = {
         "id": "n0_n1_fused",
         "op": "fused_elementwise",
@@ -136,8 +136,23 @@ def test_render_generated_kernels_deduplicates_exact_fused_sources():
     nodes = [node, {**node, "id": "duplicate_fused"}]
 
     kernels = render_generated_kernels("cpu", nodes, tensor_map)
+    generated_sources = collect_generated_sources("cpu", nodes, tensor_map, generated_src_dir=tmp_path)
     launches = [render_launch("cpu", item, tensor_map) for item in nodes]
+    manifest = generated_sources["manifest"]
+    manifest_sources = manifest["sources"]
 
     assert len(kernels) == 1
     assert kernels[0].count(f"int {_function_name(node)}(") == 1
+    assert generated_sources["kernels"] == kernels
+    assert (tmp_path / "source_manifest.json").exists()
+    assert len(manifest_sources) == 2
+    assert manifest_sources[0]["node_id"] == "n0_n1_fused"
+    assert manifest_sources[0]["op"] == "fused_elementwise"
+    assert manifest_sources[0]["target"] == "cpu"
+    assert manifest_sources[0]["generated_function_name"] == _function_name(node)
+    assert manifest_sources[0]["emitted_new_source"] is True
+    assert manifest_sources[1]["node_id"] == "duplicate_fused"
+    assert manifest_sources[1]["emitted_new_source"] is False
+    assert manifest_sources[1]["emitted_source_path"] == manifest_sources[0]["emitted_source_path"]
+    assert (tmp_path / manifest_sources[0]["emitted_source_path"]).exists()
     assert len(launches) == 2

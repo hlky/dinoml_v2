@@ -26,6 +26,8 @@ struct DinoModule {
 
 struct DinoSession {
   DinoModule* module = nullptr;
+  cudaStream_t stream = nullptr;
+  bool external_stream = false;
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
@@ -182,6 +184,15 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
   return 0;
 }
 
+DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream) {
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_set_stream received null session");
+  }
+  session->stream = reinterpret_cast<cudaStream_t>(stream);
+  session->external_stream = stream != nullptr;
+  return 0;
+}
+
 DINO_EXPORT int dino_session_run(
     DinoSession* session,
     const DinoTensor* inputs,
@@ -233,7 +244,9 @@ DINO_EXPORT int dino_session_run(
 {% for launch in launches %}
   {{ launch }}
 {% endfor %}
-  DINO_CUDA_CHECK(cudaDeviceSynchronize());
+  if (!session->external_stream) {
+    DINO_CUDA_CHECK(cudaDeviceSynchronize());
+  }
   return 0;
 }
 

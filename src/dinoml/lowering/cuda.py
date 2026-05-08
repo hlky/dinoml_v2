@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.ir import RUNTIME_ABI_VERSION, canonical_json, dtype_runtime_enum
+from dinoml.ir import dtype_runtime_enum
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
     dynamic_dim_sources,
@@ -25,18 +25,9 @@ def render_cuda_module(ir: Mapping[str, Any]) -> str:
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
     temporaries = ir.get("metadata", {}).get("memory_plan", {}).get("temporaries", [])
-    metadata = {
-        "runtime_abi_version": RUNTIME_ABI_VERSION,
-        "name": ir["name"],
-        "inputs": ir["inputs"],
-        "outputs": ir["outputs"],
-        "constants": ir["constants"],
-    }
-
     return render_template(
         "cuda_module.cu.j2",
         {
-            "metadata_json": canonical_json(metadata),
             "input_count": len(ir["inputs"]),
             "output_count": len(ir["outputs"]),
             "inputs": [

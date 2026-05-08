@@ -34,8 +34,6 @@ struct DinoSession {
 {% endfor %}
 };
 
-static const char* kMetadataJson = R"DINOJSON({{ metadata_json }})DINOJSON";
-
 {% for kernel in generated_kernels %}
 {{ kernel }}
 
@@ -102,7 +100,14 @@ DINO_EXPORT int dino_module_load(const char* artifact_dir, DinoModule** out) {
   }
   DinoModule* module = new DinoModule();
   module->artifact_dir = artifact_dir;
-  module->metadata_json = kMetadataJson;
+  const std::string metadata_path = dinoml::module::join_path(artifact_dir, "metadata.json");
+  std::vector<char> metadata;
+  int metadata_err = dinoml::module::read_file(metadata_path, &metadata);
+  if (metadata_err) {
+    delete module;
+    return metadata_err;
+  }
+  module->metadata_json.assign(metadata.begin(), metadata.end());
   const std::string constants_path = dinoml::module::join_path(artifact_dir, "constants.bin");
   int load_err = dino_module_load_constants(module, constants_path.c_str());
   if (load_err) {

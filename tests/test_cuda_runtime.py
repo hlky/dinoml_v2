@@ -8,6 +8,7 @@ import pytest
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
+from dinoml.ir import read_json
 
 
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -23,7 +24,12 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert (artifact.path / "lib" / "libdinoml_cuda_kernels.so").exists()
     generated_module = artifact.path / "debug" / "generated_src" / "module.cu"
     generated_text = generated_module.read_text(encoding="utf-8")
-    assert "dino_fused_" in generated_text
+    assert (artifact.path / "metadata.json").exists()
+    assert read_json(artifact.path / "manifest.json")["files"]["metadata"] == "metadata.json"
+    assert "kMetadataJson" not in generated_text
+    assert "R\"DINOJSON" not in generated_text
+    assert "fused_elementwise_" in generated_text
+    assert "dino_fused_" not in generated_text
     assert "dinoml::math::mul" in generated_text
     assert "dinoml::math::sigmoid" in generated_text
 
@@ -31,6 +37,7 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     expected = execute_cpu(spec, inputs)
 
     module = runtime.load(artifact.path)
+    assert module.metadata == read_json(artifact.path / "metadata.json")
     session = module.create_session()
     actual = session.run_numpy(inputs)
     repeated = session.run_numpy(inputs)

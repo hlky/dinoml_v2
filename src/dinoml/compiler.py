@@ -64,6 +64,7 @@ def compile(
     }
 
     write_json(artifact_dir / "graph.dinoir.json", lowered_ir)
+    write_json(artifact_dir / "metadata.json", _runtime_metadata(lowered_ir))
     write_json(artifact_dir / "compile_config.json", compile_config)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
     write_json(artifact_dir / "kernel_manifest.json", kernel_manifest)
@@ -76,6 +77,7 @@ def compile(
     files = {
         "graph": "graph.dinoir.json",
         "module": "module.so",
+        "metadata": "metadata.json",
         "constants": "constants.bin",
         "compile_config": "compile_config.json",
         "kernel_manifest": "kernel_manifest.json",
@@ -126,6 +128,16 @@ def compile(
         raise ValueError(f"Unsupported target: {target.name}")
 
     return Artifact(artifact_dir)
+
+
+def _runtime_metadata(ir: Dict) -> Dict:
+    return {
+        "runtime_abi_version": RUNTIME_ABI_VERSION,
+        "name": ir["name"],
+        "inputs": ir["inputs"],
+        "outputs": ir["outputs"],
+        "constants": ir["constants"],
+    }
 
 
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarray]) -> Dict:

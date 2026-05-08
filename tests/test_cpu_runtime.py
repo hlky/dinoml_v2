@@ -3,6 +3,7 @@ import numpy as np
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
+from dinoml.ir import read_json
 
 
 class DynamicChannelBias(dml.Module):
@@ -27,11 +28,17 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert (artifact.path / "lib" / "libdinoml_runtime.so").exists()
     assert (artifact.path / "lib" / "libdinoml_cpu_kernels.so").exists()
     assert (artifact.path / "kernel_manifest.json").exists()
+    assert (artifact.path / "metadata.json").exists()
+    assert read_json(artifact.path / "manifest.json")["files"]["metadata"] == "metadata.json"
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "kMetadataJson" not in generated
+    assert "R\"DINOJSON" not in generated
 
     inputs = build_validation_inputs()
     expected = execute_cpu(spec, inputs)
 
     module = runtime.load(artifact.path)
+    assert module.metadata == read_json(artifact.path / "metadata.json")
     session = module.create_session()
     actual = session.run_numpy(inputs)
     module.set_constant_numpy("scale", np.zeros_like(spec.constants["scale"]))
@@ -50,6 +57,8 @@ def test_cpu_generated_fused_elementwise_supports_generic_subgraph(tmp_path):
     spec = build_spec()
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "generic_elementwise.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "fused_elementwise_" in generated
+    assert "dino_fused_" not in generated
     assert "dinoml::math::mul" in generated
     assert "dinoml::math::sub" in generated
     assert "dinoml::math::sigmoid" in generated

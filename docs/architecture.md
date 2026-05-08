@@ -112,12 +112,14 @@ a support library, and let many model artifacts reuse the result.
 `dinoml profile <artifact>` is the first explicit profiler runner. It reads the
 artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
 currently supported CUTLASS GEMM profiler symbols, writes
-`debug/profile_report.json`, and stores a small `profile_cache.v2.json` beside
+`debug/profile_report.json`, and stores a small `profile_cache.v3.json` beside
 the support-library cache. Profile reports and cache keys include a best-effort
 CUDA hardware/toolchain fingerprint plus support-library source/binary hashes,
 so timings do not silently float across different GPUs or regenerated support
-libraries. The first candidate is always `manifest_default`; future work should
-expand that into generated CUTLASS candidate sets.
+libraries. GEMM manifests now emit an explicit `cutlass_default` candidate with
+provider, layout, epilogue, accumulator, launch ABI, symbols, and
+`candidate_config_key`; future work should expand that one-candidate schema into
+generated CUTLASS candidate sets.
 
 Current reusable kernels are intentionally simple:
 

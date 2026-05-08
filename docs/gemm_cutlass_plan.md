@@ -74,13 +74,14 @@ The first runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
-`dinoml profile <artifact>` now executes the exported profiler symbols for the
-single `manifest_default` candidate, writes `debug/profile_report.json`, and
-caches results under the support-library cache. The report/cache key records a
-best-effort CUDA hardware/toolchain fingerprint and support-library
-source/binary hashes. Next steps are candidate enumeration beyond the single
-default CUTLASS instance, bias/activation epilogues, optional accumulation-policy
-variants, and then public `matmul` layout selection.
+`dinoml profile <artifact>` now executes the exported profiler symbol for the
+manifest-selected `cutlass_default` candidate, writes
+`debug/profile_report.json`, and caches results under the support-library cache.
+The report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
+support-library source/binary hashes, and the candidate config key. Next steps
+are candidate enumeration beyond the single default CUTLASS instance,
+bias/activation epilogues, optional accumulation-policy variants, and then
+public `matmul` layout selection.
 
 ## Dependency Discovery
 

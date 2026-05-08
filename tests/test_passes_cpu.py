@@ -188,6 +188,12 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rrr"]["profiler_symbols_by_dtype"]["float16"] == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
     assert families["gemm_rrr"]["attrs"]["supported_dtypes"] == ["float16", "float32", "bfloat16"]
+    rrr_f16_candidate = families["gemm_rrr"]["candidates_by_dtype"]["float16"][0]
+    assert rrr_f16_candidate["candidate_id"] == "cutlass_default"
+    assert rrr_f16_candidate["symbol_id"] == "default"
+    assert rrr_f16_candidate["kernel_symbol"] == "dinoml_cutlass_gemm_rrr_f16"
+    assert rrr_f16_candidate["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f16"
+    assert len(rrr_f16_candidate["candidate_config_key"]) == 64
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
 
@@ -220,17 +226,28 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
 
     assert sources["kernels"] == []
-    assert manifest["required_kernels"] == [
-        {
-            "op": "gemm_rrr",
-            "kernel_symbol": f"dinoml_cutlass_gemm_rrr_{suffix}",
-            "kernel_library": "cutlass_gemm",
-            "profiler_symbol": f"dinoml_profile_cutlass_gemm_rrr_{suffix}",
-            "has_profiler": True,
-        }
-    ]
+    required = manifest["required_kernels"][0]
+    assert required["op"] == "gemm_rrr"
+    assert required["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_{suffix}"
+    assert required["kernel_library"] == "cutlass_gemm"
+    assert required["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"
+    assert required["has_profiler"] is True
+    assert required["selected_candidate_id"] == "cutlass_default"
+    assert len(required["candidates"]) == 1
+    candidate = required["candidates"][0]
+    assert candidate["candidate_id"] == "cutlass_default"
+    assert candidate["provider"] == "cutlass"
+    assert candidate["family"] == "gemm_universal"
+    assert candidate["dtype"] == dtype
+    assert candidate["layouts"] == {"a": "row", "b": "row", "c": "row"}
+    assert candidate["epilogue"] == "linear_combination"
+    assert candidate["accumulator_dtype"] == "float32"
+    assert candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_{suffix}"
+    assert candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"
+    assert len(candidate["candidate_config_key"]) == 64
     assert plan.kernel_symbols == (f"dinoml_cutlass_gemm_rrr_{suffix}",)
     assert plan.profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
+    assert plan.candidate_profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
     assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
 
@@ -261,6 +278,10 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
         "dinoml_cutlass_gemm_rrr_f32",
         "dinoml_cutlass_gemm_rrr_f16",
     ]
+    candidates = [item["candidates"][0] for item in manifest["required_kernels"]]
+    assert [candidate["candidate_id"] for candidate in candidates] == ["cutlass_default", "cutlass_default"]
+    assert [candidate["dtype"] for candidate in candidates] == ["float32", "float16"]
+    assert candidates[0]["candidate_config_key"] != candidates[1]["candidate_config_key"]
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

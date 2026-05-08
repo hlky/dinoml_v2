@@ -11,6 +11,7 @@ ShapeFn = Callable[[Sequence[Sequence[int]]], list[int]]
 class KernelVariant:
     symbol: str
     profiler_symbol: str | None = None
+    candidates: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class KernelBinding:
     library: str
     profiler_symbol: str | None = None
     source_template: str | None = None
+    candidates: tuple[Mapping[str, Any], ...] = ()
     dtype_variants: Mapping[str, KernelVariant] = field(default_factory=dict)
 
     def resolve(self, dtype: str | None = None) -> KernelBinding:
@@ -34,6 +36,7 @@ class KernelBinding:
             library=self.library,
             profiler_symbol=variant.profiler_symbol,
             source_template=self.source_template,
+            candidates=variant.candidates,
         )
 
 

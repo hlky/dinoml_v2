@@ -8,9 +8,9 @@ from dinoml.kernels.external import external_kernel_families
 from dinoml.ops.definitions import get_op_def
 
 
-KERNEL_MANIFEST_SCHEMA_VERSION = 1
+KERNEL_MANIFEST_SCHEMA_VERSION = 2
 KERNEL_ABI_VERSION = 1
-PROFILE_CACHE_SCHEMA_VERSION = 2
+PROFILE_CACHE_SCHEMA_VERSION = 3
 
 
 def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> dict[str, Any]:
@@ -27,15 +27,18 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> d
         if key in seen:
             continue
         seen.add(key)
-        required.append(
-            {
-                "op": node["op"],
-                "kernel_symbol": resolved.symbol,
-                "kernel_library": resolved.library,
-                "profiler_symbol": resolved.profiler_symbol,
-                "has_profiler": op_def.profiler,
-            }
-        )
+        item = {
+            "op": node["op"],
+            "kernel_symbol": resolved.symbol,
+            "kernel_library": resolved.library,
+            "profiler_symbol": resolved.profiler_symbol,
+            "has_profiler": op_def.profiler,
+        }
+        if resolved.candidates:
+            candidates = [dict(candidate) for candidate in resolved.candidates]
+            item["selected_candidate_id"] = candidates[0]["candidate_id"]
+            item["candidates"] = candidates
+        required.append(item)
     manifest = {
         "schema_version": KERNEL_MANIFEST_SCHEMA_VERSION,
         "kernel_abi_version": KERNEL_ABI_VERSION,

@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.kernels.gemm import GEMM_SUPPORTED_DTYPES, cutlass_gemm_profiler_symbol, cutlass_gemm_symbol
+from dinoml.kernels.gemm import (
+    GEMM_SUPPORTED_DTYPES,
+    cutlass_gemm_candidates,
+    cutlass_gemm_profiler_symbol,
+    cutlass_gemm_symbol,
+)
 from dinoml.ops.registry import FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
 
 
@@ -90,6 +95,7 @@ def _cutlass_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
         dtype: KernelVariant(
             cutlass_gemm_symbol(op_name, dtype),
             profiler_symbol=cutlass_gemm_profiler_symbol(op_name, dtype),
+            candidates=cutlass_gemm_candidates(op_name, dtype),
         )
         for dtype in GEMM_SUPPORTED_DTYPES
     }

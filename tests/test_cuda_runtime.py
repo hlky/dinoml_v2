@@ -196,6 +196,10 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
     assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
     assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
+    assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == "cutlass_default"
+    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 1
+    assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == "cutlass_default"
+    assert kernel_manifest["required_kernels"][0]["candidates"][0]["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
     assert source_manifest["sources"] == []
     assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
 

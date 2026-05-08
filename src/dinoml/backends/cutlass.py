@@ -50,7 +50,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
         and manifest.exists()
         and source.exists()
         and _file_sha256(source) == source_hash
-        and _cached_manifest_matches(manifest, source_hash)
+        and _cached_manifest_matches(manifest, source_hash, plan["cache_key"])
     ):
         return CutlassSupportLib(
             library=library,
@@ -91,6 +91,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
             "library": library.name,
             "source": source.name,
             "source_sha256": source_hash,
+            "external_kernel_plan_cache_key": plan["cache_key"],
             "cache_key": manifest_key,
         },
     )
@@ -114,12 +115,12 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _cached_manifest_matches(path: Path, source_hash: str) -> bool:
+def _cached_manifest_matches(path: Path, source_hash: str, plan_cache_key: str) -> bool:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    return payload.get("source_sha256") == source_hash
+    return payload.get("source_sha256") == source_hash and payload.get("external_kernel_plan_cache_key") == plan_cache_key
 
 
 def _run_nvcc(cmd: list[str], *, cwd: Path) -> None:

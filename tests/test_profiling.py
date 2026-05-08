@@ -1,3 +1,4 @@
+from dataclasses import replace
 import hashlib
 import shutil
 from pathlib import Path
@@ -60,6 +61,10 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     workload = workloads[0]
     assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert workload.dtype == "float16"
+    assert workload.candidate_id == "cutlass_default"
+    assert workload.candidate["provider"] == "cutlass"
+    assert workload.candidate["layouts"] == {"a": "row", "b": "row", "c": "row"}
+    assert workload.candidate_config_key
     assert (workload.m, workload.n, workload.k) == (7, 11, 32)
     assert workload.output_shape == (7, 11)
 
@@ -75,15 +80,26 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
     manifest = {"target": {"name": "cuda", "arch": "sm_86"}}
     workload = build_profile_workloads(lowered, kernel_manifest)[0]
+    other_candidate = {**workload.candidate, "candidate_id": "cutlass_other", "candidate_config_key": "candidate-b"}
+    other_workload = replace(
+        workload,
+        candidate_id="cutlass_other",
+        candidate_config_key="candidate-b",
+        candidate=other_candidate,
+    )
     context_a = {"fingerprint": {"hardware_key": "hardware-a", "support_libraries_key": "support-a"}}
     context_b = {"fingerprint": {"hardware_key": "hardware-b", "support_libraries_key": "support-a"}}
 
     payload_a = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context_a)
     payload_b = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context_b)
+    payload_c = _profile_key_payload(other_workload, manifest, kernel_manifest, codegen_plan, context=context_a)
 
     assert payload_a["hardware_fingerprint_key"] == "hardware-a"
     assert payload_a["support_libraries_fingerprint_key"] == "support-a"
+    assert payload_a["candidate_id"] == "cutlass_default"
+    assert payload_a["candidate_config_key"] == workload.candidate_config_key
     assert _profile_key(payload_a) != _profile_key(payload_b)
+    assert _profile_key(payload_a) != _profile_key(payload_c)
 
 
 def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
@@ -180,7 +196,9 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["fingerprint"]["support_libraries"][0]["source_sha256"] == "source-hash"
     assert report["support_libraries_cache_key"] == key_payload["support_libraries_fingerprint_key"]
     assert report["problems"][0]["status"] == "cached"
+    assert report["problems"][0]["selected"]["candidate_id"] == "cutlass_default"
     assert report["problems"][0]["selected"]["reason"] == "cache_hit"
+    assert report["problems"][0]["candidates"][0]["candidate_config_key"]
     assert report["problems"][0]["profile_key"] == profile_key
 
 
@@ -222,7 +240,15 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
     assert workload["elapsed_ms"] >= 0.0
     assert workload["flops"] == 2 * 8 * 12 * 16
     assert workload["selected"]["reason"] == "only_candidate"
-    assert workload["candidates"][0]["candidate_id"] == "manifest_default"
+    assert workload["selected"]["candidate_id"] == "cutlass_default"
+    candidate = workload["candidates"][0]
+    assert candidate["candidate_id"] == "cutlass_default"
+    assert candidate["provider"] == "cutlass"
+    assert candidate["family"] == "gemm_universal"
+    assert candidate["layouts"] == {"a": "row", "b": "column", "c": "row"}
+    assert candidate["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
+    assert candidate["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rcr_f32"
+    assert candidate["candidate_config_key"]
 
 
 def test_cli_profile_smoke(monkeypatch, capsys):

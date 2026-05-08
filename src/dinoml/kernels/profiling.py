@@ -20,7 +20,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 2
+PROFILE_REPORT_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,9 @@ class GemmProfileWorkload:
     dtype: str
     kernel_symbol: str
     profiler_symbol: str
+    candidate_id: str
+    candidate_config_key: str | None
+    candidate: Mapping[str, Any]
     a_tensor: str
     b_tensor: str
     output_tensor: str
@@ -47,6 +50,9 @@ class GemmProfileWorkload:
             "dtype": self.dtype,
             "kernel_symbol": self.kernel_symbol,
             "profiler_symbol": self.profiler_symbol,
+            "candidate_id": self.candidate_id,
+            "candidate_config_key": self.candidate_config_key,
+            "candidate": dict(self.candidate),
             "inputs": {
                 self.a_tensor: list(self.a_shape),
                 self.b_tensor: list(self.b_shape),
@@ -100,6 +106,7 @@ def build_profile_workloads(
         required_item = required.get((op_name, binding.symbol))
         if required_item is None:
             continue
+        candidate = _selected_profile_candidate(required_item)
         a_name, b_name = (str(name) for name in node["inputs"])
         a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], overrides)
         b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], overrides)
@@ -109,8 +116,13 @@ def build_profile_workloads(
                 node_id=str(node["id"]),
                 op=op_name,
                 dtype=dtype,
-                kernel_symbol=binding.symbol,
-                profiler_symbol=str(required_item["profiler_symbol"]),
+                kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                candidate_id=str(candidate["candidate_id"]),
+                candidate_config_key=(
+                    str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                ),
+                candidate=candidate,
                 a_tensor=a_name,
                 b_tensor=b_name,
                 output_tensor=output_name,
@@ -123,6 +135,26 @@ def build_profile_workloads(
             )
         )
     return workloads
+
+
+def _selected_profile_candidate(required_item: Mapping[str, Any]) -> dict[str, Any]:
+    candidates = [dict(candidate) for candidate in required_item.get("candidates", [])]
+    if candidates:
+        selected_id = required_item.get("selected_candidate_id")
+        for candidate in candidates:
+            if candidate.get("candidate_id") == selected_id:
+                return candidate
+        return candidates[0]
+    return {
+        "candidate_id": "manifest_default",
+        "symbol_id": "manifest_default",
+        "provider": "manifest",
+        "family": "unknown",
+        "op": required_item.get("op"),
+        "kernel_symbol": required_item.get("kernel_symbol"),
+        "profiler_symbol": required_item.get("profiler_symbol"),
+        "candidate_config_key": None,
+    }
 
 
 def profile_artifact(
@@ -248,6 +280,15 @@ def _profile_result(
     tflops = float(flops / seconds / 1.0e12)
     gbps = float(bytes_moved / seconds / 1.0e9)
     payload = workload.to_json()
+    candidate_result = dict(workload.candidate)
+    candidate_result.update(
+        {
+            "candidate_id": workload.candidate_id,
+            "avg_ms": float(elapsed_ms),
+            "gflops": float(tflops * 1000.0),
+            "iterations": int(iterations),
+        }
+    )
     payload.update(
         {
             "profile_key": profile_key,
@@ -262,15 +303,8 @@ def _profile_result(
             "gflops": float(tflops * 1000.0),
             "tflops": tflops,
             "gbps": gbps,
-            "candidates": [
-                {
-                    "candidate_id": "manifest_default",
-                    "avg_ms": float(elapsed_ms),
-                    "gflops": float(tflops * 1000.0),
-                    "iterations": int(iterations),
-                }
-            ],
-            "selected": {"candidate_id": "manifest_default", "reason": reason},
+            "candidates": [candidate_result],
+            "selected": {"candidate_id": workload.candidate_id, "reason": reason},
         }
     )
     return payload
@@ -571,7 +605,8 @@ def _profile_key_payload(
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
-        "candidate_id": "manifest_default",
+        "candidate_id": workload.candidate_id,
+        "candidate_config_key": workload.candidate_config_key,
     }
 
 
@@ -614,7 +649,7 @@ def _cache_entry(
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
-        "best_candidate_id": "manifest_default",
+        "best_candidate_id": workload.candidate_id,
         "avg_ms": float(candidate["avg_ms"]),
         "gflops": float(candidate["gflops"]),
         "iterations": int(candidate["iterations"]),

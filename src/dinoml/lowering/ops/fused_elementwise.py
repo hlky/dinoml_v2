@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.ir import dtype_nbytes
+from dinoml.ir import canonical_json, dtype_nbytes
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME
 
@@ -519,11 +519,50 @@ def _render_template(name: str, context: Mapping[str, Any]) -> str:
 
 
 def _function_name(node: Mapping[str, Any]) -> str:
-    return f"dino_fused_{_c_ident(node['id'])}"
+    return f"fused_elementwise_{_short_signature_hash(_function_signature(node))}"
 
 
 def _broadcast_function_name(node: Mapping[str, Any], tensor_name: str) -> str:
     return f"{_function_name(node)}_idx_{_c_ident(tensor_name)}"
+
+
+def _function_signature(node: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the per-node codegen signature used for stable function names.
+
+    Tensor names stay in this signature because generated function parameter and
+    local variable names currently include tensor identifiers. A future module
+    source dedup pass can use a normalized signature that rewrites operands to
+    positional names before rendering only one copy of identical kernels.
+    """
+
+    attrs = node.get("attrs", {})
+    return {
+        "op": "fused_elementwise",
+        "inputs": list(node.get("inputs", ())),
+        "outputs": list(node.get("outputs", ())),
+        "sub_ops": _canonical_sub_ops(attrs.get("sub_ops", ())),
+        "accumulation": str(attrs.get("accumulation", "auto")),
+    }
+
+
+def _canonical_sub_ops(sub_ops: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    canonical = []
+    for sub_op in sub_ops:
+        canonical.append(
+            {
+                "op": str(sub_op["op"]),
+                "inputs": list(sub_op.get("inputs", ())),
+                "outputs": list(sub_op.get("outputs", ())),
+                "attrs": dict(sorted(sub_op.get("attrs", {}).items())),
+            }
+        )
+    return canonical
+
+
+def _short_signature_hash(signature: Mapping[str, Any]) -> str:
+    import hashlib
+
+    return hashlib.sha256(canonical_json(signature).encode("utf-8")).hexdigest()[:12]
 
 
 def _numel(shape: Sequence[int]) -> int:

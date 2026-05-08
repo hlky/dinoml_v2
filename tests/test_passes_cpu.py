@@ -3,6 +3,7 @@ import numpy as np
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
 from dinoml.passes import PassManager, validate_ir
@@ -77,3 +78,37 @@ def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
     assert shape_dim_expr(tensor_map["tmp"], 1, sources) == "16"
     assert numel_expr("tmp", 2) == "shape_tmp_0 * shape_tmp_1"
     assert shape_buffer_context(tensor_map["tmp"]) == {"ident": "tmp", "rank": 2, "shape_literal": "4, 16"}
+
+
+def test_fused_elementwise_function_names_are_stable_and_clean():
+    node = {
+        "id": "n0_n1_n2_fused",
+        "op": "fused_elementwise",
+        "inputs": ["x", "scale"],
+        "outputs": ["y"],
+        "attrs": {
+            "sub_ops": [
+                {"op": "mul", "inputs": ["x", "scale"], "outputs": ["t0"], "attrs": {}},
+                {"op": "relu", "inputs": ["t0"], "outputs": ["y"], "attrs": {}},
+            ]
+        },
+    }
+    renamed_node = {**node, "id": "different_graph_node_id"}
+    changed_node = {
+        **node,
+        "attrs": {
+            "sub_ops": [
+                {"op": "add", "inputs": ["x", "scale"], "outputs": ["t0"], "attrs": {}},
+                {"op": "relu", "inputs": ["t0"], "outputs": ["y"], "attrs": {}},
+            ]
+        },
+    }
+
+    name = _function_name(node)
+
+    assert name.startswith("fused_elementwise_")
+    assert "dino_fused" not in name
+    assert "n0_n1_n2" not in name
+    assert _function_name(renamed_node) == name
+    assert _function_name(changed_node) != name
+    assert _broadcast_function_name(node, "x") == f"{name}_idx_x"

@@ -84,9 +84,11 @@ Current reusable kernels are intentionally simple:
   that generated fused kernels call on CPU and CUDA. The helpers are templated
   so dtype-specific elementwise lowering has a place to land next.
 
-The generated `module.so` owns metadata, constant binding, pointer binding,
-workspace/session allocation, shape checks, runtime shape buffers, launch order,
-and model-specific generated fused-elementwise kernels. Fixed reusable kernels and future
+The generated `module.so` owns metadata loading, constant binding, pointer
+binding, workspace/session allocation, shape checks, runtime shape buffers,
+launch order, and model-specific generated fused-elementwise kernels. Runtime
+metadata is stored as `metadata.json` in the artifact rather than embedded as a
+large raw string in generated source. Fixed reusable kernels and future
 CUTLASS/CK/CUB profiler libraries stay in shared support libraries and are
 cached by manifest key.
 
@@ -121,7 +123,9 @@ rewrites connected unary/binary elementwise subgraphs into a `fused_elementwise`
 node with topologically sorted `sub_ops` metadata. CPU/CUDA lowering renders a
 model-specific kernel that calls `dinoml::math::<name>` for each scalar
 operation, so combinations such as `mul -> add -> sigmoid -> sub -> relu` do not
-require fixed-pattern support-library kernels.
+require fixed-pattern support-library kernels. Generated function names are
+stable signature hashes such as `fused_elementwise_<hash>`, so graph node IDs do
+not leak into source names.
 
 Current limits are deliberate: contiguous dense buffers, no jagged tensors yet,
 and only simple dense/suffix/generic broadcasting. CUDA has vectorized paths for

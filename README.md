@@ -30,6 +30,7 @@ pieces:
 ```text
 model.dinoml/
   manifest.json
+  metadata.json
   graph.dinoir.json
   compile_config.json
   constants.bin
@@ -49,11 +50,12 @@ and required-kernel manifest under `~/.cache/dinoml_v2/support/`. CPU artifacts
 use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
 
 Generated model code is a small Jinja2 wrapper that links against those
-libraries. It contains metadata, launch order, memory bindings, constant
-bindings, runtime shape-buffer updates, and model-specific generated
-fused-elementwise kernels. Reusable kernels and shared scalar math helpers live
-outside the model wrapper. The previous naive matmul placeholder was removed;
-GEMM/BMM should land through the real library-backed op port.
+libraries. It loads runtime metadata from `metadata.json` and contains launch
+order, memory bindings, constant bindings, runtime shape-buffer updates, and
+model-specific generated fused-elementwise kernels. Reusable kernels and shared
+scalar math helpers live outside the model wrapper. The previous naive matmul
+placeholder was removed; GEMM/BMM should land through the real library-backed op
+port.
 
 Constants are loaded from `constants.bin` when a module is opened and can also be
 updated at runtime with `RuntimeModule.set_constant_numpy(...)`.

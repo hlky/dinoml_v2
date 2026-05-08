@@ -39,9 +39,11 @@ porting. It intentionally excludes the op inventory, which lives in
   the single default CUTLASS candidate.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
-  hooks, and a JSON cache/report for `manifest_default` CUTLASS GEMM profiles,
-  but no candidate enumeration, hardware fingerprinting, or persistent SQLite
-  cache yet.
+  hooks, and a JSON cache/report for `manifest_default` CUTLASS GEMM profiles.
+  Profile keys now include a best-effort CUDA hardware/toolchain fingerprint and
+  support-library source/binary hashes. Remaining gaps are candidate
+  enumeration, richer statistical confidence, and persistent SQLite/shared
+  cache workflows.
 
 ## Important Before Large Model Ports
 

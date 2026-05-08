@@ -3,6 +3,10 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import json
+import os
+import re
+import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,7 +20,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 1
+PROFILE_REPORT_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -140,9 +144,19 @@ def profile_artifact(
     workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
     cache_path = profile_cache_path(codegen_plan)
     cache = _read_profile_cache(cache_path, manifest["target"])
+    context = _profile_context(artifact_dir, manifest, codegen_plan)
     summary = {"profiled": 0, "cached": 0, "skipped": 0, "failed": 0}
     if not workloads:
-        report = _profile_report(artifact_dir, manifest, kernel_manifest, codegen_plan, iterations, [], summary)
+        report = _profile_report(
+            artifact_dir,
+            manifest,
+            kernel_manifest,
+            codegen_plan,
+            iterations,
+            [],
+            summary,
+            context=context,
+        )
         _write_profile_report(report, artifact_dir, output)
         return report
 
@@ -151,7 +165,7 @@ def profile_artifact(
     profiler = None
     try:
         for workload in workloads:
-            key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan)
+            key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
             profile_key = _profile_key(key_payload)
             cached = cache["entries"].get(profile_key)
             if cached is not None and not refresh:
@@ -171,13 +185,22 @@ def profile_artifact(
     if summary["profiled"]:
         _write_profile_cache(cache_path, cache)
 
-    report = _profile_report(artifact_dir, manifest, kernel_manifest, codegen_plan, iterations, results, summary)
+    report = _profile_report(
+        artifact_dir,
+        manifest,
+        kernel_manifest,
+        codegen_plan,
+        iterations,
+        results,
+        summary,
+        context=context,
+    )
     _write_profile_report(report, artifact_dir, output)
     return report
 
 
 def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
-    return Path(str(codegen_plan["support_cache_dir"])) / "profile_cache.v1.json"
+    return Path(str(codegen_plan["support_cache_dir"])) / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.json"
 
 
 def _runtime_tensor_shape(
@@ -261,8 +284,11 @@ def _profile_report(
     iterations: int,
     problems: Sequence[Mapping[str, Any]],
     summary: Mapping[str, int],
+    *,
+    context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     problem_payloads = [dict(item) for item in problems]
+    profile_context = dict(context or _profile_context(artifact_dir, manifest, codegen_plan))
     return {
         "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
         "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
@@ -271,7 +297,11 @@ def _profile_report(
         "kernel_manifest_cache_key": kernel_manifest["cache_key"],
         "codegen_plan_cache_key": codegen_plan["cache_key"],
         "iterations": int(iterations),
-        "libraries": _profile_libraries(artifact_dir, manifest, codegen_plan),
+        "fingerprint": profile_context["fingerprint"],
+        "hardware": profile_context["fingerprint"]["hardware"],
+        "hardware_cache_key": profile_context["fingerprint"]["hardware_key"],
+        "libraries": profile_context["fingerprint"]["support_libraries"],
+        "support_libraries_cache_key": profile_context["fingerprint"]["support_libraries_key"],
         "problems": problem_payloads,
         "workloads": problem_payloads,
         "summary": dict(summary),
@@ -288,20 +318,230 @@ def _profile_libraries(
     artifact_dir: Path,
     manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     files = manifest["files"]
-    libraries = []
+    by_name: dict[str, dict[str, Any]] = {}
+
+    def merge(name: str, **fields: Any) -> None:
+        entry = by_name.setdefault(name, {"name": name})
+        for key, value in fields.items():
+            if value not in (None, ""):
+                entry[key] = value
+
     if "cutlass_gemm_library" in files:
-        libraries.append(
-            {
-                "name": "cutlass_gemm",
-                "path": str((artifact_dir / files["cutlass_gemm_library"]).resolve()),
-            }
+        path = artifact_dir / files["cutlass_gemm_library"]
+        merge(
+            "cutlass_gemm",
+            path=str(path.resolve()),
+            artifact_path=str(path.resolve()),
+            artifact_sha256=_file_sha256(path),
         )
     for item in codegen_plan.get("external_support_libraries", []):
-        if all(existing["name"] != item["name"] for existing in libraries):
-            libraries.append({"name": str(item["name"]), "path": str(item.get("library", ""))})
-    return libraries
+        name = str(item["name"])
+        cache_dir = Path(str(item.get("cache_dir", ""))) if item.get("cache_dir") else None
+        cache_library = _cache_library_path(item, cache_dir)
+        support_manifest = _support_library_manifest_path(name, cache_dir)
+        support_payload = _read_optional_json(support_manifest) if support_manifest else {}
+        manifest_fields = _support_manifest_fields(support_payload)
+        merge(
+            name,
+            cache_dir=str(cache_dir) if cache_dir else None,
+            cache_library=str(cache_library) if cache_library else None,
+            cache_library_sha256=_file_sha256(cache_library) if cache_library else None,
+            manifest=str(support_manifest) if support_manifest and support_manifest.exists() else None,
+            **manifest_fields,
+        )
+    return [by_name[name] for name in sorted(by_name)]
+
+
+def _profile_context(
+    artifact_dir: Path,
+    manifest: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+) -> dict[str, Any]:
+    libraries = _profile_libraries(artifact_dir, manifest, codegen_plan)
+    hardware = _cuda_hardware_fingerprint(manifest["target"])
+    hardware_cache_payload = _hardware_cache_payload(hardware)
+    support_libraries_cache_payload = _support_libraries_cache_payload(libraries)
+    hardware_key = _fingerprint_key(hardware_cache_payload)
+    support_libraries_key = _fingerprint_key(support_libraries_cache_payload)
+    fingerprint_key = _fingerprint_key(
+        {
+            "hardware_key": hardware_key,
+            "support_libraries_key": support_libraries_key,
+        }
+    )
+    return {
+        "fingerprint": {
+            "schema_version": 1,
+            "key": fingerprint_key,
+            "hardware_key": hardware_key,
+            "support_libraries_key": support_libraries_key,
+            "hardware": hardware,
+            "support_libraries": libraries,
+        },
+        "hardware_cache_payload": hardware_cache_payload,
+        "support_libraries_cache_payload": support_libraries_cache_payload,
+    }
+
+
+def _cache_library_path(item: Mapping[str, Any], cache_dir: Path | None) -> Path | None:
+    if cache_dir is None:
+        return None
+    library = str(item.get("library", ""))
+    if not library:
+        return None
+    candidate = cache_dir / library
+    return candidate if candidate.exists() else None
+
+
+def _support_library_manifest_path(name: str, cache_dir: Path | None) -> Path | None:
+    if cache_dir is None:
+        return None
+    if name == "cutlass_gemm":
+        return cache_dir / "lib" / "cutlass_gemm_manifest.json"
+    return cache_dir / "lib" / f"{name}_manifest.json"
+
+
+def _support_manifest_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
+    fields: dict[str, Any] = {}
+    for key in ("schema_version", "provider", "source_sha256", "cache_key"):
+        if key in payload:
+            fields[f"manifest_{key}" if key in {"schema_version", "cache_key"} else key] = payload[key]
+    target = payload.get("target")
+    if isinstance(target, Mapping):
+        fields["manifest_target"] = dict(target)
+    return fields
+
+
+def _read_optional_json(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _file_sha256(path: Path | None) -> str | None:
+    if path is None or not path.exists() or not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _cuda_hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
+    devices = _query_nvidia_smi_devices()
+    return {
+        "backend": "cuda",
+        "target_arch": str(target.get("arch", "")),
+        "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES", ""),
+        "nvidia_smi": "available" if devices else "unavailable",
+        "devices": devices,
+        "nvcc": _query_nvcc_version(),
+    }
+
+
+def _query_nvidia_smi_devices() -> list[dict[str, Any]]:
+    if shutil.which("nvidia-smi") is None:
+        return []
+    proc = _run_capture(
+        [
+            "nvidia-smi",
+            "--query-gpu=index,name,compute_cap,driver_version,memory.total",
+            "--format=csv,noheader,nounits",
+        ],
+        timeout=2.0,
+    )
+    if proc is None or proc.returncode != 0:
+        return []
+    devices = []
+    for line in proc.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 5:
+            continue
+        devices.append(
+            {
+                "index": _parse_int(parts[0]),
+                "name": parts[1],
+                "compute_capability": parts[2],
+                "driver_version": parts[3],
+                "memory_total_mib": _parse_int(parts[4]),
+            }
+        )
+    return devices
+
+
+def _query_nvcc_version() -> dict[str, str]:
+    if shutil.which("nvcc") is None:
+        return {"available": "false"}
+    proc = _run_capture(["nvcc", "--version"], timeout=2.0)
+    if proc is None or proc.returncode != 0:
+        return {"available": "false"}
+    release_match = re.search(r"release\s+([0-9.]+)", proc.stdout)
+    build_match = re.search(r"V([0-9.]+)", proc.stdout)
+    payload = {"available": "true"}
+    if release_match:
+        payload["release"] = release_match.group(1)
+    if build_match:
+        payload["build"] = build_match.group(1)
+    return payload
+
+
+def _run_capture(cmd: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _parse_int(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _hardware_cache_payload(hardware: Mapping[str, Any]) -> dict[str, Any]:
+    devices = []
+    for item in hardware.get("devices", []):
+        if not isinstance(item, Mapping):
+            continue
+        devices.append(
+            {
+                "name": item.get("name"),
+                "compute_capability": item.get("compute_capability"),
+                "driver_version": item.get("driver_version"),
+                "memory_total_mib": item.get("memory_total_mib"),
+            }
+        )
+    return {
+        "backend": hardware.get("backend"),
+        "target_arch": hardware.get("target_arch"),
+        "cuda_visible_devices": hardware.get("cuda_visible_devices", ""),
+        "devices": devices,
+        "nvcc": dict(hardware.get("nvcc", {})) if isinstance(hardware.get("nvcc"), Mapping) else {},
+    }
+
+
+def _support_libraries_cache_payload(libraries: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    payloads = []
+    for library in libraries:
+        payloads.append(
+            {
+                "name": library.get("name"),
+                "artifact_sha256": library.get("artifact_sha256"),
+                "cache_library_sha256": library.get("cache_library_sha256"),
+                "source_sha256": library.get("source_sha256"),
+                "manifest_cache_key": library.get("manifest_cache_key"),
+                "manifest_target": library.get("manifest_target"),
+            }
+        )
+    return sorted(payloads, key=lambda item: str(item.get("name", "")))
+
+
+def _fingerprint_key(payload: Mapping[str, Any] | Sequence[Mapping[str, Any]]) -> str:
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
 def _profile_key_payload(
@@ -309,10 +549,15 @@ def _profile_key_payload(
     manifest: Mapping[str, Any],
     kernel_manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
+    *,
+    context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
     return {
         "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
         "target": manifest["target"],
+        "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
+        "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
         "support_cache_key": kernel_manifest.get("support_cache_key"),
         "codegen_plan_cache_key": codegen_plan["cache_key"],
         "op": workload.op,

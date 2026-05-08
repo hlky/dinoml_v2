@@ -5,7 +5,7 @@ from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.manifest import build_external_kernel_plan, build_kernel_manifest
+from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan, build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
@@ -169,7 +169,7 @@ def test_kernel_manifest_lists_required_unique_kernels():
     model_generated = [item for item in manifest["required_kernels"] if item["kernel_library"] == "model"]
     assert model_generated and model_generated[0]["op"] == "fused_elementwise"
     assert manifest["support_cache_key"] != manifest["cache_key"]
-    assert manifest["profile_cache_schema_version"] == 1
+    assert manifest["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
     plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
     assert plan.profiler_symbols == ()
     assert plan.support_cache_dir.name == manifest["support_cache_key"][:16]

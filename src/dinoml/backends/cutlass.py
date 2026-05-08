@@ -14,7 +14,7 @@ from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
-from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,10 @@ def ensure_cutlass_gemm_support_lib(
         *cutlass.include_roots,
         *(root.parent / "tools" / "util" / "include" for root in cutlass.include_roots if root.name == "include"),
     )
-    source_hash = _file_sha256(repo_source)
+    repo_source_text = repo_source.read_text(encoding="utf-8")
+    repo_source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
+    rendered_source = render_cutlass_gemm_source(repo_source_text, used_candidate_plan)
+    source_hash = hashlib.sha256(rendered_source.encode("utf-8")).hexdigest()
     compile_flags = _compile_flags(arch_num)
     include_args = [f"-I{root}" for root in include_roots if root.exists()]
     provenance = _build_provenance(
@@ -92,13 +95,14 @@ def ensure_cutlass_gemm_support_lib(
             manifest=manifest,
             source_manifest=source_manifest,
         )
-    shutil.copy2(repo_source, source)
+    source.write_text(rendered_source, encoding="utf-8")
     _write_source_manifest(
         source_manifest,
         target={"name": "cuda", "arch": f"sm_{arch_num}"},
         families=families,
         source=source,
         repo_source=repo_source,
+        repo_source_hash=repo_source_hash,
         source_hash=source_hash,
         family_cache_key=family_cache_key,
         external_kernel_plan_cache_key=plan["cache_key"],
@@ -278,6 +282,7 @@ def _write_source_manifest(
     families: Sequence[Mapping[str, Any]],
     source: Path,
     repo_source: Path,
+    repo_source_hash: str,
     source_hash: str,
     family_cache_key: str,
     external_kernel_plan_cache_key: str,
@@ -319,6 +324,7 @@ def _write_source_manifest(
                 "language": "cuda",
                 "emitted_source_path": source.name,
                 "repo_source_path": str(repo_source),
+                "repo_source_sha256": repo_source_hash,
                 "source_sha256": source_hash,
                 "candidate_set_keys": sorted({item["candidate_set_key"] for item in candidate_sets}),
                 "candidate_config_keys": sorted({item["candidate_config_key"] for item in candidates}),

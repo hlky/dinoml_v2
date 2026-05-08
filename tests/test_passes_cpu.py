@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -5,6 +7,7 @@ from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.gemm import render_cutlass_gemm_source
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan, build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
@@ -279,6 +282,33 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert plan.external_support_libraries[0]["candidate_config_keys"] == [candidate["candidate_config_key"]]
     assert plan.external_support_libraries[0]["kernel_symbols"] == [f"dinoml_cutlass_gemm_rrr_{suffix}"]
     assert plan.external_support_libraries[0]["profiler_symbols"] == [f"dinoml_profile_cutlass_gemm_rrr_{suffix}"]
+
+
+def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_rrr_used_source",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    used_plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache").external_support_libraries[0]
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(encoding="utf-8")
+
+    rendered = render_cutlass_gemm_source(source, used_plan)
+
+    assert "template <typename Storage, typename Element, typename LayoutB>" in rendered
+    assert "dinoml_cutlass_gemm_rrr_f32" in rendered
+    assert "dinoml_profile_cutlass_gemm_rrr_f32" in rendered
+    assert "dinoml_cutlass_gemm_rcr_f32" not in rendered
+    assert "dinoml_cutlass_gemm_rrr_f16" not in rendered
+    assert "dinoml_cutlass_gemm_rrr_bias_f32" not in rendered
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():

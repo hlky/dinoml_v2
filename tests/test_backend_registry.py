@@ -106,6 +106,7 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert static_source["emitted_source_path"] == support.source.name
     assert static_source["source_key"] == manifest["source_sha256"]
     assert static_source["source_sha256"] == manifest["source_sha256"]
+    assert len(static_source["repo_source_sha256"]) == 64
     assert sorted({item["candidate_set_key"] for item in source_manifest["candidate_sets"]}) == static_source["candidate_set_keys"]
     assert sorted({item["candidate_config_key"] for item in source_manifest["candidates"]}) == static_source["candidate_config_keys"]
     assert {"kernel", "profiler"} == {item["kind"] for item in static_source["symbols"]}

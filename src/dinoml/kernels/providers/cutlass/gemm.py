@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
@@ -157,6 +158,26 @@ def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
     }
 
 
+def render_cutlass_gemm_source(source: str, used_candidate_plan: Mapping[str, Any]) -> str:
+    symbols = {
+        *[str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])],
+        *[str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])],
+    }
+    if not symbols:
+        raise ValueError("CUTLASS GEMM used candidate plan does not contain any symbols")
+    blocks = _extern_c_blocks(source)
+    available = {name for name, _ in blocks}
+    missing = sorted(symbols - available)
+    if missing:
+        raise ValueError(f"CUTLASS GEMM source is missing symbols: {', '.join(missing)}")
+    first_extern = source.find('extern "C"')
+    if first_extern < 0:
+        raise ValueError("CUTLASS GEMM source does not contain extern C exports")
+    prefix = source[:first_extern].rstrip()
+    selected_blocks = [block.strip() for name, block in blocks if name in symbols]
+    return "\n\n".join([prefix, *selected_blocks]) + "\n"
+
+
 def gemm_dtype_suffix(dtype: str) -> str:
     normalized = normalize_gemm_dtype(dtype)
     return GEMM_DTYPE_SUFFIXES[normalized]
@@ -182,6 +203,39 @@ def _unique_by_key(items: Any, key: str) -> list[dict[str, Any]]:
     return [result[item_key] for item_key in sorted(result)]
 
 
+def _extern_c_blocks(source: str) -> list[tuple[str, str]]:
+    blocks = []
+    position = 0
+    while True:
+        start = source.find('extern "C"', position)
+        if start < 0:
+            break
+        brace = source.find("{", start)
+        if brace < 0:
+            raise ValueError("Malformed CUTLASS GEMM source: missing function body")
+        signature = source[start:brace]
+        match = re.search(r'extern\s+"C"\s+(?:int|float)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(', signature)
+        if match is None:
+            raise ValueError(f"Malformed CUTLASS GEMM source signature: {signature[:120]!r}")
+        depth = 0
+        end = brace
+        while end < len(source):
+            char = source[end]
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    end += 1
+                    break
+            end += 1
+        if depth != 0:
+            raise ValueError("Malformed CUTLASS GEMM source: unterminated function body")
+        blocks.append((match.group(1), source[start:end]))
+        position = end
+    return blocks
+
+
 __all__ = [
     "GEMM_SUPPORTED_DTYPES",
     "CUTLASS_DEFAULT_CANDIDATE_ID",
@@ -196,4 +250,5 @@ __all__ = [
     "cutlass_gemm_symbol",
     "cutlass_gemm_used_candidate_plan",
     "gemm_dtype_suffix",
+    "render_cutlass_gemm_source",
 ]

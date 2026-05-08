@@ -11,6 +11,7 @@ from dinoml.kernels.providers.cutlass.gemm import (
     cutlass_gemm_symbol,
     cutlass_gemm_used_candidate_plan,
     gemm_dtype_suffix,
+    render_cutlass_gemm_source,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "cutlass_gemm_symbol",
     "cutlass_gemm_used_candidate_plan",
     "gemm_dtype_suffix",
+    "render_cutlass_gemm_source",
 ]

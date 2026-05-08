@@ -54,6 +54,32 @@ struct TensorAccessor {
   }
 };
 
+struct StridedTensorLayout {
+  const int64_t* shape{nullptr};
+  const int64_t* strides{nullptr};
+  int64_t rank{0};
+  int64_t offset{0};
+
+  DINO_ACCESS_HD DINO_ACCESS_INLINE int64_t index(const int64_t* indices) const {
+    int64_t storage_idx = offset;
+    for (int64_t axis = 0; axis < rank; ++axis) {
+      storage_idx += indices[axis] * strides[axis];
+    }
+    return storage_idx;
+  }
+
+  DINO_ACCESS_HD DINO_ACCESS_INLINE int64_t dense_index(int64_t linear_idx) const {
+    int64_t storage_idx = offset;
+    for (int64_t axis = rank - 1; axis >= 0; --axis) {
+      const int64_t dim = shape[axis];
+      const int64_t coord = linear_idx % dim;
+      linear_idx /= dim;
+      storage_idx += coord * strides[axis];
+    }
+    return storage_idx;
+  }
+};
+
 template <typename DataT, typename ReadT, bool IsContiguous>
 DINO_ACCESS_HD DINO_ACCESS_INLINE ReadT* strided_address(
     DataT* data,

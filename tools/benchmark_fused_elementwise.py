@@ -17,7 +17,7 @@ import numpy as np
 import dinoml as dml
 from dinoml import runtime
 from dinoml.ir import dtype_runtime_enum, read_json
-from dinoml.runtime import _DinoTensor, _shape_buffer
+from dinoml.runtime import _DinoTensor, _make_dino_tensor
 
 try:
     import torch
@@ -276,13 +276,25 @@ def run_cpu_hot(artifact: Path, inputs: Mapping[str, np.ndarray]) -> tuple[dict[
     input_tensors = (_DinoTensor * len(input_specs))()
     for idx, spec in enumerate(input_specs):
         array = inputs[spec["name"]]
-        shape = _shape_buffer(spec["shape"])
-        shape_buffers.append(shape)
-        input_tensors[idx] = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, array.ndim, dtype_runtime_enum("float32"))
-    output_shape = _shape_buffer(output_specs[0]["shape"])
-    shape_buffers.append(output_shape)
+        tensor, keepalive = _make_dino_tensor(
+            ctypes.c_void_p(array.ctypes.data),
+            spec["shape"],
+            dtype_runtime_enum("float32"),
+            nbytes=array.nbytes,
+            device_type=runtime.DINO_DEVICE_CPU,
+        )
+        shape_buffers.extend(keepalive)
+        input_tensors[idx] = tensor
     output_tensors = (_DinoTensor * 1)()
-    output_tensors[0] = _DinoTensor(ctypes.c_void_p(output.ctypes.data), output_shape, output.ndim, dtype_runtime_enum("float32"))
+    tensor, keepalive = _make_dino_tensor(
+        ctypes.c_void_p(output.ctypes.data),
+        output_specs[0]["shape"],
+        dtype_runtime_enum("float32"),
+        nbytes=output.nbytes,
+        device_type=runtime.DINO_DEVICE_CPU,
+    )
+    shape_buffers.extend(keepalive)
+    output_tensors[0] = tensor
 
     def run() -> None:
         module._check(
@@ -328,15 +340,27 @@ def run_cuda_hot(artifact: Path, inputs: Mapping[str, np.ndarray]) -> tuple[dict
             ptr = session._device_malloc(array.nbytes)
             device_ptrs.append(ptr)
             session._copy_h2d(ptr, array)
-            shape = _shape_buffer(spec["shape"])
-            shape_buffers.append(shape)
-            input_tensors[idx] = _DinoTensor(ptr, shape, array.ndim, dtype_runtime_enum("float32"))
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                spec["shape"],
+                dtype_runtime_enum("float32"),
+                nbytes=array.nbytes,
+                device_type=runtime.DINO_DEVICE_CUDA,
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
         output_ptr = session._device_malloc(output.nbytes)
         device_ptrs.append(output_ptr)
-        output_shape = _shape_buffer(output_specs[0]["shape"])
-        shape_buffers.append(output_shape)
         output_tensors = (_DinoTensor * 1)()
-        output_tensors[0] = _DinoTensor(output_ptr, output_shape, output.ndim, dtype_runtime_enum("float32"))
+        tensor, keepalive = _make_dino_tensor(
+            output_ptr,
+            output_specs[0]["shape"],
+            dtype_runtime_enum("float32"),
+            nbytes=output.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        shape_buffers.extend(keepalive)
+        output_tensors[0] = tensor
 
         def run() -> None:
             module._check(

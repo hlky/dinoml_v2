@@ -60,6 +60,12 @@ are inferred by matching named dynamic dimensions from the inputs. The reusable
 helpers in `dinoml.shapes` are the Python source of truth for runtime validation
 and output-shape inference.
 
+`DinoTensor` ABI v5 also carries optional contiguous-layout metadata: host
+element strides, byte capacity, byte offset, device type, flags, and pointer
+alignment. Current generated modules still require row-major contiguous tensors
+and reject non-zero byte offsets, but these fields make the ABI ready for future
+strided views, layout-aware kernels, and alignment-sensitive launch policies.
+
 The shared dtype table now mirrors the v1 ABI direction: fp16, fp32, int32,
 int64, bool, bf16, and fp8 enum slots are defined in Python and C. CPU runtime
 lowering currently accepts float32. CUDA fused-elementwise lowering supports

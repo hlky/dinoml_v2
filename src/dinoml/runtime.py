@@ -18,7 +18,18 @@ class _DinoTensor(ctypes.Structure):
         ("shape", ctypes.POINTER(ctypes.c_int64)),
         ("ndim", ctypes.c_size_t),
         ("dtype", ctypes.c_int),
+        ("strides", ctypes.POINTER(ctypes.c_int64)),
+        ("byte_offset", ctypes.c_size_t),
+        ("nbytes", ctypes.c_size_t),
+        ("device_type", ctypes.c_int),
+        ("flags", ctypes.c_uint32),
+        ("alignment", ctypes.c_size_t),
     ]
+
+
+DINO_DEVICE_CPU = 0
+DINO_DEVICE_CUDA = 1
+DINO_TENSOR_FLAG_CONTIGUOUS = 1
 
 
 def load(path: str | Path) -> "RuntimeModule":
@@ -87,8 +98,13 @@ class RuntimeModule:
         actual_shape = validate_runtime_shape(name, array.shape, constant_spec)
         dtype_enum = dtype_runtime_enum(constant_spec["dtype"])
         if self.target_name == "cpu":
-            shape = _shape_buffer(actual_shape)
-            tensor = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(actual_shape), dtype_enum)
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(array.ctypes.data),
+                actual_shape,
+                dtype_enum,
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CPU,
+            )
             self._check(
                 self._dll.dino_module_set_constant(
                     self._handle,
@@ -101,8 +117,13 @@ class RuntimeModule:
             raise RuntimeError("CUDA runtime library is not loaded")
         ptr = ctypes.c_void_p()
         self._check(self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes)))
-        shape = _shape_buffer(actual_shape)
-        tensor = _DinoTensor(ptr, shape, len(actual_shape), dtype_enum)
+        tensor, keepalive = _make_dino_tensor(
+            ptr,
+            actual_shape,
+            dtype_enum,
+            nbytes=array.nbytes,
+            device_type=DINO_DEVICE_CUDA,
+        )
         try:
             self._check(
                 self._cuda_runtime_dll.dino_copy_host_to_device(
@@ -131,8 +152,14 @@ class RuntimeModule:
         actual_shape = validate_runtime_shape(name, shape, constant_spec)
         if str(dtype) != str(constant_spec["dtype"]):
             raise ValueError(f"Constant {name} has dtype {dtype}, expected {constant_spec['dtype']}")
-        shape_buffer = _shape_buffer(actual_shape)
-        tensor = _DinoTensor(ctypes.c_void_p(int(ptr)), shape_buffer, len(actual_shape), dtype_runtime_enum(str(dtype)))
+        nbytes = _shape_nbytes(actual_shape, str(dtype))
+        tensor, keepalive = _make_dino_tensor(
+            ctypes.c_void_p(int(ptr)),
+            actual_shape,
+            dtype_runtime_enum(str(dtype)),
+            nbytes=nbytes,
+            device_type=DINO_DEVICE_CUDA,
+        )
         self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
 
     def set_constant_torch(self, name: str, value: object) -> None:
@@ -294,9 +321,15 @@ class Session:
             actual_shape = tuple(int(dim) for dim in (input_shapes or {}).get(name, spec["shape"]))
             validate_runtime_shape(name, actual_shape, spec)
             resolved_input_shapes[name] = actual_shape
-            shape = _shape_buffer(actual_shape)
-            shape_buffers.append(shape)
-            input_tensors[idx] = _DinoTensor(ctypes.c_void_p(int(inputs[name])), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(int(inputs[name])),
+                actual_shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=_shape_nbytes(actual_shape, str(spec["dtype"])),
+                device_type=DINO_DEVICE_CUDA,
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
         output_tensors = (_DinoTensor * len(output_specs))()
         for idx, spec in enumerate(output_specs):
             name = str(spec["name"])
@@ -307,9 +340,15 @@ class Session:
             else:
                 actual_shape = infer_output_shape(spec, input_specs, resolved_input_shapes)
             validate_runtime_shape(name, actual_shape, spec)
-            shape = _shape_buffer(actual_shape)
-            shape_buffers.append(shape)
-            output_tensors[idx] = _DinoTensor(ctypes.c_void_p(int(outputs[name])), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(int(outputs[name])),
+                actual_shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=_shape_nbytes(actual_shape, str(spec["dtype"])),
+                device_type=DINO_DEVICE_CUDA,
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
         self.module._check(
             self.module._dll.dino_session_run(
                 self._handle,
@@ -367,14 +406,26 @@ class Session:
         shape_buffers = []
         input_tensors = (_DinoTensor * len(input_arrays))()
         for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
-            shape = _shape_buffer(array.shape)
-            shape_buffers.append(shape)
-            input_tensors[idx] = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(array.ctypes.data),
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CPU,
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
         output_tensors = (_DinoTensor * len(output_arrays))()
         for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
-            shape = _shape_buffer(array.shape)
-            shape_buffers.append(shape)
-            output_tensors[idx] = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(array.ctypes.data),
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CPU,
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
         self.module._check(
             self.module._dll.dino_session_run(
                 self._handle,
@@ -401,16 +452,28 @@ class Session:
         for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
             ptr = self._device_buffer(f"input:{spec['name']}", array.nbytes)
             self._copy_h2d(ptr, array)
-            shape = _shape_buffer(array.shape)
-            shape_buffers.append(shape)
-            input_tensors[idx] = _DinoTensor(ptr, shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CUDA,
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
 
         output_tensors = (_DinoTensor * len(output_arrays))()
         for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
             ptr = self._device_buffer(f"output:{spec['name']}", array.nbytes)
-            shape = _shape_buffer(array.shape)
-            shape_buffers.append(shape)
-            output_tensors[idx] = _DinoTensor(ptr, shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CUDA,
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
 
         self.module._check(
             self.module._dll.dino_session_run(
@@ -485,6 +548,61 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
 def _shape_buffer(shape: object) -> ctypes.Array:
     values = [int(dim) for dim in shape]
     return (ctypes.c_int64 * len(values))(*values)
+
+
+def _contiguous_strides(shape: object) -> tuple[int, ...]:
+    dims = tuple(int(dim) for dim in shape)
+    strides = []
+    stride = 1
+    for dim in reversed(dims):
+        strides.append(stride)
+        stride *= dim
+    return tuple(reversed(strides))
+
+
+def _stride_buffer(shape: object) -> ctypes.Array:
+    values = _contiguous_strides(shape)
+    return (ctypes.c_int64 * len(values))(*values)
+
+
+def _shape_nbytes(shape: object, dtype: str) -> int:
+    nbytes = dtype_numpy(dtype).itemsize
+    for dim in shape:
+        nbytes *= int(dim)
+    return int(nbytes)
+
+
+def _make_dino_tensor(
+    data: ctypes.c_void_p,
+    shape: object,
+    dtype_enum: int,
+    *,
+    nbytes: int,
+    device_type: int,
+) -> tuple[_DinoTensor, tuple[ctypes.Array, ctypes.Array]]:
+    actual_shape = tuple(int(dim) for dim in shape)
+    shape_buffer = _shape_buffer(actual_shape)
+    stride_buffer = _stride_buffer(actual_shape)
+    tensor = _DinoTensor(
+        data,
+        shape_buffer,
+        len(actual_shape),
+        int(dtype_enum),
+        stride_buffer,
+        0,
+        int(nbytes),
+        int(device_type),
+        DINO_TENSOR_FLAG_CONTIGUOUS,
+        _pointer_alignment(data),
+    )
+    return tensor, (shape_buffer, stride_buffer)
+
+
+def _pointer_alignment(ptr: ctypes.c_void_p) -> int:
+    value = int(ptr.value or 0)
+    if value == 0:
+        return 0
+    return min(value & -value, 256)
 
 
 def _as_c_void_p(value: object | None) -> ctypes.c_void_p:

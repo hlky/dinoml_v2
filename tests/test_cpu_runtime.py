@@ -6,7 +6,7 @@ import pytest
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, read_json
+from dinoml.ir import IR_SCHEMA_VERSION, RUNTIME_ABI_VERSION, ModelSpec, dtype_runtime_enum, read_json
 
 
 class DynamicChannelBias(dml.Module):
@@ -60,6 +60,95 @@ class PublicShapeViewOutputs(dml.Module):
             "squeezed": dml.ops.squeeze(z),
             "unsqueezed": dml.ops.unsqueeze(x, 0),
         }
+
+
+class AddZeroModel(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(x + 0.0, "y")
+
+
+def test_python_runtime_populates_dino_tensor_metadata():
+    tensor, keepalive = runtime._make_dino_tensor(
+        ctypes.c_void_p(0x1000),
+        (2, 3, 4),
+        dtype_runtime_enum("float32"),
+        nbytes=2 * 3 * 4 * 4,
+        device_type=runtime.DINO_DEVICE_CPU,
+    )
+
+    assert RUNTIME_ABI_VERSION == 5
+    assert len(keepalive) == 2
+    assert [tensor.shape[idx] for idx in range(tensor.ndim)] == [2, 3, 4]
+    assert [tensor.strides[idx] for idx in range(tensor.ndim)] == [12, 4, 1]
+    assert tensor.byte_offset == 0
+    assert tensor.nbytes == 96
+    assert tensor.device_type == runtime.DINO_DEVICE_CPU
+    assert tensor.flags & runtime.DINO_TENSOR_FLAG_CONTIGUOUS
+    assert tensor.alignment >= 16
+
+
+def test_cpu_runtime_copies_non_contiguous_numpy_inputs(tmp_path):
+    spec = dml.trace(AddZeroModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="add_zero_non_contiguous")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "identity_non_contiguous.dinoml")
+    base = np.arange(12, dtype=np.float32).reshape(2, 6)
+    x = base[:, ::2]
+    assert not x.flags.c_contiguous
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(actual, np.ascontiguousarray(x))
+
+
+def test_cpu_runtime_rejects_non_contiguous_abi_strides(tmp_path):
+    spec = dml.trace(AddZeroModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="add_zero_bad_strides")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "identity_bad_strides.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x = np.arange(6, dtype=np.float32).reshape(2, 3)
+    y = np.empty_like(x)
+    input_shape = runtime._shape_buffer(x.shape)
+    output_shape = runtime._shape_buffer(y.shape)
+    bad_input_strides = (ctypes.c_int64 * 2)(1, 2)
+    output_strides = runtime._stride_buffer(y.shape)
+    input_tensor = runtime._DinoTensor(
+        ctypes.c_void_p(x.ctypes.data),
+        input_shape,
+        x.ndim,
+        dtype_runtime_enum("float32"),
+        bad_input_strides,
+        0,
+        x.nbytes,
+        runtime.DINO_DEVICE_CPU,
+        0,
+        16,
+    )
+    output_tensor = runtime._DinoTensor(
+        ctypes.c_void_p(y.ctypes.data),
+        output_shape,
+        y.ndim,
+        dtype_runtime_enum("float32"),
+        output_strides,
+        0,
+        y.nbytes,
+        runtime.DINO_DEVICE_CPU,
+        runtime.DINO_TENSOR_FLAG_CONTIGUOUS,
+        16,
+    )
+    inputs = (runtime._DinoTensor * 1)(input_tensor)
+    outputs = (runtime._DinoTensor * 1)(output_tensor)
+    try:
+        with pytest.raises(RuntimeError, match="contiguous row-major strides"):
+            module._check(module._dll.dino_session_run(session._handle, inputs, ctypes.c_size_t(1), outputs, ctypes.c_size_t(1)))
+    finally:
+        session.close()
+        module.close()
 
 
 def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):

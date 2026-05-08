@@ -36,6 +36,12 @@ inline int read_file(const std::string& path, std::vector<char>* out) {
   return 0;
 }
 
+inline int check_tensor_layout(
+    const DinoTensor& tensor,
+    const char* name,
+    const std::vector<int64_t>& actual_shape,
+    int expected_dtype);
+
 inline int check_tensor(
     const DinoTensor& tensor,
     const char* name,
@@ -57,6 +63,64 @@ inline int check_tensor(
   for (size_t i = 0; i < expected_shape.size(); ++i) {
     if (tensor.shape[i] != expected_shape[i]) {
       return fail(std::string(name) + " shape mismatch");
+    }
+  }
+  return check_tensor_layout(tensor, name, expected_shape, expected_dtype);
+}
+
+inline int dtype_nbytes(int dtype) {
+  switch (dtype) {
+    case DINO_DTYPE_FLOAT16:
+    case DINO_DTYPE_BFLOAT16:
+      return 2;
+    case DINO_DTYPE_FLOAT32:
+    case DINO_DTYPE_INT32:
+      return 4;
+    case DINO_DTYPE_INT64:
+      return 8;
+    case DINO_DTYPE_BOOL:
+    case DINO_DTYPE_FLOAT8_E4M3:
+    case DINO_DTYPE_FLOAT8_E5M2:
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+inline int64_t shape_numel(const std::vector<int64_t>& shape) {
+  int64_t total = 1;
+  for (int64_t dim : shape) {
+    total *= dim;
+  }
+  return total;
+}
+
+inline int check_tensor_layout(
+    const DinoTensor& tensor,
+    const char* name,
+    const std::vector<int64_t>& actual_shape,
+    int expected_dtype) {
+  if (tensor.byte_offset != 0) {
+    return fail(std::string(name) + " byte offsets are not supported by this runtime ABI path");
+  }
+  if (tensor.strides != nullptr) {
+    int64_t expected_stride = 1;
+    for (size_t rev = 0; rev < actual_shape.size(); ++rev) {
+      const size_t axis = actual_shape.size() - 1 - rev;
+      if (tensor.strides[axis] != expected_stride) {
+        return fail(std::string(name) + " must use contiguous row-major strides");
+      }
+      expected_stride *= actual_shape[axis];
+    }
+  }
+  if (tensor.nbytes != 0) {
+    const int nbytes = dtype_nbytes(expected_dtype);
+    if (nbytes <= 0) {
+      return fail(std::string(name) + " has unsupported dtype size");
+    }
+    const uint64_t required = static_cast<uint64_t>(shape_numel(actual_shape)) * static_cast<uint64_t>(nbytes);
+    if (tensor.nbytes < required) {
+      return fail(std::string(name) + " byte capacity is smaller than runtime shape requires");
     }
   }
   return 0;
@@ -91,7 +155,12 @@ inline int check_tensor_dynamic(
       return fail(std::string(name) + " shape dimension violates divisibility constraint");
     }
   }
-  return 0;
+  std::vector<int64_t> actual_shape;
+  actual_shape.reserve(max_shape.size());
+  for (size_t i = 0; i < max_shape.size(); ++i) {
+    actual_shape.push_back(tensor.shape[i]);
+  }
+  return check_tensor_layout(tensor, name, actual_shape, expected_dtype);
 }
 
 inline int64_t tensor_numel(const DinoTensor& tensor) {

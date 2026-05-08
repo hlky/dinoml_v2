@@ -9,7 +9,7 @@
 #define DINO_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define DINO_RUNTIME_ABI_VERSION 4
+#define DINO_RUNTIME_ABI_VERSION 5
 
 enum DinoDtype {
   DINO_DTYPE_FLOAT16 = 1,
@@ -22,6 +22,15 @@ enum DinoDtype {
   DINO_DTYPE_FLOAT8_E5M2 = 8,
 };
 
+enum DinoDeviceType {
+  DINO_DEVICE_CPU = 0,
+  DINO_DEVICE_CUDA = 1,
+};
+
+enum DinoTensorFlags {
+  DINO_TENSOR_FLAG_CONTIGUOUS = 1 << 0,
+};
+
 struct DinoTensor {
   void* data;
   // Host pointer to an int64 shape array with ndim entries. The caller owns
@@ -31,6 +40,19 @@ struct DinoTensor {
   const int64_t* shape;
   size_t ndim;
   int dtype;
+  // Optional host pointer to row-major element strides with ndim entries. The
+  // v5 generated modules still require contiguous tensors, but carrying this
+  // metadata now gives future strided/layout kernels a stable ABI field.
+  const int64_t* strides;
+  // Byte offset from data to the logical first element. Non-zero offsets are
+  // reserved for future view/layout support and are rejected by current modules.
+  size_t byte_offset;
+  // Available bytes from the logical first element. Zero means unknown.
+  size_t nbytes;
+  int device_type;
+  uint32_t flags;
+  // Pointer alignment in bytes. Zero means unknown.
+  size_t alignment;
 };
 
 struct DinoModule;

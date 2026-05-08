@@ -81,8 +81,14 @@ The report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
 support-library source/binary hashes, support-build provenance, and the
 candidate set/config keys. CUTLASS support manifests also record compile flags,
 NVCC version output, dependency header hashes, and a provenance key that
-participates in support-cache reuse. Next steps are candidate enumeration beyond
-the single default CUTLASS instance, bias/activation epilogues, optional
+participates in support-cache reuse. The support cache writes a
+`dinoml.support_source_manifest` at `src/source_manifest.json` beside the static
+CUTLASS source; that manifest maps source files to candidate set keys, candidate
+config keys, launcher/profiler symbols, and support build units so future
+generated candidates can be inspected without embedding generated source in model
+artifacts. Next steps are candidate
+enumeration beyond the single default CUTLASS instance, bias/activation
+epilogues, optional
 accumulation-policy variants, and then public `matmul` layout selection.
 
 ## Dependency Discovery

@@ -13,7 +13,7 @@ from typing import Any, Mapping, Sequence
 from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
-from dinoml.kernels.manifest import build_external_kernel_plan
+from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class CutlassSupportLib:
     include_roots: tuple[Path, ...]
     source: Path
     manifest: Path
+    source_manifest: Path
 
 
 def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) -> CutlassSupportLib:
@@ -41,6 +42,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
     source = src_dir / "dinoml_cutlass_gemm.cu"
     library = lib_dir / "libdinoml_cutlass_gemm.so"
     manifest = lib_dir / "cutlass_gemm_manifest.json"
+    source_manifest = src_dir / "source_manifest.json"
     repo_source = _repo_cutlass_gemm_source()
     include_roots = (
         *cutlass.include_roots,
@@ -63,6 +65,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
         library.exists()
         and manifest.exists()
         and source.exists()
+        and source_manifest.exists()
         and _file_sha256(source) == source_hash
         and _cached_manifest_matches(manifest, source_hash, provenance["provenance_key"], _file_sha256(library), family_cache_key)
     ):
@@ -71,8 +74,19 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
             include_roots=tuple(root for root in include_roots if root.exists()),
             source=source,
             manifest=manifest,
+            source_manifest=source_manifest,
         )
     shutil.copy2(repo_source, source)
+    _write_source_manifest(
+        source_manifest,
+        target={"name": "cuda", "arch": f"sm_{arch_num}"},
+        families=families,
+        source=source,
+        repo_source=repo_source,
+        source_hash=source_hash,
+        family_cache_key=family_cache_key,
+        external_kernel_plan_cache_key=plan["cache_key"],
+    )
 
     compile_command = ["nvcc", *compile_flags, *include_args, str(source), "-o", str(library)]
     _run_nvcc(compile_command, cwd=support_root)
@@ -88,6 +102,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
             "library_sha256": library_hash,
             "source": source.name,
             "source_sha256": source_hash,
+            "source_manifest": "../src/source_manifest.json",
             "external_kernel_plan_cache_key": plan["cache_key"],
             "family_cache_key": family_cache_key,
             "build_fingerprint": provenance["provenance_key"],
@@ -106,6 +121,7 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
         include_roots=tuple(root for root in include_roots if root.exists()),
         source=source,
         manifest=manifest,
+        source_manifest=source_manifest,
     )
 
 
@@ -205,6 +221,124 @@ def _family_cache_key(target: Mapping[str, str], families: Sequence[Mapping[str,
         "families": list(families),
     }
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _write_source_manifest(
+    path: Path,
+    *,
+    target: Mapping[str, str],
+    families: Sequence[Mapping[str, Any]],
+    source: Path,
+    repo_source: Path,
+    source_hash: str,
+    family_cache_key: str,
+    external_kernel_plan_cache_key: str,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    candidate_sets = _flat_candidate_sets(families)
+    candidates = _flat_candidates(families)
+    manifest = {
+        "schema_version": 2,
+        "kind": "dinoml.support_source_manifest",
+        "target": dict(target),
+        "provider": "cutlass",
+        "library": "cutlass_gemm",
+        "kernel_abi_version": KERNEL_ABI_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "family_cache_key": family_cache_key,
+        "external_kernel_plan_cache_key": external_kernel_plan_cache_key,
+        "deduplication": {
+            "source": "source_key",
+            "candidate": "candidate_config_key",
+            "candidate_set": "candidate_set_key",
+        },
+        "sources": [
+            {
+                "source_id": "cutlass_gemm_static_default",
+                "source_key": source_hash,
+                "source_role": "support_library",
+                "generated": False,
+                "language": "cuda",
+                "emitted_source_path": source.name,
+                "repo_source_path": str(repo_source),
+                "source_sha256": source_hash,
+                "candidate_set_keys": sorted({item["candidate_set_key"] for item in candidate_sets}),
+                "candidate_config_keys": sorted({item["candidate_config_key"] for item in candidates}),
+                "symbols": _source_symbols(candidates),
+            }
+        ],
+        "candidate_sets": candidate_sets,
+        "candidates": candidates,
+        "build_units": [
+            {
+                "build_unit_id": "cutlass_gemm_shared",
+                "source_ids": ["cutlass_gemm_static_default"],
+                "output_role": "shared_library",
+                "expected_outputs": [
+                    {
+                        "kind": "shared_library",
+                        "path": "../lib/libdinoml_cutlass_gemm.so",
+                    }
+                ],
+            }
+        ],
+    }
+    manifest["source_manifest_key"] = hashlib.sha256(
+        canonical_json({key: value for key, value in manifest.items() if key != "source_manifest_key"}).encode("utf-8")
+    ).hexdigest()
+    path.write_text(canonical_json(manifest), encoding="utf-8")
+
+
+def _source_symbols(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
+    symbols = []
+    for candidate in candidates:
+        config_key = str(candidate["candidate_config_key"])
+        symbols.append(
+            {
+                "kind": "kernel",
+                "name": str(candidate["kernel_symbol"]),
+                "candidate_config_key": config_key,
+            }
+        )
+        symbols.append(
+            {
+                "kind": "profiler",
+                "name": str(candidate["profiler_symbol"]),
+                "candidate_config_key": config_key,
+            }
+        )
+    return sorted(symbols, key=lambda item: (item["kind"], item["name"], item["candidate_config_key"]))
+
+
+def _flat_candidate_sets(families: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for family in families:
+        for dtype, candidate_set in sorted(dict(family.get("candidate_sets_by_dtype", {})).items()):
+            result.append(
+                {
+                    **dict(candidate_set),
+                    "op_name": family["op_name"],
+                    "dtype": dtype,
+                }
+            )
+    return result
+
+
+def _flat_candidates(families: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    result = []
+    for family in families:
+        for dtype, candidates in sorted(dict(family.get("candidates_by_dtype", {})).items()):
+            for candidate in candidates:
+                result.append(
+                    {
+                        **dict(candidate),
+                        "op_name": family["op_name"],
+                        "dtype": dtype,
+                        "source_ids": ["cutlass_gemm_static_default"],
+                        "profiler_source_ids": ["cutlass_gemm_static_default"],
+                    }
+                )
+    return result
 
 
 def _library_provenance(library: Any) -> dict[str, Any]:

@@ -165,6 +165,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
             "provider": "cutlass",
             "source_sha256": "source-hash",
             "library_sha256": "library-hash",
+            "source_manifest": "../src/source_manifest.json",
             "provenance_key": "provenance-hash",
             "build_fingerprint": "provenance-hash",
             "family_cache_key": "family-hash",
@@ -210,6 +211,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["libraries"][0]["artifact_sha256"] == hashlib.sha256(b"artifact cutlass gemm").hexdigest()
     assert report["fingerprint"]["support_libraries"][0]["source_sha256"] == "source-hash"
     assert report["fingerprint"]["support_libraries"][0]["library_sha256"] == "library-hash"
+    assert report["fingerprint"]["support_libraries"][0]["source_manifest"] == "../src/source_manifest.json"
     assert report["fingerprint"]["support_libraries"][0]["provenance_key"] == "provenance-hash"
     assert report["fingerprint"]["support_libraries"][0]["build_fingerprint"] == "provenance-hash"
     assert report["fingerprint"]["support_libraries"][0]["family_cache_key"] == "family-hash"

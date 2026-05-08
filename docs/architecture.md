@@ -121,7 +121,10 @@ explicit `cutlass_default` candidate under a dtype/layout-specific candidate
 set. The candidate set records provider, layout, epilogue, accumulator, launch
 ABI, generator id, candidate config keys, and its own `candidate_set_key`; future
 work should expand that one-candidate schema into generated CUTLASS candidate
-sets.
+sets. The CUTLASS support cache also writes a `dinoml.support_source_manifest`
+at `src/source_manifest.json`, mapping the current static support source to
+candidate set keys, candidate config keys, launcher/profiler symbols, and
+support build units.
 
 Current reusable kernels are intentionally simple:
 

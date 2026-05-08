@@ -52,7 +52,11 @@ use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
 CUDA artifacts that need CUTLASS GEMM also carry `libdinoml_cutlass_gemm.so`;
 the cached support build writes `cutlass_gemm_manifest.json` with compile flags,
 NVCC version, dependency header hashes, source/library hashes, and a provenance
-key used for cache reuse and profiling fingerprints.
+key used for cache reuse and profiling fingerprints. The support cache also
+writes a `dinoml.support_source_manifest` at `src/source_manifest.json`, which
+maps the reviewable support source to candidate set keys, candidate config keys,
+launcher/profiler symbols, and support build units for later generated CUTLASS
+candidates.
 
 Generated model code is a small Jinja2 wrapper that links against those
 libraries. It loads runtime metadata from `metadata.json` and contains launch

@@ -85,11 +85,27 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert support.library.exists()
     assert support.source.exists()
     assert support.manifest.exists()
+    assert support.source_manifest.exists()
     manifest = read_json(support.manifest)
+    source_manifest = read_json(support.source_manifest)
     assert manifest["schema_version"] == 2
     assert manifest["provider"] == "cutlass"
     assert manifest["library_sha256"] == hashlib.sha256(support.library.read_bytes()).hexdigest()
     assert len(manifest["source_sha256"]) == 64
+    assert manifest["source_manifest"] == "../src/source_manifest.json"
+    assert source_manifest["schema_version"] == 2
+    assert source_manifest["kind"] == "dinoml.support_source_manifest"
+    assert source_manifest["provider"] == "cutlass"
+    assert source_manifest["family_cache_key"] == manifest["family_cache_key"]
+    assert len(source_manifest["source_manifest_key"]) == 64
+    static_source = next(item for item in source_manifest["sources"] if item["source_id"] == "cutlass_gemm_static_default")
+    assert static_source["emitted_source_path"] == support.source.name
+    assert static_source["source_key"] == manifest["source_sha256"]
+    assert static_source["source_sha256"] == manifest["source_sha256"]
+    assert sorted({item["candidate_set_key"] for item in source_manifest["candidate_sets"]}) == static_source["candidate_set_keys"]
+    assert sorted({item["candidate_config_key"] for item in source_manifest["candidates"]}) == static_source["candidate_config_keys"]
+    assert {"kernel", "profiler"} == {item["kind"] for item in static_source["symbols"]}
+    assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["build_fingerprint"]) == 64
     assert manifest["provenance_key"]

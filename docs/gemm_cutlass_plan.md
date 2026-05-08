@@ -13,8 +13,9 @@ Start with the two base dense layouts from v1:
 
 The v2 scaffold records these as CUTLASS-backed external kernel families in
 `dinoml.kernels.external`, and `dinoml.backends.cutlass` now generates a cached
-`libdinoml_cutlass_gemm.so` containing real float32 CUTLASS launchers and
-profiler entrypoints for both families. Each family declares:
+`libdinoml_cutlass_gemm.so` containing real `float32`, `float16`, and
+`bfloat16` CUTLASS launchers and profiler entrypoints for both families. Each
+family declares:
 
 - provider: `cutlass`
 - required libraries: `cutlass`, `cublaslt`

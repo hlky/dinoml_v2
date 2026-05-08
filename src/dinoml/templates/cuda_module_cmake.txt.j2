@@ -27,6 +27,14 @@ set_target_properties(dinoml_cuda_kernels PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
 )
 
+{% if cutlass_gemm_lib %}
+add_library(dinoml_cutlass_gemm SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_cutlass_gemm PROPERTIES
+  IMPORTED_LOCATION "{{ cutlass_gemm_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endif %}
+
 add_library(module SHARED module.cu)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
@@ -37,6 +45,9 @@ target_link_libraries(module PRIVATE
   dinoml_runtime
   dinoml_cuda_runtime
   dinoml_cuda_kernels
+{% if cutlass_gemm_lib %}
+  dinoml_cutlass_gemm
+{% endif %}
 )
 if(DINOML_ENABLE_CUDA_FAST_MATH)
   target_compile_definitions(module PRIVATE DINOML_USE_CUDA_FAST_MATH=1)

@@ -87,6 +87,8 @@ def compile(
         "kernel_codegen_plan": "kernel_codegen_plan.json",
     }
     files.update(backend.support_libraries)
+    if _requires_kernel_library(kernel_manifest, "cutlass_gemm"):
+        files["cutlass_gemm_library"] = "lib/libdinoml_cutlass_gemm.so"
 
     manifest = {
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -118,6 +120,10 @@ def _runtime_metadata(ir: Dict) -> Dict:
         "constants": ir["constants"],
         "memory_plan": ir.get("metadata", {}).get("memory_plan", {}),
     }
+
+
+def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
+    return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
 
 
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarray]) -> Dict:

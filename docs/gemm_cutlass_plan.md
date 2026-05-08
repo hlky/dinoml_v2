@@ -60,15 +60,20 @@ The CUTLASS slice adds:
   - `dinoml_profile_cutlass_gemm_rrr_f32`
   - `dinoml_profile_cutlass_gemm_rcr_f32`
 
-The next GEMM port should wire model lowering into that support library:
+The first runtime GEMM port now wires model lowering into that support library:
 
-1. Register public semantic ops only once the launcher path exists.
-2. Lower `gemm_rcr`/`gemm_rrr` into an external kernel requirement rather than a
-   model-generated kernel body.
-3. Generate all used CUTLASS candidates and profilers into the support cache.
-4. Benchmark candidates, write a profile cache entry, and package the selected
-   launcher metadata.
-5. Let the model wrapper bind tensors/constants and call the cached launcher.
+1. `gemm_rcr`/`gemm_rrr` are explicit float32 frontend ops, not a generic
+   `matmul`.
+2. The kernel manifest records `cutlass_gemm` as an external support library
+   with real launcher/profiler symbols.
+3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
+   cached launcher with runtime `M/N/K`.
+4. CPU has reference execution only; compiled CPU GEMM still rejects until a
+   real CPU library path exists.
+
+Next steps are profiler cache selection, candidate enumeration beyond the
+single default CUTLASS instance, broader dtypes, bias/activation epilogues, and
+then public `matmul` layout selection.
 
 ## Dependency Discovery
 

@@ -116,6 +116,16 @@ class ReduceSumModule(dml.Module):
         return dml.ops.output(dml.ops.reduce_sum(x, dim=-1), "y")
 
 
+class GemmRRRModule(dml.Module):
+    def forward(self, a, b):
+        return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+
+class GemmRCRModule(dml.Module):
+    def forward(self, a, b):
+        return dml.ops.output(dml.ops.gemm_rcr(a, b), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -228,6 +238,37 @@ def test_compile_accepts_reduced_precision_cpu_runtime_dtype(tmp_path, dtype):
 def test_non_elementwise_ops_reject_reduced_precision_frontend(module, message):
     with pytest.raises(ValueError, match=message):
         dml.trace(module, inputs={"x": dml.TensorSpec([2, 16], "bfloat16")})
+
+
+def test_gemm_frontend_emits_explicit_layout_ops():
+    rrr = dml.trace(
+        GemmRRRModule(),
+        inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec([8, 6])},
+        name="gemm_rrr_frontend",
+    )
+    rcr = dml.trace(
+        GemmRCRModule(),
+        inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec([6, 8])},
+        name="gemm_rcr_frontend",
+    )
+
+    assert rrr.ir["nodes"][0]["op"] == "gemm_rrr"
+    assert rrr.ir["outputs"][0]["shape"] == [4, 6]
+    assert rcr.ir["nodes"][0]["op"] == "gemm_rcr"
+    assert rcr.ir["outputs"][0]["shape"] == [4, 6]
+    assert all(node["op"] != "matmul" for node in [*rrr.ir["nodes"], *rcr.ir["nodes"]])
+
+
+@pytest.mark.parametrize(
+    ("module", "b_shape", "message"),
+    [
+        (GemmRRRModule(), [7, 6], "gemm_rrr expected"),
+        (GemmRCRModule(), [6, 7], "gemm_rcr expected"),
+    ],
+)
+def test_gemm_frontend_rejects_incompatible_k(module, b_shape, message):
+    with pytest.raises(ValueError, match=message):
+        dml.trace(module, inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec(b_shape)})
 
 
 class HalfScalar(dml.Module):

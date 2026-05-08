@@ -54,8 +54,9 @@ libraries. It loads runtime metadata from `metadata.json` and contains launch
 order, memory bindings, constant bindings, runtime shape-buffer updates, and
 model-specific generated fused-elementwise kernels. Reusable kernels and shared
 scalar math helpers live outside the model wrapper. The previous naive matmul
-placeholder was removed; GEMM/BMM should land through the real library-backed op
-port.
+placeholder was removed; current `gemm_rrr`/`gemm_rcr` CUDA ops call the cached
+CUTLASS support library, and broader GEMM/BMM coverage should extend that
+library-backed path.
 
 Constants are loaded from `constants.bin` when a module is opened and can also be
 updated at runtime with `RuntimeModule.set_constant_numpy(...)`.

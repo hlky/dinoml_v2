@@ -93,6 +93,15 @@ class DTypeFusedElementwise(dml.Module):
         return dml.ops.output(y, "y")
 
 
+class GemmModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b), "y")
+
+
 def _storage_roundtrip(value, dtype: str):
     return array_from_storage(array_to_storage(value, dtype), dtype)
 
@@ -706,6 +715,37 @@ def test_cpu_reference_reductions_match_numpy(op_name, numpy_op):
     expected = numpy_op(x, axis=-1).astype(np.float32)
     actual = execute_cpu(spec, {"x": x})["y"]
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape"),
+    [
+        ("gemm_rrr", (4, 8), (8, 6)),
+        ("gemm_rcr", (4, 8), (6, 8)),
+    ],
+)
+def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape):
+    spec = dml.trace(
+        GemmModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape, "float32"), "b": dml.TensorSpec(b_shape, "float32")},
+        name=f"{op_name}_reference",
+    )
+    rng = np.random.default_rng(991)
+    a = rng.standard_normal(a_shape).astype(np.float32)
+    b = rng.standard_normal(b_shape).astype(np.float32)
+    expected = a @ (b if op_name == "gemm_rrr" else b.T)
+    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_rrr_cpu_reject",
+    )
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rrr"):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "gemm_rrr_cpu_reject.dinoml")
 
 
 def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):

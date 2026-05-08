@@ -7,6 +7,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
+from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import read_json
 
@@ -90,6 +91,15 @@ class DTypeFusedElementwise(dml.Module):
         return dml.ops.output(y, "y")
 
 
+class GemmModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b), "y")
+
+
 @pytest.mark.parametrize(
     ("dtype", "torch_dtype", "atol", "rtol"),
     [
@@ -149,6 +159,54 @@ def test_cuda_fused_elementwise_supports_reduced_precision_torch_pointers(tmp_pa
     assert actual_torch.dtype == torch_dtype_obj
     np.testing.assert_allclose(actual_torch.float().cpu().numpy(), expected, atol=atol, rtol=rtol)
     np.testing.assert_allclose(actual_numpy.astype(np.float32), expected, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape"),
+    [
+        ("gemm_rrr", (16, 32), (32, 24)),
+        ("gemm_rcr", (16, 32), (24, 32)),
+    ],
+)
+def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name, a_shape, b_shape):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    spec = dml.trace(
+        GemmModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape, "float32"), "b": dml.TensorSpec(b_shape, "float32")},
+        name=f"{op_name}_cutlass_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_cutlass_cuda.dinoml")
+    manifest = read_json(artifact.path / "manifest.json")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+
+    assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
+    assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
+    assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
+    assert source_manifest["sources"] == []
+    assert f"dinoml_cutlass_{op_name}_f32" in generated
+
+    torch.manual_seed(47)
+    a = torch.randn(a_shape, device="cuda", dtype=torch.float32)
+    b = torch.randn(b_shape, device="cuda", dtype=torch.float32)
+    expected = a @ (b if op_name == "gemm_rrr" else b.t())
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual_torch = session.run_torch({"a": a, "b": b})["y"]
+    actual_numpy = session.run_numpy({"a": a.cpu().numpy(), "b": b.cpu().numpy()})["y"]
+    session.close()
+    module.close()
+
+    torch.testing.assert_close(actual_torch, expected, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(actual_numpy, expected.cpu().numpy(), atol=1e-4, rtol=1e-4)
 
 
 class VectorizableScalarChain(dml.Module):

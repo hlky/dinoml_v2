@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.ir import write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cuda import render_cuda_module, render_template
@@ -19,6 +20,7 @@ class SupportLibs:
     runtime_lib: Path
     cuda_runtime_lib: Path
     kernels_lib: Path
+    cutlass_gemm_lib: Path | None
     runtime_include: Path
     common_include: Path
     kernels_include: Path
@@ -38,9 +40,12 @@ def build_cuda_module(
     runtime_lib = artifact_lib_dir / support_libs.runtime_lib.name
     cuda_runtime_lib = artifact_lib_dir / support_libs.cuda_runtime_lib.name
     kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
+    cutlass_gemm_lib = None if support_libs.cutlass_gemm_lib is None else artifact_lib_dir / support_libs.cutlass_gemm_lib.name
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.cuda_runtime_lib, cuda_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
+    if support_libs.cutlass_gemm_lib is not None and cutlass_gemm_lib is not None:
+        shutil.copy2(support_libs.cutlass_gemm_lib, cutlass_gemm_lib)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
@@ -61,6 +66,7 @@ def build_cuda_module(
                 "runtime_lib": str(runtime_lib),
                 "cuda_runtime_lib": str(cuda_runtime_lib),
                 "kernels_lib": str(kernels_lib),
+                "cutlass_gemm_lib": "" if cutlass_gemm_lib is None else str(cutlass_gemm_lib),
                 "runtime_include": str(support_libs.runtime_include),
                 "common_include": str(support_libs.common_include),
                 "kernels_include": str(support_libs.kernels_include),
@@ -101,6 +107,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     runtime_lib = lib_dir / "libdinoml_runtime.so"
     cuda_runtime_lib = lib_dir / "libdinoml_cuda_runtime.so"
     kernels_lib = lib_dir / "libdinoml_cuda_kernels.so"
+    cutlass_gemm_lib = None
 
     lib_dir.mkdir(parents=True, exist_ok=True)
     _run_cmake(
@@ -132,15 +139,24 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     )
     if not runtime_lib.exists() or not cuda_runtime_lib.exists() or not kernels_lib.exists():
         raise RuntimeError(f"Expected support libraries under {lib_dir}, but they were not produced")
+    if _requires_kernel_library(kernel_manifest, "cutlass_gemm"):
+        cutlass_support = ensure_cutlass_gemm_support_lib(
+            arch,
+            cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
+        )
+        cutlass_gemm_lib = cutlass_support.library
+    libraries = {
+        "runtime": runtime_lib.name,
+        "cuda_runtime": cuda_runtime_lib.name,
+        "kernels": kernels_lib.name,
+    }
+    if cutlass_gemm_lib is not None:
+        libraries["cutlass_gemm"] = cutlass_gemm_lib.name
     write_json(
         lib_dir / "support_manifest.json",
         build_support_manifest(
             target={"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"},
-            libraries={
-                "runtime": runtime_lib.name,
-                "cuda_runtime": cuda_runtime_lib.name,
-                "kernels": kernels_lib.name,
-            },
+            libraries=libraries,
             required_kernel_cache_key=None if kernel_manifest is None else kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]),
         ),
     )
@@ -148,10 +164,17 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         runtime_lib=runtime_lib,
         cuda_runtime_lib=cuda_runtime_lib,
         kernels_lib=kernels_lib,
+        cutlass_gemm_lib=cutlass_gemm_lib,
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "cuda" / "include",
     )
+
+
+def _requires_kernel_library(kernel_manifest: Mapping[str, Any] | None, library: str) -> bool:
+    if kernel_manifest is None:
+        return False
+    return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:

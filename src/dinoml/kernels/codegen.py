@@ -12,6 +12,7 @@ class KernelCodegenPlan:
     support_cache_dir: Path
     kernel_symbols: tuple[str, ...]
     profiler_symbols: tuple[str, ...]
+    external_support_libraries: tuple[Mapping[str, str], ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -20,6 +21,7 @@ class KernelCodegenPlan:
             "support_cache_dir": str(self.support_cache_dir),
             "kernel_symbols": list(self.kernel_symbols),
             "profiler_symbols": list(self.profiler_symbols),
+            "external_support_libraries": [dict(item) for item in self.external_support_libraries],
         }
 
 
@@ -34,10 +36,34 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
         for item in kernel_manifest["required_kernels"]
         if item.get("profiler_symbol")
     )
+    support_key = kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16]
+    external_support_libraries = _external_support_libraries(kernel_manifest, Path(cache_root), target_dir, support_key)
     return KernelCodegenPlan(
         target=target,
         cache_key=kernel_manifest["cache_key"],
-        support_cache_dir=Path(cache_root) / "support" / target_dir / kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
+        support_cache_dir=Path(cache_root) / "support" / target_dir / support_key,
         kernel_symbols=kernel_symbols,
         profiler_symbols=profiler_symbols,
+        external_support_libraries=external_support_libraries,
     )
+
+
+def _external_support_libraries(
+    kernel_manifest: Mapping[str, Any],
+    cache_root: Path,
+    target_dir: str,
+    support_key: str,
+) -> tuple[Mapping[str, str], ...]:
+    libraries = sorted({item["kernel_library"] for item in kernel_manifest["required_kernels"] if item["kernel_library"] not in {"model"}})
+    result = []
+    for library in libraries:
+        if library == "cutlass_gemm":
+            cache_dir = cache_root / "support" / target_dir / "cutlass-gemm" / support_key
+            result.append(
+                {
+                    "name": library,
+                    "cache_dir": str(cache_dir),
+                    "library": "lib/libdinoml_cutlass_gemm.so",
+                }
+            )
+    return tuple(result)

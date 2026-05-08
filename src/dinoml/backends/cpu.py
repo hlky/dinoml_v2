@@ -51,6 +51,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] in {"gemm_rrr", "gemm_rcr"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_gemm(node["op"], values[node["inputs"][0]], values[node["inputs"][1]]),
+                output_dtype,
+            )
         else:
             raise ValueError(f"Unsupported op: {node['op']}")
 
@@ -184,6 +191,14 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
     if result.shape == ():
         result = np.reshape(result, [1])
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_gemm(op: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    if op == "gemm_rrr":
+        return np.asarray(np.matmul(a, b), dtype=np.float32)
+    if op == "gemm_rcr":
+        return np.asarray(np.matmul(a, np.swapaxes(b, -1, -2)), dtype=np.float32)
+    raise ValueError(f"Unsupported GEMM op: {op}")
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

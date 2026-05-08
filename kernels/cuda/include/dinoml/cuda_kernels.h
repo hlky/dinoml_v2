@@ -4,4 +4,40 @@
 
 #include <dinoml/runtime.h>
 
-// Reusable CUDA kernels will be declared here as op families are ported.
+extern "C" int dinoml_cutlass_gemm_rrr_f32(
+    const float* a,
+    const float* b,
+    float* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream);
+
+extern "C" int dinoml_cutlass_gemm_rcr_f32(
+    const float* a,
+    const float* b,
+    float* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream);
+
+extern "C" float dinoml_profile_cutlass_gemm_rrr_f32(
+    const float* a,
+    const float* b,
+    float* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream);
+
+extern "C" float dinoml_profile_cutlass_gemm_rcr_f32(
+    const float* a,
+    const float* b,
+    float* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream);

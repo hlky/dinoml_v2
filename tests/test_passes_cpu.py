@@ -181,9 +181,46 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert sorted(families) == ["gemm_rcr", "gemm_rrr"]
     assert families["gemm_rcr"]["provider"] == "cutlass"
     assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
+    assert families["gemm_rcr"]["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
+    assert families["gemm_rrr"]["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f32"
     assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
+
+
+def test_gemm_kernel_manifest_uses_cutlass_external_library():
+    import dinoml as dml
+    from dinoml.lowering.ops import collect_generated_sources
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
+
+    assert sources["kernels"] == []
+    assert manifest["required_kernels"] == [
+        {
+            "op": "gemm_rrr",
+            "kernel_symbol": "dinoml_cutlass_gemm_rrr_f32",
+            "kernel_library": "cutlass_gemm",
+            "profiler_symbol": "dinoml_profile_cutlass_gemm_rrr_f32",
+            "has_profiler": True,
+        }
+    ]
+    assert plan.kernel_symbols == ("dinoml_cutlass_gemm_rrr_f32",)
+    assert plan.profiler_symbols == ("dinoml_profile_cutlass_gemm_rrr_f32",)
+    assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
+    assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

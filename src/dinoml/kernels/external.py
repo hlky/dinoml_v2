@@ -35,8 +35,8 @@ CUTLASS_GEMM_FAMILIES = (
         provider="cutlass",
         family="gemm_universal",
         required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol="profile_cutlass_gemm_rcr",
-        kernel_symbol="launch_cutlass_gemm_rcr",
+        profiler_symbol="dinoml_profile_cutlass_gemm_rcr_f32",
+        kernel_symbol="dinoml_cutlass_gemm_rcr_f32",
         attrs={"a_layout": "row", "b_layout": "column", "c_layout": "row", "epilogue": "linear_combination"},
     ),
     ExternalKernelFamily(
@@ -45,8 +45,8 @@ CUTLASS_GEMM_FAMILIES = (
         provider="cutlass",
         family="gemm_universal",
         required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol="profile_cutlass_gemm_rrr",
-        kernel_symbol="launch_cutlass_gemm_rrr",
+        profiler_symbol="dinoml_profile_cutlass_gemm_rrr_f32",
+        kernel_symbol="dinoml_cutlass_gemm_rrr_f32",
         attrs={"a_layout": "row", "b_layout": "row", "c_layout": "row", "epilogue": "linear_combination"},
     ),
 )

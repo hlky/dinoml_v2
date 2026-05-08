@@ -235,7 +235,10 @@ kept scalar and portable for now.
 
 The next foundations to settle before broad op porting are:
 
-- richer target/backend registry beyond the current `dinoml.backends.Target`
+- richer backend capability metadata for profilers, external libraries, layout
+  support, and future ROCm/Metal/Vulkan parity. V2 now has a typed
+  `BackendSpec` registry for CPU/CUDA target defaults, dtype validation, support
+  libraries, and build dispatch.
 - runtime/container contract for allocators, graph mode, metadata,
   output-shape reporting, and externally supplied shape buffers. V2 now exposes
   `dino_session_set_stream(DinoSession*, void*)`; CUDA generated modules store a

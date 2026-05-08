@@ -26,9 +26,11 @@ porting. It intentionally excludes the op inventory, which lives in
   and profiling contracts should grow before op-specific runtime
   assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
-  contexts and CUDA/ROCm target definitions. V2 now keeps `Target` under
-  `dinoml.backends`, but still needs a richer backend registry and capability
-  model.
+  contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
+  `BackendSpec` registry for target defaults, dtype validation, support
+  libraries, and build dispatch. Missing pieces: richer backend capability
+  metadata for profiler generation, external-library availability, layout
+  support, and future ROCm/Metal/Vulkan parity.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests and codegen-plan
   hooks, but no profiler runner or persistent result cache.

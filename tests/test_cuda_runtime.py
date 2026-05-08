@@ -281,6 +281,11 @@ class DynamicConstantBias(dml.Module):
         return dml.ops.output(x + self.bias, "y")
 
 
+class DirectIdentityModel(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(x, "y")
+
+
 def test_cuda_runtime_supports_dynamic_shapes(tmp_path):
     constants = {
         "scale": np.array([0.5, -1.0, 2.0, 0.25], dtype=np.float32),
@@ -355,6 +360,24 @@ def test_cuda_runtime_set_constant_accepts_dynamic_shape(tmp_path):
         module.close()
 
     np.testing.assert_allclose(actual, x + bias, atol=1e-5, rtol=1e-5)
+
+
+def test_cuda_runtime_materializes_direct_input_output(tmp_path):
+    spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="direct_identity_cuda")
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "direct_identity_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "cudaMemcpyAsync(outputs[0].data" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x = np.arange(6, dtype=np.float32).reshape(2, 3)
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(actual, x)
 
 
 def test_cuda_runtime_supports_dynamic_generic_broadcast(tmp_path):

@@ -135,6 +135,9 @@ View-only ops such as `identity`, `reshape`, `flatten`, `squeeze`, and
 `unsqueeze` must not lower as empty kernels that leave public output buffers
 stale. They produce an alias: one tensor name refers to the same storage as
 another tensor name with a shape-only reinterpretation.
+Directly returning an input or constant as a public output is normalized to the
+same identity-alias metadata during tracing, so generated wrappers keep separate
+ABI input and output bindings.
 
 The authoring IR records these relationships under `metadata.views`:
 

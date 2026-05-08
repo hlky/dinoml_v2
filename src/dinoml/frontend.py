@@ -297,18 +297,28 @@ class GraphBuilder:
 
     def to_ir(self, outputs: Sequence[Tensor]) -> Dict[str, Any]:
         output_infos = []
+        aliased_output_tensors: set[str] = set()
+        input_tensors = {item["tensor"] for item in self.inputs}
+        constant_tensors = {item["tensor"] for item in self.constants}
+        view_tensors = {view["tensor"] for view in self.views}
         for idx, tensor in enumerate(outputs):
             output_name = tensor.output_name or f"output_{idx}"
+            output_tensor = tensor
+            if tensor.name in input_tensors or tensor.name in constant_tensors or tensor.name in aliased_output_tensors:
+                if tensor.name in view_tensors:
+                    raise NotImplementedError("Duplicate public outputs of view aliases are not supported yet")
+                output_tensor = self._add_public_output_alias(tensor)
+            aliased_output_tensors.add(output_tensor.name)
             output_infos.append(
                 {
                     "name": output_name,
-                    "tensor": tensor.name,
-                    "shape": tensor.shape,
-                    "shape_spec": tensor.shape_spec,
-                    "dtype": tensor.dtype,
+                    "tensor": output_tensor.name,
+                    "shape": output_tensor.shape,
+                    "shape_spec": output_tensor.shape_spec,
+                    "dtype": output_tensor.dtype,
                 }
             )
-            self.tensors[tensor.name]["kind"] = "output"
+            self.tensors[output_tensor.name]["kind"] = "output"
 
         metadata = _shape_metadata([*self.inputs, *self.constants, *output_infos, *self.tensors.values()])
         if self.views:
@@ -324,6 +334,23 @@ class GraphBuilder:
             "tensors": list(self.tensors.values()),
             "metadata": metadata,
         }
+
+    def _add_public_output_alias(self, source: Tensor) -> Tensor:
+        output_name = self._new_tensor_name()
+        tensor = Tensor(output_name, shape=source.shape, dtype=source.dtype, builder=self, shape_spec=source.shape_spec)
+        self.tensors[output_name] = _tensor_info(tensor)
+        self.views.append(
+            {
+                "tensor": output_name,
+                "source": source.name,
+                "kind": "shape_view",
+                "transform": "identity",
+                "offset_elements": 0,
+                "shape": list(tensor.shape),
+                "shape_spec": list(tensor.shape_spec),
+            }
+        )
+        return tensor
 
     def _new_tensor_name(self) -> str:
         while True:

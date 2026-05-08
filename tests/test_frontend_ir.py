@@ -133,6 +133,26 @@ def test_compile_accepts_dynamic_runtime_metadata(tmp_path):
     assert artifact.path.exists()
 
 
+def test_direct_input_output_is_normalized_to_shape_view_alias():
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([2, 3])}, name="direct_identity")
+
+    assert spec.ir["nodes"] == []
+    assert spec.ir["outputs"][0]["name"] == "y"
+    assert spec.ir["outputs"][0]["tensor"] != "x"
+    views = spec.ir["metadata"]["views"]["views"]
+    assert views == [
+        {
+            "tensor": spec.ir["outputs"][0]["tensor"],
+            "source": "x",
+            "kind": "shape_view",
+            "transform": "identity",
+            "offset_elements": 0,
+            "shape": [2, 3],
+            "shape_spec": [2, 3],
+        }
+    ]
+
+
 def test_shape_view_ops_emit_metadata_without_nodes():
     spec = dml.trace(
         ShapeViewOps(),

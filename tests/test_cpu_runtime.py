@@ -67,6 +67,11 @@ class AddZeroModel(dml.Module):
         return dml.ops.output(x + 0.0, "y")
 
 
+class DirectIdentityModel(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(x, "y")
+
+
 def test_python_runtime_populates_dino_tensor_metadata():
     tensor, keepalive = runtime._make_dino_tensor(
         ctypes.c_void_p(0x1000),
@@ -149,6 +154,25 @@ def test_cpu_runtime_rejects_non_contiguous_abi_strides(tmp_path):
     finally:
         session.close()
         module.close()
+
+
+def test_cpu_runtime_materializes_direct_input_output(tmp_path):
+    spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="direct_identity_cpu")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "direct_identity_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "const float* ptr_" in generated
+    assert "std::memcpy(outputs[0].data" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x = np.arange(6, dtype=np.float32).reshape(2, 3)
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(actual, x)
 
 
 def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):

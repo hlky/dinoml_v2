@@ -120,8 +120,10 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert {family["op_name"] for family in manifest["families"]} == {
         "gemm_rcr",
         "gemm_rcr_bias",
+        "gemm_rcr_bias_relu",
         "gemm_rrr",
         "gemm_rrr_bias",
+        "gemm_rrr_bias_relu",
     }
     for family in manifest["families"]:
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
@@ -149,6 +151,16 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert bias_candidates[0]["epilogue"] == "bias"
     assert bias_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
     assert bias_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
+    bias_relu_candidates = [
+        candidate
+        for family in manifest["families"]
+        if family["op_name"] == "gemm_rcr_bias_relu"
+        for candidate in family["candidates_by_dtype"]["float32"]
+    ]
+    assert bias_relu_candidates[0]["epilogue"] == "bias_relu"
+    assert bias_relu_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
+    assert bias_relu_candidates[0]["epilogue_config"]["activation"] == "relu"
+    assert bias_relu_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -187,6 +199,12 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         "dinoml_cutlass_gemm_rcr_bias_f16",
         "dinoml_cutlass_gemm_rrr_bias_bf16",
         "dinoml_cutlass_gemm_rcr_bias_bf16",
+        "dinoml_cutlass_gemm_rrr_bias_relu_f32",
+        "dinoml_cutlass_gemm_rcr_bias_relu_f32",
+        "dinoml_cutlass_gemm_rrr_bias_relu_f16",
+        "dinoml_cutlass_gemm_rcr_bias_relu_f16",
+        "dinoml_cutlass_gemm_rrr_bias_relu_bf16",
+        "dinoml_cutlass_gemm_rcr_bias_relu_bf16",
     ):
         fn = getattr(dll, name)
         fn.argtypes = [
@@ -253,6 +271,21 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         assert err == 0
         torch.cuda.synchronize()
         torch.testing.assert_close(c_bias, a @ b_rcr.t() + bias, atol=atol, rtol=rtol)
+
+        c_bias_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_relu_{suffix}")(
+            ctypes.c_void_p(a.data_ptr()),
+            ctypes.c_void_p(b_rcr.data_ptr()),
+            ctypes.c_void_p(bias.data_ptr()),
+            ctypes.c_void_p(c_bias_relu.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_bias_relu, torch.relu(a @ b_rcr.t() + bias), atol=atol, rtol=rtol)
 
 
 def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path, monkeypatch):

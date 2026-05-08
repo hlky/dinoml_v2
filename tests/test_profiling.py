@@ -80,15 +80,22 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     assert workload.output_shape == (7, 11)
 
 
-def test_build_profile_workloads_supports_gemm_bias_epilogue():
+@pytest.mark.parametrize(
+    ("op_name", "epilogue"),
+    [
+        ("gemm_rcr_bias", "bias"),
+        ("gemm_rcr_bias_relu", "bias_relu"),
+    ],
+)
+def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
     spec = dml.trace(
-        GemmBiasModule("gemm_rcr_bias"),
+        GemmBiasModule(op_name),
         inputs={
             "a": dml.TensorSpec([7, 32], "float32"),
             "b": dml.TensorSpec([11, 32], "float32"),
             "bias": dml.TensorSpec([11], "float32"),
         },
-        name="profile_gemm_bias",
+        name=f"profile_{op_name}",
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
@@ -97,12 +104,13 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue():
 
     assert len(workloads) == 1
     workload = workloads[0]
-    assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rcr_bias_f32"
-    assert workload.candidate_set_id == "cutlass_gemm_rcr_bias_f32_bias_v1"
+    assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_f32"
+    assert workload.candidate_set_id == f"cutlass_{op_name}_f32_{epilogue}_v1"
     assert workload.bias_tensor == "bias"
     assert workload.bias_shape == (11,)
-    assert workload.candidate["epilogue"] == "bias"
+    assert workload.candidate["epilogue"] == epilogue
     assert workload.candidate["epilogue_config"]["inputs"] == ["bias"]
+    assert workload.candidate["epilogue_config"]["activation"] == ("relu" if epilogue == "bias_relu" else None)
     assert workload.to_json()["inputs"]["bias"] == [11]
 
 

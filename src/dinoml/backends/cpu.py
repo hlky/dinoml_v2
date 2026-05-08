@@ -51,7 +51,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias"}:
+        elif node["op"] in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias", "gemm_rrr_bias_relu", "gemm_rcr_bias_relu"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
@@ -196,15 +196,17 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
 def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     a = inputs[0]
     b = inputs[1]
-    if op in {"gemm_rrr", "gemm_rrr_bias"}:
+    if op in {"gemm_rrr", "gemm_rrr_bias", "gemm_rrr_bias_relu"}:
         result = np.matmul(a, b)
-    elif op in {"gemm_rcr", "gemm_rcr_bias"}:
+    elif op in {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_relu"}:
         result = np.matmul(a, np.swapaxes(b, -1, -2))
     else:
         raise ValueError(f"Unsupported GEMM op: {op}")
-    if op.endswith("_bias"):
+    if "_bias" in op:
         bias = np.reshape(inputs[2], [-1])
         result = result + bias
+    if op.endswith("_bias_relu"):
+        result = np.maximum(result, 0.0)
     return np.asarray(result, dtype=np.float32)
 
 

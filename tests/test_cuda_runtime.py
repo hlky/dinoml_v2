@@ -236,6 +236,8 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     [
         ("gemm_rrr_bias", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
         ("gemm_rcr_bias", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rrr_bias_relu", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rcr_bias_relu", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
     ],
 )
 def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
@@ -272,9 +274,11 @@ def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
 
     required = kernel_manifest["required_kernels"][0]
+    epilogue = "bias_relu" if op_name.endswith("_bias_relu") else "bias"
     assert required["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
-    assert required["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_bias_v1"
+    assert required["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_{epilogue}_v1"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
+    assert required["candidate_set"]["epilogue_config"]["name"] == epilogue
     assert required["candidates"][0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
     assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
 
@@ -282,7 +286,9 @@ def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
     a = torch.randn(a_shape, device="cuda", dtype=torch_dtype_obj)
     b = torch.randn(b_shape, device="cuda", dtype=torch_dtype_obj)
     bias = torch.randn((24,), device="cuda", dtype=torch_dtype_obj)
-    expected = a @ (b if op_name == "gemm_rrr_bias" else b.t()) + bias
+    expected = a @ (b if op_name.startswith("gemm_rrr") else b.t()) + bias
+    if op_name.endswith("_bias_relu"):
+        expected = torch.relu(expected)
 
     module = runtime.load(artifact.path)
     session = module.create_session()

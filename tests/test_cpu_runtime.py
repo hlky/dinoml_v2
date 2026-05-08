@@ -758,10 +758,16 @@ def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape, dtype, atol
     [
         ("gemm_rrr_bias", (4, 8), (8, 6), "float32", 1e-5, 1e-5),
         ("gemm_rcr_bias", (4, 8), (6, 8), "float32", 1e-5, 1e-5),
+        ("gemm_rrr_bias_relu", (4, 8), (8, 6), "float32", 1e-5, 1e-5),
+        ("gemm_rcr_bias_relu", (4, 8), (6, 8), "float32", 1e-5, 1e-5),
         ("gemm_rrr_bias", (4, 8), (8, 6), "float16", 2e-3, 2e-3),
         ("gemm_rcr_bias", (4, 8), (6, 8), "float16", 2e-3, 2e-3),
+        ("gemm_rrr_bias_relu", (4, 8), (8, 6), "float16", 2e-3, 2e-3),
+        ("gemm_rcr_bias_relu", (4, 8), (6, 8), "float16", 2e-3, 2e-3),
         ("gemm_rrr_bias", (4, 8), (8, 6), "bfloat16", 2e-2, 2e-2),
         ("gemm_rcr_bias", (4, 8), (6, 8), "bfloat16", 2e-2, 2e-2),
+        ("gemm_rrr_bias_relu", (4, 8), (8, 6), "bfloat16", 2e-2, 2e-2),
+        ("gemm_rcr_bias_relu", (4, 8), (6, 8), "bfloat16", 2e-2, 2e-2),
     ],
 )
 def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype, atol, rtol):
@@ -777,8 +783,11 @@ def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype,
     a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
     b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
     bias_reference = array_from_storage(array_to_storage(bias, dtype), dtype).astype(np.float32)
-    matmul = a_reference @ (b_reference if op_name == "gemm_rrr_bias" else b_reference.T)
-    expected = array_from_storage(array_to_storage(matmul + bias_reference, dtype), dtype)
+    matmul = a_reference @ (b_reference if op_name.startswith("gemm_rrr") else b_reference.T)
+    result = matmul + bias_reference
+    if op_name.endswith("_bias_relu"):
+        result = np.maximum(result, 0.0)
+    expected = array_from_storage(array_to_storage(result, dtype), dtype)
     actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 

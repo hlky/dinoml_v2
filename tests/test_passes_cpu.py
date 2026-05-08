@@ -178,7 +178,14 @@ def test_kernel_manifest_lists_required_unique_kernels():
 def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
     families = {family["op_name"]: family for family in plan["families"]}
-    assert sorted(families) == ["gemm_rcr", "gemm_rcr_bias", "gemm_rrr", "gemm_rrr_bias"]
+    assert sorted(families) == [
+        "gemm_rcr",
+        "gemm_rcr_bias",
+        "gemm_rcr_bias_relu",
+        "gemm_rrr",
+        "gemm_rrr_bias",
+        "gemm_rrr_bias_relu",
+    ]
     assert families["gemm_rcr"]["provider"] == "cutlass"
     assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
     assert families["gemm_rcr"]["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
@@ -191,6 +198,10 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rcr_bias"]["attrs"]["epilogue"] == "bias"
     assert families["gemm_rcr_bias"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
     assert families["gemm_rcr_bias"]["kernel_symbols_by_dtype"]["float32"] == "dinoml_cutlass_gemm_rcr_bias_f32"
+    assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue"] == "bias_relu"
+    assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue_config"]["activation"] == "relu"
+    assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
+    assert families["gemm_rcr_bias_relu"]["kernel_symbols_by_dtype"]["float32"] == "dinoml_cutlass_gemm_rcr_bias_relu_f32"
     rrr_f16_candidate = families["gemm_rrr"]["candidates_by_dtype"]["float16"][0]
     assert rrr_f16_candidate["candidate_id"] == "cutlass_default"
     assert rrr_f16_candidate["symbol_id"] == "default"

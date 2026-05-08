@@ -135,12 +135,15 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1
   `[N]` and rank-2 `[1, N]` bias contracts through CUTLASS launcher/profiler
   symbols for `float32`, `float16`, and `bfloat16`, with CPU reference coverage.
+- [x] First activation epilogue: `gemm_rcr_bias_relu` and
+  `gemm_rrr_bias_relu` use CUTLASS `LinearCombinationRelu` with the same bias
+  shape/dtype/runtime/profiler contracts as the bias-only GEMM ops.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: add/add-add/mul/mul-add and broader
   broadcast forms.
-- [ ] Activation epilogues: relu, gelu/fast-gelu, sigmoid, tanh, swish/silu,
-  hardswish, `elup1`, and compound sigmoid/mul/tanh forms.
+- [ ] Remaining activation epilogues: gelu/fast-gelu, sigmoid, tanh,
+  swish/silu, hardswish, `elup1`, and compound sigmoid/mul/tanh forms.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,
   `bmm_*_permute`, `perm021fc_*`, `perm102_bmm_*`.
 - [ ] Grouped GEMM: `group_gemm_rcr*`.

@@ -15,22 +15,6 @@ from dinoml.kernels.gemm import (
 from dinoml.ops.registry import FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
 
 
-def gemm_rrr(a: object, b: object) -> Tensor:
-    return _gemm("gemm_rrr", a, b)
-
-
-def gemm_rcr(a: object, b: object) -> Tensor:
-    return _gemm("gemm_rcr", a, b)
-
-
-def gemm_rrr_bias(a: object, b: object, bias: object) -> Tensor:
-    return _gemm("gemm_rrr_bias", a, b, bias)
-
-
-def gemm_rcr_bias(a: object, b: object, bias: object) -> Tensor:
-    return _gemm("gemm_rcr_bias", a, b, bias)
-
-
 def infer_gemm_rrr(shapes: Sequence[Sequence[int]]) -> list[int]:
     return gemm_op_spec("gemm_rrr").validate_shapes(shapes)
 
@@ -45,6 +29,14 @@ def infer_gemm_rrr_bias(shapes: Sequence[Sequence[int]]) -> list[int]:
 
 def infer_gemm_rcr_bias(shapes: Sequence[Sequence[int]]) -> list[int]:
     return gemm_op_spec("gemm_rcr_bias").validate_shapes(shapes)
+
+
+def infer_gemm_rrr_bias_relu(shapes: Sequence[Sequence[int]]) -> list[int]:
+    return gemm_op_spec("gemm_rrr_bias_relu").validate_shapes(shapes)
+
+
+def infer_gemm_rcr_bias_relu(shapes: Sequence[Sequence[int]]) -> list[int]:
+    return gemm_op_spec("gemm_rcr_bias_relu").validate_shapes(shapes)
 
 
 def register_gemm_ops(registry: OpRegistry) -> None:
@@ -90,6 +82,25 @@ def _gemm(op_name: str, a: object, b: object, bias: object | None = None) -> Ten
     return a_tensor.builder.emit(op_name, tensors, out_shape, a_tensor.dtype, {}, shape_spec=out_shape_spec)
 
 
+def _make_gemm_frontend(op_name: str):
+    spec = gemm_op_spec(op_name)
+
+    def _frontend(a: object, b: object, *epilogue_inputs: object) -> Tensor:
+        expected_epilogue_inputs = spec.input_count - 2
+        if len(epilogue_inputs) != expected_epilogue_inputs:
+            raise ValueError(f"{op_name} expects {spec.input_count} inputs, got {2 + len(epilogue_inputs)}")
+        bias = epilogue_inputs[0] if spec.epilogue.has_bias else None
+        return _gemm(op_name, a, b, bias)
+
+    _frontend.__name__ = op_name
+    _frontend.__qualname__ = op_name
+    return _frontend
+
+
+GEMM_FRONTEND_OPS = {op_name: _make_gemm_frontend(op_name) for op_name in GEMM_OPS}
+globals().update(GEMM_FRONTEND_OPS)
+
+
 def _cutlass_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
     return {
         dtype: KernelVariant(
@@ -117,5 +128,10 @@ def _infer_shape_fn(op_name: str):
 def _description(op_name: str) -> str:
     spec = gemm_op_spec(op_name)
     rhs = "row-major B[K,N]" if spec.base_layout == "rrr" else "column-major-logical B[N,K]"
-    epilogue = "with fused bias epilogue" if spec.epilogue.has_bias else "with linear-combination epilogue"
+    if spec.epilogue.activation:
+        epilogue = f"with fused bias+{spec.epilogue.activation} epilogue"
+    elif spec.epilogue.has_bias:
+        epilogue = "with fused bias epilogue"
+    else:
+        epilogue = "with linear-combination epilogue"
     return f"CUTLASS-backed rank-2 GEMM: row-major A[M,K], {rhs}, row-major C[M,N], {epilogue}."

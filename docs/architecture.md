@@ -160,13 +160,15 @@ cached by manifest key.
 
 The first CUTLASS path is concrete but still intentionally compact:
 `dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
-real CUTLASS `gemm_rcr`, `gemm_rrr`, `gemm_rcr_bias`, and `gemm_rrr_bias`
-launchers plus profiler entrypoints for `float32`, `float16`, and `bfloat16`.
+real CUTLASS `gemm_rcr`, `gemm_rrr`, `gemm_rcr_bias`, `gemm_rrr_bias`,
+`gemm_rcr_bias_relu`, and `gemm_rrr_bias_relu` launchers plus profiler
+entrypoints for `float32`, `float16`, and `bfloat16`.
 Public `dml.ops.gemm_*` lower into dtype-resolved calls to that support library,
 so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
 without embedding a handwritten matmul. These ops preserve dynamic `M/N`
 metadata and launch with runtime `M/N/K`; the bias epilogue accepts a rank-1
-`N` bias or rank-2 `[1, N]` bias. Richer activation epilogues, generated
+`N` bias or rank-2 `[1, N]` bias, and the first activation epilogue uses
+CUTLASS `LinearCombinationRelu`. Richer activation epilogues, generated
 multi-candidate CUTLASS sets, and public `matmul` layout selection remain
 follow-up work.
 

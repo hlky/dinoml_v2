@@ -136,6 +136,16 @@ class GemmRCRBiasModule(dml.Module):
         return dml.ops.output(dml.ops.gemm_rcr_bias(a, b, bias), "y")
 
 
+class GemmRRRBiasReluModule(dml.Module):
+    def forward(self, a, b, bias):
+        return dml.ops.output(dml.ops.gemm_rrr_bias_relu(a, b, bias), "y")
+
+
+class GemmRCRBiasReluModule(dml.Module):
+    def forward(self, a, b, bias):
+        return dml.ops.output(dml.ops.gemm_rcr_bias_relu(a, b, bias), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -274,6 +284,8 @@ def test_gemm_frontend_emits_explicit_layout_ops():
     [
         (GemmRRRBiasModule(), [8, 6], "gemm_rrr_bias"),
         (GemmRCRBiasModule(), [6, 8], "gemm_rcr_bias"),
+        (GemmRRRBiasReluModule(), [8, 6], "gemm_rrr_bias_relu"),
+        (GemmRCRBiasReluModule(), [6, 8], "gemm_rcr_bias_relu"),
     ],
 )
 def test_gemm_bias_frontend_emits_epilogue_ops(module, b_shape, op_name):

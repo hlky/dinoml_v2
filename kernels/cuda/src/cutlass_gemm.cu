@@ -68,6 +68,14 @@ using BiasEpilogue = cutlass::epilogue::thread::LinearCombination<
     float,
     cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
 
+template <typename Element, typename ElementAccumulator = float>
+using BiasReluEpilogue = cutlass::epilogue::thread::LinearCombinationRelu<
+    Element,
+    1,
+    ElementAccumulator,
+    float,
+    cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
+
 template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp>
 int launch_gemm_bias(
     Storage const* a,
@@ -346,6 +354,90 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_bf16(
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, stream);
 }
 
+extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f32(
+    float const* a,
+    float const* b,
+    float const* bias,
+    float* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<float, float, cutlass::layout::RowMajor, BiasReluEpilogue<float>>(
+      a, b, bias, c, m, n, k, n, stream);
+}
+
+extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f32(
+    float const* a,
+    float const* b,
+    float const* bias,
+    float* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<float, float, cutlass::layout::ColumnMajor, BiasReluEpilogue<float>>(
+      a, b, bias, c, m, n, k, k, stream);
+}
+
+extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f16(
+    half const* a,
+    half const* b,
+    half const* bias,
+    half* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<half, cutlass::half_t, cutlass::layout::RowMajor, BiasReluEpilogue<cutlass::half_t>>(
+      a, b, bias, c, m, n, k, n, stream);
+}
+
+extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f16(
+    half const* a,
+    half const* b,
+    half const* bias,
+    half* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<half, cutlass::half_t, cutlass::layout::ColumnMajor, BiasReluEpilogue<cutlass::half_t>>(
+      a, b, bias, c, m, n, k, k, stream);
+}
+
+extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_bf16(
+    __nv_bfloat16 const* a,
+    __nv_bfloat16 const* b,
+    __nv_bfloat16 const* bias,
+    __nv_bfloat16* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<
+      __nv_bfloat16,
+      cutlass::bfloat16_t,
+      cutlass::layout::RowMajor,
+      BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, stream);
+}
+
+extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_bf16(
+    __nv_bfloat16 const* a,
+    __nv_bfloat16 const* b,
+    __nv_bfloat16 const* bias,
+    __nv_bfloat16* c,
+    int m,
+    int n,
+    int k,
+    cudaStream_t stream) {
+  return launch_gemm_bias<
+      __nv_bfloat16,
+      cutlass::bfloat16_t,
+      cutlass::layout::ColumnMajor,
+      BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, stream);
+}
+
 extern "C" float dinoml_profile_cutlass_gemm_rrr_f32(
     float const* a,
     float const* b,
@@ -508,4 +600,94 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_bf16(
       cutlass::bfloat16_t,
       cutlass::layout::ColumnMajor,
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f32(
+    float const* a,
+    float const* b,
+    float const* bias,
+    float* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<float, float, cutlass::layout::RowMajor, BiasReluEpilogue<float>>(
+      a, b, bias, c, m, n, k, n, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f32(
+    float const* a,
+    float const* b,
+    float const* bias,
+    float* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<float, float, cutlass::layout::ColumnMajor, BiasReluEpilogue<float>>(
+      a, b, bias, c, m, n, k, k, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f16(
+    half const* a,
+    half const* b,
+    half const* bias,
+    half* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<half, cutlass::half_t, cutlass::layout::RowMajor, BiasReluEpilogue<cutlass::half_t>>(
+      a, b, bias, c, m, n, k, n, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f16(
+    half const* a,
+    half const* b,
+    half const* bias,
+    half* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<half, cutlass::half_t, cutlass::layout::ColumnMajor, BiasReluEpilogue<cutlass::half_t>>(
+      a, b, bias, c, m, n, k, k, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_bf16(
+    __nv_bfloat16 const* a,
+    __nv_bfloat16 const* b,
+    __nv_bfloat16 const* bias,
+    __nv_bfloat16* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<
+      __nv_bfloat16,
+      cutlass::bfloat16_t,
+      cutlass::layout::RowMajor,
+      BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, iterations, stream);
+}
+
+extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_bf16(
+    __nv_bfloat16 const* a,
+    __nv_bfloat16 const* b,
+    __nv_bfloat16 const* bias,
+    __nv_bfloat16* c,
+    int m,
+    int n,
+    int k,
+    int iterations,
+    cudaStream_t stream) {
+  return profile_gemm_bias<
+      __nv_bfloat16,
+      cutlass::bfloat16_t,
+      cutlass::layout::ColumnMajor,
+      BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, iterations, stream);
 }

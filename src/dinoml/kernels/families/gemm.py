@@ -107,6 +107,14 @@ BIAS_EPILOGUE = GemmEpilogue(
     bias_axis="n",
     launch_abi="dinoml_cutlass_gemm_bias_v1",
 )
+BIAS_RELU_EPILOGUE = GemmEpilogue(
+    name="bias_relu",
+    cutlass_functor="cutlass::epilogue::thread::LinearCombinationRelu",
+    inputs=("bias",),
+    activation="relu",
+    bias_axis="n",
+    launch_abi="dinoml_cutlass_gemm_bias_v1",
+)
 
 
 GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
@@ -133,6 +141,18 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
         base_layout="rrr",
         layouts={"a": "row", "b": "row", "c": "row"},
         epilogue=BIAS_EPILOGUE,
+    ),
+    "gemm_rcr_bias_relu": GemmOpSpec(
+        name="gemm_rcr_bias_relu",
+        base_layout="rcr",
+        layouts={"a": "row", "b": "column", "c": "row"},
+        epilogue=BIAS_RELU_EPILOGUE,
+    ),
+    "gemm_rrr_bias_relu": GemmOpSpec(
+        name="gemm_rrr_bias_relu",
+        base_layout="rrr",
+        layouts={"a": "row", "b": "row", "c": "row"},
+        epilogue=BIAS_RELU_EPILOGUE,
     ),
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)

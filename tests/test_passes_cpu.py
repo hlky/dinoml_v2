@@ -5,7 +5,7 @@ from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.manifest import build_external_kernel_plan, build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
@@ -159,6 +159,17 @@ def test_kernel_manifest_lists_required_unique_kernels():
     plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
     assert plan.profiler_symbols == ()
     assert plan.support_cache_dir.name == manifest["support_cache_key"][:16]
+
+
+def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
+    plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
+    families = {family["op_name"]: family for family in plan["families"]}
+    assert sorted(families) == ["gemm_rcr", "gemm_rrr"]
+    assert families["gemm_rcr"]["provider"] == "cutlass"
+    assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
+    assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
+    assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
+    assert len(plan["cache_key"]) == 64
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

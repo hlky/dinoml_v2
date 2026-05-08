@@ -110,6 +110,13 @@ large raw string in generated source. Fixed reusable kernels and future
 CUTLASS/CK/CUB profiler libraries stay in shared support libraries and are
 cached by manifest key.
 
+The first CUTLASS path is concrete but narrow: `dinoml.backends.cutlass`
+generates a cached `libdinoml_cutlass_gemm.so` with real float32 CUTLASS
+`gemm_rcr` and `gemm_rrr` launchers plus profiler entrypoints. The support
+library is built once per CUDA arch/cache key and is separate from generated
+model wrappers. Public GEMM should wire into that support library and its profile
+cache; it should not compile a handwritten matmul into each artifact.
+
 Common runtime helper code used by generated modules lives in C++ headers under
 `runtime/include/dinoml/`, so the Jinja2 templates only carry the model-specific
 ABI structs, constants, pointer binding, and launch sequence.

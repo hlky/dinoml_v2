@@ -1,6 +1,10 @@
 import pytest
+import shutil
+import ctypes
 
 import dinoml as dml
+from dinoml.backends.cuda_libraries import discover_cuda_libraries
+from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import read_json
 
@@ -55,6 +59,90 @@ def test_backend_registry_describes_cpu_and_cuda_support():
 def test_backend_registry_build_functions_resolve_to_callables():
     assert get_backend_spec("cpu").resolve_build_function().__name__ == "build_cpu_module"
     assert get_backend_spec("cuda").resolve_build_function().__name__ == "build_cuda_module"
+
+
+def test_cuda_library_discovery_reports_expected_keys():
+    libraries = discover_cuda_libraries()
+    assert sorted(libraries) == ["cub", "cublaslt", "cuda", "cudnn", "cutlass"]
+    for library in libraries.values():
+        payload = library.to_json()
+        assert payload["name"] == library.name
+        assert isinstance(payload["available"], bool)
+        assert isinstance(payload["include_roots"], list)
+    assert libraries["cutlass"].headers == ("cutlass/gemm/device/gemm_universal.h",)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
+    libraries = discover_cuda_libraries()
+    if not libraries["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass")
+
+    assert support.library.exists()
+    assert support.source.exists()
+    assert support.manifest.exists()
+    manifest = read_json(support.manifest)
+    assert manifest["provider"] == "cutlass"
+    assert {family["op_name"] for family in manifest["families"]} == {"gemm_rcr", "gemm_rrr"}
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass-run")
+    dll = ctypes.CDLL(str(support.library))
+    for name in ("dinoml_cutlass_gemm_rrr_f32", "dinoml_cutlass_gemm_rcr_f32"):
+        fn = getattr(dll, name)
+        fn.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+        ]
+        fn.restype = ctypes.c_int
+
+    torch.manual_seed(7)
+    a = torch.randn((16, 32), device="cuda", dtype=torch.float32)
+    b_rrr = torch.randn((32, 24), device="cuda", dtype=torch.float32)
+    c_rrr = torch.empty((16, 24), device="cuda", dtype=torch.float32)
+    err = dll.dinoml_cutlass_gemm_rrr_f32(
+        ctypes.c_void_p(a.data_ptr()),
+        ctypes.c_void_p(b_rrr.data_ptr()),
+        ctypes.c_void_p(c_rrr.data_ptr()),
+        ctypes.c_int(16),
+        ctypes.c_int(24),
+        ctypes.c_int(32),
+        ctypes.c_void_p(0),
+    )
+    assert err == 0
+    torch.cuda.synchronize()
+    torch.testing.assert_close(c_rrr, a @ b_rrr, atol=1e-4, rtol=1e-4)
+
+    b_rcr = torch.randn((24, 32), device="cuda", dtype=torch.float32)
+    c_rcr = torch.empty((16, 24), device="cuda", dtype=torch.float32)
+    err = dll.dinoml_cutlass_gemm_rcr_f32(
+        ctypes.c_void_p(a.data_ptr()),
+        ctypes.c_void_p(b_rcr.data_ptr()),
+        ctypes.c_void_p(c_rcr.data_ptr()),
+        ctypes.c_int(16),
+        ctypes.c_int(24),
+        ctypes.c_int(32),
+        ctypes.c_void_p(0),
+    )
+    assert err == 0
+    torch.cuda.synchronize()
+    torch.testing.assert_close(c_rcr, a @ b_rcr.t(), atol=1e-4, rtol=1e-4)
 
 
 def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path, monkeypatch):

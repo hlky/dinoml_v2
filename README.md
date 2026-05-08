@@ -66,6 +66,7 @@ platforms, and it can be disabled with `-DDINOML_ENABLE_OPENMP=OFF`.
 ## Development
 
 ```sh
+git submodule update --init --recursive
 pip install -e ".[dev]"
 python -m pytest -q
 python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda

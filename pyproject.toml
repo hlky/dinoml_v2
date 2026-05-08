@@ -23,3 +23,6 @@ validate = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+norecursedirs = ["third_party", "tmp", "build", "dist", ".git"]

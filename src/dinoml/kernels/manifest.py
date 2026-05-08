@@ -4,6 +4,7 @@ import hashlib
 from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
+from dinoml.kernels.external import external_kernel_families
 from dinoml.ops.definitions import get_op_def
 
 
@@ -67,3 +68,19 @@ def build_support_manifest(
     }
     manifest["cache_key"] = hashlib.sha256(canonical_json(manifest).encode("utf-8")).hexdigest()
     return manifest
+
+
+def build_external_kernel_plan(target: Mapping[str, str]) -> dict[str, Any]:
+    target_name = target["name"]
+    families = [family.to_json() for family in external_kernel_families(backend=target_name)]
+    plan = {
+        "schema_version": KERNEL_MANIFEST_SCHEMA_VERSION,
+        "kernel_abi_version": KERNEL_ABI_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": dict(target),
+        "families": families,
+        "codegen_strategy": "external_library_candidates",
+        "profiler_strategy": "generate_used_candidates_once_then_cache_results",
+    }
+    plan["cache_key"] = hashlib.sha256(canonical_json(plan).encode("utf-8")).hexdigest()
+    return plan

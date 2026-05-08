@@ -10,6 +10,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import canonical_json, dtype_nbytes
+from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME
 
@@ -59,11 +60,9 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
 def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
-    if target == "cpu" and output_dtype != "float32":
-        raise NotImplementedError("CPU fused_elementwise lowering currently supports only float32")
     func = _function_name(node)
-    storage_type = _cpp_storage_type(output_dtype)
-    compute_type = _compute_type(output_dtype, node)
+    storage_type = _storage_type(output_dtype, target=target)
+    compute_type = _compute_type(output_dtype, node, target=target)
     storage_alias = f"{func}_storage_t"
     compute_alias = f"{func}_compute_t"
     inputs = _inputs(node, tensor_map, output_shape)
@@ -497,9 +496,11 @@ def _cuda_vector_type(dtype: str, vector_bytes: int) -> str:
     raise ValueError(f"Unsupported CUDA raw vector byte width: {vector_bytes}")
 
 
-def _compute_type(dtype: str, node: Mapping[str, Any]) -> str:
+def _compute_type(dtype: str, node: Mapping[str, Any], *, target: str) -> str:
     policy = str(node.get("attrs", {}).get("accumulation", os.environ.get("DINOML_ELEMENTWISE_ACCUM", "auto"))).lower()
-    storage_type = _cpp_storage_type(dtype)
+    storage_type = _storage_type(dtype, target=target)
+    if target == "cpu" and dtype in {"float16", "bfloat16"}:
+        return "float"
     if policy in {"storage", "native"}:
         return storage_type
     if policy in {"fp32", "float32"}:
@@ -511,14 +512,12 @@ def _compute_type(dtype: str, node: Mapping[str, Any]) -> str:
     return storage_type
 
 
-def _cpp_storage_type(dtype: str) -> str:
-    if dtype == "float32":
-        return "float"
-    if dtype == "float16":
-        return "half"
-    if dtype == "bfloat16":
-        return "__nv_bfloat16"
-    raise NotImplementedError(f"fused_elementwise lowering does not support dtype {dtype!r}")
+def _storage_type(dtype: str, *, target: str) -> str:
+    if target == "cpu":
+        return cpu_storage_type(dtype)
+    if target == "cuda":
+        return cuda_storage_type(dtype)
+    raise ValueError(f"Unsupported fused_elementwise target: {target}")
 
 
 def _render_template(name: str, context: Mapping[str, Any]) -> str:

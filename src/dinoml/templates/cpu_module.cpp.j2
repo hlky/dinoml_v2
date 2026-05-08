@@ -21,7 +21,7 @@ struct DinoModule {
   std::string artifact_dir;
   std::string metadata_json;
 {% for constant in constants %}
-  std::vector<float> const_{{ constant.ident }};
+  std::vector<{{ constant.storage_type }}> const_{{ constant.ident }};
   std::vector<int64_t> const_shape_{{ constant.ident }};
   bool const_{{ constant.ident }}_loaded = false;
 {% endfor %}
@@ -32,7 +32,7 @@ struct DinoSession {
   std::vector<std::vector<int64_t>> last_output_shapes;
   std::vector<bool> last_output_shapes_valid;
 {% for temp in temporaries %}
-  std::vector<float> tmp_{{ temp.ident }};
+  std::vector<{{ temp.storage_type }}> tmp_{{ temp.ident }};
 {% endfor %}
 {% for shape in shape_buffers %}
   std::vector<int64_t> shape_{{ shape.ident }};

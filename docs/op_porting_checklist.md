@@ -49,10 +49,11 @@ These should be reusable building blocks. They generally map to `torch` or
   promotion, and exhaustive edge-case tests.
 - [x] `fused_elementwise`: connected registered unary/binary elementwise
   subgraphs lower to model-generated CPU/CUDA kernels that call
-  `dinoml::math::<name>` helpers. CUDA supports float32, float16, and bfloat16
-  storage, optional fp32 accumulation, vectorized dense paths, and runtime shape
-  buffers for generic broadcasting. Multi-output same-shape metadata is
-  represented; broader tests and v1-style jagged codegen remain.
+  `dinoml::math::<name>` helpers. CPU and CUDA support float32, float16, and
+  bfloat16 storage; CUDA has optional fp32 accumulation and vectorized dense
+  paths, while CPU reduced precision always computes in fp32 for now. Runtime
+  shape buffers support generic broadcasting. Multi-output same-shape metadata
+  is represented; broader tests and v1-style jagged codegen remain.
 - [ ] `int_elementwise`: `ADD`, `SUB`, `MUL`, `DIV` for symbolic integer math.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,

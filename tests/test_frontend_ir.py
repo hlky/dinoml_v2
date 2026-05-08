@@ -212,10 +212,10 @@ def test_simple_dynamic_shape_views_preserve_shape_spec():
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
-def test_compile_rejects_unimplemented_cpu_runtime_dtype(tmp_path, dtype):
+def test_compile_accepts_reduced_precision_cpu_runtime_dtype(tmp_path, dtype):
     spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([1, 16], dtype)}, name=f"{dtype}_identity")
-    with pytest.raises(NotImplementedError, match="cpu runtime supports dtypes"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / f"{dtype}_identity.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{dtype}_identity.dinoml")
+    assert artifact.path.exists()
 
 
 @pytest.mark.parametrize(

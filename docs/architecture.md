@@ -78,7 +78,7 @@ Current dtype support matrix:
 
 | Surface | float32 | float16 | bfloat16 |
 | --- | --- | --- | --- |
-| CPU compiled runtime | yes | no | no |
+| CPU fused-elementwise runtime | yes | yes | yes |
 | CPU reference executor | yes | storage/reference only | storage/reference only |
 | CUDA fused-elementwise runtime | yes | yes | yes |
 | CUDA `run_numpy` host staging | yes | yes | yes, stored as uint16 and returned as float32 |
@@ -89,9 +89,10 @@ Current dtype support matrix:
 
 CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
 default for fp16/bf16; the op may opt into native storage accumulation through
-its lowering attributes or the development override used by benchmarks. The CPU
-compiled runtime intentionally rejects reduced-precision dtypes until the C++
-kernel path has typed storage and vectorized conversion helpers.
+its lowering attributes or the development override used by benchmarks. CPU
+fused-elementwise uses fp16/bf16 storage wrappers and fp32 compute by design;
+native reduced-precision CPU arithmetic is intentionally not exposed until the
+wrapper types gain explicit operators and vectorized conversion helpers.
 
 ## Kernel and Profiler Readiness
 

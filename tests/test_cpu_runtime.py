@@ -6,7 +6,15 @@ import pytest
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import IR_SCHEMA_VERSION, RUNTIME_ABI_VERSION, ModelSpec, dtype_runtime_enum, read_json
+from dinoml.ir import (
+    IR_SCHEMA_VERSION,
+    RUNTIME_ABI_VERSION,
+    ModelSpec,
+    array_from_storage,
+    array_to_storage,
+    dtype_runtime_enum,
+    read_json,
+)
 
 
 class DynamicChannelBias(dml.Module):
@@ -70,6 +78,23 @@ class AddZeroModel(dml.Module):
 class DirectIdentityModel(dml.Module):
     def forward(self, x):
         return dml.ops.output(x, "y")
+
+
+class DTypeFusedElementwise(dml.Module):
+    def __init__(self, dtype: str):
+        self.scale = dml.Parameter([4], dtype=dtype)
+        self.bias = dml.Parameter([4], dtype=dtype)
+
+    def forward(self, x):
+        y = dml.ops.mul(x, self.scale)
+        y = dml.ops.add(y, self.bias)
+        y = dml.ops.relu(y)
+        y = dml.ops.mul(y, 0.5)
+        return dml.ops.output(y, "y")
+
+
+def _storage_roundtrip(value, dtype: str):
+    return array_from_storage(array_to_storage(value, dtype), dtype)
 
 
 def test_python_runtime_populates_dino_tensor_metadata():
@@ -175,6 +200,28 @@ def test_cpu_runtime_materializes_direct_input_output(tmp_path):
     np.testing.assert_array_equal(actual, x)
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_cpu_runtime_materializes_reduced_precision_direct_input_output(tmp_path, dtype):
+    spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], dtype)}, name=f"direct_identity_{dtype}_cpu")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"direct_identity_{dtype}_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert ("dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16") in generated
+    assert "std::memcpy(outputs[0].data" in generated
+
+    x = np.array([[-2.25, -1.0, 0.0], [1.125, 2.5, 3.75]], dtype=np.float32)
+    expected = _storage_roundtrip(x, dtype)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    assert actual.dtype == expected.dtype
+    np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=0, rtol=0)
+
+
 def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     from tests.models.fused_elementwise import build_spec, build_validation_inputs
 
@@ -218,6 +265,50 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
 
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(zeroed["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [
+        ("float16", 2e-3, 2e-3),
+        ("bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_generated_fused_elementwise_supports_reduced_precision(tmp_path, dtype, atol, rtol):
+    compile_constants = {
+        "scale": np.array([0.5, -1.0, 2.0, 0.25], dtype=np.float32),
+        "bias": np.array([0.1, 0.2, -0.3, 0.4], dtype=np.float32),
+    }
+    runtime_constants = {
+        "scale": np.array([1.25, -0.75, 0.5, 2.0], dtype=np.float32),
+        "bias": np.array([-0.4, 0.6, 0.15, -0.2], dtype=np.float32),
+    }
+    spec = dml.trace(
+        DTypeFusedElementwise(dtype),
+        inputs={"x": dml.TensorSpec([2, 3, 4], dtype)},
+        constants=compile_constants,
+        name=f"cpu_fused_elementwise_{dtype}",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"cpu_fused_elementwise_{dtype}.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert ("dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16") in generated
+    assert "using fused_elementwise_" in generated
+    assert "compute_t = float" in generated
+
+    x = np.random.default_rng(13).standard_normal((2, 3, 4)).astype(np.float32)
+    expected = execute_cpu(spec.bind_constants(runtime_constants), {"x": x})["y"]
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    module.set_constant_numpy("scale", runtime_constants["scale"])
+    module.set_constant_numpy("bias", runtime_constants["bias"])
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=atol, rtol=rtol)
 
 
 def test_cpu_generated_fused_elementwise_supports_generic_subgraph(tmp_path):
@@ -339,6 +430,29 @@ def test_cpu_runtime_materializes_output_view_of_temporary(tmp_path):
     np.testing.assert_array_equal(actual, np.maximum(x, 0.0).reshape(3, 2))
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_cpu_runtime_materializes_reduced_precision_output_view_of_temporary(tmp_path, dtype):
+    spec = ModelSpec(f"shape_view_temporary_alias_{dtype}", _shape_view_ir(source_kind="temporary", dtype=dtype), constants={})
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"shape_view_temporary_alias_{dtype}.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    expected_type = "dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16"
+    assert f"std::vector<{expected_type}> tmp_t0;" in generated
+    assert f"const {expected_type}* ptr_y = ptr_t0;" in generated
+    assert f"runtime_numel_y * sizeof({expected_type})" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x = np.array([[-2.0, -1.0, 0.0], [1.0, 2.0, 3.0]], dtype=np.float32)
+    expected = _storage_roundtrip(np.maximum(_storage_roundtrip(x, dtype).astype(np.float32), 0.0), dtype).reshape(3, 2)
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=0, rtol=0)
+
+
 def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     height = dml.Dim("height", min=8, max=16, divisible_by=8)
@@ -424,16 +538,24 @@ def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):
     np.testing.assert_allclose(actual, x + bias, atol=1e-6, rtol=0)
 
 
-def _shape_view_ir(source_kind: str = "input"):
+def _shape_view_ir(source_kind: str = "input", dtype: str = "float32"):
     output_shape = [3, 2]
-    output_nbytes = 24
+    dtype_nbytes = 2 if dtype in {"float16", "bfloat16"} else 4
+    output_nbytes = 6 * dtype_nbytes
     tensors = [
-        {"name": "x", "shape": [2, 3] if source_kind != "constant" else [1], "shape_spec": [2, 3] if source_kind != "constant" else [1], "dtype": "float32", "kind": "input", "nbytes": 24 if source_kind != "constant" else 4},
+        {
+            "name": "x",
+            "shape": [2, 3] if source_kind != "constant" else [1],
+            "shape_spec": [2, 3] if source_kind != "constant" else [1],
+            "dtype": dtype,
+            "kind": "input",
+            "nbytes": 6 * dtype_nbytes if source_kind != "constant" else dtype_nbytes,
+        },
         {
             "name": "y",
             "shape": output_shape,
             "shape_spec": output_shape,
-            "dtype": "float32",
+            "dtype": dtype,
             "kind": "output",
             "nbytes": output_nbytes,
         },
@@ -442,11 +564,11 @@ def _shape_view_ir(source_kind: str = "input"):
     nodes = []
     source = "x"
     if source_kind == "constant":
-        tensors.append({"name": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32", "kind": "constant", "nbytes": 24})
-        constants = [{"name": "c", "tensor": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32"}]
+        tensors.append({"name": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": dtype, "kind": "constant", "nbytes": output_nbytes})
+        constants = [{"name": "c", "tensor": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": dtype}]
         source = "c"
     elif source_kind == "temporary":
-        tensors.append({"name": "t0", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32", "kind": "intermediate", "nbytes": 24})
+        tensors.append({"name": "t0", "shape": [2, 3], "shape_spec": [2, 3], "dtype": dtype, "kind": "intermediate", "nbytes": output_nbytes})
         nodes = [
             {
                 "id": "relu_to_t0",
@@ -462,9 +584,9 @@ def _shape_view_ir(source_kind: str = "input"):
     return {
         "schema_version": IR_SCHEMA_VERSION,
         "name": f"shape_view_{source_kind}_alias",
-        "inputs": [{"name": "x", "tensor": "x", "shape": tensors[0]["shape"], "shape_spec": tensors[0]["shape_spec"], "dtype": "float32"}],
+        "inputs": [{"name": "x", "tensor": "x", "shape": tensors[0]["shape"], "shape_spec": tensors[0]["shape_spec"], "dtype": dtype}],
         "constants": constants,
-        "outputs": [{"name": "y", "tensor": "y", "shape": output_shape, "shape_spec": output_shape, "dtype": "float32"}],
+        "outputs": [{"name": "y", "tensor": "y", "shape": output_shape, "shape_spec": output_shape, "dtype": dtype}],
         "nodes": nodes,
         "tensors": tensors,
         "metadata": {

@@ -8,6 +8,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import dtype_nbytes, dtype_runtime_enum
+from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
     dynamic_dim_sources,
@@ -124,7 +125,7 @@ def _pointer_decls(
     view_by_tensor = {str(view["tensor"]): view for view in views}
     for tensor_name, idx in input_map.items():
         ident = _c_ident(tensor_name)
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(inputs[{idx}].data);"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
@@ -133,7 +134,7 @@ def _pointer_decls(
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(inputs[{idx}]);"
     for tensor_name in constant_tensors:
         ident = _c_ident(tensor_name)
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         rank = len(tensor_map[tensor_name]["shape"])
         for axis in range(rank):
             yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
@@ -147,7 +148,7 @@ def _pointer_decls(
     for item in temporaries:
         tensor_name = item["tensor"]
         ident = _c_ident(tensor_name)
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
         yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
@@ -159,7 +160,7 @@ def _pointer_decls(
         if tensor_name in view_by_tensor:
             continue
         ident = _c_ident(tensor_name)
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(outputs[{idx}].data);"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
@@ -171,7 +172,7 @@ def _pointer_decls(
         source_name = str(view["source"])
         ident = _c_ident(tensor_name)
         source_ident = _c_ident(source_name)
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         output_idx = view.get("output_index")
         if output_idx is None:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
@@ -213,7 +214,7 @@ def _view_contexts(
     contexts = []
     for view in raw_views:
         tensor_name = str(view["tensor"])
-        cpp_type = _cpp_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         contexts.append(
             {
                 "tensor": tensor_name,
@@ -239,16 +240,6 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
             "cudaMemcpyDeviceToDevice, session->stream));"
         )
     return materializations
-
-
-def _cpp_storage_type(dtype: str) -> str:
-    if dtype == "float32":
-        return "float"
-    if dtype == "float16":
-        return "half"
-    if dtype == "bfloat16":
-        return "__nv_bfloat16"
-    raise NotImplementedError(f"CUDA module lowering does not support dtype {dtype!r}")
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

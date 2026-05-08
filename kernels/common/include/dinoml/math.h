@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 #if defined(__CUDACC__)
 #include <cuda_fp16.h>
@@ -16,6 +17,106 @@
 #endif
 
 namespace dinoml::math {
+
+#if !defined(__CUDACC__)
+struct float16 {
+  uint16_t bits = 0;
+};
+
+struct bfloat16 {
+  uint16_t bits = 0;
+};
+
+static_assert(sizeof(float16) == 2, "float16 storage must be 16 bits");
+static_assert(sizeof(bfloat16) == 2, "bfloat16 storage must be 16 bits");
+
+DINO_FORCEINLINE uint32_t float_to_bits(float value) {
+  uint32_t bits = 0;
+  std::memcpy(&bits, &value, sizeof(bits));
+  return bits;
+}
+
+DINO_FORCEINLINE float bits_to_float(uint32_t bits) {
+  float value = 0.0f;
+  std::memcpy(&value, &bits, sizeof(value));
+  return value;
+}
+
+DINO_FORCEINLINE float half_bits_to_float(uint16_t value) {
+  const uint32_t sign = static_cast<uint32_t>(value & 0x8000u) << 16;
+  uint32_t exponent = static_cast<uint32_t>((value >> 10) & 0x1fu);
+  uint32_t mantissa = static_cast<uint32_t>(value & 0x03ffu);
+  uint32_t bits = sign;
+  if (exponent == 0) {
+    if (mantissa != 0) {
+      exponent = 1;
+      while ((mantissa & 0x0400u) == 0) {
+        mantissa <<= 1;
+        --exponent;
+      }
+      mantissa &= 0x03ffu;
+      bits |= (exponent + 112u) << 23;
+      bits |= mantissa << 13;
+    }
+  } else if (exponent == 31) {
+    bits |= 0x7f800000u | (mantissa << 13);
+  } else {
+    bits |= (exponent + 112u) << 23;
+    bits |= mantissa << 13;
+  }
+  return bits_to_float(bits);
+}
+
+DINO_FORCEINLINE uint16_t float_to_half_bits(float value) {
+  const uint32_t bits = float_to_bits(value);
+  const uint32_t sign = (bits >> 16) & 0x8000u;
+  uint32_t mantissa = bits & 0x007fffffu;
+  int exponent = static_cast<int>((bits >> 23) & 0xffu) - 127 + 15;
+
+  if (exponent <= 0) {
+    if (exponent < -10) {
+      return static_cast<uint16_t>(sign);
+    }
+    mantissa |= 0x00800000u;
+    const uint32_t shift = static_cast<uint32_t>(14 - exponent);
+    const uint32_t rounded =
+        (mantissa + (1u << (shift - 1)) - 1u + ((mantissa >> shift) & 1u)) >> shift;
+    return static_cast<uint16_t>(sign | rounded);
+  }
+
+  if (exponent == 143) {
+    if (mantissa == 0) {
+      return static_cast<uint16_t>(sign | 0x7c00u);
+    }
+    mantissa >>= 13;
+    return static_cast<uint16_t>(sign | 0x7c00u | mantissa | (mantissa == 0));
+  }
+
+  if (exponent > 30) {
+    return static_cast<uint16_t>(sign | 0x7c00u);
+  }
+
+  mantissa += 0x00000fffu + ((mantissa >> 13) & 1u);
+  if (mantissa & 0x00800000u) {
+    mantissa = 0;
+    ++exponent;
+    if (exponent > 30) {
+      return static_cast<uint16_t>(sign | 0x7c00u);
+    }
+  }
+  return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13));
+}
+
+DINO_FORCEINLINE float bfloat16_bits_to_float(uint16_t value) {
+  return bits_to_float(static_cast<uint32_t>(value) << 16);
+}
+
+DINO_FORCEINLINE uint16_t float_to_bfloat16_bits(float value) {
+  const uint32_t bits = float_to_bits(value);
+  const uint32_t rounding_bias = 0x7fffu + ((bits >> 16) & 1u);
+  return static_cast<uint16_t>((bits + rounding_bias) >> 16);
+}
+#endif
 
 template <typename To, typename From>
 DINO_HD DINO_FORCEINLINE To cast(From x) {
@@ -44,6 +145,28 @@ DINO_HD DINO_FORCEINLINE __nv_bfloat16 cast<__nv_bfloat16, float>(float x) {
   return __float2bfloat16_rn(x);
 }
 #endif
+#endif
+
+#if !defined(__CUDACC__)
+template <>
+DINO_FORCEINLINE float cast<float, float16>(float16 x) {
+  return half_bits_to_float(x.bits);
+}
+
+template <>
+DINO_FORCEINLINE float16 cast<float16, float>(float x) {
+  return float16{float_to_half_bits(x)};
+}
+
+template <>
+DINO_FORCEINLINE float cast<float, bfloat16>(bfloat16 x) {
+  return bfloat16_bits_to_float(x.bits);
+}
+
+template <>
+DINO_FORCEINLINE bfloat16 cast<bfloat16, float>(float x) {
+  return bfloat16{float_to_bfloat16_bits(x)};
+}
 #endif
 
 template <typename T>

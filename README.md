@@ -17,7 +17,7 @@ python -m dinoml.cli validate build/fused_elementwise.dinoml --against examples/
 
 The first milestone intentionally keeps the executable surface small:
 registered elementwise graphs are fused into generated kernels, with CPU
-`float32` execution and CUDA `float32`/`float16`/`bfloat16` execution.
+and CUDA `float32`/`float16`/`bfloat16` fused-elementwise execution.
 The IR records symbolic `Dim` shape constraints, and generated CPU/CUDA modules
 materialize runtime shape buffers for dynamic validation and generic
 broadcasting.

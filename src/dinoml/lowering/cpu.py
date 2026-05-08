@@ -8,6 +8,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import dtype_nbytes, dtype_runtime_enum
+from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
     dynamic_dim_sources,
@@ -40,7 +41,7 @@ def render_cpu_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str]
                 for idx, item in enumerate(ir["outputs"])
             ],
             "constants": [_constant_context(item) for item in ir["constants"]],
-            "temporaries": [_temporary_context(item) for item in temporaries],
+            "temporaries": [_temporary_context(item, tensor_map) for item in temporaries],
             "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
             "generated_kernels": list(generated_kernels)
@@ -102,12 +103,19 @@ def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
         "dtype": item["dtype"],
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
+        "storage_type": cpu_storage_type(str(item["dtype"])),
     }
 
 
-def _temporary_context(item: Mapping[str, Any]) -> dict[str, Any]:
+def _temporary_context(item: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     nbytes = int(item["nbytes"])
-    return {"ident": _c_ident(item["tensor"]), "nbytes": nbytes, "numel": nbytes // 4}
+    dtype = str(tensor_map[item["tensor"]]["dtype"])
+    return {
+        "ident": _c_ident(item["tensor"]),
+        "nbytes": nbytes,
+        "numel": nbytes // dtype_nbytes(dtype),
+        "storage_type": cpu_storage_type(dtype),
+    }
 
 
 def _pointer_decls(
@@ -123,7 +131,8 @@ def _pointer_decls(
     view_by_tensor = {str(view["tensor"]): view for view in views}
     for tensor_name, idx in input_map.items():
         ident = _c_ident(tensor_name)
-        yield f"const float* ptr_{ident} = static_cast<const float*>(inputs[{idx}].data);"
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(inputs[{idx}].data);"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
         yield f"session->shape_{ident}.assign(inputs[{idx}].shape, inputs[{idx}].shape + {len(tensor_map[tensor_name]['shape'])});"
@@ -131,27 +140,30 @@ def _pointer_decls(
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(inputs[{idx}]);"
     for tensor_name in constant_tensors:
         ident = _c_ident(tensor_name)
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
         rank = len(tensor_map[tensor_name]["shape"])
         for axis in range(rank):
             yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
         yield f"session->shape_{ident} = module->const_shape_{ident};"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, rank)};"
-        yield f"const float* ptr_{ident} = module->const_{ident}.data();"
+        yield f"const {cpp_type}* ptr_{ident} = module->const_{ident}.data();"
     for item in temporaries:
         tensor_name = item["tensor"]
         ident = _c_ident(tensor_name)
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
         yield f"session->shape_{ident} = std::vector<int64_t>{{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"float* ptr_{ident} = session->tmp_{ident}.data();"
+        yield f"{cpp_type}* ptr_{ident} = session->tmp_{ident}.data();"
     for tensor_name, idx in output_map.items():
         if tensor_name in view_by_tensor:
             continue
         ident = _c_ident(tensor_name)
-        yield f"float* ptr_{ident} = static_cast<float*>(outputs[{idx}].data);"
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(outputs[{idx}].data);"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
         yield f"session->shape_{ident}.assign(outputs[{idx}].shape, outputs[{idx}].shape + {len(tensor_map[tensor_name]['shape'])});"
@@ -162,6 +174,7 @@ def _pointer_decls(
         source_name = str(view["source"])
         ident = _c_ident(tensor_name)
         source_ident = _c_ident(source_name)
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
         output_idx = view.get("output_index")
         if output_idx is None:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
@@ -173,7 +186,7 @@ def _pointer_decls(
             yield f"session->shape_{ident}.assign(outputs[{int(output_idx)}].shape, outputs[{int(output_idx)}].shape + {len(tensor_map[tensor_name]['shape'])});"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"const float* ptr_{ident} = ptr_{source_ident};"
+        yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident};"
 
 
 def _view_contexts(
@@ -202,6 +215,7 @@ def _view_contexts(
     contexts = []
     for view in raw_views:
         tensor_name = str(view["tensor"])
+        cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
         contexts.append(
             {
                 "tensor": tensor_name,
@@ -209,7 +223,7 @@ def _view_contexts(
                 "source": str(view["source"]),
                 "source_ident": _c_ident(str(view["source"])),
                 "output_index": output_map.get(tensor_name),
-                "nbytes_expr": f"runtime_numel_{_c_ident(tensor_name)} * sizeof(float)",
+                "nbytes_expr": f"runtime_numel_{_c_ident(tensor_name)} * sizeof({cpp_type})",
             }
         )
     return contexts

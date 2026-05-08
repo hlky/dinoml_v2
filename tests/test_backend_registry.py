@@ -34,7 +34,7 @@ def test_backend_registry_describes_cpu_and_cuda_support():
 
     cpu = get_backend_spec("cpu")
     assert cpu.default_arch == "native"
-    assert cpu.supported_dtypes == frozenset({"float32"})
+    assert cpu.supported_dtypes == frozenset({"float16", "float32", "bfloat16"})
     assert cpu.build_function == "dinoml.backends.cpu.build_cpu_module"
     assert cpu.cmake.supports_openmp is True
     assert cpu.cmake.requires_cuda is False

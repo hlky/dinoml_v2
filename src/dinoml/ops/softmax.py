@@ -47,10 +47,7 @@ def softmax(x: object, dim: int = -1) -> Tensor:
         raise ValueError("softmax currently requires a static last dimension")
     if int(tensor.shape[axis]) <= 0:
         raise ValueError("softmax last dimension must be positive")
-    out = tensor.builder.emit("softmax", [tensor], tensor.shape, tensor.dtype, {"dim": axis})
-    out.shape_spec = list(tensor.shape_spec)
-    tensor.builder.tensors[out.name]["shape_spec"] = out.shape_spec
-    return out
+    return tensor.builder.emit("softmax", [tensor], tensor.shape, tensor.dtype, {"dim": axis}, shape_spec=tensor.shape_spec)
 
 
 def _normalize_axis(axis: int, rank: int) -> int:

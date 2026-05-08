@@ -48,6 +48,9 @@ inline int check_tensor(
   if (tensor.data == nullptr) {
     return fail(std::string(name) + " has null data pointer");
   }
+  if (tensor.shape == nullptr && !expected_shape.empty()) {
+    return fail(std::string(name) + " has null shape pointer");
+  }
   if (tensor.ndim != expected_shape.size()) {
     return fail(std::string(name) + " rank mismatch");
   }
@@ -73,6 +76,9 @@ inline int check_tensor_dynamic(
   if (tensor.data == nullptr) {
     return fail(std::string(name) + " has null data pointer");
   }
+  if (tensor.shape == nullptr && !max_shape.empty()) {
+    return fail(std::string(name) + " has null shape pointer");
+  }
   if (tensor.ndim != max_shape.size()) {
     return fail(std::string(name) + " rank mismatch");
   }
@@ -89,6 +95,9 @@ inline int check_tensor_dynamic(
 }
 
 inline int64_t tensor_numel(const DinoTensor& tensor) {
+  if (tensor.shape == nullptr && tensor.ndim > 0) {
+    return 0;
+  }
   int64_t total = 1;
   for (size_t i = 0; i < tensor.ndim; ++i) {
     total *= tensor.shape[i];

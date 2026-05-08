@@ -85,10 +85,14 @@ def _reduction(op_name: str, x: object, dim: int, keepdim: bool) -> Tensor:
         if not out_shape:
             out_shape = [1]
             out_shape_spec = [1]
-    out = tensor.builder.emit(op_name, [tensor], out_shape, tensor.dtype, {"dim": axis, "keepdim": bool(keepdim)})
-    out.shape_spec = out_shape_spec
-    tensor.builder.tensors[out.name]["shape_spec"] = out_shape_spec
-    return out
+    return tensor.builder.emit(
+        op_name,
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": axis, "keepdim": bool(keepdim)},
+        shape_spec=out_shape_spec,
+    )
 
 
 def _normalize_axis(axis: int, rank: int) -> int:

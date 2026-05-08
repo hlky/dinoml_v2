@@ -43,13 +43,15 @@ dtype, name, and optional value. Concrete weights are bound through
 `trace(..., constants=...)`, `ModelSpec.bind_constants(...)`, or runtime constant
 loading. This keeps model definition separate from checkpoint storage.
 
-`TensorSpec` accepts static integers and `Dim` values. Dynamic dimensions are
-serialized into `shape_spec` metadata with min/max/divisibility/bucket fields,
-while `shape` remains the max-shape allocation view used for artifact metadata
-and workspace sizing. Generated CPU/CUDA modules validate runtime shapes and
-maintain per-session shape buffers. CUDA shape buffers live on device, so
-generated kernels can consume `const int64_t*` shape metadata without reading
-host memory.
+`TensorSpec` accepts static integers and `Dim` values. Frontend tensors,
+parameters, and specs all canonicalize through `dinoml.Shape`, which owns the
+rank, max-shape allocation view, dynamic constraints, and stable JSON
+`shape_spec`. Dynamic dimensions are serialized into `shape_spec` metadata with
+min/max/divisibility/bucket fields, while `shape` remains the max-shape
+allocation view used for artifact metadata and workspace sizing. Generated
+CPU/CUDA modules validate runtime shapes and maintain per-session shape buffers.
+CUDA shape buffers live on device, so generated kernels can consume
+`const int64_t*` shape metadata without reading host memory.
 
 The Python runtime and generated modules share the same shape contract:
 callers pass a `DinoTensor.shape` pointer containing `ndim` host `int64_t`

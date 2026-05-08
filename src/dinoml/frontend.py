@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 import numpy as np
 
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, VIEW_METADATA_VERSION, array_to_storage, dtype_nbytes, normalize_dtype
-from dinoml.shapes import Dim, is_dynamic_shape, max_shape, normalize_shape, shape_constraints, shape_numel
+from dinoml.shapes import Dim, Shape, shape_constraints, shape_numel
 
 
 _CURRENT_BUILDER: Optional["GraphBuilder"] = None
@@ -14,26 +14,40 @@ _CURRENT_BUILDER: Optional["GraphBuilder"] = None
 
 @dataclass(frozen=True)
 class TensorSpec:
-    shape: Sequence[int | Dim | Mapping[str, Any]]
+    shape: Sequence[int | Dim | Mapping[str, Any]] | Shape
     dtype: str = "float32"
     shape_spec: list[int | dict[str, Any]] = field(init=False)
     max_shape: list[int] = field(init=False)
     dynamic: bool = field(init=False)
+    _shape: Shape = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.shape:
             raise ValueError("TensorSpec.shape must not be empty")
-        normalized_shape = normalize_shape(self.shape)
-        object.__setattr__(self, "shape_spec", normalized_shape)
-        object.__setattr__(self, "max_shape", max_shape(normalized_shape))
-        object.__setattr__(self, "dynamic", is_dynamic_shape(normalized_shape))
+        shape = Shape(self.shape)
+        object.__setattr__(self, "_shape", shape)
+        object.__setattr__(self, "shape_spec", shape.to_json())
+        object.__setattr__(self, "max_shape", shape.max_shape)
+        object.__setattr__(self, "dynamic", shape.dynamic)
         object.__setattr__(self, "dtype", normalize_dtype(self.dtype))
+
+    @property
+    def rank(self) -> int:
+        return self._shape.rank
+
+    @property
+    def numel(self) -> int:
+        return self._shape.numel
+
+    @property
+    def constraints(self) -> list[dict[str, Any]]:
+        return self._shape.constraints
 
 
 class Parameter:
     def __init__(
         self,
-        shape: Sequence[int | Dim | Mapping[str, Any]] | np.ndarray | Any,
+        shape: Sequence[int | Dim | Mapping[str, Any]] | Shape | np.ndarray | Any,
         dtype: str = "float32",
         name: Optional[str] = None,
         value: Any = None,
@@ -41,13 +55,15 @@ class Parameter:
         if value is None and _looks_like_value(shape):
             array = np.asarray(shape)
             dtype = str(array.dtype)
-            self.shape_spec = normalize_shape(array.shape)
-            self.shape = max_shape(self.shape_spec)
+            self._shape = Shape(array.shape)
+            self.shape_spec = self._shape.to_json()
+            self.shape = self._shape.max_shape
             self.dtype = normalize_dtype(dtype)
             self._value = _normalize_constant_value(array, self.dtype, self.shape)
         else:
-            self.shape_spec = normalize_shape(shape)
-            self.shape = max_shape(self.shape_spec)
+            self._shape = Shape(shape)
+            self.shape_spec = self._shape.to_json()
+            self.shape = self._shape.max_shape
             self.dtype = normalize_dtype(dtype)
             self._value = None if value is None else _normalize_constant_value(value, self.dtype, self.shape)
         self.name = name
@@ -58,6 +74,18 @@ class Parameter:
 
     def bind(self, value: Any) -> "Parameter":
         return Parameter(self.shape_spec, dtype=self.dtype, name=self.name, value=value)
+
+    @property
+    def rank(self) -> int:
+        return self._shape.rank
+
+    @property
+    def dynamic(self) -> bool:
+        return self._shape.dynamic
+
+    @property
+    def numel(self) -> int:
+        return self._shape.numel
 
 
 class Tensor:
@@ -71,12 +99,26 @@ class Tensor:
         shape_spec: Sequence[int | Mapping[str, Any]] | None = None,
     ):
         self.name = name
-        self.shape = list(shape)
-        self.shape_spec = list(shape_spec or shape)
+        self._shape = Shape(shape_spec or shape)
+        self._shape.validate_max_shape(shape)
+        self.shape = self._shape.max_shape
+        self.shape_spec = self._shape.to_json()
         self.dtype = normalize_dtype(dtype)
         self.builder = builder
         self.kind = kind
         self.output_name: Optional[str] = None
+
+    @property
+    def rank(self) -> int:
+        return self._shape.rank
+
+    @property
+    def dynamic(self) -> bool:
+        return self._shape.dynamic
+
+    @property
+    def numel(self) -> int:
+        return self._shape.numel
 
     def __add__(self, other: Any) -> "Tensor":
         from dinoml import ops
@@ -203,9 +245,17 @@ class GraphBuilder:
         self._constant_ids[key] = tensor
         return tensor
 
-    def emit(self, op: str, inputs: Sequence[Tensor], shape: Sequence[int], dtype: str, attrs: Optional[Dict[str, Any]] = None) -> Tensor:
+    def emit(
+        self,
+        op: str,
+        inputs: Sequence[Tensor],
+        shape: Sequence[int],
+        dtype: str,
+        attrs: Optional[Dict[str, Any]] = None,
+        shape_spec: Sequence[int | Mapping[str, Any]] | None = None,
+    ) -> Tensor:
         output_name = self._new_tensor_name()
-        tensor = Tensor(output_name, shape=shape, dtype=dtype, builder=self)
+        tensor = Tensor(output_name, shape=shape, dtype=dtype, builder=self, shape_spec=shape_spec)
         node_id = f"n{self._next_node_id}"
         self._next_node_id += 1
         self.nodes.append(
@@ -358,6 +408,8 @@ def _flatten_outputs(outputs: Any) -> Iterable[Tensor]:
 
 
 def _looks_like_value(value: Any) -> bool:
+    if isinstance(value, Shape):
+        return False
     if isinstance(value, np.ndarray):
         return True
     if isinstance(value, (list, tuple)):

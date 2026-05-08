@@ -37,7 +37,35 @@ def test_tensor_spec_records_dynamic_shape_metadata():
     spec = dml.TensorSpec([batch, 16], "fp32")
     assert spec.max_shape == [4, 16]
     assert spec.dynamic
+    assert spec.rank == 2
+    assert spec.numel == 64
     assert spec.shape_spec[0]["name"] == "batch"
+
+
+def test_shape_object_canonicalizes_dynamic_metadata():
+    batch = dml.Dim("batch", min=1, max=4, divisible_by=1, typical=2, buckets=(1, 2, 4))
+    shape = dml.Shape([batch, 16])
+
+    assert shape.rank == 2
+    assert shape.max_shape == [4, 16]
+    assert shape.dynamic
+    assert shape.numel == 64
+    assert shape.constraints[0]["axis"] == 0
+    assert shape.to_json()[0]["buckets"] == [1, 2, 4]
+    assert shape.validate_runtime("x", [2, 16]) == (2, 16)
+
+
+def test_shape_object_is_accepted_by_specs_and_parameters():
+    batch = dml.Dim("batch", min=1, max=4)
+    shape = dml.Shape([batch, 16])
+
+    spec = dml.TensorSpec(shape)
+    parameter = dml.Parameter(shape, name="w")
+
+    assert spec.shape_spec[0]["name"] == "batch"
+    assert parameter.shape == [4, 16]
+    assert parameter.shape_spec[0]["name"] == "batch"
+    assert parameter.value is None
 
 
 def test_runtime_shape_helpers_validate_dim_constraints():
@@ -98,6 +126,9 @@ def test_compile_accepts_dynamic_runtime_metadata(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(DynamicRelu(), inputs={"x": dml.TensorSpec([batch, 16])}, name="dynamic_relu")
     assert spec.ir["metadata"]["dynamic_shapes"]
+    node_output = spec.ir["nodes"][0]["outputs"][0]
+    tensor_info = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == node_output)
+    assert tensor_info["shape_spec"][0]["name"] == "batch"
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "dynamic_relu.dinoml")
     assert artifact.path.exists()
 

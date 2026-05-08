@@ -22,10 +22,7 @@ def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None
         op_attrs.update(attrs)
     out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
-    out = builder.emit(op_name, tensors, out_shape, dtype, op_attrs)
-    out.shape_spec = out_shape_spec
-    builder.tensors[out.name]["shape_spec"] = out_shape_spec
-    return out
+    return builder.emit(op_name, tensors, out_shape, dtype, op_attrs, shape_spec=out_shape_spec)
 
 
 def make_frontend_op(op_name: str) -> Callable[..., Tensor]:

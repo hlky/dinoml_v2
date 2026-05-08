@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -48,11 +48,76 @@ class Dim:
 
 
 ShapeDim = int | Dim | Mapping[str, Any]
-Shape = Sequence[ShapeDim]
+ShapeSpecDim = int | dict[str, Any]
+ShapeLike = Sequence[ShapeDim]
 
 
-def normalize_shape(shape: Shape) -> list[int | dict[str, Any]]:
-    result: list[int | dict[str, Any]] = []
+@dataclass(frozen=True)
+class Shape:
+    """Canonical shape metadata used by frontend tensors and runtime helpers."""
+
+    _shape_spec: tuple[ShapeSpecDim, ...]
+
+    def __init__(self, dims: ShapeLike | "Shape"):
+        if isinstance(dims, Shape):
+            normalized = tuple(dims.to_json())
+        else:
+            normalized = tuple(normalize_dim(dim) for dim in dims)
+        object.__setattr__(self, "_shape_spec", normalized)
+
+    @property
+    def rank(self) -> int:
+        return len(self._shape_spec)
+
+    @property
+    def shape_spec(self) -> list[ShapeSpecDim]:
+        return self.to_json()
+
+    @property
+    def max_shape(self) -> list[int]:
+        return max_shape(self._shape_spec)
+
+    @property
+    def dynamic(self) -> bool:
+        return is_dynamic_shape(self._shape_spec)
+
+    @property
+    def numel(self) -> int:
+        return shape_numel(self.max_shape)
+
+    @property
+    def constraints(self) -> list[dict[str, Any]]:
+        return shape_constraints(self._shape_spec)
+
+    def validate_max_shape(self, expected: Sequence[int]) -> None:
+        actual = self.max_shape
+        if actual != list(expected):
+            raise ValueError(f"shape_spec max shape {actual} does not match shape {list(expected)}")
+
+    def validate_runtime(self, name: str, shape: Iterable[int]) -> tuple[int, ...]:
+        return validate_runtime_shape(name, shape, {"name": name, "shape": self.max_shape, "shape_spec": self._shape_spec})
+
+    def to_json(self) -> list[ShapeSpecDim]:
+        result: list[ShapeSpecDim] = []
+        for dim in self._shape_spec:
+            result.append(dim if isinstance(dim, int) else dict(dim))
+        return result
+
+    def __len__(self) -> int:
+        return len(self._shape_spec)
+
+    def __iter__(self) -> Iterator[ShapeSpecDim]:
+        return iter(self.to_json())
+
+    def __getitem__(self, index: int | slice) -> ShapeSpecDim | list[ShapeSpecDim]:
+        values = self.to_json()
+        return values[index]
+
+
+def normalize_shape(shape: ShapeLike | Shape) -> list[ShapeSpecDim]:
+    if isinstance(shape, Shape):
+        return shape.to_json()
+    result: list[ShapeSpecDim] = []
     for dim in shape:
         result.append(normalize_dim(dim))
     if not result:

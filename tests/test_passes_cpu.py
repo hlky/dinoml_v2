@@ -1,0 +1,79 @@
+import numpy as np
+
+from dinoml.backends.cpu import execute_cpu
+from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
+from dinoml.ops.definitions import OP_REGISTRY, get_op_def
+from dinoml.passes import PassManager, validate_ir
+
+
+def test_pass_manager_runs_expected_pipeline():
+    from tests.models.fused_elementwise import build_spec
+
+    spec = build_spec()
+    lowered, reports = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    assert [report.name for report in reports] == list(PassManager.DEFAULT_PIPELINE)
+    assert "memory_plan" in lowered["metadata"]
+    assert "fusion_groups" in lowered["metadata"]
+    assert any(node["op"] == "fused_elementwise" for node in lowered["nodes"])
+
+
+def test_cpu_reference_matches_numpy_formula():
+    from tests.models.fused_elementwise import build_spec, build_validation_inputs, numpy_reference
+
+    spec = build_spec()
+    inputs = build_validation_inputs()
+    actual = execute_cpu(spec, inputs)["y"]
+    expected = numpy_reference(inputs)["y"]
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_elementwise_op_definitions_are_frontend_only_until_fused():
+    add = get_op_def("add")
+    fused = get_op_def("fused_elementwise")
+    assert OP_REGISTRY.get_frontend("add") is add
+    assert add.schema.inputs == ("x0", "x1")
+    assert not add.backend_kernels
+    assert fused.backend_kernels["cuda"].symbol == "generated_fused_elementwise"
+    assert fused.backend_kernels["cpu"].symbol == "generated_fused_elementwise"
+
+
+def test_kernel_manifest_lists_required_unique_kernels():
+    from tests.models.fused_elementwise import build_spec
+
+    spec = build_spec()
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    symbols = {item["kernel_symbol"] for item in manifest["required_kernels"]}
+    assert symbols == {"generated_fused_elementwise"}
+    model_generated = [item for item in manifest["required_kernels"] if item["kernel_library"] == "model"]
+    assert model_generated and model_generated[0]["op"] == "fused_elementwise"
+    assert manifest["support_cache_key"] != manifest["cache_key"]
+    assert manifest["profile_cache_schema_version"] == 1
+    plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
+    assert plan.profiler_symbols == ()
+    assert plan.support_cache_dir.name == manifest["support_cache_key"][:16]
+
+
+def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
+    tensor_map = {
+        "x": {
+            "name": "x",
+            "shape": [4, 16],
+            "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 4}, 16],
+        },
+        "tmp": {
+            "name": "tmp",
+            "shape": [4, 16],
+            "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 4}, 16],
+        },
+    }
+    sources = dynamic_dim_sources(input_map={"x": 0}, output_map={}, tensor_map=tensor_map)
+    assert sources == {"batch": "inputs[0].shape[0]"}
+    assert shape_dim_expr(tensor_map["tmp"], 0, sources) == "inputs[0].shape[0]"
+    assert shape_dim_expr(tensor_map["tmp"], 1, sources) == "16"
+    assert numel_expr("tmp", 2) == "shape_tmp_0 * shape_tmp_1"
+    assert shape_buffer_context(tensor_map["tmp"]) == {"ident": "tmp", "rank": 2, "shape_literal": "4, 16"}

@@ -1,0 +1,47 @@
+{% for helper in broadcast_helpers %}
+{{ helper }}
+
+{% endfor %}
+using {{ storage_alias }} = {{ storage_type }};
+using {{ compute_alias }} = {{ compute_type }};
+
+static int {{ func }}({{ call_params }}) {
+  if ({{ null_check }}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+{% if suffix_inner_extent %}
+{% if total >= 4096 %}
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+{% endif %}
+  for (int64_t outer_idx = 0; outer_idx < (runtime_total + {{ suffix_inner_extent }} - 1) / {{ suffix_inner_extent }}; ++outer_idx) {
+#if defined(_OPENMP)
+#pragma omp simd
+#endif
+    for (int64_t inner_idx = 0; inner_idx < {{ suffix_inner_extent }}; ++inner_idx) {
+      int64_t idx = outer_idx * {{ suffix_inner_extent }} + inner_idx;
+      if (idx >= runtime_total) {
+        continue;
+      }
+{{ accessor_decls }}
+{{ inner_scalar_body }}
+    }
+  }
+{% else %}
+{% if total >= 4096 %}
+#if defined(_OPENMP)
+#pragma omp parallel for simd schedule(static)
+#endif
+{% else %}
+#if defined(_OPENMP)
+#pragma omp simd
+#endif
+{% endif %}
+  for (int64_t idx = 0; idx < runtime_total; ++idx) {
+{{ accessor_decls }}
+{{ scalar_body }}
+  }
+{% endif %}
+  return 0;
+}

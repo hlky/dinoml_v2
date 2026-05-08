@@ -1,0 +1,283 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Mapping
+
+import numpy as np
+
+from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, dtype_numpy, write_json
+from dinoml.kernels.manifest import build_support_manifest
+from dinoml.lowering.cpu import render_cpu_module, render_template
+from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
+
+
+def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    ir = spec.ir
+    values: Dict[str, np.ndarray] = {}
+    for input_info in ir["inputs"]:
+        name = input_info["name"]
+        if name not in inputs:
+            raise ValueError(f"Missing input: {name}")
+        values[input_info["tensor"]] = _reference_array(inputs[name], str(input_info["dtype"]))
+    for constant_info in ir["constants"]:
+        name = constant_info["name"]
+        if name not in spec.constants:
+            raise ValueError(f"Missing constant value: {name}")
+        values[constant_info["tensor"]] = _reference_array(spec.constants[name], str(constant_info["dtype"]))
+
+    for node in ir["nodes"]:
+        if node["op"] in FUSABLE_ELEMENTWISE_OPS:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(_execute_elementwise(node["op"], [values[name] for name in node["inputs"]], node.get("attrs", {})), output_dtype)
+        elif node["op"] == "fused_elementwise":
+            _execute_fused_elementwise(node, values, ir)
+        else:
+            raise ValueError(f"Unsupported op: {node['op']}")
+
+    return {output["name"]: values[output["tensor"]] for output in ir["outputs"]}
+
+
+def _execute_fused_elementwise(node: Mapping[str, object], values: Dict[str, np.ndarray], ir: Mapping[str, object]) -> None:
+    for sub_op in node["attrs"]["sub_ops"]:
+        op = sub_op["op"]
+        inputs = [values[name] for name in sub_op["inputs"]]
+        output = sub_op["outputs"][0]
+        values[output] = _store_reference(_execute_elementwise(op, inputs, sub_op.get("attrs", {})), _tensor_dtype(ir, output))
+
+
+def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, object]) -> np.ndarray:
+    spec = ELEMENTWISE_BY_NAME.get(op)
+    if spec is None:
+        raise ValueError(f"Unsupported elementwise op: {op}")
+    defaults = {name: default for name, default in spec.attr_defaults}
+    merged_attrs = {**defaults, **dict(attrs)}
+    if op == "add":
+        result = inputs[0] + inputs[1]
+    elif op == "sub":
+        result = inputs[0] - inputs[1]
+    elif op == "mul":
+        result = inputs[0] * inputs[1]
+    elif op == "div":
+        result = inputs[0] / inputs[1]
+    elif op == "tanh":
+        result = np.tanh(inputs[0])
+    elif op == "cos":
+        result = np.cos(inputs[0])
+    elif op == "sin":
+        result = np.sin(inputs[0])
+    elif op == "sign":
+        result = np.sign(inputs[0])
+    elif op == "abs":
+        result = np.abs(inputs[0])
+    elif op == "log":
+        result = np.log(inputs[0])
+    elif op == "log1p":
+        result = np.log1p(inputs[0])
+    elif op == "exp":
+        result = np.exp(inputs[0])
+    elif op == "sqrt":
+        result = np.sqrt(inputs[0])
+    elif op == "max":
+        result = np.maximum(inputs[0], inputs[1])
+    elif op == "min":
+        result = np.minimum(inputs[0], inputs[1])
+    elif op == "sigmoid":
+        result = 1.0 / (1.0 + np.exp(-inputs[0]))
+    elif op == "leaky_relu":
+        negative_slope = float(merged_attrs["negative_slope"])
+        result = np.where(inputs[0] > 0.0, inputs[0], inputs[0] * negative_slope)
+    elif op == "hardtanh":
+        result = np.clip(inputs[0], float(merged_attrs["min_value"]), float(merged_attrs["max_value"]))
+    elif op == "relu":
+        result = np.maximum(inputs[0], 0.0)
+    elif op == "nan_to_num":
+        result = np.nan_to_num(
+            inputs[0],
+            nan=float(merged_attrs["nan_replacement"]),
+            posinf=float(merged_attrs["posinf_replacement"]),
+            neginf=float(merged_attrs["neginf_replacement"]),
+        )
+    elif op == "clamp_nan_to_num":
+        result = np.where(
+            np.isnan(inputs[0]),
+            float(merged_attrs["nan_replacement"]),
+            np.clip(inputs[0], float(merged_attrs["clamp_min"]), float(merged_attrs["clamp_max"])),
+        )
+    elif op == "silu":
+        x = inputs[0]
+        result = x / (1.0 + np.exp(-x))
+    elif op == "pow":
+        result = np.power(inputs[0], inputs[1])
+    elif op == "gelu":
+        x = inputs[0]
+        result = 0.5 * x * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * x * x * x)))
+    elif op == "fast_gelu":
+        x = inputs[0]
+        result = x / (1.0 + np.exp(-1.702 * x))
+    elif op == "softplus":
+        result = np.log1p(np.exp(inputs[0]))
+    elif op == "elu":
+        alpha = float(merged_attrs["alpha"])
+        result = np.where(inputs[0] > 0.0, inputs[0], alpha * (np.exp(inputs[0]) - 1.0))
+    elif op == "softsign":
+        result = inputs[0] / (1.0 + np.abs(inputs[0]))
+    elif op == "floor_div":
+        result = np.floor(inputs[0] / inputs[1])
+    elif op == "celu":
+        alpha = float(merged_attrs["alpha"])
+        result = np.maximum(0.0, inputs[0]) + np.minimum(0.0, alpha * (np.exp(inputs[0] / alpha) - 1.0))
+    elif op == "floor":
+        result = np.floor(inputs[0])
+    else:
+        raise ValueError(f"Unsupported elementwise op: {op}")
+    return np.asarray(result, dtype=np.float32)
+
+
+def _reference_array(value: object, dtype: str) -> np.ndarray:
+    storage = array_to_storage(value, dtype)
+    array = array_from_storage(storage, dtype)
+    if dtype in {"float16", "bfloat16"}:
+        array = np.asarray(array, dtype=np.float32)
+    return array
+
+
+def _store_reference(value: object, dtype: str) -> np.ndarray:
+    if dtype == "float16":
+        return array_from_storage(array_to_storage(value, dtype), dtype)
+    if dtype == "bfloat16":
+        return array_from_storage(array_to_storage(value, dtype), dtype)
+    return np.asarray(value, dtype=dtype_numpy(dtype))
+
+
+def _tensor_dtype(ir: Mapping[str, object], tensor_name: str) -> str:
+    for tensor in ir["tensors"]:
+        if tensor["name"] == tensor_name:
+            return str(tensor["dtype"])
+    raise KeyError(tensor_name)
+
+
+@dataclass(frozen=True)
+class CpuSupportLibs:
+    runtime_lib: Path
+    kernels_lib: Path
+    runtime_include: Path
+    common_include: Path
+    kernels_include: Path
+
+
+def build_cpu_module(
+    ir: Mapping,
+    *,
+    target,
+    artifact_dir: Path,
+    generated_src_dir: Path,
+    kernel_manifest: Mapping[str, object],
+) -> None:
+    support_libs = ensure_cpu_support_libs(kernel_manifest=kernel_manifest)
+    artifact_lib_dir = artifact_dir / "lib"
+    artifact_lib_dir.mkdir(parents=True, exist_ok=True)
+    runtime_lib = artifact_lib_dir / support_libs.runtime_lib.name
+    kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
+    shutil.copy2(support_libs.runtime_lib, runtime_lib)
+    shutil.copy2(support_libs.kernels_lib, kernels_lib)
+
+    generated_src_dir.mkdir(parents=True, exist_ok=True)
+    (generated_src_dir / "module.cpp").write_text(render_cpu_module(ir), encoding="utf-8")
+    (generated_src_dir / "CMakeLists.txt").write_text(
+        render_template(
+            "cpu_module_cmake.txt.j2",
+            {
+                "runtime_lib": str(runtime_lib),
+                "kernels_lib": str(kernels_lib),
+                "runtime_include": str(support_libs.runtime_include),
+                "common_include": str(support_libs.common_include),
+                "kernels_include": str(support_libs.kernels_include),
+            },
+        ),
+        encoding="utf-8",
+    )
+    build_dir = generated_src_dir / "build"
+    _run_cmake(
+        [
+            "cmake",
+            "-S",
+            str(generated_src_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={artifact_dir}",
+            *([f"-DDINOML_ENABLE_OPENMP={os.environ['DINOML_ENABLE_OPENMP']}"] if "DINOML_ENABLE_OPENMP" in os.environ else []),
+        ],
+        cwd=artifact_dir,
+    )
+    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
+
+
+def ensure_cpu_support_libs(*, kernel_manifest: Mapping[str, object] | None = None) -> CpuSupportLibs:
+    repo_root = Path(__file__).resolve().parents[3]
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    manifest_key = "full" if kernel_manifest is None else str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]))[:16]
+    support_root = cache_root / "support" / "cpu" / manifest_key
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    runtime_lib = lib_dir / "libdinoml_runtime.so"
+    kernels_lib = lib_dir / "libdinoml_cpu_kernels.so"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    configure_cmd = [
+        "cmake",
+        "-S",
+        str(repo_root),
+        "-B",
+        str(build_dir),
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DDINOML_ENABLE_CUDA=OFF",
+        f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+    ]
+    if "DINOML_ENABLE_OPENMP" in os.environ:
+        configure_cmd.append(f"-DDINOML_ENABLE_OPENMP={os.environ['DINOML_ENABLE_OPENMP']}")
+    _run_cmake(configure_cmd, cwd=repo_root)
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            "dinoml_runtime",
+            "dinoml_cpu_kernels",
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    if not runtime_lib.exists() or not kernels_lib.exists():
+        raise RuntimeError(f"Expected CPU support libraries under {lib_dir}, but they were not produced")
+    write_json(
+        lib_dir / "support_manifest.json",
+        build_support_manifest(
+            target={"name": "cpu", "arch": "native"},
+            libraries={"runtime": runtime_lib.name, "kernels": kernels_lib.name},
+            required_kernel_cache_key=None if kernel_manifest is None else str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])),
+        ),
+    )
+    return CpuSupportLibs(
+        runtime_lib=runtime_lib,
+        kernels_lib=kernels_lib,
+        runtime_include=repo_root / "runtime" / "include",
+        common_include=repo_root / "kernels" / "common" / "include",
+        kernels_include=repo_root / "kernels" / "cpu" / "include",
+    )
+
+
+def _run_cmake(cmd: list[str], *, cwd: Path) -> None:
+    proc = subprocess.run(cmd, cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if proc.returncode != 0:
+        raise RuntimeError(
+            "CMake command failed\n"
+            f"Command: {' '.join(cmd)}\n"
+            f"stdout:\n{proc.stdout}\n"
+            f"stderr:\n{proc.stderr}"
+        )

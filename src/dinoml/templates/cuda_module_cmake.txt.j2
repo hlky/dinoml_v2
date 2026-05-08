@@ -1,0 +1,51 @@
+cmake_minimum_required(VERSION 3.24)
+
+project(DinoMLGeneratedModule LANGUAGES CXX CUDA)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CUDA_STANDARD 17)
+set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+option(DINOML_ENABLE_CUDA_FAST_MATH "Use CUDA fast math intrinsics in generated modules" ON)
+
+add_library(dinoml_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_runtime PROPERTIES
+  IMPORTED_LOCATION "{{ runtime_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+)
+
+add_library(dinoml_cuda_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_cuda_runtime PROPERTIES
+  IMPORTED_LOCATION "{{ cuda_runtime_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+)
+
+add_library(dinoml_cuda_kernels SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_cuda_kernels PROPERTIES
+  IMPORTED_LOCATION "{{ kernels_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+
+add_library(module SHARED module.cu)
+target_include_directories(module PRIVATE
+  "{{ runtime_include }}"
+  "{{ common_include }}"
+  "{{ kernels_include }}"
+)
+target_link_libraries(module PRIVATE
+  dinoml_runtime
+  dinoml_cuda_runtime
+  dinoml_cuda_kernels
+)
+if(DINOML_ENABLE_CUDA_FAST_MATH)
+  target_compile_definitions(module PRIVATE DINOML_USE_CUDA_FAST_MATH=1)
+  target_compile_options(module PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>)
+endif()
+set_target_properties(module PROPERTIES
+  OUTPUT_NAME module
+  PREFIX ""
+  BUILD_RPATH "$ORIGIN/lib"
+  INSTALL_RPATH "$ORIGIN/lib"
+  CUDA_SEPARABLE_COMPILATION OFF
+)

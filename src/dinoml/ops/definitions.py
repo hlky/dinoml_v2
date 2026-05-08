@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from dinoml.ops.elementwise import register_elementwise_ops
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+
+
+OP_REGISTRY = OpRegistry()
+register_elementwise_ops(OP_REGISTRY)
+OP_DEFINITIONS = OP_REGISTRY.definitions
+
+
+def register_op(op_def: OpDef) -> OpDef:
+    return OP_REGISTRY.register(op_def)
+
+
+def get_op_def(op_name: str) -> OpDef:
+    return OP_REGISTRY.get(op_name)
+
+
+__all__ = [
+    "AttrDef",
+    "FrontendBinding",
+    "KernelBinding",
+    "OP_DEFINITIONS",
+    "OP_REGISTRY",
+    "OpDef",
+    "OpRegistry",
+    "OpSchema",
+    "get_op_def",
+    "register_op",
+]

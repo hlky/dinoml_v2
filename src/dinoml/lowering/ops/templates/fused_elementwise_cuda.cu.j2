@@ -1,0 +1,77 @@
+{% for helper in broadcast_helpers %}
+{{ helper }}
+
+{% endfor %}
+using {{ storage_alias }} = {{ storage_type }};
+using {{ compute_alias }} = {{ compute_type }};
+
+{% if suffix_inner_extent %}
+__global__ void {{ kernel }}({{ kernel_params }}, int64_t runtime_total) {
+  int64_t inner_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (inner_idx >= {{ suffix_inner_extent }}) {
+    return;
+  }
+  int64_t outer_idx = static_cast<int64_t>(blockIdx.y);
+  int64_t idx = outer_idx * {{ suffix_inner_extent }} + inner_idx;
+  if (idx >= runtime_total) {
+    return;
+  }
+{{ accessor_decls }}
+{{ inner_scalar_body }}
+}
+{% else %}
+{% if vector_width > 1 %}
+__global__ void {{ kernel }}_vec({{ kernel_params }}, int64_t vector_total) {
+  int64_t vec_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (vec_idx >= vector_total) {
+    return;
+  }
+{{ accessor_decls }}
+{{ vector_body }}
+}
+{% endif %}
+
+__global__ void {{ kernel }}({{ kernel_params }}, int64_t total) {
+{% if elements_per_thread == 1 %}
+  int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx >= total) {
+    return;
+  }
+{{ accessor_decls }}
+{{ scalar_body }}
+{% else %}
+  int64_t base_idx = (static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) * {{ elements_per_thread }};
+#pragma unroll
+  for (int lane = 0; lane < {{ elements_per_thread }}; ++lane) {
+    int64_t idx = base_idx + lane;
+    if (idx < total) {
+{{ accessor_decls }}
+{{ scalar_body }}
+    }
+  }
+{% endif %}
+}
+{% endif %}
+
+static int {{ func }}({{ call_params }}, cudaStream_t stream) {
+  const int block = {{ block_size }};
+{% if suffix_inner_extent %}
+  dim3 grid(static_cast<unsigned int>(({{ suffix_inner_extent }} + block - 1) / block), static_cast<unsigned int>((runtime_total + {{ suffix_inner_extent }} - 1) / {{ suffix_inner_extent }}));
+  {{ kernel }}<<<grid, block, 0, stream>>>({{ kernel_arg_names }}, runtime_total);
+{% else %}
+{% if vector_width > 1 %}
+  if (runtime_total % {{ vector_width }} == 0) {
+    int vector_grid = static_cast<int>(((runtime_total / {{ vector_width }}) + block - 1) / block);
+    {{ kernel }}_vec<<<vector_grid, block, 0, stream>>>({{ kernel_arg_names }}, runtime_total / {{ vector_width }});
+  } else {
+    int grid = static_cast<int>((runtime_total + block * {{ elements_per_thread }} - 1) / (block * {{ elements_per_thread }}));
+    {{ kernel }}<<<grid, block, 0, stream>>>({{ kernel_arg_names }}, runtime_total);
+  }
+{% else %}
+  int grid = static_cast<int>((runtime_total + block * {{ elements_per_thread }} - 1) / (block * {{ elements_per_thread }}));
+  {{ kernel }}<<<grid, block, 0, stream>>>({{ kernel_arg_names }}, runtime_total);
+{% endif %}
+{% endif %}
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

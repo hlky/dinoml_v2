@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+import dinoml as dml
+from dinoml import runtime
+from dinoml.ir import read_json
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="dinoml")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    compile_parser = subparsers.add_parser("compile")
+    compile_parser.add_argument("model")
+    compile_parser.add_argument("--target", default="cuda")
+    compile_parser.add_argument("--arch", default="sm_86")
+    compile_parser.add_argument("--out", required=True)
+
+    inspect_parser = subparsers.add_parser("inspect")
+    inspect_parser.add_argument("artifact")
+
+    validate_parser = subparsers.add_parser("validate")
+    validate_parser.add_argument("artifact")
+    validate_parser.add_argument("--against", required=True)
+    validate_parser.add_argument("--atol", type=float, default=1e-4)
+    validate_parser.add_argument("--rtol", type=float, default=1e-4)
+
+    args = parser.parse_args(argv)
+    if args.command == "compile":
+        return _compile(args)
+    if args.command == "inspect":
+        return _inspect(args)
+    if args.command == "validate":
+        return _validate(args)
+    raise AssertionError(args.command)
+
+
+def _compile(args: argparse.Namespace) -> int:
+    module = _load_python_file(Path(args.model))
+    if not hasattr(module, "build_spec"):
+        raise RuntimeError(f"{args.model} must define build_spec()")
+    spec = module.build_spec()
+    artifact = dml.compile(spec, target=dml.Target(args.target, arch=args.arch), output=args.out)
+    print(f"Wrote {artifact.path}")
+    return 0
+
+
+def _inspect(args: argparse.Namespace) -> int:
+    artifact = Path(args.artifact)
+    manifest = read_json(artifact / "manifest.json")
+    graph = read_json(artifact / manifest["files"]["graph"])
+    print(json.dumps(
+        {
+            "name": manifest["name"],
+            "target": manifest["target"],
+            "runtime_abi_version": manifest["runtime_abi_version"],
+            "inputs": graph["inputs"],
+            "outputs": graph["outputs"],
+            "nodes": len(graph["nodes"]),
+            "constants": len(graph["constants"]),
+        },
+        indent=2,
+        sort_keys=True,
+    ))
+    return 0
+
+
+def _validate(args: argparse.Namespace) -> int:
+    module = _load_python_file(Path(args.against))
+    for symbol in ("build_validation_inputs", "torch_reference"):
+        if not hasattr(module, symbol):
+            raise RuntimeError(f"{args.against} must define {symbol}()")
+    inputs = module.build_validation_inputs()
+    expected = module.torch_reference(inputs)
+    if not isinstance(expected, dict):
+        expected = {"output_0": expected}
+
+    rt_module = runtime.load(args.artifact)
+    session = rt_module.create_session()
+    actual = session.run_numpy(inputs)
+    failures = []
+    for name, expected_array in expected.items():
+        if name not in actual:
+            failures.append(f"missing output {name}")
+            continue
+        expected_np = np.asarray(expected_array, dtype=np.float32)
+        actual_np = np.asarray(actual[name], dtype=np.float32)
+        max_abs = float(np.max(np.abs(actual_np - expected_np)))
+        print(f"{name}: max_abs_diff={max_abs:.6g}")
+        if not np.allclose(actual_np, expected_np, atol=args.atol, rtol=args.rtol):
+            failures.append(f"{name} mismatch")
+    session.close()
+    rt_module.close()
+    if failures:
+        raise RuntimeError("; ".join(failures))
+    print("validation ok")
+    return 0
+
+
+def _load_python_file(path: Path) -> Any:
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

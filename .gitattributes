@@ -1,0 +1,25 @@
+* text=auto eol=lf
+
+*.py text diff=python
+*.md text diff=markdown
+*.json text
+*.toml text
+*.txt text
+*.cmake text
+CMakeLists.txt text
+*.h text
+*.hpp text
+*.cpp text
+*.cu text
+*.cuh text
+*.j2 text
+
+*.bin binary
+*.so binary
+*.dll binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.png binary
+*.jpg binary
+*.jpeg binary

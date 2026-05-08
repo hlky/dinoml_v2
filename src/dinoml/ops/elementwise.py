@@ -1,0 +1,122 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Sequence
+
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+
+
+@dataclass(frozen=True)
+class ElementwiseSpec:
+    name: str
+    arity: int
+    math_func: str
+    attr_defaults: tuple[tuple[str, Any], ...] = ()
+
+
+ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
+    ElementwiseSpec("add", 2, "add"),
+    ElementwiseSpec("sub", 2, "sub"),
+    ElementwiseSpec("mul", 2, "mul"),
+    ElementwiseSpec("div", 2, "div"),
+    ElementwiseSpec("tanh", 1, "tanh"),
+    ElementwiseSpec("cos", 1, "cos"),
+    ElementwiseSpec("sin", 1, "sin"),
+    ElementwiseSpec("sign", 1, "sign"),
+    ElementwiseSpec("abs", 1, "abs"),
+    ElementwiseSpec("log", 1, "log"),
+    ElementwiseSpec("log1p", 1, "log1p"),
+    ElementwiseSpec("exp", 1, "exp"),
+    ElementwiseSpec("sqrt", 1, "sqrt"),
+    ElementwiseSpec("max", 2, "max"),
+    ElementwiseSpec("min", 2, "min"),
+    ElementwiseSpec("sigmoid", 1, "sigmoid"),
+    ElementwiseSpec("leaky_relu", 1, "leaky_relu", (("negative_slope", 0.01),)),
+    ElementwiseSpec("hardtanh", 1, "hardtanh", (("min_value", -1.0), ("max_value", 1.0))),
+    ElementwiseSpec("relu", 1, "relu"),
+    ElementwiseSpec(
+        "nan_to_num",
+        1,
+        "nan_to_num",
+        (("nan_replacement", 0.0), ("posinf_replacement", 0.0), ("neginf_replacement", 0.0)),
+    ),
+    ElementwiseSpec(
+        "clamp_nan_to_num",
+        1,
+        "clamp_nan_to_num",
+        (("clamp_min", -3.4028234663852886e38), ("clamp_max", 3.4028234663852886e38), ("nan_replacement", 0.0)),
+    ),
+    ElementwiseSpec("silu", 1, "silu"),
+    ElementwiseSpec("pow", 2, "pow"),
+    ElementwiseSpec("gelu", 1, "gelu", (("approximation", "tanh"),)),
+    ElementwiseSpec("fast_gelu", 1, "fast_gelu"),
+    ElementwiseSpec("softplus", 1, "softplus"),
+    ElementwiseSpec("elu", 1, "elu", (("alpha", 1.0),)),
+    ElementwiseSpec("softsign", 1, "softsign"),
+    ElementwiseSpec("floor_div", 2, "floor_div"),
+    ElementwiseSpec("celu", 1, "celu", (("alpha", 1.0),)),
+    ElementwiseSpec("floor", 1, "floor"),
+)
+
+ELEMENTWISE_BY_NAME = {spec.name: spec for spec in ELEMENTWISE_SPECS}
+FUSABLE_ELEMENTWISE_OPS = frozenset(ELEMENTWISE_BY_NAME)
+FLOAT_ELEMENTWISE_DTYPES = ("float16", "float32", "bfloat16")
+
+
+def broadcast_shape(a_shape: Sequence[int], b_shape: Sequence[int]) -> list[int]:
+    result = []
+    for a_dim, b_dim in zip(reversed(a_shape), reversed(b_shape)):
+        if a_dim == b_dim:
+            result.append(a_dim)
+        elif a_dim == 1:
+            result.append(b_dim)
+        elif b_dim == 1:
+            result.append(a_dim)
+        else:
+            raise ValueError(f"Shapes are not broadcastable: {list(a_shape)} and {list(b_shape)}")
+    longer = list(a_shape) if len(a_shape) > len(b_shape) else list(b_shape)
+    prefix = longer[: abs(len(a_shape) - len(b_shape))]
+    return [*prefix, *reversed(result)]
+
+
+def infer_elementwise(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if not shapes:
+        raise ValueError("elementwise ops require at least one input")
+    shape = list(shapes[0])
+    for next_shape in shapes[1:]:
+        shape = broadcast_shape(shape, next_shape)
+    return shape
+
+
+def register_elementwise_ops(registry: OpRegistry) -> None:
+    for spec in ELEMENTWISE_SPECS:
+        registry.register(
+            OpDef(
+                name=spec.name,
+                schema=OpSchema(
+                    inputs=tuple(f"x{idx}" for idx in range(spec.arity)),
+                    attrs=tuple(AttrDef(name, type(default).__name__, default) for name, default in spec.attr_defaults),
+                ),
+                infer_shape=infer_elementwise,
+                frontend=FrontendBinding(
+                    spec.name,
+                    default_attrs={name: default for name, default in spec.attr_defaults},
+                ),
+                allowed_dtypes=FLOAT_ELEMENTWISE_DTYPES,
+                description=f"Elementwise {spec.name}. Lowered through fused_elementwise.",
+            )
+        )
+    registry.register(
+        OpDef(
+            name="fused_elementwise",
+            schema=OpSchema(attrs=(AttrDef("sub_ops", "list[dict]", required=True),)),
+            infer_shape=infer_elementwise,
+            backend_kernels={
+                "cuda": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cuda"),
+                "cpu": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cpu"),
+            },
+            allowed_dtypes=FLOAT_ELEMENTWISE_DTYPES,
+            variadic_inputs=True,
+            description="Internal fused elementwise subgraph generated into the model module.",
+        )
+    )

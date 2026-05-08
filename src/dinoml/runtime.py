@@ -1,0 +1,494 @@
+from __future__ import annotations
+
+import ctypes
+import json
+import os
+from pathlib import Path
+from typing import Dict, Mapping
+
+import numpy as np
+
+from dinoml.ir import RUNTIME_ABI_VERSION, array_from_storage, array_to_storage, dtype_numpy, dtype_runtime_enum, read_json
+
+
+class _DinoTensor(ctypes.Structure):
+    _fields_ = [
+        ("data", ctypes.c_void_p),
+        ("shape", ctypes.POINTER(ctypes.c_int64)),
+        ("ndim", ctypes.c_size_t),
+        ("dtype", ctypes.c_int),
+    ]
+
+
+def load(path: str | Path) -> "RuntimeModule":
+    return RuntimeModule(Path(path))
+
+
+class RuntimeModule:
+    def __init__(self, artifact_dir: Path):
+        self.artifact_dir = artifact_dir
+        manifest_path = artifact_dir / "manifest.json"
+        module_path = artifact_dir / "module.so"
+        if not manifest_path.exists():
+            raise FileNotFoundError(f"Missing manifest: {manifest_path}")
+        if not module_path.exists():
+            raise FileNotFoundError(f"Missing module: {module_path}")
+        self.manifest = read_json(manifest_path)
+        self.target_name = self.manifest.get("target", {}).get("name")
+        if self.manifest.get("runtime_abi_version") != RUNTIME_ABI_VERSION:
+            raise RuntimeError(
+                f"Unsupported runtime ABI {self.manifest.get('runtime_abi_version')}, expected {RUNTIME_ABI_VERSION}"
+            )
+        files = self.manifest.get("files", {})
+        runtime_lib = artifact_dir / files.get("runtime_library", "lib/libdinoml_runtime.so")
+        kernels_lib = artifact_dir / files.get("kernel_library", "lib/libdinoml_cuda_kernels.so")
+        global_load_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0)
+        local_load_mode = getattr(os, "RTLD_NOW", 0)
+        self._runtime_dll = ctypes.CDLL(str(runtime_lib), mode=global_load_mode)
+        self._cuda_runtime_dll = None
+        if "cuda_runtime_library" in files:
+            cuda_runtime_lib = artifact_dir / files["cuda_runtime_library"]
+            self._cuda_runtime_dll = ctypes.CDLL(str(cuda_runtime_lib), mode=global_load_mode)
+        self._kernels_dll = ctypes.CDLL(str(kernels_lib), mode=global_load_mode)
+        self._dll = ctypes.CDLL(str(module_path), mode=local_load_mode)
+        self._configure_symbols()
+        if self._runtime_dll.dino_abi_version() != RUNTIME_ABI_VERSION:
+            raise RuntimeError("module.so ABI version does not match Python runtime")
+        self._handle = ctypes.c_void_p()
+        self._check(self._dll.dino_module_load(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
+        metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
+        self.metadata = json.loads(metadata_raw.decode("utf-8"))
+
+    def close(self) -> None:
+        if getattr(self, "_handle", None):
+            self._check(self._dll.dino_module_free(self._handle))
+            self._handle = ctypes.c_void_p()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def create_session(self) -> "Session":
+        return Session(self)
+
+    def load_constants_from_file(self, path: str | Path | None = None) -> None:
+        constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
+        self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
+
+    def set_constant_numpy(self, name: str, value: np.ndarray) -> None:
+        constants = {constant["name"]: constant for constant in self.metadata["constants"]}
+        if name not in constants:
+            raise ValueError(f"Unknown constant: {name}")
+        constant_spec = constants[name]
+        array = array_to_storage(value, str(constant_spec["dtype"]))
+        expected_shape = tuple(int(dim) for dim in constant_spec["shape"])
+        if array.shape != expected_shape:
+            raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
+        dtype_enum = dtype_runtime_enum(constant_spec["dtype"])
+        if self.target_name == "cpu":
+            shape = _shape_buffer(array.shape)
+            tensor = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(array.shape), dtype_enum)
+            self._check(
+                self._dll.dino_module_set_constant(
+                    self._handle,
+                    name.encode("utf-8"),
+                    ctypes.byref(tensor),
+                )
+            )
+            return
+        if self._cuda_runtime_dll is None:
+            raise RuntimeError("CUDA runtime library is not loaded")
+        ptr = ctypes.c_void_p()
+        self._check(self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes)))
+        shape = _shape_buffer(array.shape)
+        tensor = _DinoTensor(ptr, shape, len(array.shape), dtype_enum)
+        try:
+            self._check(
+                self._cuda_runtime_dll.dino_copy_host_to_device(
+                    ptr,
+                    ctypes.c_void_p(array.ctypes.data),
+                    ctypes.c_size_t(array.nbytes),
+                )
+            )
+            self._check(
+                self._dll.dino_module_set_constant(
+                    self._handle,
+                    name.encode("utf-8"),
+                    ctypes.byref(tensor),
+                )
+            )
+        finally:
+            self._check(self._cuda_runtime_dll.dino_device_free(ptr))
+
+    def set_constant_device_pointer(self, name: str, ptr: int, shape: tuple[int, ...] | list[int], dtype: str) -> None:
+        if self.target_name != "cuda":
+            raise RuntimeError("set_constant_device_pointer is only available for CUDA artifacts")
+        constants = {constant["name"]: constant for constant in self.metadata["constants"]}
+        if name not in constants:
+            raise ValueError(f"Unknown constant: {name}")
+        constant_spec = constants[name]
+        expected_shape = tuple(int(dim) for dim in constant_spec["shape"])
+        if tuple(int(dim) for dim in shape) != expected_shape:
+            raise ValueError(f"Constant {name} has shape {tuple(shape)}, expected {expected_shape}")
+        if str(dtype) != str(constant_spec["dtype"]):
+            raise ValueError(f"Constant {name} has dtype {dtype}, expected {constant_spec['dtype']}")
+        shape_buffer = _shape_buffer(expected_shape)
+        tensor = _DinoTensor(ctypes.c_void_p(int(ptr)), shape_buffer, len(expected_shape), dtype_runtime_enum(str(dtype)))
+        self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
+
+    def set_constant_torch(self, name: str, value: object) -> None:
+        if not getattr(value, "is_cuda", False):
+            raise ValueError(f"Constant {name} must be a CUDA tensor")
+        if not value.is_contiguous():
+            raise ValueError(f"Constant {name} must be contiguous")
+        spec = {constant["name"]: constant for constant in self.metadata["constants"]}[name]
+        expected_shape = tuple(int(dim) for dim in spec["shape"])
+        if tuple(int(dim) for dim in value.shape) != expected_shape:
+            raise ValueError(f"Constant {name} has shape {tuple(value.shape)}, expected {expected_shape}")
+        self.set_constant_device_pointer(
+            name,
+            _torch_data_ptr(value),
+            expected_shape,
+            _torch_dtype_name(value),
+        )
+
+    def _configure_symbols(self) -> None:
+        self._runtime_dll.dino_abi_version.restype = ctypes.c_int
+        self._runtime_dll.dino_get_last_error.restype = ctypes.c_char_p
+        if self._cuda_runtime_dll is not None:
+            self._cuda_runtime_dll.dino_device_malloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+            self._cuda_runtime_dll.dino_device_malloc.restype = ctypes.c_int
+            self._cuda_runtime_dll.dino_device_free.argtypes = [ctypes.c_void_p]
+            self._cuda_runtime_dll.dino_device_free.restype = ctypes.c_int
+            self._cuda_runtime_dll.dino_copy_host_to_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+            self._cuda_runtime_dll.dino_copy_host_to_device.restype = ctypes.c_int
+            self._cuda_runtime_dll.dino_copy_device_to_host.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+            self._cuda_runtime_dll.dino_copy_device_to_host.restype = ctypes.c_int
+            self._cuda_runtime_dll.dino_copy_device_to_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+            self._cuda_runtime_dll.dino_copy_device_to_device.restype = ctypes.c_int
+        self._dll.dino_module_load.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+        self._dll.dino_module_load.restype = ctypes.c_int
+        self._dll.dino_module_free.argtypes = [ctypes.c_void_p]
+        self._dll.dino_module_free.restype = ctypes.c_int
+        self._dll.dino_module_get_metadata_json.argtypes = [ctypes.c_void_p]
+        self._dll.dino_module_get_metadata_json.restype = ctypes.c_char_p
+        self._dll.dino_module_load_constants.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+        self._dll.dino_module_load_constants.restype = ctypes.c_int
+        self._dll.dino_module_set_constant.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(_DinoTensor)]
+        self._dll.dino_module_set_constant.restype = ctypes.c_int
+        self._dll.dino_session_create.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
+        self._dll.dino_session_create.restype = ctypes.c_int
+        self._dll.dino_session_destroy.argtypes = [ctypes.c_void_p]
+        self._dll.dino_session_destroy.restype = ctypes.c_int
+        self._dll.dino_session_run.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(_DinoTensor),
+            ctypes.c_size_t,
+            ctypes.POINTER(_DinoTensor),
+            ctypes.c_size_t,
+        ]
+        self._dll.dino_session_run.restype = ctypes.c_int
+
+    def _check(self, err: int) -> None:
+        if err:
+            message = self._runtime_dll.dino_get_last_error()
+            raise RuntimeError(message.decode("utf-8") if message else "Unknown DinoML runtime error")
+
+
+class Session:
+    def __init__(self, module: RuntimeModule):
+        self.module = module
+        self._handle = ctypes.c_void_p()
+        self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
+        self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
+
+    def close(self) -> None:
+        self._free_cuda_buffers()
+        if getattr(self, "_handle", None):
+            self.module._check(self.module._dll.dino_session_destroy(self._handle))
+            self._handle = ctypes.c_void_p()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def run_numpy(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        if self.module.target_name == "cpu":
+            return self._run_numpy_cpu(inputs)
+        return self._run_numpy_cuda(inputs)
+
+    def run_device_pointers(
+        self,
+        inputs: Mapping[str, int],
+        outputs: Mapping[str, int],
+        input_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
+        output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
+    ) -> None:
+        if self.module.target_name != "cuda":
+            raise RuntimeError("run_device_pointers is only available for CUDA artifacts")
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        shape_buffers = []
+        resolved_input_shapes: dict[str, tuple[int, ...]] = {}
+        input_tensors = (_DinoTensor * len(input_specs))()
+        for idx, spec in enumerate(input_specs):
+            name = str(spec["name"])
+            if name not in inputs:
+                raise ValueError(f"Missing input pointer: {name}")
+            actual_shape = tuple(int(dim) for dim in (input_shapes or {}).get(name, spec["shape"]))
+            _validate_runtime_shape(name, actual_shape, spec)
+            resolved_input_shapes[name] = actual_shape
+            shape = _shape_buffer(actual_shape)
+            shape_buffers.append(shape)
+            input_tensors[idx] = _DinoTensor(ctypes.c_void_p(int(inputs[name])), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+        output_tensors = (_DinoTensor * len(output_specs))()
+        for idx, spec in enumerate(output_specs):
+            name = str(spec["name"])
+            if name not in outputs:
+                raise ValueError(f"Missing output pointer: {name}")
+            if output_shapes is not None and name in output_shapes:
+                actual_shape = tuple(int(dim) for dim in output_shapes[name])
+            else:
+                actual_shape = _infer_output_shape(spec, input_specs, resolved_input_shapes)
+            _validate_runtime_shape(name, actual_shape, spec)
+            shape = _shape_buffer(actual_shape)
+            shape_buffers.append(shape)
+            output_tensors[idx] = _DinoTensor(ctypes.c_void_p(int(outputs[name])), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+        self.module._check(
+            self.module._dll.dino_session_run(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(len(input_specs)),
+                output_tensors,
+                ctypes.c_size_t(len(output_specs)),
+            )
+        )
+
+    def run_torch(self, inputs: Mapping[str, object]) -> Dict[str, object]:
+        import torch
+
+        if self.module.target_name != "cuda":
+            raise RuntimeError("run_torch is only available for CUDA artifacts")
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        input_shapes = {}
+        for spec in input_specs:
+            tensor = inputs[str(spec["name"])]
+            if not getattr(tensor, "is_cuda", False):
+                raise ValueError(f"Input {spec['name']} must be a CUDA tensor")
+            _validate_runtime_shape(str(spec["name"]), tuple(int(dim) for dim in tensor.shape), spec)
+            input_shapes[str(spec["name"])] = tuple(int(dim) for dim in tensor.shape)
+            if _torch_dtype_name(tensor) != str(spec["dtype"]):
+                raise ValueError(f"Input {spec['name']} has dtype {_torch_dtype_name(tensor)}, expected {spec['dtype']}")
+            if not tensor.is_contiguous():
+                raise ValueError(f"Input {spec['name']} must be contiguous")
+        device = next(iter(inputs.values())).device
+        outputs = {
+            str(spec["name"]): torch.empty(
+                _infer_output_shape(spec, input_specs, input_shapes),
+                dtype=_torch_dtype(str(spec["dtype"]), torch),
+                device=device,
+            )
+            for spec in output_specs
+        }
+        self.run_device_pointers(
+            {str(spec["name"]): _torch_data_ptr(inputs[str(spec["name"])]) for spec in input_specs},
+            {name: _torch_data_ptr(tensor) for name, tensor in outputs.items()},
+            {str(spec["name"]): tuple(int(dim) for dim in inputs[str(spec["name"])].shape) for spec in input_specs},
+            {name: tuple(int(dim) for dim in tensor.shape) for name, tensor in outputs.items()},
+        )
+        return outputs
+
+    def _run_numpy_cpu(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        output_arrays = [
+            np.empty(_infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            for spec in output_specs
+        ]
+        shape_buffers = []
+        input_tensors = (_DinoTensor * len(input_arrays))()
+        for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
+            shape = _shape_buffer(array.shape)
+            shape_buffers.append(shape)
+            input_tensors[idx] = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+        output_tensors = (_DinoTensor * len(output_arrays))()
+        for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
+            shape = _shape_buffer(array.shape)
+            shape_buffers.append(shape)
+            output_tensors[idx] = _DinoTensor(ctypes.c_void_p(array.ctypes.data), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+        self.module._check(
+            self.module._dll.dino_session_run(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(len(input_arrays)),
+                output_tensors,
+                ctypes.c_size_t(len(output_arrays)),
+            )
+        )
+        return {spec["name"]: array_from_storage(array, str(spec["dtype"])) for spec, array in zip(output_specs, output_arrays)}
+
+    def _run_numpy_cuda(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        output_arrays = [
+            np.empty(_infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            for spec in output_specs
+        ]
+
+        shape_buffers = []
+        input_tensors = (_DinoTensor * len(input_arrays))()
+        for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
+            ptr = self._device_buffer(f"input:{spec['name']}", array.nbytes)
+            self._copy_h2d(ptr, array)
+            shape = _shape_buffer(array.shape)
+            shape_buffers.append(shape)
+            input_tensors[idx] = _DinoTensor(ptr, shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+
+        output_tensors = (_DinoTensor * len(output_arrays))()
+        for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
+            ptr = self._device_buffer(f"output:{spec['name']}", array.nbytes)
+            shape = _shape_buffer(array.shape)
+            shape_buffers.append(shape)
+            output_tensors[idx] = _DinoTensor(ptr, shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
+
+        self.module._check(
+            self.module._dll.dino_session_run(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(len(input_arrays)),
+                output_tensors,
+                ctypes.c_size_t(len(output_arrays)),
+            )
+        )
+        for tensor, array in zip(output_tensors, output_arrays):
+            self._copy_d2h(array, tensor.data)
+        return {spec["name"]: array_from_storage(array, str(spec["dtype"])) for spec, array in zip(output_specs, output_arrays)}
+
+    def _device_malloc(self, nbytes: int) -> ctypes.c_void_p:
+        ptr = ctypes.c_void_p()
+        self.module._check(self.module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(nbytes)))
+        return ptr
+
+    def _device_buffer(self, key: str, nbytes: int) -> ctypes.c_void_p:
+        cached = self._cuda_buffers.get(key)
+        if cached is not None and cached[1] >= nbytes:
+            return cached[0]
+        if cached is not None:
+            self.module._check(self.module._cuda_runtime_dll.dino_device_free(cached[0]))
+        ptr = self._device_malloc(nbytes)
+        self._cuda_buffers[key] = (ptr, nbytes)
+        return ptr
+
+    def _free_cuda_buffers(self) -> None:
+        if not getattr(self, "_cuda_buffers", None):
+            return
+        if self.module._cuda_runtime_dll is None:
+            self._cuda_buffers.clear()
+            return
+        for ptr, _nbytes in reversed(list(self._cuda_buffers.values())):
+            self.module._check(self.module._cuda_runtime_dll.dino_device_free(ptr))
+        self._cuda_buffers.clear()
+
+    def _copy_h2d(self, dst_device: ctypes.c_void_p, src: np.ndarray) -> None:
+        self.module._check(
+            self.module._cuda_runtime_dll.dino_copy_host_to_device(dst_device, ctypes.c_void_p(src.ctypes.data), ctypes.c_size_t(src.nbytes))
+        )
+
+    def _copy_d2h(self, dst: np.ndarray, src_device: ctypes.c_void_p) -> None:
+        self.module._check(
+            self.module._cuda_runtime_dll.dino_copy_device_to_host(ctypes.c_void_p(dst.ctypes.data), src_device, ctypes.c_size_t(dst.nbytes))
+        )
+
+
+def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray]) -> np.ndarray:
+    name = str(spec["name"])
+    if name not in inputs:
+        raise ValueError(f"Missing input: {name}")
+    array = array_to_storage(inputs[name], str(spec["dtype"]))
+    _validate_runtime_shape(name, array.shape, spec)
+    return array
+
+
+def _validate_runtime_shape(name: str, shape: tuple[int, ...], spec: Mapping[str, object]) -> None:
+    shape_spec = spec.get("shape_spec", spec["shape"])
+    if len(shape) != len(shape_spec):
+        raise ValueError(f"{name} rank mismatch: got {len(shape)}, expected {len(shape_spec)}")
+    for axis, (actual, dim_spec) in enumerate(zip(shape, shape_spec)):
+        if isinstance(dim_spec, int):
+            if actual != int(dim_spec):
+                raise ValueError(f"{name} axis {axis} has dim {actual}, expected {dim_spec}")
+            continue
+        min_dim = int(dim_spec["min"])
+        max_dim = int(dim_spec["max"])
+        divisible_by = int(dim_spec.get("divisible_by", 1))
+        if actual < min_dim or actual > max_dim:
+            raise ValueError(f"{name} axis {axis} has dim {actual}, expected [{min_dim}, {max_dim}]")
+        if actual % divisible_by != 0:
+            raise ValueError(f"{name} axis {axis} has dim {actual}, expected divisible by {divisible_by}")
+
+
+def _infer_output_shape(
+    output_spec: Mapping[str, object],
+    input_specs: list[Mapping[str, object]],
+    input_shapes: Mapping[str, tuple[int, ...]],
+) -> tuple[int, ...]:
+    dim_values: dict[str, int] = {}
+    for spec in input_specs:
+        shape_spec = spec.get("shape_spec", spec["shape"])
+        actual_shape = input_shapes[str(spec["name"])]
+        for actual, dim_spec in zip(actual_shape, shape_spec):
+            if isinstance(dim_spec, int):
+                continue
+            name = str(dim_spec["name"])
+            existing = dim_values.get(name)
+            if existing is not None and existing != int(actual):
+                raise ValueError(f"Dynamic dimension {name} has inconsistent values {existing} and {actual}")
+            dim_values[name] = int(actual)
+    result = []
+    for dim_spec in output_spec.get("shape_spec", output_spec["shape"]):
+        if isinstance(dim_spec, int):
+            result.append(int(dim_spec))
+        else:
+            result.append(dim_values.get(str(dim_spec["name"]), int(dim_spec["max"])))
+    return tuple(result)
+
+
+def _shape_buffer(shape: object) -> ctypes.Array:
+    values = [int(dim) for dim in shape]
+    return (ctypes.c_int64 * len(values))(*values)
+
+
+def _torch_data_ptr(tensor: object) -> int:
+    if not hasattr(tensor, "data_ptr"):
+        raise TypeError("Expected a torch.Tensor-like object with data_ptr()")
+    return int(tensor.data_ptr())
+
+
+def _torch_dtype_name(tensor: object) -> str:
+    dtype_name = str(getattr(tensor, "dtype", ""))
+    if dtype_name == "torch.float16":
+        return "float16"
+    if dtype_name == "torch.float32":
+        return "float32"
+    if dtype_name == "torch.bfloat16":
+        return "bfloat16"
+    raise ValueError(f"Unsupported torch dtype: {dtype_name}")
+
+
+def _torch_dtype(dtype: str, torch_module: object) -> object:
+    if dtype == "float16":
+        return torch_module.float16
+    if dtype == "float32":
+        return torch_module.float32
+    if dtype == "bfloat16":
+        return torch_module.bfloat16
+    raise ValueError(f"Unsupported torch dtype: {dtype}")

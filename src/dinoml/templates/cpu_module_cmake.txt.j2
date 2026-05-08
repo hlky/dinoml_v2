@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.24)
+
+project(DinoMLGeneratedCpuModule LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if(WIN32)
+  set(DINOML_DEFAULT_OPENMP OFF)
+else()
+  set(DINOML_DEFAULT_OPENMP ON)
+endif()
+option(DINOML_ENABLE_OPENMP "Use OpenMP when building generated CPU modules" ${DINOML_DEFAULT_OPENMP})
+
+add_library(dinoml_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_runtime PROPERTIES
+  IMPORTED_LOCATION "{{ runtime_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+)
+
+add_library(dinoml_cpu_kernels SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_cpu_kernels PROPERTIES
+  IMPORTED_LOCATION "{{ kernels_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+
+add_library(module SHARED module.cpp)
+target_include_directories(module PRIVATE
+  "{{ runtime_include }}"
+  "{{ common_include }}"
+  "{{ kernels_include }}"
+)
+target_link_libraries(module PRIVATE
+  dinoml_runtime
+  dinoml_cpu_kernels
+)
+if(DINOML_ENABLE_OPENMP)
+  find_package(OpenMP QUIET)
+  if(OpenMP_CXX_FOUND)
+    target_link_libraries(module PRIVATE OpenMP::OpenMP_CXX)
+  endif()
+endif()
+if(NOT MSVC)
+  target_compile_options(module PRIVATE -march=native -ffast-math)
+endif()
+set_target_properties(module PROPERTIES
+  OUTPUT_NAME module
+  PREFIX ""
+  BUILD_RPATH "$ORIGIN/lib"
+  INSTALL_RPATH "$ORIGIN/lib"
+)

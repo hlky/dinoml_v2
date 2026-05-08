@@ -70,6 +70,7 @@ pip install -e ".[dev]"
 python -m pytest -q
 python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda
 python tools/benchmark_softmax.py --suite quick --targets cpu,cuda
+python tools/benchmark_reductions.py --suite quick --targets cpu,cuda
 ```
 
 Generated artifacts, support-library build products, benchmark output, and local

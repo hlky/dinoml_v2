@@ -92,12 +92,15 @@ larger policy surface. The current examples are
 `tools/benchmark_fused_elementwise.py` and `tools/benchmark_softmax.py`; both
 compare DinoML CPU/CUDA hot C ABI execution against NumPy and Torch references,
 write JSON timing results under `tmp/`, and copy generated sources to
-`tmp/.../generated_review/` for codegen inspection. For CUDA softmax, v2 now has
-small v1-inspired static last-dim policies: a warp-per-row register path for
-odd/tail `K`, a float2/float4 packed local-register path for selected divisible
-`K`, and a shared-memory fallback for large reductions. Broader v1-style
-K1/K2/K4/K8 small/middle/block policy parity and profiler selection should land
-before treating softmax as done.
+`tmp/.../generated_review/` for codegen inspection.
+`tools/benchmark_reductions.py` follows the same pattern for row reductions.
+For CUDA softmax, v2 now has small v1-inspired static last-dim policies: a
+warp-per-row register path for odd/tail `K`, a float2/float4 packed
+local-register path for selected divisible `K`, and a shared-memory fallback for
+large reductions. CUDA reductions now use a warp-per-row path for `K <= 1024`
+and a shared-memory fallback for larger rows. Broader v1-style K1/K2/K4/K8
+small/middle/block policy parity and profiler selection should land before
+treating softmax or reductions as done.
 
 The generated `module.so` owns metadata loading, constant binding, pointer
 binding, workspace/session allocation, shape checks, runtime shape buffers,

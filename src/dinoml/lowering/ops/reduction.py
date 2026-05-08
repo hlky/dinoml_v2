@@ -51,9 +51,13 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
         "op": node["op"],
         "cols": cols,
         "block_size": _cuda_block_size(cols),
+        "cols_per_thread": (cols + 31) // 32,
+        "rows_per_block": _cuda_rows_per_block(cols),
+        "use_warp_kernel": cols <= 1024,
         "initial_value": _initial_value(node["op"]),
         "combine_expr": _combine_expr(node["op"]),
         "final_expr": _final_expr(node["op"], cols),
@@ -120,6 +124,12 @@ def _cuda_block_size(cols: int) -> int:
     while block < cols and block < 256:
         block *= 2
     return max(32, block)
+
+
+def _cuda_rows_per_block(cols: int) -> int:
+    if cols <= 128:
+        return 8
+    return 4
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

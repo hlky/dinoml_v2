@@ -226,7 +226,8 @@ def test_cuda_generated_reductions_match_numpy(tmp_path, op_name, numpy_op):
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_cuda.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
     assert f"{op_name}_" in generated
-    assert "block * sizeof(float)" in generated
+    assert "_warp_kernel" in generated
+    assert "__shfl_down_sync" in generated
 
     x = np.random.default_rng(91).standard_normal((64, 257)).astype(np.float32)
     expected = numpy_op(x, axis=-1).astype(np.float32)

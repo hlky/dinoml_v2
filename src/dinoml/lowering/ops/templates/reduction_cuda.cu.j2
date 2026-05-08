@@ -1,3 +1,39 @@
+{% if use_warp_kernel %}
+__global__ void {{ warp_kernel }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int cols_per_thread = {{ cols_per_thread }};
+  const int row = static_cast<int>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+
+  float acc = {{ initial_value }};
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    if (col < cols) {
+      const float value = x[base + col];
+      acc = {{ combine_expr }};
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    const float value = __shfl_down_sync(0xffffffffu, acc, offset);
+    acc = {{ combine_expr }};
+  }
+
+  if (lane == 0) {
+    y[row] = {{ final_expr }};
+  }
+}
+
+{% endif %}
 __global__ void {{ kernel }}(
     const float* DINO_RESTRICT x,
     float* DINO_RESTRICT y,
@@ -41,8 +77,14 @@ static int {{ func }}(
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
+{% if use_warp_kernel %}
+  dim3 block(32, {{ rows_per_block }});
+  dim3 grid(static_cast<unsigned int>((runtime_rows + {{ rows_per_block }} - 1) / {{ rows_per_block }}));
+  {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_rows);
+{% else %}
   const int block = {{ block_size }};
   {{ kernel }}<<<static_cast<unsigned int>(runtime_rows), block, block * sizeof(float), stream>>>(x, y, runtime_rows);
+{% endif %}
   DINO_CUDA_CHECK(cudaGetLastError());
   return 0;
 }

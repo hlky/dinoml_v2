@@ -194,6 +194,11 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert rrr_f16_candidate["kernel_symbol"] == "dinoml_cutlass_gemm_rrr_f16"
     assert rrr_f16_candidate["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert len(rrr_f16_candidate["candidate_config_key"]) == 64
+    rrr_f16_candidate_set = families["gemm_rrr"]["candidate_sets_by_dtype"]["float16"]
+    assert rrr_f16_candidate_set["candidate_set_id"] == "cutlass_gemm_rrr_f16_linear_combination_v1"
+    assert rrr_f16_candidate_set["candidate_count"] == 1
+    assert rrr_f16_candidate_set["candidate_config_keys"] == [rrr_f16_candidate["candidate_config_key"]]
+    assert len(rrr_f16_candidate_set["candidate_set_key"]) == 64
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
 
@@ -232,6 +237,10 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["kernel_library"] == "cutlass_gemm"
     assert required["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"
     assert required["has_profiler"] is True
+    assert required["candidate_set_id"] == f"cutlass_gemm_rrr_{suffix}_linear_combination_v1"
+    assert len(required["candidate_set_key"]) == 64
+    assert required["candidate_set"]["candidate_set_key"] == required["candidate_set_key"]
+    assert required["candidate_set"]["candidate_count"] == 1
     assert required["selected_candidate_id"] == "cutlass_default"
     assert len(required["candidates"]) == 1
     candidate = required["candidates"][0]
@@ -282,6 +291,11 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
     assert [candidate["candidate_id"] for candidate in candidates] == ["cutlass_default", "cutlass_default"]
     assert [candidate["dtype"] for candidate in candidates] == ["float32", "float16"]
     assert candidates[0]["candidate_config_key"] != candidates[1]["candidate_config_key"]
+    assert [item["candidate_set_id"] for item in manifest["required_kernels"]] == [
+        "cutlass_gemm_rrr_f32_linear_combination_v1",
+        "cutlass_gemm_rrr_f16_linear_combination_v1",
+    ]
+    assert manifest["required_kernels"][0]["candidate_set_key"] != manifest["required_kernels"][1]["candidate_set_key"]
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

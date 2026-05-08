@@ -5,6 +5,7 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.kernels.gemm import (
     GEMM_SUPPORTED_DTYPES,
+    cutlass_gemm_candidate_set,
     cutlass_gemm_candidates,
     cutlass_gemm_profiler_symbol,
     cutlass_gemm_symbol,
@@ -24,11 +25,16 @@ class ExternalKernelFamily:
     kernel_symbols_by_dtype: Mapping[str, str] | None = None
     profiler_symbols_by_dtype: Mapping[str, str] | None = None
     candidates_by_dtype: Mapping[str, Sequence[Mapping[str, Any]]] | None = None
+    candidate_sets_by_dtype: Mapping[str, Mapping[str, Any]] | None = None
 
     def to_json(self) -> dict[str, Any]:
         candidates_by_dtype = {
             dtype: [dict(candidate) for candidate in candidates]
             for dtype, candidates in (self.candidates_by_dtype or {}).items()
+        }
+        candidate_sets_by_dtype = {
+            dtype: dict(candidate_set)
+            for dtype, candidate_set in (self.candidate_sets_by_dtype or {}).items()
         }
         return {
             "op_name": self.op_name,
@@ -42,6 +48,8 @@ class ExternalKernelFamily:
             "profiler_symbols_by_dtype": dict(self.profiler_symbols_by_dtype or {}),
             "candidates_by_dtype": candidates_by_dtype,
             "candidates": candidates_by_dtype.get("float32", []),
+            "candidate_sets_by_dtype": candidate_sets_by_dtype,
+            "candidate_set": candidate_sets_by_dtype.get("float32", {}),
             "attrs": dict(self.attrs),
         }
 
@@ -58,6 +66,7 @@ CUTLASS_GEMM_FAMILIES = (
         kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         candidates_by_dtype={dtype: cutlass_gemm_candidates("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         attrs={
             "a_layout": "row",
             "b_layout": "column",
@@ -77,6 +86,7 @@ CUTLASS_GEMM_FAMILIES = (
         kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         candidates_by_dtype={dtype: cutlass_gemm_candidates("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         attrs={
             "a_layout": "row",
             "b_layout": "row",

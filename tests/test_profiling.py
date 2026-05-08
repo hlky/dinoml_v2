@@ -61,6 +61,8 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     workload = workloads[0]
     assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert workload.dtype == "float16"
+    assert workload.candidate_set_id == "cutlass_gemm_rrr_f16_linear_combination_v1"
+    assert workload.candidate_set_key
     assert workload.candidate_id == "cutlass_default"
     assert workload.candidate["provider"] == "cutlass"
     assert workload.candidate["layouts"] == {"a": "row", "b": "row", "c": "row"}
@@ -85,6 +87,7 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
         workload,
         candidate_id="cutlass_other",
         candidate_config_key="candidate-b",
+        candidate_set_key="candidate-set-b",
         candidate=other_candidate,
     )
     context_a = {"fingerprint": {"hardware_key": "hardware-a", "support_libraries_key": "support-a"}}
@@ -97,6 +100,8 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert payload_a["hardware_fingerprint_key"] == "hardware-a"
     assert payload_a["support_libraries_fingerprint_key"] == "support-a"
     assert payload_a["candidate_id"] == "cutlass_default"
+    assert payload_a["candidate_set_id"] == "cutlass_gemm_rrr_f32_linear_combination_v1"
+    assert payload_a["candidate_set_key"] == workload.candidate_set_key
     assert payload_a["candidate_config_key"] == workload.candidate_config_key
     assert _profile_key(payload_a) != _profile_key(payload_b)
     assert _profile_key(payload_a) != _profile_key(payload_c)

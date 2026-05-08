@@ -12,6 +12,7 @@ class KernelVariant:
     symbol: str
     profiler_symbol: str | None = None
     candidates: tuple[Mapping[str, Any], ...] = ()
+    candidate_set: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class KernelBinding:
     profiler_symbol: str | None = None
     source_template: str | None = None
     candidates: tuple[Mapping[str, Any], ...] = ()
+    candidate_set: Mapping[str, Any] | None = None
     dtype_variants: Mapping[str, KernelVariant] = field(default_factory=dict)
 
     def resolve(self, dtype: str | None = None) -> KernelBinding:
@@ -37,6 +39,7 @@ class KernelBinding:
             profiler_symbol=variant.profiler_symbol,
             source_template=self.source_template,
             candidates=variant.candidates,
+            candidate_set=variant.candidate_set,
         )
 
 

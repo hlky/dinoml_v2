@@ -106,9 +106,14 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["profiler_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidates_by_dtype"]) == ["bfloat16", "float16", "float32"]
+        assert sorted(family["candidate_sets_by_dtype"]) == ["bfloat16", "float16", "float32"]
         for dtype, candidates in family["candidates_by_dtype"].items():
             assert len(candidates) == 1
             candidate = candidates[0]
+            candidate_set = family["candidate_sets_by_dtype"][dtype]
+            assert candidate_set["candidate_count"] == 1
+            assert candidate_set["candidate_config_keys"] == [candidate["candidate_config_key"]]
+            assert len(candidate_set["candidate_set_key"]) == 64
             assert candidate["candidate_id"] == "cutlass_default"
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]

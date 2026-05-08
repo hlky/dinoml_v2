@@ -20,7 +20,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 4
+PROFILE_REPORT_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,8 @@ class GemmProfileWorkload:
     dtype: str
     kernel_symbol: str
     profiler_symbol: str
+    candidate_set_id: str | None
+    candidate_set_key: str | None
     candidate_id: str
     candidate_config_key: str | None
     candidate: Mapping[str, Any]
@@ -50,6 +52,8 @@ class GemmProfileWorkload:
             "dtype": self.dtype,
             "kernel_symbol": self.kernel_symbol,
             "profiler_symbol": self.profiler_symbol,
+            "candidate_set_id": self.candidate_set_id,
+            "candidate_set_key": self.candidate_set_key,
             "candidate_id": self.candidate_id,
             "candidate_config_key": self.candidate_config_key,
             "candidate": dict(self.candidate),
@@ -118,6 +122,12 @@ def build_profile_workloads(
                 dtype=dtype,
                 kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
                 profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                candidate_set_id=(
+                    str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
+                ),
+                candidate_set_key=(
+                    str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
+                ),
                 candidate_id=str(candidate["candidate_id"]),
                 candidate_config_key=(
                     str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
@@ -623,6 +633,8 @@ def _profile_key_payload(
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
+        "candidate_set_id": workload.candidate_set_id,
+        "candidate_set_key": workload.candidate_set_key,
         "candidate_id": workload.candidate_id,
         "candidate_config_key": workload.candidate_config_key,
     }

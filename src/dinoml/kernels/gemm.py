@@ -16,6 +16,7 @@ GEMM_DTYPE_SUFFIXES = {
 CUTLASS_DEFAULT_CANDIDATE_ID = "cutlass_default"
 CUTLASS_DEFAULT_SYMBOL_ID = "default"
 CUTLASS_GEMM_LAUNCH_ABI = "dinoml_cutlass_gemm_v1"
+CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION = 1
 
 
 def cutlass_gemm_symbol(op_name: str, dtype: str) -> str:
@@ -70,6 +71,41 @@ def cutlass_gemm_default_candidate(op_name: str, dtype: str) -> dict[str, Any]:
 
 def cutlass_gemm_candidates(op_name: str, dtype: str) -> tuple[dict[str, Any], ...]:
     return (cutlass_gemm_default_candidate(op_name, dtype),)
+
+
+def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
+    _validate_gemm_op(op_name)
+    normalized_dtype = normalize_dtype(dtype)
+    candidates = cutlass_gemm_candidates(op_name, normalized_dtype)
+    config = {
+        "schema_version": CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
+        "candidate_set_id": cutlass_gemm_candidate_set_id(op_name, normalized_dtype),
+        "provider": "cutlass",
+        "family": "gemm_universal",
+        "op": op_name,
+        "dtype": normalized_dtype,
+        "layouts": {
+            "a": "row",
+            "b": "row" if op_name == "gemm_rrr" else "column",
+            "c": "row",
+        },
+        "epilogue": "linear_combination",
+        "accumulator_dtype": "float32",
+        "launch_abi": CUTLASS_GEMM_LAUNCH_ABI,
+        "generator": "static_default_v1",
+        "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
+    }
+    return {
+        **config,
+        "candidate_count": len(candidates),
+        "candidate_set_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
+def cutlass_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
+    _validate_gemm_op(op_name)
+    suffix = gemm_dtype_suffix(dtype)
+    return f"cutlass_{op_name}_{suffix}_linear_combination_v1"
 
 
 def gemm_dtype_suffix(dtype: str) -> str:

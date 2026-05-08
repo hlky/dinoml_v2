@@ -5,6 +5,7 @@ from typing import Any, Sequence
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.gemm import (
     GEMM_SUPPORTED_DTYPES,
+    cutlass_gemm_candidate_set,
     cutlass_gemm_candidates,
     cutlass_gemm_profiler_symbol,
     cutlass_gemm_symbol,
@@ -96,6 +97,7 @@ def _cutlass_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
             cutlass_gemm_symbol(op_name, dtype),
             profiler_symbol=cutlass_gemm_profiler_symbol(op_name, dtype),
             candidates=cutlass_gemm_candidates(op_name, dtype),
+            candidate_set=cutlass_gemm_candidate_set(op_name, dtype),
         )
         for dtype in GEMM_SUPPORTED_DTYPES
     }

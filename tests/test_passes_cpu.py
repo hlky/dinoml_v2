@@ -7,6 +7,7 @@ from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
+from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
@@ -54,11 +55,33 @@ def test_view_alias_validation_requires_shape_only_element_count():
         PassManager(pipeline=("memory_plan",)).run(ir)
 
 
-def test_compile_rejects_view_aliases_until_runtime_consumes_memory_plan(tmp_path):
-    spec = ModelSpec("shape_view_alias", _shape_view_ir(), constants={})
+def test_compile_rejects_view_of_view_aliases(tmp_path):
+    ir = _shape_view_ir()
+    ir["outputs"] = [{"name": "z", "tensor": "z", "shape": [6], "shape_spec": [6], "dtype": "float32"}]
+    ir["tensors"].append({"name": "z", "shape": [6], "shape_spec": [6], "dtype": "float32", "kind": "output", "nbytes": 24})
+    ir["metadata"]["views"]["views"].append(
+        {
+            "tensor": "z",
+            "source": "y",
+            "kind": "shape_view",
+            "transform": "flatten",
+            "shape": [6],
+            "shape_spec": [6],
+        }
+    )
+    spec = ModelSpec("shape_view_of_view_alias", ir, constants={})
 
-    with pytest.raises(NotImplementedError, match="memory_plan.views"):
-        compile(spec, Target("cpu"), tmp_path / "shape_view_alias.dinoml")
+    with pytest.raises(NotImplementedError, match="View-of-view"):
+        compile(spec, Target("cpu"), tmp_path / "shape_view_of_view_alias.dinoml")
+
+
+def test_cuda_lowering_binds_and_materializes_shape_view_output_alias():
+    lowered, _ = PassManager().run(_shape_view_ir())
+
+    generated = render_cuda_module(lowered, generated_kernels=[])
+
+    assert "const float* ptr_y = ptr_x;" in generated
+    assert "cudaMemcpyAsync(outputs[0].data, ptr_y, runtime_numel_y * sizeof(float), cudaMemcpyDeviceToDevice, session->stream)" in generated
 
 
 def test_cpu_reference_matches_numpy_formula():

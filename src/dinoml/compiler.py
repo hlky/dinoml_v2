@@ -154,9 +154,22 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             f"unsupported compiled dtypes: {unsupported}"
         )
     views = ir.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", [])
-    if views:
+    view_tensors = {view["tensor"] for view in views}
+    view_sources = {view["source"] for view in views}
+    view_of_view = sorted(view_tensors & view_sources)
+    if view_of_view:
         raise NotImplementedError(
-            "Alias/view metadata is recorded in the IR memory plan, but the current runtime "
-            "does not bind alias outputs or view temporaries. View ops must remain blocked "
-            "until lowering and runtime templates consume memory_plan.views."
+            "View-of-view aliases are not supported by the current runtime lowering; "
+            f"view tensors used as view sources: {view_of_view}"
+        )
+    node_view_outputs = sorted(
+        output_name
+        for node in ir["nodes"]
+        for output_name in node["outputs"]
+        if output_name in view_tensors
+    )
+    if node_view_outputs:
+        raise NotImplementedError(
+            "View alias tensors cannot be written by kernels; metadata.views must describe "
+            f"shape-only aliases of an owning tensor. Kernel outputs using view storage: {node_view_outputs}"
         )

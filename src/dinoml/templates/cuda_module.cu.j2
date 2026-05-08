@@ -280,6 +280,9 @@ DINO_EXPORT int dino_session_run(
 {% for launch in launches %}
   {{ launch }}
 {% endfor %}
+{% for materialization in output_materializations %}
+  {{ materialization }}
+{% endfor %}
   if (!session->external_stream) {
     DINO_CUDA_CHECK(cudaDeviceSynchronize());
   }

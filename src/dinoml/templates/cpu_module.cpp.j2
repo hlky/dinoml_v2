@@ -237,6 +237,9 @@ DINO_EXPORT int dino_session_run(
 {% for launch in launches %}
   {{ launch }}
 {% endfor %}
+{% for materialization in output_materializations %}
+  {{ materialization }}
+{% endfor %}
 {% for output in outputs %}
   session->last_output_shapes[{{ output.index }}].assign(
       outputs[{{ output.index }}].shape,

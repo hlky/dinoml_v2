@@ -25,6 +25,7 @@ def render_cpu_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str]
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
     temporaries = ir.get("metadata", {}).get("memory_plan", {}).get("temporaries", [])
+    views = _view_contexts(ir, output_map=output_map, tensor_map=tensor_map)
     return render_template(
         "cpu_module.cpp.j2",
         {
@@ -51,10 +52,12 @@ def render_cpu_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str]
                     output_map=output_map,
                     constant_tensors=constant_tensors,
                     temporaries=temporaries,
+                    views=views,
                     tensor_map=tensor_map,
                 )
             ),
             "launches": [render_launch("cpu", node, tensor_map) for node in ir["nodes"]],
+            "output_materializations": _output_materializations(views),
         },
     )
 
@@ -108,9 +111,11 @@ def _pointer_decls(
     output_map: Mapping[str, int],
     constant_tensors: Mapping[str, Mapping[str, Any]],
     temporaries: Iterable[Mapping[str, Any]],
+    views: Iterable[Mapping[str, Any]],
     tensor_map: Mapping[str, Mapping[str, Any]],
 ) -> Iterable[str]:
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    view_by_tensor = {str(view["tensor"]): view for view in views}
     for tensor_name, idx in input_map.items():
         ident = _c_ident(tensor_name)
         yield f"const float* ptr_{ident} = static_cast<const float*>(inputs[{idx}].data);"
@@ -135,6 +140,8 @@ def _pointer_decls(
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
         yield f"float* ptr_{ident} = session->tmp_{ident}.data();"
     for tensor_name, idx in output_map.items():
+        if tensor_name in view_by_tensor:
+            continue
         ident = _c_ident(tensor_name)
         yield f"float* ptr_{ident} = static_cast<float*>(outputs[{idx}].data);"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
@@ -142,6 +149,74 @@ def _pointer_decls(
         yield f"session->shape_{ident}.assign(outputs[{idx}].shape, outputs[{idx}].shape + {len(tensor_map[tensor_name]['shape'])});"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(outputs[{idx}]);"
+    for view in views:
+        tensor_name = str(view["tensor"])
+        source_name = str(view["source"])
+        ident = _c_ident(tensor_name)
+        source_ident = _c_ident(source_name)
+        output_idx = view.get("output_index")
+        if output_idx is None:
+            for axis in range(len(tensor_map[tensor_name]["shape"])):
+                yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
+            yield f"session->shape_{ident} = std::vector<int64_t>{{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
+        else:
+            for axis in range(len(tensor_map[tensor_name]["shape"])):
+                yield f"const int64_t shape_{ident}_{axis} = outputs[{int(output_idx)}].shape[{axis}];"
+            yield f"session->shape_{ident}.assign(outputs[{int(output_idx)}].shape, outputs[{int(output_idx)}].shape + {len(tensor_map[tensor_name]['shape'])});"
+        yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
+        yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
+        yield f"const float* ptr_{ident} = ptr_{source_ident};"
+
+
+def _view_contexts(
+    ir: Mapping[str, Any],
+    *,
+    output_map: Mapping[str, int],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    raw_views = ir.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", [])
+    view_tensors = {view["tensor"] for view in raw_views}
+    view_sources = {view["source"] for view in raw_views}
+    view_of_view = sorted(view_tensors & view_sources)
+    if view_of_view:
+        raise NotImplementedError(
+            "View-of-view aliases are not supported by CPU lowering; "
+            f"view tensors used as view sources: {view_of_view}"
+        )
+    node_view_outputs = sorted(
+        output_name
+        for node in ir["nodes"]
+        for output_name in node["outputs"]
+        if output_name in view_tensors
+    )
+    if node_view_outputs:
+        raise NotImplementedError(f"View alias tensors cannot be kernel outputs: {node_view_outputs}")
+    contexts = []
+    for view in raw_views:
+        tensor_name = str(view["tensor"])
+        contexts.append(
+            {
+                "tensor": tensor_name,
+                "ident": _c_ident(tensor_name),
+                "source": str(view["source"]),
+                "source_ident": _c_ident(str(view["source"])),
+                "output_index": output_map.get(tensor_name),
+                "nbytes_expr": f"runtime_numel_{_c_ident(tensor_name)} * sizeof(float)",
+            }
+        )
+    return contexts
+
+
+def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
+    materializations = []
+    for view in views:
+        output_idx = view.get("output_index")
+        if output_idx is None:
+            continue
+        materializations.append(
+            f"std::memcpy(outputs[{int(output_idx)}].data, ptr_{view['ident']}, {view['nbytes_expr']});"
+        )
+    return materializations
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

@@ -133,11 +133,19 @@ strides and storage ownership explicitly.
 
 The `memory_plan` pass validates `metadata.views` and copies the normalized form
 to `metadata.memory_plan.views`, which is also serialized into `metadata.json`.
-That gives future lowering/runtime code a single runtime-visible location for
-alias metadata. Current CPU/CUDA generated modules do not consume
-`memory_plan.views`, so compilation rejects non-empty view metadata rather than
-emitting artifacts whose outputs would still point at independent caller-provided
-buffers.
+CPU/CUDA lowering consumes that runtime-visible alias metadata by binding alias
+tensor pointers to their owning source storage and by giving the alias tensor its
+own runtime shape buffer. Alias tensors do not receive temporary storage.
+
+When a public graph output is a shape-view alias, the ABI still supplies an
+output buffer. Generated modules materialize the alias into that output buffer
+after producer kernels run: CPU uses a contiguous `std::memcpy`, and CUDA
+enqueues a device-to-device `cudaMemcpyAsync` on the session stream. CUDA only
+synchronizes for the default internal stream path; external streams observe the
+copy as queued work. View-of-view aliases are rejected for now, so each alias
+must point directly at an input, constant, temporary, or other owning tensor.
+Public frontend view ops remain blocked until the frontend path is completed and
+covered end to end.
 
 ## Generated Source Cleanliness Roadmap
 

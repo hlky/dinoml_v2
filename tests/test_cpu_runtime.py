@@ -5,7 +5,7 @@ import numpy as np
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import read_json
+from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, read_json
 
 
 class DynamicChannelBias(dml.Module):
@@ -92,6 +92,63 @@ def test_cpu_generated_fused_elementwise_supports_generic_subgraph(tmp_path):
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
 
+def test_cpu_runtime_materializes_output_view_of_input_on_repeated_runs(tmp_path):
+    spec = ModelSpec("shape_view_input_alias", _shape_view_ir(), constants={})
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "shape_view_input_alias.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "const float* ptr_y = ptr_x;" in generated
+    assert "std::memcpy(outputs[0].data, ptr_y, runtime_numel_y * sizeof(float));" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x0 = np.arange(6, dtype=np.float32).reshape(2, 3)
+    x1 = (np.arange(6, dtype=np.float32) + 100.0).reshape(2, 3)
+    try:
+        first = session.run_numpy({"x": x0})["y"]
+        second = session.run_numpy({"x": x1})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(first, x0.reshape(3, 2))
+    np.testing.assert_array_equal(second, x1.reshape(3, 2))
+
+
+def test_cpu_runtime_materializes_output_view_of_constant(tmp_path):
+    constant = np.arange(6, dtype=np.float32).reshape(2, 3) + 7.0
+    spec = ModelSpec("shape_view_constant_alias", _shape_view_ir(source_kind="constant"), constants={"c": constant})
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "shape_view_constant_alias.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": np.zeros((1,), dtype=np.float32)})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(actual, constant.reshape(3, 2))
+
+
+def test_cpu_runtime_materializes_output_view_of_temporary(tmp_path):
+    spec = ModelSpec("shape_view_temporary_alias", _shape_view_ir(source_kind="temporary"), constants={})
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "shape_view_temporary_alias.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "std::vector<float> tmp_t0;" in generated
+    assert "const float* ptr_y = ptr_t0;" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x = np.array([[-2.0, -1.0, 0.0], [1.0, 2.0, 3.0]], dtype=np.float32)
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(actual, np.maximum(x, 0.0).reshape(3, 2))
+
+
 def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     height = dml.Dim("height", min=8, max=16, divisible_by=8)
@@ -141,6 +198,67 @@ def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
 
     session.close()
     module.close()
+
+
+def _shape_view_ir(source_kind: str = "input"):
+    output_shape = [3, 2]
+    output_nbytes = 24
+    tensors = [
+        {"name": "x", "shape": [2, 3] if source_kind != "constant" else [1], "shape_spec": [2, 3] if source_kind != "constant" else [1], "dtype": "float32", "kind": "input", "nbytes": 24 if source_kind != "constant" else 4},
+        {
+            "name": "y",
+            "shape": output_shape,
+            "shape_spec": output_shape,
+            "dtype": "float32",
+            "kind": "output",
+            "nbytes": output_nbytes,
+        },
+    ]
+    constants = []
+    nodes = []
+    source = "x"
+    if source_kind == "constant":
+        tensors.append({"name": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32", "kind": "constant", "nbytes": 24})
+        constants = [{"name": "c", "tensor": "c", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32"}]
+        source = "c"
+    elif source_kind == "temporary":
+        tensors.append({"name": "t0", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32", "kind": "intermediate", "nbytes": 24})
+        nodes = [
+            {
+                "id": "relu_to_t0",
+                "op": "fused_elementwise",
+                "inputs": ["x"],
+                "outputs": ["t0"],
+                "attrs": {"sub_ops": [{"op": "relu", "inputs": ["x"], "outputs": ["t0"], "attrs": {}}]},
+            }
+        ]
+        source = "t0"
+    elif source_kind != "input":
+        raise ValueError(f"Unsupported source_kind: {source_kind}")
+    return {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": f"shape_view_{source_kind}_alias",
+        "inputs": [{"name": "x", "tensor": "x", "shape": tensors[0]["shape"], "shape_spec": tensors[0]["shape_spec"], "dtype": "float32"}],
+        "constants": constants,
+        "outputs": [{"name": "y", "tensor": "y", "shape": output_shape, "shape_spec": output_shape, "dtype": "float32"}],
+        "nodes": nodes,
+        "tensors": tensors,
+        "metadata": {
+            "views": {
+                "version": 1,
+                "views": [
+                    {
+                        "tensor": "y",
+                        "source": source,
+                        "kind": "shape_view",
+                        "transform": "reshape",
+                        "shape": output_shape,
+                        "shape_spec": output_shape,
+                    }
+                ],
+            }
+        },
+    }
 
 
 def test_cpu_runtime_supports_dynamic_generic_broadcast(tmp_path):

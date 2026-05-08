@@ -49,17 +49,33 @@ def constant_bind(ir: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def dead_code_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
+    view_sources = {
+        str(view["tensor"]): str(view["source"])
+        for view in ir.get("metadata", {}).get("views", {}).get("views", [])
+    }
     required_tensors: Set[str] = {output["tensor"] for output in ir["outputs"]}
+    _include_view_sources(required_tensors, view_sources)
     kept_nodes_reversed = []
     for node in reversed(ir["nodes"]):
         if any(output in required_tensors for output in node["outputs"]):
             kept_nodes_reversed.append(node)
             required_tensors.update(node["inputs"])
+            _include_view_sources(required_tensors, view_sources)
     required_tensors.update(input_info["tensor"] for input_info in ir["inputs"])
     required_tensors.update(constant["tensor"] for constant in ir["constants"])
     ir["nodes"] = list(reversed(kept_nodes_reversed))
     ir["tensors"] = [tensor for tensor in ir["tensors"] if tensor["name"] in required_tensors]
     return ir
+
+
+def _include_view_sources(required_tensors: Set[str], view_sources: Dict[str, str]) -> None:
+    changed = True
+    while changed:
+        changed = False
+        for tensor, source in view_sources.items():
+            if tensor in required_tensors and source not in required_tensors:
+                required_tensors.add(source)
+                changed = True
 
 
 def memory_plan(ir: Dict[str, Any]) -> Dict[str, Any]:

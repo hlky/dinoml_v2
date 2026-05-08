@@ -41,9 +41,11 @@ porting. It intentionally excludes the op inventory, which lives in
   bucket plans, output lifetime extension, and workspace policies. V2 currently
   uses per-session max-shape temporaries and shape buffers, and now has a
   validated `metadata.views` to `metadata.memory_plan.views` contract for
-  zero-offset shape-only aliases. Runtime/lowering still reject non-empty view
-  metadata, so public view ops remain blocked until alias output binding and
-  temporary alias consumption are implemented.
+  zero-offset shape-only aliases. Runtime/lowering consume those aliases for
+  direct views of inputs, constants, temporaries, and owning tensors, and
+  materialize public alias outputs into ABI output buffers. Remaining gaps:
+  public frontend view ops, view-of-view normalization, liveness extension beyond
+  the current static temporary plan, storage offsets, and strided/layout views.
 - Layout and accessors: v1 models tensor accessors, alignment, channel-last
   conventions, and GEMM layout descriptors. V2 has a small TensorAccessor and
   CUDA vectorized dense elementwise paths, but still assumes contiguous dense

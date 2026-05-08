@@ -94,10 +94,12 @@ candidate set/config keys. CUTLASS support manifests also record compile flags,
 NVCC version output, dependency header hashes, and a provenance key that
 participates in support-cache reuse. The support cache writes a
 `dinoml.support_source_manifest` at `src/source_manifest.json` beside the static
-CUTLASS source; that manifest maps source files to candidate set keys, candidate
-config keys, launcher/profiler symbols, and support build units so future
-generated candidates can be inspected without embedding generated source in model
-artifacts. The first epilogue slice uses a structured GEMM descriptor split:
+CUTLASS source; that manifest maps source files to the used candidate set keys,
+candidate config keys, launcher/profiler symbols, and support build units so
+future generated candidates can be inspected without embedding generated source
+in model artifacts. The current source still exports the full static symbol set,
+but cache keys and source manifests are already narrowed to the manifest-required
+candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
 Next steps are candidate enumeration beyond the single default CUTLASS instance,

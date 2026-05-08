@@ -105,9 +105,10 @@ kernel_codegen_plan.json
 
 The manifest records the unique backend kernel/profiler symbols required by the
 lowered IR. The codegen plan maps that manifest to a support-library cache
-directory. This is the hook where CUTLASS, CK, Triton, or handwritten profiler
-source generation can generate all used kernels/profilers once, compile them into
-a support library, and let many model artifacts reuse the result.
+directory and carries provider-owned used-candidate keys for external libraries.
+This is the hook where CUTLASS, CK, Triton, or handwritten profiler source
+generation can generate all used kernels/profilers once, compile them into a
+support library, and let many model artifacts reuse the result.
 
 `dinoml profile <artifact>` is the first explicit profiler runner. It reads the
 artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
@@ -122,9 +123,9 @@ set. The candidate set records provider, layout, epilogue, accumulator, launch
 ABI, generator id, candidate config keys, and its own `candidate_set_key`; future
 work should expand that one-candidate schema into generated CUTLASS candidate
 sets. The CUTLASS support cache also writes a `dinoml.support_source_manifest`
-at `src/source_manifest.json`, mapping the current static support source to
+at `src/source_manifest.json`, mapping the current static support source to the
 candidate set keys, candidate config keys, launcher/profiler symbols, and
-support build units.
+support build units actually required by the artifact.
 
 Current reusable kernels are intentionally simple:
 

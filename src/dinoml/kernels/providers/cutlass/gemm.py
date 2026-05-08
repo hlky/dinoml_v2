@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
 from dinoml.kernels.families.gemm import GEMM_SUPPORTED_DTYPES, gemm_op_spec, normalize_gemm_dtype
@@ -15,6 +15,7 @@ GEMM_DTYPE_SUFFIXES = {
 CUTLASS_DEFAULT_CANDIDATE_ID = "cutlass_default"
 CUTLASS_DEFAULT_SYMBOL_ID = "default"
 CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION = 1
+CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 
 
 def cutlass_gemm_symbol(op_name: str, dtype: str) -> str:
@@ -101,9 +102,84 @@ def cutlass_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
     return f"cutlass_{op_name}_{suffix}_{spec.epilogue.name}_v1"
 
 
+def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
+    entries = []
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        candidates = [dict(candidate) for candidate in item.get("candidates", [])]
+        selected = _selected_candidate(item, candidates)
+        candidate_set = dict(item.get("candidate_set", {}))
+        dtype = str(selected.get("dtype") or candidate_set.get("dtype") or "")
+        entry_config = {
+            "op": str(item["op"]),
+            "dtype": dtype,
+            "kernel_symbol": str(item["kernel_symbol"]),
+            "profiler_symbol": item.get("profiler_symbol"),
+            "candidate_set_id": item.get("candidate_set_id"),
+            "candidate_set_key": item.get("candidate_set_key"),
+            "candidate_config_keys": [str(candidate["candidate_config_key"]) for candidate in candidates],
+            "kernel_symbols": sorted({str(candidate.get("kernel_symbol") or item["kernel_symbol"]) for candidate in candidates}),
+            "profiler_symbols": sorted(
+                {
+                    str(candidate.get("profiler_symbol") or item.get("profiler_symbol"))
+                    for candidate in candidates
+                    if candidate.get("profiler_symbol") or item.get("profiler_symbol")
+                }
+            ),
+            "selected_candidate_id": item.get("selected_candidate_id"),
+            "selected_candidate": selected,
+            "candidate_set": candidate_set,
+            "candidates": candidates,
+        }
+        entries.append(entry_config)
+    entries = sorted(entries, key=lambda entry: (entry["op"], entry["dtype"], entry["kernel_symbol"]))
+    candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
+    candidates = _unique_by_key((candidate for entry in entries for candidate in entry["candidates"]), "candidate_config_key")
+    config = {
+        "schema_version": CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
+        "provider": "cutlass",
+        "library": "cutlass_gemm",
+        "target": dict(kernel_manifest.get("target", {})),
+        "kernel_manifest_cache_key": kernel_manifest.get("cache_key"),
+        "support_cache_key": kernel_manifest.get("support_cache_key"),
+        "entries": entries,
+        "candidate_sets": candidate_sets,
+        "candidates": candidates,
+        "candidate_set_keys": [item["candidate_set_key"] for item in candidate_sets],
+        "candidate_config_keys": [item["candidate_config_key"] for item in candidates],
+        "kernel_symbols": sorted({symbol for entry in entries for symbol in entry["kernel_symbols"]}),
+        "profiler_symbols": sorted({symbol for entry in entries for symbol in entry["profiler_symbols"]}),
+    }
+    return {
+        **config,
+        "used_candidate_plan_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
 def gemm_dtype_suffix(dtype: str) -> str:
     normalized = normalize_gemm_dtype(dtype)
     return GEMM_DTYPE_SUFFIXES[normalized]
+
+
+def _selected_candidate(item: Mapping[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    if not candidates:
+        return {}
+    selected_id = item.get("selected_candidate_id")
+    for candidate in candidates:
+        if candidate.get("candidate_id") == selected_id:
+            return dict(candidate)
+    return dict(candidates[0])
+
+
+def _unique_by_key(items: Any, key: str) -> list[dict[str, Any]]:
+    result = {}
+    for item in items:
+        payload = dict(item)
+        item_key = payload.get(key)
+        if item_key is not None:
+            result[str(item_key)] = payload
+    return [result[item_key] for item_key in sorted(result)]
 
 
 __all__ = [
@@ -111,11 +187,13 @@ __all__ = [
     "CUTLASS_DEFAULT_CANDIDATE_ID",
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
+    "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "cutlass_gemm_candidate_set",
     "cutlass_gemm_candidate_set_id",
     "cutlass_gemm_candidates",
     "cutlass_gemm_default_candidate",
     "cutlass_gemm_profiler_symbol",
     "cutlass_gemm_symbol",
+    "cutlass_gemm_used_candidate_plan",
     "gemm_dtype_suffix",
 ]

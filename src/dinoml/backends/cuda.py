@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.ir import write_json
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cuda import render_cuda_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
@@ -143,6 +144,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         cutlass_support = ensure_cutlass_gemm_support_lib(
             arch,
             cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
+            used_candidate_plan=cutlass_gemm_used_candidate_plan(kernel_manifest),
         )
         cutlass_gemm_lib = cutlass_support.library
     libraries = {

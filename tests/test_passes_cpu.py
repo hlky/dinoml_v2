@@ -274,6 +274,11 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert plan.candidate_profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
     assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
+    assert len(plan.external_support_libraries[0]["used_candidate_plan_key"]) == 64
+    assert plan.external_support_libraries[0]["candidate_set_keys"] == [required["candidate_set_key"]]
+    assert plan.external_support_libraries[0]["candidate_config_keys"] == [candidate["candidate_config_key"]]
+    assert plan.external_support_libraries[0]["kernel_symbols"] == [f"dinoml_cutlass_gemm_rrr_{suffix}"]
+    assert plan.external_support_libraries[0]["profiler_symbols"] == [f"dinoml_profile_cutlass_gemm_rrr_{suffix}"]
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
@@ -311,6 +316,18 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
         "cutlass_gemm_rrr_f16_linear_combination_v1",
     ]
     assert manifest["required_kernels"][0]["candidate_set_key"] != manifest["required_kernels"][1]["candidate_set_key"]
+    plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
+    support = plan.external_support_libraries[0]
+    assert support["kernel_symbols"] == [
+        "dinoml_cutlass_gemm_rrr_f16",
+        "dinoml_cutlass_gemm_rrr_f32",
+    ]
+    assert support["profiler_symbols"] == [
+        "dinoml_profile_cutlass_gemm_rrr_f16",
+        "dinoml_profile_cutlass_gemm_rrr_f32",
+    ]
+    assert support["candidate_set_keys"] == sorted(item["candidate_set_key"] for item in manifest["required_kernels"])
+    assert support["candidate_config_keys"] == sorted(candidate["candidate_config_key"] for candidate in candidates)
 
 
 def test_softmax_manifest_and_generated_sources_are_model_owned():

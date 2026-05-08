@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
+
 
 @dataclass(frozen=True)
 class KernelCodegenPlan:
@@ -13,7 +15,7 @@ class KernelCodegenPlan:
     kernel_symbols: tuple[str, ...]
     profiler_symbols: tuple[str, ...]
     candidate_profiler_symbols: tuple[str, ...] = ()
-    external_support_libraries: tuple[Mapping[str, str], ...] = ()
+    external_support_libraries: tuple[Mapping[str, Any], ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -75,11 +77,17 @@ def _external_support_libraries(
     for library in libraries:
         if library == "cutlass_gemm":
             cache_dir = cache_root / "support" / target_dir / "cutlass-gemm" / support_key
+            used_candidate_plan = cutlass_gemm_used_candidate_plan(kernel_manifest)
             result.append(
                 {
                     "name": library,
                     "cache_dir": str(cache_dir),
                     "library": "lib/libdinoml_cutlass_gemm.so",
+                    "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+                    "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
+                    "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
+                    "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
+                    "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
                 }
             )
     return tuple(result)

@@ -97,6 +97,10 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["kind"] == "dinoml.support_source_manifest"
     assert source_manifest["provider"] == "cutlass"
     assert source_manifest["family_cache_key"] == manifest["family_cache_key"]
+    assert source_manifest["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
+    assert source_manifest["used_candidate_plan"]["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
+    assert len(manifest["used_candidate_plan_key"]) == 64
+    assert len(source_manifest["used_candidate_plan"]["entries"]) == 18
     assert len(source_manifest["source_manifest_key"]) == 64
     static_source = next(item for item in source_manifest["sources"] if item["source_id"] == "cutlass_gemm_static_default")
     assert static_source["emitted_source_path"] == support.source.name
@@ -107,6 +111,13 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert {"kernel", "profiler"} == {item["kind"] for item in static_source["symbols"]}
     assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
+    assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == 18
+    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == 18
+    assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
+        symbol
+        for family in manifest["families"]
+        for symbol in family["kernel_symbols_by_dtype"].values()
+    )
     assert len(manifest["build_fingerprint"]) == 64
     assert manifest["provenance_key"]
     assert manifest["build_fingerprint"] == manifest["provenance_key"]

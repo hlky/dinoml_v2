@@ -70,10 +70,10 @@ porting. It intentionally excludes the op inventory, which lives in
   parameters and runtime-settable constants, but no constant-folding lifecycle.
 - Build/cache system: v1 has build-cache hashing, backend-specific builders,
   profiler builds, constants object embedding, standalone mode, and environment
-  knobs. V2 has CMake support-library caching and CUTLASS support-build
-  provenance for the first GEMM library, but future generated profiler/support
-  builds still need deterministic cache keys covering ABI, dtype, layout,
-  target, and toolchain.
+  knobs. V2 has CMake support-library caching, CUTLASS support-build
+  provenance, and manifest-derived used-candidate plans for the first GEMM
+  library, but future generated profiler/support builds still need deterministic
+  cache keys covering ABI, dtype, layout, target, and toolchain.
 - Codegen templates: v1 templates cover dynamic dims, bucket guards, constants,
   profiling, multistream paths, and debug metadata. V2 templates now cover
   runtime dynamic shape buffers, constants, minimal externally supplied CUDA

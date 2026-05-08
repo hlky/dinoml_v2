@@ -146,6 +146,9 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert payload_a["candidate_set_id"] == "cutlass_gemm_rrr_f32_linear_combination_v1"
     assert payload_a["candidate_set_key"] == workload.candidate_set_key
     assert payload_a["candidate_config_key"] == workload.candidate_config_key
+    assert payload_a["layouts"] == workload.candidate["layouts"]
+    assert payload_a["epilogue"] == workload.candidate["epilogue"]
+    assert payload_a["epilogue_config"] == workload.candidate["epilogue_config"]
     assert _profile_key(payload_a) != _profile_key(payload_b)
     assert _profile_key(payload_a) != _profile_key(payload_c)
 
@@ -212,6 +215,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
             "provenance_key": "provenance-hash",
             "build_fingerprint": "provenance-hash",
             "family_cache_key": "family-hash",
+            "used_candidate_plan_key": "used-plan-hash",
             "external_kernel_plan_cache_key": "external-plan-hash",
             "compile": {"flags": ["-arch=sm_86"]},
             "provenance": {
@@ -258,6 +262,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["fingerprint"]["support_libraries"][0]["provenance_key"] == "provenance-hash"
     assert report["fingerprint"]["support_libraries"][0]["build_fingerprint"] == "provenance-hash"
     assert report["fingerprint"]["support_libraries"][0]["family_cache_key"] == "family-hash"
+    assert report["fingerprint"]["support_libraries"][0]["used_candidate_plan_key"] == "used-plan-hash"
     assert report["fingerprint"]["support_libraries"][0]["compile"]["flags"] == ["-arch=sm_86"]
     assert report["fingerprint"]["support_libraries"][0]["provenance"]["provenance_key"] == "provenance-hash"
     assert report["support_libraries_cache_key"] == key_payload["support_libraries_fingerprint_key"]

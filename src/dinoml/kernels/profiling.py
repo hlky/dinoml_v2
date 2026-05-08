@@ -470,6 +470,8 @@ def _support_manifest_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     for key in ("compile", "provenance"):
         if isinstance(payload.get(key), Mapping):
             fields[key] = dict(payload[key])
+    if "used_candidate_plan_key" in payload:
+        fields["used_candidate_plan_key"] = payload["used_candidate_plan_key"]
     return fields
 
 
@@ -597,6 +599,7 @@ def _support_libraries_cache_payload(libraries: Sequence[Mapping[str, Any]]) -> 
                 "provenance_key": library.get("provenance_key"),
                 "build_fingerprint": library.get("build_fingerprint"),
                 "family_cache_key": library.get("family_cache_key"),
+                "used_candidate_plan_key": library.get("used_candidate_plan_key"),
                 "manifest_cache_key": library.get("manifest_cache_key"),
                 "manifest_target": library.get("manifest_target"),
                 "external_kernel_plan_cache_key": library.get("external_kernel_plan_cache_key"),
@@ -627,12 +630,9 @@ def _profile_key_payload(
         "codegen_plan_cache_key": codegen_plan["cache_key"],
         "op": workload.op,
         "dtype": workload.dtype,
-        "layouts": {
-            "a": "row",
-            "b": "row" if workload.op == "gemm_rrr" else "column",
-            "c": "row",
-        },
-        "epilogue": "linear_combination",
+        "layouts": dict(workload.candidate.get("layouts", {})),
+        "epilogue": workload.candidate.get("epilogue"),
+        "epilogue_config": workload.candidate.get("epilogue_config"),
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,

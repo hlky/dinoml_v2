@@ -99,6 +99,46 @@ Common runtime helper code used by generated modules lives in C++ headers under
 `runtime/include/dinoml/`, so the Jinja2 templates only carry the model-specific
 ABI structs, constants, pointer binding, and launch sequence.
 
+## Alias and View Output Contract
+
+View-only ops such as `identity`, `reshape`, `flatten`, `squeeze`, and
+`unsqueeze` must not lower as empty kernels that leave public output buffers
+stale. They produce an alias: one tensor name refers to the same storage as
+another tensor name with a shape-only reinterpretation.
+
+The authoring IR records these relationships under `metadata.views`:
+
+```json
+{
+  "version": 1,
+  "views": [
+    {
+      "tensor": "y",
+      "source": "x",
+      "kind": "shape_view",
+      "transform": "reshape",
+      "offset_elements": 0,
+      "shape": [3, 2],
+      "shape_spec": [3, 2]
+    }
+  ]
+}
+```
+
+`tensor` is the alias tensor and `source` is the storage owner. For v2's initial
+contract, shape views must preserve dtype, element count, and zero offset. Layout
+views with non-contiguous strides, slices, storage offsets, or permutation
+semantics are intentionally outside this contract until the runtime ABI carries
+strides and storage ownership explicitly.
+
+The `memory_plan` pass validates `metadata.views` and copies the normalized form
+to `metadata.memory_plan.views`, which is also serialized into `metadata.json`.
+That gives future lowering/runtime code a single runtime-visible location for
+alias metadata. Current CPU/CUDA generated modules do not consume
+`memory_plan.views`, so compilation rejects non-empty view metadata rather than
+emitting artifacts whose outputs would still point at independent caller-provided
+buffers.
+
 ## Generated Source Cleanliness Roadmap
 
 The current artifact layout is intentionally reviewable but still coarse:

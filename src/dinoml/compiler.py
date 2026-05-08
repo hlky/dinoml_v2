@@ -115,6 +115,7 @@ def _runtime_metadata(ir: Dict) -> Dict:
         "inputs": ir["inputs"],
         "outputs": ir["outputs"],
         "constants": ir["constants"],
+        "memory_plan": ir.get("metadata", {}).get("memory_plan", {}),
     }
 
 
@@ -151,4 +152,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         raise NotImplementedError(
             f"The current {target.name} runtime supports dtypes {sorted(supported)}; "
             f"unsupported compiled dtypes: {unsupported}"
+        )
+    views = ir.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", [])
+    if views:
+        raise NotImplementedError(
+            "Alias/view metadata is recorded in the IR memory plan, but the current runtime "
+            "does not bind alias outputs or view temporaries. View ops must remain blocked "
+            "until lowering and runtime templates consume memory_plan.views."
         )

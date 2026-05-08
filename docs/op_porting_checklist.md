@@ -67,8 +67,15 @@ epilogues where possible.
 
 ### Views, Layout, Shape, and Selection
 
-- [ ] View-only: `reshape`, `flatten`, `squeeze`, `unsqueeze`, `identity`,
-  `size`, `getitem`, `tuple_construct`, `list_construct`.
+- [ ] View-only: `reshape`, `flatten`, `squeeze`, `unsqueeze`, `identity`.
+  Blocked for public frontend exposure until lowering/runtime consume
+  `metadata.memory_plan.views` and bind alias outputs instead of expecting
+  kernels to populate separate output buffers. The IR contract exists for
+  zero-offset, dtype-preserving, element-count-preserving shape views; do not
+  port these as no-op kernels.
+- [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
+  `list_construct`. These should remain frontend/IR helpers unless they produce
+  tensors with explicit runtime storage.
 - [ ] Layout: `permute`, `transpose`, `permute021`, `permute0213`,
   `permute102`, `permute210`, `pixel_shuffle`, `pixel_unshuffle`.
 - [ ] Creation/shape values: `arange`, `full`, `randn`, `meshgrid`, `cast`.

@@ -1,6 +1,9 @@
 import numpy as np
+import pytest
 
+from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
+from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
@@ -8,6 +11,7 @@ from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _fun
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
 from dinoml.passes import PassManager, validate_ir
+from dinoml.passes.validation import ValidationError
 
 
 def test_pass_manager_runs_expected_pipeline():
@@ -22,6 +26,41 @@ def test_pass_manager_runs_expected_pipeline():
     assert any(node["op"] == "fused_elementwise" for node in lowered["nodes"])
 
 
+def test_memory_plan_records_shape_only_view_alias_metadata():
+    ir = _shape_view_ir()
+
+    lowered, _ = PassManager(pipeline=("memory_plan",)).run(ir)
+    validate_ir(lowered)
+
+    views = lowered["metadata"]["memory_plan"]["views"]["views"]
+    assert views == [
+        {
+            "tensor": "y",
+            "source": "x",
+            "kind": "shape_view",
+            "transform": "reshape",
+            "offset_elements": 0,
+            "shape": [3, 2],
+            "shape_spec": [3, 2],
+        }
+    ]
+    assert lowered["metadata"]["memory_plan"]["temporaries"] == []
+
+
+def test_view_alias_validation_requires_shape_only_element_count():
+    ir = _shape_view_ir(output_shape=[4, 2])
+
+    with pytest.raises(ValidationError, match="preserve source element count"):
+        PassManager(pipeline=("memory_plan",)).run(ir)
+
+
+def test_compile_rejects_view_aliases_until_runtime_consumes_memory_plan(tmp_path):
+    spec = ModelSpec("shape_view_alias", _shape_view_ir(), constants={})
+
+    with pytest.raises(NotImplementedError, match="memory_plan.views"):
+        compile(spec, Target("cpu"), tmp_path / "shape_view_alias.dinoml")
+
+
 def test_cpu_reference_matches_numpy_formula():
     from tests.models.fused_elementwise import build_spec, build_validation_inputs, numpy_reference
 
@@ -31,6 +70,45 @@ def test_cpu_reference_matches_numpy_formula():
     expected = numpy_reference(inputs)["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def _shape_view_ir(output_shape=None):
+    output_shape = list(output_shape or [3, 2])
+    output_nbytes = int(np.prod(output_shape, dtype=np.int64) * 4)
+    return {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": "shape_view_alias",
+        "inputs": [{"name": "x", "tensor": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32"}],
+        "constants": [],
+        "outputs": [{"name": "y", "tensor": "y", "shape": output_shape, "shape_spec": output_shape, "dtype": "float32"}],
+        "nodes": [],
+        "tensors": [
+            {"name": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "float32", "kind": "input", "nbytes": 24},
+            {
+                "name": "y",
+                "shape": output_shape,
+                "shape_spec": output_shape,
+                "dtype": "float32",
+                "kind": "output",
+                "nbytes": output_nbytes,
+            },
+        ],
+        "metadata": {
+            "views": {
+                "version": 1,
+                "views": [
+                    {
+                        "tensor": "y",
+                        "source": "x",
+                        "kind": "shape_view",
+                        "transform": "reshape",
+                        "shape": output_shape,
+                        "shape_spec": output_shape,
+                    }
+                ],
+            }
+        },
+    }
 
 
 def test_elementwise_op_definitions_are_frontend_only_until_fused():

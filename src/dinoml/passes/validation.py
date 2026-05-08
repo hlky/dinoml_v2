@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from math import prod
 from typing import Any, Mapping, Sequence
 
-from dinoml.ir import IR_SCHEMA_VERSION, normalize_dtype
+from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES
 from dinoml.passes.utils import tensor_map
@@ -40,6 +41,74 @@ def validate_ir(ir: Mapping[str, Any]) -> None:
     for output in ir["outputs"]:
         if output["tensor"] not in tensors:
             raise ValidationError(f"Output {output['name']} references missing tensor {output['tensor']}")
+    validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
+    validate_view_metadata(ir.get("metadata", {}).get("memory_plan", {}).get("views"), tensors)
+
+
+def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+    if view_metadata is None:
+        return []
+    if not isinstance(view_metadata, Mapping):
+        raise ValidationError("View metadata must be a mapping")
+    if view_metadata.get("version") != VIEW_METADATA_VERSION:
+        raise ValidationError(f"Unsupported view metadata version: {view_metadata.get('version')}")
+    views = view_metadata.get("views", [])
+    if not isinstance(views, list):
+        raise ValidationError("View metadata views must be a list")
+
+    normalized = []
+    seen_tensors: set[str] = set()
+    for idx, view in enumerate(views):
+        if not isinstance(view, Mapping):
+            raise ValidationError(f"View metadata entry {idx} must be a mapping")
+        tensor_name = view.get("tensor")
+        source_name = view.get("source")
+        if not isinstance(tensor_name, str) or not isinstance(source_name, str):
+            raise ValidationError(f"View metadata entry {idx} must name tensor and source")
+        if tensor_name in seen_tensors:
+            raise ValidationError(f"Tensor {tensor_name} has duplicate view metadata")
+        seen_tensors.add(tensor_name)
+        if tensor_name == source_name:
+            raise ValidationError(f"View tensor {tensor_name} cannot alias itself")
+        if tensor_name not in tensors:
+            raise ValidationError(f"View tensor {tensor_name} is not present in tensor table")
+        if source_name not in tensors:
+            raise ValidationError(f"View source {source_name} is not present in tensor table")
+
+        tensor = tensors[tensor_name]
+        source = tensors[source_name]
+        if tensor["dtype"] != source["dtype"]:
+            raise ValidationError(f"View tensor {tensor_name} dtype must match source {source_name}")
+        if prod(tensor["shape"]) != prod(source["shape"]):
+            raise ValidationError(f"View tensor {tensor_name} must preserve source element count")
+        if view.get("kind") != "shape_view":
+            raise ValidationError(f"View tensor {tensor_name} must use kind shape_view")
+        transform = view.get("transform")
+        if transform not in VIEW_ONLY_TRANSFORMS:
+            raise ValidationError(f"View tensor {tensor_name} has unsupported transform {transform}")
+        offset_elements = view.get("offset_elements", 0)
+        if not isinstance(offset_elements, int) or offset_elements != 0:
+            raise ValidationError(f"View tensor {tensor_name} must use zero offset for shape-only aliases")
+        if "shape" in view and list(view["shape"]) != list(tensor["shape"]):
+            raise ValidationError(f"View tensor {tensor_name} shape metadata must match tensor table")
+        if "shape_spec" in view:
+            try:
+                validate_shape_spec(view["shape_spec"], tensor["shape"])
+            except ValueError as exc:
+                raise ValidationError(f"View tensor {tensor_name} has invalid shape_spec: {exc}") from exc
+
+        normalized.append(
+            {
+                "tensor": tensor_name,
+                "source": source_name,
+                "kind": "shape_view",
+                "transform": transform,
+                "offset_elements": 0,
+                "shape": list(tensor["shape"]),
+                "shape_spec": list(view.get("shape_spec", tensor.get("shape_spec", tensor["shape"]))),
+            }
+        )
+    return normalized
 
 
 def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, Any]]) -> None:

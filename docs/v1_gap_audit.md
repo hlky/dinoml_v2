@@ -39,8 +39,11 @@ porting. It intentionally excludes the op inventory, which lives in
 
 - Memory planning: v1 has lifetime-based reuse, alias/view handling, dynamic
   bucket plans, output lifetime extension, and workspace policies. V2 currently
-  uses per-session max-shape temporaries and shape buffers, without alias/view
-  reuse or bucket-specific workspace plans.
+  uses per-session max-shape temporaries and shape buffers, and now has a
+  validated `metadata.views` to `metadata.memory_plan.views` contract for
+  zero-offset shape-only aliases. Runtime/lowering still reject non-empty view
+  metadata, so public view ops remain blocked until alias output binding and
+  temporary alias consumption are implemented.
 - Layout and accessors: v1 models tensor accessors, alignment, channel-last
   conventions, and GEMM layout descriptors. V2 has a small TensorAccessor and
   CUDA vectorized dense elementwise paths, but still assumes contiguous dense

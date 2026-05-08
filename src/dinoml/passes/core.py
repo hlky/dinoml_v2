@@ -4,10 +4,10 @@ from typing import Any, Dict, Set
 
 import numpy as np
 
-from dinoml.ir import dtype_nbytes
+from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes.utils import tensor_map
-from dinoml.passes.validation import ValidationError
+from dinoml.passes.validation import ValidationError, validate_view_metadata
 
 
 def canonicalize(ir: Dict[str, Any]) -> Dict[str, Any]:
@@ -66,15 +66,19 @@ def memory_plan(ir: Dict[str, Any]) -> Dict[str, Any]:
     output_tensors = {output["tensor"] for output in ir["outputs"]}
     input_tensors = {input_info["tensor"] for input_info in ir["inputs"]}
     constant_tensors = {constant["tensor"] for constant in ir["constants"]}
+    tensors = tensor_map(ir)
+    views = validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
+    view_tensors = {view["tensor"] for view in views}
     temporaries = []
     for tensor in ir["tensors"]:
         name = tensor["name"]
-        if name in output_tensors or name in input_tensors or name in constant_tensors:
+        if name in output_tensors or name in input_tensors or name in constant_tensors or name in view_tensors:
             continue
         temporaries.append({"tensor": name, "nbytes": tensor["nbytes"]})
     ir.setdefault("metadata", {})["memory_plan"] = {
         "allocation": "per_session_static_temporaries",
         "temporaries": temporaries,
+        "views": {"version": VIEW_METADATA_VERSION, "views": views},
         "workspace_nbytes": sum(item["nbytes"] for item in temporaries),
     }
     return ir

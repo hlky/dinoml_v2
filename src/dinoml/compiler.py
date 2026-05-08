@@ -21,6 +21,7 @@ from dinoml.ir import (
 )
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
 
 
@@ -145,6 +146,19 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarr
 
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
+    tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    for node in ir["nodes"]:
+        op_def = get_op_def(str(node["op"]))
+        if target.name not in op_def.backend_kernels:
+            raise NotImplementedError(f"{target.name} backend does not support op {op_def.name}")
+        node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
+        node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
+        unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]
+        if unsupported_node_dtypes:
+            raise NotImplementedError(
+                f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                f"unsupported compiled dtypes: {unsupported_node_dtypes}"
+            )
     dtypes = {tensor["dtype"] for tensor in ir["tensors"]}
     supported = get_backend_spec(target.name).supported_dtypes
     unsupported = sorted(dtype for dtype in dtypes if dtype not in supported)

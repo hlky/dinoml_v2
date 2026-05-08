@@ -103,14 +103,18 @@ def test_cuda_fused_elementwise_supports_reduced_precision_torch_pointers(tmp_pa
         pytest.skip("CUDA device is required")
 
     torch_dtype_obj = getattr(torch, torch_dtype)
-    constants = {
+    compile_constants = {
         "scale": np.array([0.5, -1.0, 2.0, 0.25], dtype=np.float32),
         "bias": np.array([0.1, 0.2, -0.3, 0.4], dtype=np.float32),
+    }
+    runtime_constants = {
+        "scale": np.array([1.25, -0.75, 0.5, 2.0], dtype=np.float32),
+        "bias": np.array([-0.4, 0.6, 0.15, -0.2], dtype=np.float32),
     }
     spec = dml.trace(
         DTypeFusedElementwise(dtype),
         inputs={"x": dml.TensorSpec([2, 3, 4], dtype)},
-        constants=constants,
+        constants=compile_constants,
         name=f"fused_elementwise_{dtype}",
     )
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"fused_elementwise_{dtype}.dinoml")
@@ -119,18 +123,29 @@ def test_cuda_fused_elementwise_supports_reduced_precision_torch_pointers(tmp_pa
 
     torch.manual_seed(123)
     x = torch.randn((2, 3, 4), device="cuda", dtype=torch_dtype_obj)
-    scale = torch.tensor(constants["scale"], device="cuda", dtype=torch_dtype_obj)
-    bias = torch.tensor(constants["bias"], device="cuda", dtype=torch_dtype_obj)
+    scale = torch.tensor(runtime_constants["scale"], device="cuda", dtype=torch_dtype_obj)
+    bias = torch.tensor(runtime_constants["bias"], device="cuda", dtype=torch_dtype_obj)
     expected = torch.relu(x.float() * scale.float() + bias.float()) * 0.5
     expected = expected.to(torch_dtype_obj).float().cpu().numpy()
 
     module = runtime.load(artifact.path)
+    module.set_constant_device_pointer("scale", scale.data_ptr(), tuple(scale.shape), "fp16" if dtype == "float16" else "bf16")
+    module.set_constant_torch("bias", bias)
     session = module.create_session()
+    actual_raw = torch.empty_like(x)
+    session.run_device_pointers(
+        {"x": x.data_ptr()},
+        {"y": actual_raw.data_ptr()},
+        {"x": tuple(int(dim) for dim in x.shape)},
+        {"y": tuple(int(dim) for dim in actual_raw.shape)},
+    )
+    module.set_constant_numpy("bias", runtime_constants["bias"])
     actual_torch = session.run_torch({"x": x})["y"]
     actual_numpy = session.run_numpy({"x": x.float().cpu().numpy()})["y"]
     session.close()
     module.close()
 
+    np.testing.assert_allclose(actual_raw.float().cpu().numpy(), expected, atol=atol, rtol=rtol)
     assert actual_torch.dtype == torch_dtype_obj
     np.testing.assert_allclose(actual_torch.float().cpu().numpy(), expected, atol=atol, rtol=rtol)
     np.testing.assert_allclose(actual_numpy.astype(np.float32), expected, atol=atol, rtol=rtol)

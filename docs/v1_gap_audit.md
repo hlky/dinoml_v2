@@ -16,8 +16,9 @@ porting. It intentionally excludes the op inventory, which lives in
   dimensions, and bucketed execution plans.
 - Shared dtype ABI: v1 has dtype aliases, byte sizes, torch mappings, and C ABI
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
-  same enum slots plus CUDA fused-elementwise fp16/bf16 storage support. CPU and
-  non-elementwise lowering remain narrower.
+  same enum slots plus CUDA fused-elementwise fp16/bf16 storage support for
+  `run_numpy`, torch/device-pointer execution, and runtime constants. CPU
+  compiled runtime, CUTLASS GEMM, softmax, and reductions remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via

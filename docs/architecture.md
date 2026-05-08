@@ -70,9 +70,28 @@ v1 currently accepts only schema-v1 dense row-major layouts with zero storage
 offset and canonical element strides.
 
 The shared dtype table now mirrors the v1 ABI direction: fp16, fp32, int32,
-int64, bool, bf16, and fp8 enum slots are defined in Python and C. CPU runtime
-lowering currently accepts float32. CUDA fused-elementwise lowering supports
-float32, float16, and bfloat16 storage with optional fp32 accumulation.
+int64, bool, bf16, and fp8 enum slots are defined in Python and C. Runtime ABI
+v5 carries dtype enums, byte sizes, dense layout metadata, and NumPy/Torch dtype
+bridges for `float32`, `float16`, and `bfloat16`.
+
+Current dtype support matrix:
+
+| Surface | float32 | float16 | bfloat16 |
+| --- | --- | --- | --- |
+| CPU compiled runtime | yes | no | no |
+| CPU reference executor | yes | storage/reference only | storage/reference only |
+| CUDA fused-elementwise runtime | yes | yes | yes |
+| CUDA `run_numpy` host staging | yes | yes | yes, stored as uint16 and returned as float32 |
+| CUDA torch/device-pointer runtime | yes | yes | yes |
+| CUDA runtime constants | yes | yes | yes |
+| CUDA softmax/reductions | yes | no | no |
+| CUTLASS GEMM scaffold | yes | planned | planned |
+
+CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
+default for fp16/bf16; the op may opt into native storage accumulation through
+its lowering attributes or the development override used by benchmarks. The CPU
+compiled runtime intentionally rejects reduced-precision dtypes until the C++
+kernel path has typed storage and vectorized conversion helpers.
 
 ## Kernel and Profiler Readiness
 

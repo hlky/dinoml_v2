@@ -8,7 +8,15 @@ from typing import Dict, Mapping
 
 import numpy as np
 
-from dinoml.ir import RUNTIME_ABI_VERSION, array_from_storage, array_to_storage, dtype_numpy, dtype_runtime_enum, read_json
+from dinoml.ir import (
+    RUNTIME_ABI_VERSION,
+    array_from_storage,
+    array_to_storage,
+    dtype_numpy,
+    dtype_runtime_enum,
+    normalize_dtype,
+    read_json,
+)
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
@@ -150,13 +158,15 @@ class RuntimeModule:
             raise ValueError(f"Unknown constant: {name}")
         constant_spec = constants[name]
         actual_shape = validate_runtime_shape(name, shape, constant_spec)
-        if str(dtype) != str(constant_spec["dtype"]):
-            raise ValueError(f"Constant {name} has dtype {dtype}, expected {constant_spec['dtype']}")
-        nbytes = _shape_nbytes(actual_shape, str(dtype))
+        normalized_dtype = normalize_dtype(str(dtype))
+        expected_dtype = str(constant_spec["dtype"])
+        if normalized_dtype != expected_dtype:
+            raise ValueError(f"Constant {name} has dtype {normalized_dtype}, expected {expected_dtype}")
+        nbytes = _shape_nbytes(actual_shape, normalized_dtype)
         tensor, keepalive = _make_dino_tensor(
             ctypes.c_void_p(int(ptr)),
             actual_shape,
-            dtype_runtime_enum(str(dtype)),
+            dtype_runtime_enum(normalized_dtype),
             nbytes=nbytes,
             device_type=DINO_DEVICE_CUDA,
         )

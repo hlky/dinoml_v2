@@ -106,6 +106,16 @@ class Identity(dml.Module):
         return dml.ops.output(x, "y")
 
 
+class SoftmaxModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.softmax(x, dim=-1), "y")
+
+
+class ReduceSumModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.reduce_sum(x, dim=-1), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -201,10 +211,23 @@ def test_simple_dynamic_shape_views_preserve_shape_spec():
     assert outputs["unsqueezed"]["shape_spec"][0]["name"] == "batch"
 
 
-def test_compile_rejects_unimplemented_runtime_dtype(tmp_path):
-    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([1, 16], "float16")}, name="half_identity")
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_compile_rejects_unimplemented_cpu_runtime_dtype(tmp_path, dtype):
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([1, 16], dtype)}, name=f"{dtype}_identity")
     with pytest.raises(NotImplementedError, match="cpu runtime supports dtypes"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "half_identity.dinoml")
+        dml.compile(spec, dml.Target("cpu"), tmp_path / f"{dtype}_identity.dinoml")
+
+
+@pytest.mark.parametrize(
+    ("module", "message"),
+    [
+        (SoftmaxModule(), "softmax does not support dtype bfloat16"),
+        (ReduceSumModule(), "reduce_sum does not support dtype bfloat16"),
+    ],
+)
+def test_non_elementwise_ops_reject_reduced_precision_frontend(module, message):
+    with pytest.raises(ValueError, match=message):
+        dml.trace(module, inputs={"x": dml.TensorSpec([2, 16], "bfloat16")})
 
 
 class HalfScalar(dml.Module):

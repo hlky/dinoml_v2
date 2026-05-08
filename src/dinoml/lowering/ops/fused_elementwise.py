@@ -59,6 +59,8 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
 def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+    if target == "cpu" and output_dtype != "float32":
+        raise NotImplementedError("CPU fused_elementwise lowering currently supports only float32")
     func = _function_name(node)
     storage_type = _cpp_storage_type(output_dtype)
     compute_type = _compute_type(output_dtype, node)

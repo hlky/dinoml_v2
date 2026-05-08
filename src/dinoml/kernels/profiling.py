@@ -20,7 +20,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 3
+PROFILE_REPORT_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True)
@@ -439,12 +439,25 @@ def _support_library_manifest_path(name: str, cache_dir: Path | None) -> Path | 
 
 def _support_manifest_fields(payload: Mapping[str, Any]) -> dict[str, Any]:
     fields: dict[str, Any] = {}
-    for key in ("schema_version", "provider", "source_sha256", "cache_key"):
+    for key in (
+        "schema_version",
+        "provider",
+        "source_sha256",
+        "library_sha256",
+        "cache_key",
+        "provenance_key",
+        "build_fingerprint",
+        "family_cache_key",
+        "external_kernel_plan_cache_key",
+    ):
         if key in payload:
             fields[f"manifest_{key}" if key in {"schema_version", "cache_key"} else key] = payload[key]
     target = payload.get("target")
     if isinstance(target, Mapping):
         fields["manifest_target"] = dict(target)
+    for key in ("compile", "provenance"):
+        if isinstance(payload.get(key), Mapping):
+            fields[key] = dict(payload[key])
     return fields
 
 
@@ -567,8 +580,13 @@ def _support_libraries_cache_payload(libraries: Sequence[Mapping[str, Any]]) -> 
                 "artifact_sha256": library.get("artifact_sha256"),
                 "cache_library_sha256": library.get("cache_library_sha256"),
                 "source_sha256": library.get("source_sha256"),
+                "library_sha256": library.get("library_sha256"),
+                "provenance_key": library.get("provenance_key"),
+                "build_fingerprint": library.get("build_fingerprint"),
+                "family_cache_key": library.get("family_cache_key"),
                 "manifest_cache_key": library.get("manifest_cache_key"),
                 "manifest_target": library.get("manifest_target"),
+                "external_kernel_plan_cache_key": library.get("external_kernel_plan_cache_key"),
             }
         )
     return sorted(payloads, key=lambda item: str(item.get("name", "")))

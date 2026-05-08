@@ -159,6 +159,16 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
             "target": {"name": "cuda", "arch": "sm_86"},
             "provider": "cutlass",
             "source_sha256": "source-hash",
+            "library_sha256": "library-hash",
+            "provenance_key": "provenance-hash",
+            "build_fingerprint": "provenance-hash",
+            "family_cache_key": "family-hash",
+            "external_kernel_plan_cache_key": "external-plan-hash",
+            "compile": {"flags": ["-arch=sm_86"]},
+            "provenance": {
+                "provenance_key": "provenance-hash",
+                "compile_flags": ["-arch=sm_86"],
+            },
             "cache_key": "cutlass-cache",
         },
     )
@@ -194,6 +204,12 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["hardware_cache_key"] == key_payload["hardware_fingerprint_key"]
     assert report["libraries"][0]["artifact_sha256"] == hashlib.sha256(b"artifact cutlass gemm").hexdigest()
     assert report["fingerprint"]["support_libraries"][0]["source_sha256"] == "source-hash"
+    assert report["fingerprint"]["support_libraries"][0]["library_sha256"] == "library-hash"
+    assert report["fingerprint"]["support_libraries"][0]["provenance_key"] == "provenance-hash"
+    assert report["fingerprint"]["support_libraries"][0]["build_fingerprint"] == "provenance-hash"
+    assert report["fingerprint"]["support_libraries"][0]["family_cache_key"] == "family-hash"
+    assert report["fingerprint"]["support_libraries"][0]["compile"]["flags"] == ["-arch=sm_86"]
+    assert report["fingerprint"]["support_libraries"][0]["provenance"]["provenance_key"] == "provenance-hash"
     assert report["support_libraries_cache_key"] == key_payload["support_libraries_fingerprint_key"]
     assert report["problems"][0]["status"] == "cached"
     assert report["problems"][0]["selected"]["candidate_id"] == "cutlass_default"

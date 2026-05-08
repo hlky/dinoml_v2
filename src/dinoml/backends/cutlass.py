@@ -8,10 +8,10 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, Sequence
 
 from dinoml.backends.cuda_libraries import require_cuda_library
-from dinoml.ir import write_json
+from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import build_external_kernel_plan
 
@@ -26,10 +26,12 @@ class CutlassSupportLib:
 
 def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) -> CutlassSupportLib:
     cutlass = require_cuda_library("cutlass")
-    require_cuda_library("cublaslt")
+    cublaslt = require_cuda_library("cublaslt")
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_num = _cmake_arch(arch)
     plan = build_external_kernel_plan({"name": "cuda", "arch": f"sm_{arch_num}"})
+    families = [family.to_json() for family in external_kernel_families(provider="cutlass", backend="cuda")]
+    family_cache_key = _family_cache_key({"name": "cuda", "arch": f"sm_{arch_num}"}, families)
     manifest_key = cache_key or plan["cache_key"][:16]
     support_root = cache_root / "support" / f"cuda-{arch_num}" / "cutlass-gemm" / manifest_key
     src_dir = support_root / "src"
@@ -45,12 +47,24 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
         *(root.parent / "tools" / "util" / "include" for root in cutlass.include_roots if root.name == "include"),
     )
     source_hash = _file_sha256(repo_source)
+    compile_flags = _compile_flags(arch_num)
+    include_args = [f"-I{root}" for root in include_roots if root.exists()]
+    provenance = _build_provenance(
+        arch_num=arch_num,
+        plan_cache_key=plan["cache_key"],
+        family_cache_key=family_cache_key,
+        source_hash=source_hash,
+        compile_flags=compile_flags,
+        include_roots=include_roots,
+        cutlass=cutlass,
+        cublaslt=cublaslt,
+    )
     if (
         library.exists()
         and manifest.exists()
         and source.exists()
         and _file_sha256(source) == source_hash
-        and _cached_manifest_matches(manifest, source_hash, plan["cache_key"])
+        and _cached_manifest_matches(manifest, source_hash, provenance["provenance_key"], _file_sha256(library), family_cache_key)
     ):
         return CutlassSupportLib(
             library=library,
@@ -60,38 +74,30 @@ def ensure_cutlass_gemm_support_lib(arch: str, *, cache_key: str | None = None) 
         )
     shutil.copy2(repo_source, source)
 
-    include_args = []
-    for root in include_roots:
-        if root.exists():
-            include_args.append(f"-I{root}")
-    _run_nvcc(
-        [
-            "nvcc",
-            "-std=c++17",
-            "-O3",
-            "--use_fast_math",
-            "--expt-relaxed-constexpr",
-            "-shared",
-            "-Xcompiler=-fPIC",
-            f"-arch=sm_{arch_num}",
-            *include_args,
-            str(source),
-            "-o",
-            str(library),
-        ],
-        cwd=support_root,
-    )
+    compile_command = ["nvcc", *compile_flags, *include_args, str(source), "-o", str(library)]
+    _run_nvcc(compile_command, cwd=support_root)
+    library_hash = _file_sha256(library)
     write_json(
         manifest,
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
             "provider": "cutlass",
-            "families": [family.to_json() for family in external_kernel_families(provider="cutlass", backend="cuda")],
+            "families": families,
             "library": library.name,
+            "library_sha256": library_hash,
             "source": source.name,
             "source_sha256": source_hash,
             "external_kernel_plan_cache_key": plan["cache_key"],
+            "family_cache_key": family_cache_key,
+            "build_fingerprint": provenance["provenance_key"],
+            "provenance_key": provenance["provenance_key"],
+            "provenance": provenance,
+            "compile": {
+                "command": compile_command,
+                "flags": compile_flags,
+                "include_roots": [str(root) for root in include_roots if root.exists()],
+            },
             "cache_key": manifest_key,
         },
     )
@@ -115,12 +121,196 @@ def _file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _cached_manifest_matches(path: Path, source_hash: str, plan_cache_key: str) -> bool:
+def _cached_manifest_matches(
+    path: Path,
+    source_hash: str,
+    provenance_key: str,
+    library_hash: str,
+    family_cache_key: str,
+) -> bool:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
-    return payload.get("source_sha256") == source_hash and payload.get("external_kernel_plan_cache_key") == plan_cache_key
+    return (
+        payload.get("schema_version") == 2
+        and payload.get("provider") == "cutlass"
+        and payload.get("source_sha256") == source_hash
+        and payload.get("provenance_key") == provenance_key
+        and payload.get("build_fingerprint") == provenance_key
+        and payload.get("library_sha256") == library_hash
+        and payload.get("family_cache_key") == family_cache_key
+    )
+
+
+def _compile_flags(arch_num: str) -> list[str]:
+    return [
+        "-std=c++17",
+        "-O3",
+        "--use_fast_math",
+        "--expt-relaxed-constexpr",
+        "-shared",
+        "-Xcompiler=-fPIC",
+        f"-arch=sm_{arch_num}",
+    ]
+
+
+def _build_provenance(
+    *,
+    arch_num: str,
+    plan_cache_key: str,
+    family_cache_key: str,
+    source_hash: str,
+    compile_flags: Sequence[str],
+    include_roots: Sequence[Path],
+    cutlass: Any,
+    cublaslt: Any,
+) -> dict[str, Any]:
+    dependencies = {
+        "cutlass": _library_provenance(cutlass),
+        "cublaslt": _library_provenance(cublaslt),
+    }
+    key_payload = {
+        "schema_version": 1,
+        "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+        "external_kernel_plan_cache_key": plan_cache_key,
+        "family_cache_key": family_cache_key,
+        "source_sha256": source_hash,
+        "compile_flags": list(compile_flags),
+        "nvcc": _nvcc_version_payload(include_stdout=False),
+        "dependencies": {
+            name: _library_provenance_key_payload(payload)
+            for name, payload in dependencies.items()
+        },
+    }
+    return {
+        "schema_version": 1,
+        "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+        "external_kernel_plan_cache_key": plan_cache_key,
+        "family_cache_key": family_cache_key,
+        "source_sha256": source_hash,
+        "compile_flags": list(compile_flags),
+        "include_roots": [str(root) for root in include_roots if root.exists()],
+        "nvcc": _nvcc_version_payload(include_stdout=True),
+        "dependencies": dependencies,
+        "provenance_key": hashlib.sha256(json.dumps(key_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest(),
+    }
+
+
+def _family_cache_key(target: Mapping[str, str], families: Sequence[Mapping[str, Any]]) -> str:
+    payload = {
+        "schema_version": 1,
+        "target": dict(target),
+        "provider": "cutlass",
+        "families": list(families),
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _library_provenance(library: Any) -> dict[str, Any]:
+    include_roots = [Path(root) for root in getattr(library, "include_roots", ())]
+    payload = {
+        "name": getattr(library, "name", ""),
+        "available": bool(getattr(library, "available", False)),
+        "include_roots": [str(root) for root in include_roots if root.exists()],
+        "headers": _header_provenance(include_roots, getattr(library, "headers", ())),
+    }
+    if getattr(library, "name", "") == "cutlass":
+        root = _cutlass_repo_root(include_roots)
+        if root is not None:
+            payload["git"] = _git_provenance(root)
+    return payload
+
+
+def _library_provenance_key_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    result = {
+        "name": payload.get("name"),
+        "available": payload.get("available"),
+        "headers": [
+            {"header": item.get("header"), "sha256": item.get("sha256")}
+            for item in payload.get("headers", [])
+        ],
+    }
+    if "git" in payload:
+        git = payload["git"]
+        result["git"] = {
+            "commit": git.get("commit"),
+            "dirty": git.get("dirty"),
+        }
+    return result
+
+
+def _header_provenance(include_roots: Sequence[Path], headers: Sequence[str]) -> list[dict[str, Any]]:
+    result = []
+    for header in headers:
+        found = _find_header(include_roots, header)
+        item: dict[str, Any] = {"header": header}
+        if found is not None:
+            item["path"] = str(found)
+            item["sha256"] = _file_sha256(found)
+        result.append(item)
+    return result
+
+
+def _find_header(include_roots: Sequence[Path], header: str) -> Path | None:
+    for root in include_roots:
+        candidate = root / header
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _cutlass_repo_root(include_roots: Sequence[Path]) -> Path | None:
+    for include_root in include_roots:
+        root = include_root.parent if include_root.name == "include" else include_root
+        if (root / ".git").exists():
+            return root
+    return None
+
+
+def _git_provenance(root: Path) -> dict[str, Any]:
+    commit = _run_git(root, ["rev-parse", "HEAD"])
+    try:
+        dirty_proc = subprocess.run(["git", "-C", str(root), "diff", "--quiet"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2.0)
+        dirty = dirty_proc.returncode != 0
+    except (OSError, subprocess.TimeoutExpired):
+        dirty = None
+    return {
+        "root": str(root),
+        "commit": commit,
+        "dirty": dirty,
+    }
+
+
+def _run_git(root: Path, args: Sequence[str]) -> str | None:
+    try:
+        proc = subprocess.run(["git", "-C", str(root), *args], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2.0)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def _nvcc_version_payload(*, include_stdout: bool) -> dict[str, Any]:
+    if shutil.which("nvcc") is None:
+        return {"available": False}
+    try:
+        proc = subprocess.run(["nvcc", "--version"], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2.0)
+    except (OSError, subprocess.TimeoutExpired):
+        return {"available": False}
+    if proc.returncode != 0:
+        return {"available": False}
+    release_match = re.search(r"release\s+([0-9.]+)", proc.stdout)
+    build_match = re.search(r"V([0-9.]+)", proc.stdout)
+    payload: dict[str, Any] = {"available": True}
+    if release_match:
+        payload["release"] = release_match.group(1)
+    if build_match:
+        payload["build"] = build_match.group(1)
+    if include_stdout:
+        payload["stdout"] = proc.stdout
+    return payload
 
 
 def _run_nvcc(cmd: list[str], *, cwd: Path) -> None:

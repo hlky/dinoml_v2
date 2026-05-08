@@ -40,10 +40,10 @@ porting. It intentionally excludes the op inventory, which lives in
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for `cutlass_default` CUTLASS GEMM profiles.
-  Profile keys now include a best-effort CUDA hardware/toolchain fingerprint and
-  support-library source/binary hashes. Remaining gaps are candidate
-  enumeration, richer statistical confidence, and persistent SQLite/shared
-  cache workflows.
+  Profile keys now include a best-effort CUDA hardware/toolchain fingerprint,
+  support-library source/binary hashes, and CUTLASS support-build provenance.
+  Remaining gaps are candidate enumeration, richer statistical confidence, and
+  persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 
@@ -68,8 +68,10 @@ porting. It intentionally excludes the op inventory, which lives in
   parameters and runtime-settable constants, but no constant-folding lifecycle.
 - Build/cache system: v1 has build-cache hashing, backend-specific builders,
   profiler builds, constants object embedding, standalone mode, and environment
-  knobs. V2 has CMake support-library caching but still needs deterministic
-  cache keys that cover ABI, dtype, layout, target, and toolchain.
+  knobs. V2 has CMake support-library caching and CUTLASS support-build
+  provenance for the first GEMM library, but future generated profiler/support
+  builds still need deterministic cache keys covering ABI, dtype, layout,
+  target, and toolchain.
 - Codegen templates: v1 templates cover dynamic dims, bucket guards, constants,
   profiling, multistream paths, and debug metadata. V2 templates now cover
   runtime dynamic shape buffers, constants, minimal externally supplied CUDA

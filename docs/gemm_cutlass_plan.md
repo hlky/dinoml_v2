@@ -78,10 +78,12 @@ The first runtime GEMM port now wires model lowering into that support library:
 manifest-selected `cutlass_default` candidate, writes
 `debug/profile_report.json`, and caches results under the support-library cache.
 The report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
-support-library source/binary hashes, and the candidate config key. Next steps
-are candidate enumeration beyond the single default CUTLASS instance,
-bias/activation epilogues, optional accumulation-policy variants, and then
-public `matmul` layout selection.
+support-library source/binary hashes, support-build provenance, and the
+candidate config key. CUTLASS support manifests also record compile flags, NVCC
+version output, dependency header hashes, and a provenance key that participates
+in support-cache reuse. Next steps are candidate enumeration beyond the single
+default CUTLASS instance, bias/activation epilogues, optional
+accumulation-policy variants, and then public `matmul` layout selection.
 
 ## Dependency Discovery
 

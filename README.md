@@ -39,6 +39,7 @@ model.dinoml/
     libdinoml_runtime.so
     libdinoml_cuda_runtime.so
     libdinoml_cuda_kernels.so
+    libdinoml_cutlass_gemm.so
   debug/
     generated_src/
     pass_dumps/
@@ -48,6 +49,10 @@ model.dinoml/
 `libdinoml_cuda_kernels.so` are built with CMake and cached per CUDA architecture
 and required-kernel manifest under `~/.cache/dinoml_v2/support/`. CPU artifacts
 use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
+CUDA artifacts that need CUTLASS GEMM also carry `libdinoml_cutlass_gemm.so`;
+the cached support build writes `cutlass_gemm_manifest.json` with compile flags,
+NVCC version, dependency header hashes, source/library hashes, and a provenance
+key used for cache reuse and profiling fingerprints.
 
 Generated model code is a small Jinja2 wrapper that links against those
 libraries. It loads runtime metadata from `metadata.json` and contains launch

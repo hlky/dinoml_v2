@@ -1,6 +1,7 @@
 import pytest
 import shutil
 import ctypes
+import hashlib
 
 import dinoml as dml
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
@@ -85,8 +86,21 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert support.source.exists()
     assert support.manifest.exists()
     manifest = read_json(support.manifest)
+    assert manifest["schema_version"] == 2
     assert manifest["provider"] == "cutlass"
+    assert manifest["library_sha256"] == hashlib.sha256(support.library.read_bytes()).hexdigest()
     assert len(manifest["source_sha256"]) == 64
+    assert len(manifest["family_cache_key"]) == 64
+    assert len(manifest["build_fingerprint"]) == 64
+    assert manifest["provenance_key"]
+    assert manifest["build_fingerprint"] == manifest["provenance_key"]
+    assert manifest["provenance"]["provenance_key"] == manifest["provenance_key"]
+    assert manifest["provenance"]["family_cache_key"] == manifest["family_cache_key"]
+    assert manifest["provenance"]["nvcc"]["available"] is True
+    assert "-arch=sm_86" in manifest["compile"]["flags"]
+    assert manifest["compile"]["flags"] == manifest["provenance"]["compile_flags"]
+    assert manifest["provenance"]["dependencies"]["cutlass"]["headers"][0]["sha256"]
+    assert manifest["provenance"]["dependencies"]["cublaslt"]["headers"][0]["sha256"]
     assert {family["op_name"] for family in manifest["families"]} == {"gemm_rcr", "gemm_rrr"}
     for family in manifest["families"]:
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]

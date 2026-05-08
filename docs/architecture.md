@@ -109,6 +109,13 @@ directory. This is the hook where CUTLASS, CK, Triton, or handwritten profiler
 source generation can generate all used kernels/profilers once, compile them into
 a support library, and let many model artifacts reuse the result.
 
+`dinoml profile <artifact>` is the first explicit profiler runner. It reads the
+artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
+currently supported CUTLASS GEMM profiler symbols, writes
+`debug/profile_report.json`, and stores a small `profile_cache.v1.json` beside
+the support-library cache. The first candidate is always `manifest_default`;
+future work should expand that into generated CUTLASS candidate sets.
+
 Current reusable kernels are intentionally simple:
 
 - CUDA: reusable `libdinoml_cuda_kernels.so` for future stable primitives
@@ -354,6 +361,6 @@ The next foundations to settle before broad op porting are:
   default `run_numpy` behavior when no external stream is set. Generated CPU and
   CUDA sessions also expose minimal post-run output-shape reporting through
   `dino_session_get_output_shape(DinoSession*, size_t, int64_t*, size_t*)`.
-- profiler source generation, runner, and cache schema
+- profiler source generation and multi-candidate cache selection
 - liveness-based memory planning with alias/view support
 - layout/accessor metadata for strides, alignment, and channel-last conventions

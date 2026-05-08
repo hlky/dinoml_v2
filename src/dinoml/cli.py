@@ -11,6 +11,7 @@ import numpy as np
 import dinoml as dml
 from dinoml import runtime
 from dinoml.ir import read_json
+from dinoml.kernels.profiling import parse_shape_overrides, profile_artifact
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -32,6 +33,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser.add_argument("--atol", type=float, default=1e-4)
     validate_parser.add_argument("--rtol", type=float, default=1e-4)
 
+    profile_parser = subparsers.add_parser("profile")
+    profile_parser.add_argument("artifact")
+    profile_parser.add_argument("--iterations", type=int, default=20)
+    profile_parser.add_argument("--shape", action="append", default=[])
+    profile_parser.add_argument("--out")
+    profile_parser.add_argument("--refresh", action="store_true")
+
     args = parser.parse_args(argv)
     if args.command == "compile":
         return _compile(args)
@@ -39,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect(args)
     if args.command == "validate":
         return _validate(args)
+    if args.command == "profile":
+        return _profile(args)
     raise AssertionError(args.command)
 
 
@@ -101,6 +111,39 @@ def _validate(args: argparse.Namespace) -> int:
     if failures:
         raise RuntimeError("; ".join(failures))
     print("validation ok")
+    return 0
+
+
+def _profile(args: argparse.Namespace) -> int:
+    report = profile_artifact(
+        args.artifact,
+        input_shapes=parse_shape_overrides(args.shape),
+        iterations=args.iterations,
+        output=args.out,
+        refresh=args.refresh,
+    )
+    print(json.dumps(
+        {
+            "artifact": report["artifact"],
+            "target": report["target"],
+            "iterations": report["iterations"],
+            "problems": [
+                {
+                    "node_id": item["node_id"],
+                    "op": item["op"],
+                    "dtype": item["dtype"],
+                    "profiler_symbol": item["profiler_symbol"],
+                    "shape": {"m": item["m"], "n": item["n"], "k": item["k"]},
+                    "elapsed_ms": item["elapsed_ms"],
+                    "tflops": item["tflops"],
+                }
+                for item in report["problems"]
+            ],
+            "summary": report["summary"],
+        },
+        indent=2,
+        sort_keys=True,
+    ))
     return 0
 
 

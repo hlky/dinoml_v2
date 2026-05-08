@@ -73,6 +73,7 @@ python -m pytest -q
 python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda
 python tools/benchmark_softmax.py --suite quick --targets cpu,cuda
 python tools/benchmark_reductions.py --suite quick --targets cpu,cuda
+python -m dinoml.cli profile build/model.dinoml --iterations 20
 ```
 
 Generated artifacts, support-library build products, benchmark output, and local

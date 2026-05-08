@@ -118,3 +118,64 @@ def shape_numel(shape: Iterable[int]) -> int:
     for dim in shape:
         numel *= int(dim)
     return numel
+
+
+def runtime_shape_tuple(shape: Iterable[int]) -> tuple[int, ...]:
+    values = tuple(int(dim) for dim in shape)
+    for axis, dim in enumerate(values):
+        if dim <= 0:
+            raise ValueError(f"Runtime shape axis {axis} must be positive, got {dim}")
+    return values
+
+
+def validate_runtime_shape(name: str, shape: Iterable[int], spec: Mapping[str, Any]) -> tuple[int, ...]:
+    actual_shape = runtime_shape_tuple(shape)
+    shape_spec = spec.get("shape_spec", spec["shape"])
+    if len(actual_shape) != len(shape_spec):
+        raise ValueError(f"{name} rank mismatch: got {len(actual_shape)}, expected {len(shape_spec)}")
+    for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
+        if isinstance(dim_spec, int):
+            if actual != int(dim_spec):
+                raise ValueError(f"{name} axis {axis} has dim {actual}, expected static dim {dim_spec}")
+            continue
+        dim_name = str(dim_spec["name"])
+        min_dim = int(dim_spec["min"])
+        max_dim = int(dim_spec["max"])
+        divisible_by = int(dim_spec.get("divisible_by", 1))
+        if actual < min_dim or actual > max_dim:
+            raise ValueError(f"{name} axis {axis} ({dim_name}) has dim {actual}, expected [{min_dim}, {max_dim}]")
+        if actual % divisible_by != 0:
+            raise ValueError(f"{name} axis {axis} ({dim_name}) has dim {actual}, expected divisible by {divisible_by}")
+    return actual_shape
+
+
+def infer_output_shape(
+    output_spec: Mapping[str, Any],
+    input_specs: Sequence[Mapping[str, Any]],
+    input_shapes: Mapping[str, Iterable[int]],
+) -> tuple[int, ...]:
+    dim_values: dict[str, int] = {}
+    for spec in input_specs:
+        input_name = str(spec["name"])
+        if input_name not in input_shapes:
+            raise ValueError(f"Missing runtime shape for input {input_name}")
+        actual_shape = validate_runtime_shape(input_name, input_shapes[input_name], spec)
+        shape_spec = spec.get("shape_spec", spec["shape"])
+        for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
+            if isinstance(dim_spec, int):
+                continue
+            dim_name = str(dim_spec["name"])
+            existing = dim_values.get(dim_name)
+            if existing is not None and existing != int(actual):
+                raise ValueError(
+                    f"Dynamic dimension {dim_name} has inconsistent values {existing} and {actual} "
+                    f"while reading input {input_name} axis {axis}"
+                )
+            dim_values[dim_name] = int(actual)
+    result = []
+    for dim_spec in output_spec.get("shape_spec", output_spec["shape"]):
+        if isinstance(dim_spec, int):
+            result.append(int(dim_spec))
+        else:
+            result.append(dim_values.get(str(dim_spec["name"]), int(dim_spec["max"])))
+    return tuple(result)

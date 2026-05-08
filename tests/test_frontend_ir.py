@@ -2,6 +2,7 @@ import pytest
 
 import dinoml as dml
 from dinoml.ir import array_from_storage, array_to_storage, canonical_json
+from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
 class BadBroadcast(dml.Module):
@@ -37,6 +38,26 @@ def test_tensor_spec_records_dynamic_shape_metadata():
     assert spec.max_shape == [4, 16]
     assert spec.dynamic
     assert spec.shape_spec[0]["name"] == "batch"
+
+
+def test_runtime_shape_helpers_validate_dim_constraints():
+    height = dml.Dim("height", min=8, max=32, divisible_by=8)
+    spec = {"name": "x", "shape": [32, 4], "shape_spec": dml.TensorSpec([height, 4]).shape_spec}
+    assert validate_runtime_shape("x", [16, 4], spec) == (16, 4)
+
+    with pytest.raises(ValueError, match=r"x axis 0 \(height\).*divisible by 8"):
+        validate_runtime_shape("x", [10, 4], spec)
+
+
+def test_runtime_shape_helpers_infer_outputs_and_check_named_dims():
+    batch = dml.Dim("batch", min=1, max=4)
+    x_spec = {"name": "x", "shape": [4, 16], "shape_spec": dml.TensorSpec([batch, 16]).shape_spec}
+    z_spec = {"name": "z", "shape": [4, 1], "shape_spec": dml.TensorSpec([batch, 1]).shape_spec}
+    y_spec = {"name": "y", "shape": [4, 16], "shape_spec": dml.TensorSpec([batch, 16]).shape_spec}
+
+    assert infer_output_shape(y_spec, [x_spec, z_spec], {"x": [3, 16], "z": [3, 1]}) == (3, 16)
+    with pytest.raises(ValueError, match="Dynamic dimension batch has inconsistent values 3 and 2"):
+        infer_output_shape(y_spec, [x_spec, z_spec], {"x": [3, 16], "z": [2, 1]})
 
 
 class Identity(dml.Module):

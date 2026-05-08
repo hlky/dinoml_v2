@@ -9,6 +9,7 @@ from typing import Dict, Mapping
 import numpy as np
 
 from dinoml.ir import RUNTIME_ABI_VERSION, array_from_storage, array_to_storage, dtype_numpy, dtype_runtime_enum, read_json
+from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
 class _DinoTensor(ctypes.Structure):
@@ -240,7 +241,7 @@ class Session:
             if name not in inputs:
                 raise ValueError(f"Missing input pointer: {name}")
             actual_shape = tuple(int(dim) for dim in (input_shapes or {}).get(name, spec["shape"]))
-            _validate_runtime_shape(name, actual_shape, spec)
+            validate_runtime_shape(name, actual_shape, spec)
             resolved_input_shapes[name] = actual_shape
             shape = _shape_buffer(actual_shape)
             shape_buffers.append(shape)
@@ -253,8 +254,8 @@ class Session:
             if output_shapes is not None and name in output_shapes:
                 actual_shape = tuple(int(dim) for dim in output_shapes[name])
             else:
-                actual_shape = _infer_output_shape(spec, input_specs, resolved_input_shapes)
-            _validate_runtime_shape(name, actual_shape, spec)
+                actual_shape = infer_output_shape(spec, input_specs, resolved_input_shapes)
+            validate_runtime_shape(name, actual_shape, spec)
             shape = _shape_buffer(actual_shape)
             shape_buffers.append(shape)
             output_tensors[idx] = _DinoTensor(ctypes.c_void_p(int(outputs[name])), shape, len(spec["shape"]), dtype_runtime_enum(str(spec["dtype"])))
@@ -280,7 +281,7 @@ class Session:
             tensor = inputs[str(spec["name"])]
             if not getattr(tensor, "is_cuda", False):
                 raise ValueError(f"Input {spec['name']} must be a CUDA tensor")
-            _validate_runtime_shape(str(spec["name"]), tuple(int(dim) for dim in tensor.shape), spec)
+            validate_runtime_shape(str(spec["name"]), tuple(int(dim) for dim in tensor.shape), spec)
             input_shapes[str(spec["name"])] = tuple(int(dim) for dim in tensor.shape)
             if _torch_dtype_name(tensor) != str(spec["dtype"]):
                 raise ValueError(f"Input {spec['name']} has dtype {_torch_dtype_name(tensor)}, expected {spec['dtype']}")
@@ -289,7 +290,7 @@ class Session:
         device = next(iter(inputs.values())).device
         outputs = {
             str(spec["name"]): torch.empty(
-                _infer_output_shape(spec, input_specs, input_shapes),
+                infer_output_shape(spec, input_specs, input_shapes),
                 dtype=_torch_dtype(str(spec["dtype"]), torch),
                 device=device,
             )
@@ -309,7 +310,7 @@ class Session:
         input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
         input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
         output_arrays = [
-            np.empty(_infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
         ]
         shape_buffers = []
@@ -340,7 +341,7 @@ class Session:
         input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
         input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
         output_arrays = [
-            np.empty(_infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
         ]
 
@@ -414,52 +415,8 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
     if name not in inputs:
         raise ValueError(f"Missing input: {name}")
     array = array_to_storage(inputs[name], str(spec["dtype"]))
-    _validate_runtime_shape(name, array.shape, spec)
+    validate_runtime_shape(name, array.shape, spec)
     return array
-
-
-def _validate_runtime_shape(name: str, shape: tuple[int, ...], spec: Mapping[str, object]) -> None:
-    shape_spec = spec.get("shape_spec", spec["shape"])
-    if len(shape) != len(shape_spec):
-        raise ValueError(f"{name} rank mismatch: got {len(shape)}, expected {len(shape_spec)}")
-    for axis, (actual, dim_spec) in enumerate(zip(shape, shape_spec)):
-        if isinstance(dim_spec, int):
-            if actual != int(dim_spec):
-                raise ValueError(f"{name} axis {axis} has dim {actual}, expected {dim_spec}")
-            continue
-        min_dim = int(dim_spec["min"])
-        max_dim = int(dim_spec["max"])
-        divisible_by = int(dim_spec.get("divisible_by", 1))
-        if actual < min_dim or actual > max_dim:
-            raise ValueError(f"{name} axis {axis} has dim {actual}, expected [{min_dim}, {max_dim}]")
-        if actual % divisible_by != 0:
-            raise ValueError(f"{name} axis {axis} has dim {actual}, expected divisible by {divisible_by}")
-
-
-def _infer_output_shape(
-    output_spec: Mapping[str, object],
-    input_specs: list[Mapping[str, object]],
-    input_shapes: Mapping[str, tuple[int, ...]],
-) -> tuple[int, ...]:
-    dim_values: dict[str, int] = {}
-    for spec in input_specs:
-        shape_spec = spec.get("shape_spec", spec["shape"])
-        actual_shape = input_shapes[str(spec["name"])]
-        for actual, dim_spec in zip(actual_shape, shape_spec):
-            if isinstance(dim_spec, int):
-                continue
-            name = str(dim_spec["name"])
-            existing = dim_values.get(name)
-            if existing is not None and existing != int(actual):
-                raise ValueError(f"Dynamic dimension {name} has inconsistent values {existing} and {actual}")
-            dim_values[name] = int(actual)
-    result = []
-    for dim_spec in output_spec.get("shape_spec", output_spec["shape"]):
-        if isinstance(dim_spec, int):
-            result.append(int(dim_spec))
-        else:
-            result.append(dim_values.get(str(dim_spec["name"]), int(dim_spec["max"])))
-    return tuple(result)
 
 
 def _shape_buffer(shape: object) -> ctypes.Array:

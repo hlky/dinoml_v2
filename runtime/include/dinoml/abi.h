@@ -24,6 +24,10 @@ enum DinoDtype {
 
 struct DinoTensor {
   void* data;
+  // Host pointer to an int64 shape array with ndim entries. The caller owns
+  // this storage and it must remain valid for the duration of dino_session_run.
+  // Generated modules validate these dimensions against static shapes or the
+  // min/max/divisibility constraints serialized in artifact metadata.
   const int64_t* shape;
   size_t ndim;
   int dtype;

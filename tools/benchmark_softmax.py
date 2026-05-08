@@ -44,9 +44,12 @@ SHAPE_CASES = {
     "llm_decode_8192": ShapeCase("llm_decode_8192", (1, 8192), "LLM decode single row"),
 }
 
+POLICY_K_BUCKETS = (4, 8, 16, 32, 33, 64, 77, 128, 256, 512, 1024, 1408, 1920, 2048, 3840, 4096, 8192, 12500)
+
 SUITES = {
     "quick": ("tiny", "sd_cross_77", "sd_self_1024"),
     "roofline": ("sd_cross_77", "sd_self_1024", "llm_prefill_2048", "dit_4096", "llm_decode_8192"),
+    "policy": tuple(f"k{k}" for k in POLICY_K_BUCKETS),
 }
 
 
@@ -83,7 +86,7 @@ def main() -> None:
     }
 
     for shape_name in shape_names:
-        shape_case = SHAPE_CASES[shape_name]
+        shape_case = shape_case_for_name(shape_name)
         print(f"[bench] softmax__{shape_case.name}", flush=True)
         results["cases"][shape_case.name] = run_case(
             out_dir=args.out,
@@ -158,7 +161,24 @@ def run_case(*, out_dir: Path, shape_case: ShapeCase, targets: list[str], arch: 
             add_timing(case, "torch_cuda_hot", timings, bytes_info)
             case["correctness"]["torch_cuda_vs_numpy_max_abs"] = max_abs(actual, expected)
 
+    case["speedups"] = speedups(case["timings_ms"])
     return case
+
+
+def shape_case_for_name(name: str) -> ShapeCase:
+    if name in SHAPE_CASES:
+        return SHAPE_CASES[name]
+    if name.startswith("k") and name[1:].isdigit():
+        k = int(name[1:])
+        rows = _policy_rows(k)
+        return ShapeCase(name, (rows, k), f"v1-style softmax K-policy bucket with {rows} rows")
+    raise KeyError(f"Unknown softmax shape case: {name}")
+
+
+def _policy_rows(k: int) -> int:
+    target_elements = 1_048_576
+    rows = max(1, target_elements // max(1, k))
+    return min(8192, rows)
 
 
 def build_spec(shape: tuple[int, ...]):
@@ -310,6 +330,18 @@ def add_timing(case: dict[str, object], name: str, timings: Mapping[str, float |
         "logical_gbs": float(bytes_info["logical_bytes"]) / (median_ms / 1000.0) / 1.0e9,
         "unique_floor_gbs": float(bytes_info["unique_floor_bytes"]) / (median_ms / 1000.0) / 1.0e9,
     }
+
+
+def speedups(timings: Mapping[str, object]) -> dict[str, float]:
+    medians = {name: float(value["median_ms"]) for name, value in timings.items() if isinstance(value, Mapping)}
+    out: dict[str, float] = {}
+    if "torch_cuda_hot" in medians and "dinoml_cuda_hot_c_abi" in medians:
+        out["dinoml_cuda_vs_torch_cuda"] = medians["torch_cuda_hot"] / medians["dinoml_cuda_hot_c_abi"]
+    if "torch_cpu_e2e" in medians and "dinoml_cpu_hot_c_abi" in medians:
+        out["dinoml_cpu_hot_vs_torch_cpu"] = medians["torch_cpu_e2e"] / medians["dinoml_cpu_hot_c_abi"]
+    if "numpy_e2e" in medians and "dinoml_cpu_hot_c_abi" in medians:
+        out["dinoml_cpu_hot_vs_numpy"] = medians["numpy_e2e"] / medians["dinoml_cpu_hot_c_abi"]
+    return out
 
 
 def bench_ms(fn: Callable[[], object], iters: int, warmup: int) -> dict[str, float | int]:

@@ -103,9 +103,11 @@ add xsimd or `std::simd` only where measurable.
   contiguous float32 tensors on CPU and CUDA. Current implementation supports
   only the last dimension with a positive static reduction extent, uses stable
   max-subtract/exp/sum normalization, and targets attention-row shapes such as
-  `[batch_heads * queries, keys]`. Non-last dimensions, generic dynamic
-  reduction extents, reduced-precision storage contracts, strided/layout-aware
-  tensors, and tuned/library-backed variants remain unported.
+  `[batch_heads * queries, keys]`. CUDA now has a warp-per-row register-cached
+  specialization for `K <= 2048` plus a shared-memory fallback for larger
+  reductions. Non-last dimensions, generic dynamic reduction extents,
+  reduced-precision storage contracts, strided/layout-aware tensors, v1-style
+  K2/K4/K8 vectorized policies, and profiler-selected variants remain unported.
 
 Library hints: CUB is a good CUDA baseline for generic reductions and scans;
 oneDNN has CPU softmax/reduction coverage; CK/MIOpen may cover selected GPU

@@ -189,7 +189,8 @@ def test_softmax_manifest_and_generated_sources_are_model_owned():
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
     assert len(sources["kernels"]) == 1
     assert "expf" in sources["kernels"][0]
-    assert "<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>" in sources["kernels"][0]
+    assert "_warp_kernel" in sources["kernels"][0]
+    assert "<<<grid, block, 0, stream>>>" in sources["kernels"][0]
 
 
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():

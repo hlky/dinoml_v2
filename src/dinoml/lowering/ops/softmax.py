@@ -49,10 +49,15 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     output_tensor = tensor_map[output_name]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
+    use_warp_kernel = cols <= 2048
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
         "cols": cols,
+        "cols_per_thread": (cols + 31) // 32,
+        "rows_per_block": _cuda_rows_per_block(cols),
+        "use_warp_kernel": use_warp_kernel,
         "block_size": _cuda_block_size(cols),
     }
 
@@ -84,6 +89,12 @@ def _cuda_block_size(cols: int) -> int:
     while block < cols and block < 256:
         block *= 2
     return max(32, block)
+
+
+def _cuda_rows_per_block(cols: int) -> int:
+    if cols <= 1024:
+        return 4
+    return 2
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

@@ -1,3 +1,62 @@
+{% if use_warp_kernel %}
+__global__ void {{ warp_kernel }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int cols_per_thread = {{ cols_per_thread }};
+  const int row = static_cast<int>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+  float values[cols_per_thread];
+
+  float thread_max = -3.4028234663852886e38f;
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    float value = -3.4028234663852886e38f;
+    if (col < cols) {
+      value = x[base + col];
+    }
+    values[i] = value;
+    thread_max = fmaxf(thread_max, value);
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    thread_max = fmaxf(thread_max, __shfl_down_sync(0xffffffffu, thread_max, offset));
+  }
+  const float row_max = __shfl_sync(0xffffffffu, thread_max, 0);
+
+  float thread_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    if (col < cols) {
+      values[i] = expf(values[i] - row_max);
+      thread_sum += values[i];
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    thread_sum += __shfl_down_sync(0xffffffffu, thread_sum, offset);
+  }
+  const float inv_sum = 1.0f / __shfl_sync(0xffffffffu, thread_sum, 0);
+
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    if (col < cols) {
+      y[base + col] = values[i] * inv_sum;
+    }
+  }
+}
+
+{% endif %}
 __global__ void {{ kernel }}(
     const float* DINO_RESTRICT x,
     float* DINO_RESTRICT y,
@@ -61,8 +120,14 @@ static int {{ func }}(
     return dino_runtime_fail("{{ func }} received non-row-aligned element count");
   }
   const int64_t rows = runtime_total / cols;
+{% if use_warp_kernel %}
+  dim3 block(32, {{ rows_per_block }});
+  dim3 grid(static_cast<unsigned int>((rows + {{ rows_per_block }} - 1) / {{ rows_per_block }}));
+  {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, rows);
+{% else %}
   const int block = {{ block_size }};
   {{ kernel }}<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>(x, y, rows);
+{% endif %}
   DINO_CUDA_CHECK(cudaGetLastError());
   return 0;
 }

@@ -179,7 +179,8 @@ def test_cuda_generated_softmax_matches_numpy_for_attention_rows(tmp_path):
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "attention_row_softmax_cuda.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
     assert "softmax_" in generated
-    assert "block * sizeof(float)" in generated
+    assert "_warp_kernel" in generated
+    assert "__shfl_down_sync" in generated
     assert "expf" in generated
 
     rng = np.random.default_rng(321)

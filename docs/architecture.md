@@ -87,6 +87,16 @@ Current reusable kernels are intentionally simple:
   that generated fused kernels call on CPU and CUDA. The helpers are templated
   so dtype-specific elementwise lowering has a place to land next.
 
+Performance-sensitive ports should carry a benchmark harness before they grow a
+larger policy surface. The current examples are
+`tools/benchmark_fused_elementwise.py` and `tools/benchmark_softmax.py`; both
+compare DinoML CPU/CUDA hot C ABI execution against NumPy and Torch references,
+write JSON timing results under `tmp/`, and copy generated sources to
+`tmp/.../generated_review/` for codegen inspection. For CUDA softmax, v2 now has
+a small v1-inspired warp-per-row specialization for static last-dim reductions
+up to `K=2048`; broader v1-style K1/K2/K4/K8 vectorized policies and profiler
+selection should land before treating softmax as done.
+
 The generated `module.so` owns metadata loading, constant binding, pointer
 binding, workspace/session allocation, shape checks, runtime shape buffers,
 launch order, and model-specific generated fused-elementwise kernels. Runtime

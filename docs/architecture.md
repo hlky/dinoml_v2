@@ -96,6 +96,74 @@ Common runtime helper code used by generated modules lives in C++ headers under
 `runtime/include/dinoml/`, so the Jinja2 templates only carry the model-specific
 ABI structs, constants, pointer binding, and launch sequence.
 
+## Generated Source Cleanliness Roadmap
+
+The current artifact layout is intentionally reviewable but still coarse:
+
+```text
+artifact/
+  manifest.json
+  metadata.json
+  graph.dinoir.json
+  compile_config.json
+  kernel_manifest.json
+  kernel_codegen_plan.json
+  module.so
+  lib/
+  debug/
+    pass_dumps/
+    generated_src/
+      module.cpp | module.cu
+      CMakeLists.txt
+      build/
+```
+
+Recent cleanup moved runtime metadata into `metadata.json`, changed generated
+fused-elementwise function names to signature hashes such as
+`fused_elementwise_<hash>`, and added baseline exact source-key deduplication for
+generated kernels inside one artifact. The next cleanup should make generated
+sources more normalized and easier to inspect without changing the runtime ABI.
+
+Source dedup should happen in levels:
+
+- Level 0: current behavior, one rendered module translation unit containing
+  wrapper code plus model-generated kernels, with exact source-key deduplication
+  where an op lowering provides a stable key.
+- Level 1: suppress equivalent generated kernels inside one artifact by hashing a
+  normalized codegen signature and emitting one function body with multiple
+  launches pointing at it.
+- Level 2: split model-generated kernels into per-op source files under
+  `debug/generated_src/ops/<op>/<hash>.<cpp|cu>` and keep the module source as
+  ABI wrapper plus includes/launch sequencing.
+- Level 3: promote reusable generated kernels to the support-library cache when
+  their normalized signature no longer depends on model-local tensor names,
+  strides, constants, or dynamic-shape symbols.
+
+Per-op generated files should be keyed by a normalized signature that rewrites
+operands and temporaries to positional names before hashing. The existing
+per-node signature is still useful for stable launch names because generated
+parameter and local variable names currently include tensor identifiers. Once
+per-op files exist, the debug layout should include a small source manifest that
+maps graph node id, launch symbol, normalized kernel hash, source path, template
+name, target, dtype/layout assumptions, and dynamic-shape dependencies.
+
+Launch names should remain stable and human-scannable:
+
+- Public ABI exports stay fixed (`dino_module_load`, `dino_session_run`, and
+  friends).
+- Wrapper-local launch helpers should use graph-order or node-stable names, not
+  raw fused node ids.
+- Kernel implementation names should be content-addressed by normalized
+  signature. If a debug name includes an op family, use it as a prefix only,
+  e.g. `fused_elementwise_<hash>`.
+
+The artifact debug/source layout should preserve everything needed to reproduce
+or review a generated module without making generated code part of the committed
+kernel library. Build trees may stay under `debug/generated_src/build/`, but the
+reviewable files should be outside the build tree and grouped by role: wrapper
+source, per-op generated sources, source manifest, rendered CMake, and pass
+dumps.
+
 ## Op Registration Contract
 
 Every v2 op family should keep its semantic definitions in a per-family module

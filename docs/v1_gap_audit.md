@@ -48,5 +48,6 @@ porting. It intentionally excludes the op inventory, which lives in
 - Codegen templates: v1 templates cover dynamic dims, bucket guards, constants,
   profiling, multistream paths, and debug metadata. V2 templates now cover
   runtime dynamic shape buffers, constants, and generated fused elementwise, but
-  still need stream ownership, bucket guards, profiler integration, and richer
-  debug metadata.
+  still need stream ownership, bucket guards, profiler integration, richer debug
+  metadata, per-op generated source files, source dedup by normalized codegen
+  signature, and stable artifact source manifests.

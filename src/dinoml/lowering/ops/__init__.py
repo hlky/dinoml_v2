@@ -18,12 +18,20 @@ def render_generated_kernels(
     tensor_map: Mapping[str, Mapping[str, Any]],
 ) -> list[str]:
     kernels = []
+    seen_source_keys: set[str] = set()
     for node in nodes:
         lowering = OP_LOWERINGS.get(node["op"])
         if lowering is None:
             continue
+        source_key = lowering.source_key(target, node, tensor_map) if lowering.source_key else None
+        if source_key is not None and source_key in seen_source_keys:
+            continue
         kernel = lowering.render_generated_kernel(target, node, tensor_map)
         if kernel:
+            source_key = source_key or kernel
+            if source_key in seen_source_keys:
+                continue
+            seen_source_keys.add(source_key)
             kernels.append(kernel)
     return kernels
 

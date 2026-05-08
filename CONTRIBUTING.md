@@ -38,7 +38,13 @@ selected by the backend/profiler.
   order.
 - Reusable kernels, math helpers, accessors, and profilers should live outside
   the model wrapper.
-- If generated source is useful for review, write it under `tmp/`.
+- Model-specific generated kernels may live in artifacts, but should move toward
+  per-op files keyed by normalized signatures rather than one growing wrapper
+  source.
+- Stable generated names should be based on codegen signatures, not graph node
+  ids or temporary names.
+- If generated source is useful for review, write it under the artifact
+  `debug/generated_src/` tree or under `tmp/`; do not commit generated artifacts.
 
 ## Performance Work
 

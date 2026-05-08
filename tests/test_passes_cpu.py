@@ -3,6 +3,7 @@ import numpy as np
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
@@ -112,3 +113,31 @@ def test_fused_elementwise_function_names_are_stable_and_clean():
     assert _function_name(renamed_node) == name
     assert _function_name(changed_node) != name
     assert _broadcast_function_name(node, "x") == f"{name}_idx_x"
+
+
+def test_render_generated_kernels_deduplicates_exact_fused_sources():
+    node = {
+        "id": "n0_n1_fused",
+        "op": "fused_elementwise",
+        "inputs": ["x", "scale"],
+        "outputs": ["y"],
+        "attrs": {
+            "sub_ops": [
+                {"op": "mul", "inputs": ["x", "scale"], "outputs": ["t0"], "attrs": {}},
+                {"op": "relu", "inputs": ["t0"], "outputs": ["y"], "attrs": {}},
+            ]
+        },
+    }
+    tensor_map = {
+        "x": {"name": "x", "shape": [4, 16], "dtype": "float32"},
+        "scale": {"name": "scale", "shape": [16], "dtype": "float32"},
+        "y": {"name": "y", "shape": [4, 16], "dtype": "float32", "kind": "output"},
+    }
+    nodes = [node, {**node, "id": "duplicate_fused"}]
+
+    kernels = render_generated_kernels("cpu", nodes, tensor_map)
+    launches = [render_launch("cpu", item, tensor_map) for item in nodes]
+
+    assert len(kernels) == 1
+    assert kernels[0].count(f"int {_function_name(node)}(") == 1
+    assert len(launches) == 2

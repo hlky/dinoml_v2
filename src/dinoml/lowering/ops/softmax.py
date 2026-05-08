@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import hashlib
+import re
+from pathlib import Path
+from typing import Any, Mapping
+
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+from dinoml.lowering.ops.base import OpLowering
+
+
+def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    context = _context(node, tensor_map)
+    if target == "cpu":
+        return _render_template("softmax_cpu.cpp.j2", context)
+    if target == "cuda":
+        return _render_template("softmax_cuda.cu.j2", context)
+    raise ValueError(f"Unsupported softmax target: {target}")
+
+
+def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    func = _function_name(node, tensor_map)
+    inp = _c_ident(node["inputs"][0])
+    out = _c_ident(node["outputs"][0])
+    args = f"ptr_{inp}, ptr_{out}, runtime_numel_{out}"
+    if target == "cpu":
+        return f"if (int err = {func}({args})) return err;"
+    if target == "cuda":
+        return f"if (int err = {func}({args}, session->stream)) return err;"
+    raise ValueError(f"Unsupported softmax target: {target}")
+
+
+def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    if target not in {"cpu", "cuda"}:
+        raise ValueError(f"Unsupported softmax target: {target}")
+    return f"{target}:{_function_name(node, tensor_map)}"
+
+
+def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    del target
+    return _function_name(node, tensor_map)
+
+
+def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    input_name = node["inputs"][0]
+    output_name = node["outputs"][0]
+    input_tensor = tensor_map[input_name]
+    output_tensor = tensor_map[output_name]
+    _validate_node_contract(node, input_tensor, output_tensor)
+    cols = int(input_tensor["shape"][-1])
+    return {
+        "func": _function_name(node, tensor_map),
+        "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "cols": cols,
+        "block_size": _cuda_block_size(cols),
+    }
+
+
+def _validate_node_contract(
+    node: Mapping[str, Any],
+    input_tensor: Mapping[str, Any],
+    output_tensor: Mapping[str, Any],
+) -> None:
+    if str(input_tensor["dtype"]) != "float32" or str(output_tensor["dtype"]) != "float32":
+        raise NotImplementedError("softmax lowering currently supports float32 tensors only")
+    if list(input_tensor["shape"]) != list(output_tensor["shape"]):
+        raise ValueError("softmax input and output shapes must match")
+    if not input_tensor["shape"]:
+        raise ValueError("softmax requires a ranked tensor")
+    dim = int(node.get("attrs", {}).get("dim", -1))
+    if dim < 0:
+        dim += len(input_tensor["shape"])
+    if dim != len(input_tensor["shape"]) - 1:
+        raise NotImplementedError("softmax lowering currently supports only the last dimension")
+    shape_spec = input_tensor.get("shape_spec", input_tensor["shape"])
+    cols = input_tensor["shape"][-1]
+    if not isinstance(shape_spec[-1], int) or not isinstance(cols, int) or int(cols) <= 0:
+        raise ValueError("softmax lowering requires a positive static last dimension")
+
+
+def _cuda_block_size(cols: int) -> int:
+    block = 1
+    while block < cols and block < 256:
+        block *= 2
+    return max(32, block)
+
+
+def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    input_tensor = tensor_map[node["inputs"][0]]
+    dim = int(node.get("attrs", {}).get("dim", -1))
+    if dim < 0:
+        dim += len(input_tensor["shape"])
+    signature = {
+        "op": "softmax",
+        "shape": list(input_tensor["shape"]),
+        "dtype": str(input_tensor["dtype"]),
+        "dim": dim,
+    }
+    digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return f"softmax_{digest}"
+
+
+def _render_template(name: str, context: Mapping[str, Any]) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
+    return env.get_template(name).render(**context)
+
+
+def _c_ident(name: str) -> str:
+    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
+    if not ident or ident[0].isdigit():
+        ident = f"_{ident}"
+    return ident
+
+
+SOFTMAX_LOWERING = OpLowering(
+    op_name="softmax",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)

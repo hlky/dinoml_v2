@@ -99,7 +99,13 @@ add xsimd or `std::simd` only where measurable.
 
 - [ ] Reductions: `reduce_max`, `reduce_mean`, `reduce_min`, `reduce_sum`,
   `var`, `vector_norm`.
-- [ ] `softmax`.
+- [x] `softmax`: initial public `dml.ops.softmax(x, dim=-1)` port for dense
+  contiguous float32 tensors on CPU and CUDA. Current implementation supports
+  only the last dimension with a positive static reduction extent, uses stable
+  max-subtract/exp/sum normalization, and targets attention-row shapes such as
+  `[batch_heads * queries, keys]`. Non-last dimensions, generic dynamic
+  reduction extents, reduced-precision storage contracts, strided/layout-aware
+  tensors, and tuned/library-backed variants remain unported.
 
 Library hints: CUB is a good CUDA baseline for generic reductions and scans;
 oneDNN has CPU softmax/reduction coverage; CK/MIOpen may cover selected GPU

@@ -1,6 +1,7 @@
 import ctypes
 
 import numpy as np
+import pytest
 
 import dinoml as dml
 from dinoml import runtime
@@ -20,6 +21,16 @@ class DynamicChannelBias(dml.Module):
 class DynamicGenericBroadcast(dml.Module):
     def forward(self, x, z):
         return dml.ops.output(dml.ops.relu(x + z), "y")
+
+
+class SoftmaxLastDim(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.softmax(x, dim=-1), "y")
+
+
+class SoftmaxNonLastDim(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.softmax(x, dim=0), "y")
 
 
 class PublicShapeViewOutputs(dml.Module):
@@ -338,3 +349,92 @@ def test_cpu_runtime_supports_dynamic_generic_broadcast(tmp_path):
         np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
     session.close()
     module.close()
+
+
+def test_cpu_reference_softmax_matches_stable_numpy():
+    spec = dml.trace(
+        SoftmaxLastDim(),
+        inputs={"x": dml.TensorSpec([4, 8], "float32")},
+        name="softmax_reference",
+    )
+    x = np.array(
+        [
+            [-1000.0, -999.0, -998.0, -997.0, 0.0, 1.0, 2.0, 3.0],
+            [20.0, 0.0, -20.0, -40.0, 5.0, 6.0, 7.0, 8.0],
+            [1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0],
+            [3.0, 2.0, 1.0, 0.0, -1.0, -2.0, -3.0, -4.0],
+        ],
+        dtype=np.float32,
+    )
+    shifted = x - np.max(x, axis=-1, keepdims=True)
+    expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
+
+    actual = execute_cpu(spec, {"x": x})["y"]
+
+    np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+def test_cpu_artifact_runs_generated_softmax_for_attention_rows(tmp_path):
+    spec = dml.trace(
+        SoftmaxLastDim(),
+        inputs={"x": dml.TensorSpec([256, 1024], "float32")},
+        name="attention_row_softmax",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "attention_row_softmax_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "softmax_" in generated
+    assert "row_max" in generated
+    assert "std::exp" in generated
+
+    rng = np.random.default_rng(123)
+    x = rng.standard_normal((256, 1024)).astype(np.float32) * 3.0
+    shifted = x - np.max(x, axis=-1, keepdims=True)
+    expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-5)
+
+
+def test_softmax_rejects_non_last_dim():
+    try:
+        dml.trace(
+            SoftmaxNonLastDim(),
+            inputs={"x": dml.TensorSpec([4, 8], "float32")},
+            name="softmax_non_last",
+        )
+    except NotImplementedError as exc:
+        assert "last dimension" in str(exc)
+    else:
+        raise AssertionError("softmax accepted a non-last dimension")
+
+
+def test_softmax_rejects_rank_one_input():
+    class RankOneSoftmax(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.softmax(x), "y")
+
+    with pytest.raises(ValueError, match="rank >= 2"):
+        dml.trace(
+            RankOneSoftmax(),
+            inputs={"x": dml.TensorSpec([8], "float32")},
+            name="softmax_rank_one",
+        )
+
+
+def test_softmax_rejects_dynamic_last_dim():
+    keys = dml.Dim("keys", min=1, max=16)
+    try:
+        dml.trace(
+            SoftmaxLastDim(),
+            inputs={"x": dml.TensorSpec([4, keys], "float32")},
+            name="softmax_dynamic_last",
+        )
+    except ValueError as exc:
+        assert "static last dimension" in str(exc)
+    else:
+        raise AssertionError("softmax accepted a dynamic last dimension")

@@ -161,6 +161,37 @@ def test_kernel_manifest_lists_required_unique_kernels():
     assert plan.support_cache_dir.name == manifest["support_cache_key"][:16]
 
 
+def test_softmax_manifest_and_generated_sources_are_model_owned():
+    import dinoml as dml
+
+    class SoftmaxModel(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.softmax(x), "y")
+
+    spec = dml.trace(
+        SoftmaxModel(),
+        inputs={"x": dml.TensorSpec([256, 1024], "float32")},
+        name="softmax_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    assert manifest["required_kernels"] == [
+        {
+            "op": "softmax",
+            "kernel_symbol": "generated_softmax",
+            "kernel_library": "model",
+            "profiler_symbol": None,
+            "has_profiler": False,
+        }
+    ]
+
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 1
+    assert "expf" in sources["kernels"][0]
+    assert "<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>" in sources["kernels"][0]
+
+
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
     tensor_map = {
         "x": {

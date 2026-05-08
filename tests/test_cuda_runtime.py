@@ -144,6 +144,11 @@ class VectorizableScalarChain(dml.Module):
         return dml.ops.output(y, "y")
 
 
+class SoftmaxLastDim(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.softmax(x, dim=-1), "y")
+
+
 def test_cuda_fused_elementwise_emits_float4_vector_path(tmp_path):
     spec = dml.trace(
         VectorizableScalarChain(),
@@ -163,6 +168,32 @@ def test_cuda_fused_elementwise_emits_float4_vector_path(tmp_path):
     session.close()
     module.close()
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+def test_cuda_generated_softmax_matches_numpy_for_attention_rows(tmp_path):
+    spec = dml.trace(
+        SoftmaxLastDim(),
+        inputs={"x": dml.TensorSpec([256, 1024], "float32")},
+        name="attention_row_softmax_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "attention_row_softmax_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "softmax_" in generated
+    assert "block * sizeof(float)" in generated
+    assert "expf" in generated
+
+    rng = np.random.default_rng(321)
+    x = rng.standard_normal((256, 1024)).astype(np.float32) * 2.5
+    shifted = x - np.max(x, axis=-1, keepdims=True)
+    expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 class DynamicChannelBias(dml.Module):

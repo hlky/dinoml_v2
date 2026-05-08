@@ -1,0 +1,68 @@
+__global__ void {{ kernel }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  extern __shared__ float shared[];
+  const int row = static_cast<int>(blockIdx.x);
+  if (row >= rows) {
+    return;
+  }
+  const int tid = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+
+  float thread_max = -3.4028234663852886e38f;
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    thread_max = fmaxf(thread_max, x[base + col]);
+  }
+  shared[tid] = thread_max;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared[tid] = fmaxf(shared[tid], shared[tid + stride]);
+    }
+    __syncthreads();
+  }
+  const float row_max = shared[0];
+
+  float thread_sum = 0.0f;
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    const float value = expf(x[base + col] - row_max);
+    y[base + col] = value;
+    thread_sum += value;
+  }
+  shared[tid] = thread_sum;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared[tid] += shared[tid + stride];
+    }
+    __syncthreads();
+  }
+  const float inv_sum = 1.0f / shared[0];
+
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    y[base + col] *= inv_sum;
+  }
+}
+
+static int {{ func }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t runtime_total,
+    cudaStream_t stream) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t cols = {{ cols }};
+  if (runtime_total % cols != 0) {
+    return dino_runtime_fail("{{ func }} received non-row-aligned element count");
+  }
+  const int64_t rows = runtime_total / cols;
+  const int block = {{ block_size }};
+  {{ kernel }}<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>(x, y, rows);
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

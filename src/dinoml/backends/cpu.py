@@ -37,6 +37,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
             values[output_name] = _store_reference(_execute_elementwise(node["op"], [values[name] for name in node["inputs"]], node.get("attrs", {})), output_dtype)
         elif node["op"] == "fused_elementwise":
             _execute_fused_elementwise(node, values, ir)
+        elif node["op"] == "softmax":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_softmax(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         else:
             raise ValueError(f"Unsupported op: {node['op']}")
 
@@ -137,6 +144,17 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
     else:
         raise ValueError(f"Unsupported elementwise op: {op}")
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_softmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    dim = int(attrs.get("dim", -1))
+    if dim < 0:
+        dim += value.ndim
+    if dim != value.ndim - 1:
+        raise NotImplementedError("CPU reference softmax currently supports only the last dimension")
+    shifted = value - np.max(value, axis=dim, keepdims=True)
+    exp_value = np.exp(shifted)
+    return np.asarray(exp_value / np.sum(exp_value, axis=dim, keepdims=True), dtype=np.float32)
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

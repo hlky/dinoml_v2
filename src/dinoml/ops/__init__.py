@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
+from dinoml.ops.gemm import gemm_rcr as _gemm_rcr, gemm_rrr as _gemm_rrr
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
@@ -94,11 +95,16 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     _op_def = OP_REGISTRY.get_frontend(_frontend_name)
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
+gemm_rcr = _gemm_rcr
+gemm_rrr = _gemm_rrr
+
 
 __all__ = [
     *OP_REGISTRY.frontend_names(),
     "emit_registered_op",
     "flatten",
+    "gemm_rcr",
+    "gemm_rrr",
     "identity",
     "make_frontend_op",
     "output",

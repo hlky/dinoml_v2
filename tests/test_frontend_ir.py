@@ -260,6 +260,47 @@ def test_gemm_frontend_emits_explicit_layout_ops():
 
 
 @pytest.mark.parametrize(
+    ("module", "b_spec", "n_axis"),
+    [
+        (GemmRRRModule(), lambda tokens: [8, tokens], 1),
+        (GemmRCRModule(), lambda tokens: [tokens, 8], 0),
+    ],
+)
+def test_gemm_frontend_preserves_dynamic_mn_shape_spec(module, b_spec, n_axis):
+    batch = dml.Dim("batch", min=1, max=4)
+    tokens = dml.Dim("tokens", min=1, max=16)
+    spec = dml.trace(
+        module,
+        inputs={"a": dml.TensorSpec([batch, 8]), "b": dml.TensorSpec(b_spec(tokens))},
+        name="dynamic_gemm_frontend",
+    )
+    output = spec.ir["outputs"][0]
+    assert output["shape"] == [4, 16]
+    assert output["shape_spec"][0]["name"] == "batch"
+    assert output["shape_spec"][1]["name"] == "tokens"
+    b_input = spec.ir["inputs"][1]
+    assert b_input["shape_spec"][n_axis]["name"] == "tokens"
+
+
+@pytest.mark.parametrize(
+    ("module", "b_shape", "runtime_b_shape"),
+    [
+        (GemmRRRModule(), [32, dml.Dim("tokens", min=1, max=16)], [32, 11]),
+        (GemmRCRModule(), [dml.Dim("tokens", min=1, max=16), 32], [11, 32]),
+    ],
+)
+def test_gemm_runtime_shape_inference_uses_dynamic_mn_shape_spec(module, b_shape, runtime_b_shape):
+    batch = dml.Dim("batch", min=1, max=8)
+    spec = dml.trace(
+        module,
+        inputs={"a": dml.TensorSpec([batch, 32]), "b": dml.TensorSpec(b_shape)},
+        name="dynamic_gemm_shape_infer",
+    )
+
+    assert infer_output_shape(spec.ir["outputs"][0], spec.ir["inputs"], {"a": [7, 32], "b": runtime_b_shape}) == (7, 11)
+
+
+@pytest.mark.parametrize(
     ("module", "b_shape", "message"),
     [
         (GemmRRRModule(), [7, 6], "gemm_rrr expected"),
@@ -269,6 +310,20 @@ def test_gemm_frontend_emits_explicit_layout_ops():
 def test_gemm_frontend_rejects_incompatible_k(module, b_shape, message):
     with pytest.raises(ValueError, match=message):
         dml.trace(module, inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec(b_shape)})
+
+
+@pytest.mark.parametrize(
+    ("module", "b_shape", "message"),
+    [
+        (GemmRRRModule(), [dml.Dim("k8", min=1, max=8), dml.Dim("tokens", min=1, max=16)], "gemm_rrr expected"),
+        (GemmRCRModule(), [dml.Dim("tokens", min=1, max=16), dml.Dim("k8", min=1, max=8)], "gemm_rcr expected"),
+    ],
+)
+def test_gemm_frontend_rejects_dynamic_max_k_mismatch(module, b_shape, message):
+    batch = dml.Dim("batch", min=1, max=4)
+    k16 = dml.Dim("k16", min=1, max=16)
+    with pytest.raises(ValueError, match=message):
+        dml.trace(module, inputs={"a": dml.TensorSpec([batch, k16]), "b": dml.TensorSpec(b_shape)})
 
 
 class HalfScalar(dml.Module):

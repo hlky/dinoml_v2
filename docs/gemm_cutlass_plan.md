@@ -63,11 +63,13 @@ The CUTLASS slice adds:
 The first runtime GEMM port now wires model lowering into that support library:
 
 1. `gemm_rcr`/`gemm_rrr` are explicit float32 frontend ops, not a generic
-   `matmul`.
+   `matmul`; they preserve dynamic `M/N` shape metadata while requiring
+   rank-2 tensors and compatible max-shape `K`.
 2. The kernel manifest records `cutlass_gemm` as an external support library
    with real launcher/profiler symbols.
 3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
-   cached launcher with runtime `M/N/K`.
+   cached launcher with runtime `M/N/K`, so smaller runtime `M/N` values use the
+   same max-shape artifact.
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 

@@ -209,6 +209,46 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     np.testing.assert_allclose(actual_numpy, expected.cpu().numpy(), atol=1e-4, rtol=1e-4)
 
 
+@pytest.mark.parametrize(
+    ("op_name", "b_spec_factory", "b_shape"),
+    [
+        ("gemm_rrr", lambda tokens: [32, tokens], (32, 11)),
+        ("gemm_rcr", lambda tokens: [tokens, 32], (11, 32)),
+    ],
+)
+def test_cuda_cutlass_gemm_supports_dynamic_mn_shapes(tmp_path, monkeypatch, op_name, b_spec_factory, b_shape):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    batch = dml.Dim("batch", min=1, max=16)
+    tokens = dml.Dim("tokens", min=1, max=24)
+    spec = dml.trace(
+        GemmModule(op_name),
+        inputs={"a": dml.TensorSpec([batch, 32], "float32"), "b": dml.TensorSpec(b_spec_factory(tokens), "float32")},
+        name=f"{op_name}_dynamic_cutlass_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_dynamic_cutlass_cuda.dinoml")
+
+    torch.manual_seed(1234)
+    a = torch.randn((7, 32), device="cuda", dtype=torch.float32)
+    b = torch.randn(b_shape, device="cuda", dtype=torch.float32)
+    expected = a @ (b if op_name == "gemm_rrr" else b.t())
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"a": a, "b": b})["y"]
+    assert tuple(actual.shape) == (7, 11)
+    assert session.get_output_shape("y") == (7, 11)
+    session.close()
+    module.close()
+
+    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
+
+
 class VectorizableScalarChain(dml.Module):
     def forward(self, x):
         y = dml.ops.mul(x, 1.125)

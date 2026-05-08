@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Mapping
+from typing import Dict, Mapping, Sequence
 
 import numpy as np
 
@@ -51,11 +51,11 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] in {"gemm_rrr", "gemm_rcr"}:
+        elif node["op"] in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
-                _execute_gemm(node["op"], values[node["inputs"][0]], values[node["inputs"][1]]),
+                _execute_gemm(node["op"], [values[name] for name in node["inputs"]]),
                 output_dtype,
             )
         else:
@@ -193,12 +193,19 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
     return np.asarray(result, dtype=np.float32)
 
 
-def _execute_gemm(op: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    if op == "gemm_rrr":
-        return np.asarray(np.matmul(a, b), dtype=np.float32)
-    if op == "gemm_rcr":
-        return np.asarray(np.matmul(a, np.swapaxes(b, -1, -2)), dtype=np.float32)
-    raise ValueError(f"Unsupported GEMM op: {op}")
+def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
+    a = inputs[0]
+    b = inputs[1]
+    if op in {"gemm_rrr", "gemm_rrr_bias"}:
+        result = np.matmul(a, b)
+    elif op in {"gemm_rcr", "gemm_rcr_bias"}:
+        result = np.matmul(a, np.swapaxes(b, -1, -2))
+    else:
+        raise ValueError(f"Unsupported GEMM op: {op}")
+    if op.endswith("_bias"):
+        bias = np.reshape(inputs[2], [-1])
+        result = result + bias
+    return np.asarray(result, dtype=np.float32)
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

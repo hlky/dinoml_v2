@@ -18,9 +18,9 @@ porting. It intentionally excludes the op inventory, which lives in
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for
   `run_numpy`, torch/device-pointer execution where applicable, and runtime
-  constants. CUTLASS GEMM is wired for base `float32`, `float16`, and
-  `bfloat16` `gemm_rcr`/`gemm_rrr`, while GEMM epilogue coverage, softmax, and
-  reductions remain narrower.
+  constants. CUTLASS GEMM is wired for base and bias-epilogue `float32`,
+  `float16`, and `bfloat16` `gemm_rcr`/`gemm_rrr` families, while activation
+  epilogue coverage, softmax, and reductions remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via
@@ -36,7 +36,8 @@ porting. It intentionally excludes the op inventory, which lives in
   support, and future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
-  the single explicit `cutlass_default` CUTLASS candidate set.
+  the single explicit `cutlass_default` CUTLASS candidate set, including the
+  first bias epilogue variants.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for `cutlass_default` CUTLASS GEMM profiles.

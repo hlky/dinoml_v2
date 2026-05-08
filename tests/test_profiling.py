@@ -35,6 +35,15 @@ class GemmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class GemmBiasModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b, bias), "y")
+
+
 def test_parse_shape_overrides():
     assert parse_shape_overrides(["x=1,128,768", "tokens=77"]) == {
         "x": (1, 128, 768),
@@ -69,6 +78,32 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     assert workload.candidate_config_key
     assert (workload.m, workload.n, workload.k) == (7, 11, 32)
     assert workload.output_shape == (7, 11)
+
+
+def test_build_profile_workloads_supports_gemm_bias_epilogue():
+    spec = dml.trace(
+        GemmBiasModule("gemm_rcr_bias"),
+        inputs={
+            "a": dml.TensorSpec([7, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+        },
+        name="profile_gemm_bias",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == 1
+    workload = workloads[0]
+    assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rcr_bias_f32"
+    assert workload.candidate_set_id == "cutlass_gemm_rcr_bias_f32_bias_v1"
+    assert workload.bias_tensor == "bias"
+    assert workload.bias_shape == (11,)
+    assert workload.candidate["epilogue"] == "bias"
+    assert workload.candidate["epilogue_config"]["inputs"] == ["bias"]
+    assert workload.to_json()["inputs"]["bias"] == [11]
 
 
 def test_profile_key_changes_with_fingerprint_keys(tmp_path):

@@ -4,11 +4,13 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from dinoml.kernels.gemm import (
+    GEMM_OPS,
     GEMM_SUPPORTED_DTYPES,
     cutlass_gemm_candidate_set,
     cutlass_gemm_candidates,
     cutlass_gemm_profiler_symbol,
     cutlass_gemm_symbol,
+    gemm_op_spec,
 )
 
 
@@ -54,48 +56,32 @@ class ExternalKernelFamily:
         }
 
 
-CUTLASS_GEMM_FAMILIES = (
-    ExternalKernelFamily(
-        op_name="gemm_rcr",
+def _cutlass_gemm_family(op_name: str) -> ExternalKernelFamily:
+    spec = gemm_op_spec(op_name)
+    return ExternalKernelFamily(
+        op_name=op_name,
         backend="cuda",
         provider="cutlass",
         family="gemm_universal",
         required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol=cutlass_gemm_profiler_symbol("gemm_rcr", "float32"),
-        kernel_symbol=cutlass_gemm_symbol("gemm_rcr", "float32"),
-        kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        candidates_by_dtype={dtype: cutlass_gemm_candidates("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set("gemm_rcr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        profiler_symbol=cutlass_gemm_profiler_symbol(op_name, "float32"),
+        kernel_symbol=cutlass_gemm_symbol(op_name, "float32"),
+        kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        candidates_by_dtype={dtype: cutlass_gemm_candidates(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
+        candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         attrs={
-            "a_layout": "row",
-            "b_layout": "column",
-            "c_layout": "row",
-            "epilogue": "linear_combination",
+            "a_layout": spec.layouts["a"],
+            "b_layout": spec.layouts["b"],
+            "c_layout": spec.layouts["c"],
+            "epilogue": spec.epilogue.name,
+            "epilogue_config": spec.epilogue.to_json(),
             "supported_dtypes": list(GEMM_SUPPORTED_DTYPES),
         },
-    ),
-    ExternalKernelFamily(
-        op_name="gemm_rrr",
-        backend="cuda",
-        provider="cutlass",
-        family="gemm_universal",
-        required_libraries=("cutlass", "cublaslt"),
-        profiler_symbol=cutlass_gemm_profiler_symbol("gemm_rrr", "float32"),
-        kernel_symbol=cutlass_gemm_symbol("gemm_rrr", "float32"),
-        kernel_symbols_by_dtype={dtype: cutlass_gemm_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        profiler_symbols_by_dtype={dtype: cutlass_gemm_profiler_symbol("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        candidates_by_dtype={dtype: cutlass_gemm_candidates("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set("gemm_rrr", dtype) for dtype in GEMM_SUPPORTED_DTYPES},
-        attrs={
-            "a_layout": "row",
-            "b_layout": "row",
-            "c_layout": "row",
-            "epilogue": "linear_combination",
-            "supported_dtypes": list(GEMM_SUPPORTED_DTYPES),
-        },
-    ),
-)
+    )
+
+
+CUTLASS_GEMM_FAMILIES = tuple(_cutlass_gemm_family(op_name) for op_name in GEMM_OPS)
 
 
 def external_kernel_families(provider: str | None = None, backend: str | None = None) -> tuple[ExternalKernelFamily, ...]:

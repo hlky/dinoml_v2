@@ -100,6 +100,15 @@ class GemmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class GemmBiasModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b, bias), "y")
+
+
 @pytest.mark.parametrize(
     ("dtype", "torch_dtype", "atol", "rtol"),
     [
@@ -214,6 +223,73 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     session = module.create_session()
     actual_torch = session.run_torch({"a": a, "b": b})["y"]
     actual_numpy = session.run_numpy({"a": a.float().cpu().numpy(), "b": b.float().cpu().numpy()})["y"]
+    session.close()
+    module.close()
+
+    assert actual_torch.dtype == torch_dtype_obj
+    torch.testing.assert_close(actual_torch, expected, atol=atol, rtol=rtol)
+    np.testing.assert_allclose(actual_numpy.astype(np.float32), expected.float().cpu().numpy(), atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape", "dtype", "torch_dtype", "suffix", "atol", "rtol"),
+    [
+        ("gemm_rrr_bias", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rcr_bias", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
+    ],
+)
+def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
+    tmp_path,
+    monkeypatch,
+    op_name,
+    a_shape,
+    b_shape,
+    dtype,
+    torch_dtype,
+    suffix,
+    atol,
+    rtol,
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    torch_dtype_obj = getattr(torch, torch_dtype)
+    spec = dml.trace(
+        GemmBiasModule(op_name),
+        inputs={
+            "a": dml.TensorSpec(a_shape, dtype),
+            "b": dml.TensorSpec(b_shape, dtype),
+            "bias": dml.TensorSpec([24], dtype),
+        },
+        name=f"{op_name}_{dtype}_cutlass_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_{dtype}_cutlass_cuda.dinoml")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+
+    required = kernel_manifest["required_kernels"][0]
+    assert required["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
+    assert required["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_bias_v1"
+    assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
+    assert required["candidates"][0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
+    assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
+
+    torch.manual_seed(48)
+    a = torch.randn(a_shape, device="cuda", dtype=torch_dtype_obj)
+    b = torch.randn(b_shape, device="cuda", dtype=torch_dtype_obj)
+    bias = torch.randn((24,), device="cuda", dtype=torch_dtype_obj)
+    expected = a @ (b if op_name == "gemm_rrr_bias" else b.t()) + bias
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual_torch = session.run_torch({"a": a, "b": b, "bias": bias})["y"]
+    actual_numpy = session.run_numpy(
+        {"a": a.float().cpu().numpy(), "b": b.float().cpu().numpy(), "bias": bias.float().cpu().numpy()}
+    )["y"]
     session.close()
     module.close()
 

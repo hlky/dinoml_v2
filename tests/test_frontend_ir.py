@@ -126,6 +126,16 @@ class GemmRCRModule(dml.Module):
         return dml.ops.output(dml.ops.gemm_rcr(a, b), "y")
 
 
+class GemmRRRBiasModule(dml.Module):
+    def forward(self, a, b, bias):
+        return dml.ops.output(dml.ops.gemm_rrr_bias(a, b, bias), "y")
+
+
+class GemmRCRBiasModule(dml.Module):
+    def forward(self, a, b, bias):
+        return dml.ops.output(dml.ops.gemm_rcr_bias(a, b, bias), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -259,6 +269,25 @@ def test_gemm_frontend_emits_explicit_layout_ops():
     assert all(node["op"] != "matmul" for node in [*rrr.ir["nodes"], *rcr.ir["nodes"]])
 
 
+@pytest.mark.parametrize(
+    ("module", "b_shape", "op_name"),
+    [
+        (GemmRRRBiasModule(), [8, 6], "gemm_rrr_bias"),
+        (GemmRCRBiasModule(), [6, 8], "gemm_rcr_bias"),
+    ],
+)
+def test_gemm_bias_frontend_emits_epilogue_ops(module, b_shape, op_name):
+    spec = dml.trace(
+        module,
+        inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec(b_shape), "bias": dml.TensorSpec([6])},
+        name=f"{op_name}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == [4, 6]
+    assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
+
+
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
 def test_gemm_frontend_accepts_reduced_precision_dtype(dtype):
     spec = dml.trace(
@@ -336,6 +365,14 @@ def test_gemm_frontend_rejects_dynamic_max_k_mismatch(module, b_shape, message):
     k16 = dml.Dim("k16", min=1, max=16)
     with pytest.raises(ValueError, match=message):
         dml.trace(module, inputs={"a": dml.TensorSpec([batch, k16]), "b": dml.TensorSpec(b_shape)})
+
+
+def test_gemm_bias_frontend_rejects_bad_bias_shape():
+    with pytest.raises(ValueError, match="gemm_rcr_bias expected bias shape"):
+        dml.trace(
+            GemmRCRBiasModule(),
+            inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec([6, 8]), "bias": dml.TensorSpec([5])},
+        )
 
 
 class HalfScalar(dml.Module):

@@ -117,7 +117,12 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert manifest["compile"]["flags"] == manifest["provenance"]["compile_flags"]
     assert manifest["provenance"]["dependencies"]["cutlass"]["headers"][0]["sha256"]
     assert manifest["provenance"]["dependencies"]["cublaslt"]["headers"][0]["sha256"]
-    assert {family["op_name"] for family in manifest["families"]} == {"gemm_rcr", "gemm_rrr"}
+    assert {family["op_name"] for family in manifest["families"]} == {
+        "gemm_rcr",
+        "gemm_rcr_bias",
+        "gemm_rrr",
+        "gemm_rrr_bias",
+    }
     for family in manifest["families"]:
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["profiler_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
@@ -135,6 +140,15 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
             assert len(candidate["candidate_config_key"]) == 64
+    bias_candidates = [
+        candidate
+        for family in manifest["families"]
+        if family["op_name"] == "gemm_rcr_bias"
+        for candidate in family["candidates_by_dtype"]["float32"]
+    ]
+    assert bias_candidates[0]["epilogue"] == "bias"
+    assert bias_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
+    assert bias_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -157,6 +171,26 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
     ):
         fn = getattr(dll, name)
         fn.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+        ]
+        fn.restype = ctypes.c_int
+    for name in (
+        "dinoml_cutlass_gemm_rrr_bias_f32",
+        "dinoml_cutlass_gemm_rcr_bias_f32",
+        "dinoml_cutlass_gemm_rrr_bias_f16",
+        "dinoml_cutlass_gemm_rcr_bias_f16",
+        "dinoml_cutlass_gemm_rrr_bias_bf16",
+        "dinoml_cutlass_gemm_rcr_bias_bf16",
+    ):
+        fn = getattr(dll, name)
+        fn.argtypes = [
+            ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -203,6 +237,22 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         assert err == 0
         torch.cuda.synchronize()
         torch.testing.assert_close(c_rcr, a @ b_rcr.t(), atol=atol, rtol=rtol)
+
+        bias = torch.randn((24,), device="cuda", dtype=torch_dtype)
+        c_bias = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_{suffix}")(
+            ctypes.c_void_p(a.data_ptr()),
+            ctypes.c_void_p(b_rcr.data_ptr()),
+            ctypes.c_void_p(bias.data_ptr()),
+            ctypes.c_void_p(c_bias.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_bias, a @ b_rcr.t() + bias, atol=atol, rtol=rtol)
 
 
 def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path, monkeypatch):

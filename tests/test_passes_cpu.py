@@ -178,7 +178,7 @@ def test_kernel_manifest_lists_required_unique_kernels():
 def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
     families = {family["op_name"]: family for family in plan["families"]}
-    assert sorted(families) == ["gemm_rcr", "gemm_rrr"]
+    assert sorted(families) == ["gemm_rcr", "gemm_rcr_bias", "gemm_rrr", "gemm_rrr_bias"]
     assert families["gemm_rcr"]["provider"] == "cutlass"
     assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
     assert families["gemm_rcr"]["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
@@ -188,6 +188,9 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rrr"]["profiler_symbols_by_dtype"]["float16"] == "dinoml_profile_cutlass_gemm_rrr_f16"
     assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
     assert families["gemm_rrr"]["attrs"]["supported_dtypes"] == ["float16", "float32", "bfloat16"]
+    assert families["gemm_rcr_bias"]["attrs"]["epilogue"] == "bias"
+    assert families["gemm_rcr_bias"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
+    assert families["gemm_rcr_bias"]["kernel_symbols_by_dtype"]["float32"] == "dinoml_cutlass_gemm_rcr_bias_f32"
     rrr_f16_candidate = families["gemm_rrr"]["candidates_by_dtype"]["float16"][0]
     assert rrr_f16_candidate["candidate_id"] == "cutlass_default"
     assert rrr_f16_candidate["symbol_id"] == "default"
@@ -250,6 +253,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert candidate["dtype"] == dtype
     assert candidate["layouts"] == {"a": "row", "b": "row", "c": "row"}
     assert candidate["epilogue"] == "linear_combination"
+    assert candidate["epilogue_config"]["name"] == "linear_combination"
     assert candidate["accumulator_dtype"] == "float32"
     assert candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_{suffix}"
     assert candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"

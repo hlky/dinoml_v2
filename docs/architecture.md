@@ -160,14 +160,23 @@ cached by manifest key.
 
 The first CUTLASS path is concrete but still intentionally compact:
 `dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
-real CUTLASS `gemm_rcr` and `gemm_rrr` launchers plus profiler entrypoints for
-`float32`, `float16`, and `bfloat16`. Public `dml.ops.gemm_rcr` and
-`dml.ops.gemm_rrr` lower into dtype-resolved calls to that support library, so
-model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so` without
-embedding a handwritten matmul. These ops preserve dynamic `M/N` metadata and
-launch with runtime `M/N/K`; profiling cache selection, candidate enumeration,
-bias/activation epilogues, and public `matmul` layout selection remain
+real CUTLASS `gemm_rcr`, `gemm_rrr`, `gemm_rcr_bias`, and `gemm_rrr_bias`
+launchers plus profiler entrypoints for `float32`, `float16`, and `bfloat16`.
+Public `dml.ops.gemm_*` lower into dtype-resolved calls to that support library,
+so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
+without embedding a handwritten matmul. These ops preserve dynamic `M/N`
+metadata and launch with runtime `M/N/K`; the bias epilogue accepts a rank-1
+`N` bias or rank-2 `[1, N]` bias. Richer activation epilogues, generated
+multi-candidate CUTLASS sets, and public `matmul` layout selection remain
 follow-up work.
+
+GEMM metadata now has a contributor-facing split:
+
+- `dinoml.kernels.families.gemm` owns backend-neutral layout, shape, and
+  epilogue descriptors.
+- `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol naming and
+  candidate/candidate-set metadata.
+- `dinoml.kernels.gemm` remains a compatibility facade for older imports.
 
 Common runtime helper code used by generated modules lives in C++ headers under
 `runtime/include/dinoml/`, so the Jinja2 templates only carry the model-specific

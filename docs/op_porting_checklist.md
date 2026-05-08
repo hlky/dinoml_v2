@@ -132,10 +132,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   execution but no CPU compiled GEMM. Public `matmul` should wait until layout
   selection, multi-candidate profiler selection, and epilogue contracts are
   ready.
+- [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1
+  `[N]` and rank-2 `[1, N]` bias contracts through CUTLASS launcher/profiler
+  symbols for `float32`, `float16`, and `bfloat16`, with CPU reference coverage.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
-- [ ] Bias/broadcast epilogues: `gemm_rcr_bias*`, `gemm_rrr_bias*`, including
-  add/add-add/mul/mul-add and broadcast forms.
+- [ ] Remaining bias/broadcast epilogues: add/add-add/mul/mul-add and broader
+  broadcast forms.
 - [ ] Activation epilogues: relu, gelu/fast-gelu, sigmoid, tanh, swish/silu,
   hardswish, `elup1`, and compound sigmoid/mul/tanh forms.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,

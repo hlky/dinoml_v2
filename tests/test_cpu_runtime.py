@@ -102,6 +102,15 @@ class GemmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class GemmBiasModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b, bias), "y")
+
+
 def _storage_roundtrip(value, dtype: str):
     return array_from_storage(array_to_storage(value, dtype), dtype)
 
@@ -741,6 +750,36 @@ def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape, dtype, atol
     b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
     expected = array_from_storage(array_to_storage(a_reference @ (b_reference if op_name == "gemm_rrr" else b_reference.T), dtype), dtype)
     actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+    np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape", "dtype", "atol", "rtol"),
+    [
+        ("gemm_rrr_bias", (4, 8), (8, 6), "float32", 1e-5, 1e-5),
+        ("gemm_rcr_bias", (4, 8), (6, 8), "float32", 1e-5, 1e-5),
+        ("gemm_rrr_bias", (4, 8), (8, 6), "float16", 2e-3, 2e-3),
+        ("gemm_rcr_bias", (4, 8), (6, 8), "float16", 2e-3, 2e-3),
+        ("gemm_rrr_bias", (4, 8), (8, 6), "bfloat16", 2e-2, 2e-2),
+        ("gemm_rcr_bias", (4, 8), (6, 8), "bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype, atol, rtol):
+    spec = dml.trace(
+        GemmBiasModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape, dtype), "b": dml.TensorSpec(b_shape, dtype), "bias": dml.TensorSpec([6], dtype)},
+        name=f"{op_name}_{dtype}_reference",
+    )
+    rng = np.random.default_rng(991)
+    a = rng.standard_normal(a_shape).astype(np.float32)
+    b = rng.standard_normal(b_shape).astype(np.float32)
+    bias = rng.standard_normal((6,)).astype(np.float32)
+    a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+    b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+    bias_reference = array_from_storage(array_to_storage(bias, dtype), dtype).astype(np.float32)
+    matmul = a_reference @ (b_reference if op_name == "gemm_rrr_bias" else b_reference.T)
+    expected = array_from_storage(array_to_storage(matmul + bias_reference, dtype), dtype)
+    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 

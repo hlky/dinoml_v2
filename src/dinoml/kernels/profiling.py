@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json, write_json
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
@@ -37,9 +38,11 @@ class GemmProfileWorkload:
     candidate: Mapping[str, Any]
     a_tensor: str
     b_tensor: str
+    bias_tensor: str | None
     output_tensor: str
     a_shape: tuple[int, int]
     b_shape: tuple[int, int]
+    bias_shape: tuple[int, ...] | None
     output_shape: tuple[int, int]
     m: int
     n: int
@@ -60,6 +63,7 @@ class GemmProfileWorkload:
             "inputs": {
                 self.a_tensor: list(self.a_shape),
                 self.b_tensor: list(self.b_shape),
+                **({self.bias_tensor: list(self.bias_shape or ())} if self.bias_tensor is not None else {}),
             },
             "output": {
                 self.output_tensor: list(self.output_shape),
@@ -101,7 +105,7 @@ def build_profile_workloads(
     workloads = []
     for node in graph["nodes"]:
         op_name = str(node["op"])
-        if op_name not in {"gemm_rrr", "gemm_rcr"}:
+        if op_name not in GEMM_OPS:
             continue
         output_name = str(node["outputs"][0])
         output_info = tensor_map[output_name]
@@ -111,10 +115,16 @@ def build_profile_workloads(
         if required_item is None:
             continue
         candidate = _selected_profile_candidate(required_item)
-        a_name, b_name = (str(name) for name in node["inputs"])
+        spec = gemm_op_spec(op_name)
+        a_name, b_name = (str(name) for name in node["inputs"][:2])
+        bias_name = str(node["inputs"][2]) if spec.epilogue.has_bias else None
         a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], overrides)
         b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], overrides)
-        m, n, k, output_shape = _gemm_problem(op_name, a_shape, b_shape)
+        bias_shape = (
+            _runtime_tensor_shape(bias_name, tensor_map[bias_name], overrides) if bias_name is not None else None
+        )
+        problem_shapes = [shape for shape in (a_shape, b_shape, bias_shape) if shape is not None]
+        m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
         workloads.append(
             GemmProfileWorkload(
                 node_id=str(node["id"]),
@@ -135,9 +145,11 @@ def build_profile_workloads(
                 candidate=candidate,
                 a_tensor=a_name,
                 b_tensor=b_name,
+                bias_tensor=bias_name,
                 output_tensor=output_name,
                 a_shape=(a_shape[0], a_shape[1]),
                 b_shape=(b_shape[0], b_shape[1]),
+                bias_shape=bias_shape,
                 output_shape=output_shape,
                 m=m,
                 n=n,
@@ -255,24 +267,6 @@ def _runtime_tensor_shape(
     return tuple(int(dim) for dim in tensor["shape"])
 
 
-def _gemm_problem(op_name: str, a_shape: Sequence[int], b_shape: Sequence[int]) -> tuple[int, int, int, tuple[int, int]]:
-    if len(a_shape) != 2 or len(b_shape) != 2:
-        raise ValueError(f"{op_name} profiling requires rank-2 tensors")
-    m = int(a_shape[0])
-    k = int(a_shape[1])
-    if op_name == "gemm_rrr":
-        if k != int(b_shape[0]):
-            raise ValueError(f"gemm_rrr profiling shape mismatch: {list(a_shape)} vs {list(b_shape)}")
-        n = int(b_shape[1])
-    elif op_name == "gemm_rcr":
-        if k != int(b_shape[1]):
-            raise ValueError(f"gemm_rcr profiling shape mismatch: {list(a_shape)} vs {list(b_shape)}")
-        n = int(b_shape[0])
-    else:
-        raise ValueError(f"Unsupported GEMM profiling op: {op_name}")
-    return m, n, k, (m, n)
-
-
 def _profile_result(
     workload: GemmProfileWorkload,
     elapsed_ms: float,
@@ -286,6 +280,8 @@ def _profile_result(
     bytes_moved = dtype_nbytes(workload.dtype) * (
         workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
     )
+    if workload.bias_shape is not None:
+        bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias_shape, dtype=np.int64))
     seconds = max(float(elapsed_ms) / 1000.0, 1e-12)
     tflops = float(flops / seconds / 1.0e12)
     gbps = float(bytes_moved / seconds / 1.0e9)
@@ -304,7 +300,12 @@ def _profile_result(
             "profile_key": profile_key,
             "status": status,
             "shape": {"m": workload.m, "n": workload.n, "k": workload.k, "source": "runtime_override_or_graph_max_shape"},
-            "tensors": {"a": workload.a_tensor, "b": workload.b_tensor, "c": workload.output_tensor},
+            "tensors": {
+                "a": workload.a_tensor,
+                "b": workload.b_tensor,
+                "bias": workload.bias_tensor,
+                "c": workload.output_tensor,
+            },
             "kernel_library": "cutlass_gemm",
             "elapsed_ms": float(elapsed_ms),
             "iterations": int(iterations),
@@ -723,12 +724,22 @@ class _CudaProfiler:
     def profile_gemm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> float:
         a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
         b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+        bias = (
+            self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+            if workload.bias_shape is not None
+            else None
+        )
         c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
         fn = getattr(self._cutlass, workload.profiler_symbol)
+        pointer_args = [ctypes.c_void_p, ctypes.c_void_p]
+        call_args = [a, b]
+        if bias is not None:
+            pointer_args.append(ctypes.c_void_p)
+            call_args.append(bias)
+        pointer_args.append(ctypes.c_void_p)
+        call_args.append(c)
         fn.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
+            *pointer_args,
             ctypes.c_int,
             ctypes.c_int,
             ctypes.c_int,
@@ -738,9 +749,7 @@ class _CudaProfiler:
         fn.restype = ctypes.c_float
         return float(
             fn(
-                a,
-                b,
-                c,
+                *call_args,
                 ctypes.c_int(workload.m),
                 ctypes.c_int(workload.n),
                 ctypes.c_int(workload.k),

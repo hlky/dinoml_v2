@@ -57,15 +57,21 @@ The CUTLASS slice adds:
 - Exported launcher symbols:
   - `dinoml_cutlass_gemm_rrr_{f32,f16,bf16}`
   - `dinoml_cutlass_gemm_rcr_{f32,f16,bf16}`
+  - `dinoml_cutlass_gemm_rrr_bias_{f32,f16,bf16}`
+  - `dinoml_cutlass_gemm_rcr_bias_{f32,f16,bf16}`
 - Exported profiler symbols:
   - `dinoml_profile_cutlass_gemm_rrr_{f32,f16,bf16}`
   - `dinoml_profile_cutlass_gemm_rcr_{f32,f16,bf16}`
+  - `dinoml_profile_cutlass_gemm_rrr_bias_{f32,f16,bf16}`
+  - `dinoml_profile_cutlass_gemm_rcr_bias_{f32,f16,bf16}`
 
 The first runtime GEMM port now wires model lowering into that support library:
 
-1. `gemm_rcr`/`gemm_rrr` are explicit frontend ops for `float32`, `float16`,
-   and `bfloat16`, not a generic `matmul`; they preserve dynamic `M/N` shape
-   metadata while requiring rank-2 tensors and compatible max-shape `K`.
+1. `gemm_rcr`/`gemm_rrr` and the first bias epilogue ops
+   `gemm_rcr_bias`/`gemm_rrr_bias` are explicit frontend ops for `float32`,
+   `float16`, and `bfloat16`, not a generic `matmul`; they preserve dynamic
+   `M/N` shape metadata while requiring rank-2 matrix tensors and compatible
+   max-shape `K`.
 2. The kernel manifest records `cutlass_gemm` as an external support library
    with real launcher/profiler symbols.
 3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
@@ -86,10 +92,12 @@ participates in support-cache reuse. The support cache writes a
 CUTLASS source; that manifest maps source files to candidate set keys, candidate
 config keys, launcher/profiler symbols, and support build units so future
 generated candidates can be inspected without embedding generated source in model
-artifacts. Next steps are candidate
-enumeration beyond the single default CUTLASS instance, bias/activation
-epilogues, optional
-accumulation-policy variants, and then public `matmul` layout selection.
+artifacts. The first epilogue slice uses a structured GEMM descriptor split:
+`dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
+`dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
+Next steps are candidate enumeration beyond the single default CUTLASS instance,
+activation epilogues, optional accumulation-policy variants, and then public
+`matmul` layout selection.
 
 ## Dependency Discovery
 

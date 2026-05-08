@@ -1,4 +1,3 @@
-from dinoml.kernels.families.gemm import GEMM_OPS, GEMM_SUPPORTED_DTYPES, gemm_op_spec, gemm_problem
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_DEFAULT_CANDIDATE_ID,
     CUTLASS_DEFAULT_SYMBOL_ID,
@@ -13,8 +12,6 @@ from dinoml.kernels.providers.cutlass.gemm import (
 )
 
 __all__ = [
-    "GEMM_OPS",
-    "GEMM_SUPPORTED_DTYPES",
     "CUTLASS_DEFAULT_CANDIDATE_ID",
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
@@ -25,6 +22,4 @@ __all__ = [
     "cutlass_gemm_profiler_symbol",
     "cutlass_gemm_symbol",
     "gemm_dtype_suffix",
-    "gemm_op_spec",
-    "gemm_problem",
 ]

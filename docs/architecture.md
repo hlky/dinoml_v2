@@ -25,7 +25,10 @@ generated model code into the kernel library.
   with generated-kernel rendering, launch-code rendering, and any op-local
   templates.
 - `dinoml.backends`
-  Toolchain, CMake, support-library cache, and artifact library copying.
+  Toolchain, CMake, support-library cache, and artifact library copying. Backend
+  extension starts in `src/dinoml/backends/registry.py`, where each target
+  declares its default architecture, runtime dtype surface, build entrypoint,
+  CMake capabilities, and artifact support libraries.
 - `runtime/`
   Stable common ABI plus CUDA runtime helper library.
 - `kernels/`
@@ -157,8 +160,8 @@ or reused an existing one.
 
 Launch names should remain stable and human-scannable:
 
-- Public ABI exports stay fixed (`dino_module_load`, `dino_session_run`, and
-  friends).
+- Public ABI exports stay small and explicit (`dino_module_load`,
+  `dino_session_run`, `dino_session_get_output_shape`, and friends).
 - Wrapper-local launch helpers should use graph-order or node-stable names, not
   raw fused node ids.
 - Kernel implementation names should be content-addressed by normalized
@@ -185,6 +188,26 @@ under `dinoml.ops` and register through `dinoml.ops.registry`:
 The user-facing functions in `dinoml.ops` are generated from that registry. This
 keeps frontend ops, pass validation, manifest generation, support-library
 selection, and future profiler codegen pointed at the same source of truth.
+
+## Backend and Target Registration
+
+Targets validate through the typed backend registry in
+`src/dinoml/backends/registry.py`. A new backend should start by adding a
+`BackendSpec` there with:
+
+- target name and default architecture
+- supported runtime dtypes for the current compiled ABI
+- build function import path, such as `dinoml.backends.cpu.build_cpu_module`
+- CMake capability flags and support-library build targets
+- artifact support-library paths emitted into `manifest.json`
+
+`dinoml.backends.Target` reads defaults from this registry, so
+`dml.Target("cuda")` maps to `sm_86` and `dml.Target("cpu")` maps to `native`.
+`dinoml.compiler.compile` also uses the same spec for runtime dtype validation,
+manifest library entries, and backend build dispatch. Lowering and per-op
+support still live under `dinoml.lowering` and `dinoml.lowering.ops`; the backend
+registry is only the connection point between a target name, build support, and
+lowered artifact generation.
 
 ## Fused Elementwise Slice
 
@@ -217,7 +240,9 @@ The next foundations to settle before broad op porting are:
   output-shape reporting, and externally supplied shape buffers. V2 now exposes
   `dino_session_set_stream(DinoSession*, void*)`; CUDA generated modules store a
   per-session stream, pass it to generated launches, and preserve synchronous
-  default `run_numpy` behavior when no external stream is set.
+  default `run_numpy` behavior when no external stream is set. Generated CPU and
+  CUDA sessions also expose minimal post-run output-shape reporting through
+  `dino_session_get_output_shape(DinoSession*, size_t, int64_t*, size_t*)`.
 - profiler source generation, runner, and cache schema
 - liveness-based memory planning with alias/view support
 - layout/accessor metadata for strides, alignment, and channel-last conventions

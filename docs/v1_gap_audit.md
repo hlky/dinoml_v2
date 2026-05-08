@@ -10,8 +10,10 @@ porting. It intentionally excludes the op inventory, which lives in
   symbolic arithmetic, bucketed profile shapes, and max-shape runtime checks.
   V2 now records `Dim` metadata, validates runtime shapes, infers dynamic
   outputs from inputs in Python runtime helpers, and materializes CPU/CUDA
-  shape buffers for generated kernels. Missing pieces: symbolic arithmetic,
-  jagged dimensions, bucketed execution plans, and C ABI output-shape reporting.
+  shape buffers for generated kernels. Generated runtime sessions now also
+  expose minimal post-run C ABI output-shape queries via
+  `dino_session_get_output_shape`. Missing pieces: symbolic arithmetic, jagged
+  dimensions, and bucketed execution plans.
 - Shared dtype ABI: v1 has dtype aliases, byte sizes, torch mappings, and C ABI
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CUDA fused-elementwise fp16/bf16 storage support. CPU and
@@ -19,8 +21,9 @@ porting. It intentionally excludes the op inventory, which lives in
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via
-  `dino_session_set_stream`, while the remaining allocator, graph, output-shape,
-  pool, and profiling contracts should grow before op-specific runtime
+  `dino_session_set_stream` plus post-run output-shape reporting via
+  `dino_session_get_output_shape`, while the remaining allocator, graph, pool,
+  and profiling contracts should grow before op-specific runtime
   assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now keeps `Target` under

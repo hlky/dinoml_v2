@@ -108,13 +108,28 @@ def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "dynamic_channel_bias_cpu.dinoml")
     module = runtime.load(artifact.path)
     session = module.create_session()
+    try:
+        session.get_output_shape("y")
+    except RuntimeError as exc:
+        assert "before dino_session_run" in str(exc)
+    else:
+        raise AssertionError("output shape was available before dino_session_run")
 
     for shape in ((2, 8, 4), (4, 16, 4)):
         x = np.random.default_rng(sum(shape)).standard_normal(shape).astype(np.float32)
         expected = np.maximum(x * constants["scale"] + constants["bias"], 0.0).astype(np.float32)
         actual = session.run_numpy({"x": x})["y"]
         assert actual.shape == shape
+        assert session.get_output_shape("y") == shape
+        assert session.get_output_shape(0) == shape
         np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+    small = (ctypes.c_int64 * 1)()
+    ndim = ctypes.c_size_t(1)
+    err = module._dll.dino_session_get_output_shape(session._handle, ctypes.c_size_t(0), small, ctypes.byref(ndim))
+    assert err
+    assert ndim.value == 3
+    assert b"too small" in module._last_error_message()
 
     bad = np.zeros((2, 10, 4), dtype=np.float32)
     try:

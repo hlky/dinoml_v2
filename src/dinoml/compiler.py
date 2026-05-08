@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import shutil
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 
+from dinoml.backends.registry import get_backend_spec
+from dinoml.backends.target import Target
 from dinoml.ir import (
     ARTIFACT_SCHEMA_VERSION,
     RUNTIME_ABI_VERSION,
@@ -20,7 +22,6 @@ from dinoml.ir import (
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.passes import PassManager
-from dinoml.backends.target import Target
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ def compile(
     clean: bool = True,
     pass_manager: Optional[PassManager] = None,
 ) -> Artifact:
+    backend = get_backend_spec(target.name)
     artifact_dir = Path(output).resolve()
     if clean and artifact_dir.exists():
         shutil.rmtree(artifact_dir)
@@ -82,17 +84,8 @@ def compile(
         "compile_config": "compile_config.json",
         "kernel_manifest": "kernel_manifest.json",
         "kernel_codegen_plan": "kernel_codegen_plan.json",
-        "runtime_library": "lib/libdinoml_runtime.so",
     }
-    if target.name == "cuda":
-        files.update(
-            {
-                "cuda_runtime_library": "lib/libdinoml_cuda_runtime.so",
-                "kernel_library": "lib/libdinoml_cuda_kernels.so",
-            }
-        )
-    elif target.name == "cpu":
-        files["kernel_library"] = "lib/libdinoml_cpu_kernels.so"
+    files.update(backend.support_libraries)
 
     manifest = {
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -104,28 +97,13 @@ def compile(
     }
     write_json(artifact_dir / "manifest.json", manifest)
 
-    if target.name == "cuda":
-        from dinoml.backends.cuda import build_cuda_module
-
-        build_cuda_module(
-            lowered_ir,
-            target=target,
-            artifact_dir=artifact_dir,
-            generated_src_dir=generated_src_dir,
-            kernel_manifest=kernel_manifest,
-        )
-    elif target.name == "cpu":
-        from dinoml.backends.cpu import build_cpu_module
-
-        build_cpu_module(
-            lowered_ir,
-            target=target,
-            artifact_dir=artifact_dir,
-            generated_src_dir=generated_src_dir,
-            kernel_manifest=kernel_manifest,
-        )
-    else:
-        raise ValueError(f"Unsupported target: {target.name}")
+    backend.resolve_build_function()(
+        lowered_ir,
+        target=target,
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        kernel_manifest=kernel_manifest,
+    )
 
     return Artifact(artifact_dir)
 
@@ -167,7 +145,7 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarr
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     dtypes = {tensor["dtype"] for tensor in ir["tensors"]}
-    supported = {"float32"} if target.name == "cpu" else {"float16", "float32", "bfloat16"}
+    supported = get_backend_spec(target.name).supported_dtypes
     unsupported = sorted(dtype for dtype in dtypes if dtype not in supported)
     if unsupported:
         raise NotImplementedError(

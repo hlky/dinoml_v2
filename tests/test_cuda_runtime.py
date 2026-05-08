@@ -33,6 +33,8 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert "dinoml::math::mul" in generated_text
     assert "dinoml::math::sigmoid" in generated_text
     assert "dino_session_set_stream" in generated_text
+    assert "dino_session_get_output_shape" in generated_text
+    assert "last_output_shapes" in generated_text
     assert "session->stream" in generated_text
     assert ", session->stream)) return err;" in generated_text
     assert "if (!session->external_stream)" in generated_text
@@ -43,9 +45,11 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
     assert hasattr(module._dll, "dino_session_set_stream")
+    assert hasattr(module._dll, "dino_session_get_output_shape")
     session = module.create_session()
     session.set_stream(0)
     actual = session.run_numpy(inputs)
+    assert session.get_output_shape("y") == actual["y"].shape
     repeated = session.run_numpy(inputs)
     assert session._cuda_buffers
     session.close()

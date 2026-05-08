@@ -185,6 +185,13 @@ class RuntimeModule:
         self._dll.dino_session_destroy.restype = ctypes.c_int
         self._dll.dino_session_set_stream.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
         self._dll.dino_session_set_stream.restype = ctypes.c_int
+        self._dll.dino_session_get_output_shape.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_int64),
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self._dll.dino_session_get_output_shape.restype = ctypes.c_int
         self._dll.dino_session_run.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(_DinoTensor),
@@ -196,8 +203,31 @@ class RuntimeModule:
 
     def _check(self, err: int) -> None:
         if err:
-            message = self._runtime_dll.dino_get_last_error()
+            message = self._last_error_message()
             raise RuntimeError(message.decode("utf-8") if message else "Unknown DinoML runtime error")
+
+    def _last_error_message(self) -> bytes | None:
+        getters = []
+        for dll in (getattr(self, "_dll", None), getattr(self, "_runtime_dll", None)):
+            if dll is None:
+                continue
+            try:
+                getter = dll.dino_get_last_error
+            except AttributeError:
+                continue
+            getter.restype = ctypes.c_char_p
+            getters.append(getter)
+        try:
+            global_getter = ctypes.CDLL(None).dino_get_last_error
+            global_getter.restype = ctypes.c_char_p
+            getters.append(global_getter)
+        except AttributeError:
+            pass
+        for getter in getters:
+            message = getter()
+            if message:
+                return message
+        return None
 
 
 class Session:
@@ -226,6 +256,28 @@ class Session:
 
     def set_stream(self, stream: object | None) -> None:
         self.module._check(self.module._dll.dino_session_set_stream(self._handle, _as_c_void_p(stream)))
+
+    def get_output_shape(self, index_or_name: int | str) -> tuple[int, ...]:
+        output_index = self._output_index(index_or_name)
+        ndim = ctypes.c_size_t(0)
+        self.module._check(
+            self.module._dll.dino_session_get_output_shape(
+                self._handle,
+                ctypes.c_size_t(output_index),
+                None,
+                ctypes.byref(ndim),
+            )
+        )
+        shape = (ctypes.c_int64 * ndim.value)()
+        self.module._check(
+            self.module._dll.dino_session_get_output_shape(
+                self._handle,
+                ctypes.c_size_t(output_index),
+                shape,
+                ctypes.byref(ndim),
+            )
+        )
+        return tuple(int(shape[i]) for i in range(ndim.value))
 
     def run_device_pointers(
         self,
@@ -413,6 +465,18 @@ class Session:
         self.module._check(
             self.module._cuda_runtime_dll.dino_copy_device_to_host(ctypes.c_void_p(dst.ctypes.data), src_device, ctypes.c_size_t(dst.nbytes))
         )
+
+    def _output_index(self, index_or_name: int | str) -> int:
+        output_specs = self.module.metadata["outputs"]
+        if isinstance(index_or_name, str):
+            for idx, spec in enumerate(output_specs):
+                if str(spec["name"]) == index_or_name:
+                    return idx
+            raise ValueError(f"Unknown output: {index_or_name}")
+        index = int(index_or_name)
+        if index < 0 or index >= len(output_specs):
+            raise IndexError(f"Output index out of range: {index}")
+        return index
 
 
 def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray]) -> np.ndarray:

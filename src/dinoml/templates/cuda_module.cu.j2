@@ -28,6 +28,8 @@ struct DinoSession {
   DinoModule* module = nullptr;
   cudaStream_t stream = nullptr;
   bool external_stream = false;
+  std::vector<std::vector<int64_t>> last_output_shapes;
+  std::vector<bool> last_output_shapes_valid;
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
@@ -146,6 +148,8 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   }
   DinoSession* session = new DinoSession();
   session->module = module;
+  session->last_output_shapes.resize({{ output_count }});
+  session->last_output_shapes_valid.resize({{ output_count }}, false);
 {% for temp in temporaries %}
   DINO_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
@@ -190,6 +194,38 @@ DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream) {
   }
   session->stream = reinterpret_cast<cudaStream_t>(stream);
   session->external_stream = stream != nullptr;
+  return 0;
+}
+
+DINO_EXPORT int dino_session_get_output_shape(
+    DinoSession* session,
+    size_t output_index,
+    int64_t* out_shape,
+    size_t* inout_ndim) {
+  if (session == nullptr || inout_ndim == nullptr) {
+    return dinoml::module::fail("dino_session_get_output_shape received null argument");
+  }
+  if (output_index >= session->last_output_shapes.size()) {
+    return dinoml::module::fail("dino_session_get_output_shape received invalid output index");
+  }
+  const std::vector<int64_t>& shape = session->last_output_shapes[output_index];
+  if (!session->last_output_shapes_valid[output_index]) {
+    *inout_ndim = 0;
+    return dinoml::module::fail("Output shape is unavailable before dino_session_run");
+  }
+  const size_t rank = shape.size();
+  if (out_shape == nullptr) {
+    *inout_ndim = rank;
+    return 0;
+  }
+  if (*inout_ndim < rank) {
+    *inout_ndim = rank;
+    return dinoml::module::fail("Output shape buffer is too small");
+  }
+  for (size_t i = 0; i < rank; ++i) {
+    out_shape[i] = shape[i];
+  }
+  *inout_ndim = rank;
   return 0;
 }
 
@@ -247,6 +283,12 @@ DINO_EXPORT int dino_session_run(
   if (!session->external_stream) {
     DINO_CUDA_CHECK(cudaDeviceSynchronize());
   }
+{% for output in outputs %}
+  session->last_output_shapes[{{ output.index }}].assign(
+      outputs[{{ output.index }}].shape,
+      outputs[{{ output.index }}].shape + outputs[{{ output.index }}].ndim);
+  session->last_output_shapes_valid[{{ output.index }}] = true;
+{% endfor %}
   return 0;
 }
 

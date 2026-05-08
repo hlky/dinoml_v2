@@ -142,10 +142,10 @@ output buffer. Generated modules materialize the alias into that output buffer
 after producer kernels run: CPU uses a contiguous `std::memcpy`, and CUDA
 enqueues a device-to-device `cudaMemcpyAsync` on the session stream. CUDA only
 synchronizes for the default internal stream path; external streams observe the
-copy as queued work. View-of-view aliases are rejected for now, so each alias
-must point directly at an input, constant, temporary, or other owning tensor.
-Public frontend view ops remain blocked until the frontend path is completed and
-covered end to end.
+copy as queued work. Public `identity`, `reshape`, `flatten`, `squeeze`, and
+`unsqueeze` now use this path and emit no compute nodes. View-of-view aliases are
+rejected for now, so each alias must point directly at an input, constant,
+temporary, or other owning tensor.
 
 ## Generated Source Cleanliness Roadmap
 

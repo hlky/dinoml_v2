@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import numpy as np
 
-from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, array_to_storage, dtype_nbytes, normalize_dtype
+from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, VIEW_METADATA_VERSION, array_to_storage, dtype_nbytes, normalize_dtype
 from dinoml.shapes import Dim, is_dynamic_shape, max_shape, normalize_shape, shape_constraints, shape_numel
 
 
@@ -140,6 +140,7 @@ class GraphBuilder:
         self.inputs: List[Dict[str, Any]] = []
         self.constants: List[Dict[str, Any]] = []
         self.constant_values: Dict[str, np.ndarray] = {}
+        self.views: List[Dict[str, Any]] = []
         self._constant_ids: Dict[int, Tensor] = {}
         self._next_tensor_id = 0
         self._next_node_id = 0
@@ -219,6 +220,31 @@ class GraphBuilder:
         self.tensors[output_name] = _tensor_info(tensor)
         return tensor
 
+    def emit_view(
+        self,
+        transform: str,
+        source: Tensor,
+        shape: Sequence[int],
+        shape_spec: Sequence[int | Mapping[str, Any]],
+    ) -> Tensor:
+        if source.name in {view["tensor"] for view in self.views}:
+            raise NotImplementedError("View-of-view aliases are not supported by the current runtime lowering")
+        output_name = self._new_tensor_name()
+        tensor = Tensor(output_name, shape=shape, dtype=source.dtype, builder=self, shape_spec=shape_spec)
+        self.tensors[output_name] = _tensor_info(tensor)
+        self.views.append(
+            {
+                "tensor": output_name,
+                "source": source.name,
+                "kind": "shape_view",
+                "transform": transform,
+                "offset_elements": 0,
+                "shape": list(tensor.shape),
+                "shape_spec": list(tensor.shape_spec),
+            }
+        )
+        return tensor
+
     def to_ir(self, outputs: Sequence[Tensor]) -> Dict[str, Any]:
         output_infos = []
         for idx, tensor in enumerate(outputs):
@@ -234,6 +260,10 @@ class GraphBuilder:
             )
             self.tensors[tensor.name]["kind"] = "output"
 
+        metadata = _shape_metadata([*self.inputs, *self.constants, *output_infos, *self.tensors.values()])
+        if self.views:
+            metadata["views"] = {"version": VIEW_METADATA_VERSION, "views": self.views}
+
         return {
             "schema_version": IR_SCHEMA_VERSION,
             "name": self.name,
@@ -242,7 +272,7 @@ class GraphBuilder:
             "outputs": output_infos,
             "nodes": self.nodes,
             "tensors": list(self.tensors.values()),
-            "metadata": _shape_metadata([*self.inputs, *self.constants, *output_infos, *self.tensors.values()]),
+            "metadata": metadata,
         }
 
     def _new_tensor_name(self) -> str:

@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
+from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 
 
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
@@ -95,4 +96,14 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
 
-__all__ = [*OP_REGISTRY.frontend_names(), "emit_registered_op", "make_frontend_op", "output"]
+__all__ = [
+    *OP_REGISTRY.frontend_names(),
+    "emit_registered_op",
+    "flatten",
+    "identity",
+    "make_frontend_op",
+    "output",
+    "reshape",
+    "squeeze",
+    "unsqueeze",
+]

@@ -43,9 +43,10 @@ porting. It intentionally excludes the op inventory, which lives in
   validated `metadata.views` to `metadata.memory_plan.views` contract for
   zero-offset shape-only aliases. Runtime/lowering consume those aliases for
   direct views of inputs, constants, temporaries, and owning tensors, and
-  materialize public alias outputs into ABI output buffers. Remaining gaps:
-  public frontend view ops, view-of-view normalization, liveness extension beyond
-  the current static temporary plan, storage offsets, and strided/layout views.
+  materialize public alias outputs into ABI output buffers. Public `identity`,
+  `reshape`, `flatten`, `squeeze`, and `unsqueeze` use that path. Remaining
+  gaps: view-of-view normalization, liveness extension beyond the current static
+  temporary plan, storage offsets, and strided/layout views.
 - Layout and accessors: v1 models tensor accessors, alignment, channel-last
   conventions, and GEMM layout descriptors. V2 has a small TensorAccessor and
   CUDA vectorized dense elementwise paths, but still assumes contiguous dense

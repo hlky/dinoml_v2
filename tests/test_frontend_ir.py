@@ -70,12 +70,71 @@ class DynamicRelu(dml.Module):
         return dml.ops.output(dml.ops.relu(x), "y")
 
 
+class ShapeViewOps(dml.Module):
+    def forward(self, x, z):
+        return {
+            "id": dml.ops.identity(x),
+            "reshaped": dml.ops.reshape(x, [3, -1]),
+            "flat": dml.ops.flatten(x),
+            "squeezed": dml.ops.squeeze(z),
+            "unsqueezed": dml.ops.unsqueeze(x, 0),
+        }
+
+
+class DynamicReshape(dml.Module):
+    def forward(self, x):
+        return dml.ops.reshape(x, [4, 4])
+
+
+class DynamicSimpleViews(dml.Module):
+    def forward(self, x):
+        return {
+            "squeezed": dml.ops.squeeze(x, 1),
+            "unsqueezed": dml.ops.unsqueeze(x, -1),
+        }
+
+
 def test_compile_accepts_dynamic_runtime_metadata(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(DynamicRelu(), inputs={"x": dml.TensorSpec([batch, 16])}, name="dynamic_relu")
     assert spec.ir["metadata"]["dynamic_shapes"]
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "dynamic_relu.dinoml")
     assert artifact.path.exists()
+
+
+def test_shape_view_ops_emit_metadata_without_nodes():
+    spec = dml.trace(
+        ShapeViewOps(),
+        inputs={"x": dml.TensorSpec([2, 3]), "z": dml.TensorSpec([1, 2, 1, 3])},
+        name="shape_view_ops",
+    )
+
+    assert spec.ir["nodes"] == []
+    views = spec.ir["metadata"]["views"]["views"]
+    assert [view["transform"] for view in views] == ["identity", "reshape", "flatten", "squeeze", "unsqueeze"]
+    assert all(view["source"] in {"x", "z"} for view in views)
+    outputs = {output["name"]: output for output in spec.ir["outputs"]}
+    assert outputs["id"]["shape"] == [2, 3]
+    assert outputs["reshaped"]["shape"] == [3, 2]
+    assert outputs["flat"]["shape"] == [6]
+    assert outputs["squeezed"]["shape"] == [2, 3]
+    assert outputs["unsqueezed"]["shape"] == [1, 2, 3]
+
+
+def test_reshape_rejects_dynamic_input_shape():
+    batch = dml.Dim("batch", min=1, max=4)
+    with pytest.raises(NotImplementedError, match="reshape currently supports only static input shapes"):
+        dml.trace(DynamicReshape(), inputs={"x": dml.TensorSpec([batch, 4])}, name="dynamic_reshape")
+
+
+def test_simple_dynamic_shape_views_preserve_shape_spec():
+    batch = dml.Dim("batch", min=1, max=4)
+    spec = dml.trace(DynamicSimpleViews(), inputs={"x": dml.TensorSpec([batch, 1, 16])}, name="dynamic_shape_views")
+    outputs = {output["name"]: output for output in spec.ir["outputs"]}
+    assert outputs["squeezed"]["shape"] == [4, 16]
+    assert outputs["squeezed"]["shape_spec"][0]["name"] == "batch"
+    assert outputs["unsqueezed"]["shape"] == [4, 1, 16, 1]
+    assert outputs["unsqueezed"]["shape_spec"][0]["name"] == "batch"
 
 
 def test_compile_rejects_unimplemented_runtime_dtype(tmp_path):

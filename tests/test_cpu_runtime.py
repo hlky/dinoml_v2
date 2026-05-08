@@ -22,6 +22,17 @@ class DynamicGenericBroadcast(dml.Module):
         return dml.ops.output(dml.ops.relu(x + z), "y")
 
 
+class PublicShapeViewOutputs(dml.Module):
+    def forward(self, x, z):
+        return {
+            "id": dml.ops.identity(x),
+            "reshaped": dml.ops.reshape(x, [3, 2]),
+            "flat": dml.ops.flatten(x),
+            "squeezed": dml.ops.squeeze(z),
+            "unsqueezed": dml.ops.unsqueeze(x, 0),
+        }
+
+
 def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     from tests.models.fused_elementwise import build_spec, build_validation_inputs
 
@@ -112,6 +123,43 @@ def test_cpu_runtime_materializes_output_view_of_input_on_repeated_runs(tmp_path
 
     np.testing.assert_array_equal(first, x0.reshape(3, 2))
     np.testing.assert_array_equal(second, x1.reshape(3, 2))
+
+
+def test_cpu_runtime_materializes_public_shape_view_ops_on_repeated_runs(tmp_path):
+    spec = dml.trace(
+        PublicShapeViewOutputs(),
+        inputs={"x": dml.TensorSpec([2, 3]), "z": dml.TensorSpec([1, 2, 1, 3])},
+        name="public_shape_views",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "public_shape_views.dinoml")
+    metadata = read_json(artifact.path / "metadata.json")
+    graph = read_json(artifact.path / "graph.dinoir.json")
+    assert metadata["memory_plan"]["views"]["views"]
+    assert graph["nodes"] == []
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    x0 = np.arange(6, dtype=np.float32).reshape(2, 3)
+    x1 = (np.arange(6, dtype=np.float32) + 50.0).reshape(2, 3)
+    z0 = (np.arange(6, dtype=np.float32) + 100.0).reshape(1, 2, 1, 3)
+    z1 = (np.arange(6, dtype=np.float32) + 200.0).reshape(1, 2, 1, 3)
+    try:
+        first = session.run_numpy({"x": x0, "z": z0})
+        second = session.run_numpy({"x": x1, "z": z1})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(first["id"], x0)
+    np.testing.assert_array_equal(first["reshaped"], x0.reshape(3, 2))
+    np.testing.assert_array_equal(first["flat"], x0.reshape(6))
+    np.testing.assert_array_equal(first["squeezed"], z0.reshape(2, 3))
+    np.testing.assert_array_equal(first["unsqueezed"], x0.reshape(1, 2, 3))
+    np.testing.assert_array_equal(second["id"], x1)
+    np.testing.assert_array_equal(second["reshaped"], x1.reshape(3, 2))
+    np.testing.assert_array_equal(second["flat"], x1.reshape(6))
+    np.testing.assert_array_equal(second["squeezed"], z1.reshape(2, 3))
+    np.testing.assert_array_equal(second["unsqueezed"], x1.reshape(1, 2, 3))
 
 
 def test_cpu_runtime_materializes_output_view_of_constant(tmp_path):

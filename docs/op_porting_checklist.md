@@ -67,12 +67,14 @@ epilogues where possible.
 
 ### Views, Layout, Shape, and Selection
 
-- [ ] View-only: `reshape`, `flatten`, `squeeze`, `unsqueeze`, `identity`.
-  Lowering/runtime now consume `metadata.memory_plan.views` for zero-offset,
-  dtype-preserving, element-count-preserving shape aliases and materialize public
-  alias outputs into ABI output buffers. Public frontend exposure is still next;
-  keep these ops blocked until the frontend path is complete and tested. Do not
-  port them as no-op kernels.
+- [x] View-only: `reshape`, `flatten`, `squeeze`, `unsqueeze`, `identity`.
+  These public frontend ops now emit `metadata.views` shape aliases with no
+  compute nodes; lowering/runtime consume the validated
+  `metadata.memory_plan.views` form and materialize public alias outputs into ABI
+  output buffers. Current limits: view-of-view aliases are rejected, reshape only
+  accepts static input shapes, flatten only accepts static dimensions in the
+  flattened range, scalar view tensors are not exposed yet, and layout-changing
+  `permute`/`transpose` remain unported.
 - [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct`. These should remain frontend/IR helpers unless they produce
   tensors with explicit runtime storage.

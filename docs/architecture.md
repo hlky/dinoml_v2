@@ -93,9 +93,11 @@ larger policy surface. The current examples are
 compare DinoML CPU/CUDA hot C ABI execution against NumPy and Torch references,
 write JSON timing results under `tmp/`, and copy generated sources to
 `tmp/.../generated_review/` for codegen inspection. For CUDA softmax, v2 now has
-a small v1-inspired warp-per-row specialization for static last-dim reductions
-up to `K=2048`; broader v1-style K1/K2/K4/K8 vectorized policies and profiler
-selection should land before treating softmax as done.
+small v1-inspired static last-dim policies: a warp-per-row register path for
+odd/tail `K`, a float2/float4 packed local-register path for selected divisible
+`K`, and a shared-memory fallback for large reductions. Broader v1-style
+K1/K2/K4/K8 small/middle/block policy parity and profiler selection should land
+before treating softmax as done.
 
 The generated `module.so` owns metadata loading, constant binding, pointer
 binding, workspace/session allocation, shape checks, runtime shape buffers,

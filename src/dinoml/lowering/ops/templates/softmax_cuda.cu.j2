@@ -1,3 +1,96 @@
+{% if use_packed_kernel %}
+__global__ void {{ packed_kernel }}(
+    const float* DINO_RESTRICT x,
+    float* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int pack_width = {{ pack_width }};
+  constexpr int num_packs = {{ num_packs }};
+  constexpr int packs_per_thread = {{ packs_per_thread }};
+  constexpr int values_per_thread = {{ pack_values_per_thread }};
+  const int row = static_cast<int>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+  const {{ pack_type }}* DINO_RESTRICT packed_x =
+      reinterpret_cast<const {{ pack_type }}*>(x + base);
+  {{ pack_type }}* DINO_RESTRICT packed_y =
+      reinterpret_cast<{{ pack_type }}*>(y + base);
+  float values[values_per_thread];
+
+  float thread_max = -3.4028234663852886e38f;
+#pragma unroll
+  for (int i = 0; i < packs_per_thread; ++i) {
+    const int pack_idx = i * 32 + lane;
+{% if pack_width == 4 %}
+    float4 pack = make_float4(
+        -3.4028234663852886e38f,
+        -3.4028234663852886e38f,
+        -3.4028234663852886e38f,
+        -3.4028234663852886e38f);
+{% else %}
+    float2 pack = make_float2(
+        -3.4028234663852886e38f,
+        -3.4028234663852886e38f);
+{% endif %}
+    if (pack_idx < num_packs) {
+      pack = packed_x[pack_idx];
+    }
+    const int offset = i * pack_width;
+    values[offset + 0] = pack.x;
+    values[offset + 1] = pack.y;
+{% if pack_width == 4 %}
+    values[offset + 2] = pack.z;
+    values[offset + 3] = pack.w;
+{% endif %}
+#pragma unroll
+    for (int j = 0; j < pack_width; ++j) {
+      thread_max = fmaxf(thread_max, values[offset + j]);
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    thread_max = fmaxf(thread_max, __shfl_down_sync(0xffffffffu, thread_max, offset));
+  }
+  const float row_max = __shfl_sync(0xffffffffu, thread_max, 0);
+
+  float thread_sum = 0.0f;
+#pragma unroll
+  for (int i = 0; i < values_per_thread; ++i) {
+    values[i] = expf(values[i] - row_max);
+    thread_sum += values[i];
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    thread_sum += __shfl_down_sync(0xffffffffu, thread_sum, offset);
+  }
+  const float inv_sum = 1.0f / __shfl_sync(0xffffffffu, thread_sum, 0);
+
+#pragma unroll
+  for (int i = 0; i < packs_per_thread; ++i) {
+    const int pack_idx = i * 32 + lane;
+    if (pack_idx < num_packs) {
+      const int offset = i * pack_width;
+{% if pack_width == 4 %}
+      packed_y[pack_idx] = make_float4(
+          values[offset + 0] * inv_sum,
+          values[offset + 1] * inv_sum,
+          values[offset + 2] * inv_sum,
+          values[offset + 3] * inv_sum);
+{% else %}
+      packed_y[pack_idx] = make_float2(
+          values[offset + 0] * inv_sum,
+          values[offset + 1] * inv_sum);
+{% endif %}
+    }
+  }
+}
+
+{% endif %}
 {% if use_warp_kernel %}
 __global__ void {{ warp_kernel }}(
     const float* DINO_RESTRICT x,
@@ -120,7 +213,11 @@ static int {{ func }}(
     return dino_runtime_fail("{{ func }} received non-row-aligned element count");
   }
   const int64_t rows = runtime_total / cols;
-{% if use_warp_kernel %}
+{% if use_packed_kernel %}
+  dim3 block(32, {{ rows_per_block }});
+  dim3 grid(static_cast<unsigned int>((rows + {{ rows_per_block }} - 1) / {{ rows_per_block }}));
+  {{ packed_kernel }}<<<grid, block, 0, stream>>>(x, y, rows);
+{% elif use_warp_kernel %}
   dim3 block(32, {{ rows_per_block }});
   dim3 grid(static_cast<unsigned int>((rows + {{ rows_per_block }} - 1) / {{ rows_per_block }}));
   {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, rows);

@@ -49,14 +49,23 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     output_tensor = tensor_map[output_name]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
-    use_warp_kernel = cols <= 2048
+    pack_width = _cuda_pack_width(cols)
+    use_packed_kernel = pack_width > 1
+    use_warp_kernel = not use_packed_kernel and cols <= 2048
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "packed_kernel": f"{_function_name(node, tensor_map)}_packed_kernel",
         "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
         "cols": cols,
+        "num_packs": cols // pack_width,
+        "pack_type": "float4" if pack_width == 4 else "float2",
+        "pack_width": pack_width,
+        "pack_values_per_thread": ((cols // pack_width + 31) // 32) * pack_width,
+        "packs_per_thread": (cols // pack_width + 31) // 32,
         "cols_per_thread": (cols + 31) // 32,
         "rows_per_block": _cuda_rows_per_block(cols),
+        "use_packed_kernel": use_packed_kernel,
         "use_warp_kernel": use_warp_kernel,
         "block_size": _cuda_block_size(cols),
     }
@@ -95,6 +104,14 @@ def _cuda_rows_per_block(cols: int) -> int:
     if cols <= 1024:
         return 4
     return 2
+
+
+def _cuda_pack_width(cols: int) -> int:
+    if 32 < cols <= 3840 and cols % 4 == 0:
+        return 4
+    if 32 < cols <= 1152 and cols % 2 == 0:
+        return 2
+    return 1
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

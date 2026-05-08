@@ -104,10 +104,12 @@ add xsimd or `std::simd` only where measurable.
   only the last dimension with a positive static reduction extent, uses stable
   max-subtract/exp/sum normalization, and targets attention-row shapes such as
   `[batch_heads * queries, keys]`. CUDA now has a warp-per-row register-cached
-  specialization for `K <= 2048` plus a shared-memory fallback for larger
-  reductions. Non-last dimensions, generic dynamic reduction extents,
-  reduced-precision storage contracts, strided/layout-aware tensors, v1-style
-  K2/K4/K8 vectorized policies, and profiler-selected variants remain unported.
+  specialization for odd/tail `K <= 2048`, a float2/float4 packed local-register
+  path for divisible reductions up to the initial v1-style thresholds, and a
+  shared-memory fallback for larger reductions. Non-last dimensions, generic
+  dynamic reduction extents, reduced-precision storage contracts,
+  strided/layout-aware tensors, full v1 K1/K2/K4/K8 small/middle/block policy
+  parity, and profiler-selected variants remain unported.
 
 Library hints: CUB is a good CUDA baseline for generic reductions and scans;
 oneDNN has CPU softmax/reduction coverage; CK/MIOpen may cover selected GPU

@@ -189,8 +189,40 @@ def test_softmax_manifest_and_generated_sources_are_model_owned():
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
     assert len(sources["kernels"]) == 1
     assert "expf" in sources["kernels"][0]
-    assert "_warp_kernel" in sources["kernels"][0]
+    assert "_packed_kernel" in sources["kernels"][0]
+    assert "float4" in sources["kernels"][0]
     assert "<<<grid, block, 0, stream>>>" in sources["kernels"][0]
+
+
+def test_softmax_cuda_source_policy_selects_warp_and_shared_paths():
+    import dinoml as dml
+
+    class SoftmaxModel(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.softmax(x), "y")
+
+    warp_spec = dml.trace(
+        SoftmaxModel(),
+        inputs={"x": dml.TensorSpec([8192, 77], "float32")},
+        name="softmax_warp_policy",
+    )
+    warp_lowered, _ = PassManager().run(warp_spec.ir)
+    warp_tensor_map = {tensor["name"]: tensor for tensor in warp_lowered["tensors"]}
+    warp_sources = collect_generated_sources("cuda", warp_lowered["nodes"], warp_tensor_map)
+    assert "_warp_kernel" in warp_sources["kernels"][0]
+    assert "_packed_kernel" not in warp_sources["kernels"][0]
+
+    shared_spec = dml.trace(
+        SoftmaxModel(),
+        inputs={"x": dml.TensorSpec([256, 4096], "float32")},
+        name="softmax_shared_policy",
+    )
+    shared_lowered, _ = PassManager().run(shared_spec.ir)
+    shared_tensor_map = {tensor["name"]: tensor for tensor in shared_lowered["tensors"]}
+    shared_sources = collect_generated_sources("cuda", shared_lowered["nodes"], shared_tensor_map)
+    assert "_warp_kernel" not in shared_sources["kernels"][0]
+    assert "_packed_kernel" not in shared_sources["kernels"][0]
+    assert "block * sizeof(float)" in shared_sources["kernels"][0]
 
 
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():

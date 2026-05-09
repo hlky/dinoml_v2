@@ -97,6 +97,9 @@ porting. It intentionally excludes the op inventory, which lives in
   and CUDA quantize/dequantize kernels. The integration should allow weights to
   load from GGUF, copy to GPU, and either dequantize the whole weight before
   launch or feed quantized storage to kernels that can dequantize directly.
+- Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
+  additional CUTLASS epilogue functors and visitor forms that can fuse common
+  post-GEMM elementwise patterns beyond what DinoML v1 exposed.
 - Code layout discipline: prefer reusable concrete `.h`/`.cu` support sources
   and explicit backend registries over broad text templating. V1 patterns are a
   good reference when they separate op metadata, candidate generation, profiler

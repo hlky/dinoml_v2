@@ -118,13 +118,14 @@ keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
 and changes those keys too. The logical GEMM shape contract now accepts
 `A[..., K]` with rank-2 `B`, preserves `C[..., N]`, and flattens the leading
 `A` dimensions into the CUTLASS `m` argument. The first folded residual coverage
-is wired for RCR single-source epilogues `gemm_rcr_bias_{add,mul}`, including
-frontend shape metadata, CPU reference execution, CUDA lowering checks, and
-profiler workload shapes.
+is wired for RCR epilogues `gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu}`,
+including frontend shape metadata, CPU reference execution, CUDA lowering checks,
+support-library runtime smoke coverage, and profiler workload shapes.
 
-Next steps are broader broadcast/folded-M arithmetic epilogues, folded
-dual-source residual epilogues, `elup1`, v1 `dual_gemm`/dual-output GEMM
-families, BMM and grouped GEMM parity, and then public `matmul` layout
+Next steps are broader broadcast/folded-M arithmetic epilogues, the remaining
+folded RCR compound residual epilogues, `elup1`, v1 `dual_gemm`/dual-output GEMM
+families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
+functionality, BMM and grouped GEMM parity, and then public `matmul` layout
 selection.
 
 ## Dependency Discovery

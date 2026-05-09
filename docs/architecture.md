@@ -177,13 +177,14 @@ so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
 without embedding a handwritten matmul. These ops preserve dynamic `M/N`
 metadata and launch with runtime `M/N/K`; folded leading dimensions on
 `A[..., K]` are flattened into CUTLASS `m` while retaining logical `C[..., N]`
-shape metadata, with first RCR single-source residual coverage for
-`gemm_rcr_bias_{add,mul}`. The bias epilogue accepts a rank-1 `N` bias or rank-2
-`[1, N]` bias, and activation/residual epilogues instantiate CUTLASS thread
-epilogue functors directly. The checked-in macro-backed support source is
-rendered down to the used launcher/profiler symbols for each support build.
-Richer broadcast/visitor epilogues, folded dual-source residual forms,
-BMM/grouped GEMM, and public `matmul` layout selection remain follow-up work.
+shape metadata, with first RCR folded residual coverage for
+`gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu}`. The bias epilogue
+accepts a rank-1 `N` bias or rank-2 `[1, N]` bias, and activation/residual
+epilogues instantiate CUTLASS thread epilogue functors directly. The checked-in
+macro-backed support source is rendered down to the used launcher/profiler
+symbols for each support build. Richer broadcast/visitor epilogues, folded
+compound residual forms, BMM/grouped GEMM, and public `matmul` layout selection
+remain follow-up work.
 
 GEMM metadata now has a contributor-facing split:
 

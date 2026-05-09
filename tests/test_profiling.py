@@ -287,6 +287,44 @@ def test_build_profile_workloads_flattens_gemm_rcr_single_residual_folded_m(op_n
     assert list(workload.to_json()["output"].values()) == [[2, 3, 11]]
 
 
+@pytest.mark.parametrize(
+    ("op_name", "epilogue"),
+    [
+        ("gemm_rcr_bias_add_add", "bias_add_add"),
+        ("gemm_rcr_bias_mul_add", "bias_mul_add"),
+        ("gemm_rcr_bias_add_add_relu", "bias_add_add_relu"),
+    ],
+)
+def test_build_profile_workloads_flattens_gemm_rcr_dual_residual_folded_m(op_name, epilogue):
+    spec = dml.trace(
+        GemmResidualModule(op_name),
+        inputs={
+            "a": dml.TensorSpec([2, 3, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+            "d0": dml.TensorSpec([2, 3, 11], "float32"),
+            "d1": dml.TensorSpec([2, 3, 11], "float32"),
+        },
+        name=f"profile_{op_name}_folded_m",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32")
+    workload = workloads[0]
+    assert (workload.m, workload.n, workload.k) == (6, 11, 32)
+    assert workload.residual_tensors == ("d0", "d1")
+    assert workload.residual_shapes == ((2, 3, 11), (2, 3, 11))
+    assert workload.output_shape == (2, 3, 11)
+    assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
+    inputs = workload.to_json()["inputs"]
+    assert inputs["d0"] == [2, 3, 11]
+    assert inputs["d1"] == [2, 3, 11]
+    assert list(workload.to_json()["output"].values()) == [[2, 3, 11]]
+
+
 def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

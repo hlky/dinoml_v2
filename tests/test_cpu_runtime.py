@@ -123,11 +123,15 @@ class GemmResidualModule(dml.Module):
         return dml.ops.output(op(a, b, bias, d0, d1), "y")
 
 
-GEMM_RCR_BIAS_RESIDUAL_CASES = (
-    ("gemm_rcr_bias_add", "bias_add", ("bias", "d0")),
-    ("gemm_rcr_bias_add_add", "bias_add_add", ("bias", "d0", "d1")),
-    ("gemm_rcr_bias_mul", "bias_mul", ("bias", "d0")),
-    ("gemm_rcr_bias_mul_add", "bias_mul_add", ("bias", "d0", "d1")),
+GEMM_BIAS_RESIDUAL_CASES = tuple(
+    (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
+    for layout in ("rcr", "rrr")
+    for suffix, epilogue, inputs in (
+        ("add", "bias_add", ("bias", "d0")),
+        ("add_add", "bias_add_add", ("bias", "d0", "d1")),
+        ("mul", "bias_mul", ("bias", "d0")),
+        ("mul_add", "bias_mul_add", ("bias", "d0", "d1")),
+    )
 )
 
 
@@ -812,13 +816,13 @@ def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype,
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize(("op_name", "epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_CASES)
-def test_gemm_rcr_bias_residual_frontend_emits_shape_and_schema(op_name, epilogue, epilogue_inputs):
+@pytest.mark.parametrize(("op_name", "layout", "epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_CASES)
+def test_gemm_bias_residual_frontend_emits_shape_and_schema(op_name, layout, epilogue, epilogue_inputs):
     batch = dml.Dim("batch", min=1, max=4)
     tokens = dml.Dim("tokens", min=1, max=6)
     input_specs = {
         "a": dml.TensorSpec([batch, 8], "float32"),
-        "b": dml.TensorSpec([tokens, 8], "float32"),
+        "b": dml.TensorSpec([tokens, 8] if layout == "rcr" else [8, tokens], "float32"),
         "bias": dml.TensorSpec([tokens], "float32"),
         "d0": dml.TensorSpec([batch, tokens], "float32"),
     }
@@ -838,11 +842,11 @@ def test_gemm_rcr_bias_residual_frontend_emits_shape_and_schema(op_name, epilogu
     assert get_op_def(op_name).backend_kernels["cuda"].resolve("float32").candidate_set["epilogue"] == epilogue
 
 
-@pytest.mark.parametrize(("op_name", "_epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_CASES)
-def test_cpu_reference_gemm_rcr_bias_residual_epilogues_match_numpy(op_name, _epilogue, epilogue_inputs):
+@pytest.mark.parametrize(("op_name", "layout", "_epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_CASES)
+def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout, _epilogue, epilogue_inputs):
     input_specs = {
         "a": dml.TensorSpec([4, 8], "float32"),
-        "b": dml.TensorSpec([6, 8], "float32"),
+        "b": dml.TensorSpec([6, 8] if layout == "rcr" else [8, 6], "float32"),
         "bias": dml.TensorSpec([1, 6], "float32"),
         "d0": dml.TensorSpec([4, 6], "float32"),
     }
@@ -852,20 +856,20 @@ def test_cpu_reference_gemm_rcr_bias_residual_epilogues_match_numpy(op_name, _ep
     rng = np.random.default_rng(991)
     inputs = {
         "a": rng.standard_normal((4, 8)).astype(np.float32),
-        "b": rng.standard_normal((6, 8)).astype(np.float32),
+        "b": rng.standard_normal((6, 8) if layout == "rcr" else (8, 6)).astype(np.float32),
         "bias": rng.standard_normal((1, 6)).astype(np.float32),
         "d0": rng.standard_normal((4, 6)).astype(np.float32),
     }
     if "d1" in epilogue_inputs:
         inputs["d1"] = rng.standard_normal((4, 6)).astype(np.float32)
-    result = inputs["a"] @ inputs["b"].T + inputs["bias"]
-    if op_name == "gemm_rcr_bias_add":
+    result = inputs["a"] @ (inputs["b"].T if layout == "rcr" else inputs["b"]) + inputs["bias"]
+    if epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_add"):
         result = result + inputs["d0"]
-    elif op_name == "gemm_rcr_bias_add_add":
+    elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_add_add"):
         result = result + inputs["d0"] + inputs["d1"]
-    elif op_name == "gemm_rcr_bias_mul":
+    elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_mul"):
         result = result * inputs["d0"]
-    elif op_name == "gemm_rcr_bias_mul_add":
+    elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_mul_add"):
         result = result * inputs["d0"] + inputs["d1"]
     else:
         raise AssertionError(f"Unhandled residual GEMM op: {op_name}")

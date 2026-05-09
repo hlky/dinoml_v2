@@ -19,9 +19,9 @@ porting. It intentionally excludes the op inventory, which lives in
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for
   `run_numpy`, torch/device-pointer execution where applicable, and runtime
   constants. CUTLASS GEMM is wired for base, bias, ReLU, v1-style bias
-  activation epilogue, and first rank-2 RCR residual epilogue `float32`,
-  `float16`, and `bfloat16` families, while broader broadcast epilogues,
-  softmax, and reductions remain narrower.
+  activation epilogue, and first rank-2 residual epilogue `float32`, `float16`,
+  and `bfloat16` families, while broader broadcast epilogues, softmax, and
+  reductions remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via
@@ -39,7 +39,7 @@ porting. It intentionally excludes the op inventory, which lives in
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, v1-style
-  bias activation, and first rank-2 RCR residual epilogue variants.
+  bias activation, and first rank-2 residual epilogue variants.
   `use_fp16_acc=True` now changes the manifest/profile/build candidate set for
   fp16 GEMM; `no_tf32=True` now filters float32 GEMM to v1 SM80 SIMT f32
   fallback candidates.

@@ -145,15 +145,15 @@ normalization or softmax patterns, otherwise use custom block reductions.
   registered as explicit GEMM family ops with CUTLASS candidate metadata,
   CUDA support-library symbols, candidate profiling coverage, and CPU reference
   execution through CUTLASS thread epilogue functors.
-- [x] First RCR residual epilogues:
-  `gemm_rcr_bias_{add,add_add,mul,mul_add}` support rank-2 residual tensors
-  through fused CUTLASS epilogues, CUDA lowering/profiler pointer ABIs, and CPU
-  reference execution. These do not use a post-GEMM activation or elementwise
-  launch.
+- [x] First residual epilogues:
+  `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` support rank-2 residual
+  tensors through fused CUTLASS epilogues, CUDA lowering/profiler pointer ABIs,
+  and CPU reference execution. These do not use a post-GEMM activation or
+  elementwise launch.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
-- [ ] Remaining bias/broadcast epilogues: RRR residual variants, folded/batched
-  leading dimensions, and broader broadcast forms.
+- [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
+  broader broadcast forms.
 - [ ] Remaining activation epilogues: `elup1` and compound sigmoid/mul/tanh
   forms.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,

@@ -64,9 +64,9 @@ The runtime GEMM port now wires model lowering into that support library:
 1. `gemm_rcr`/`gemm_rrr`, bias epilogue ops
    `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
    `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, v1-style activation epilogue ops
-   `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}`, and the first RCR
-   residual epilogues `gemm_rcr_bias_{add,add_add,mul,mul_add}` are explicit
-   frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
+   `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}`, and the first
+   residual epilogues `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` are
+   explicit frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
    `matmul`; they preserve dynamic `M/N` shape metadata while requiring rank-2
    matrix tensors and compatible max-shape `K`.
 2. The kernel manifest records `cutlass_gemm` as an external support library

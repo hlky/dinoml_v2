@@ -155,6 +155,17 @@ class GemmBiasOpModule(dml.Module):
         return dml.ops.output(op(a, b, bias), "y")
 
 
+class GemmResidualOpModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias, d0, d1=None):
+        op = getattr(dml.ops, self.op_name)
+        if d1 is None:
+            return dml.ops.output(op(a, b, bias, d0), "y")
+        return dml.ops.output(op(a, b, bias, d0, d1), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -320,6 +331,38 @@ def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activ
     )
 
     assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == [4, 6]
+    assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
+
+
+@pytest.mark.parametrize(
+    ("layout", "b_shape", "suffix", "epilogue_inputs"),
+    [
+        ("rcr", [6, 8], "add", ("bias", "d0")),
+        ("rcr", [6, 8], "add_add", ("bias", "d0", "d1")),
+        ("rcr", [6, 8], "mul", ("bias", "d0")),
+        ("rcr", [6, 8], "mul_add", ("bias", "d0", "d1")),
+        ("rrr", [8, 6], "add", ("bias", "d0")),
+        ("rrr", [8, 6], "add_add", ("bias", "d0", "d1")),
+        ("rrr", [8, 6], "mul", ("bias", "d0")),
+        ("rrr", [8, 6], "mul_add", ("bias", "d0", "d1")),
+    ],
+)
+def test_gemm_bias_residual_frontend_emits_epilogue_ops(layout, b_shape, suffix, epilogue_inputs):
+    op_name = f"gemm_{layout}_bias_{suffix}"
+    inputs = {
+        "a": dml.TensorSpec([4, 8]),
+        "b": dml.TensorSpec(b_shape),
+        "bias": dml.TensorSpec([6]),
+        "d0": dml.TensorSpec([4, 6]),
+    }
+    if "d1" in epilogue_inputs:
+        inputs["d1"] = dml.TensorSpec([4, 6])
+
+    spec = dml.trace(GemmResidualOpModule(op_name), inputs=inputs, name=f"{op_name}_frontend")
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["nodes"][0]["inputs"] == ["a", "b", *epilogue_inputs]
     assert spec.ir["outputs"][0]["shape"] == [4, 6]
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 

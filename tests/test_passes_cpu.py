@@ -8,7 +8,7 @@ from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.gemm import GEMM_OPS, render_cutlass_gemm_source
-from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE, cutlass_gemm_candidates
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan, build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
@@ -17,6 +17,9 @@ from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape
 from dinoml.ops.definitions import OP_REGISTRY, get_op_def
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
+
+
+DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 
 
 def _cutlass_symbol_ids(dtype: str) -> list[str]:
@@ -37,6 +40,26 @@ def _cutlass_default_symbol_id(dtype: str) -> str:
 
 def _cutlass_default_candidate_id(dtype: str) -> str:
     return _cutlass_candidate_ids(dtype)[0]
+
+
+def _cutlass_manifest_candidates(dtype: str, target=None, op_name: str = "gemm_rrr") -> tuple[dict[str, object], ...]:
+    return cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)
+
+
+def _cutlass_manifest_symbol_ids(dtype: str, target=None, op_name: str = "gemm_rrr") -> list[str]:
+    return [str(candidate["symbol_id"]) for candidate in _cutlass_manifest_candidates(dtype, target, op_name)]
+
+
+def _cutlass_manifest_candidate_ids(dtype: str, target=None, op_name: str = "gemm_rrr") -> list[str]:
+    return [str(candidate["candidate_id"]) for candidate in _cutlass_manifest_candidates(dtype, target, op_name)]
+
+
+def _cutlass_manifest_default_symbol_id(dtype: str, target=None, op_name: str = "gemm_rrr") -> str:
+    return _cutlass_manifest_symbol_ids(dtype, target, op_name)[0]
+
+
+def _cutlass_manifest_default_candidate_id(dtype: str, target=None, op_name: str = "gemm_rrr") -> str:
+    return _cutlass_manifest_candidate_ids(dtype, target, op_name)[0]
 
 
 def test_pass_manager_runs_expected_pipeline():
@@ -281,7 +304,10 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
 def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     import dinoml as dml
     from dinoml.lowering.ops import collect_generated_sources
-    default_symbol_id = _cutlass_default_symbol_id(dtype)
+    manifest_candidates = _cutlass_manifest_candidates(dtype)
+    manifest_symbol_ids = _cutlass_manifest_symbol_ids(dtype)
+    manifest_candidate_ids = _cutlass_manifest_candidate_ids(dtype)
+    default_symbol_id = manifest_symbol_ids[0]
 
     class GemmModel(dml.Module):
         def forward(self, a, b):
@@ -295,7 +321,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     lowered, _ = PassManager().run(spec.ir)
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
-    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
 
     assert sources["kernels"] == []
@@ -303,8 +329,8 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["op"] == "gemm_rrr"
     default_symbol = f"dinoml_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
     default_profiler = f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
-    candidate_symbols = [f"dinoml_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in _cutlass_symbol_ids(dtype)]
-    candidate_profilers = [f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in _cutlass_symbol_ids(dtype)]
+    candidate_symbols = [f"dinoml_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in manifest_symbol_ids]
+    candidate_profilers = [f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in manifest_symbol_ids]
     assert required["kernel_symbol"] == default_symbol
     assert required["kernel_library"] == "cutlass_gemm"
     assert required["profiler_symbol"] == default_profiler
@@ -312,11 +338,13 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["candidate_set_id"] == f"cutlass_gemm_rrr_{suffix}_linear_combination_v1"
     assert len(required["candidate_set_key"]) == 64
     assert required["candidate_set"]["candidate_set_key"] == required["candidate_set_key"]
-    assert required["candidate_set"]["candidate_count"] == _cutlass_candidate_count(dtype)
-    assert required["selected_candidate_id"] == _cutlass_default_candidate_id(dtype)
-    assert len(required["candidates"]) == _cutlass_candidate_count(dtype)
+    assert required["candidate_set"]["candidate_count"] == len(manifest_candidates)
+    assert required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
+    assert required["selected_candidate_id"] == manifest_candidate_ids[0]
+    assert len(required["candidates"]) == len(manifest_candidates)
     candidate = required["candidates"][0]
-    assert candidate["candidate_id"] == _cutlass_default_candidate_id(dtype)
+    assert [item["candidate_id"] for item in required["candidates"]] == manifest_candidate_ids
+    assert candidate["candidate_id"] == manifest_candidate_ids[0]
     assert candidate["provider"] == "cutlass"
     assert candidate["family"] == "gemm_universal"
     assert candidate["dtype"] == dtype
@@ -348,6 +376,73 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     ]
     assert plan.external_support_libraries[0]["kernel_symbols"] == sorted(candidate_symbols)
     assert plan.external_support_libraries[0]["profiler_symbols"] == sorted(candidate_profilers)
+
+
+def test_gemm_kernel_manifest_filters_fp16_accumulation_policy():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float16"), "b": dml.TensorSpec([8, 6], "float16")},
+        name="gemm_float16_acc_policy",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    default_manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    fp16_acc_target = {**DEFAULT_CUDA_TARGET, "use_fp16_acc": True}
+    fp16_acc_manifest = build_kernel_manifest(lowered, fp16_acc_target)
+    fp16_acc_plan = create_codegen_plan(fp16_acc_manifest, "/tmp/dinoml-test-cache")
+
+    default_required = default_manifest["required_kernels"][0]
+    fp16_required = fp16_acc_manifest["required_kernels"][0]
+    assert {candidate["accumulator_dtype"] for candidate in default_required["candidates"]} == {"float32"}
+    assert {candidate["accumulator_dtype"] for candidate in fp16_required["candidates"]} == {"float16"}
+    assert default_required["selected_candidate_id"] != fp16_required["selected_candidate_id"]
+    assert default_required["kernel_symbol"] != fp16_required["kernel_symbol"]
+    assert default_required["profiler_symbol"] != fp16_required["profiler_symbol"]
+    assert default_required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
+    assert fp16_required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": True}
+    assert default_manifest["support_cache_key"] != fp16_acc_manifest["support_cache_key"]
+    assert default_manifest["cache_key"] != fp16_acc_manifest["cache_key"]
+    fp16_acc_support = fp16_acc_plan.external_support_libraries[0]
+    assert fp16_acc_support["kernel_symbols"] == sorted(candidate["kernel_symbol"] for candidate in fp16_required["candidates"])
+    assert fp16_acc_support["profiler_symbols"] == sorted(candidate["profiler_symbol"] for candidate in fp16_required["candidates"])
+    assert fp16_acc_support["candidate_config_keys"] == sorted(
+        candidate["candidate_config_key"] for candidate in fp16_required["candidates"]
+    )
+
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=fp16_acc_manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+    rendered_support = render_cutlass_gemm_source(source, fp16_acc_support)
+
+    assert fp16_required["kernel_symbol"] in generated
+    assert f'extern "C" int {fp16_required["kernel_symbol"]}(' in generated
+    assert default_required["kernel_symbol"] not in generated
+    assert fp16_required["candidates"][0]["symbol_id"] in rendered_support
+    assert default_required["candidates"][0]["symbol_id"] not in rendered_support
+
+
+def test_gemm_kernel_manifest_rejects_no_tf32_without_float32_simt_candidates():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_float32_no_tf32",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+
+    with pytest.raises(NotImplementedError, match="no_tf32=True requires non-TF32 float32 candidates"):
+        build_kernel_manifest(lowered, {**DEFAULT_CUDA_TARGET, "no_tf32": True})
 
 
 def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
@@ -398,24 +493,26 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
         name="gemm_mixed_dtype_manifest",
     )
     lowered, _ = PassManager().run(spec.ir)
-    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    float32_candidates = _cutlass_manifest_candidates("float32")
+    float16_candidates = _cutlass_manifest_candidates("float16")
+    float32_symbol_ids = [str(candidate["symbol_id"]) for candidate in float32_candidates]
+    float16_symbol_ids = [str(candidate["symbol_id"]) for candidate in float16_candidates]
+    float32_candidate_ids = [str(candidate["candidate_id"]) for candidate in float32_candidates]
+    float16_candidate_ids = [str(candidate["candidate_id"]) for candidate in float16_candidates]
 
     assert [item["kernel_symbol"] for item in manifest["required_kernels"]] == [
-        f"dinoml_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id('float32')}",
-        f"dinoml_cutlass_gemm_rrr_float16_{_cutlass_default_symbol_id('float16')}",
+        f"dinoml_cutlass_gemm_rrr_float32_{float32_symbol_ids[0]}",
+        f"dinoml_cutlass_gemm_rrr_float16_{float16_symbol_ids[0]}",
     ]
     candidates = [candidate for item in manifest["required_kernels"] for candidate in item["candidates"]]
     assert [candidate["candidate_id"] for candidate in candidates] == [
-        *_cutlass_candidate_ids("float32"),
-        *_cutlass_candidate_ids("float16"),
+        *float32_candidate_ids,
+        *float16_candidate_ids,
     ]
-    assert [candidate["dtype"] for candidate in candidates[:_cutlass_candidate_count("float32")]] == [
-        "float32"
-    ] * _cutlass_candidate_count("float32")
-    assert [candidate["dtype"] for candidate in candidates[_cutlass_candidate_count("float32"): ]] == [
-        "float16"
-    ] * _cutlass_candidate_count("float16")
-    assert len({candidate["candidate_config_key"] for candidate in candidates}) == _cutlass_candidate_count("float32") + _cutlass_candidate_count("float16")
+    assert [candidate["dtype"] for candidate in candidates[: len(float32_candidates)]] == ["float32"] * len(float32_candidates)
+    assert [candidate["dtype"] for candidate in candidates[len(float32_candidates): ]] == ["float16"] * len(float16_candidates)
+    assert len({candidate["candidate_config_key"] for candidate in candidates}) == len(float32_candidates) + len(float16_candidates)
     assert [item["candidate_set_id"] for item in manifest["required_kernels"]] == [
         "cutlass_gemm_rrr_float32_linear_combination_v1",
         "cutlass_gemm_rrr_float16_linear_combination_v1",
@@ -425,13 +522,13 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
     support = plan.external_support_libraries[0]
     assert support["kernel_symbols"] == sorted(
         f"dinoml_cutlass_gemm_rrr_{dtype}_{symbol_id}"
-        for dtype in ("float16", "float32")
-        for symbol_id in _cutlass_symbol_ids(dtype)
+        for dtype, symbol_ids in (("float16", float16_symbol_ids), ("float32", float32_symbol_ids))
+        for symbol_id in symbol_ids
     )
     assert support["profiler_symbols"] == sorted(
         f"dinoml_profile_cutlass_gemm_rrr_{dtype}_{symbol_id}"
-        for dtype in ("float16", "float32")
-        for symbol_id in _cutlass_symbol_ids(dtype)
+        for dtype, symbol_ids in (("float16", float16_symbol_ids), ("float32", float32_symbol_ids))
+        for symbol_id in symbol_ids
     )
     assert support["candidate_set_keys"] == sorted(item["candidate_set_key"] for item in manifest["required_kernels"])
     assert support["candidate_config_keys"] == sorted(candidate["candidate_config_key"] for candidate in candidates)

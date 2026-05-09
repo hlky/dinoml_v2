@@ -227,8 +227,8 @@ def cutlass_gemm_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None
     return f"dinoml_profile_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
-def cutlass_gemm_default_candidate(op_name: str, dtype: str) -> dict[str, Any]:
-    return cutlass_gemm_candidates(op_name, dtype)[0]
+def cutlass_gemm_default_candidate(op_name: str, dtype: str, target: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    return cutlass_gemm_candidates(op_name, dtype, target=target)[0]
 
 
 def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[str, Any]) -> dict[str, Any]:
@@ -263,18 +263,26 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
     return candidate
 
 
-def cutlass_gemm_candidates(op_name: str, dtype: str) -> tuple[dict[str, Any], ...]:
+def cutlass_gemm_candidates(
+    op_name: str,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
     normalized_dtype = normalize_gemm_dtype(dtype)
     return tuple(
         _cutlass_gemm_candidate(op_name, normalized_dtype, config)
-        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype]
+        for config in _cutlass_candidate_configs_for_target(normalized_dtype, target)
     )
 
 
-def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
+def cutlass_gemm_candidate_set(
+    op_name: str,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     spec = gemm_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
-    candidates = cutlass_gemm_candidates(op_name, normalized_dtype)
+    candidates = cutlass_gemm_candidates(op_name, normalized_dtype, target=target)
     config = {
         "schema_version": CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
         "candidate_set_id": cutlass_gemm_candidate_set_id(op_name, normalized_dtype),
@@ -286,6 +294,7 @@ def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
         "epilogue": spec.epilogue.name,
         "epilogue_config": spec.epilogue.to_json(),
         "accumulator_dtypes": sorted({str(candidate["accumulator_dtype"]) for candidate in candidates}),
+        "target_policy": cutlass_gemm_target_policy(target),
         "launch_abi": spec.epilogue.launch_abi,
         "generator": "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
@@ -301,6 +310,34 @@ def cutlass_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
     spec = gemm_op_spec(op_name)
     suffix = gemm_dtype_suffix(dtype)
     return f"cutlass_{op_name}_{suffix}_{spec.epilogue.name}_v1"
+
+
+def cutlass_gemm_target_policy(target: Mapping[str, Any] | None) -> dict[str, bool]:
+    return {
+        "no_tf32": bool((target or {}).get("no_tf32", False)),
+        "use_fp16_acc": bool((target or {}).get("use_fp16_acc", False)),
+    }
+
+
+def _cutlass_candidate_configs_for_target(
+    dtype: str,
+    target: Mapping[str, Any] | None,
+) -> tuple[Mapping[str, Any], ...]:
+    configs: tuple[Mapping[str, Any], ...] = CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+    if target is None:
+        return configs
+    policy = cutlass_gemm_target_policy(target)
+    if dtype == "float32" and policy["no_tf32"]:
+        configs = tuple(config for config in configs if config["cutlass"]["math"] != "tf32")
+        if not configs:
+            raise NotImplementedError(
+                "CUTLASS GEMM no_tf32=True requires non-TF32 float32 candidates; "
+                "DinoML v2 does not generate those candidates yet"
+            )
+    if dtype == "float16":
+        accumulator_dtype = "float16" if policy["use_fp16_acc"] else "float32"
+        configs = tuple(config for config in configs if config["accumulator_dtype"] == accumulator_dtype)
+    return configs
 
 
 def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:

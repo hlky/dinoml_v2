@@ -32,18 +32,22 @@ porting. It intentionally excludes the op inventory, which lives in
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry for target defaults, dtype validation, support
-  libraries, and build dispatch. Missing pieces: richer backend capability
-  metadata for profiler generation, external-library availability, layout
-  support, and future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
+  libraries, build dispatch, and first CUTLASS GEMM policy flags for optional
+  TF32 and fp16 accumulation. Missing pieces: richer backend capability metadata
+  for profiler generation, external-library availability, layout support, and
+  future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, and v1-style
-  bias activation epilogue variants.
+  bias activation epilogue variants. `use_fp16_acc=True` now changes the
+  manifest/profile/build candidate set for fp16 GEMM; `no_tf32=True` is guarded
+  until SM80 SIMT f32 fallback candidates are generated.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.
   Profile keys now include a best-effort CUDA hardware/toolchain fingerprint,
-  support-library source/binary hashes, and CUTLASS support-build provenance.
+  support-library source/binary hashes, CUTLASS support-build provenance, and
+  target-policy-specific candidate/config keys.
   Remaining gaps are candidate enumeration, richer statistical confidence, and
   persistent SQLite/shared cache workflows.
 

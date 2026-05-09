@@ -20,7 +20,13 @@ def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Ma
     raise ValueError(f"Unsupported reduction target: {target}")
 
 
-def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+def render_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
+    del kernel_manifest
     func = _function_name(node, tensor_map)
     inp = _c_ident(node["inputs"][0])
     out = _c_ident(node["outputs"][0])

@@ -12,7 +12,7 @@ from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.ir import read_json, write_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
-from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 from dinoml.kernels.profiling import (
     PROFILE_REPORT_SCHEMA_VERSION,
     _cache_entry,
@@ -27,16 +27,23 @@ from dinoml.kernels.profiling import (
 from dinoml.passes import PassManager
 
 
-def _cutlass_candidate_count(dtype: str) -> int:
-    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
+DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 
 
-def _cutlass_default_candidate_id(dtype: str) -> str:
-    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["candidate_id"])
+def _cutlass_candidates(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> tuple[dict[str, object], ...]:
+    return cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)
 
 
-def _cutlass_default_symbol_id(dtype: str) -> str:
-    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
+def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> int:
+    return len(_cutlass_candidates(dtype, op_name=op_name, target=target))
+
+
+def _cutlass_default_candidate_id(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> str:
+    return str(_cutlass_candidates(dtype, op_name=op_name, target=target)[0]["candidate_id"])
+
+
+def _cutlass_default_symbol_id(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> str:
+    return str(_cutlass_candidates(dtype, op_name=op_name, target=target)[0]["symbol_id"])
 
 
 class GemmModule(dml.Module):
@@ -93,6 +100,27 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     assert workload.candidate_config_key
     assert (workload.m, workload.n, workload.k) == (7, 11, 32)
     assert workload.output_shape == (7, 11)
+
+
+def test_build_profile_workloads_uses_manifest_selected_fp16_accumulation_policy():
+    target = {**DEFAULT_CUDA_TARGET, "use_fp16_acc": True}
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float16"), "b": dml.TensorSpec([32, 11], "float16")},
+        name="profile_fp16_acc_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, target)
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float16", target=target)
+    assert workloads
+    assert {workload.candidate["accumulator_dtype"] for workload in workloads} == {"float16"}
+    assert all("_f16_" in workload.kernel_symbol for workload in workloads)
+    assert all("_f16_" in workload.profiler_symbol for workload in workloads)
+    assert all("_f32_" not in workload.kernel_symbol for workload in workloads)
+    assert workloads[0].candidate_id == _cutlass_default_candidate_id("float16", target=target)
 
 
 @pytest.mark.parametrize(

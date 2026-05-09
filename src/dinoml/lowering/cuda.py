@@ -20,7 +20,12 @@ from dinoml.lowering.shape_buffers import (
 )
 
 
-def render_cuda_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str] | None = None) -> str:
+def render_cuda_module(
+    ir: Mapping[str, Any],
+    *,
+    generated_kernels: Iterable[str] | None = None,
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     input_map = {item["tensor"]: idx for idx, item in enumerate(ir["inputs"])}
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
@@ -47,6 +52,7 @@ def render_cuda_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str
             "generated_kernels": list(generated_kernels)
             if generated_kernels is not None
             else render_generated_kernels("cuda", ir["nodes"], tensor_map),
+            "external_kernel_declarations": _external_kernel_declarations(kernel_manifest),
             "pointer_decls": list(
                 _pointer_decls(
                     input_map=input_map,
@@ -57,9 +63,59 @@ def render_cuda_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str
                     tensor_map=tensor_map,
                 )
             ),
-            "launches": [render_launch("cuda", node, tensor_map) for node in ir["nodes"]],
+            "launches": [render_launch("cuda", node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]],
             "output_materializations": _output_materializations(views),
         },
+    )
+
+
+def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> list[str]:
+    if kernel_manifest is None:
+        return []
+    declarations = []
+    seen = set()
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        symbol = str(item["kernel_symbol"])
+        if symbol in seen:
+            continue
+        candidate = _selected_candidate(item)
+        dtype = str(candidate.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        launch_abi = str(candidate.get("launch_abi") or item.get("candidate_set", {}).get("launch_abi"))
+        cpp_type = cuda_storage_type(dtype)
+        declarations.append(_cutlass_gemm_declaration(symbol, cpp_type, launch_abi))
+        seen.add(symbol)
+    return declarations
+
+
+def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
+    selected_id = item.get("selected_candidate_id")
+    candidates = [candidate for candidate in item.get("candidates", []) if isinstance(candidate, Mapping)]
+    for candidate in candidates:
+        if candidate.get("candidate_id") == selected_id:
+            return candidate
+    if candidates:
+        return candidates[0]
+    return {}
+
+
+def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
+    bias_arg = ""
+    if launch_abi == "dinoml_cutlass_gemm_bias_v1":
+        bias_arg = f"    const {cpp_type}* bias,\n"
+    elif launch_abi != "dinoml_cutlass_gemm_v1":
+        raise ValueError(f"Unsupported CUTLASS GEMM launch ABI: {launch_abi!r}")
+    return (
+        f"extern \"C\" int {symbol}(\n"
+        f"    const {cpp_type}* a,\n"
+        f"    const {cpp_type}* b,\n"
+        f"{bias_arg}"
+        f"    {cpp_type}* c,\n"
+        "    int m,\n"
+        "    int n,\n"
+        "    int k,\n"
+        "    cudaStream_t stream);"
     )
 
 

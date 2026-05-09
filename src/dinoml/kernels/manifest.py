@@ -5,6 +5,7 @@ from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
 from dinoml.kernels.external import external_kernel_families
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.ops.definitions import get_op_def
 
 
@@ -13,7 +14,7 @@ KERNEL_ABI_VERSION = 1
 PROFILE_CACHE_SCHEMA_VERSION = 5
 
 
-def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> dict[str, Any]:
+def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> dict[str, Any]:
     target_name = target["name"]
     required = []
     seen = set()
@@ -22,24 +23,32 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> d
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
         output_name = str(node["outputs"][0])
-        resolved = binding.resolve(str(tensor_map[output_name]["dtype"]))
-        key = (node["op"], resolved.symbol)
+        dtype = str(tensor_map[output_name]["dtype"])
+        resolved = binding.resolve(dtype)
+        kernel_symbol = resolved.symbol
+        profiler_symbol = resolved.profiler_symbol
+        candidates = [dict(candidate) for candidate in resolved.candidates]
+        candidate_set = dict(resolved.candidate_set) if resolved.candidate_set else None
+        if resolved.library == "cutlass_gemm":
+            candidates = [dict(candidate) for candidate in cutlass_gemm_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = cutlass_gemm_candidate_set(str(node["op"]), dtype, target=target)
+            kernel_symbol = str(candidates[0]["kernel_symbol"])
+            profiler_symbol = str(candidates[0]["profiler_symbol"])
+        key = (node["op"], kernel_symbol)
         if key in seen:
             continue
         seen.add(key)
         item = {
             "op": node["op"],
-            "kernel_symbol": resolved.symbol,
+            "kernel_symbol": kernel_symbol,
             "kernel_library": resolved.library,
-            "profiler_symbol": resolved.profiler_symbol,
+            "profiler_symbol": profiler_symbol,
             "has_profiler": op_def.profiler,
         }
-        if resolved.candidates:
-            candidates = [dict(candidate) for candidate in resolved.candidates]
+        if candidates:
             item["selected_candidate_id"] = candidates[0]["candidate_id"]
             item["candidates"] = candidates
-        if resolved.candidate_set:
-            candidate_set = dict(resolved.candidate_set)
+        if candidate_set:
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
@@ -64,7 +73,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, str]) -> d
 
 def build_support_manifest(
     *,
-    target: Mapping[str, str],
+    target: Mapping[str, Any],
     libraries: Mapping[str, str],
     required_kernel_cache_key: str | None = None,
 ) -> dict[str, Any]:
@@ -81,7 +90,7 @@ def build_support_manifest(
     return manifest
 
 
-def build_external_kernel_plan(target: Mapping[str, str]) -> dict[str, Any]:
+def build_external_kernel_plan(target: Mapping[str, Any]) -> dict[str, Any]:
     target_name = target["name"]
     families = [family.to_json() for family in external_kernel_families(backend=target_name)]
     plan = {

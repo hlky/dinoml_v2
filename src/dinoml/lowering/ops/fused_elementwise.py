@@ -30,7 +30,13 @@ def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Ma
     raise ValueError(f"Unsupported fused_elementwise target: {target}")
 
 
-def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+def render_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
+    del kernel_manifest
     func = _function_name(node)
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_shape_ident = f"shape_{_c_ident(node['outputs'][0])}"

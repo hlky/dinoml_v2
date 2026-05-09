@@ -57,7 +57,7 @@ def build_cuda_module(
         generated_src_dir=generated_src_dir,
     )
     (generated_src_dir / "module.cu").write_text(
-        render_cuda_module(ir, generated_kernels=generated_sources["kernels"]),
+        render_cuda_module(ir, generated_kernels=generated_sources["kernels"], kernel_manifest=kernel_manifest),
         encoding="utf-8",
     )
     (generated_src_dir / "CMakeLists.txt").write_text(
@@ -154,10 +154,12 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     }
     if cutlass_gemm_lib is not None:
         libraries["cutlass_gemm"] = cutlass_gemm_lib.name
+    default_target = {"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"}
+    support_target = dict(kernel_manifest.get("target", default_target)) if kernel_manifest is not None else default_target
     write_json(
         lib_dir / "support_manifest.json",
         build_support_manifest(
-            target={"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"},
+            target=support_target,
             libraries=libraries,
             required_kernel_cache_key=None if kernel_manifest is None else kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]),
         ),

@@ -103,9 +103,13 @@ accumulator dtype so profiling can distinguish real kernel variants. Generated
 support source is pruned from the macro-backed checked-in source to only the
 launcher/profiler symbols in the used candidate plan, and activation epilogue
 exports instantiate CUTLASS thread epilogue functors directly with the selected
-candidate accumulator type.
+candidate accumulator type. Target policy now participates in the per-artifact
+manifest: `Target(use_fp16_acc=True)` selects only fp16-accumulation fp16
+launchers/profilers and changes the support/profile cache keys. `Target(no_tf32=True)`
+is recognized as the v1 TF32 opt-out policy, but currently raises for float32
+GEMM until v1 SM80 SIMT f32 fallback candidates are generated in v2.
 
-Next steps are target-level TF32/accumulation policy gates, broader
+Next steps are SM80 SIMT f32 fallback candidates for `no_tf32=True`, broader
 broadcast/arithmetic epilogues, broader v1 candidate enumeration, BMM and
 grouped GEMM parity, and then public `matmul` layout selection.
 

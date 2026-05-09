@@ -31,11 +31,27 @@ class Identity(dml.Module):
 
 def test_target_defaults_are_loaded_from_backend_registry():
     assert dml.Target("cuda").arch == "sm_86"
-    assert dml.Target("cuda", arch="sm_90").to_json() == {"name": "cuda", "arch": "sm_90"}
+    assert dml.Target("cuda", arch="sm_90").to_json() == {
+        "name": "cuda",
+        "arch": "sm_90",
+        "no_tf32": False,
+        "use_fp16_acc": False,
+    }
+    assert dml.Target("cuda", no_tf32=True, use_fp16_acc=True).to_json() == {
+        "name": "cuda",
+        "arch": "sm_86",
+        "no_tf32": True,
+        "use_fp16_acc": True,
+    }
 
     assert dml.Target("cpu").arch == "native"
     assert dml.Target("cpu", arch="sm_86").arch == "native"
-    assert dml.Target("cpu", arch="x86_64").to_json() == {"name": "cpu", "arch": "x86_64"}
+    assert dml.Target("cpu", arch="x86_64").to_json() == {
+        "name": "cpu",
+        "arch": "x86_64",
+        "no_tf32": False,
+        "use_fp16_acc": False,
+    }
 
 
 def test_target_rejects_names_missing_from_backend_registry():

@@ -9,7 +9,7 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_pl
 
 @dataclass(frozen=True)
 class KernelCodegenPlan:
-    target: Mapping[str, str]
+    target: Mapping[str, Any]
     cache_key: str
     support_cache_dir: Path
     kernel_symbols: tuple[str, ...]

@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("model")
     compile_parser.add_argument("--target", default="cuda")
     compile_parser.add_argument("--arch", default="sm_86")
+    compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
+    compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--out", required=True)
 
     inspect_parser = subparsers.add_parser("inspect")
@@ -57,7 +59,11 @@ def _compile(args: argparse.Namespace) -> int:
     if not hasattr(module, "build_spec"):
         raise RuntimeError(f"{args.model} must define build_spec()")
     spec = module.build_spec()
-    artifact = dml.compile(spec, target=dml.Target(args.target, arch=args.arch), output=args.out)
+    artifact = dml.compile(
+        spec,
+        target=dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
+        output=args.out,
+    )
     print(f"Wrote {artifact.path}")
     return 0
 

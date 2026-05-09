@@ -119,15 +119,20 @@ CUDA hardware/toolchain fingerprint plus support-library source/binary hashes,
 toolchain/dependency provenance, so timings do not silently float across
 different GPUs or regenerated support libraries. GEMM manifests now emit
 explicit CUTLASS tensor-op candidates under each dtype/layout-specific candidate
-set. The candidate set records provider, layout, epilogue, accumulator, launch
-ABI, generator id, candidate config keys, and its own `candidate_set_key`; future
-work should replace the static seed candidates with generated CUTLASS manifest
-sets. The CUTLASS support cache also writes a `dinoml.support_source_manifest`
-at `src/source_manifest.json`, mapping the rendered support source to the
-candidate set keys, candidate config keys, launcher/profiler symbols, and
-support build units actually required by the artifact. The rendered support
-source is pruned from the checked-in CUTLASS source to the symbols required by
-the artifact's used candidate plan.
+set. The candidate set records provider, layout, epilogue, accumulator, target
+policy, launch ABI, generator id, candidate config keys, and its own
+`candidate_set_key`; future work should replace the static seed candidates with
+generated CUTLASS manifest sets. `Target(use_fp16_acc=True)` filters fp16
+candidate sets to fp16 accumulation and flows through CUDA lowering, profile
+workload construction, support-source pruning, and cache keys. `Target(no_tf32=True)`
+is represented in the same policy surface but currently requires SM80 SIMT f32
+candidate generation before float32 GEMM can run without TF32. The CUTLASS
+support cache also writes a `dinoml.support_source_manifest` at
+`src/source_manifest.json`, mapping the rendered support source to the candidate
+set keys, candidate config keys, launcher/profiler symbols, and support build
+units actually required by the artifact. The rendered support source is pruned
+from the checked-in CUTLASS source to the symbols required by the artifact's
+used candidate plan.
 
 Current reusable kernels are intentionally simple:
 
@@ -377,8 +382,9 @@ The next foundations to settle before broad op porting are:
 
 - richer backend capability metadata for profilers, external libraries, layout
   support, and future ROCm/Metal/Vulkan parity. V2 now has a typed
-  `BackendSpec` registry for CPU/CUDA target defaults, dtype validation, support
-  libraries, and build dispatch.
+  `BackendSpec` registry for CPU/CUDA target defaults, dtype validation,
+  support libraries, build dispatch, and the first CUTLASS GEMM target policy
+  knobs (`no_tf32`, `use_fp16_acc`).
 - runtime/container contract for allocators, graph mode, metadata,
   output-shape reporting, and externally supplied shape buffers. V2 now exposes
   `dino_session_set_stream(DinoSession*, void*)`; CUDA generated modules store a

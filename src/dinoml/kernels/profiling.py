@@ -96,11 +96,10 @@ def build_profile_workloads(
     if kernel_manifest.get("target", {}).get("name") != "cuda":
         return []
     tensor_map = {str(tensor["name"]): tensor for tensor in graph["tensors"]}
-    required = {
-        (str(item["op"]), str(item["kernel_symbol"])): item
-        for item in kernel_manifest.get("required_kernels", [])
-        if item.get("profiler_symbol")
-    }
+    required_by_op: dict[str, list[Mapping[str, Any]]] = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("profiler_symbol"):
+            required_by_op.setdefault(str(item["op"]), []).append(item)
     overrides = {name: tuple(int(dim) for dim in shape) for name, shape in (input_shapes or {}).items()}
     workloads = []
     for node in graph["nodes"]:
@@ -111,7 +110,7 @@ def build_profile_workloads(
         output_info = tensor_map[output_name]
         dtype = str(output_info["dtype"])
         binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
-        required_item = required.get((op_name, binding.symbol))
+        required_item = _required_profile_item(required_by_op.get(op_name, ()), dtype, binding.symbol)
         if required_item is None:
             continue
         spec = gemm_op_spec(op_name)
@@ -164,6 +163,24 @@ def _profile_candidates(required_item: Mapping[str, Any]) -> list[dict[str, Any]
     if candidates:
         return candidates
     return [_selected_profile_candidate(required_item)]
+
+
+def _required_profile_item(
+    required_items: Sequence[Mapping[str, Any]],
+    dtype: str,
+    fallback_symbol: str,
+) -> Mapping[str, Any] | None:
+    for item in required_items:
+        candidates = item.get("candidates", [])
+        if any(str(candidate.get("dtype")) == dtype for candidate in candidates):
+            return item
+        candidate_set = item.get("candidate_set", {})
+        if isinstance(candidate_set, Mapping) and str(candidate_set.get("dtype")) == dtype:
+            return item
+    for item in required_items:
+        if str(item.get("kernel_symbol")) == fallback_symbol:
+            return item
+    return None
 
 
 def _selected_profile_candidate(required_item: Mapping[str, Any]) -> dict[str, Any]:

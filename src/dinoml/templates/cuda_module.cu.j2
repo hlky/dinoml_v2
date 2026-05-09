@@ -43,6 +43,10 @@ struct DinoSession {
 {{ kernel }}
 
 {% endfor %}
+{% for declaration in external_kernel_declarations %}
+{{ declaration }}
+
+{% endfor %}
 
 extern "C" {
 

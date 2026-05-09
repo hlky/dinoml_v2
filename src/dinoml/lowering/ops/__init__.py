@@ -112,14 +112,20 @@ def _source_hash(source_key: str) -> str:
     return hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:16]
 
 
-def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+def render_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
     if node["op"] in FUSABLE_ELEMENTWISE_OPS:
         raise ValueError(f"{node['op']} must be lowered through fused_elementwise before {target} codegen")
     try:
         lowering = OP_LOWERINGS[node["op"]]
     except KeyError as exc:
         raise ValueError(f"Unsupported op for {target} lowering: {node['op']}") from exc
-    return lowering.render_launch(target, node, tensor_map)
+    return lowering.render_launch(target, node, tensor_map, kernel_manifest)
 
 
 __all__ = ["OP_LOWERINGS", "collect_generated_sources", "render_generated_kernels", "render_launch"]

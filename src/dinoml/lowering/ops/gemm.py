@@ -13,7 +13,12 @@ def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Ma
     return None
 
 
-def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+def render_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
     if target != "cuda":
         raise ValueError(f"{node['op']} lowering is currently CUDA-only")
     op_name = str(node["op"])
@@ -25,7 +30,7 @@ def render_launch(target: str, node: Mapping[str, Any], tensor_map: Mapping[str,
     c_ident = _c_ident(c_name)
     _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
     dtype = str(tensor_map[c_name]["dtype"])
-    symbol = get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
+    symbol = _manifest_kernel_symbol(kernel_manifest, op_name, dtype) or get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
 
     m_expr = f"shape_{a_ident}_0"
     k_expr = f"shape_{a_ident}_1"
@@ -72,6 +77,22 @@ def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Ma
 
 def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
     del target, node, tensor_map
+    return None
+
+
+def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:
+    if kernel_manifest is None:
+        return None
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("op") != op_name or item.get("kernel_library") != "cutlass_gemm":
+            continue
+        selected_id = item.get("selected_candidate_id")
+        for candidate in item.get("candidates", []):
+            if candidate.get("candidate_id") == selected_id and candidate.get("dtype") == dtype:
+                return str(item.get("kernel_symbol") or candidate.get("kernel_symbol"))
+        candidate_set = item.get("candidate_set", {})
+        if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
+            return str(item["kernel_symbol"])
     return None
 
 

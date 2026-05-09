@@ -36,11 +36,13 @@ def ensure_cutlass_gemm_support_lib(
     cublaslt = require_cuda_library("cublaslt")
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_num = _cmake_arch(arch)
-    plan = build_external_kernel_plan({"name": "cuda", "arch": f"sm_{arch_num}"})
+    default_target = {"name": "cuda", "arch": f"sm_{arch_num}"}
     families = [family.to_json() for family in external_kernel_families(provider="cutlass", backend="cuda")]
     if used_candidate_plan is None:
-        used_candidate_plan = cutlass_gemm_used_candidate_plan(_kernel_manifest_from_families(families, {"name": "cuda", "arch": f"sm_{arch_num}"}))
-    family_cache_key = _family_cache_key({"name": "cuda", "arch": f"sm_{arch_num}"}, families)
+        used_candidate_plan = cutlass_gemm_used_candidate_plan(_kernel_manifest_from_families(families, default_target))
+    target = dict(used_candidate_plan.get("target", default_target))
+    plan = build_external_kernel_plan(target)
+    family_cache_key = _family_cache_key(target, families)
     used_candidate_plan_key = str(used_candidate_plan["used_candidate_plan_key"])
     manifest_key = cache_key or plan["cache_key"][:16]
     support_root = cache_root / "support" / f"cuda-{arch_num}" / "cutlass-gemm" / manifest_key
@@ -64,7 +66,7 @@ def ensure_cutlass_gemm_support_lib(
     compile_flags = _compile_flags(arch_num)
     include_args = [f"-I{root}" for root in include_roots if root.exists()]
     provenance = _build_provenance(
-        arch_num=arch_num,
+        target=target,
         plan_cache_key=plan["cache_key"],
         family_cache_key=family_cache_key,
         source_hash=source_hash,
@@ -98,7 +100,7 @@ def ensure_cutlass_gemm_support_lib(
     source.write_text(rendered_source, encoding="utf-8")
     _write_source_manifest(
         source_manifest,
-        target={"name": "cuda", "arch": f"sm_{arch_num}"},
+        target=target,
         families=families,
         source=source,
         repo_source=repo_source,
@@ -116,7 +118,7 @@ def ensure_cutlass_gemm_support_lib(
         manifest,
         {
             "schema_version": 2,
-            "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+            "target": target,
             "provider": "cutlass",
             "families": families,
             "library": library.name,
@@ -198,7 +200,7 @@ def _compile_flags(arch_num: str) -> list[str]:
 
 def _build_provenance(
     *,
-    arch_num: str,
+    target: Mapping[str, Any],
     plan_cache_key: str,
     family_cache_key: str,
     source_hash: str,
@@ -213,7 +215,7 @@ def _build_provenance(
     }
     key_payload = {
         "schema_version": 1,
-        "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+        "target": dict(target),
         "external_kernel_plan_cache_key": plan_cache_key,
         "family_cache_key": family_cache_key,
         "source_sha256": source_hash,
@@ -226,7 +228,7 @@ def _build_provenance(
     }
     return {
         "schema_version": 1,
-        "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+        "target": dict(target),
         "external_kernel_plan_cache_key": plan_cache_key,
         "family_cache_key": family_cache_key,
         "source_sha256": source_hash,
@@ -238,7 +240,7 @@ def _build_provenance(
     }
 
 
-def _family_cache_key(target: Mapping[str, str], families: Sequence[Mapping[str, Any]]) -> str:
+def _family_cache_key(target: Mapping[str, Any], families: Sequence[Mapping[str, Any]]) -> str:
     payload = {
         "schema_version": 1,
         "target": dict(target),
@@ -248,7 +250,7 @@ def _family_cache_key(target: Mapping[str, str], families: Sequence[Mapping[str,
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target: Mapping[str, str]) -> dict[str, Any]:
+def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target: Mapping[str, Any]) -> dict[str, Any]:
     required = []
     for family in families:
         for dtype, candidates in sorted(dict(family.get("candidates_by_dtype", {})).items()):
@@ -279,7 +281,7 @@ def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target
 def _write_source_manifest(
     path: Path,
     *,
-    target: Mapping[str, str],
+    target: Mapping[str, Any],
     families: Sequence[Mapping[str, Any]],
     source: Path,
     repo_source: Path,

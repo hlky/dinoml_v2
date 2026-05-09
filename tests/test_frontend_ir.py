@@ -1,6 +1,12 @@
+import sys
+from types import SimpleNamespace
+
 import pytest
+import numpy as np
 
 import dinoml as dml
+from dinoml.constant_sources import GGUFConstant, MaterializedConstant, gguf_constant
+from dinoml.compiler import _write_constants
 from dinoml.ir import array_from_storage, array_to_storage, canonical_json
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
@@ -30,6 +36,179 @@ def test_parameters_are_symbolic_and_constants_bind_later():
 
     bound = parameter.bind([[1, 2, 3], [4, 5, 6]])
     assert bound.value.shape == (2, 3)
+
+
+class MaterializingConstant:
+    def __init__(self, value, storage=None):
+        self.value = np.asarray(value)
+        self.storage = storage
+        self.materialize_calls = 0
+
+    def materialize(self, dtype, shape):
+        self.materialize_calls += 1
+        return MaterializedConstant(array_to_storage(self.value, dtype), self.storage)
+
+
+def _gguf_constant_ir():
+    return {
+        "name": "gguf_constant",
+        "constants": [
+            {
+                "name": "weight",
+                "tensor": "weight",
+                "shape": [2, 2],
+                "shape_spec": [2, 2],
+                "layout": {"kind": "dense", "order": "row_major", "strides": [2, 1], "alignment": 16},
+                "dtype": "float32",
+                "offset": None,
+                "nbytes": 16,
+                "storage": {
+                    "kind": "gguf",
+                    "source": {
+                        "path": "weights.gguf",
+                        "tensor": "blk.0.ffn.weight",
+                        "quantization": "Q4_K_M",
+                        "byte_offset": 4096,
+                    },
+                },
+            }
+        ],
+        "metadata": {},
+    }
+
+
+def test_write_constants_materializes_constant_source_and_preserves_gguf_metadata(tmp_path):
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "qtype": "Q4_K_M",
+        "encoded_nbytes": 4096,
+        "logical_dtype": "float32",
+        "materialization": "dequantize_full_before_launch",
+        "residency": "eager_dense_device",
+    }
+    value = MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage=storage)
+
+    lowered = _write_constants(tmp_path, _gguf_constant_ir(), {"weight": value})
+
+    assert value.materialize_calls == 1
+    assert (tmp_path / "constants.bin").read_bytes() == np.asarray(value.value, dtype=np.float32).tobytes(order="C")
+    constant = lowered["constants"][0]
+    assert constant["offset"] == 0
+    assert constant["nbytes"] == 16
+    assert constant["storage"] == storage
+    assert lowered["metadata"]["constants_nbytes"] == 16
+
+
+def test_write_constants_clears_source_metadata_for_dense_rebinding(tmp_path):
+    lowered = _write_constants(
+        tmp_path,
+        _gguf_constant_ir(),
+        {"weight": np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)},
+    )
+
+    assert "storage" not in lowered["constants"][0]
+
+
+def test_trace_bind_constants_preserves_materialized_source_metadata():
+    storage = {"kind": "gguf", "path": "weights.gguf", "tensor": "blk.0.ffn.weight", "logical_dtype": "float32"}
+
+    class ConstantAdd(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.add(x, dml.Parameter([2, 2], dtype="float32", name="weight")), "y")
+
+    spec = dml.trace(
+        ConstantAdd(),
+        inputs={"x": dml.TensorSpec([2, 2])},
+        constants={"weight": MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage=storage)},
+        name="gguf_source_bind",
+    )
+
+    assert spec.ir["constants"][0]["storage"] == storage
+    np.testing.assert_array_equal(spec.constants["weight"], np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32))
+
+
+def test_write_constants_validates_missing_and_shape_mismatched_constant_sources(tmp_path):
+    missing_dir = tmp_path / "missing"
+    shape_dir = tmp_path / "shape"
+    missing_dir.mkdir()
+    shape_dir.mkdir()
+
+    with pytest.raises(ValueError, match="Missing constant value: weight"):
+        _write_constants(missing_dir, _gguf_constant_ir(), {})
+
+    with pytest.raises(ValueError, match=r"Constant weight has shape \(3,\), expected \(2, 2\)"):
+        _write_constants(shape_dir, _gguf_constant_ir(), {"weight": MaterializingConstant([1.0, 2.0, 3.0])})
+
+
+def test_gguf_constant_validates_shape_and_logical_dtype_before_importing_libgguf():
+    assert isinstance(gguf_constant("weights.gguf", "blk.0.ffn.weight"), GGUFConstant)
+    assert isinstance(dml.gguf_constant("weights.gguf", "blk.0.ffn.weight"), GGUFConstant)
+
+    with pytest.raises(ValueError, match="logical dtype float16, expected float32"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", logical_dtype="float16").materialize("float32", [2, 2])
+
+    with pytest.raises(ValueError, match=r"has shape \(3, 2\), expected \(2, 2\)"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", shape=[3, 2]).materialize("float32", [2, 2])
+
+
+def test_gguf_constant_materializes_rows_with_explicit_shape_mapping(monkeypatch):
+    values = np.arange(6, dtype=np.float32).reshape(3, 2)
+
+    class FakeGGUFFile:
+        def __init__(self):
+            self.tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
+
+        def get_tensor(self, name):
+            assert name == "blk.0.ffn.weight"
+            return self.tensor_info
+
+        def read_tensor_bytes(self, tensor_info):
+            assert tensor_info is self.tensor_info
+            return values.tobytes(order="C")
+
+    fake_file = FakeGGUFFile()
+    fake_libgguf = SimpleNamespace(open_gguf=lambda path: fake_file)
+    monkeypatch.setitem(sys.modules, "libgguf", fake_libgguf)
+
+    materialized = GGUFConstant("weights.gguf", "blk.0.ffn.weight").materialize("float32", [3, 2])
+
+    np.testing.assert_array_equal(materialized.array, values)
+    assert materialized.storage["gguf_shape"] == [2, 3]
+    assert materialized.storage["n_per_row"] == 2
+    assert materialized.storage["encoded_nbytes"] == values.nbytes
+
+    fake_file.tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(4, 3), data_offset=128)
+    with pytest.raises(
+        ValueError,
+        match=r"has logical shape \(3, 4\), expected \(3, 2\) \(stored GGUF shape \(4, 3\)\)",
+    ):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight").materialize("float32", [3, 2])
+
+
+def test_gguf_constant_validates_observed_descriptor_hints(monkeypatch):
+    values = np.arange(6, dtype=np.float32).reshape(3, 2)
+
+    tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: values.tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    with pytest.raises(ValueError, match="expected qtype F16, observed F32"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", qtype="F16").materialize("float32", [3, 2])
+
+    with pytest.raises(ValueError, match=f"expected {values.nbytes + 1} encoded bytes, observed {values.nbytes}"):
+        GGUFConstant(
+            "weights.gguf",
+            "blk.0.ffn.weight",
+            encoded_nbytes=values.nbytes + 1,
+        ).materialize("float32", [3, 2])
+
+    with pytest.raises(ValueError, match="expected n_per_row 4, observed 2"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", n_per_row=4).materialize("float32", [3, 2])
 
 
 def test_frontend_emits_dense_layout_metadata():

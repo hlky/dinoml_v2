@@ -125,10 +125,12 @@ porting. It intentionally excludes the op inventory, which lives in
   and CUDA quantize/dequantize kernels. The integration should allow weights to
   load from GGUF, copy to GPU, and either dequantize the whole weight before
   launch or feed quantized storage to kernels that can dequantize directly.
-  Start by treating GGUF as constant storage metadata with dense logical dtype
-  rather than adding GGUF quantization types as normal `DinoDtype` values; this
-  keeps current dense GEMM/CUTLASS lowering intact while leaving room for fused
-  quantized-RHS candidate families.
+  The first scaffold treats GGUF as encoded constant storage metadata with dense
+  logical dtype rather than adding GGUF quantization types as normal `DinoDtype`
+  values; this keeps current dense GEMM/CUTLASS lowering intact while leaving
+  room for fused quantized-RHS candidate families. Next GGUF work is wiring real
+  libgguf tensor reads/dequantization through artifact build tests and then
+  adding load-time CUDA dequant/offload policies.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

@@ -6,19 +6,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-import numpy as np
-
 from dinoml.backends.registry import get_backend_spec
 from dinoml.backends.target import Target
 from dinoml.ir import (
     ARTIFACT_SCHEMA_VERSION,
     RUNTIME_ABI_VERSION,
     ModelSpec,
-    array_to_storage,
+    dtype_numpy,
     graph_hash,
     read_json,
     write_json,
 )
+from dinoml.constant_sources import materialize_constant_value
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
@@ -333,7 +332,7 @@ def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
     return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
 
 
-def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarray]) -> Dict:
+def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any]) -> Dict:
     offset = 0
     constant_infos = []
     with (artifact_dir / "constants.bin").open("wb") as handle:
@@ -341,14 +340,22 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Dict[str, np.ndarr
             name = constant["name"]
             if name not in constants:
                 raise ValueError(f"Missing constant value: {name}")
-            array = array_to_storage(constants[name], constant["dtype"])
             expected_shape = tuple(int(dim) for dim in constant["shape"])
+            materialized = materialize_constant_value(constants[name], constant["dtype"], expected_shape)
+            array = materialized.array
             if array.shape != expected_shape:
                 raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
+            expected_dtype = dtype_numpy(str(constant["dtype"]))
+            if array.dtype != expected_dtype:
+                raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
             data = array.tobytes(order="C")
             constant = dict(constant)
             constant["offset"] = offset
             constant["nbytes"] = len(data)
+            if materialized.storage is not None:
+                constant["storage"] = materialized.storage
+            else:
+                constant.pop("storage", None)
             constant_infos.append(constant)
             handle.write(data)
             offset += len(data)

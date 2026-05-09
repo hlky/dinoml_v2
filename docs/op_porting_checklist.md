@@ -272,6 +272,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [ ] Back-to-back BMM: `classic_b2b_bmm`, `fmha_style_b2b_bmm`,
   `grouped_classic_b2b_bmm`, `grouped_fmha_style_b2b_bmm`.
 - [ ] Direct-import helpers: `bmm`, `bmm_xxx`, `bmm_xxx_add`.
+- [x] First encoded constant source scaffold:
+  constant values can now materialize through a source object before
+  `constants.bin` is written, and `gguf_constant(...)` records GGUF provenance
+  plus dense logical dtype/materialization policy while preserving the existing
+  dense runtime ABI.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`

@@ -117,31 +117,45 @@ def clone_ir(ir: Mapping[str, Any]) -> Dict[str, Any]:
 class ModelSpec:
     name: str
     ir: Dict[str, Any]
-    constants: Dict[str, np.ndarray]
+    constants: Dict[str, Any]
 
     def clone(self) -> "ModelSpec":
         return ModelSpec(
             name=self.name,
             ir=clone_ir(self.ir),
-            constants={name: np.array(value, copy=True) for name, value in self.constants.items()},
+            constants={name: _clone_constant_value(value) for name, value in self.constants.items()},
         )
 
     def canonical_json(self) -> str:
         return canonical_json(self.ir)
 
     def bind_constants(self, constants: Mapping[str, Any]) -> "ModelSpec":
-        bound = {name: np.array(value, copy=True) for name, value in self.constants.items()}
-        constant_specs = {constant["name"]: constant for constant in self.ir.get("constants", [])}
+        bound = {name: _clone_constant_value(value) for name, value in self.constants.items()}
+        ir = clone_ir(self.ir)
+        constant_specs = {constant["name"]: constant for constant in ir.get("constants", [])}
         for name, value in constants.items():
             if name not in constant_specs:
                 raise ValueError(f"Unknown constant: {name}")
             spec = constant_specs[name]
-            array = array_to_storage(value, spec["dtype"])
+            from dinoml.constant_sources import materialize_constant_value
+
+            materialized = materialize_constant_value(value, spec["dtype"], spec["shape"])
+            array = materialized.array
             expected_shape = tuple(int(dim) for dim in spec["shape"])
             if array.shape != expected_shape:
                 raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
             bound[name] = array
-        return ModelSpec(name=self.name, ir=clone_ir(self.ir), constants=bound)
+            if materialized.storage is not None:
+                spec["storage"] = materialized.storage
+            else:
+                spec.pop("storage", None)
+        return ModelSpec(name=self.name, ir=ir, constants=bound)
+
+
+def _clone_constant_value(value: Any) -> Any:
+    if callable(getattr(value, "materialize", None)):
+        return value
+    return np.array(value, copy=True)
 
 
 def write_json(path: Path, data: Mapping[str, Any]) -> None:

@@ -10,6 +10,7 @@ from typing import Dict, Mapping, Sequence
 import numpy as np
 
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, dtype_numpy, write_json
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
@@ -51,7 +52,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias", "gemm_rrr_bias_relu", "gemm_rcr_bias_relu"}:
+        elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
@@ -194,20 +195,39 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
 
 
 def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
+    spec = gemm_op_spec(op)
     a = inputs[0]
     b = inputs[1]
-    if op in {"gemm_rrr", "gemm_rrr_bias", "gemm_rrr_bias_relu"}:
+    if spec.base_layout == "rrr":
         result = np.matmul(a, b)
-    elif op in {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_relu"}:
+    elif spec.base_layout == "rcr":
         result = np.matmul(a, np.swapaxes(b, -1, -2))
     else:
         raise ValueError(f"Unsupported GEMM op: {op}")
-    if "_bias" in op:
+    if spec.epilogue.has_bias:
         bias = np.reshape(inputs[2], [-1])
         result = result + bias
-    if op.endswith("_bias_relu"):
-        result = np.maximum(result, 0.0)
+    if spec.epilogue.activation is not None:
+        result = _execute_gemm_activation(spec.epilogue.activation, result)
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
+    if activation == "relu":
+        return np.maximum(value, 0.0)
+    if activation == "gelu":
+        return 0.5 * value * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (value + 0.044715 * value * value * value)))
+    if activation == "fast_gelu":
+        return value / (1.0 + np.exp(-1.702 * value))
+    if activation == "sigmoid":
+        return 1.0 / (1.0 + np.exp(-value))
+    if activation == "tanh":
+        return np.tanh(value)
+    if activation == "swish":
+        return value / (1.0 + np.exp(-value))
+    if activation == "hardswish":
+        return value * np.clip(value + 3.0, 0.0, 6.0) / 6.0
+    raise ValueError(f"Unsupported GEMM activation: {activation}")
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

@@ -116,44 +116,79 @@ BIAS_RELU_EPILOGUE = GemmEpilogue(
     launch_abi="dinoml_cutlass_gemm_bias_v1",
 )
 
+BIAS_ACTIVATION_EPILOGUES: dict[str, GemmEpilogue] = {
+    "gelu": GemmEpilogue(
+        name="bias_gelu",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationGELU",
+        inputs=("bias",),
+        activation="gelu",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+    "fast_gelu": GemmEpilogue(
+        name="bias_fast_gelu",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationFastGELU",
+        inputs=("bias",),
+        activation="fast_gelu",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+    "sigmoid": GemmEpilogue(
+        name="bias_sigmoid",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationSigmoid",
+        inputs=("bias",),
+        activation="sigmoid",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+    "tanh": GemmEpilogue(
+        name="bias_tanh",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationTanh",
+        inputs=("bias",),
+        activation="tanh",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+    "swish": GemmEpilogue(
+        name="bias_swish",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationSilu",
+        inputs=("bias",),
+        activation="swish",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+    "hardswish": GemmEpilogue(
+        name="bias_hardswish",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationHardSwish",
+        inputs=("bias",),
+        activation="hardswish",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
+}
+
+
+def _gemm_op_spec(name: str, base_layout: str, epilogue: GemmEpilogue) -> GemmOpSpec:
+    return GemmOpSpec(
+        name=name,
+        base_layout=base_layout,
+        layouts={"a": "row", "b": "row" if base_layout == "rrr" else "column", "c": "row"},
+        epilogue=epilogue,
+    )
+
 
 GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
-    "gemm_rcr": GemmOpSpec(
-        name="gemm_rcr",
-        base_layout="rcr",
-        layouts={"a": "row", "b": "column", "c": "row"},
-        epilogue=LINEAR_COMBINATION_EPILOGUE,
-    ),
-    "gemm_rrr": GemmOpSpec(
-        name="gemm_rrr",
-        base_layout="rrr",
-        layouts={"a": "row", "b": "row", "c": "row"},
-        epilogue=LINEAR_COMBINATION_EPILOGUE,
-    ),
-    "gemm_rcr_bias": GemmOpSpec(
-        name="gemm_rcr_bias",
-        base_layout="rcr",
-        layouts={"a": "row", "b": "column", "c": "row"},
-        epilogue=BIAS_EPILOGUE,
-    ),
-    "gemm_rrr_bias": GemmOpSpec(
-        name="gemm_rrr_bias",
-        base_layout="rrr",
-        layouts={"a": "row", "b": "row", "c": "row"},
-        epilogue=BIAS_EPILOGUE,
-    ),
-    "gemm_rcr_bias_relu": GemmOpSpec(
-        name="gemm_rcr_bias_relu",
-        base_layout="rcr",
-        layouts={"a": "row", "b": "column", "c": "row"},
-        epilogue=BIAS_RELU_EPILOGUE,
-    ),
-    "gemm_rrr_bias_relu": GemmOpSpec(
-        name="gemm_rrr_bias_relu",
-        base_layout="rrr",
-        layouts={"a": "row", "b": "row", "c": "row"},
-        epilogue=BIAS_RELU_EPILOGUE,
-    ),
+    "gemm_rcr": _gemm_op_spec("gemm_rcr", "rcr", LINEAR_COMBINATION_EPILOGUE),
+    "gemm_rrr": _gemm_op_spec("gemm_rrr", "rrr", LINEAR_COMBINATION_EPILOGUE),
+    "gemm_rcr_bias": _gemm_op_spec("gemm_rcr_bias", "rcr", BIAS_EPILOGUE),
+    "gemm_rrr_bias": _gemm_op_spec("gemm_rrr_bias", "rrr", BIAS_EPILOGUE),
+    "gemm_rcr_bias_relu": _gemm_op_spec("gemm_rcr_bias_relu", "rcr", BIAS_RELU_EPILOGUE),
+    "gemm_rrr_bias_relu": _gemm_op_spec("gemm_rrr_bias_relu", "rrr", BIAS_RELU_EPILOGUE),
+    **{
+        f"gemm_{layout}_bias_{activation}": _gemm_op_spec(f"gemm_{layout}_bias_{activation}", layout, epilogue)
+        for activation, epilogue in BIAS_ACTIVATION_EPILOGUES.items()
+        for layout in ("rcr", "rrr")
+    },
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)
 

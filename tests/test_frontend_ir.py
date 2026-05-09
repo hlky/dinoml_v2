@@ -146,6 +146,15 @@ class GemmRCRBiasReluModule(dml.Module):
         return dml.ops.output(dml.ops.gemm_rcr_bias_relu(a, b, bias), "y")
 
 
+class GemmBiasOpModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b, bias), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -291,6 +300,21 @@ def test_gemm_frontend_emits_explicit_layout_ops():
 def test_gemm_bias_frontend_emits_epilogue_ops(module, b_shape, op_name):
     spec = dml.trace(
         module,
+        inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec(b_shape), "bias": dml.TensorSpec([6])},
+        name=f"{op_name}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == [4, 6]
+    assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
+
+
+@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])
+@pytest.mark.parametrize(("layout", "b_shape"), [("rcr", [6, 8]), ("rrr", [8, 6])])
+def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activation):
+    op_name = f"gemm_{layout}_bias_{activation}"
+    spec = dml.trace(
+        GemmBiasOpModule(op_name),
         inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec(b_shape), "bias": dml.TensorSpec([6])},
         name=f"{op_name}_frontend",
     )

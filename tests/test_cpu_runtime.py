@@ -792,6 +792,42 @@ def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype,
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 
+@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])
+@pytest.mark.parametrize(("layout", "a_shape", "b_shape"), [("rrr", (4, 8), (8, 6)), ("rcr", (4, 8), (6, 8))])
+def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_shape, activation):
+    op_name = f"gemm_{layout}_bias_{activation}"
+    spec = dml.trace(
+        GemmBiasModule(op_name),
+        inputs={
+            "a": dml.TensorSpec(a_shape, "float32"),
+            "b": dml.TensorSpec(b_shape, "float32"),
+            "bias": dml.TensorSpec([6], "float32"),
+        },
+        name=f"{op_name}_float32_reference",
+    )
+    rng = np.random.default_rng(991)
+    a = rng.standard_normal(a_shape).astype(np.float32)
+    b = rng.standard_normal(b_shape).astype(np.float32)
+    bias = rng.standard_normal((6,)).astype(np.float32)
+    result = a @ (b if layout == "rrr" else b.T) + bias
+    if activation == "gelu":
+        result = 0.5 * result * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (result + 0.044715 * result * result * result)))
+    elif activation == "fast_gelu":
+        result = result / (1.0 + np.exp(-1.702 * result))
+    elif activation == "sigmoid":
+        result = 1.0 / (1.0 + np.exp(-result))
+    elif activation == "tanh":
+        result = np.tanh(result)
+    elif activation == "swish":
+        result = result / (1.0 + np.exp(-result))
+    elif activation == "hardswish":
+        result = result * np.clip(result + 3.0, 0.0, 6.0) / 6.0
+    expected = result.astype(np.float32)
+
+    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
 def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

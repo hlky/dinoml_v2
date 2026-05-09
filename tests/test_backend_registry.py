@@ -8,6 +8,19 @@ from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import read_json
+from dinoml.kernels.gemm import GEMM_OPS
+
+
+CUTLASS_GEMM_SYMBOL_IDS = [
+    "tensorop_sm80_128x128x32_align8",
+    "tensorop_sm80_64x128x32_align8",
+    "tensorop_sm80_128x64x32_align8",
+    "tensorop_sm80_64x64x32_align8",
+    "tensorop_sm80_256x128x32_align8",
+    "tensorop_sm80_128x128x32_align4",
+]
+CUTLASS_GEMM_CANDIDATE_IDS = [f"cutlass_{symbol_id}" for symbol_id in CUTLASS_GEMM_SYMBOL_IDS]
+CUTLASS_GEMM_CANDIDATE_COUNT = len(CUTLASS_GEMM_SYMBOL_IDS)
 
 
 class Identity(dml.Module):
@@ -100,7 +113,8 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
     assert source_manifest["used_candidate_plan"]["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
     assert len(manifest["used_candidate_plan_key"]) == 64
-    assert len(source_manifest["used_candidate_plan"]["entries"]) == 18
+    expected_gemm_entry_count = len(GEMM_OPS) * 3
+    assert len(source_manifest["used_candidate_plan"]["entries"]) == expected_gemm_entry_count
     assert len(source_manifest["source_manifest_key"]) == 64
     static_source = next(item for item in source_manifest["sources"] if item["source_id"] == "cutlass_gemm_static_default")
     assert static_source["emitted_source_path"] == support.source.name
@@ -112,8 +126,8 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert {"kernel", "profiler"} == {item["kind"] for item in static_source["symbols"]}
     assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
-    assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == 18
-    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == 36
+    assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == expected_gemm_entry_count
+    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == expected_gemm_entry_count * CUTLASS_GEMM_CANDIDATE_COUNT
     assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
         symbol
         for family in manifest["families"]
@@ -129,32 +143,22 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert manifest["compile"]["flags"] == manifest["provenance"]["compile_flags"]
     assert manifest["provenance"]["dependencies"]["cutlass"]["headers"][0]["sha256"]
     assert manifest["provenance"]["dependencies"]["cublaslt"]["headers"][0]["sha256"]
-    assert {family["op_name"] for family in manifest["families"]} == {
-        "gemm_rcr",
-        "gemm_rcr_bias",
-        "gemm_rcr_bias_relu",
-        "gemm_rrr",
-        "gemm_rrr_bias",
-        "gemm_rrr_bias_relu",
-    }
+    assert {family["op_name"] for family in manifest["families"]} == set(GEMM_OPS)
     for family in manifest["families"]:
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["profiler_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidates_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidate_sets_by_dtype"]) == ["bfloat16", "float16", "float32"]
         for dtype, candidates in family["candidates_by_dtype"].items():
-            assert len(candidates) == 2
+            assert len(candidates) == CUTLASS_GEMM_CANDIDATE_COUNT
             candidate = candidates[0]
             candidate_set = family["candidate_sets_by_dtype"][dtype]
-            assert candidate_set["candidate_count"] == 2
+            assert candidate_set["candidate_count"] == CUTLASS_GEMM_CANDIDATE_COUNT
             assert candidate_set["candidate_config_keys"] == [
                 item["candidate_config_key"] for item in candidates
             ]
             assert len(candidate_set["candidate_set_key"]) == 64
-            assert [item["candidate_id"] for item in candidates] == [
-                "cutlass_tensorop_sm80_128x128x32_align8",
-                "cutlass_tensorop_sm80_64x128x32_align8",
-            ]
+            assert [item["candidate_id"] for item in candidates] == CUTLASS_GEMM_CANDIDATE_IDS
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
@@ -163,6 +167,10 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             assert candidate["cutlass"]["threadblock"] == [128, 128, 32]
             assert candidates[1]["cutlass"]["opclass"] == "tensorop"
             assert candidates[1]["cutlass"]["align"] == 8
+            assert candidates[2]["cutlass"]["threadblock"] == [128, 64, 32]
+            assert candidates[3]["cutlass"]["threadblock"] == [64, 64, 32]
+            assert candidates[4]["cutlass"]["threadblock"] == [256, 128, 32]
+            assert candidates[5]["cutlass"]["align"] == 4
             assert len(candidate["candidate_config_key"]) == 64
     bias_candidates = [
         candidate
@@ -183,6 +191,16 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert bias_relu_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
     assert bias_relu_candidates[0]["epilogue_config"]["activation"] == "relu"
     assert bias_relu_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
+    bias_gelu_candidates = [
+        candidate
+        for family in manifest["families"]
+        if family["op_name"] == "gemm_rcr_bias_gelu"
+        for candidate in family["candidates_by_dtype"]["float32"]
+    ]
+    assert bias_gelu_candidates[0]["epilogue"] == "bias_gelu"
+    assert bias_gelu_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
+    assert bias_gelu_candidates[0]["epilogue_config"]["activation"] == "gelu"
+    assert bias_gelu_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

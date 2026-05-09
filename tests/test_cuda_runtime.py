@@ -207,9 +207,9 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     symbol = f"dinoml_cutlass_{op_name}_{suffix}_tensorop_sm80_128x128x32_align8"
     assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == symbol
     assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_linear_combination_v1"
-    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == 2
+    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == 6
     assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
-    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 2
+    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 6
     assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
     assert kernel_manifest["required_kernels"][0]["candidates"][0]["kernel_symbol"] == symbol
     assert source_manifest["sources"] == []

@@ -26,6 +26,9 @@ from dinoml.kernels.profiling import (
 from dinoml.passes import PassManager
 
 
+CUTLASS_GEMM_CANDIDATE_COUNT = 6
+
+
 class GemmModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -66,7 +69,7 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
 
     workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (7, 32), "b": (32, 11)})
 
-    assert len(workloads) == 2
+    assert len(workloads) == CUTLASS_GEMM_CANDIDATE_COUNT
     workload = workloads[0]
     assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8"
     assert workload.dtype == "float16"
@@ -104,7 +107,7 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == 2
+    assert len(workloads) == CUTLASS_GEMM_CANDIDATE_COUNT
     workload = workloads[0]
     assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_tensorop_sm80_128x128x32_align8"
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
@@ -252,7 +255,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
 
     report = profile_artifact(artifact, iterations=3)
 
-    assert report["summary"] == {"cached": 2, "failed": 0, "profiled": 0, "skipped": 0}
+    assert report["summary"] == {"cached": CUTLASS_GEMM_CANDIDATE_COUNT, "failed": 0, "profiled": 0, "skipped": 0}
     assert report["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
     assert report["kernel_manifest_cache_key"] == kernel_manifest["cache_key"]
     assert report["codegen_plan_cache_key"] == codegen_plan["cache_key"]
@@ -307,8 +310,8 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
     assert report["fingerprint"]["support_libraries_key"] == report["support_libraries_cache_key"]
     assert report["fingerprint"]["support_libraries"][0]["name"] == "cutlass_gemm"
     assert report["libraries"][0]["artifact_sha256"]
-    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0}
-    assert len(report["problems"]) == 2
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": CUTLASS_GEMM_CANDIDATE_COUNT, "skipped": 0}
+    assert len(report["problems"]) == CUTLASS_GEMM_CANDIDATE_COUNT
     workload = report["problems"][0]
     assert workload["status"] == "ok"
     assert workload["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8"

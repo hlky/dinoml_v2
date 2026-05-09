@@ -138,12 +138,18 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] First activation epilogue: `gemm_rcr_bias_relu` and
   `gemm_rrr_bias_relu` use CUTLASS `LinearCombinationRelu` with the same bias
   shape/dtype/runtime/profiler contracts as the bias-only GEMM ops.
+- [x] v1-style bias activation epilogue names:
+  `gemm_{rcr,rrr}_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}` are
+  registered as explicit GEMM family ops with CUTLASS candidate metadata,
+  CUDA support-library symbols, candidate profiling coverage, and CPU reference
+  execution. Non-ReLU CUDA activations currently use a post-GEMM activation pass
+  while the true CUTLASS visitor/functor fused epilogue port remains open.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: add/add-add/mul/mul-add and broader
   broadcast forms.
-- [ ] Remaining activation epilogues: gelu/fast-gelu, sigmoid, tanh,
-  swish/silu, hardswish, `elup1`, and compound sigmoid/mul/tanh forms.
+- [ ] Remaining activation epilogues: `elup1`, compound sigmoid/mul/tanh forms,
+  and fused CUTLASS visitor/functor implementations for non-ReLU activations.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,
   `bmm_*_permute`, `perm021fc_*`, `perm102_bmm_*`.
 - [ ] Grouped GEMM: `group_gemm_rcr*`.

@@ -46,6 +46,62 @@ CUTLASS_GEMM_CANDIDATE_CONFIGS = (
             "align": 8,
         },
     },
+    {
+        "candidate_id": "cutlass_tensorop_sm80_128x64x32_align8",
+        "symbol_id": "tensorop_sm80_128x64x32_align8",
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [128, 64, 32],
+            "warp": [64, 32, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 4,
+            "align": 8,
+        },
+    },
+    {
+        "candidate_id": "cutlass_tensorop_sm80_64x64x32_align8",
+        "symbol_id": "tensorop_sm80_64x64x32_align8",
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [64, 64, 32],
+            "warp": [32, 32, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 4,
+            "align": 8,
+        },
+    },
+    {
+        "candidate_id": "cutlass_tensorop_sm80_256x128x32_align8",
+        "symbol_id": "tensorop_sm80_256x128x32_align8",
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [256, 128, 32],
+            "warp": [64, 64, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 3,
+            "align": 8,
+        },
+    },
+    {
+        "candidate_id": "cutlass_tensorop_sm80_128x128x32_align4",
+        "symbol_id": "tensorop_sm80_128x128x32_align4",
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [128, 128, 32],
+            "warp": [64, 64, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 3,
+            "align": 4,
+        },
+    },
 )
 
 

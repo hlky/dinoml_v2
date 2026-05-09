@@ -59,14 +59,15 @@ The CUTLASS slice adds:
   `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8` and
   `dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_64x128x32_align8`.
 
-The first runtime GEMM port now wires model lowering into that support library:
+The runtime GEMM port now wires model lowering into that support library:
 
-1. `gemm_rcr`/`gemm_rrr`, the first bias epilogue ops
-   `gemm_rcr_bias`/`gemm_rrr_bias`, and the first activation epilogue ops
-   `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu` are explicit frontend ops for
-   `float32`, `float16`, and `bfloat16`, not a generic `matmul`; they preserve
-   dynamic `M/N` shape metadata while requiring rank-2 matrix tensors and
-   compatible max-shape `K`.
+1. `gemm_rcr`/`gemm_rrr`, bias epilogue ops
+   `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
+   `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, and v1-style activation epilogue
+   ops `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}` are explicit
+   frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
+   `matmul`; they preserve dynamic `M/N` shape metadata while requiring rank-2
+   matrix tensors and compatible max-shape `K`.
 2. The kernel manifest records `cutlass_gemm` as an external support library
    with real launcher/profiler symbols.
 3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
@@ -92,9 +93,17 @@ static source file and pruned to only the launcher/profiler symbols required by
 the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
-Next steps are candidate enumeration beyond the single default CUTLASS instance,
-the remaining activation epilogues, optional accumulation-policy variants, and
-then public `matmul` layout selection.
+Each GEMM candidate set now seeds six SM80 TensorOp tile/alignment variants,
+keeps `tensorop_sm80_128x128x32_align8` as the default selection, and profiles
+each candidate independently. Activation epilogue exports are functional today;
+the non-ReLU activations are implemented as bias GEMM plus a CUDA activation
+pass in the checked-in support source until the CUTLASS visitor/functor-backed
+fused epilogue port lands.
+
+Next steps are broader broadcast/arithmetic epilogues, optional
+accumulation-policy variants, BMM and grouped GEMM parity, true fused
+CUTLASS visitor epilogues for the non-ReLU activations, and then public
+`matmul` layout selection.
 
 ## Dependency Discovery
 
@@ -117,10 +126,10 @@ with:
 git submodule update --init --recursive
 ```
 
-## Non-Goals For The First GEMM Patch
+## Remaining Near-Term Non-Goals
 
 - No naive C++/CUDA matmul.
-- No full epilogue visitor port beyond the first bias and bias+ReLU slices.
+- No full epilogue visitor port beyond the bias and ReLU fused CUTLASS slices.
 - No grouped GEMM.
 - No convolution implicit-GEMM yet.
 - No public `dml.ops.matmul` until CUDA and CPU/reference behavior are both

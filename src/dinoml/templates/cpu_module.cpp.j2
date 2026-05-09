@@ -70,6 +70,19 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
   return 0;
 }
 
+DINO_EXPORT int dino_module_unload_constants(DinoModule* module) {
+  if (module == nullptr) {
+    return dinoml::module::fail("dino_module_unload_constants received null argument");
+  }
+{% for constant in constants %}
+  module->const_{{ constant.ident }}.clear();
+  module->const_{{ constant.ident }}.shrink_to_fit();
+  module->const_shape_{{ constant.ident }}.clear();
+  module->const_{{ constant.ident }}_loaded = false;
+{% endfor %}
+  return 0;
+}
+
 DINO_EXPORT int dino_module_set_constant(
     DinoModule* module,
     const char* name,

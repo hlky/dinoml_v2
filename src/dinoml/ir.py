@@ -12,7 +12,7 @@ import numpy as np
 
 IR_SCHEMA_VERSION = 1
 ARTIFACT_SCHEMA_VERSION = 1
-RUNTIME_ABI_VERSION = 5
+RUNTIME_ABI_VERSION = 6
 VIEW_METADATA_VERSION = 1
 VIEW_ONLY_TRANSFORMS = frozenset({"identity", "reshape", "flatten", "squeeze", "unsqueeze"})
 

@@ -93,7 +93,7 @@ porting. It intentionally excludes the op inventory, which lives in
   temporary plan and strided/layout views.
 - Layout and accessors: v1 models tensor accessors, alignment, channel-last
   conventions, and GEMM layout descriptors. V2 has a small TensorAccessor,
-  CUDA vectorized dense elementwise paths, and ABI v5 fields for strides, byte
+  CUDA vectorized dense elementwise paths, and ABI v6 fields for strides, byte
   capacity, device type, flags, and alignment. Current generated modules apply
   ABI byte offsets to logical tensor pointers, still require row-major
   contiguous tensors, and most lowering assumes dense layout; layout views and
@@ -120,7 +120,10 @@ porting. It intentionally excludes the op inventory, which lives in
   move to GPU on first run or planned prefetch. Design this as an extensible
   runtime policy rather than a one-off copy path so it can grow into sequential
   offload, grouped/block/layer offload, additional CUDA streams, and explicit
-  prefetch/eviction scheduling.
+  prefetch/eviction scheduling. Runtime modules now expose an explicit
+  unload/reload lifecycle for dense constants, which gives a future offload
+  scheduler the basic eviction primitive while keeping module load eager for
+  existing artifacts.
 - GGUF weight ingestion: evaluate `hlky/libgguf` for GGUF read/convert support
   and CUDA quantize/dequantize kernels. The integration should allow weights to
   load from GGUF, copy to GPU, and either dequantize the whole weight before

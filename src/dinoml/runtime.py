@@ -98,6 +98,9 @@ class RuntimeModule:
         constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
         self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
 
+    def unload_constants(self) -> None:
+        self._check(self._dll.dino_module_unload_constants(self._handle))
+
     def load_encoded_constants(self) -> None:
         for constant_spec in self._encoded_constant_specs():
             storage = constant_spec.get("storage")
@@ -231,6 +234,8 @@ class RuntimeModule:
         self._dll.dino_module_get_metadata_json.restype = ctypes.c_char_p
         self._dll.dino_module_load_constants.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         self._dll.dino_module_load_constants.restype = ctypes.c_int
+        self._dll.dino_module_unload_constants.argtypes = [ctypes.c_void_p]
+        self._dll.dino_module_unload_constants.restype = ctypes.c_int
         self._dll.dino_module_set_constant.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(_DinoTensor)]
         self._dll.dino_module_set_constant.restype = ctypes.c_int
         self._dll.dino_session_create.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]

@@ -82,6 +82,22 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
   return 0;
 }
 
+DINO_EXPORT int dino_module_unload_constants(DinoModule* module) {
+  if (module == nullptr) {
+    return dinoml::module::fail("dino_module_unload_constants received null argument");
+  }
+  DINO_CUDA_CHECK(cudaDeviceSynchronize());
+{% for constant in constants %}
+  if (module->const_{{ constant.ident }}) {
+    DINO_CUDA_CHECK(cudaFree(module->const_{{ constant.ident }}));
+    module->const_{{ constant.ident }} = nullptr;
+  }
+  module->const_shape_{{ constant.ident }}.clear();
+  module->const_{{ constant.ident }}_loaded = false;
+{% endfor %}
+  return 0;
+}
+
 DINO_EXPORT int dino_module_set_constant(
     DinoModule* module,
     const char* name,

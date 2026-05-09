@@ -9,7 +9,7 @@
 #define DINO_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define DINO_RUNTIME_ABI_VERSION 5
+#define DINO_RUNTIME_ABI_VERSION 6
 
 enum DinoDtype {
   DINO_DTYPE_FLOAT16 = 1,

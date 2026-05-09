@@ -51,6 +51,7 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert "dinoml::math::sigmoid" in generated_text
     assert "dino_session_set_stream" in generated_text
     assert "dino_session_get_output_shape" in generated_text
+    assert "dino_module_unload_constants" in generated_text
     assert "last_output_shapes" in generated_text
     assert "session->stream" in generated_text
     assert ", session->stream)) return err;" in generated_text
@@ -63,6 +64,7 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert module.metadata == read_json(artifact.path / "metadata.json")
     assert hasattr(module._dll, "dino_session_set_stream")
     assert hasattr(module._dll, "dino_session_get_output_shape")
+    assert hasattr(module._dll, "dino_module_unload_constants")
     session = module.create_session()
     session.set_stream(0)
     actual = session.run_numpy(inputs)
@@ -88,10 +90,16 @@ def test_runtime_constant_update_changes_output(tmp_path):
     module.set_constant_numpy("scale", np.zeros_like(spec.constants["scale"]))
     module.set_constant_numpy("bias", np.zeros_like(spec.constants["bias"]))
     actual = session.run_numpy(inputs)
+    module.unload_constants()
+    with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
+        session.run_numpy(inputs)
+    module.load_constants_from_file()
+    reloaded = session.run_numpy(inputs)
     session.close()
     module.close()
 
     np.testing.assert_allclose(actual["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
+    np.testing.assert_allclose(reloaded["y"], execute_cpu(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
 
 
 class DTypeFusedElementwise(dml.Module):

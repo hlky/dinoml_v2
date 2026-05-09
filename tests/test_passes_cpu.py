@@ -630,6 +630,8 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
 
     assert no_tf32_required["kernel_symbol"] in generated
     assert default_required["kernel_symbol"] not in generated
+    assert "check_pointer_alignment(ptr_a" not in generated
+    assert "check_pointer_alignment(ptr_b" not in generated
     assert "cutlass::arch::OpClassSimt" in rendered_support
     assert no_tf32_required["candidates"][0]["cutlass_policy"] in rendered_support
     assert no_tf32_required["candidates"][0]["symbol_id"] in rendered_support
@@ -695,6 +697,9 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert plan.profiler_symbols == (selected_candidate["profiler_symbol"],)
     assert selected_candidate["kernel_symbol"] in generated
     assert default_candidate["kernel_symbol"] not in generated
+    required_alignment = int(selected_candidate["cutlass"]["align"]) * 4
+    assert f'dinoml::module::check_pointer_alignment(ptr_a, "gemm_rrr A", {required_alignment})' in generated
+    assert f'dinoml::module::check_pointer_alignment(ptr_b, "gemm_rrr B", {required_alignment})' in generated
     assert "cutlass_workspace" not in generated
     assert "dinoml_cutlass_splitk_" not in generated
     assert selected_candidate["symbol_id"] in rendered_support

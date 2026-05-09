@@ -183,8 +183,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
   prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller
   operand alignment. Bias/residual/C alignment is intentionally ignored until
   separate epilogue/source alignment requirements exist.
-- [ ] Runtime/stride/offset alignment guards using tensor accessor alignment,
-  strides, byte offsets, and future layout metadata before profiling or launch.
+- [x] First CUTLASS runtime alignment guard:
+  generated CUDA checks selected-candidate A/B pointer byte alignment before
+  launching vectorized CUTLASS GEMMs. The shared module support path already
+  rejects non-zero byte offsets, too-small byte capacity, and non-contiguous
+  row-major strides when stride metadata is supplied.
+- [ ] Shape-derived and tensor-accessor alignment selection:
+  fold static/dynamic leading dimensions, tensor offsets, and future layout
+  metadata into manifest/profile candidate filtering before launch.
 - [x] First split-K profile metadata surface:
   CUTLASS GEMM candidates and candidate sets advertise `split_k_values: [1]`,
   profile reports/cache keys/execution plans preserve `split_k` and

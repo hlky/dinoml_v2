@@ -90,9 +90,13 @@ and carries `shape.case_id`, dynamic dim values, and dim sources into the report
 and execution plan. Profiling also honors optional dense layout element
 alignment metadata on GEMM A/B tensors: when both operands are annotated,
 candidate workloads whose CUTLASS `align` exceeds the smaller A/B alignment are
-pruned before timing. Profile results, cache keys, execution-plan selections,
-and static overlays preserve `split_k` plus `workspace_nbytes` as launch/result
-metadata. Base and bias/activation `device::Gemm` candidates now advertise
+pruned before timing. Generated CUDA modules also check the selected candidate's
+A/B pointer byte-alignment requirement before calling the CUTLASS launcher,
+while the common runtime support path enforces zero byte offsets, sufficient
+byte capacity, and contiguous row-major strides when stride metadata is
+supplied. Profile results, cache keys, execution-plan selections, and static
+overlays preserve `split_k` plus `workspace_nbytes` as launch/result metadata.
+Base and bias/activation `device::Gemm` candidates now advertise
 v1-style split-K search metadata, the profiler expands split-K values using the
 v1 `K // max(M, N)` heuristic, and generated CUDA uses companion split-K
 launcher/profiler symbols plus a session-owned CUTLASS workspace when an
@@ -146,8 +150,8 @@ now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
 source. That closes the first profile-to-recompile loop for shapes whose
 profiled buckets agree on a single candidate. Next steps should prioritize
-richer runtime/stride alignment guards, guarded dynamic-shape dispatch when
-bucket winners differ, and extending split-K coverage to residual/broadcast
+richer shape/tensor-accessor alignment filtering, guarded dynamic-shape dispatch
+when bucket winners differ, and extending split-K coverage to residual/broadcast
 epilogues once the CUTLASS broadcast path is proven. Broader
 broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused

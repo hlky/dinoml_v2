@@ -2,6 +2,7 @@
 
 #include <dinoml/abi.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
 #include <string>
@@ -93,6 +94,22 @@ inline int64_t shape_numel(const std::vector<int64_t>& shape) {
     total *= dim;
   }
   return total;
+}
+
+inline int check_pointer_alignment(
+    const void* ptr,
+    const char* name,
+    size_t required_alignment_bytes) {
+  if (required_alignment_bytes <= 1) {
+    return 0;
+  }
+  const auto address = reinterpret_cast<uintptr_t>(ptr);
+  if (address % required_alignment_bytes != 0) {
+    return fail(
+        std::string(name) + " pointer does not satisfy required " +
+        std::to_string(required_alignment_bytes) + "-byte alignment");
+  }
+  return 0;
 }
 
 inline int check_tensor_layout(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping
 
+from dinoml.ir import dtype_nbytes
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.ops.definitions import get_op_def
@@ -83,10 +84,18 @@ def render_launch(
         launch_tail = f", {split_k}, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream"
     else:
         launch_tail = ", session->stream"
+    alignment_checks = _cutlass_runtime_alignment_checks(
+        op_name,
+        manifest_item,
+        dtype,
+        a_ident,
+        b_ident,
+    )
     lines = [
         f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
+    lines.extend(alignment_checks)
     lines.extend(epilogue_checks)
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
     lines.append(
@@ -136,6 +145,37 @@ def _validate_cutlass_execution_plan_selection(
     workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
     if workspace_nbytes <= 0:
         raise ValueError(f"{op_name} CUTLASS split-K execution plan requires workspace_nbytes > 0")
+
+
+def _cutlass_runtime_alignment_checks(
+    op_name: str,
+    item: Mapping[str, Any] | None,
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+) -> list[str]:
+    align = _selected_cutlass_alignment(item)
+    if align <= 1:
+        return []
+    byte_alignment = align * dtype_nbytes(dtype)
+    return [
+        f'if (int err = dinoml::module::check_pointer_alignment(ptr_{a_ident}, "{op_name} A", {byte_alignment})) '
+        "return err;",
+        f'if (int err = dinoml::module::check_pointer_alignment(ptr_{b_ident}, "{op_name} B", {byte_alignment})) '
+        "return err;",
+    ]
+
+
+def _selected_cutlass_alignment(item: Mapping[str, Any] | None) -> int:
+    if item is None:
+        return 1
+    selected = item.get("selected_candidate")
+    if not isinstance(selected, Mapping):
+        return 1
+    cutlass_config = selected.get("cutlass")
+    if not isinstance(cutlass_config, Mapping):
+        return 1
+    return int(cutlass_config.get("align", 1) or 1)
 
 
 def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:

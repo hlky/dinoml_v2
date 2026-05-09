@@ -145,6 +145,8 @@ def build_profile_workloads(
         }
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
+        max_candidate_alignment = _gemm_profile_candidate_max_alignment((a_name, b_name), tensor_map)
+        profile_candidates = _profile_candidates(required_item, max_alignment=max_candidate_alignment)
         for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
             a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
             b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
@@ -154,7 +156,7 @@ def build_profile_workloads(
             residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
-            for candidate in _profile_candidates(required_item):
+            for candidate in profile_candidates:
                 workloads.append(
                     GemmProfileWorkload(
                         node_id=str(node["id"]),
@@ -195,11 +197,46 @@ def build_profile_workloads(
     return workloads
 
 
-def _profile_candidates(required_item: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _profile_candidates(required_item: Mapping[str, Any], *, max_alignment: int | None = None) -> list[dict[str, Any]]:
     candidates = [dict(candidate) for candidate in required_item.get("candidates", [])]
     if candidates:
-        return candidates
-    return [_selected_profile_candidate(required_item)]
+        if max_alignment is None:
+            return candidates
+        filtered = [candidate for candidate in candidates if _candidate_cutlass_alignment(candidate) <= max_alignment]
+        if not filtered:
+            raise ValueError(
+                "CUTLASS GEMM profiling alignment filter removed all candidates "
+                f"for {required_item.get('op')} with max alignment {max_alignment}"
+            )
+        return filtered
+    fallback = _selected_profile_candidate(required_item)
+    if max_alignment is not None and _candidate_cutlass_alignment(fallback) > max_alignment:
+        raise ValueError(
+            "CUTLASS GEMM profiling alignment filter removed manifest default "
+            f"for {required_item.get('op')} with max alignment {max_alignment}"
+        )
+    return [fallback]
+
+
+def _gemm_profile_candidate_max_alignment(
+    tensor_names: Sequence[str],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> int | None:
+    alignments = []
+    for name in tensor_names:
+        layout = tensor_map[str(name)].get("layout", {})
+        if isinstance(layout, Mapping) and layout.get("alignment") is not None:
+            alignments.append(int(layout["alignment"]))
+    if len(alignments) != len(tensor_names):
+        return None
+    return min(alignments)
+
+
+def _candidate_cutlass_alignment(candidate: Mapping[str, Any]) -> int:
+    cutlass = candidate.get("cutlass", {})
+    if isinstance(cutlass, Mapping) and cutlass.get("align") is not None:
+        return int(cutlass["align"])
+    return 1
 
 
 def _required_profile_item(

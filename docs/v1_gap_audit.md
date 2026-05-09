@@ -54,10 +54,12 @@ porting. It intentionally excludes the op inventory, which lives in
   an op/dtype/candidate-set agree. Compile can consume that static overlay via
   `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen.
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases and
-  carries bucket case metadata into profile reports and execution plans.
+  carries bucket case metadata into profile reports and execution plans. The
+  first alignment filter prunes CUTLASS profiler workloads from static dense
+  layout element alignment on GEMM A/B when both operands are annotated.
   Remaining gaps are guarded dispatch when dynamic bucket winners differ,
-  alignment-aware filtering, split-K, richer statistical confidence, and
-  persistent SQLite/shared cache workflows.
+  runtime/stride/offset alignment guards, split-K, richer statistical
+  confidence, and persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

@@ -16,6 +16,11 @@ def contiguous_strides(shape: Sequence[int]) -> list[int]:
 
 
 def dense_layout(shape: Sequence[int], *, alignment: int | None = None) -> dict[str, Any]:
+    """Return dense row-major layout metadata.
+
+    ``alignment`` is expressed in elements. Runtime pointer alignment is tracked
+    separately in bytes by the C ABI.
+    """
     layout: dict[str, Any] = {
         "schema_version": LAYOUT_SCHEMA_VERSION,
         "kind": "dense",

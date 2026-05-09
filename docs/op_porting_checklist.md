@@ -178,8 +178,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   bucket case metadata into execution-plan selections/conflicts.
 - [ ] Guarded dynamic-shape dispatch when profiled buckets select different
   candidates and therefore cannot produce a single static execution-plan overlay.
-- [ ] Alignment-aware candidate filtering using tensor accessor alignment,
-  strides, byte offsets, and layout metadata before profiling.
+- [x] First static alignment-aware profiling filter:
+  when dense layout element alignment is present on both GEMM A and B, profiling
+  prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller
+  operand alignment. Bias/residual/C alignment is intentionally ignored until
+  separate epilogue/source alignment requirements exist.
+- [ ] Runtime/stride/offset alignment guards using tensor accessor alignment,
+  strides, byte offsets, and future layout metadata before profiling or launch.
 - [ ] Split-K candidate/launch selection with cacheable workspace requirements.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.

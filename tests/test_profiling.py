@@ -48,6 +48,18 @@ def _cutlass_default_symbol_id(dtype: str, *, op_name: str = "gemm_rrr", target=
     return str(_cutlass_candidates(dtype, op_name=op_name, target=target)[0]["symbol_id"])
 
 
+def _set_tensor_layout_alignment(graph, names, alignment: int) -> None:
+    for tensor in graph["tensors"]:
+        if tensor["name"] in names:
+            tensor.setdefault("layout", {})["alignment"] = int(alignment)
+
+
+def _clear_tensor_layout_alignment(graph, names) -> None:
+    for tensor in graph["tensors"]:
+        if tensor["name"] in names:
+            tensor.setdefault("layout", {}).pop("alignment", None)
+
+
 class GemmModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -297,6 +309,113 @@ def test_build_profile_workloads_uses_manifest_selected_no_tf32_policy():
     assert all("simt_sm80_f32" in workload.kernel_symbol for workload in workloads)
     assert all("tf32" not in workload.kernel_symbol for workload in workloads)
     assert workloads[0].candidate_id == _cutlass_default_candidate_id("float32", target=target)
+
+
+def test_build_profile_workloads_filters_candidates_by_layout_alignment():
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 11], "float32")},
+        name="profile_alignment_filtered_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"a", "b"}, 2)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    expected_candidates = [
+        candidate for candidate in _cutlass_candidates("float32") if int(candidate["cutlass"]["align"]) <= 2
+    ]
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == len(expected_candidates)
+    assert [workload.candidate_id for workload in workloads] == [
+        str(candidate["candidate_id"]) for candidate in expected_candidates
+    ]
+    assert {workload.candidate["cutlass"]["align"] for workload in workloads} <= {1, 2}
+
+
+@pytest.mark.parametrize("annotated_tensor", ["a", "b"])
+def test_build_profile_workloads_does_not_filter_when_only_one_gemm_input_has_layout_alignment(annotated_tensor):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 11], "float32")},
+        name=f"profile_partial_alignment_{annotated_tensor}_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _clear_tensor_layout_alignment(lowered, {"a", "b"})
+    _set_tensor_layout_alignment(lowered, {annotated_tensor}, 2)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32")
+
+
+def test_build_profile_workloads_uses_minimum_a_b_layout_alignment():
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 11], "float32")},
+        name="profile_mixed_alignment_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"a"}, 8)
+    _set_tensor_layout_alignment(lowered, {"b"}, 2)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert {workload.candidate["cutlass"]["align"] for workload in workloads} <= {1, 2}
+
+
+def test_build_profile_workloads_filters_rcr_candidates_by_a_b_layout_alignment():
+    spec = dml.trace(
+        GemmModule("gemm_rcr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([11, 32], "float32")},
+        name="profile_alignment_filtered_rcr_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"a", "b"}, 2)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert workloads
+    assert all(workload.op == "gemm_rcr" for workload in workloads)
+    assert {workload.candidate["layouts"]["b"] for workload in workloads} == {"column"}
+    assert {workload.candidate["cutlass"]["align"] for workload in workloads} <= {1, 2}
+
+
+def test_build_profile_workloads_ignores_epilogue_input_layout_alignment_for_candidate_filtering():
+    spec = dml.trace(
+        GemmResidualModule("gemm_rcr_bias_add"),
+        inputs={
+            "a": dml.TensorSpec([7, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+            "d0": dml.TensorSpec([7, 11], "float32"),
+        },
+        name="profile_epilogue_alignment_ignored_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"bias", "d0"}, 1)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32")
+
+
+def test_build_profile_workloads_rejects_layout_alignment_without_candidate():
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float16"), "b": dml.TensorSpec([32, 11], "float16")},
+        name="profile_alignment_rejected_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"a", "b"}, 1)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    with pytest.raises(ValueError, match="alignment filter removed all candidates"):
+        build_profile_workloads(lowered, manifest)
 
 
 @pytest.mark.parametrize(

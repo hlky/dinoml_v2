@@ -136,6 +136,21 @@ class BmmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class BmmHelperModule(dml.Module):
+    def __init__(self, helper_name: str, layout: str = "rrr"):
+        self.helper_name = helper_name
+        self.layout = layout
+
+    def forward(self, a, b, d0=None):
+        if self.helper_name == "bmm":
+            return dml.ops.output(dml.ops.bmm(a, b), "y")
+        if self.helper_name == "bmm_xxx":
+            return dml.ops.output(dml.ops.bmm_xxx(a, b, layout=self.layout), "y")
+        if d0 is None:
+            raise ValueError("bmm_xxx_add helper test requires d0")
+        return dml.ops.output(dml.ops.bmm_xxx_add(a, b, d0, layout=self.layout), "y")
+
+
 class GemmBiasModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -1155,6 +1170,55 @@ def test_cpu_reference_bmm_add_bias_broadcast_matches_numpy():
     actual = execute_cpu(spec, {"a": a, "b": b, "d0": d0})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("module", "inputs", "arrays", "expected"),
+    [
+        (
+            BmmHelperModule("bmm"),
+            {"a": dml.TensorSpec([2, 3, 4], "float32"), "b": dml.TensorSpec([2, 4, 5], "float32")},
+            ("a", "b"),
+            "rrr",
+        ),
+        (
+            BmmHelperModule("bmm_xxx", layout="rcr"),
+            {"a": dml.TensorSpec([2, 3, 4], "float32"), "b": dml.TensorSpec([2, 5, 4], "float32")},
+            ("a", "b"),
+            "rcr",
+        ),
+        (
+            BmmHelperModule("bmm_xxx_add", layout="rrc"),
+            {
+                "a": dml.TensorSpec([2, 3, 4], "float32"),
+                "b": dml.TensorSpec([2, 4, 5], "float32"),
+                "d0": dml.TensorSpec([2, 5, 3], "float32"),
+            },
+            ("a", "b", "d0"),
+            "rrc_add",
+        ),
+    ],
+)
+def test_cpu_reference_bmm_direct_helpers_match_numpy(module, inputs, arrays, expected):
+    spec = dml.trace(module, inputs=inputs, name=f"bmm_helper_{expected}_reference")
+    rng = np.random.default_rng(998)
+    values = {
+        name: rng.standard_normal(tuple(tensor_spec.shape)).astype(np.float32)
+        for name, tensor_spec in inputs.items()
+        if name in arrays
+    }
+    a = values["a"]
+    b = values["b"]
+    logical_b = np.swapaxes(b, -1, -2) if expected.startswith("rcr") else b
+    result = np.matmul(a, logical_b)
+    if expected.startswith("rrc"):
+        result = np.swapaxes(result, -1, -2)
+    if expected.endswith("_add"):
+        result = result + values["d0"]
+
+    actual = execute_cpu(spec, values)["y"]
+
+    np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
 def test_cpu_reference_bmm_batch_broadcast_matches_numpy():

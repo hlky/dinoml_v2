@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.kernels.bmm import BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
+from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import (
     cutlass_bmm_candidate_set,
     cutlass_bmm_candidates,
@@ -61,6 +61,92 @@ def _make_bmm_frontend(op_name: str):
 
 BMM_FRONTEND_OPS = {op_name: _make_bmm_frontend(op_name) for op_name in BMM_OPS}
 globals().update(BMM_FRONTEND_OPS)
+
+
+def bmm(a: object, b: object) -> Tensor:
+    return _bmm("bmm_rrr", a, b)
+
+
+def bmm_xxx(
+    a: object,
+    b: object,
+    layout: str = "rrr",
+    *,
+    a_layout: str | None = None,
+    b_layout: str | None = None,
+    c_layout: str | None = None,
+) -> Tensor:
+    resolved_layout = _resolve_layout(
+        "bmm_xxx",
+        layout,
+        a_layout=a_layout,
+        b_layout=b_layout,
+        c_layout=c_layout,
+    )
+    return _bmm(f"bmm_{resolved_layout}", a, b)
+
+
+def bmm_xxx_add(
+    a: object,
+    b: object,
+    d0: object,
+    layout: str = "rrr",
+    *,
+    a_layout: str | None = None,
+    b_layout: str | None = None,
+    c_layout: str | None = None,
+) -> Tensor:
+    resolved_layout = _resolve_layout(
+        "bmm_xxx_add",
+        layout,
+        a_layout=a_layout,
+        b_layout=b_layout,
+        c_layout=c_layout,
+    )
+    return _bmm(f"bmm_{resolved_layout}_add", a, b, d0)
+
+
+BMM_HELPER_OPS = {
+    "bmm": bmm,
+    "bmm_xxx": bmm_xxx,
+    "bmm_xxx_add": bmm_xxx_add,
+}
+
+
+def _resolve_layout(
+    helper_name: str,
+    layout: str,
+    *,
+    a_layout: str | None = None,
+    b_layout: str | None = None,
+    c_layout: str | None = None,
+) -> str:
+    if any(value is not None for value in (a_layout, b_layout, c_layout)):
+        if layout != "rrr":
+            raise ValueError(
+                f"{helper_name} accepts either layout or per-input layout keywords, not both"
+            )
+        return "".join(
+            (
+                _normalize_layout_marker(helper_name, "a_layout", a_layout or "r"),
+                _normalize_layout_marker(helper_name, "b_layout", b_layout or "r"),
+                _normalize_layout_marker(helper_name, "c_layout", c_layout or "r"),
+            )
+        )
+    normalized = layout.lower()
+    if len(normalized) != 3 or any(marker not in {"c", "r"} for marker in normalized):
+        supported = ", ".join(op_name.removeprefix("bmm_") for op_name in BMM_BASE_OPS)
+        raise ValueError(f"{helper_name} expected layout to be one of {supported}")
+    return normalized
+
+
+def _normalize_layout_marker(helper_name: str, arg_name: str, value: str) -> str:
+    normalized = value.lower()
+    if normalized in {"c", "col", "column", "column_major"}:
+        return "c"
+    if normalized in {"r", "row", "row_major"}:
+        return "r"
+    raise ValueError(f"{helper_name} expected {arg_name} to be row or column, got {value!r}")
 
 
 def _infer_shape_fn(op_name: str):

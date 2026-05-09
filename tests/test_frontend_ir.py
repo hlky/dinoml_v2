@@ -457,6 +457,21 @@ class BmmOpModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class BmmHelperModule(dml.Module):
+    def __init__(self, helper_name: str, layout: str = "rrr"):
+        self.helper_name = helper_name
+        self.layout = layout
+
+    def forward(self, a, b, d0=None):
+        if self.helper_name == "bmm":
+            return dml.ops.output(dml.ops.bmm(a, b), "y")
+        if self.helper_name == "bmm_xxx":
+            return dml.ops.output(dml.ops.bmm_xxx(a, b, layout=self.layout), "y")
+        if d0 is None:
+            raise ValueError("bmm_xxx_add helper test requires d0")
+        return dml.ops.output(dml.ops.bmm_xxx_add(a, b, d0, layout=self.layout), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -627,6 +642,72 @@ def test_bmm_add_frontend_emits_explicit_layout_ops(op_name, a_shape, b_shape, o
     assert spec.ir["nodes"][0]["inputs"] == ["a", "b", "d0"]
     assert spec.ir["outputs"][0]["shape"] == out_shape
     assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+
+
+@pytest.mark.parametrize(
+    ("module", "inputs", "op_name", "out_shape"),
+    [
+        (
+            BmmHelperModule("bmm"),
+            {"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([2, 4, 5])},
+            "bmm_rrr",
+            [2, 3, 5],
+        ),
+        (
+            BmmHelperModule("bmm_xxx", layout="rcr"),
+            {"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([2, 5, 4])},
+            "bmm_rcr",
+            [2, 3, 5],
+        ),
+        (
+            BmmHelperModule("bmm_xxx_add", layout="rrc"),
+            {
+                "a": dml.TensorSpec([2, 3, 4]),
+                "b": dml.TensorSpec([2, 4, 5]),
+                "d0": dml.TensorSpec([2, 5, 3]),
+            },
+            "bmm_rrc_add",
+            [2, 5, 3],
+        ),
+    ],
+)
+def test_bmm_direct_helpers_emit_explicit_layout_ops(module, inputs, op_name, out_shape):
+    spec = dml.trace(module, inputs=inputs, name=f"{op_name}_helper_frontend")
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+    assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+
+
+def test_bmm_direct_helpers_are_exported():
+    from dinoml.ops import bmm, bmm_xxx, bmm_xxx_add
+
+    assert bmm is dml.ops.bmm
+    assert bmm_xxx is dml.ops.bmm_xxx
+    assert bmm_xxx_add is dml.ops.bmm_xxx_add
+    assert {"bmm", "bmm_xxx", "bmm_xxx_add"}.issubset(dml.ops.__all__)
+
+
+def test_bmm_direct_helper_shape_validation_uses_explicit_ops():
+    with pytest.raises(ValueError, match="bmm_rrr expected compatible K"):
+        dml.trace(
+            BmmHelperModule("bmm"),
+            inputs={"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([2, 5, 6])},
+        )
+    with pytest.raises(ValueError, match="bmm_xxx expected layout"):
+        dml.trace(
+            BmmHelperModule("bmm_xxx", layout="rxr"),
+            inputs={"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([2, 4, 5])},
+        )
+    with pytest.raises(ValueError, match="bmm_rrr_add expected d0 shape"):
+        dml.trace(
+            BmmHelperModule("bmm_xxx_add"),
+            inputs={
+                "a": dml.TensorSpec([2, 3, 4]),
+                "b": dml.TensorSpec([2, 4, 5]),
+                "d0": dml.TensorSpec([2, 1, 5]),
+            },
+        )
 
 
 @pytest.mark.parametrize(

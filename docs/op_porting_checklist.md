@@ -297,7 +297,7 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `bmm_rcr_n1`, `bmm_rrr_k1_tanh`, `batched_dense_vec_jagged_2d_mul`.
 - [ ] Back-to-back BMM: `classic_b2b_bmm`, `fmha_style_b2b_bmm`,
   `grouped_classic_b2b_bmm`, `grouped_fmha_style_b2b_bmm`.
-- [ ] Direct-import helpers: `bmm`, `bmm_xxx`, `bmm_xxx_add`.
+- [x] Direct-import helpers: `bmm`, `bmm_xxx`, `bmm_xxx_add`.
 - [x] First encoded constant source scaffold:
   constant values can now materialize through a source object before
   `constants.bin` is written, and `gguf_constant(...)` records GGUF provenance

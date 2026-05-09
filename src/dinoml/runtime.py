@@ -41,12 +41,12 @@ DINO_DEVICE_CUDA = 1
 DINO_TENSOR_FLAG_CONTIGUOUS = 1
 
 
-def load(path: str | Path) -> "RuntimeModule":
-    return RuntimeModule(Path(path))
+def load(path: str | Path, *, load_constants: bool = True) -> "RuntimeModule":
+    return RuntimeModule(Path(path), load_constants=load_constants)
 
 
 class RuntimeModule:
-    def __init__(self, artifact_dir: Path):
+    def __init__(self, artifact_dir: Path, *, load_constants: bool = True):
         self.artifact_dir = artifact_dir
         manifest_path = artifact_dir / "manifest.json"
         module_path = artifact_dir / "module.so"
@@ -76,7 +76,8 @@ class RuntimeModule:
         if self._runtime_dll.dino_abi_version() != RUNTIME_ABI_VERSION:
             raise RuntimeError("module.so ABI version does not match Python runtime")
         self._handle = ctypes.c_void_p()
-        self._check(self._dll.dino_module_load(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
+        load_fn = self._dll.dino_module_load if load_constants else self._dll.dino_module_load_deferred
+        self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
         metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
         self.metadata = json.loads(metadata_raw.decode("utf-8"))
 
@@ -228,6 +229,8 @@ class RuntimeModule:
             self._cuda_runtime_dll.dino_copy_device_to_device.restype = ctypes.c_int
         self._dll.dino_module_load.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
         self._dll.dino_module_load.restype = ctypes.c_int
+        self._dll.dino_module_load_deferred.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
+        self._dll.dino_module_load_deferred.restype = ctypes.c_int
         self._dll.dino_module_free.argtypes = [ctypes.c_void_p]
         self._dll.dino_module_free.restype = ctypes.c_int
         self._dll.dino_module_get_metadata_json.argtypes = [ctypes.c_void_p]

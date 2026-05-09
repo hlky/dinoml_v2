@@ -1471,7 +1471,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
     manifest = {
         "artifact_schema_version": 1,
-        "runtime_abi_version": 6,
+        "runtime_abi_version": 7,
         "name": "cached_profile_gemm",
         "target": {"name": "cuda", "arch": "sm_86"},
         "files": {

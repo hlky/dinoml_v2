@@ -161,6 +161,24 @@ DINO_EXPORT int dino_module_load(const char* artifact_dir, DinoModule** out) {
   return 0;
 }
 
+DINO_EXPORT int dino_module_load_deferred(const char* artifact_dir, DinoModule** out) {
+  if (artifact_dir == nullptr || out == nullptr) {
+    return dinoml::module::fail("dino_module_load_deferred received null argument");
+  }
+  DinoModule* module = new DinoModule();
+  module->artifact_dir = artifact_dir;
+  const std::string metadata_path = dinoml::module::join_path(artifact_dir, "metadata.json");
+  std::vector<char> metadata;
+  int metadata_err = dinoml::module::read_file(metadata_path, &metadata);
+  if (metadata_err) {
+    delete module;
+    return metadata_err;
+  }
+  module->metadata_json.assign(metadata.begin(), metadata.end());
+  *out = module;
+  return 0;
+}
+
 DINO_EXPORT int dino_module_free(DinoModule* module) {
   if (module == nullptr) {
     return 0;

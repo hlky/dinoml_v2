@@ -202,7 +202,7 @@ def test_python_runtime_populates_dino_tensor_metadata():
         device_type=runtime.DINO_DEVICE_CPU,
     )
 
-    assert RUNTIME_ABI_VERSION == 6
+    assert RUNTIME_ABI_VERSION == 7
     assert len(keepalive) == 2
     assert [tensor.shape[idx] for idx in range(tensor.ndim)] == [2, 3, 4]
     assert [tensor.strides[idx] for idx in range(tensor.ndim)] == [12, 4, 1]
@@ -383,6 +383,7 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert "R\"DINOJSON" not in generated
     assert "dino_session_set_stream" in generated
     assert "dino_module_unload_constants" in generated
+    assert "dino_module_load_deferred" in generated
     source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
     sources = source_manifest["sources"]
     assert source_manifest["deduplication"] == "exact_source_key"
@@ -400,6 +401,7 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
     assert hasattr(module._dll, "dino_session_set_stream")
+    assert hasattr(module._dll, "dino_module_load_deferred")
     session = module.create_session()
     session.set_stream(ctypes.c_void_p(0))
     session.set_stream(None)
@@ -418,6 +420,18 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(zeroed["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
     np.testing.assert_allclose(reloaded["y"], expected["y"], atol=1e-5, rtol=1e-5)
+
+    module = runtime.load(artifact.path, load_constants=False)
+    session = module.create_session()
+    try:
+        with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
+            session.run_numpy(inputs)
+        module.load_constants_from_file()
+        deferred = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+    np.testing.assert_allclose(deferred["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
 
 def test_compile_writes_encoded_constants_manifest(tmp_path):

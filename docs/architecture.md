@@ -60,7 +60,7 @@ are inferred by matching named dynamic dimensions from the inputs. The reusable
 helpers in `dinoml.shapes` are the Python source of truth for runtime validation
 and output-shape inference.
 
-`DinoTensor` ABI v6 also carries optional contiguous-layout metadata: host
+`DinoTensor` ABI v7 also carries optional contiguous-layout metadata: host
 element strides, byte capacity, byte offset, device type, flags, and pointer
 alignment. Current generated modules still require row-major contiguous tensors
 when stride metadata is supplied, but they apply byte offsets to logical tensor
@@ -73,8 +73,9 @@ offset and canonical element strides.
 
 The shared dtype table now mirrors the v1 ABI direction: fp16, fp32, int32,
 int64, bool, bf16, and fp8 enum slots are defined in Python and C. Runtime ABI
-v6 carries dtype enums, byte sizes, dense layout metadata, constant unload/reload
-hooks, and NumPy/Torch dtype bridges for `float32`, `float16`, and `bfloat16`.
+v7 carries dtype enums, byte sizes, dense layout metadata, eager or deferred
+constant loading hooks, constant unload/reload hooks, and NumPy/Torch dtype
+bridges for `float32`, `float16`, and `bfloat16`.
 
 Current dtype support matrix:
 

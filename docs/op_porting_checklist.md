@@ -167,8 +167,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   reference execution, and a separate `cutlass_bmm` CUDA support-library path
   using CUTLASS batched GEMM candidates. The launch ABI preserves v1 layout
   semantics, C-column output `[B, N, M]`, batch broadcasting through zero batch
-  strides, target-policy candidate filtering, and runtime alignment fallbacks.
-  Remaining BMM work: candidate profiling workloads, execution-plan feedback,
+  strides, target-policy candidate filtering, runtime alignment fallbacks, and
+  profile/report/cache workloads keyed by batch-aware BMM problem shapes.
+  Remaining BMM work: execution-plan feedback,
   `_add` CUTLASS epilogue support, and split-K/grouped extensions.
 - [x] First profile-selected execution-plan artifact:
   `dinoml profile` now writes `debug/execution_plan.json`, selecting the fastest

@@ -13,6 +13,7 @@ from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.ir import read_json, write_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidates
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 from dinoml.kernels.profiling import (
     EXECUTION_PLAN_SCHEMA_VERSION,
@@ -36,6 +37,10 @@ DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 
 def _cutlass_candidates(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> tuple[dict[str, object], ...]:
     return cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)
+
+
+def _cutlass_bmm_candidates(dtype: str, *, op_name: str = "bmm_rrr", target=None) -> tuple[dict[str, object], ...]:
+    return cutlass_bmm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)
 
 
 def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> int:
@@ -82,6 +87,15 @@ def _set_tensor_layout_storage_offset(graph, names, offset: int) -> None:
 
 
 class GemmModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b), "y")
+
+
+class BmmModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
 
@@ -178,6 +192,120 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
         "dims": {},
         "dim_sources": {},
     }
+
+
+def test_build_profile_workloads_supports_cutlass_bmm_batch_broadcast_and_column_output(tmp_path):
+    spec = dml.trace(
+        BmmModule("bmm_ccc"),
+        inputs={"a": dml.TensorSpec([1, 8, 4], "float32"), "b": dml.TensorSpec([3, 5, 8], "float32")},
+        name="profile_bmm_ccc",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(manifest, tmp_path / "cache").to_json()
+    expected_candidates = [
+        candidate for candidate in _cutlass_bmm_candidates("float32", op_name="bmm_ccc") if int(candidate["cutlass"]["align"]) <= 4
+    ]
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == len(expected_candidates)
+    workload = workloads[0]
+    assert workload.kernel_library == "cutlass_bmm"
+    assert workload.profiler_symbol == f"dinoml_profile_cutlass_bmm_ccc_float32_{_cutlass_default_symbol_id('float32')}"
+    assert workload.candidate_set_id == "cutlass_bmm_ccc_float32_linear_combination_v1"
+    assert workload.batch_count == 3
+    assert (workload.m, workload.n, workload.k) == (4, 5, 8)
+    assert workload.a_shape == (1, 8, 4)
+    assert workload.b_shape == (3, 5, 8)
+    assert workload.output_shape == (3, 5, 4)
+    assert workload.batch_stride_a == 0
+    assert workload.batch_stride_b == 40
+    assert workload.batch_stride_c == 20
+    assert (workload.lda, workload.ldb, workload.ldc) == (4, 8, 4)
+    assert workload.alignment_context["kind"] == "cutlass_bmm_alignment_context"
+    assert workload.alignment_context["candidate_filter"]["max_operand_alignment"] == 4
+    payload = workload.to_json()
+    assert payload["kernel_library"] == "cutlass_bmm"
+    assert payload["batch_strides"] == {"a": 0, "b": 40, "c": 20}
+    assert payload["leading_dimensions"] == {"a": 4, "b": 8, "c": 4}
+    key_payload = _profile_key_payload(
+        workload,
+        {"target": DEFAULT_CUDA_TARGET},
+        manifest,
+        codegen_plan,
+        context={
+            "fingerprint": {
+                "hardware_key": "hardware-key",
+                "support_libraries_key": "support-key",
+            }
+        },
+    )
+    assert key_payload["kernel_library"] == "cutlass_bmm"
+    assert key_payload["shape"] == {"m": 4, "n": 5, "k": 8, "batch_count": 3}
+
+
+def test_profile_result_records_bmm_batch_shape_and_cost_model():
+    spec = dml.trace(
+        BmmModule("bmm_ccc"),
+        inputs={"a": dml.TensorSpec([1, 8, 4], "float32"), "b": dml.TensorSpec([3, 5, 8], "float32")},
+        name="profile_bmm_result",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workload = build_profile_workloads(lowered, manifest)[0]
+
+    result = _profile_result(workload, 0.25, 5, profile_key="bmm-profile", status="ok")
+
+    assert result["kernel_library"] == "cutlass_bmm"
+    assert result["shape"]["batch_count"] == 3
+    assert result["batch_count"] == 3
+    assert result["batch_strides"] == {"a": 0, "b": 40, "c": 20}
+    assert result["leading_dimensions"] == {"a": 4, "b": 8, "c": 4}
+    assert result["flops"] == 2 * 3 * 4 * 5 * 8
+    assert result["bytes"] == 4 * ((1 * 8 * 4) + (3 * 5 * 8) + (3 * 5 * 4))
+
+
+def test_build_execution_plan_keeps_bmm_batch_count_in_shape_key():
+    spec = dml.trace(
+        BmmModule("bmm_rrr"),
+        inputs={"a": dml.TensorSpec([3, 4, 8], "float32"), "b": dml.TensorSpec([3, 8, 5], "float32")},
+        name="profile_bmm_execution_plan",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workload = build_profile_workloads(lowered, manifest)[0]
+    batch3 = _profile_result(workload, 0.20, 5, profile_key="bmm-batch3", status="ok")
+    batch7_workload = replace(
+        workload,
+        batch_count=7,
+        a_shape=(7, 4, 8),
+        b_shape=(7, 8, 5),
+        output_shape=(7, 4, 5),
+        batch_stride_a=32,
+        batch_stride_b=40,
+        batch_stride_c=20,
+    )
+    batch7 = _profile_result(batch7_workload, 0.30, 5, profile_key="bmm-batch7", status="ok")
+
+    plan = build_execution_plan(
+        {
+            "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": {"name": "cuda", "arch": "sm_86"},
+            "kernel_manifest_cache_key": manifest["cache_key"],
+            "codegen_plan_cache_key": "codegen-key",
+            "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+            "hardware_cache_key": "hardware-key",
+            "support_libraries_cache_key": "support-key",
+            "problems": [batch3, batch7],
+            "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+        }
+    )
+
+    assert len(plan["selections"]) == 2
+    assert {selection["shape"]["batch_count"] for selection in plan["selections"]} == {3, 7}
+    assert plan["static_selections"][0]["shape"]["profiled_shapes"][0]["batch_count"] in {3, 7}
 
 
 def test_build_profile_workloads_expands_dim_buckets():

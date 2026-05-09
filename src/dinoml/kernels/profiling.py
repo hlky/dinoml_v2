@@ -17,10 +17,12 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json, write_json
+from dinoml.kernels.bmm import BMM_BASE_OPS, bmm_op_spec, bmm_problem
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
+    cutlass_bmm_profile_alignment_context,
     cutlass_candidate_alignment,
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
@@ -81,12 +83,21 @@ class GemmProfileWorkload:
     dim_values: Mapping[str, int]
     dim_sources: Mapping[str, str]
     alignment_context: Mapping[str, Any]
+    kernel_library: str = "cutlass_gemm"
+    batch_count: int | None = None
+    batch_stride_a: int | None = None
+    batch_stride_b: int | None = None
+    batch_stride_c: int | None = None
+    lda: int | None = None
+    ldb: int | None = None
+    ldc: int | None = None
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        payload = {
             "node_id": self.node_id,
             "op": self.op,
             "dtype": self.dtype,
+            "kernel_library": self.kernel_library,
             "kernel_symbol": self.kernel_symbol,
             "profiler_symbol": self.profiler_symbol,
             "candidate_set_id": self.candidate_set_id,
@@ -119,6 +130,19 @@ class GemmProfileWorkload:
             },
             "alignment_context": dict(self.alignment_context),
         }
+        if self.batch_count is not None:
+            payload["batch_count"] = int(self.batch_count)
+            payload["batch_strides"] = {
+                "a": int(self.batch_stride_a or 0),
+                "b": int(self.batch_stride_b or 0),
+                "c": int(self.batch_stride_c or 0),
+            }
+            payload["leading_dimensions"] = {
+                "a": int(self.lda or 0),
+                "b": int(self.ldb or 0),
+                "c": int(self.ldc or 0),
+            }
+        return payload
 
 
 def parse_shape_overrides(items: Sequence[str] | None) -> dict[str, tuple[int, ...]]:
@@ -151,6 +175,15 @@ def build_profile_workloads(
     workloads = []
     for node in graph["nodes"]:
         op_name = str(node["op"])
+        if op_name in BMM_BASE_OPS:
+            _append_bmm_profile_workloads(
+                workloads,
+                node,
+                tensor_map,
+                required_by_op.get(op_name, ()),
+                overrides,
+            )
+            continue
         if op_name not in GEMM_OPS:
             continue
         output_name = str(node["outputs"][0])
@@ -236,6 +269,101 @@ def build_profile_workloads(
                         )
                     )
     return workloads
+
+
+def _append_bmm_profile_workloads(
+    workloads: list[GemmProfileWorkload],
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    required_items: Sequence[Mapping[str, Any]],
+    overrides: Mapping[str, Sequence[int]],
+) -> None:
+    op_name = str(node["op"])
+    output_name = str(node["outputs"][0])
+    output_info = tensor_map[output_name]
+    dtype = str(output_info["dtype"])
+    binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
+    required_item = _required_profile_item(required_items, dtype, binding.symbol)
+    if required_item is None:
+        return
+    spec = bmm_op_spec(op_name)
+    a_name, b_name = (str(name) for name in node["inputs"][:2])
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+        a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
+        b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
+        batch_count, m, n, k, output_shape = bmm_problem(op_name, [a_shape, b_shape])
+        alignment_context = cutlass_bmm_profile_alignment_context(
+            op_name,
+            dtype,
+            tensor_map,
+            a_name=a_name,
+            b_name=b_name,
+            c_name=output_name,
+            m=m,
+            n=n,
+            k=k,
+        )
+        profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
+        lda = m if spec.a_layout == "c" else k
+        ldb = k if spec.b_layout == "c" else n
+        ldc = m if spec.c_layout == "c" else n
+        batch_stride_a = 0 if int(a_shape[0]) == 1 and batch_count != 1 else m * k
+        batch_stride_b = 0 if int(b_shape[0]) == 1 and batch_count != 1 else n * k
+        batch_stride_c = m * n
+        for candidate in profile_candidates:
+            for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
+                workloads.append(
+                    GemmProfileWorkload(
+                        node_id=str(node["id"]),
+                        op=op_name,
+                        dtype=dtype,
+                        kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                        profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                        candidate_set_id=(
+                            str(required_item["candidate_set_id"])
+                            if required_item.get("candidate_set_id") is not None
+                            else None
+                        ),
+                        candidate_set_key=(
+                            str(required_item["candidate_set_key"])
+                            if required_item.get("candidate_set_key") is not None
+                            else None
+                        ),
+                        candidate_id=str(candidate["candidate_id"]),
+                        candidate_config_key=(
+                            str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                        ),
+                        candidate=candidate,
+                        a_tensor=a_name,
+                        b_tensor=b_name,
+                        bias_tensor=None,
+                        residual_tensors=(),
+                        output_tensor=output_name,
+                        a_shape=tuple(a_shape),
+                        b_shape=tuple(b_shape),
+                        bias_shape=None,
+                        residual_shapes=(),
+                        output_shape=tuple(output_shape),
+                        m=m,
+                        n=n,
+                        k=k,
+                        split_k=split_k,
+                        workspace_nbytes=_candidate_profile_workspace_nbytes(candidate, m=m, n=n, split_k=split_k),
+                        shape_source=scenario.source,
+                        shape_case_id=scenario.case_id,
+                        dim_values=scenario.dim_values,
+                        dim_sources=scenario.dim_sources,
+                        alignment_context=alignment_context,
+                        kernel_library="cutlass_bmm",
+                        batch_count=batch_count,
+                        batch_stride_a=batch_stride_a,
+                        batch_stride_b=batch_stride_b,
+                        batch_stride_c=batch_stride_c,
+                        lda=lda,
+                        ldb=ldb,
+                        ldc=ldc,
+                    )
+                )
 
 
 def _profile_candidates(
@@ -418,7 +546,7 @@ def profile_artifact(
                 samples_ms = []
                 workspace_nbytes = int(workload.workspace_nbytes)
                 for _ in range(repeats):
-                    elapsed_ms, sample_workspace_nbytes = profiler.profile_gemm(workload, iterations=iterations, rng=rng)
+                    elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=iterations, rng=rng)
                     samples_ms.append(elapsed_ms)
                     workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
                 timing = _profile_timing(samples_ms, iterations=iterations)
@@ -588,14 +716,22 @@ def _profile_result(
 ) -> dict[str, Any]:
     actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
     timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
-    flops = 2 * workload.m * workload.n * workload.k
-    bytes_moved = dtype_nbytes(workload.dtype) * (
-        workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
-    )
-    if workload.bias_shape is not None:
-        bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias_shape, dtype=np.int64))
-    for residual_shape in workload.residual_shapes:
-        bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(residual_shape, dtype=np.int64))
+    batch_count = int(workload.batch_count or 1)
+    flops = 2 * batch_count * workload.m * workload.n * workload.k
+    if workload.kernel_library == "cutlass_bmm":
+        bytes_moved = dtype_nbytes(workload.dtype) * (
+            int(np.prod(workload.a_shape, dtype=np.int64))
+            + int(np.prod(workload.b_shape, dtype=np.int64))
+            + int(np.prod(workload.output_shape, dtype=np.int64))
+        )
+    else:
+        bytes_moved = dtype_nbytes(workload.dtype) * (
+            workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
+        )
+        if workload.bias_shape is not None:
+            bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias_shape, dtype=np.int64))
+        for residual_shape in workload.residual_shapes:
+            bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(residual_shape, dtype=np.int64))
     seconds = max(float(elapsed_ms) / 1000.0, 1e-12)
     tflops = float(flops / seconds / 1.0e12)
     gbps = float(bytes_moved / seconds / 1.0e9)
@@ -640,7 +776,7 @@ def _profile_result(
                 "bias": workload.bias_tensor,
                 "c": workload.output_tensor,
             },
-            "kernel_library": "cutlass_gemm",
+            "kernel_library": workload.kernel_library,
             "elapsed_ms": float(elapsed_ms),
             "iterations": int(iterations),
             "repeats": int(timing_payload["repeats"]),
@@ -660,6 +796,19 @@ def _profile_result(
             },
         }
     )
+    if workload.batch_count is not None:
+        payload["shape"]["batch_count"] = int(workload.batch_count)
+        payload["batch_count"] = int(workload.batch_count)
+        payload["batch_strides"] = {
+            "a": int(workload.batch_stride_a or 0),
+            "b": int(workload.batch_stride_b or 0),
+            "c": int(workload.batch_stride_c or 0),
+        }
+        payload["leading_dimensions"] = {
+            "a": int(workload.lda or 0),
+            "b": int(workload.ldb or 0),
+            "c": int(workload.ldc or 0),
+        }
     return payload
 
 
@@ -975,6 +1124,9 @@ def _profile_key_payload(
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
+    shape = {"m": workload.m, "n": workload.n, "k": workload.k}
+    if workload.batch_count is not None:
+        shape["batch_count"] = int(workload.batch_count)
     return {
         "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
         "target": manifest["target"],
@@ -982,13 +1134,14 @@ def _profile_key_payload(
         "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
         "support_cache_key": kernel_manifest.get("support_cache_key"),
         "codegen_plan_cache_key": codegen_plan["cache_key"],
+        "kernel_library": workload.kernel_library,
         "op": workload.op,
         "dtype": workload.dtype,
         "layouts": dict(workload.candidate.get("layouts", {})),
         "epilogue": workload.candidate.get("epilogue"),
         "epilogue_config": workload.candidate.get("epilogue_config"),
         "alignment_context": dict(workload.alignment_context),
-        "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
+        "shape": shape,
         "profile_variant": {"split_k": workload.split_k},
         "split_k": workload.split_k,
         "kernel_symbol": workload.kernel_symbol,
@@ -1047,6 +1200,7 @@ def _cache_entry(
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "op": workload.op,
         "dtype": workload.dtype,
+        "kernel_library": workload.kernel_library,
         "shape": dict(result["shape"]),
         "alignment_context": dict(result.get("alignment_context", workload.alignment_context)),
         "kernel_symbol": workload.kernel_symbol,
@@ -1113,13 +1267,19 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
 
 
 def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
-    groups: dict[tuple[str, str, str, str, int, int, int], list[Mapping[str, Any]]] = {}
+    groups: dict[tuple[str, str, str, str, int, int, int, int], list[Mapping[str, Any]]] = {}
     for problem in report.get("problems", []):
         if not isinstance(problem, Mapping) or problem.get("status") not in {"ok", "cached"}:
             continue
         candidate_set_key = problem.get("candidate_set_key")
         if not candidate_set_key:
             continue
+        shape = problem.get("shape", {})
+        batch_count = 0
+        if isinstance(shape, Mapping) and shape.get("batch_count") is not None:
+            batch_count = int(shape.get("batch_count", 0) or 0)
+        elif problem.get("batch_count") is not None:
+            batch_count = int(problem.get("batch_count", 0) or 0)
         key = (
             str(problem.get("node_id", "")),
             str(problem.get("op", "")),
@@ -1128,6 +1288,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
             int(problem.get("m", 0)),
             int(problem.get("n", 0)),
             int(problem.get("k", 0)),
+            batch_count,
         )
         if key[0] and key[1] and key[2] and key[3] and key[4] > 0 and key[5] > 0 and key[6] > 0:
             groups.setdefault(key, []).append(problem)
@@ -1177,7 +1338,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _selection_from_group(
-    key: tuple[str, str, str, str, int, int, int],
+    key: tuple[str, str, str, str, int, int, int, int],
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     ranked = sorted(
@@ -1195,7 +1356,12 @@ def _selection_from_group(
     shape.setdefault("m", key[4])
     shape.setdefault("n", key[5])
     shape.setdefault("k", key[6])
+    if key[7] > 0:
+        shape.setdefault("batch_count", key[7])
     split_k = _problem_split_k(best)
+    selection_shape = {"m": key[4], "n": key[5], "k": key[6]}
+    if key[7] > 0:
+        selection_shape["batch_count"] = key[7]
     return {
         "selection_key": hashlib.sha256(
             canonical_json(
@@ -1204,7 +1370,7 @@ def _selection_from_group(
                     "op": key[1],
                     "dtype": key[2],
                     "candidate_set_key": key[3],
-                    "shape": {"m": key[4], "n": key[5], "k": key[6]},
+                    "shape": selection_shape,
                 }
             ).encode("utf-8")
         ).hexdigest(),
@@ -1467,7 +1633,16 @@ class _CudaProfiler:
         global_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(ctypes, "RTLD_NOW", 0)
         self._runtime = ctypes.CDLL(str(artifact_dir / files["runtime_library"]), mode=global_mode)
         self._cuda_runtime = ctypes.CDLL(str(artifact_dir / files["cuda_runtime_library"]), mode=global_mode)
-        self._cutlass = ctypes.CDLL(str(artifact_dir / files["cutlass_gemm_library"]), mode=global_mode)
+        self._cutlass_gemm = (
+            ctypes.CDLL(str(artifact_dir / files["cutlass_gemm_library"]), mode=global_mode)
+            if "cutlass_gemm_library" in files
+            else None
+        )
+        self._cutlass_bmm = (
+            ctypes.CDLL(str(artifact_dir / files["cutlass_bmm_library"]), mode=global_mode)
+            if "cutlass_bmm_library" in files
+            else None
+        )
         self._buffers: list[ctypes.c_void_p] = []
         self._runtime.dino_get_last_error.restype = ctypes.c_char_p
         self._cuda_runtime.dino_device_malloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
@@ -1481,6 +1656,13 @@ class _CudaProfiler:
         while self._buffers:
             ptr = self._buffers.pop()
             self._check(self._cuda_runtime.dino_device_free(ptr))
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
+        if workload.kernel_library == "cutlass_bmm":
+            return self._profile_bmm(workload, iterations=iterations, rng=rng)
+        if workload.kernel_library != "cutlass_gemm":
+            raise RuntimeError(f"Unsupported profiler library {workload.kernel_library!r}")
+        return self.profile_gemm(workload, iterations=iterations, rng=rng)
 
     def profile_gemm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
@@ -1499,14 +1681,15 @@ class _CudaProfiler:
         workspace_nbytes = int(workload.workspace_nbytes)
         workspace = ctypes.c_void_p(0)
         profiler_symbol = workload.profiler_symbol
+        cutlass = self._cutlass_library("cutlass_gemm")
         if split_k > 1:
             if not _cutlass_split_k_supported(workload.candidate):
                 raise RuntimeError(f"CUTLASS candidate {workload.candidate_id} does not support split-K profiling")
             profiler_symbol = _cutlass_split_k_profiler_symbol(workload.profiler_symbol)
-            workspace_nbytes = max(workspace_nbytes, self._cutlass_workspace_nbytes(workload))
+            workspace_nbytes = max(workspace_nbytes, self._cutlass_workspace_nbytes(workload, cutlass))
             if workspace_nbytes > 0:
                 workspace = self._device_buffer(workspace_nbytes)
-        fn = getattr(self._cutlass, profiler_symbol)
+        fn = getattr(cutlass, profiler_symbol)
         pointer_args = [ctypes.c_void_p, ctypes.c_void_p]
         call_args = [a, b]
         if bias is not None:
@@ -1566,9 +1749,62 @@ class _CudaProfiler:
             raise RuntimeError(f"CUTLASS profiler {profiler_symbol} failed")
         return elapsed_ms, workspace_nbytes
 
-    def _cutlass_workspace_nbytes(self, workload: GemmProfileWorkload) -> int:
+    def _profile_bmm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
+        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
+        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+        fn = getattr(self._cutlass_library("cutlass_bmm"), workload.profiler_symbol)
+        fn.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int64,
+            ctypes.c_int64,
+            ctypes.c_int64,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_void_p,
+        ]
+        fn.restype = ctypes.c_float
+        elapsed_ms = float(
+            fn(
+                a,
+                b,
+                c,
+                ctypes.c_int(int(workload.batch_count or 1)),
+                ctypes.c_int(workload.m),
+                ctypes.c_int(workload.n),
+                ctypes.c_int(workload.k),
+                ctypes.c_int64(int(workload.batch_stride_a or 0)),
+                ctypes.c_int64(int(workload.batch_stride_b or 0)),
+                ctypes.c_int64(int(workload.batch_stride_c or 0)),
+                ctypes.c_int(int(workload.lda or 0)),
+                ctypes.c_int(int(workload.ldb or 0)),
+                ctypes.c_int(int(workload.ldc or 0)),
+                ctypes.c_int(iterations),
+                ctypes.c_void_p(0),
+            )
+        )
+        if elapsed_ms < 0.0:
+            raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
+        return elapsed_ms, int(workload.workspace_nbytes)
+
+    def _cutlass_library(self, library: str) -> ctypes.CDLL:
+        if library == "cutlass_gemm" and self._cutlass_gemm is not None:
+            return self._cutlass_gemm
+        if library == "cutlass_bmm" and self._cutlass_bmm is not None:
+            return self._cutlass_bmm
+        raise RuntimeError(f"Artifact does not contain required {library} support library")
+
+    def _cutlass_workspace_nbytes(self, workload: GemmProfileWorkload, cutlass: ctypes.CDLL) -> int:
         symbol = _cutlass_workspace_symbol(workload.kernel_symbol)
-        fn = getattr(self._cutlass, symbol)
+        fn = getattr(cutlass, symbol)
         fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
         fn.restype = ctypes.c_size_t
         return int(

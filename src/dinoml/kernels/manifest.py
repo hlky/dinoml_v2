@@ -214,16 +214,24 @@ def apply_execution_plan(
     applied_keys: set[tuple[str, str, str]] = set()
     guarded_keys = {key for key in guarded_selections if key in conflict_keys or key not in selections}
     applied_guarded_keys: set[tuple[str, str, str]] = set()
+    manifest_kernel_libraries: dict[tuple[str, str, str], str] = {}
     for item in manifest.get("required_kernels", []):
-        if item.get("kernel_library") != "cutlass_gemm":
+        kernel_library = item.get("kernel_library")
+        if kernel_library not in {"cutlass_gemm", "cutlass_bmm"}:
             continue
         candidate_set = item.get("candidate_set", {})
         dtype = str(candidate_set.get("dtype", "")) if isinstance(candidate_set, Mapping) else ""
         key = (str(item.get("op", "")), dtype, str(item.get("candidate_set_key", "")))
+        manifest_kernel_libraries[key] = str(kernel_library)
         selection = selections.get(key)
         if selection is not None:
             selected_candidate = _execution_plan_candidate(item, key, selection, strict=strict, check_alignment_cap=True)
-            if selected_candidate is not None:
+            if selected_candidate is not None and _execution_plan_selection_supported(
+                str(kernel_library),
+                key,
+                selection,
+                strict=strict,
+            ):
                 applied_keys.add(key)
                 selected_id = str(selection.get("selected_candidate_id", ""))
                 item["selected_candidate_id"] = selected_id
@@ -236,7 +244,7 @@ def apply_execution_plan(
                     selected_candidate,
                 )
         dispatch_group = guarded_selections.get(key, ())
-        if dispatch_group and (key in conflict_keys or key not in selections):
+        if kernel_library == "cutlass_gemm" and dispatch_group and (key in conflict_keys or key not in selections):
             dispatch_entries = []
             for guarded in dispatch_group:
                 selected_candidate = _execution_plan_candidate(item, key, guarded, strict=strict, check_alignment_cap=False)
@@ -252,11 +260,36 @@ def apply_execution_plan(
         if missing:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing)
             raise ValueError(f"Execution plan selections did not match the kernel manifest: {missing_text}")
-        missing_guarded = sorted(guarded_keys - applied_guarded_keys)
+        missing_guarded = sorted(
+            key
+            for key in guarded_keys - applied_guarded_keys
+            if manifest_kernel_libraries.get(key, "cutlass_gemm") == "cutlass_gemm"
+        )
         if missing_guarded:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)
             raise ValueError(f"Execution plan guarded selections did not match the kernel manifest: {missing_text}")
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _execution_plan_selection_supported(
+    kernel_library: str,
+    key: tuple[str, str, str],
+    selection: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
+    if kernel_library != "cutlass_bmm":
+        return True
+    split_k = int(selection.get("split_k", 1) or 1)
+    workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
+    if split_k == 1 and workspace_nbytes == 0:
+        return True
+    if strict:
+        raise ValueError(
+            "CUTLASS BMM execution plan selections only support split_k=1 "
+            f"and workspace_nbytes=0 for {key[0]} {key[1]}"
+        )
+    return False
 
 
 def _execution_plan_candidate(

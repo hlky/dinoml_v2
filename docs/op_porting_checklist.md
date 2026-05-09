@@ -168,8 +168,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   using CUTLASS batched GEMM candidates. The launch ABI preserves v1 layout
   semantics, C-column output `[B, N, M]`, batch broadcasting through zero batch
   strides, target-policy candidate filtering, runtime alignment fallbacks, and
-  profile/report/cache workloads keyed by batch-aware BMM problem shapes.
-  Remaining BMM work: execution-plan feedback,
+  profile/report/cache workloads keyed by batch-aware BMM problem shapes. Static
+  BMM profile selections are consumed during compile; guarded BMM dispatch is
+  still deferred until lowering can emit shape guards.
+  Remaining BMM work: guarded execution-plan feedback,
   `_add` CUTLASS epilogue support, and split-K/grouped extensions.
 - [x] First profile-selected execution-plan artifact:
   `dinoml profile` now writes `debug/execution_plan.json`, selecting the fastest

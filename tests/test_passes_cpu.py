@@ -690,6 +690,245 @@ def test_bmm_kernel_manifest_uses_cutlass_external_library():
     assert selected_symbol_id in rendered_support
 
 
+def test_apply_execution_plan_selects_profiled_cutlass_bmm_candidate_for_lowering():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_ccc(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 8, 2], "float32"), "b": dml.TensorSpec([1, 6, 8], "float32")},
+        name="bmm_profile_selected_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    default_candidate = next(candidate for candidate in required["candidates"] if candidate["candidate_id"] == required["selected_candidate_id"])
+    selected_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] != default_candidate["candidate_id"]
+        and int(candidate["cutlass"]["align"]) <= int(required["cutlass_alignment_cap"])
+    )
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "bmm-profile-selection",
+                "op": "bmm_ccc",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 2, "n": 6, "k": 8, "batch_count": 2},
+                "avg_ms": 0.01,
+                "confidence": {"confident": True, "level": "high"},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
+    selected_required = selected_manifest["required_kernels"][0]
+    plan = create_codegen_plan(selected_manifest, "/tmp/dinoml-test-cache")
+    launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=selected_manifest)
+    rendered_support = render_cutlass_bmm_source(
+        (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_bmm.cu").read_text(
+            encoding="utf-8"
+        ),
+        cutlass_bmm_used_candidate_plan(selected_manifest),
+    )
+
+    assert selected_required["selected_candidate_id"] == selected_candidate["candidate_id"]
+    assert selected_required["kernel_symbol"] == selected_candidate["kernel_symbol"]
+    assert selected_required["profiler_symbol"] == selected_candidate["profiler_symbol"]
+    assert selected_required["execution_plan_selection"]["candidate_config_key"] == selected_candidate["candidate_config_key"]
+    assert selected_required["execution_plan_selection"]["shape"]["batch_count"] == 2
+    assert selected_manifest["cache_key"] != manifest["cache_key"]
+    assert selected_manifest["support_cache_key"] != manifest["support_cache_key"]
+    assert plan.external_support_libraries[0]["name"] == "cutlass_bmm"
+    assert plan.kernel_symbols == (selected_candidate["kernel_symbol"],)
+    assert plan.profiler_symbols == (selected_candidate["profiler_symbol"],)
+    assert selected_candidate["kernel_symbol"] in launch
+    assert default_candidate["kernel_symbol"] not in launch
+    assert selected_candidate["symbol_id"] in rendered_support
+
+
+def test_apply_execution_plan_defers_cutlass_bmm_guarded_dispatch():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 4, 8], "float32"), "b": dml.TensorSpec([2, 8, 6], "float32")},
+        name="bmm_guarded_plan_deferred",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(candidate for candidate in required["candidates"] if candidate["candidate_id"] == required["selected_candidate_id"])
+    guarded_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [
+            {
+                "selection_key": "bmm-guarded-selection",
+                "node_id": lowered["nodes"][0]["id"],
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8, "batch_count": 2},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+        "conflicts": [
+            {
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    selected_manifest = apply_execution_plan(manifest, guarded_plan, strict=True)
+    relaxed = apply_execution_plan(manifest, guarded_plan, strict=False)
+
+    for payload in (selected_manifest["required_kernels"][0], relaxed["required_kernels"][0]):
+        assert "execution_plan_dispatch" not in payload
+        assert "execution_plan_selection" not in payload
+        assert payload["selected_candidate_id"] == required["selected_candidate_id"]
+
+
+def test_apply_execution_plan_rejects_cutlass_bmm_candidate_above_alignment_cap():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_ccc(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 8, 2], "float32"), "b": dml.TensorSpec([1, 6, 8], "float32")},
+        name="bmm_profile_alignment_rejected",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    rejected_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if int(candidate["cutlass"]["align"]) > int(required["cutlass_alignment_cap"])
+    )
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "op": "bmm_ccc",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": rejected_candidate["candidate_id"],
+                "candidate_config_key": rejected_candidate["candidate_config_key"],
+                "kernel_symbol": rejected_candidate["kernel_symbol"],
+                "profiler_symbol": rejected_candidate["profiler_symbol"],
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="exceeds alignment cap"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_selection" not in relaxed["required_kernels"][0]
+
+
+def test_apply_execution_plan_rejects_cutlass_bmm_static_split_k():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 4, 8], "float32"), "b": dml.TensorSpec([2, 8, 6], "float32")},
+        name="bmm_profile_splitk_rejected",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(candidate for candidate in required["candidates"] if candidate["candidate_id"] == required["selected_candidate_id"])
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "split_k": 2,
+                "workspace_nbytes": 4096,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="BMM execution plan selections only support split_k=1"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_selection" not in relaxed["required_kernels"][0]
+
+
+def test_cuda_bmm_lowering_rejects_guarded_execution_plan_dispatch():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 4, 8], "float32"), "b": dml.TensorSpec([2, 8, 6], "float32")},
+        name="bmm_guarded_lowering_rejected",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    manifest["required_kernels"][0]["execution_plan_dispatch"] = [
+        {
+            "selected_candidate_id": manifest["required_kernels"][0]["selected_candidate_id"],
+            "shape": {"m": 4, "n": 6, "k": 8, "batch_count": 2},
+        }
+    ]
+
+    with pytest.raises(NotImplementedError, match="BMM guarded execution-plan dispatch is not supported"):
+        render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
+
+
 def test_gemm_kernel_manifest_filters_fp16_accumulation_policy():
     import dinoml as dml
 

@@ -92,8 +92,9 @@ fallbacks. `_add` BMM variants are still CPU/reference-only until their addend
 or trailing-bias broadcast contract is represented as a proper CUTLASS epilogue
 ABI. Base BMM profiling workloads now feed `dinoml profile` reports/cache using
 the BMM profiler ABI, batch count, batch strides, leading dimensions, and
-batch-aware execution-plan shape keys. Applying those BMM profile selections
-back into compile-time manifests remains follow-up work.
+batch-aware execution-plan shape keys. Confident static BMM profile selections
+are consumed during compile by selecting the profiled BMM candidate in the
+kernel manifest. Guarded BMM shape dispatch remains follow-up work.
 
 `dinoml profile <artifact>` now executes exported profiler symbols for every
 manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
@@ -202,9 +203,9 @@ residual/broadcast split-K remains a targeted follow-up. The permuted
 `gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
 Broader broadcast arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
-functionality, BMM `_add`/execution-plan consumption parity, and grouped GEMM
-parity should wait behind that profiling loop so v2 does not accumulate more
-declared surface area without v1-grade selection behavior.
+functionality, BMM `_add`/guarded-dispatch parity, and grouped GEMM parity
+should wait behind that profiling loop so v2 does not accumulate more declared
+surface area without v1-grade selection behavior.
 
 ## Dependency Discovery
 

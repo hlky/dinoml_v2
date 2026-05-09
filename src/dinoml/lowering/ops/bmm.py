@@ -34,6 +34,7 @@ def render_launch(
     _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
     dtype = str(tensor_map[c_name]["dtype"])
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
+    _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
     symbol = (
         str(manifest_item["kernel_symbol"])
         if manifest_item is not None
@@ -101,6 +102,22 @@ def _output_shape_check(c_ident: str, batch_expr: str, m_expr: str, n_expr: str,
     if c_layout == "c":
         return f"shape_{c_ident}_0 != ({batch_expr}) || shape_{c_ident}_1 != ({n_expr}) || shape_{c_ident}_2 != ({m_expr})"
     return f"shape_{c_ident}_0 != ({batch_expr}) || shape_{c_ident}_1 != ({m_expr}) || shape_{c_ident}_2 != ({n_expr})"
+
+
+def _validate_cutlass_execution_plan_metadata(op_name: str, item: Mapping[str, Any] | None) -> None:
+    if not isinstance(item, Mapping):
+        return
+    if item.get("execution_plan_dispatch"):
+        raise NotImplementedError(f"{op_name} BMM guarded execution-plan dispatch is not supported")
+    selection = item.get("execution_plan_selection")
+    if not isinstance(selection, Mapping):
+        return
+    split_k = int(selection.get("split_k", 1) or 1)
+    workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
+    if split_k != 1 or workspace_nbytes != 0:
+        raise NotImplementedError(
+            f"{op_name} BMM execution-plan selection requires split_k=1 and workspace_nbytes=0"
+        )
 
 
 def _cutlass_launch_lines(

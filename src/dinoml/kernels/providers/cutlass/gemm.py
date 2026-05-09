@@ -84,8 +84,22 @@ CUTLASS_SM80_TENSOROP_1688_TILES = (
     ((64, 128, 32), 3, (2, 2, 1)),
     ((64, 64, 32), 5, (2, 2, 1)),
 )
+CUTLASS_SM80_SIMT_F32_TILES = (
+    ((256, 128, 8), 5, (4, 2, 1)),
+    ((128, 256, 8), 5, (2, 4, 1)),
+    ((128, 128, 8), 5, (4, 2, 1)),
+    ((256, 128, 8), 4, (4, 2, 1)),
+    ((128, 256, 8), 4, (2, 4, 1)),
+    ((128, 128, 8), 4, (4, 2, 1)),
+    ((128, 64, 8), 5, (2, 2, 1)),
+    ((64, 128, 8), 5, (2, 2, 1)),
+    ((64, 64, 8), 5, (2, 1, 1)),
+    ((128, 32, 8), 5, (2, 1, 1)),
+    ((32, 128, 8), 5, (1, 2, 1)),
+)
 CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
 CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
+CUTLASS_SM80_SIMT_F32_ALIGNMENTS = (1,)
 
 
 def _cutlass_symbol_id(
@@ -95,11 +109,28 @@ def _cutlass_symbol_id(
     align: int,
     accumulator_dtype: str,
     math: str,
+    opclass: str = "tensorop",
 ) -> str:
     tb = "x".join(str(dim) for dim in threadblock)
     wc = "x".join(str(dim) for dim in warp_count)
     accumulator = accumulator_dtype.replace("float", "f").replace("bfloat", "bf")
-    return f"tensorop_sm80_{math}_{tb}_s{stages}_w{wc}_{accumulator}_align{align}"
+    return f"{opclass}_sm80_{math}_{tb}_s{stages}_w{wc}_{accumulator}_align{align}"
+
+
+def _cutlass_policy_name(
+    threadblock: tuple[int, int, int],
+    stages: int,
+    warp_count: tuple[int, int, int],
+    accumulator_dtype: str,
+    math: str,
+    opclass: str,
+) -> str:
+    opclass_name = "TensorOp" if opclass == "tensorop" else "Simt"
+    math_name = "TF32" if math == "tf32" else ("F32" if math == "f32" else "F16")
+    accumulator = accumulator_dtype.replace("float", "F").replace("bfloat", "BF").upper()
+    tb = "x".join(str(dim) for dim in threadblock)
+    wc = "x".join(str(dim) for dim in warp_count)
+    return f"Sm80{opclass_name}{tb}S{stages}W{wc}{math_name}{accumulator}GemmPolicy"
 
 
 def _cutlass_candidate_config(
@@ -112,18 +143,20 @@ def _cutlass_candidate_config(
     accumulator_dtype: str,
     instruction: tuple[int, int, int],
     math: str,
+    opclass: str = "tensorop",
     optional: bool = False,
 ) -> dict[str, Any]:
-    symbol_id = _cutlass_symbol_id(threadblock, stages, warp_count, align, accumulator_dtype, math)
+    symbol_id = _cutlass_symbol_id(threadblock, stages, warp_count, align, accumulator_dtype, math, opclass=opclass)
     return {
         "candidate_id": f"cutlass_{symbol_id}",
         "symbol_id": symbol_id,
         "dtype": dtype,
         "accumulator_dtype": accumulator_dtype,
         "optional": optional,
+        "cutlass_policy": _cutlass_policy_name(threadblock, stages, warp_count, accumulator_dtype, math, opclass),
         "cutlass": {
             "api": "device_gemm",
-            "opclass": "tensorop",
+            "opclass": opclass,
             "arch": "sm80",
             "math": math,
             "threadblock": list(threadblock),
@@ -197,9 +230,28 @@ def _cutlass_sm80_tensorop_tf32_candidate_configs() -> tuple[dict[str, Any], ...
     )
 
 
+def _cutlass_sm80_simt_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _cutlass_candidate_config(
+            threadblock,
+            stages,
+            warp_count,
+            align,
+            dtype="float32",
+            accumulator_dtype="float32",
+            instruction=(1, 1, 1),
+            math="f32",
+            opclass="simt",
+        )
+        for threadblock, stages, warp_count in CUTLASS_SM80_SIMT_F32_TILES
+        for align in CUTLASS_SM80_SIMT_F32_ALIGNMENTS
+    )
+
+
 CUTLASS_GEMM_CANDIDATE_CONFIGS = (
     *_cutlass_sm80_tensorop_16816_candidate_configs(),
     *_cutlass_sm80_tensorop_tf32_candidate_configs(),
+    *_cutlass_sm80_simt_f32_candidate_configs(),
 )
 CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE = {
     dtype: tuple(config for config in CUTLASS_GEMM_CANDIDATE_CONFIGS if config["dtype"] == dtype)
@@ -250,6 +302,7 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
         "epilogue": spec.epilogue.name,
         "epilogue_config": epilogue,
         "accumulator_dtype": str(candidate_config["accumulator_dtype"]),
+        "cutlass_policy": str(candidate_config["cutlass_policy"]),
         "optional": bool(candidate_config.get("optional", False)),
         "launch_abi": spec.epilogue.launch_abi,
         "cutlass": cutlass_config,
@@ -329,11 +382,6 @@ def _cutlass_candidate_configs_for_target(
     policy = cutlass_gemm_target_policy(target)
     if dtype == "float32" and policy["no_tf32"]:
         configs = tuple(config for config in configs if config["cutlass"]["math"] != "tf32")
-        if not configs:
-            raise NotImplementedError(
-                "CUTLASS GEMM no_tf32=True requires non-TF32 float32 candidates; "
-                "DinoML v2 does not generate those candidates yet"
-            )
     if dtype == "float16":
         accumulator_dtype = "float16" if policy["use_fp16_acc"] else "float32"
         configs = tuple(config for config in configs if config["accumulator_dtype"] == accumulator_dtype)
@@ -431,18 +479,106 @@ def _render_generated_cutlass_gemm_source(source: str, used_candidate_plan: Mapp
         raise ValueError("CUTLASS GEMM generated source does not contain export invocations") from exc
     generated_lines = lines[first_export:]
     available = {symbol for line in generated_lines for symbol in _generated_export_symbols(line)}
+    dynamic_policy_aliases = []
+    dynamic_export_lines = []
+    for candidate in used_candidate_plan.get("candidates", []):
+        if not isinstance(candidate, Mapping):
+            continue
+        export_line = _generated_export_line(candidate)
+        export_symbols = _generated_export_symbols(export_line)
+        if not export_symbols or export_symbols <= available:
+            continue
+        policy_name = str(candidate["cutlass_policy"])
+        if policy_name not in source and policy_name not in "\n".join(dynamic_policy_aliases):
+            dynamic_policy_aliases.append(_generated_policy_alias(candidate))
+        dynamic_export_lines.append(export_line)
+        available.update(export_symbols)
     missing = sorted(symbols - available)
     if missing:
         raise ValueError(f"CUTLASS GEMM source is missing symbols: {', '.join(missing)}")
     selected = []
     seen = set()
-    for line in generated_lines:
+    for line in [*generated_lines, *dynamic_export_lines]:
         line_symbols = _generated_export_symbols(line)
         if not line_symbols or not (symbols & line_symbols) or line in seen:
             continue
         selected.append(line)
         seen.add(line)
-    return "\n".join([*lines[:first_export], "", *selected]) + "\n"
+    return "\n".join([*lines[:first_export], *dynamic_policy_aliases, "", *selected]) + "\n"
+
+
+def _generated_policy_alias(candidate: Mapping[str, Any]) -> str:
+    cutlass_config = candidate["cutlass"]
+    threadblock = [int(dim) for dim in cutlass_config["threadblock"]]
+    warp = [int(dim) for dim in cutlass_config["warp"]]
+    instruction = [int(dim) for dim in cutlass_config["instruction"]]
+    opclass = "cutlass::arch::OpClassSimt" if cutlass_config["opclass"] == "simt" else "cutlass::arch::OpClassTensorOp"
+    accumulator = _cutlass_cpp_element(str(candidate["accumulator_dtype"]))
+    return (
+        f"using {candidate['cutlass_policy']} = GemmPolicy<\n"
+        f"    {opclass},\n"
+        "    cutlass::arch::Sm80,\n"
+        f"    cutlass::gemm::GemmShape<{threadblock[0]}, {threadblock[1]}, {threadblock[2]}>,\n"
+        f"    cutlass::gemm::GemmShape<{warp[0]}, {warp[1]}, {warp[2]}>,\n"
+        f"    cutlass::gemm::GemmShape<{instruction[0]}, {instruction[1]}, {instruction[2]}>,\n"
+        f"    {accumulator},\n"
+        f"    {int(cutlass_config['stages'])}>;"
+    )
+
+
+def _generated_export_line(candidate: Mapping[str, Any]) -> str:
+    op_name = str(candidate["op"])
+    dtype = str(candidate["dtype"])
+    ctype, element, old_suffix = _cutlass_export_dtype_args(dtype)
+    symbol_id = str(candidate["symbol_id"])
+    policy = str(candidate["cutlass_policy"])
+    epilogue = str(candidate["epilogue"])
+    if epilogue == "linear_combination":
+        return f"DINOML_FORWARD_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
+    if epilogue == "bias":
+        return f"DINOML_FORWARD_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
+    layout_b = "cutlass::layout::ColumnMajor" if "_rcr" in op_name else "cutlass::layout::RowMajor"
+    ldb = "k" if "_rcr" in op_name else "n"
+    return (
+        f"DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+        f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+    )
+
+
+def _cutlass_export_dtype_args(dtype: str) -> tuple[str, str, str]:
+    if dtype == "float32":
+        return "float", "float", "f32"
+    if dtype == "float16":
+        return "half", "cutlass::half_t", "f16"
+    if dtype == "bfloat16":
+        return "__nv_bfloat16", "cutlass::bfloat16_t", "bf16"
+    raise ValueError(f"Unsupported CUTLASS export dtype: {dtype!r}")
+
+
+def _cutlass_cpp_element(dtype: str) -> str:
+    if dtype == "float32":
+        return "float"
+    if dtype == "float16":
+        return "cutlass::half_t"
+    if dtype == "bfloat16":
+        return "cutlass::bfloat16_t"
+    raise ValueError(f"Unsupported CUTLASS element dtype: {dtype!r}")
+
+
+def _cutlass_epilogue_alias(epilogue: str) -> str:
+    aliases = {
+        "bias_relu": "BiasReluEpilogue",
+        "bias_gelu": "BiasGeluEpilogue",
+        "bias_fast_gelu": "BiasFastGeluEpilogue",
+        "bias_sigmoid": "BiasSigmoidEpilogue",
+        "bias_tanh": "BiasTanhEpilogue",
+        "bias_swish": "BiasSwishEpilogue",
+        "bias_hardswish": "BiasHardSwishEpilogue",
+    }
+    try:
+        return aliases[epilogue]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported CUTLASS GEMM epilogue: {epilogue!r}") from exc
 
 
 def _generated_export_symbols(line: str) -> frozenset[str]:

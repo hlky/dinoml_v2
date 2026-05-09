@@ -123,6 +123,26 @@ def test_build_profile_workloads_uses_manifest_selected_fp16_accumulation_policy
     assert workloads[0].candidate_id == _cutlass_default_candidate_id("float16", target=target)
 
 
+def test_build_profile_workloads_uses_manifest_selected_no_tf32_policy():
+    target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 11], "float32")},
+        name="profile_no_tf32_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, target)
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == 11
+    assert {workload.candidate["cutlass"]["opclass"] for workload in workloads} == {"simt"}
+    assert {workload.candidate["cutlass"]["math"] for workload in workloads} == {"f32"}
+    assert all("simt_sm80_f32" in workload.kernel_symbol for workload in workloads)
+    assert all("tf32" not in workload.kernel_symbol for workload in workloads)
+    assert workloads[0].candidate_id == _cutlass_default_candidate_id("float32", target=target)
+
+
 @pytest.mark.parametrize(
     ("op_name", "epilogue"),
     [

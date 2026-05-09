@@ -8,7 +8,11 @@ from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.gemm import GEMM_OPS, render_cutlass_gemm_source
-from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE, cutlass_gemm_candidates
+from dinoml.kernels.providers.cutlass.gemm import (
+    CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
+    cutlass_gemm_candidates,
+    cutlass_gemm_used_candidate_plan,
+)
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan, build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
@@ -427,7 +431,7 @@ def test_gemm_kernel_manifest_filters_fp16_accumulation_policy():
     assert default_required["candidates"][0]["symbol_id"] not in rendered_support
 
 
-def test_gemm_kernel_manifest_rejects_no_tf32_without_float32_simt_candidates():
+def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
     import dinoml as dml
 
     class GemmModel(dml.Module):
@@ -440,9 +444,34 @@ def test_gemm_kernel_manifest_rejects_no_tf32_without_float32_simt_candidates():
         name="gemm_float32_no_tf32",
     )
     lowered, _ = PassManager().run(spec.ir)
+    default_manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    no_tf32_target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
+    no_tf32_manifest = build_kernel_manifest(lowered, no_tf32_target)
 
-    with pytest.raises(NotImplementedError, match="no_tf32=True requires non-TF32 float32 candidates"):
-        build_kernel_manifest(lowered, {**DEFAULT_CUDA_TARGET, "no_tf32": True})
+    default_required = default_manifest["required_kernels"][0]
+    no_tf32_required = no_tf32_manifest["required_kernels"][0]
+    assert no_tf32_required["candidate_set"]["target_policy"] == {"no_tf32": True, "use_fp16_acc": False}
+    assert no_tf32_required["selected_candidate_id"] != default_required["selected_candidate_id"]
+    assert no_tf32_required["kernel_symbol"] != default_required["kernel_symbol"]
+    assert len(no_tf32_required["candidates"]) == 11
+    assert {candidate["cutlass"]["opclass"] for candidate in no_tf32_required["candidates"]} == {"simt"}
+    assert {candidate["cutlass"]["math"] for candidate in no_tf32_required["candidates"]} == {"f32"}
+    assert {candidate["cutlass"]["align"] for candidate in no_tf32_required["candidates"]} == {1}
+    assert no_tf32_required["candidates"][0]["symbol_id"] == "simt_sm80_f32_256x128x8_s5_w4x2x1_f32_align1"
+    assert no_tf32_required["candidates"][-1]["symbol_id"] == "simt_sm80_f32_32x128x8_s5_w1x2x1_f32_align1"
+
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=no_tf32_manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+    rendered_support = render_cutlass_gemm_source(source, cutlass_gemm_used_candidate_plan(no_tf32_manifest))
+
+    assert no_tf32_required["kernel_symbol"] in generated
+    assert default_required["kernel_symbol"] not in generated
+    assert "cutlass::arch::OpClassSimt" in rendered_support
+    assert no_tf32_required["candidates"][0]["cutlass_policy"] in rendered_support
+    assert no_tf32_required["candidates"][0]["symbol_id"] in rendered_support
+    assert default_required["candidates"][0]["symbol_id"] not in rendered_support
 
 
 def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
@@ -459,7 +488,7 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
-    used_plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache").external_support_libraries[0]
+    used_plan = cutlass_gemm_used_candidate_plan(manifest)
     source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(encoding="utf-8")
 
     rendered = render_cutlass_gemm_source(source, used_plan)

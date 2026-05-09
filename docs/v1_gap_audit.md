@@ -40,8 +40,8 @@ porting. It intentionally excludes the op inventory, which lives in
   bindings, and the first explicit profiler runner consumes those variants for
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, and v1-style
   bias activation epilogue variants. `use_fp16_acc=True` now changes the
-  manifest/profile/build candidate set for fp16 GEMM; `no_tf32=True` is guarded
-  until SM80 SIMT f32 fallback candidates are generated.
+  manifest/profile/build candidate set for fp16 GEMM; `no_tf32=True` now
+  filters float32 GEMM to v1 SM80 SIMT f32 fallback candidates.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.

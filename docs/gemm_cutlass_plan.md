@@ -96,8 +96,9 @@ the manifest candidate plan. The first epilogue slice uses a structured GEMM des
 GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for
 `float16`/`bfloat16`, including alignment variants and `float16` versus
 `float32` accumulation choices where v1 generated both. `float32` candidates use
-the v1 SM80 TensorOp 1688 TF32 tile list, are marked optional rather than exact
-f32 parity, and avoid being mixed with 16816 tile shapes. Each candidate records
+the v1 SM80 TensorOp 1688 TF32 tile list plus the v1 SM80 SIMT f32 fallback tile
+list. TF32 candidates stay first/default and are marked optional; `no_tf32=True`
+filters them out and leaves 11 exact f32 SIMT candidates. Each candidate records
 tile, stage count, warp count, alignment, math mode, optional status, and
 accumulator dtype so profiling can distinguish real kernel variants. Generated
 support source is pruned from the macro-backed checked-in source to only the
@@ -106,11 +107,9 @@ exports instantiate CUTLASS thread epilogue functors directly with the selected
 candidate accumulator type. Target policy now participates in the per-artifact
 manifest: `Target(use_fp16_acc=True)` selects only fp16-accumulation fp16
 launchers/profilers and changes the support/profile cache keys. `Target(no_tf32=True)`
-is recognized as the v1 TF32 opt-out policy, but currently raises for float32
-GEMM until v1 SM80 SIMT f32 fallback candidates are generated in v2.
+selects the SIMT f32 fallback launchers/profilers and changes those keys too.
 
-Next steps are SM80 SIMT f32 fallback candidates for `no_tf32=True`, broader
-broadcast/arithmetic epilogues, broader v1 candidate enumeration, BMM and
+Next steps are broader broadcast/arithmetic epilogues, broader v1 candidate enumeration, BMM and
 grouped GEMM parity, and then public `matmul` layout selection.
 
 ## Dependency Discovery

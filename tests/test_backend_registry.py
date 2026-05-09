@@ -185,7 +185,11 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             assert candidate["cutlass"]["threadblock"] == ([256, 128, 16] if dtype == "float32" else [256, 128, 32])
             assert candidates[1]["cutlass"]["opclass"] == "tensorop"
             assert candidates[1]["cutlass"]["align"] in ({1, 2, 4} if dtype == "float32" else {2, 4, 8})
-            assert candidates[-1]["cutlass"]["threadblock"] == ([64, 64, 32] if dtype == "float32" else [96, 192, 32])
+            assert candidates[-1]["cutlass"]["threadblock"] == ([32, 128, 8] if dtype == "float32" else [96, 192, 32])
+            if dtype == "float32":
+                assert {item["cutlass"]["opclass"] for item in candidates} == {"simt", "tensorop"}
+                assert {item["cutlass"]["math"] for item in candidates} == {"f32", "tf32"}
+                assert {item["cutlass"]["instruction"][0] for item in candidates if item["cutlass"]["opclass"] == "simt"} == {1}
             if dtype == "float16":
                 assert {item["accumulator_dtype"] for item in candidates} == {"float16", "float32"}
             else:

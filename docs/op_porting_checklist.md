@@ -130,10 +130,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `float32`, `float16`, and `bfloat16`, backed by cached CUTLASS launchers with
   explicit tensor-op manifest candidate sets and CPU reference
   execution but no CPU compiled GEMM. The manifest carries target policy for
-  optional TF32 and fp16 accumulation; fp16 accumulation selection is active,
-  while TF32 opt-out still needs v1 SM80 SIMT f32 fallback candidates. Public
-  `matmul` should wait until layout selection, multi-candidate profiler
-  selection, and epilogue contracts are ready.
+  optional TF32 and fp16 accumulation; fp16 accumulation and TF32 opt-out now
+  select policy-specific CUTLASS candidate sets. Public `matmul` should wait
+  until layout selection, multi-candidate profiler selection, and epilogue
+  contracts are ready.
 - [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1
   `[N]` and rank-2 `[1, N]` bias contracts through CUTLASS launcher/profiler
   symbols for `float32`, `float16`, and `bfloat16`, with CPU reference coverage.

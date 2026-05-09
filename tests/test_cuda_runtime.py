@@ -16,16 +16,16 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 
 
-def _cutlass_default_symbol_id(dtype: str) -> str:
-    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=DEFAULT_CUDA_TARGET)[0]["symbol_id"])
+def _cutlass_default_symbol_id(dtype: str, *, target=None) -> str:
+    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET)[0]["symbol_id"])
 
 
-def _cutlass_default_candidate_id(dtype: str) -> str:
-    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=DEFAULT_CUDA_TARGET)[0]["candidate_id"])
+def _cutlass_default_candidate_id(dtype: str, *, target=None) -> str:
+    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET)[0]["candidate_id"])
 
 
-def _cutlass_candidate_count(dtype: str) -> int:
-    return len(cutlass_gemm_candidates("gemm_rrr", dtype, target=DEFAULT_CUDA_TARGET))
+def _cutlass_candidate_count(dtype: str, *, target=None) -> int:
+    return len(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET))
 
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 
@@ -359,6 +359,43 @@ def test_cuda_cutlass_gemm_supports_dynamic_mn_shapes(tmp_path, monkeypatch, op_
     module.close()
 
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
+
+
+def test_cuda_cutlass_gemm_no_tf32_runtime_matches_torch(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec((16, 32), "float32"), "b": dml.TensorSpec((32, 24), "float32")},
+        name="gemm_rrr_float32_no_tf32_cutlass_cuda",
+    )
+    artifact = dml.compile(spec, target, tmp_path / "gemm_rrr_float32_no_tf32_cutlass_cuda.dinoml")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    required = kernel_manifest["required_kernels"][0]
+    symbol = f"dinoml_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id('float32', target=target.to_json())}"
+    assert required["kernel_symbol"] == symbol
+    assert required["candidate_set"]["candidate_count"] == 11
+    assert {candidate["cutlass"]["opclass"] for candidate in required["candidates"]} == {"simt"}
+    assert "simt_sm80_f32" in symbol
+
+    torch.manual_seed(47)
+    a = torch.randn((16, 32), device="cuda", dtype=torch.float32)
+    b = torch.randn((32, 24), device="cuda", dtype=torch.float32)
+    expected = a @ b
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"a": a, "b": b})["y"]
+    session.close()
+    module.close()
+
+    torch.testing.assert_close(actual, expected, atol=1e-4, rtol=1e-4)
 
 
 class VectorizableScalarChain(dml.Module):

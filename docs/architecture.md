@@ -125,9 +125,9 @@ policy, launch ABI, generator id, candidate config keys, and its own
 generated CUTLASS manifest sets. `Target(use_fp16_acc=True)` filters fp16
 candidate sets to fp16 accumulation and flows through CUDA lowering, profile
 workload construction, support-source pruning, and cache keys. `Target(no_tf32=True)`
-is represented in the same policy surface but currently requires SM80 SIMT f32
-candidate generation before float32 GEMM can run without TF32. The CUTLASS
-support cache also writes a `dinoml.support_source_manifest` at
+filters float32 GEMM to the v1 SM80 SIMT f32 fallback candidates, so TF32 stays
+the default selected path while exact f32 accumulation remains available through
+target policy. The CUTLASS support cache also writes a `dinoml.support_source_manifest` at
 `src/source_manifest.json`, mapping the rendered support source to the candidate
 set keys, candidate config keys, launcher/profiler symbols, and support build
 units actually required by the artifact. The rendered support source is pruned

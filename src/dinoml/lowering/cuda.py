@@ -78,15 +78,20 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":
             continue
-        symbol = _cutlass_declaration_symbol(item)
-        if symbol in seen:
-            continue
-        candidate = _selected_candidate(item)
-        dtype = str(candidate.get("dtype") or item.get("candidate_set", {}).get("dtype"))
-        launch_abi = str(candidate.get("launch_abi") or item.get("candidate_set", {}).get("launch_abi"))
-        cpp_type = cuda_storage_type(dtype)
-        declarations.append(_cutlass_gemm_declaration(symbol, cpp_type, launch_abi, split_k=_cutlass_item_split_k(item) > 1))
-        seen.add(symbol)
+        for declaration in _cutlass_item_declarations(item):
+            symbol = declaration["symbol"]
+            if symbol in seen:
+                continue
+            cpp_type = cuda_storage_type(str(declaration["dtype"]))
+            declarations.append(
+                _cutlass_gemm_declaration(
+                    symbol,
+                    cpp_type,
+                    str(declaration["launch_abi"]),
+                    split_k=bool(declaration["split_k"]),
+                )
+            )
+            seen.add(symbol)
     return declarations
 
 
@@ -99,6 +104,56 @@ def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
     if candidates:
         return candidates[0]
     return {}
+
+
+def _candidate_by_id(item: Mapping[str, Any], candidate_id: str) -> Mapping[str, Any]:
+    for candidate in item.get("candidates", []):
+        if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
+            return candidate
+    return {}
+
+
+def _cutlass_item_declarations(item: Mapping[str, Any]) -> list[dict[str, Any]]:
+    declarations = []
+    selected = _selected_candidate(item)
+    declarations.append(
+        _cutlass_declaration_context(
+            item,
+            selected,
+            str(item["kernel_symbol"]),
+            split_k=_cutlass_item_split_k(item),
+        )
+    )
+    for selection in item.get("execution_plan_dispatch", ()):
+        if not isinstance(selection, Mapping):
+            continue
+        candidate = _candidate_by_id(item, str(selection.get("selected_candidate_id", "")))
+        declarations.append(
+            _cutlass_declaration_context(
+                item,
+                candidate,
+                str(selection.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                split_k=int(selection.get("split_k", 1) or 1),
+            )
+        )
+    return declarations
+
+
+def _cutlass_declaration_context(
+    item: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    symbol: str,
+    *,
+    split_k: int,
+) -> dict[str, Any]:
+    launch_abi = str(candidate.get("launch_abi") or item.get("candidate_set", {}).get("launch_abi"))
+    dtype = str(candidate.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+    return {
+        "symbol": _cutlass_split_k_kernel_symbol(symbol) if split_k > 1 else symbol,
+        "dtype": dtype,
+        "launch_abi": launch_abi,
+        "split_k": split_k > 1,
+    }
 
 
 def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str, *, split_k: bool = False) -> str:
@@ -141,15 +196,22 @@ def _cutlass_workspace_context(kernel_manifest: Mapping[str, Any] | None) -> dic
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":
             continue
-        selection = item.get("execution_plan_selection")
-        if not isinstance(selection, Mapping):
-            continue
-        if int(selection.get("split_k", 1) or 1) <= 1:
-            continue
-        max_workspace = max(max_workspace, int(selection.get("workspace_nbytes", 0) or 0))
+        for selection in _cutlass_workspace_selections(item):
+            if int(selection.get("split_k", 1) or 1) <= 1:
+                continue
+            max_workspace = max(max_workspace, int(selection.get("workspace_nbytes", 0) or 0))
     if max_workspace <= 0:
         return None
     return {"nbytes": max_workspace}
+
+
+def _cutlass_workspace_selections(item: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    selections = []
+    selection = item.get("execution_plan_selection")
+    if isinstance(selection, Mapping):
+        selections.append(selection)
+    selections.extend(selection for selection in item.get("execution_plan_dispatch", ()) if isinstance(selection, Mapping))
+    return selections
 
 
 def _cutlass_declaration_symbol(item: Mapping[str, Any]) -> str:

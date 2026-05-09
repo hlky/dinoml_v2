@@ -155,11 +155,13 @@ support-library runtime smoke coverage, and profiler workload shapes.
 `dml.compile(..., execution_plan=...)` and `dinoml compile --execution-plan`
 now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
-source. That closes the first profile-to-recompile loop for shapes whose
-profiled buckets agree on a single candidate. Next steps should prioritize
-richer tensor-accessor offset/layout alignment filtering, guarded dynamic-shape
-dispatch when bucket winners differ, and extending split-K coverage to
-residual/broadcast epilogues once the CUTLASS broadcast path is proven. Broader
+source. For profiled dynamic shapes whose buckets choose different candidates or
+split-K values, the manifest now carries guarded per-node dispatch selections:
+generated CUDA checks profiled `M/N/K` cases, calls the selected candidate
+symbol, sizes a shared CUTLASS workspace for split-K dispatches, and falls back
+to the safe manifest default when no guard matches. Next steps should prioritize
+richer tensor-accessor offset/layout alignment filtering and extending split-K
+coverage to residual/broadcast epilogues once the CUTLASS broadcast path is proven. Broader
 broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
 functionality, BMM and grouped GEMM parity should wait behind that profiling

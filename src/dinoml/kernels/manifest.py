@@ -136,9 +136,13 @@ def apply_execution_plan(
 ) -> dict[str, Any]:
     manifest = deepcopy(dict(kernel_manifest))
     selections = _execution_plan_static_selections(execution_plan)
-    if not selections:
+    guarded_selections = _execution_plan_guarded_selections(execution_plan)
+    conflict_keys = _execution_plan_conflict_keys(execution_plan)
+    if not selections and not guarded_selections:
         return _with_kernel_manifest_cache_keys(manifest)
     applied_keys: set[tuple[str, str, str]] = set()
+    guarded_keys = {key for key in guarded_selections if key in conflict_keys or key not in selections}
+    applied_guarded_keys: set[tuple[str, str, str]] = set()
     for item in manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":
             continue
@@ -146,54 +150,100 @@ def apply_execution_plan(
         dtype = str(candidate_set.get("dtype", "")) if isinstance(candidate_set, Mapping) else ""
         key = (str(item.get("op", "")), dtype, str(item.get("candidate_set_key", "")))
         selection = selections.get(key)
-        if selection is None:
-            continue
-        applied_keys.add(key)
-        selected_id = str(selection.get("selected_candidate_id", ""))
-        selected_candidate = _candidate_by_id(item, selected_id)
-        if selected_candidate is None:
-            if strict:
-                raise ValueError(
-                    "Execution plan selected unknown CUTLASS candidate "
-                    f"{selected_id!r} for {key[0]} {key[1]} candidate set {key[2]}"
-            )
-            continue
-        selected_config_key = selected_candidate.get("candidate_config_key")
-        plan_config_key = selection.get("candidate_config_key")
-        if selected_config_key is not None and plan_config_key is not None and str(selected_config_key) != str(plan_config_key):
-            if strict:
-                raise ValueError(
-                    "Execution plan candidate_config_key mismatch for CUTLASS candidate "
-                    f"{selected_id!r} on {key[0]} {key[1]}"
+        if selection is not None:
+            selected_candidate = _execution_plan_candidate(item, key, selection, strict=strict, check_alignment_cap=True)
+            if selected_candidate is not None:
+                applied_keys.add(key)
+                selected_id = str(selection.get("selected_candidate_id", ""))
+                item["selected_candidate_id"] = selected_id
+                item["kernel_symbol"] = str(selection.get("kernel_symbol") or selected_candidate["kernel_symbol"])
+                item["profiler_symbol"] = str(selection.get("profiler_symbol") or selected_candidate["profiler_symbol"])
+                item["execution_plan_selection"] = _execution_plan_selection_payload(
+                    execution_plan,
+                    key,
+                    selection,
+                    selected_candidate,
                 )
-            continue
-        alignment_cap = item.get("cutlass_alignment_cap")
-        if alignment_cap is not None and cutlass_candidate_alignment(selected_candidate) > int(alignment_cap):
-            if strict:
-                raise ValueError(
-                    "Execution plan selected CUTLASS candidate "
-                    f"{selected_id!r} for {key[0]} {key[1]} exceeds alignment cap {int(alignment_cap)}"
-                )
-            continue
-        item["selected_candidate_id"] = selected_id
-        item["kernel_symbol"] = str(selection.get("kernel_symbol") or selected_candidate["kernel_symbol"])
-        item["profiler_symbol"] = str(selection.get("profiler_symbol") or selected_candidate["profiler_symbol"])
-        item["execution_plan_selection"] = {
-            "schema_version": int(execution_plan.get("schema_version", 1)),
-            "selection_key": selection.get("selection_key"),
-            "candidate_set_key": key[2],
-            "candidate_config_key": selection.get("candidate_config_key") or selected_candidate.get("candidate_config_key"),
-            "shape": dict(selection.get("shape", {})) if isinstance(selection.get("shape"), Mapping) else {},
-            "avg_ms": selection.get("avg_ms"),
-            "split_k": int(selection.get("split_k", 1) or 1),
-            "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
-        }
+        dispatch_group = guarded_selections.get(key, ())
+        if dispatch_group and (key in conflict_keys or key not in selections):
+            dispatch_entries = []
+            for guarded in dispatch_group:
+                selected_candidate = _execution_plan_candidate(item, key, guarded, strict=strict, check_alignment_cap=False)
+                if selected_candidate is None:
+                    continue
+                dispatch_entries.append(_execution_plan_selection_payload(execution_plan, key, guarded, selected_candidate))
+            if dispatch_entries:
+                item["execution_plan_dispatch"] = dispatch_entries
+                applied_guarded_keys.add(key)
     if strict:
         missing = sorted(set(selections) - applied_keys)
         if missing:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing)
             raise ValueError(f"Execution plan selections did not match the kernel manifest: {missing_text}")
+        missing_guarded = sorted(guarded_keys - applied_guarded_keys)
+        if missing_guarded:
+            missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)
+            raise ValueError(f"Execution plan guarded selections did not match the kernel manifest: {missing_text}")
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _execution_plan_candidate(
+    item: Mapping[str, Any],
+    key: tuple[str, str, str],
+    selection: Mapping[str, Any],
+    *,
+    strict: bool,
+    check_alignment_cap: bool,
+) -> Mapping[str, Any] | None:
+    selected_id = str(selection.get("selected_candidate_id", ""))
+    selected_candidate = _candidate_by_id(item, selected_id)
+    if selected_candidate is None:
+        if strict:
+            raise ValueError(
+                "Execution plan selected unknown CUTLASS candidate "
+                f"{selected_id!r} for {key[0]} {key[1]} candidate set {key[2]}"
+            )
+        return None
+    selected_config_key = selected_candidate.get("candidate_config_key")
+    plan_config_key = selection.get("candidate_config_key")
+    if selected_config_key is not None and plan_config_key is not None and str(selected_config_key) != str(plan_config_key):
+        if strict:
+            raise ValueError(
+                "Execution plan candidate_config_key mismatch for CUTLASS candidate "
+                f"{selected_id!r} on {key[0]} {key[1]}"
+            )
+        return None
+    alignment_cap = item.get("cutlass_alignment_cap")
+    if check_alignment_cap and alignment_cap is not None and cutlass_candidate_alignment(selected_candidate) > int(alignment_cap):
+        if strict:
+            raise ValueError(
+                "Execution plan selected CUTLASS candidate "
+                f"{selected_id!r} for {key[0]} {key[1]} exceeds alignment cap {int(alignment_cap)}"
+            )
+        return None
+    return selected_candidate
+
+
+def _execution_plan_selection_payload(
+    execution_plan: Mapping[str, Any],
+    key: tuple[str, str, str],
+    selection: Mapping[str, Any],
+    selected_candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": int(execution_plan.get("schema_version", 1)),
+        "selection_key": selection.get("selection_key"),
+        "node_id": selection.get("node_id"),
+        "candidate_set_key": key[2],
+        "selected_candidate_id": selection.get("selected_candidate_id"),
+        "candidate_config_key": selection.get("candidate_config_key") or selected_candidate.get("candidate_config_key"),
+        "kernel_symbol": str(selection.get("kernel_symbol") or selected_candidate["kernel_symbol"]),
+        "profiler_symbol": str(selection.get("profiler_symbol") or selected_candidate["profiler_symbol"]),
+        "shape": dict(selection.get("shape", {})) if isinstance(selection.get("shape"), Mapping) else {},
+        "avg_ms": selection.get("avg_ms"),
+        "split_k": int(selection.get("split_k", 1) or 1),
+        "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
+    }
 
 
 def _execution_plan_static_selections(execution_plan: Mapping[str, Any]) -> dict[tuple[str, str, str], Mapping[str, Any]]:
@@ -209,6 +259,36 @@ def _execution_plan_static_selections(execution_plan: Mapping[str, Any]) -> dict
         if all(key):
             selections[key] = selection
     return selections
+
+
+def _execution_plan_guarded_selections(execution_plan: Mapping[str, Any]) -> dict[tuple[str, str, str], list[Mapping[str, Any]]]:
+    selections: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for selection in execution_plan.get("selections", ()):
+        if not isinstance(selection, Mapping):
+            continue
+        key = (
+            str(selection.get("op", "")),
+            str(selection.get("dtype", "")),
+            str(selection.get("candidate_set_key", "")),
+        )
+        if all(key):
+            selections.setdefault(key, []).append(selection)
+    return selections
+
+
+def _execution_plan_conflict_keys(execution_plan: Mapping[str, Any]) -> set[tuple[str, str, str]]:
+    keys = set()
+    for conflict in execution_plan.get("conflicts", ()):
+        if not isinstance(conflict, Mapping):
+            continue
+        key = (
+            str(conflict.get("op", "")),
+            str(conflict.get("dtype", "")),
+            str(conflict.get("candidate_set_key", "")),
+        )
+        if all(key):
+            keys.add(key)
+    return keys
 
 
 def _candidate_by_id(item: Mapping[str, Any], candidate_id: str) -> Mapping[str, Any] | None:

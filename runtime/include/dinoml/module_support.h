@@ -96,15 +96,19 @@ inline int64_t shape_numel(const std::vector<int64_t>& shape) {
   return total;
 }
 
+inline bool is_pointer_aligned(const void* ptr, size_t required_alignment_bytes) {
+  if (required_alignment_bytes <= 1) {
+    return true;
+  }
+  const auto address = reinterpret_cast<uintptr_t>(ptr);
+  return address % required_alignment_bytes == 0;
+}
+
 inline int check_pointer_alignment(
     const void* ptr,
     const char* name,
     size_t required_alignment_bytes) {
-  if (required_alignment_bytes <= 1) {
-    return 0;
-  }
-  const auto address = reinterpret_cast<uintptr_t>(ptr);
-  if (address % required_alignment_bytes != 0) {
+  if (!is_pointer_aligned(ptr, required_alignment_bytes)) {
     return fail(
         std::string(name) + " pointer does not satisfy required " +
         std::to_string(required_alignment_bytes) + "-byte alignment");

@@ -814,6 +814,93 @@ def test_apply_execution_plan_rejects_stale_cutlass_candidate_config_key():
     assert "execution_plan_selection" not in relaxed["required_kernels"][0]
 
 
+def test_cuda_lowering_uses_guarded_execution_plan_dispatch_for_shape_conflicts():
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(6, 8))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_guarded_dispatch_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    align4_candidate = next(candidate for candidate in required["candidates"] if int(candidate["cutlass"]["align"]) == 4)
+    align2_candidate = next(candidate for candidate in required["candidates"] if int(candidate["cutlass"]["align"]) == 2)
+
+    def selection(candidate, n, *, split_k=1, workspace_nbytes=0):
+        return {
+            "selection_key": f"profile-selection-n{n}",
+            "node_id": "n0",
+            "op": "gemm_rrr",
+            "dtype": "float32",
+            "candidate_set_key": required["candidate_set_key"],
+            "selected_candidate_id": candidate["candidate_id"],
+            "candidate_config_key": candidate["candidate_config_key"],
+            "kernel_symbol": candidate["kernel_symbol"],
+            "profiler_symbol": candidate["profiler_symbol"],
+            "shape": {"m": 4, "n": n, "k": 32},
+            "avg_ms": 0.01,
+            "split_k": split_k,
+            "workspace_nbytes": workspace_nbytes,
+        }
+
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [selection(align2_candidate, 6, split_k=2, workspace_nbytes=4096), selection(align4_candidate, 8)],
+        "static_selections": [],
+        "conflicts": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    missing_guard_plan = {
+        **execution_plan,
+        "selections": [{**execution_plan["selections"][0], "candidate_set_key": "missing-candidate-set"}],
+        "conflicts": [{**execution_plan["conflicts"][0], "candidate_set_key": "missing-candidate-set"}],
+    }
+    with pytest.raises(ValueError, match="guarded selections did not match"):
+        apply_execution_plan(manifest, missing_guard_plan, strict=True)
+    relaxed_missing_guard = apply_execution_plan(manifest, missing_guard_plan, strict=False)
+
+    selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
+    selected_required = selected_manifest["required_kernels"][0]
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+    split_symbol = align2_candidate["kernel_symbol"].replace("dinoml_cutlass_", "dinoml_cutlass_splitk_", 1)
+
+    assert "execution_plan_dispatch" not in relaxed_missing_guard["required_kernels"][0]
+    assert selected_required["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_selection" not in selected_required
+    assert [entry["selected_candidate_id"] for entry in selected_required["execution_plan_dispatch"]] == [
+        align2_candidate["candidate_id"],
+        align4_candidate["candidate_id"],
+    ]
+    assert selected_required["execution_plan_dispatch"][0]["workspace_nbytes"] == 4096
+    assert f'extern "C" int {split_symbol}(' in generated
+    assert f'extern "C" int {align4_candidate["kernel_symbol"]}(' in generated
+    assert "size_t cutlass_workspace_nbytes = 4096;" in generated
+    assert "if ((shape_a_0) == 4 && (shape_b_1) == 6 && (shape_a_1) == 32 &&" in generated
+    assert "else if ((shape_a_0) == 4 && (shape_b_1) == 8 && (shape_a_1) == 32 &&" in generated
+    assert "dinoml::module::is_pointer_aligned(ptr_a, 16)" in generated
+    assert "dinoml::module::is_pointer_aligned(ptr_b, 16)" in generated
+    assert f"if (int err = {split_symbol}(" in generated
+    assert ", 2, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream" in generated
+    assert f"if (int err = {align4_candidate['kernel_symbol']}(" in generated
+    assert "else {" in generated
+
+
 def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace():
     import dinoml as dml
 

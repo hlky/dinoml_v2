@@ -149,14 +149,8 @@ def _validate_execution_plan_overlay(
             "Execution plan was generated for a different kernel manifest "
             f"({expected_manifest_key} != {kernel_manifest['cache_key']})"
         )
-    conflicts = execution_plan.get("conflicts", [])
-    if conflicts:
-        raise ValueError(
-            "Execution plan contains shape-specific candidate conflicts and cannot be applied "
-            "as a static compile overlay"
-        )
-    if not execution_plan.get("static_selections"):
-        raise ValueError("Execution plan does not contain any static candidate selections to apply")
+    if not execution_plan.get("static_selections") and not execution_plan.get("selections"):
+        raise ValueError("Execution plan does not contain any candidate selections to apply")
 
 
 def _execution_plan_compile_config(execution_plan: Mapping[str, Any]) -> dict[str, Any]:

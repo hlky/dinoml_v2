@@ -176,8 +176,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   when no runtime override is supplied, preserves shared named dim values across
   inputs, rejects conflicting bucket metadata for the same dim name, and carries
   bucket case metadata into execution-plan selections/conflicts.
-- [ ] Guarded dynamic-shape dispatch when profiled buckets select different
-  candidates and therefore cannot produce a single static execution-plan overlay.
+- [x] First guarded dynamic-shape dispatch:
+  execution-plan shape conflicts can attach per-node guarded CUTLASS selections
+  to the kernel manifest, generated CUDA branches on profiled `M/N/K` cases,
+  supports split-K dispatch workspace sizing, and falls back to the safe manifest
+  default when no guard matches.
 - [x] First static alignment-aware profiling filter:
   when dense layout element alignment is present on both GEMM A and B, profiling
   prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller

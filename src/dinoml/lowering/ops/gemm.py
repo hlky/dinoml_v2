@@ -78,31 +78,46 @@ def render_launch(
 
     selection = _cutlass_execution_plan_selection(manifest_item)
     _validate_cutlass_execution_plan_selection(op_name, manifest_item, selection)
-    split_k = int(selection.get("split_k", 1) or 1) if selection is not None else 1
-    if split_k > 1:
-        symbol = _cutlass_split_k_kernel_symbol(symbol)
-        launch_tail = f", {split_k}, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream"
-    else:
-        launch_tail = ", session->stream"
-    alignment_checks = _cutlass_runtime_alignment_checks(
-        op_name,
-        manifest_item,
-        dtype,
-        a_ident,
-        b_ident,
-    )
     lines = [
         f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
-    lines.extend(alignment_checks)
     lines.extend(epilogue_checks)
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
-    lines.append(
-        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {epilogue_arg_text}ptr_{c_ident}, "
-        f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}){launch_tail})) "
-        f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
+    default_launch = _cutlass_launch_lines(
+        op_name=op_name,
+        symbol=symbol,
+        candidate=_selected_cutlass_candidate(manifest_item),
+        selection=selection,
+        dtype=dtype,
+        a_ident=a_ident,
+        b_ident=b_ident,
+        epilogue_arg_text=epilogue_arg_text,
+        c_ident=c_ident,
+        m_expr=m_expr,
+        n_expr=n_expr,
+        k_expr=k_expr,
     )
+    dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
+    if dispatches:
+        lines.extend(
+            _cutlass_dispatch_lines(
+                op_name=op_name,
+                item=manifest_item,
+                dispatches=dispatches,
+                default_launch=default_launch,
+                dtype=dtype,
+                a_ident=a_ident,
+                b_ident=b_ident,
+                epilogue_arg_text=epilogue_arg_text,
+                c_ident=c_ident,
+                m_expr=m_expr,
+                n_expr=n_expr,
+                k_expr=k_expr,
+            )
+        )
+    else:
+        lines.extend(default_launch)
     return "\n".join(lines)
 
 
@@ -147,14 +162,115 @@ def _validate_cutlass_execution_plan_selection(
         raise ValueError(f"{op_name} CUTLASS split-K execution plan requires workspace_nbytes > 0")
 
 
-def _cutlass_runtime_alignment_checks(
+def _cutlass_launch_lines(
+    *,
+    op_name: str,
+    symbol: str,
+    candidate: Mapping[str, Any] | None,
+    selection: Mapping[str, Any] | None,
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    epilogue_arg_text: str,
+    c_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    check_alignment: bool = True,
+) -> list[str]:
+    split_k = int(selection.get("split_k", 1) or 1) if selection is not None else 1
+    if split_k > 1:
+        symbol = _cutlass_split_k_kernel_symbol(symbol)
+        launch_tail = f", {split_k}, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream"
+    else:
+        launch_tail = ", session->stream"
+    lines = (
+        _cutlass_runtime_alignment_checks(op_name, _candidate_cutlass_alignment(candidate), dtype, a_ident, b_ident)
+        if check_alignment
+        else []
+    )
+    lines.append(
+        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {epilogue_arg_text}ptr_{c_ident}, "
+        f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}){launch_tail})) "
+        f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
+    )
+    return lines
+
+
+def _cutlass_dispatch_lines(
+    *,
     op_name: str,
     item: Mapping[str, Any] | None,
+    dispatches: list[Mapping[str, Any]],
+    default_launch: list[str],
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    epilogue_arg_text: str,
+    c_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> list[str]:
+    lines = []
+    for index, dispatch in enumerate(dispatches):
+        candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
+        branch = "if" if index == 0 else "else if"
+        lines.append(
+            f"{branch} ({_cutlass_dispatch_guard(dispatch, candidate, dtype, a_ident, b_ident, m_expr, n_expr, k_expr)}) {{"
+        )
+        body = _cutlass_launch_lines(
+            op_name=op_name,
+            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            candidate=candidate,
+            selection=dispatch,
+            dtype=dtype,
+            a_ident=a_ident,
+            b_ident=b_ident,
+            epilogue_arg_text=epilogue_arg_text,
+            c_ident=c_ident,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            check_alignment=False,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
+    lines.append("else {")
+    lines.extend(f"  {line}" for line in default_launch)
+    lines.append("}")
+    return lines
+
+
+def _cutlass_dispatch_guard(
+    selection: Mapping[str, Any],
+    candidate: Mapping[str, Any] | None,
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> str:
+    shape = selection.get("shape", {})
+    if not isinstance(shape, Mapping):
+        return "false"
+    conditions = [
+        f"({m_expr}) == {int(shape.get('m', 0) or 0)}",
+        f"({n_expr}) == {int(shape.get('n', 0) or 0)}",
+        f"({k_expr}) == {int(shape.get('k', 0) or 0)}",
+    ]
+    conditions.extend(_cutlass_runtime_alignment_conditions(_candidate_cutlass_alignment(candidate), dtype, a_ident, b_ident))
+    return " && ".join(conditions)
+
+
+def _cutlass_runtime_alignment_checks(
+    op_name: str,
+    align: int,
     dtype: str,
     a_ident: str,
     b_ident: str,
 ) -> list[str]:
-    align = _selected_cutlass_alignment(item)
     if align <= 1:
         return []
     byte_alignment = align * dtype_nbytes(dtype)
@@ -166,16 +282,49 @@ def _cutlass_runtime_alignment_checks(
     ]
 
 
-def _selected_cutlass_alignment(item: Mapping[str, Any] | None) -> int:
-    if item is None:
+def _cutlass_runtime_alignment_conditions(align: int, dtype: str, a_ident: str, b_ident: str) -> list[str]:
+    if align <= 1:
+        return []
+    byte_alignment = align * dtype_nbytes(dtype)
+    return [
+        f"dinoml::module::is_pointer_aligned(ptr_{a_ident}, {byte_alignment})",
+        f"dinoml::module::is_pointer_aligned(ptr_{b_ident}, {byte_alignment})",
+    ]
+
+
+def _candidate_cutlass_alignment(candidate: Mapping[str, Any] | None) -> int:
+    if not isinstance(candidate, Mapping):
         return 1
-    selected = item.get("selected_candidate")
-    if not isinstance(selected, Mapping):
-        return 1
-    cutlass_config = selected.get("cutlass")
+    cutlass_config = candidate.get("cutlass")
     if not isinstance(cutlass_config, Mapping):
         return 1
     return int(cutlass_config.get("align", 1) or 1)
+
+
+def _selected_cutlass_candidate(item: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if not isinstance(item, Mapping):
+        return None
+    selected = item.get("selected_candidate")
+    return selected if isinstance(selected, Mapping) else None
+
+
+def _candidate_by_id(item: Mapping[str, Any] | None, candidate_id: str) -> Mapping[str, Any]:
+    if not isinstance(item, Mapping):
+        return {}
+    for candidate in item.get("candidates", []):
+        if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
+            return candidate
+    return {}
+
+
+def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping):
+        return []
+    return [
+        selection
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and str(selection.get("node_id")) == node_id
+    ]
 
 
 def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:

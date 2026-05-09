@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence as SequenceABC
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -133,6 +134,29 @@ def materialize_constant_value(value: Any, dtype: str, shape: Sequence[int]) -> 
     return MaterializedConstant(array_to_storage(value, dtype), None)
 
 
+def constant_source_from_storage(storage: Mapping[str, Any]) -> GGUFConstant | None:
+    if storage.get("kind") != "gguf":
+        return None
+    source = storage.get("source", {})
+    if not isinstance(source, Mapping):
+        source = {}
+    path = storage.get("path") or source.get("path")
+    tensor = storage.get("tensor") or source.get("tensor")
+    if path is None or tensor is None:
+        raise ValueError("GGUF storage metadata requires path and tensor")
+    return GGUFConstant(
+        path=path,
+        tensor=str(tensor),
+        logical_dtype=_optional_str(storage.get("logical_dtype")),
+        shape=_optional_shape(storage.get("shape")),
+        qtype=_optional_str(storage.get("qtype")),
+        encoded_nbytes=_optional_int(storage.get("encoded_nbytes")),
+        n_per_row=_optional_int(storage.get("n_per_row")),
+        materialization=str(storage.get("materialization", "dequantize_full_before_launch")),
+        residency=str(storage.get("residency", "eager_dense_device")),
+    )
+
+
 def _materialize_gguf_constant(
     source: GGUFConstant,
     dtype: str,
@@ -209,9 +233,30 @@ def _decode_gguf_rows(
     return libgguf.dequantize_rows(rows, qtype, n_per_row=n_per_row).reshape(expected_shape)
 
 
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def _optional_shape(value: Any) -> tuple[int, ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, SequenceABC) or isinstance(value, (str, bytes)):
+        raise ValueError(f"GGUF storage shape must be a sequence of integers, got {value!r}")
+    return tuple(int(dim) for dim in value)
+
+
 __all__ = [
     "GGUFConstant",
     "MaterializedConstant",
+    "constant_source_from_storage",
     "gguf_constant",
     "materialize_constant_value",
 ]

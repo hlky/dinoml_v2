@@ -128,9 +128,11 @@ porting. It intentionally excludes the op inventory, which lives in
   The first scaffold treats GGUF as encoded constant storage metadata with dense
   logical dtype rather than adding GGUF quantization types as normal `DinoDtype`
   values; this keeps current dense GEMM/CUTLASS lowering intact while leaving
-  room for fused quantized-RHS candidate families. Next GGUF work is wiring real
-  libgguf tensor reads/dequantization through artifact build tests and then
-  adding load-time CUDA dequant/offload policies.
+  room for fused quantized-RHS candidate families. The Python runtime can now
+  rehydrate GGUF storage metadata and refresh runtime constants through the
+  dense setter path, giving us the initial dequant-then-kernel behavior. Next
+  GGUF work is artifact-level encoded-constant fixtures and then load-time CUDA
+  dequant/offload policies.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

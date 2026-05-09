@@ -17,6 +17,7 @@ from dinoml.ir import (
     normalize_dtype,
     read_json,
 )
+from dinoml.constant_sources import constant_source_from_storage
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
@@ -96,6 +97,17 @@ class RuntimeModule:
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
         constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
         self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
+
+    def load_encoded_constants(self) -> None:
+        for constant_spec in self.metadata["constants"]:
+            storage = constant_spec.get("storage")
+            if not isinstance(storage, Mapping):
+                continue
+            source = constant_source_from_storage(storage)
+            if source is None:
+                continue
+            materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
+            self.set_constant_numpy(str(constant_spec["name"]), materialized.array)
 
     def set_constant_numpy(self, name: str, value: np.ndarray) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}

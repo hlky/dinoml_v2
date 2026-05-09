@@ -1,4 +1,6 @@
 import ctypes
+import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -371,6 +373,47 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
 
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(zeroed["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
+
+
+def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch):
+    values = np.arange(6, dtype=np.float32).reshape(3, 2)
+    tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: values.tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.metadata = {
+        "constants": [
+            {
+                "name": "weight",
+                "dtype": "float32",
+                "shape": [3, 2],
+                "storage": {
+                    "kind": "gguf",
+                    "path": "weights.gguf",
+                    "tensor": "blk.0.ffn.weight",
+                    "logical_dtype": "float32",
+                    "shape": [3, 2],
+                    "qtype": "F32",
+                    "encoded_nbytes": values.nbytes,
+                    "n_per_row": 2,
+                },
+            }
+        ]
+    }
+    captured = {}
+
+    def set_constant_numpy(name, value):
+        captured[name] = np.array(value, copy=True)
+
+    module.set_constant_numpy = set_constant_numpy
+
+    module.load_encoded_constants()
+
+    np.testing.assert_array_equal(captured["weight"], values)
 
 
 @pytest.mark.parametrize(

@@ -1,4 +1,5 @@
 import sys
+import struct
 from types import SimpleNamespace
 
 import pytest
@@ -75,6 +76,24 @@ def _gguf_constant_ir():
         ],
         "metadata": {},
     }
+
+
+def _gguf_string(value: str) -> bytes:
+    raw = value.encode("utf-8")
+    return struct.pack("<Q", len(raw)) + raw
+
+
+def _write_minimal_gguf_tensor(path, *, name, gguf_shape, qtype_value, payload):
+    data = bytearray()
+    data += b"GGUF"
+    data += struct.pack("<IQQ", 3, 1, 0)
+    data += _gguf_string(name)
+    data += struct.pack("<I", len(gguf_shape))
+    data += struct.pack("<" + "Q" * len(gguf_shape), *gguf_shape)
+    data += struct.pack("<IQ", int(qtype_value), 0)
+    data += b"\0" * ((32 - len(data) % 32) % 32)
+    data += payload
+    path.write_bytes(data)
 
 
 def test_write_constants_materializes_constant_source_and_preserves_gguf_metadata(tmp_path):
@@ -209,6 +228,37 @@ def test_gguf_constant_validates_observed_descriptor_hints(monkeypatch):
 
     with pytest.raises(ValueError, match="expected n_per_row 4, observed 2"):
         GGUFConstant("weights.gguf", "blk.0.ffn.weight", n_per_row=4).materialize("float32", [3, 2])
+
+
+def test_gguf_constant_materializes_real_libgguf_quantized_rows(tmp_path):
+    libgguf = pytest.importorskip("libgguf")
+    rows = np.linspace(-1.0, 1.0, 64, dtype=np.float32).reshape(2, 32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 2),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+
+    materialized = GGUFConstant(
+        path,
+        "blk.0.ffn.weight",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+    ).materialize("float32", [2, 32])
+
+    expected = libgguf.dequantize_rows(encoded, qtype, n_per_row=32).reshape(2, 32)
+    np.testing.assert_array_equal(materialized.array, expected)
+    assert materialized.storage["qtype"] == "Q4_0"
+    assert materialized.storage["qtype_value"] == int(qtype)
+    assert materialized.storage["encoded_nbytes"] == encoded.nbytes
+    assert materialized.storage["gguf_shape"] == [32, 2]
+    assert materialized.storage["n_per_row"] == 32
 
 
 def test_frontend_emits_dense_layout_metadata():

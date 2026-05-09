@@ -277,6 +277,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `constants.bin` is written, and `gguf_constant(...)` records GGUF provenance
   plus dense logical dtype/materialization policy while preserving the existing
   dense runtime ABI.
+- [x] First runtime encoded constant materializer:
+  `RuntimeModule.load_encoded_constants()` rehydrates GGUF storage metadata,
+  dequantizes through the source layer, and updates constants through the
+  existing dense `set_constant_numpy` path. This is the initial
+  dequant-then-kernel hook before CUDA/offload-specific materialization, with
+  optional real-libgguf fixture coverage for quantized row materialization.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`

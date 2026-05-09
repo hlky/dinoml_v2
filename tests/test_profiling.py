@@ -745,9 +745,13 @@ def test_profile_result_records_timing_statistics_and_residual_bytes(tmp_path):
     assert result["timing"]["median_ms"] == pytest.approx(0.20)
     assert result["timing"]["mean_ms"] == pytest.approx(0.20)
     assert result["timing"]["stddev_ms"] > 0.0
+    assert result["timing"]["standard_error_ms"] > 0.0
+    assert result["timing"]["mean_ci95_ms"]["half_width"] > 0.0
+    assert result["timing"]["statistics_schema_version"] == profiling_mod.PROFILE_STATISTICS_SCHEMA_VERSION
     assert result["candidates"][0]["repeats"] == 3
     assert cache_entry["repeats"] == 3
     assert cache_entry["timing"]["sample_count"] == 3
+    assert cache_entry["statistics_schema_version"] == profiling_mod.PROFILE_STATISTICS_SCHEMA_VERSION
     cached = profiling_mod._profile_result_from_cache(workload, cache_entry)
     assert cached["status"] == "cached"
     assert cached["timing"]["samples_ms"] == [0.20, 0.10, 0.30]
@@ -763,8 +767,10 @@ def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_p
     kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
     workloads = build_profile_workloads(lowered, kernel_manifest)
-    slow = _profile_result(workloads[0], 0.25, 5, profile_key="slow-profile", status="ok")
-    fast = _profile_result(workloads[1], 0.10, 5, profile_key="fast-profile", status="ok")
+    slow_timing = _profile_timing([0.25, 0.25, 0.25], iterations=5)
+    fast_timing = _profile_timing([0.10, 0.10, 0.10], iterations=5)
+    slow = _profile_result(workloads[0], slow_timing["median_ms"], 5, profile_key="slow-profile", status="ok", timing=slow_timing)
+    fast = _profile_result(workloads[1], fast_timing["median_ms"], 5, profile_key="fast-profile", status="ok", timing=fast_timing)
     report = {
         "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
         "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
@@ -782,8 +788,17 @@ def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_p
     plan = build_execution_plan(report)
 
     assert plan["schema_version"] == EXECUTION_PLAN_SCHEMA_VERSION
-    assert plan["selection_policy"] == "lowest_elapsed_ms_per_node_shape"
-    assert plan["summary"] == {"selection_count": 1, "static_selection_count": 1, "conflict_count": 0}
+    assert plan["selection_policy"] == "lowest_median_elapsed_ms_per_node_shape"
+    assert plan["selection_confidence_policy"] == {
+        "name": "confidence_interval_margin_v1",
+        "statistics_schema_version": profiling_mod.PROFILE_STATISTICS_SCHEMA_VERSION,
+        "confidence_level": profiling_mod.PROFILE_CONFIDENCE_LEVEL,
+        "z_score": profiling_mod.PROFILE_CONFIDENCE_Z_SCORE,
+        "min_repeats": profiling_mod.PROFILE_CONFIDENCE_MIN_REPEATS,
+        "min_absolute_margin_ms": profiling_mod.PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS,
+        "min_relative_speedup": profiling_mod.PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP,
+    }
+    assert plan["summary"] == {"selection_count": 1, "low_confidence_count": 0, "static_selection_count": 1, "conflict_count": 0}
     assert plan["execution_plan_key"]
     selection = plan["selections"][0]
     assert selection["selected_candidate_id"] == workloads[1].candidate_id
@@ -801,10 +816,87 @@ def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_p
     }
     assert selection["workspace_nbytes"] == 0
     assert selection["split_k"] == 1
+    assert selection["confidence"]["confident"] is True
+    assert selection["confidence"]["level"] == "high"
     static_selection = plan["static_selections"][0]
     assert static_selection["selected_candidate_id"] == workloads[1].candidate_id
     assert static_selection["node_id"] is None
     assert static_selection["shape"]["source"] == "static_overlay_from_consistent_profiled_shapes"
+    assert static_selection["confidence"]["confident"] is True
+    assert static_selection["confidence"]["profiled_shape_count"] == 1
+
+
+def test_build_execution_plan_records_low_confidence_for_close_or_noisy_candidates(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_confidence",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    best_timing = _profile_timing([0.05, 0.10, 0.15], iterations=5)
+    best = _profile_result(workloads[0], best_timing["median_ms"], 5, profile_key="best-profile", status="ok", timing=best_timing)
+    runner_timing = _profile_timing([0.101, 0.101, 0.101], iterations=5)
+    close_runner = _profile_result(workloads[1], runner_timing["median_ms"], 5, profile_key="runner-profile", status="ok", timing=runner_timing)
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [best, close_runner],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert plan["selections"] == []
+    assert plan["static_selections"] == []
+    assert plan["summary"] == {"selection_count": 0, "low_confidence_count": 1, "static_selection_count": 0, "conflict_count": 0}
+    confidence = plan["low_confidence_selections"][0]["confidence"]
+    assert confidence["confident"] is False
+    assert confidence["level"] == "low"
+    assert confidence["relative_speedup_over_runner_up"] < profiling_mod.PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP
+    assert confidence["margin_ms"] < confidence["required_margin_ms"]
+    assert confidence["combined_standard_error_ms"] > 0.0
+    assert confidence["sample_counts"] == {"best": 3, "runner_up": 3}
+    assert confidence["reasons"] == ["margin_below_required_threshold"]
+
+
+def test_build_execution_plan_requires_repeat_samples_for_confidence(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_insufficient_repeats",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    best = _profile_result(workloads[0], 0.10, 5, profile_key="best-profile", status="ok")
+    runner = _profile_result(workloads[1], 0.25, 5, profile_key="runner-profile", status="ok")
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [best, runner],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert plan["selections"] == []
+    confidence = plan["low_confidence_selections"][0]["confidence"]
+    assert confidence["sample_counts"] == {"best": 1, "runner_up": 1}
+    assert confidence["reasons"] == ["best_insufficient_repeats", "runner_up_insufficient_repeats"]
 
 
 def test_build_execution_plan_preserves_profiled_split_k_and_workspace(tmp_path):
@@ -816,13 +908,16 @@ def test_build_execution_plan_preserves_profiled_split_k_and_workspace(tmp_path)
     lowered, _ = PassManager().run(spec.ir)
     kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     workloads = build_profile_workloads(lowered, kernel_manifest)
-    split1 = _profile_result(workloads[0], 0.25, 5, profile_key="split1-profile", status="ok")
+    split1_timing = _profile_timing([0.25, 0.25, 0.25], iterations=5)
+    split4_timing = _profile_timing([0.10, 0.10, 0.10], iterations=5)
+    split1 = _profile_result(workloads[0], split1_timing["median_ms"], 5, profile_key="split1-profile", status="ok", timing=split1_timing)
     split4 = _profile_result(
         replace(workloads[0], split_k=4, workspace_nbytes=8192),
-        0.10,
+        split4_timing["median_ms"],
         5,
         profile_key="split4-profile",
         status="ok",
+        timing=split4_timing,
     )
     report = {
         "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
@@ -874,7 +969,7 @@ def test_build_execution_plan_marks_static_conflict_for_shape_specific_winners(t
 
     plan = build_execution_plan(report)
 
-    assert plan["summary"] == {"selection_count": 2, "static_selection_count": 0, "conflict_count": 1}
+    assert plan["summary"] == {"selection_count": 2, "low_confidence_count": 0, "static_selection_count": 0, "conflict_count": 1}
     assert plan["static_selections"] == []
     assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidate_or_split_k"
     assert plan["conflicts"][0]["selected_candidate_ids"] == sorted(
@@ -915,7 +1010,7 @@ def test_build_execution_plan_marks_static_conflict_for_shape_specific_split_k(t
 
     plan = build_execution_plan(report)
 
-    assert plan["summary"] == {"selection_count": 2, "static_selection_count": 0, "conflict_count": 1}
+    assert plan["summary"] == {"selection_count": 2, "low_confidence_count": 0, "static_selection_count": 0, "conflict_count": 1}
     assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidate_or_split_k"
     assert plan["conflicts"][0]["selected_candidate_ids"] == [workloads[0].candidate_id]
     assert plan["conflicts"][0]["selected_split_k"] == [1, 4]
@@ -1040,10 +1135,12 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     workloads = build_profile_workloads(lowered, kernel_manifest)
     cached_entries = {}
     key_payload = None
-    for workload in workloads:
+    for idx, workload in enumerate(workloads):
         key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
         profile_key = _profile_key(key_payload)
-        cached_result = _profile_result(workload, 0.125, 9, profile_key=profile_key, status="ok")
+        elapsed = 0.125 if idx == 0 else 0.25
+        timing = _profile_timing([elapsed, elapsed, elapsed], iterations=9)
+        cached_result = _profile_result(workload, timing["median_ms"], 9, profile_key=profile_key, status="ok", timing=timing)
         cached_entries[profile_key] = _cache_entry(workload, cached_result, key_payload)
     cache = {
         "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
@@ -1054,7 +1151,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     write_json(cache_path, cache)
 
-    report = profile_artifact(artifact, iterations=3)
+    report = profile_artifact(artifact, iterations=3, repeats=3)
 
     assert report["summary"] == {"cached": len(workloads), "failed": 0, "profiled": 0, "skipped": 0}
     execution_plan_path = artifact / "debug" / "execution_plan.json"

@@ -83,8 +83,11 @@ manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
 profile-selected `debug/execution_plan.json`, and caches results under the
 support-library cache. Profiling can repeat each workload sample and records
 median/mean/min/max/stddev timing statistics; the execution plan chooses the
-lowest median-time candidate per profiled node/shape and emits a static overlay only when all
-profiled shapes for an op/dtype/candidate-set agree on the same winner. When
+lowest median-time candidate per profiled node/shape, but only emits consumable
+selections when the winner clears repeat-count, absolute/relative margin, and
+confidence-interval thresholds over the runner-up. Low-confidence winners are
+recorded as non-consumable audit metadata. Static overlays are emitted only when all
+profiled shapes for an op/dtype/candidate-set agree on the same confident winner. When
 GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override
 is supplied, profiling now expands those buckets into concrete workload cases
 and carries `shape.case_id`, dynamic dim values, and dim sources into the report

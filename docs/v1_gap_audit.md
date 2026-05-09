@@ -68,10 +68,13 @@ porting. It intentionally excludes the op inventory, which lives in
   `split_k > 1` static overlays through companion launcher/profiler symbols plus
   a session-owned workspace. Profiling can now collect repeated timing samples
   per workload, store median/mean/min/max/stddev timing statistics, and select
-  on median elapsed time. Residual/broadcast split-K remains intentionally
-  disabled until the fused residual epilogue is partition-aware.
-  Remaining gaps are residual/broadcast split-K coverage, statistical confidence
-  thresholds, and persistent SQLite/shared cache workflows.
+  on median elapsed time only when repeat-count, absolute/relative margin, and
+  confidence-interval thresholds clear the runner-up; close/noisy winners are
+  recorded as non-consumable low-confidence selections. Residual/broadcast
+  split-K remains intentionally disabled until the fused residual epilogue is
+  partition-aware.
+  Remaining gaps are residual/broadcast split-K coverage and persistent
+  SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

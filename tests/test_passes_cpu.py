@@ -686,6 +686,7 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
                 "profiler_symbol": selected_candidate["profiler_symbol"],
                 "shape": {"m": 4, "n": 6, "k": 8},
                 "avg_ms": 0.01,
+                "confidence": {"confident": True, "level": "high"},
                 "split_k": 1,
                 "workspace_nbytes": 0,
             }
@@ -707,6 +708,7 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert selected_required["kernel_symbol"] == selected_candidate["kernel_symbol"]
     assert selected_required["profiler_symbol"] == selected_candidate["profiler_symbol"]
     assert selected_required["execution_plan_selection"]["candidate_config_key"] == selected_candidate["candidate_config_key"]
+    assert selected_required["execution_plan_selection"]["confidence"] == {"confident": True, "level": "high"}
     assert selected_manifest["cache_key"] != manifest["cache_key"]
     assert selected_manifest["support_cache_key"] != manifest["support_cache_key"]
     assert plan.kernel_symbols == (selected_candidate["kernel_symbol"],)

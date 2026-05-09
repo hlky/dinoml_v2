@@ -893,9 +893,10 @@ def test_compile_applies_execution_plan_before_build_and_codegen(tmp_path, monke
         "target": target.to_json(),
         "kernel_manifest_cache_key": base_manifest["cache_key"],
         "execution_plan_key": "profile-plan-key",
-        "selection_policy": "lowest_elapsed_ms_per_node_shape",
+        "selection_policy": "lowest_median_elapsed_ms_per_node_shape",
+        "selection_confidence_policy": {"name": "test-confidence"},
         "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
-        "summary": {"selection_count": 1, "static_selection_count": 1, "conflict_count": 0},
+        "summary": {"selection_count": 1, "low_confidence_count": 0, "static_selection_count": 1, "conflict_count": 0},
         "static_selections": [
             {
                 "selection_key": "profile-selection",
@@ -932,6 +933,7 @@ def test_compile_applies_execution_plan_before_build_and_codegen(tmp_path, monke
     assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
     assert compile_config["execution_plan"]["execution_plan_key"] == "profile-plan-key"
+    assert compile_config["execution_plan"]["selection_confidence_policy"] == {"name": "test-confidence"}
     assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan
 
 

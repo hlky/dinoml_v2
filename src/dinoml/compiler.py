@@ -41,7 +41,7 @@ def compile(
     execution_plan: str | Path | Mapping[str, Any] | None = None,
     profile: bool = False,
     profile_iterations: int = 20,
-    profile_repeats: int = 1,
+    profile_repeats: int = 3,
     profile_input_shapes: Mapping[str, Any] | None = None,
     profile_refresh: bool = False,
 ) -> Artifact:
@@ -312,6 +312,7 @@ def _execution_plan_compile_config(execution_plan: Mapping[str, Any]) -> dict[st
         "execution_plan_key": execution_plan.get("execution_plan_key"),
         "kernel_manifest_cache_key": execution_plan.get("kernel_manifest_cache_key"),
         "selection_policy": execution_plan.get("selection_policy"),
+        "selection_confidence_policy": execution_plan.get("selection_confidence_policy"),
         "static_selection_policy": execution_plan.get("static_selection_policy"),
         "summary": summary,
     }

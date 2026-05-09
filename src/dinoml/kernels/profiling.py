@@ -4,6 +4,7 @@ import ctypes
 import hashlib
 import itertools
 import json
+import math
 import os
 import re
 import shutil
@@ -31,6 +32,12 @@ from dinoml.shapes import validate_runtime_shape
 
 PROFILE_REPORT_SCHEMA_VERSION = 7
 EXECUTION_PLAN_SCHEMA_VERSION = 1
+PROFILE_STATISTICS_SCHEMA_VERSION = 1
+PROFILE_CONFIDENCE_LEVEL = 0.95
+PROFILE_CONFIDENCE_Z_SCORE = 1.96
+PROFILE_CONFIDENCE_MIN_REPEATS = 3
+PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS = 0.002
+PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP = 0.02
 
 
 @dataclass(frozen=True)
@@ -335,7 +342,7 @@ def profile_artifact(
     *,
     input_shapes: Mapping[str, Sequence[int]] | None = None,
     iterations: int = 20,
-    repeats: int = 1,
+    repeats: int = PROFILE_CONFIDENCE_MIN_REPEATS,
     output: str | Path | None = None,
     execution_plan_output: str | Path | None = None,
     seed: int = 2027,
@@ -584,10 +591,13 @@ def _profile_result(
             "min_ms": float(timing_payload["min_ms"]),
             "max_ms": float(timing_payload["max_ms"]),
             "stddev_ms": float(timing_payload["stddev_ms"]),
+            "standard_error_ms": float(timing_payload["standard_error_ms"]),
+            "mean_ci95_ms": dict(timing_payload["mean_ci95_ms"]),
             "relative_stddev": float(timing_payload["relative_stddev"]),
             "gflops": float(tflops * 1000.0),
             "iterations": int(iterations),
             "repeats": int(timing_payload["repeats"]),
+            "statistics_schema_version": int(timing_payload["statistics_schema_version"]),
         }
     )
     payload.update(
@@ -985,7 +995,11 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
 def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:
     entry_iterations = int(entry.get("iterations", 0) or 0)
     entry_repeats = int(entry.get("repeats", 1) or 1)
-    return entry_iterations >= int(iterations) and entry_repeats >= int(repeats)
+    return (
+        entry.get("statistics_schema_version") == PROFILE_STATISTICS_SCHEMA_VERSION
+        and entry_iterations >= int(iterations)
+        and entry_repeats >= int(repeats)
+    )
 
 
 def _cache_entry(
@@ -1010,6 +1024,9 @@ def _cache_entry(
         "elapsed_ms": float(result.get("elapsed_ms", candidate["avg_ms"])),
         "avg_ms": float(candidate["avg_ms"]),
         "timing": timing,
+        "statistics_schema_version": int(
+            candidate.get("statistics_schema_version", timing.get("statistics_schema_version", 0)) or 0
+        ),
         "gflops": float(candidate["gflops"]),
         "iterations": int(candidate["iterations"]),
         "repeats": int(candidate.get("repeats", timing.get("repeats", 1)) or 1),
@@ -1037,7 +1054,10 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
     values = np.asarray(samples, dtype=np.float64)
     mean_ms = float(np.mean(values))
     stddev_ms = float(np.std(values, ddof=1)) if len(samples) > 1 else 0.0
+    standard_error_ms = float(stddev_ms / math.sqrt(len(samples))) if samples else 0.0
+    ci_half_width = float(PROFILE_CONFIDENCE_Z_SCORE * standard_error_ms)
     return {
+        "statistics_schema_version": PROFILE_STATISTICS_SCHEMA_VERSION,
         "samples_ms": samples,
         "sample_count": len(samples),
         "repeats": len(samples),
@@ -1047,6 +1067,14 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
         "min_ms": float(np.min(values)),
         "max_ms": float(np.max(values)),
         "stddev_ms": stddev_ms,
+        "standard_error_ms": standard_error_ms,
+        "mean_ci95_ms": {
+            "low": float(mean_ms - ci_half_width),
+            "high": float(mean_ms + ci_half_width),
+            "half_width": ci_half_width,
+            "confidence_level": PROFILE_CONFIDENCE_LEVEL,
+            "z_score": PROFILE_CONFIDENCE_Z_SCORE,
+        },
         "relative_stddev": float(stddev_ms / mean_ms) if mean_ms > 0.0 else 0.0,
     }
 
@@ -1071,7 +1099,17 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
         if key[0] and key[1] and key[2] and key[3] and key[4] > 0 and key[5] > 0 and key[6] > 0:
             groups.setdefault(key, []).append(problem)
 
-    selections = [_selection_from_group(key, entries) for key, entries in sorted(groups.items())]
+    candidate_selections = [_selection_from_group(key, entries) for key, entries in sorted(groups.items())]
+    selections = [
+        selection
+        for selection in candidate_selections
+        if bool(selection.get("confidence", {}).get("confident", True))
+    ]
+    low_confidence_selections = [
+        selection
+        for selection in candidate_selections
+        if not bool(selection.get("confidence", {}).get("confident", True))
+    ]
     static_selections, conflicts = _static_execution_selections(selections)
     plan = {
         "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
@@ -1085,13 +1123,16 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
         "fingerprint": dict(report.get("fingerprint", {})) if isinstance(report.get("fingerprint"), Mapping) else {},
         "hardware_cache_key": report.get("hardware_cache_key"),
         "support_libraries_cache_key": report.get("support_libraries_cache_key"),
-        "selection_policy": "lowest_elapsed_ms_per_node_shape",
+        "selection_policy": "lowest_median_elapsed_ms_per_node_shape",
+        "selection_confidence_policy": _selection_confidence_policy(),
         "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
         "selections": selections,
+        "low_confidence_selections": low_confidence_selections,
         "static_selections": static_selections,
         "conflicts": conflicts,
         "summary": {
             "selection_count": len(selections),
+            "low_confidence_count": len(low_confidence_selections),
             "static_selection_count": len(static_selections),
             "conflict_count": len(conflicts),
         },
@@ -1106,14 +1147,16 @@ def _selection_from_group(
     key: tuple[str, str, str, str, int, int, int],
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    best = min(
+    ranked = sorted(
         entries,
         key=lambda item: (
-            float(item.get("elapsed_ms", float("inf"))),
+            _problem_elapsed_ms(item),
             str(item.get("candidate_id", "")),
             _problem_split_k(item),
         ),
     )
+    best = ranked[0]
+    runner_up = ranked[1] if len(ranked) > 1 else None
     candidate = _result_candidate(best)
     shape = dict(best.get("shape", {})) if isinstance(best.get("shape"), Mapping) else {}
     shape.setdefault("m", key[4])
@@ -1145,12 +1188,104 @@ def _selection_from_group(
         "workspace_nbytes": _problem_workspace_nbytes(best),
         "split_k": split_k,
         "profile_variant": {"split_k": split_k},
-        "avg_ms": float(best.get("elapsed_ms", 0.0)),
+        "avg_ms": _problem_elapsed_ms(best),
         "gflops": float(best.get("gflops", 0.0)),
         "iterations": int(best.get("iterations", 0) or 0),
         "profile_key": best.get("profile_key"),
         "status": best.get("status"),
+        "confidence": _selection_confidence(best, runner_up),
     }
+
+
+def _selection_confidence_policy() -> dict[str, Any]:
+    return {
+        "name": "confidence_interval_margin_v1",
+        "statistics_schema_version": PROFILE_STATISTICS_SCHEMA_VERSION,
+        "confidence_level": PROFILE_CONFIDENCE_LEVEL,
+        "z_score": PROFILE_CONFIDENCE_Z_SCORE,
+        "min_repeats": PROFILE_CONFIDENCE_MIN_REPEATS,
+        "min_absolute_margin_ms": PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS,
+        "min_relative_speedup": PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP,
+    }
+
+
+def _selection_confidence(
+    best: Mapping[str, Any],
+    runner_up: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    best_elapsed_ms = _problem_elapsed_ms(best)
+    best_timing = _problem_timing(best)
+    best_sample_count = int(best_timing.get("sample_count", best.get("repeats", 1)) or 1)
+    best_standard_error_ms = float(best_timing.get("standard_error_ms", 0.0) or 0.0)
+    payload = {
+        **_selection_confidence_policy(),
+        "selection_metric_ms": best_elapsed_ms,
+        "best_candidate_id": best.get("candidate_id"),
+        "best_split_k": _problem_split_k(best),
+        "best_standard_error_ms": best_standard_error_ms,
+        "runner_up_elapsed_ms": None,
+        "runner_up_candidate_id": None,
+        "runner_up_split_k": None,
+        "runner_up_standard_error_ms": None,
+        "sample_counts": {"best": best_sample_count, "runner_up": None},
+        "margin_ms": None,
+        "required_margin_ms": None,
+        "combined_standard_error_ms": None,
+        "relative_speedup_over_runner_up": None,
+        "reasons": [],
+    }
+    if runner_up is None:
+        payload.update({"level": "single_candidate", "confident": True})
+        return payload
+
+    runner_elapsed_ms = _problem_elapsed_ms(runner_up)
+    runner_timing = _problem_timing(runner_up)
+    runner_sample_count = int(runner_timing.get("sample_count", runner_up.get("repeats", 1)) or 1)
+    runner_standard_error_ms = float(runner_timing.get("standard_error_ms", 0.0) or 0.0)
+    margin_ms = float(runner_elapsed_ms - best_elapsed_ms)
+    relative_speedup = max(margin_ms / best_elapsed_ms, 0.0) if best_elapsed_ms > 0.0 else 0.0
+    combined_standard_error_ms = math.sqrt(
+        best_standard_error_ms * best_standard_error_ms
+        + runner_standard_error_ms * runner_standard_error_ms
+    )
+    required_margin_ms = max(
+        PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS,
+        PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP * best_elapsed_ms,
+        PROFILE_CONFIDENCE_Z_SCORE * combined_standard_error_ms,
+    )
+    reasons = []
+    if best_sample_count < PROFILE_CONFIDENCE_MIN_REPEATS:
+        reasons.append("best_insufficient_repeats")
+    if runner_sample_count < PROFILE_CONFIDENCE_MIN_REPEATS:
+        reasons.append("runner_up_insufficient_repeats")
+    if margin_ms < required_margin_ms:
+        reasons.append("margin_below_required_threshold")
+    payload.update(
+        {
+            "runner_up_candidate_id": runner_up.get("candidate_id"),
+            "runner_up_split_k": _problem_split_k(runner_up),
+            "runner_up_elapsed_ms": runner_elapsed_ms,
+            "runner_up_standard_error_ms": runner_standard_error_ms,
+            "sample_counts": {"best": best_sample_count, "runner_up": runner_sample_count},
+            "margin_ms": margin_ms,
+            "required_margin_ms": required_margin_ms,
+            "combined_standard_error_ms": combined_standard_error_ms,
+            "relative_speedup_over_runner_up": relative_speedup,
+            "reasons": reasons,
+            "level": "low" if reasons else "high",
+            "confident": not reasons,
+        }
+    )
+    return payload
+
+
+def _problem_elapsed_ms(problem: Mapping[str, Any]) -> float:
+    return float(problem.get("elapsed_ms", problem.get("avg_ms", float("inf"))) or float("inf"))
+
+
+def _problem_timing(problem: Mapping[str, Any]) -> Mapping[str, Any]:
+    timing = problem.get("timing")
+    return timing if isinstance(timing, Mapping) else {}
 
 
 def _problem_split_k(problem: Mapping[str, Any]) -> int:
@@ -1220,6 +1355,7 @@ def _static_execution_selections(
                 "source": "static_overlay_from_consistent_profiled_shapes",
                 "profiled_shapes": [dict(item.get("shape", {})) for item in group],
             }
+            selection["confidence"] = _static_selection_confidence(group)
             static_selections.append(selection)
         else:
             conflicts.append(
@@ -1234,6 +1370,23 @@ def _static_execution_selections(
                 }
             )
     return static_selections, conflicts
+
+
+def _static_selection_confidence(group: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    confidence_items = [
+        dict(item.get("confidence", {}))
+        for item in group
+        if isinstance(item.get("confidence"), Mapping)
+    ]
+    low_count = sum(1 for item in confidence_items if not bool(item.get("confident", False)))
+    return {
+        "name": "all_profiled_shapes_confident_v1",
+        "level": "low" if low_count else "high",
+        "confident": low_count == 0,
+        "profiled_shape_count": len(group),
+        "low_confidence_selection_count": low_count,
+        "profiled_shape_confidences": confidence_items,
+    }
 
 
 def _write_execution_plan(

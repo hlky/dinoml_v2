@@ -228,6 +228,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   profile_repeats=...)` collect multiple timing samples per CUTLASS workload,
   record median/mean/min/max/stddev plus relative stddev in profile reports and
   cache entries, and use the median elapsed time for execution-plan selection.
+- [x] First confidence-gated profiler selection:
+  execution plans now require repeat-count, absolute/relative margin, and
+  confidence-interval thresholds before emitting consumable static or guarded
+  candidate selections; close/noisy winners stay in `low_confidence_selections`
+  for audit and fall back to manifest defaults at compile/run time.
 - [ ] Extend split-K coverage to residual/broadcast CUTLASS epilogues after their
   `GemmUniversalWithBroadcast` workspace behavior is proven and the fused
   residual epilogue implements partition-aware `set_k_partition` behavior.

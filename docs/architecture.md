@@ -116,12 +116,15 @@ support library, and let many model artifacts reuse the result.
 artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
 currently supported CUTLASS GEMM profiler symbols, writes
 `debug/profile_report.json`, writes the first profile-selected
-`debug/execution_plan.json`, and stores a small `profile_cache.v6.json` beside
+`debug/execution_plan.json`, and stores a small `profile_cache.v7.json` beside
 the support-library cache. Profiling accepts repeat samples per workload and
 records median/mean/min/max/stddev timing statistics while using the median
 elapsed time for candidate selection. The execution plan chooses the lowest
 median-time candidate per profiled node/shape and exposes a static candidate
-overlay when all profiled shapes for an op/dtype/candidate-set agree. GEMM profiling expands
+overlay when all profiled shapes for an op/dtype/candidate-set agree and the
+winner clears repeat-count, absolute/relative margin, and confidence-interval
+thresholds over the runner-up. Low-confidence winners are retained in the report
+for audit but are not emitted as consumable execution-plan selections. GEMM profiling expands
 explicit `Dim.buckets` into concrete workload cases when no runtime override is
 supplied, and carries case IDs plus dynamic dim values through the report and
 execution plan. Profiling prunes CUTLASS candidates using optional dense layout

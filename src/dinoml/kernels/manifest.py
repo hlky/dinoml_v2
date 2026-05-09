@@ -19,7 +19,7 @@ from dinoml.ops.definitions import get_op_def
 
 KERNEL_MANIFEST_SCHEMA_VERSION = 3
 KERNEL_ABI_VERSION = 1
-PROFILE_CACHE_SCHEMA_VERSION = 6
+PROFILE_CACHE_SCHEMA_VERSION = 7
 
 
 def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> dict[str, Any]:
@@ -241,6 +241,7 @@ def _execution_plan_selection_payload(
         "profiler_symbol": str(selection.get("profiler_symbol") or selected_candidate["profiler_symbol"]),
         "shape": dict(selection.get("shape", {})) if isinstance(selection.get("shape"), Mapping) else {},
         "avg_ms": selection.get("avg_ms"),
+        "confidence": dict(selection.get("confidence", {})) if isinstance(selection.get("confidence"), Mapping) else {},
         "split_k": int(selection.get("split_k", 1) or 1),
         "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
     }

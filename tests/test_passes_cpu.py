@@ -761,7 +761,7 @@ def test_apply_execution_plan_selects_profiled_cutlass_bmm_candidate_for_lowerin
     assert selected_candidate["symbol_id"] in rendered_support
 
 
-def test_apply_execution_plan_defers_cutlass_bmm_guarded_dispatch():
+def test_apply_execution_plan_uses_guarded_cutlass_bmm_dispatch():
     import dinoml as dml
 
     class BmmModel(dml.Module):
@@ -774,9 +774,15 @@ def test_apply_execution_plan_defers_cutlass_bmm_guarded_dispatch():
         name="bmm_guarded_plan_deferred",
     )
     lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     required = manifest["required_kernels"][0]
-    selected_candidate = next(candidate for candidate in required["candidates"] if candidate["candidate_id"] == required["selected_candidate_id"])
+    default_candidate = next(candidate for candidate in required["candidates"] if candidate["candidate_id"] == required["selected_candidate_id"])
+    selected_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] != default_candidate["candidate_id"]
+    )
     guarded_plan = {
         "schema_version": 1,
         "kind": "dinoml.execution_plan",
@@ -808,11 +814,24 @@ def test_apply_execution_plan_defers_cutlass_bmm_guarded_dispatch():
 
     selected_manifest = apply_execution_plan(manifest, guarded_plan, strict=True)
     relaxed = apply_execution_plan(manifest, guarded_plan, strict=False)
+    launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=selected_manifest)
 
     for payload in (selected_manifest["required_kernels"][0], relaxed["required_kernels"][0]):
-        assert "execution_plan_dispatch" not in payload
         assert "execution_plan_selection" not in payload
         assert payload["selected_candidate_id"] == required["selected_candidate_id"]
+        assert [entry["selected_candidate_id"] for entry in payload["execution_plan_dispatch"]] == [
+            selected_candidate["candidate_id"]
+        ]
+        assert payload["execution_plan_dispatch"][0]["shape"]["batch_count"] == 2
+    assert selected_candidate["kernel_symbol"] in launch
+    assert default_candidate["kernel_symbol"] in launch
+    assert "(((shape_a_0 == 1) ? shape_b_0 : shape_a_0)) == 2" in launch
+    assert "(shape_a_1) == 4" in launch
+    assert "(shape_b_2) == 6" in launch
+    dispatch_byte_alignment = int(selected_candidate["cutlass"]["align"]) * 4
+    if dispatch_byte_alignment > 4:
+        assert f"dinoml::module::is_tensor_pointer_aligned(abi_a, ptr_a, {dispatch_byte_alignment})" in launch
+        assert f"dinoml::module::is_tensor_pointer_aligned(abi_b, ptr_b, {dispatch_byte_alignment})" in launch
 
 
 def test_apply_execution_plan_rejects_cutlass_bmm_candidate_above_alignment_cap():
@@ -903,7 +922,7 @@ def test_apply_execution_plan_rejects_cutlass_bmm_static_split_k():
     assert "execution_plan_selection" not in relaxed["required_kernels"][0]
 
 
-def test_cuda_bmm_lowering_rejects_guarded_execution_plan_dispatch():
+def test_cuda_bmm_lowering_rejects_guarded_split_k_dispatch():
     import dinoml as dml
 
     class BmmModel(dml.Module):
@@ -922,10 +941,12 @@ def test_cuda_bmm_lowering_rejects_guarded_execution_plan_dispatch():
         {
             "selected_candidate_id": manifest["required_kernels"][0]["selected_candidate_id"],
             "shape": {"m": 4, "n": 6, "k": 8, "batch_count": 2},
+            "split_k": 2,
+            "workspace_nbytes": 4096,
         }
     ]
 
-    with pytest.raises(NotImplementedError, match="BMM guarded execution-plan dispatch is not supported"):
+    with pytest.raises(NotImplementedError, match="BMM execution-plan selection requires split_k=1"):
         render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
 
 

@@ -63,28 +63,52 @@ def render_launch(
         f'if ({k_a_expr} != {k_b_expr}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
-    lines.extend(
-        _cutlass_launch_with_alignment_fallback_lines(
-            op_name=op_name,
-            symbol=symbol,
-            candidate=selected_candidate,
-            fallback_candidates=_cutlass_alignment_fallback_candidates(manifest_item, selected_candidate),
-            dtype=dtype,
-            a_ident=a_ident,
-            b_ident=b_ident,
-            c_ident=c_ident,
-            batch_expr=batch_expr,
-            m_expr=m_expr,
-            n_expr=n_expr,
-            k_expr=k_expr,
-            batch_stride_a=batch_stride_a,
-            batch_stride_b=batch_stride_b,
-            batch_stride_c=batch_stride_c,
-            lda_expr=lda_expr,
-            ldb_expr=ldb_expr,
-            ldc_expr=ldc_expr,
-        )
+    default_launch = _cutlass_launch_with_alignment_fallback_lines(
+        op_name=op_name,
+        symbol=symbol,
+        candidate=selected_candidate,
+        fallback_candidates=_cutlass_alignment_fallback_candidates(manifest_item, selected_candidate),
+        dtype=dtype,
+        a_ident=a_ident,
+        b_ident=b_ident,
+        c_ident=c_ident,
+        batch_expr=batch_expr,
+        m_expr=m_expr,
+        n_expr=n_expr,
+        k_expr=k_expr,
+        batch_stride_a=batch_stride_a,
+        batch_stride_b=batch_stride_b,
+        batch_stride_c=batch_stride_c,
+        lda_expr=lda_expr,
+        ldb_expr=ldb_expr,
+        ldc_expr=ldc_expr,
     )
+    dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
+    if dispatches:
+        lines.extend(
+            _cutlass_dispatch_lines(
+                op_name=op_name,
+                item=manifest_item,
+                dispatches=dispatches,
+                default_launch=default_launch,
+                dtype=dtype,
+                a_ident=a_ident,
+                b_ident=b_ident,
+                c_ident=c_ident,
+                batch_expr=batch_expr,
+                m_expr=m_expr,
+                n_expr=n_expr,
+                k_expr=k_expr,
+                batch_stride_a=batch_stride_a,
+                batch_stride_b=batch_stride_b,
+                batch_stride_c=batch_stride_c,
+                lda_expr=lda_expr,
+                ldb_expr=ldb_expr,
+                ldc_expr=ldc_expr,
+            )
+        )
+    else:
+        lines.extend(default_launch)
     return "\n".join(lines)
 
 
@@ -107,11 +131,15 @@ def _output_shape_check(c_ident: str, batch_expr: str, m_expr: str, n_expr: str,
 def _validate_cutlass_execution_plan_metadata(op_name: str, item: Mapping[str, Any] | None) -> None:
     if not isinstance(item, Mapping):
         return
-    if item.get("execution_plan_dispatch"):
-        raise NotImplementedError(f"{op_name} BMM guarded execution-plan dispatch is not supported")
     selection = item.get("execution_plan_selection")
-    if not isinstance(selection, Mapping):
-        return
+    if isinstance(selection, Mapping):
+        _validate_cutlass_execution_plan_selection(op_name, selection)
+    for dispatch in item.get("execution_plan_dispatch", ()):
+        if isinstance(dispatch, Mapping):
+            _validate_cutlass_execution_plan_selection(op_name, dispatch)
+
+
+def _validate_cutlass_execution_plan_selection(op_name: str, selection: Mapping[str, Any]) -> None:
     split_k = int(selection.get("split_k", 1) or 1)
     workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
     if split_k != 1 or workspace_nbytes != 0:
@@ -238,6 +266,92 @@ def _cutlass_launch_with_alignment_fallback_lines(
     return lines
 
 
+def _cutlass_dispatch_lines(
+    *,
+    op_name: str,
+    item: Mapping[str, Any] | None,
+    dispatches: list[Mapping[str, Any]],
+    default_launch: list[str],
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    c_ident: str,
+    batch_expr: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    batch_stride_a: str,
+    batch_stride_b: str,
+    batch_stride_c: str,
+    lda_expr: str,
+    ldb_expr: str,
+    ldc_expr: str,
+) -> list[str]:
+    lines = []
+    for index, dispatch in enumerate(dispatches):
+        candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
+        branch = "if" if index == 0 else "else if"
+        lines.append(
+            f"{branch} ({_cutlass_dispatch_guard(dispatch, candidate, dtype, a_ident, b_ident, batch_expr, m_expr, n_expr, k_expr)}) {{"
+        )
+        body = _cutlass_launch_lines(
+            op_name=op_name,
+            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            candidate=candidate,
+            dtype=dtype,
+            a_ident=a_ident,
+            b_ident=b_ident,
+            c_ident=c_ident,
+            batch_expr=batch_expr,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            batch_stride_a=batch_stride_a,
+            batch_stride_b=batch_stride_b,
+            batch_stride_c=batch_stride_c,
+            lda_expr=lda_expr,
+            ldb_expr=ldb_expr,
+            ldc_expr=ldc_expr,
+            check_alignment=False,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
+    lines.append("else {")
+    lines.extend(f"  {line}" for line in default_launch)
+    lines.append("}")
+    return lines
+
+
+def _cutlass_dispatch_guard(
+    selection: Mapping[str, Any],
+    candidate: Mapping[str, Any] | None,
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    batch_expr: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> str:
+    shape = selection.get("shape", {})
+    if not isinstance(shape, Mapping):
+        return "false"
+    batch_count = int(shape.get("batch_count", 0) or 0)
+    m = int(shape.get("m", 0) or 0)
+    n = int(shape.get("n", 0) or 0)
+    k = int(shape.get("k", 0) or 0)
+    if batch_count <= 0 or m <= 0 or n <= 0 or k <= 0:
+        return "false"
+    conditions = [
+        f"({batch_expr}) == {batch_count}",
+        f"({m_expr}) == {m}",
+        f"({n_expr}) == {n}",
+        f"({k_expr}) == {k}",
+    ]
+    conditions.extend(_cutlass_runtime_alignment_conditions(_candidate_cutlass_alignment(candidate), dtype, a_ident, b_ident))
+    return " && ".join(conditions)
+
+
 def _cutlass_runtime_alignment_checks(
     op_name: str,
     align: int,
@@ -305,6 +419,16 @@ def _cutlass_alignment_fallback_candidates(
         if candidate:
             candidates.append(candidate)
     return candidates
+
+
+def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping):
+        return []
+    return [
+        selection
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and str(selection.get("node_id")) == node_id
+    ]
 
 
 def _manifest_kernel_item(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> Mapping[str, Any] | None:

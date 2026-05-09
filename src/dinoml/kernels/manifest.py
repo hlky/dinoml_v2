@@ -244,11 +244,16 @@ def apply_execution_plan(
                     selected_candidate,
                 )
         dispatch_group = guarded_selections.get(key, ())
-        if kernel_library == "cutlass_gemm" and dispatch_group and (key in conflict_keys or key not in selections):
+        if dispatch_group and (key in conflict_keys or key not in selections):
             dispatch_entries = []
             for guarded in dispatch_group:
                 selected_candidate = _execution_plan_candidate(item, key, guarded, strict=strict, check_alignment_cap=False)
-                if selected_candidate is None:
+                if selected_candidate is None or not _execution_plan_selection_supported(
+                    str(kernel_library),
+                    key,
+                    guarded,
+                    strict=strict,
+                ):
                     continue
                 dispatch_entries.append(_execution_plan_selection_payload(execution_plan, key, guarded, selected_candidate))
             if dispatch_entries:
@@ -263,7 +268,7 @@ def apply_execution_plan(
         missing_guarded = sorted(
             key
             for key in guarded_keys - applied_guarded_keys
-            if manifest_kernel_libraries.get(key, "cutlass_gemm") == "cutlass_gemm"
+            if manifest_kernel_libraries.get(key, "cutlass_gemm") in {"cutlass_gemm", "cutlass_bmm"}
         )
         if missing_guarded:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)

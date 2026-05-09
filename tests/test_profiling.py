@@ -308,6 +308,52 @@ def test_build_execution_plan_keeps_bmm_batch_count_in_shape_key():
     assert plan["static_selections"][0]["shape"]["profiled_shapes"][0]["batch_count"] in {3, 7}
 
 
+def test_build_execution_plan_marks_bmm_static_conflict_for_batch_specific_winners():
+    spec = dml.trace(
+        BmmModule("bmm_rrr"),
+        inputs={"a": dml.TensorSpec([3, 4, 8], "float32"), "b": dml.TensorSpec([3, 8, 5], "float32")},
+        name="profile_bmm_execution_plan_conflict",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, manifest)
+    batch3 = _profile_result(workloads[0], 0.20, 5, profile_key="bmm-batch3", status="ok")
+    batch7_workload = replace(
+        workloads[1],
+        batch_count=7,
+        a_shape=(7, 4, 8),
+        b_shape=(7, 8, 5),
+        output_shape=(7, 4, 5),
+        batch_stride_a=32,
+        batch_stride_b=40,
+        batch_stride_c=20,
+    )
+    batch7 = _profile_result(batch7_workload, 0.10, 5, profile_key="bmm-batch7", status="ok")
+
+    plan = build_execution_plan(
+        {
+            "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": {"name": "cuda", "arch": "sm_86"},
+            "kernel_manifest_cache_key": manifest["cache_key"],
+            "codegen_plan_cache_key": "codegen-key",
+            "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+            "hardware_cache_key": "hardware-key",
+            "support_libraries_cache_key": "support-key",
+            "problems": [batch3, batch7],
+            "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+        }
+    )
+
+    assert len(plan["selections"]) == 2
+    assert plan["static_selections"] == []
+    assert plan["summary"]["conflict_count"] == 1
+    conflict = plan["conflicts"][0]
+    assert conflict["op"] == "bmm_rrr"
+    assert conflict["selected_candidate_ids"] == sorted({workloads[0].candidate_id, workloads[1].candidate_id})
+    assert {shape["batch_count"] for shape in conflict["profiled_shapes"]} == {3, 7}
+
+
 def test_build_profile_workloads_expands_dim_buckets():
     batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
     tokens = dml.Dim("tokens", min=8, max=16, divisible_by=8, buckets=(8, 16))

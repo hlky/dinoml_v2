@@ -37,11 +37,11 @@ porting. It intentionally excludes the op inventory, which lives in
   support, and future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
-  the single explicit `cutlass_default` CUTLASS candidate set, including the
+  explicit CUTLASS tensor-op candidate sets, including the
   first bias and bias+ReLU epilogue variants.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
-  hooks, and a JSON cache/report for `cutlass_default` CUTLASS GEMM profiles.
+  hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.
   Profile keys now include a best-effort CUDA hardware/toolchain fingerprint,
   support-library source/binary hashes, and CUTLASS support-build provenance.
   Remaining gaps are candidate enumeration, richer statistical confidence, and

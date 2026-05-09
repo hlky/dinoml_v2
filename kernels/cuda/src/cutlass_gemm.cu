@@ -76,6 +76,52 @@ using BiasReluEpilogue = cutlass::epilogue::thread::LinearCombinationRelu<
     float,
     cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
 
+template <
+    typename OperatorClass_,
+    typename ArchTag_,
+    typename ThreadblockShape_,
+    typename WarpShape_,
+    typename InstructionShape_>
+struct GemmPolicy {
+  using OperatorClass = OperatorClass_;
+  using ArchTag = ArchTag_;
+  using ThreadblockShape = ThreadblockShape_;
+  using WarpShape = WarpShape_;
+  using InstructionShape = InstructionShape_;
+};
+
+using Sm80TensorOp128x128x32F32GemmPolicy = GemmPolicy<
+    cutlass::arch::OpClassTensorOp,
+    cutlass::arch::Sm80,
+    cutlass::gemm::GemmShape<128, 128, 32>,
+    cutlass::gemm::GemmShape<64, 64, 32>,
+    cutlass::gemm::GemmShape<16, 8, 8>>;
+
+using Sm80TensorOp128x128x32F16GemmPolicy = GemmPolicy<
+    cutlass::arch::OpClassTensorOp,
+    cutlass::arch::Sm80,
+    cutlass::gemm::GemmShape<128, 128, 32>,
+    cutlass::gemm::GemmShape<64, 64, 32>,
+    cutlass::gemm::GemmShape<16, 8, 16>>;
+
+template <typename Element>
+struct BiasGemmPolicySelector {
+  using Policy = Sm80TensorOp128x128x32F32GemmPolicy;
+};
+
+template <>
+struct BiasGemmPolicySelector<cutlass::half_t> {
+  using Policy = Sm80TensorOp128x128x32F16GemmPolicy;
+};
+
+template <>
+struct BiasGemmPolicySelector<cutlass::bfloat16_t> {
+  using Policy = Sm80TensorOp128x128x32F16GemmPolicy;
+};
+
+template <typename Element>
+using BiasGemmPolicy = typename BiasGemmPolicySelector<Element>::Policy;
+
 template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp>
 int launch_gemm_bias(
     Storage const* a,
@@ -93,6 +139,7 @@ int launch_gemm_bias(
   if (m <= 0 || n <= 0 || k <= 0) {
     return 2;
   }
+  using Policy = BiasGemmPolicy<Element>;
   using Gemm = cutlass::gemm::device::Gemm<
       Element,
       cutlass::layout::RowMajor,
@@ -101,29 +148,11 @@ int launch_gemm_bias(
       Element,
       cutlass::layout::RowMajor,
       float,
-      cutlass::arch::OpClassSimt,
-      cutlass::arch::Sm70,
-      typename cutlass::gemm::device::DefaultGemmConfiguration<
-          cutlass::arch::OpClassSimt,
-          cutlass::arch::Sm70,
-          Element,
-          Element,
-          Element,
-          float>::ThreadblockShape,
-      typename cutlass::gemm::device::DefaultGemmConfiguration<
-          cutlass::arch::OpClassSimt,
-          cutlass::arch::Sm70,
-          Element,
-          Element,
-          Element,
-          float>::WarpShape,
-      typename cutlass::gemm::device::DefaultGemmConfiguration<
-          cutlass::arch::OpClassSimt,
-          cutlass::arch::Sm70,
-          Element,
-          Element,
-          Element,
-          float>::InstructionShape,
+      typename Policy::OperatorClass,
+      typename Policy::ArchTag,
+      typename Policy::ThreadblockShape,
+      typename Policy::WarpShape,
+      typename Policy::InstructionShape,
       EpilogueOp>;
   Gemm gemm;
   typename Gemm::Arguments args(
@@ -204,7 +233,7 @@ float profile_gemm_bias(
 
 }  // namespace
 
-extern "C" int dinoml_cutlass_gemm_rrr_f32(
+static int dinoml_cutlass_legacy_gemm_rrr_f32(
     float const* a,
     float const* b,
     float* c,
@@ -215,7 +244,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_f32(
   return launch_gemm<float, float, cutlass::layout::RowMajor>(a, b, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_f32(
+static int dinoml_cutlass_legacy_gemm_rcr_f32(
     float const* a,
     float const* b,
     float* c,
@@ -226,7 +255,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_f32(
   return launch_gemm<float, float, cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_f16(
+static int dinoml_cutlass_legacy_gemm_rrr_f16(
     half const* a,
     half const* b,
     half* c,
@@ -237,7 +266,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_f16(
   return launch_gemm<half, cutlass::half_t, cutlass::layout::RowMajor>(a, b, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_f16(
+static int dinoml_cutlass_legacy_gemm_rcr_f16(
     half const* a,
     half const* b,
     half* c,
@@ -248,7 +277,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_f16(
   return launch_gemm<half, cutlass::half_t, cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bf16(
+static int dinoml_cutlass_legacy_gemm_rrr_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16* c,
@@ -259,7 +288,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bf16(
   return launch_gemm<__nv_bfloat16, cutlass::bfloat16_t, cutlass::layout::RowMajor>(a, b, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bf16(
+static int dinoml_cutlass_legacy_gemm_rcr_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16* c,
@@ -270,7 +299,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bf16(
   return launch_gemm<__nv_bfloat16, cutlass::bfloat16_t, cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_f32(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -283,7 +312,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_f32(
       a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_f32(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -296,7 +325,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_f32(
       a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_f16(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -309,7 +338,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_f16(
       a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_f16(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -322,7 +351,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_f16(
       a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_bf16(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -338,7 +367,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_bf16(
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_bf16(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -354,7 +383,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_bf16(
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f32(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_relu_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -367,7 +396,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f32(
       a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f32(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_relu_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -380,7 +409,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f32(
       a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f16(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_relu_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -393,7 +422,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_f16(
       a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f16(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_relu_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -406,7 +435,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_f16(
       a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_bf16(
+static int dinoml_cutlass_legacy_gemm_rrr_bias_relu_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -422,7 +451,7 @@ extern "C" int dinoml_cutlass_gemm_rrr_bias_relu_bf16(
       BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, stream);
 }
 
-extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_bf16(
+static int dinoml_cutlass_legacy_gemm_rcr_bias_relu_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -438,7 +467,7 @@ extern "C" int dinoml_cutlass_gemm_rcr_bias_relu_bf16(
       BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_f32(
     float const* a,
     float const* b,
     float* c,
@@ -450,7 +479,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_f32(
   return profile_gemm<float, float, cutlass::layout::RowMajor>(a, b, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_f32(
     float const* a,
     float const* b,
     float* c,
@@ -462,7 +491,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_f32(
   return profile_gemm<float, float, cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_f16(
     half const* a,
     half const* b,
     half* c,
@@ -474,7 +503,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_f16(
   return profile_gemm<half, cutlass::half_t, cutlass::layout::RowMajor>(a, b, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_f16(
     half const* a,
     half const* b,
     half* c,
@@ -486,7 +515,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_f16(
   return profile_gemm<half, cutlass::half_t, cutlass::layout::ColumnMajor>(a, b, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16* c,
@@ -499,7 +528,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bf16(
       a, b, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16* c,
@@ -512,7 +541,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bf16(
       a, b, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -526,7 +555,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_f32(
       a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -540,7 +569,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_f32(
       a, b, bias, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -554,7 +583,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_f16(
       a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -568,7 +597,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_f16(
       a, b, bias, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -585,7 +614,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_bf16(
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -602,7 +631,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_bf16(
       BiasEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_relu_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -616,7 +645,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f32(
       a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f32(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_relu_f32(
     float const* a,
     float const* b,
     float const* bias,
@@ -630,7 +659,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f32(
       a, b, bias, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_relu_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -644,7 +673,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_f16(
       a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_relu_f16(
     half const* a,
     half const* b,
     half const* bias,
@@ -658,7 +687,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_f16(
       a, b, bias, c, m, n, k, k, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rrr_bias_relu_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -675,7 +704,7 @@ extern "C" float dinoml_profile_cutlass_gemm_rrr_bias_relu_bf16(
       BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, n, iterations, stream);
 }
 
-extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_bf16(
+static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_relu_bf16(
     __nv_bfloat16 const* a,
     __nv_bfloat16 const* b,
     __nv_bfloat16 const* bias,
@@ -691,3 +720,81 @@ extern "C" float dinoml_profile_cutlass_gemm_rcr_bias_relu_bf16(
       cutlass::layout::ColumnMajor,
       BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, iterations, stream);
 }
+
+#define DINOML_CUTLASS_GENERATED_EXPORTS 1
+
+#define DINOML_FORWARD_GEMM_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, SYMBOL_ID) \
+extern "C" int dinoml_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    cudaStream_t stream) { \
+  return dinoml_cutlass_legacy_##OP##_##OLD_SUFFIX(a, b, c, m, n, k, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return dinoml_profile_cutlass_legacy_##OP##_##OLD_SUFFIX(a, b, c, m, n, k, iterations, stream); \
+}
+
+#define DINOML_FORWARD_GEMM_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, SYMBOL_ID) \
+extern "C" int dinoml_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    cudaStream_t stream) { \
+  return dinoml_cutlass_legacy_##OP##_##OLD_SUFFIX(a, b, bias, c, m, n, k, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return dinoml_profile_cutlass_legacy_##OP##_##OLD_SUFFIX(a, b, bias, c, m, n, k, iterations, stream); \
+}
+
+#define DINOML_FORWARD_GEMM_CANDIDATES(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX) \
+DINOML_FORWARD_GEMM_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, tensorop_sm80_128x128x32_align8) \
+DINOML_FORWARD_GEMM_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, tensorop_sm80_64x128x32_align8)
+
+#define DINOML_FORWARD_GEMM_BIAS_CANDIDATES(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX) \
+DINOML_FORWARD_GEMM_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, tensorop_sm80_128x128x32_align8) \
+DINOML_FORWARD_GEMM_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, OLD_SUFFIX, tensorop_sm80_64x128x32_align8)
+
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rrr, float32, float, f32)
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rcr, float32, float, f32)
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rrr, float16, half, f16)
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rcr, float16, half, f16)
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rrr, bfloat16, __nv_bfloat16, bf16)
+DINOML_FORWARD_GEMM_CANDIDATES(gemm_rcr, bfloat16, __nv_bfloat16, bf16)
+
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias, float32, float, f32)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias, float32, float, f32)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias, float16, half, f16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias, float16, half, f16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias, bfloat16, __nv_bfloat16, bf16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias, bfloat16, __nv_bfloat16, bf16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias_relu, float32, float, f32)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias_relu, float32, float, f32)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias_relu, float16, half, f16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias_relu, float16, half, f16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rrr_bias_relu, bfloat16, __nv_bfloat16, bf16)
+DINOML_FORWARD_GEMM_BIAS_CANDIDATES(gemm_rcr_bias_relu, bfloat16, __nv_bfloat16, bf16)

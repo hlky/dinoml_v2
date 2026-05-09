@@ -117,11 +117,11 @@ currently supported CUTLASS GEMM profiler symbols, writes
 the support-library cache. Profile reports and cache keys include a best-effort
 CUDA hardware/toolchain fingerprint plus support-library source/binary hashes,
 toolchain/dependency provenance, so timings do not silently float across
-different GPUs or regenerated support libraries. GEMM manifests now emit an
-explicit `cutlass_default` candidate under a dtype/layout-specific candidate
+different GPUs or regenerated support libraries. GEMM manifests now emit
+explicit CUTLASS tensor-op candidates under each dtype/layout-specific candidate
 set. The candidate set records provider, layout, epilogue, accumulator, launch
 ABI, generator id, candidate config keys, and its own `candidate_set_key`; future
-work should expand that one-candidate schema into generated CUTLASS candidate
+work should replace the static seed candidates with generated CUTLASS manifest
 sets. The CUTLASS support cache also writes a `dinoml.support_source_manifest`
 at `src/source_manifest.json`, mapping the rendered support source to the
 candidate set keys, candidate config keys, launcher/profiler symbols, and

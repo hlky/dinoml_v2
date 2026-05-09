@@ -54,20 +54,10 @@ The CUTLASS slice adds:
 - `build_external_kernel_plan()` for CUDA external kernel family metadata.
 - `ensure_cutlass_gemm_support_lib()` to generate and compile
   `libdinoml_cutlass_gemm.so` once per CUDA arch/cache key.
-- Exported launcher symbols:
-  - `dinoml_cutlass_gemm_rrr_{f32,f16,bf16}`
-  - `dinoml_cutlass_gemm_rcr_{f32,f16,bf16}`
-  - `dinoml_cutlass_gemm_rrr_bias_{f32,f16,bf16}`
-  - `dinoml_cutlass_gemm_rcr_bias_{f32,f16,bf16}`
-  - `dinoml_cutlass_gemm_rrr_bias_relu_{f32,f16,bf16}`
-  - `dinoml_cutlass_gemm_rcr_bias_relu_{f32,f16,bf16}`
-- Exported profiler symbols:
-  - `dinoml_profile_cutlass_gemm_rrr_{f32,f16,bf16}`
-  - `dinoml_profile_cutlass_gemm_rcr_{f32,f16,bf16}`
-  - `dinoml_profile_cutlass_gemm_rrr_bias_{f32,f16,bf16}`
-  - `dinoml_profile_cutlass_gemm_rcr_bias_{f32,f16,bf16}`
-  - `dinoml_profile_cutlass_gemm_rrr_bias_relu_{f32,f16,bf16}`
-  - `dinoml_profile_cutlass_gemm_rcr_bias_relu_{f32,f16,bf16}`
+- Exported launcher/profiler symbols use long dtype names and CUTLASS
+  candidate ids, for example
+  `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8` and
+  `dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_64x128x32_align8`.
 
 The first runtime GEMM port now wires model lowering into that support library:
 
@@ -86,7 +76,7 @@ The first runtime GEMM port now wires model lowering into that support library:
    real CPU library path exists.
 
 `dinoml profile <artifact>` now executes the exported profiler symbol for the
-manifest-selected `cutlass_default` candidate, writes
+manifest-selected CUTLASS candidate, writes
 `debug/profile_report.json`, and caches results under the support-library cache.
 The report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
 support-library source/binary hashes, support-build provenance, and the

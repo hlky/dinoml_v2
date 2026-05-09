@@ -173,12 +173,12 @@ def test_cuda_fused_elementwise_supports_reduced_precision_torch_pointers(tmp_pa
 @pytest.mark.parametrize(
     ("op_name", "a_shape", "b_shape", "dtype", "torch_dtype", "suffix", "atol", "rtol"),
     [
-        ("gemm_rrr", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
-        ("gemm_rcr", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
-        ("gemm_rrr", (16, 32), (32, 24), "float16", "float16", "f16", 2e-2, 2e-2),
-        ("gemm_rcr", (16, 32), (24, 32), "float16", "float16", "f16", 2e-2, 2e-2),
-        ("gemm_rrr", (16, 32), (32, 24), "bfloat16", "bfloat16", "bf16", 3e-2, 3e-2),
-        ("gemm_rcr", (16, 32), (24, 32), "bfloat16", "bfloat16", "bf16", 3e-2, 3e-2),
+        ("gemm_rrr", (16, 32), (32, 24), "float32", "float32", "float32", 1e-4, 1e-4),
+        ("gemm_rcr", (16, 32), (24, 32), "float32", "float32", "float32", 1e-4, 1e-4),
+        ("gemm_rrr", (16, 32), (32, 24), "float16", "float16", "float16", 2e-2, 2e-2),
+        ("gemm_rcr", (16, 32), (24, 32), "float16", "float16", "float16", 2e-2, 2e-2),
+        ("gemm_rrr", (16, 32), (32, 24), "bfloat16", "bfloat16", "bfloat16", 3e-2, 3e-2),
+        ("gemm_rcr", (16, 32), (24, 32), "bfloat16", "bfloat16", "bfloat16", 3e-2, 3e-2),
     ],
 )
 def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name, a_shape, b_shape, dtype, torch_dtype, suffix, atol, rtol):
@@ -204,15 +204,16 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
     assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
     assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
-    assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
+    symbol = f"dinoml_cutlass_{op_name}_{suffix}_tensorop_sm80_128x128x32_align8"
+    assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == symbol
     assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_linear_combination_v1"
-    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == 1
-    assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == "cutlass_default"
-    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 1
-    assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == "cutlass_default"
-    assert kernel_manifest["required_kernels"][0]["candidates"][0]["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
+    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == 2
+    assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 2
+    assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert kernel_manifest["required_kernels"][0]["candidates"][0]["kernel_symbol"] == symbol
     assert source_manifest["sources"] == []
-    assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
+    assert symbol in generated
 
     torch.manual_seed(47)
     a = torch.randn(a_shape, device="cuda", dtype=torch_dtype_obj)
@@ -234,10 +235,10 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
 @pytest.mark.parametrize(
     ("op_name", "a_shape", "b_shape", "dtype", "torch_dtype", "suffix", "atol", "rtol"),
     [
-        ("gemm_rrr_bias", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
-        ("gemm_rcr_bias", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
-        ("gemm_rrr_bias_relu", (16, 32), (32, 24), "float32", "float32", "f32", 1e-4, 1e-4),
-        ("gemm_rcr_bias_relu", (16, 32), (24, 32), "float32", "float32", "f32", 1e-4, 1e-4),
+        ("gemm_rrr_bias", (16, 32), (32, 24), "float32", "float32", "float32", 1e-4, 1e-4),
+        ("gemm_rcr_bias", (16, 32), (24, 32), "float32", "float32", "float32", 1e-4, 1e-4),
+        ("gemm_rrr_bias_relu", (16, 32), (32, 24), "float32", "float32", "float32", 1e-4, 1e-4),
+        ("gemm_rcr_bias_relu", (16, 32), (24, 32), "float32", "float32", "float32", 1e-4, 1e-4),
     ],
 )
 def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
@@ -275,12 +276,13 @@ def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
 
     required = kernel_manifest["required_kernels"][0]
     epilogue = "bias_relu" if op_name.endswith("_bias_relu") else "bias"
-    assert required["kernel_symbol"] == f"dinoml_cutlass_{op_name}_{suffix}"
+    symbol = f"dinoml_cutlass_{op_name}_{suffix}_tensorop_sm80_128x128x32_align8"
+    assert required["kernel_symbol"] == symbol
     assert required["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_{epilogue}_v1"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
     assert required["candidate_set"]["epilogue_config"]["name"] == epilogue
     assert required["candidates"][0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
-    assert f"dinoml_cutlass_{op_name}_{suffix}" in generated
+    assert symbol in generated
 
     torch.manual_seed(48)
     a = torch.randn(a_shape, device="cuda", dtype=torch_dtype_obj)

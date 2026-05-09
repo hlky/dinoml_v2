@@ -1,6 +1,7 @@
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_DEFAULT_CANDIDATE_ID,
     CUTLASS_DEFAULT_SYMBOL_ID,
+    CUTLASS_GEMM_CANDIDATE_CONFIGS,
     CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
     CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
     cutlass_gemm_candidate_set,
@@ -17,6 +18,7 @@ from dinoml.kernels.providers.cutlass.gemm import (
 __all__ = [
     "CUTLASS_DEFAULT_CANDIDATE_ID",
     "CUTLASS_DEFAULT_SYMBOL_ID",
+    "CUTLASS_GEMM_CANDIDATE_CONFIGS",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
     "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "cutlass_gemm_candidate_set",

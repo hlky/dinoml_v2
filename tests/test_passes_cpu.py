@@ -191,30 +191,53 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     ]
     assert families["gemm_rcr"]["provider"] == "cutlass"
     assert families["gemm_rcr"]["required_libraries"] == ["cutlass", "cublaslt"]
-    assert families["gemm_rcr"]["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_f32"
-    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["float16"] == "dinoml_cutlass_gemm_rcr_f16"
-    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["bfloat16"] == "dinoml_cutlass_gemm_rcr_bf16"
-    assert families["gemm_rrr"]["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f32"
-    assert families["gemm_rrr"]["profiler_symbols_by_dtype"]["float16"] == "dinoml_profile_cutlass_gemm_rrr_f16"
+    default_symbol_id = "tensorop_sm80_128x128x32_align8"
+    second_symbol_id = "tensorop_sm80_64x128x32_align8"
+    assert families["gemm_rcr"]["kernel_symbol"] == f"dinoml_cutlass_gemm_rcr_float32_{default_symbol_id}"
+    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["float16"] == f"dinoml_cutlass_gemm_rcr_float16_{default_symbol_id}"
+    assert families["gemm_rcr"]["kernel_symbols_by_dtype"]["bfloat16"] == f"dinoml_cutlass_gemm_rcr_bfloat16_{default_symbol_id}"
+    assert families["gemm_rrr"]["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_float32_{default_symbol_id}"
+    assert families["gemm_rrr"]["profiler_symbols_by_dtype"]["float16"] == f"dinoml_profile_cutlass_gemm_rrr_float16_{default_symbol_id}"
     assert families["gemm_rrr"]["attrs"]["b_layout"] == "row"
     assert families["gemm_rrr"]["attrs"]["supported_dtypes"] == ["float16", "float32", "bfloat16"]
     assert families["gemm_rcr_bias"]["attrs"]["epilogue"] == "bias"
     assert families["gemm_rcr_bias"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
-    assert families["gemm_rcr_bias"]["kernel_symbols_by_dtype"]["float32"] == "dinoml_cutlass_gemm_rcr_bias_f32"
+    assert families["gemm_rcr_bias"]["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_gemm_rcr_bias_float32_{default_symbol_id}"
     assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue"] == "bias_relu"
     assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue_config"]["activation"] == "relu"
     assert families["gemm_rcr_bias_relu"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
-    assert families["gemm_rcr_bias_relu"]["kernel_symbols_by_dtype"]["float32"] == "dinoml_cutlass_gemm_rcr_bias_relu_f32"
-    rrr_f16_candidate = families["gemm_rrr"]["candidates_by_dtype"]["float16"][0]
-    assert rrr_f16_candidate["candidate_id"] == "cutlass_default"
-    assert rrr_f16_candidate["symbol_id"] == "default"
-    assert rrr_f16_candidate["kernel_symbol"] == "dinoml_cutlass_gemm_rrr_f16"
-    assert rrr_f16_candidate["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rrr_f16"
+    assert families["gemm_rcr_bias_relu"]["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_gemm_rcr_bias_relu_float32_{default_symbol_id}"
+    rrr_f16_candidates = families["gemm_rrr"]["candidates_by_dtype"]["float16"]
+    assert [candidate["candidate_id"] for candidate in rrr_f16_candidates] == [
+        "cutlass_tensorop_sm80_128x128x32_align8",
+        "cutlass_tensorop_sm80_64x128x32_align8",
+    ]
+    assert [candidate["symbol_id"] for candidate in rrr_f16_candidates] == [
+        default_symbol_id,
+        second_symbol_id,
+    ]
+    rrr_f16_candidate = rrr_f16_candidates[0]
+    assert rrr_f16_candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_float16_{default_symbol_id}"
+    assert rrr_f16_candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_float16_{default_symbol_id}"
+    assert rrr_f16_candidate["cutlass"] == {
+        "api": "device_gemm",
+        "opclass": "tensorop",
+        "arch": "sm80",
+        "threadblock": [128, 128, 32],
+        "warp": [64, 64, 32],
+        "instruction": [16, 8, 16],
+        "stages": 3,
+        "align": 8,
+    }
+    assert rrr_f16_candidates[1]["cutlass"]["threadblock"] == [64, 128, 32]
+    assert rrr_f16_candidates[1]["cutlass"]["stages"] == 4
     assert len(rrr_f16_candidate["candidate_config_key"]) == 64
     rrr_f16_candidate_set = families["gemm_rrr"]["candidate_sets_by_dtype"]["float16"]
-    assert rrr_f16_candidate_set["candidate_set_id"] == "cutlass_gemm_rrr_f16_linear_combination_v1"
-    assert rrr_f16_candidate_set["candidate_count"] == 1
-    assert rrr_f16_candidate_set["candidate_config_keys"] == [rrr_f16_candidate["candidate_config_key"]]
+    assert rrr_f16_candidate_set["candidate_set_id"] == "cutlass_gemm_rrr_float16_linear_combination_v1"
+    assert rrr_f16_candidate_set["candidate_count"] == 2
+    assert rrr_f16_candidate_set["candidate_config_keys"] == [
+        candidate["candidate_config_key"] for candidate in rrr_f16_candidates
+    ]
     assert len(rrr_f16_candidate_set["candidate_set_key"]) == 64
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
@@ -223,14 +246,16 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
 @pytest.mark.parametrize(
     ("dtype", "suffix"),
     [
-        ("float32", "f32"),
-        ("float16", "f16"),
-        ("bfloat16", "bf16"),
+        ("float32", "float32"),
+        ("float16", "float16"),
+        ("bfloat16", "bfloat16"),
     ],
 )
 def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     import dinoml as dml
     from dinoml.lowering.ops import collect_generated_sources
+    default_symbol_id = "tensorop_sm80_128x128x32_align8"
+    second_symbol_id = "tensorop_sm80_64x128x32_align8"
 
     class GemmModel(dml.Module):
         def forward(self, a, b):
@@ -250,18 +275,22 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert sources["kernels"] == []
     required = manifest["required_kernels"][0]
     assert required["op"] == "gemm_rrr"
-    assert required["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_{suffix}"
+    default_symbol = f"dinoml_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
+    second_symbol = f"dinoml_cutlass_gemm_rrr_{suffix}_{second_symbol_id}"
+    default_profiler = f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
+    second_profiler = f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{second_symbol_id}"
+    assert required["kernel_symbol"] == default_symbol
     assert required["kernel_library"] == "cutlass_gemm"
-    assert required["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"
+    assert required["profiler_symbol"] == default_profiler
     assert required["has_profiler"] is True
     assert required["candidate_set_id"] == f"cutlass_gemm_rrr_{suffix}_linear_combination_v1"
     assert len(required["candidate_set_key"]) == 64
     assert required["candidate_set"]["candidate_set_key"] == required["candidate_set_key"]
-    assert required["candidate_set"]["candidate_count"] == 1
-    assert required["selected_candidate_id"] == "cutlass_default"
-    assert len(required["candidates"]) == 1
+    assert required["candidate_set"]["candidate_count"] == 2
+    assert required["selected_candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert len(required["candidates"]) == 2
     candidate = required["candidates"][0]
-    assert candidate["candidate_id"] == "cutlass_default"
+    assert candidate["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
     assert candidate["provider"] == "cutlass"
     assert candidate["family"] == "gemm_universal"
     assert candidate["dtype"] == dtype
@@ -269,19 +298,29 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert candidate["epilogue"] == "linear_combination"
     assert candidate["epilogue_config"]["name"] == "linear_combination"
     assert candidate["accumulator_dtype"] == "float32"
-    assert candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_{suffix}"
-    assert candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_{suffix}"
+    assert candidate["kernel_symbol"] == default_symbol
+    assert candidate["profiler_symbol"] == default_profiler
+    assert candidate["cutlass"]["opclass"] == "tensorop"
+    assert candidate["cutlass"]["arch"] == "sm80"
+    assert candidate["cutlass"]["threadblock"] == [128, 128, 32]
+    assert candidate["cutlass"]["warp"] == [64, 64, 32]
+    assert candidate["cutlass"]["instruction"] == ([16, 8, 8] if dtype == "float32" else [16, 8, 16])
+    assert candidate["cutlass"]["stages"] == 3
+    assert candidate["cutlass"]["align"] == 8
     assert len(candidate["candidate_config_key"]) == 64
-    assert plan.kernel_symbols == (f"dinoml_cutlass_gemm_rrr_{suffix}",)
-    assert plan.profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
-    assert plan.candidate_profiler_symbols == (f"dinoml_profile_cutlass_gemm_rrr_{suffix}",)
+    assert plan.kernel_symbols == (default_symbol,)
+    assert plan.profiler_symbols == (default_profiler,)
+    assert plan.candidate_profiler_symbols == (default_profiler, second_profiler)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
     assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
     assert len(plan.external_support_libraries[0]["used_candidate_plan_key"]) == 64
     assert plan.external_support_libraries[0]["candidate_set_keys"] == [required["candidate_set_key"]]
-    assert plan.external_support_libraries[0]["candidate_config_keys"] == [candidate["candidate_config_key"]]
-    assert plan.external_support_libraries[0]["kernel_symbols"] == [f"dinoml_cutlass_gemm_rrr_{suffix}"]
-    assert plan.external_support_libraries[0]["profiler_symbols"] == [f"dinoml_profile_cutlass_gemm_rrr_{suffix}"]
+    assert plan.external_support_libraries[0]["candidate_config_keys"] == [
+        item["candidate_config_key"]
+        for item in sorted(required["candidates"], key=lambda item: item["candidate_config_key"])
+    ]
+    assert plan.external_support_libraries[0]["kernel_symbols"] == [default_symbol, second_symbol]
+    assert plan.external_support_libraries[0]["profiler_symbols"] == [default_profiler, second_profiler]
 
 
 def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
@@ -304,11 +343,10 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     rendered = render_cutlass_gemm_source(source, used_plan)
 
     assert "template <typename Storage, typename Element, typename LayoutB>" in rendered
-    assert "dinoml_cutlass_gemm_rrr_f32" in rendered
-    assert "dinoml_profile_cutlass_gemm_rrr_f32" in rendered
-    assert "dinoml_cutlass_gemm_rcr_f32" not in rendered
-    assert "dinoml_cutlass_gemm_rrr_f16" not in rendered
-    assert "dinoml_cutlass_gemm_rrr_bias_f32" not in rendered
+    assert "DINOML_CUTLASS_GENERATED_EXPORTS" in rendered
+    assert "DINOML_FORWARD_GEMM_CANDIDATES(gemm_rrr, float32, float, f32)" in rendered
+    assert "tensorop_sm80_128x128x32_align8" in rendered
+    assert "tensorop_sm80_64x128x32_align8" in rendered
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
@@ -334,27 +372,37 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
 
     assert [item["kernel_symbol"] for item in manifest["required_kernels"]] == [
-        "dinoml_cutlass_gemm_rrr_f32",
-        "dinoml_cutlass_gemm_rrr_f16",
+        "dinoml_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8",
     ]
-    candidates = [item["candidates"][0] for item in manifest["required_kernels"]]
-    assert [candidate["candidate_id"] for candidate in candidates] == ["cutlass_default", "cutlass_default"]
-    assert [candidate["dtype"] for candidate in candidates] == ["float32", "float16"]
-    assert candidates[0]["candidate_config_key"] != candidates[1]["candidate_config_key"]
+    candidates = [candidate for item in manifest["required_kernels"] for candidate in item["candidates"]]
+    assert [candidate["candidate_id"] for candidate in candidates] == [
+        "cutlass_tensorop_sm80_128x128x32_align8",
+        "cutlass_tensorop_sm80_64x128x32_align8",
+        "cutlass_tensorop_sm80_128x128x32_align8",
+        "cutlass_tensorop_sm80_64x128x32_align8",
+    ]
+    assert [candidate["dtype"] for candidate in candidates[:2]] == ["float32", "float32"]
+    assert [candidate["dtype"] for candidate in candidates[2:]] == ["float16", "float16"]
+    assert len({candidate["candidate_config_key"] for candidate in candidates}) == 4
     assert [item["candidate_set_id"] for item in manifest["required_kernels"]] == [
-        "cutlass_gemm_rrr_f32_linear_combination_v1",
-        "cutlass_gemm_rrr_f16_linear_combination_v1",
+        "cutlass_gemm_rrr_float32_linear_combination_v1",
+        "cutlass_gemm_rrr_float16_linear_combination_v1",
     ]
     assert manifest["required_kernels"][0]["candidate_set_key"] != manifest["required_kernels"][1]["candidate_set_key"]
     plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
     support = plan.external_support_libraries[0]
     assert support["kernel_symbols"] == [
-        "dinoml_cutlass_gemm_rrr_f16",
-        "dinoml_cutlass_gemm_rrr_f32",
+        "dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_64x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_float32_tensorop_sm80_64x128x32_align8",
     ]
     assert support["profiler_symbols"] == [
-        "dinoml_profile_cutlass_gemm_rrr_f16",
-        "dinoml_profile_cutlass_gemm_rrr_f32",
+        "dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_64x128x32_align8",
+        "dinoml_profile_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_profile_cutlass_gemm_rrr_float32_tensorop_sm80_64x128x32_align8",
     ]
     assert support["candidate_set_keys"] == sorted(item["candidate_set_key"] for item in manifest["required_kernels"])
     assert support["candidate_config_keys"] == sorted(candidate["candidate_config_key"] for candidate in candidates)

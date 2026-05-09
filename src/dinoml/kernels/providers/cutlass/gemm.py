@@ -9,37 +9,78 @@ from dinoml.kernels.families.gemm import GEMM_SUPPORTED_DTYPES, gemm_op_spec, no
 
 
 GEMM_DTYPE_SUFFIXES = {
-    "float16": "f16",
-    "float32": "f32",
-    "bfloat16": "bf16",
+    "float16": "float16",
+    "float32": "float32",
+    "bfloat16": "bfloat16",
 }
-CUTLASS_DEFAULT_CANDIDATE_ID = "cutlass_default"
-CUTLASS_DEFAULT_SYMBOL_ID = "default"
+CUTLASS_DEFAULT_CANDIDATE_ID = "cutlass_tensorop_sm80_128x128x32_align8"
+CUTLASS_DEFAULT_SYMBOL_ID = "tensorop_sm80_128x128x32_align8"
 CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION = 1
 CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
+CUTLASS_GEMM_CANDIDATE_CONFIGS = (
+    {
+        "candidate_id": CUTLASS_DEFAULT_CANDIDATE_ID,
+        "symbol_id": CUTLASS_DEFAULT_SYMBOL_ID,
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [128, 128, 32],
+            "warp": [64, 64, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 3,
+            "align": 8,
+        },
+    },
+    {
+        "candidate_id": "cutlass_tensorop_sm80_64x128x32_align8",
+        "symbol_id": "tensorop_sm80_64x128x32_align8",
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "threadblock": [64, 128, 32],
+            "warp": [32, 64, 32],
+            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
+            "stages": 4,
+            "align": 8,
+        },
+    },
+)
 
 
-def cutlass_gemm_symbol(op_name: str, dtype: str) -> str:
+def cutlass_gemm_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
     gemm_op_spec(op_name)
     suffix = gemm_dtype_suffix(dtype)
-    return f"dinoml_cutlass_{op_name}_{suffix}"
+    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{CUTLASS_DEFAULT_SYMBOL_ID}"
+    return f"dinoml_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
-def cutlass_gemm_profiler_symbol(op_name: str, dtype: str) -> str:
+def cutlass_gemm_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
     gemm_op_spec(op_name)
     suffix = gemm_dtype_suffix(dtype)
-    return f"dinoml_profile_cutlass_{op_name}_{suffix}"
+    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{CUTLASS_DEFAULT_SYMBOL_ID}"
+    return f"dinoml_profile_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
 def cutlass_gemm_default_candidate(op_name: str, dtype: str) -> dict[str, Any]:
+    return cutlass_gemm_candidates(op_name, dtype)[0]
+
+
+def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[str, Any]) -> dict[str, Any]:
     spec = gemm_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
-    kernel_symbol = cutlass_gemm_symbol(op_name, normalized_dtype)
-    profiler_symbol = cutlass_gemm_profiler_symbol(op_name, normalized_dtype)
+    symbol_id = str(candidate_config["symbol_id"])
+    kernel_symbol = cutlass_gemm_symbol(op_name, normalized_dtype, symbol_id)
+    profiler_symbol = cutlass_gemm_profiler_symbol(op_name, normalized_dtype, symbol_id)
     epilogue = spec.epilogue.to_json()
+    cutlass_config = dict(candidate_config["cutlass"])
+    instruction = cutlass_config.get("instruction")
+    if isinstance(instruction, Mapping):
+        cutlass_config["instruction"] = list(instruction[normalized_dtype])
     config = {
-        "candidate_id": CUTLASS_DEFAULT_CANDIDATE_ID,
-        "symbol_id": CUTLASS_DEFAULT_SYMBOL_ID,
+        "candidate_id": str(candidate_config["candidate_id"]),
+        "symbol_id": str(candidate_config["symbol_id"]),
         "provider": "cutlass",
         "family": "gemm_universal",
         "op": op_name,
@@ -49,14 +90,7 @@ def cutlass_gemm_default_candidate(op_name: str, dtype: str) -> dict[str, Any]:
         "epilogue_config": epilogue,
         "accumulator_dtype": spec.epilogue.accumulator_dtype,
         "launch_abi": spec.epilogue.launch_abi,
-        "cutlass": {
-            "api": "device_gemm_default",
-            "threadblock": None,
-            "warp": None,
-            "instruction": None,
-            "stages": None,
-            "align": None,
-        },
+        "cutlass": cutlass_config,
     }
     candidate = {
         **config,
@@ -68,7 +102,7 @@ def cutlass_gemm_default_candidate(op_name: str, dtype: str) -> dict[str, Any]:
 
 
 def cutlass_gemm_candidates(op_name: str, dtype: str) -> tuple[dict[str, Any], ...]:
-    return (cutlass_gemm_default_candidate(op_name, dtype),)
+    return tuple(_cutlass_gemm_candidate(op_name, dtype, config) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS)
 
 
 def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
@@ -87,7 +121,7 @@ def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
         "epilogue_config": spec.epilogue.to_json(),
         "accumulator_dtype": spec.epilogue.accumulator_dtype,
         "launch_abi": spec.epilogue.launch_abi,
-        "generator": "static_default_v1",
+        "generator": "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -159,6 +193,8 @@ def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
 
 
 def render_cutlass_gemm_source(source: str, used_candidate_plan: Mapping[str, Any]) -> str:
+    if "DINOML_CUTLASS_GENERATED_EXPORTS" in source:
+        return source.rstrip() + "\n"
     symbols = {
         *[str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])],
         *[str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])],
@@ -241,6 +277,7 @@ __all__ = [
     "CUTLASS_DEFAULT_CANDIDATE_ID",
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
+    "CUTLASS_GEMM_CANDIDATE_CONFIGS",
     "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "cutlass_gemm_candidate_set",
     "cutlass_gemm_candidate_set_id",

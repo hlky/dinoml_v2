@@ -113,7 +113,7 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == 18
-    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == 18
+    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == 36
     assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
         symbol
         for family in manifest["families"]
@@ -143,16 +143,26 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
         assert sorted(family["candidates_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidate_sets_by_dtype"]) == ["bfloat16", "float16", "float32"]
         for dtype, candidates in family["candidates_by_dtype"].items():
-            assert len(candidates) == 1
+            assert len(candidates) == 2
             candidate = candidates[0]
             candidate_set = family["candidate_sets_by_dtype"][dtype]
-            assert candidate_set["candidate_count"] == 1
-            assert candidate_set["candidate_config_keys"] == [candidate["candidate_config_key"]]
+            assert candidate_set["candidate_count"] == 2
+            assert candidate_set["candidate_config_keys"] == [
+                item["candidate_config_key"] for item in candidates
+            ]
             assert len(candidate_set["candidate_set_key"]) == 64
-            assert candidate["candidate_id"] == "cutlass_default"
+            assert [item["candidate_id"] for item in candidates] == [
+                "cutlass_tensorop_sm80_128x128x32_align8",
+                "cutlass_tensorop_sm80_64x128x32_align8",
+            ]
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
+            assert candidate["cutlass"]["opclass"] == "tensorop"
+            assert candidate["cutlass"]["arch"] == "sm80"
+            assert candidate["cutlass"]["threadblock"] == [128, 128, 32]
+            assert candidates[1]["cutlass"]["opclass"] == "tensorop"
+            assert candidates[1]["cutlass"]["align"] == 8
             assert len(candidate["candidate_config_key"]) == 64
     bias_candidates = [
         candidate
@@ -185,13 +195,18 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass-run")
     dll = ctypes.CDLL(str(support.library))
+    symbol_suffixes = {
+        "float32": "float32_tensorop_sm80_128x128x32_align8",
+        "float16": "float16_tensorop_sm80_128x128x32_align8",
+        "bfloat16": "bfloat16_tensorop_sm80_128x128x32_align8",
+    }
     for name in (
-        "dinoml_cutlass_gemm_rrr_f32",
-        "dinoml_cutlass_gemm_rcr_f32",
-        "dinoml_cutlass_gemm_rrr_f16",
-        "dinoml_cutlass_gemm_rcr_f16",
-        "dinoml_cutlass_gemm_rrr_bf16",
-        "dinoml_cutlass_gemm_rcr_bf16",
+        "dinoml_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bfloat16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bfloat16_tensorop_sm80_128x128x32_align8",
     ):
         fn = getattr(dll, name)
         fn.argtypes = [
@@ -205,18 +220,18 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         ]
         fn.restype = ctypes.c_int
     for name in (
-        "dinoml_cutlass_gemm_rrr_bias_f32",
-        "dinoml_cutlass_gemm_rcr_bias_f32",
-        "dinoml_cutlass_gemm_rrr_bias_f16",
-        "dinoml_cutlass_gemm_rcr_bias_f16",
-        "dinoml_cutlass_gemm_rrr_bias_bf16",
-        "dinoml_cutlass_gemm_rcr_bias_bf16",
-        "dinoml_cutlass_gemm_rrr_bias_relu_f32",
-        "dinoml_cutlass_gemm_rcr_bias_relu_f32",
-        "dinoml_cutlass_gemm_rrr_bias_relu_f16",
-        "dinoml_cutlass_gemm_rcr_bias_relu_f16",
-        "dinoml_cutlass_gemm_rrr_bias_relu_bf16",
-        "dinoml_cutlass_gemm_rcr_bias_relu_bf16",
+        "dinoml_cutlass_gemm_rrr_bias_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bias_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bias_bfloat16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_bfloat16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bias_relu_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_relu_float32_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bias_relu_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_relu_float16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rrr_bias_relu_bfloat16_tensorop_sm80_128x128x32_align8",
+        "dinoml_cutlass_gemm_rcr_bias_relu_bfloat16_tensorop_sm80_128x128x32_align8",
     ):
         fn = getattr(dll, name)
         fn.argtypes = [
@@ -233,9 +248,9 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
 
     torch.manual_seed(7)
     for torch_dtype, suffix, atol, rtol in (
-        (torch.float32, "f32", 1e-4, 1e-4),
-        (torch.float16, "f16", 2e-2, 2e-2),
-        (torch.bfloat16, "bf16", 3e-2, 3e-2),
+        (torch.float32, symbol_suffixes["float32"], 1e-4, 1e-4),
+        (torch.float16, symbol_suffixes["float16"], 2e-2, 2e-2),
+        (torch.bfloat16, symbol_suffixes["bfloat16"], 3e-2, 3e-2),
     ):
         a = torch.randn((16, 32), device="cuda", dtype=torch_dtype)
         b_rrr = torch.randn((32, 24), device="cuda", dtype=torch_dtype)

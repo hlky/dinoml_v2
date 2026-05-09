@@ -114,7 +114,6 @@ def build_profile_workloads(
         required_item = required.get((op_name, binding.symbol))
         if required_item is None:
             continue
-        candidate = _selected_profile_candidate(required_item)
         spec = gemm_op_spec(op_name)
         a_name, b_name = (str(name) for name in node["inputs"][:2])
         bias_name = str(node["inputs"][2]) if spec.epilogue.has_bias else None
@@ -125,38 +124,46 @@ def build_profile_workloads(
         )
         problem_shapes = [shape for shape in (a_shape, b_shape, bias_shape) if shape is not None]
         m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
-        workloads.append(
-            GemmProfileWorkload(
-                node_id=str(node["id"]),
-                op=op_name,
-                dtype=dtype,
-                kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
-                profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
-                candidate_set_id=(
-                    str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
-                ),
-                candidate_set_key=(
-                    str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
-                ),
-                candidate_id=str(candidate["candidate_id"]),
-                candidate_config_key=(
-                    str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
-                ),
-                candidate=candidate,
-                a_tensor=a_name,
-                b_tensor=b_name,
-                bias_tensor=bias_name,
-                output_tensor=output_name,
-                a_shape=(a_shape[0], a_shape[1]),
-                b_shape=(b_shape[0], b_shape[1]),
-                bias_shape=bias_shape,
-                output_shape=output_shape,
-                m=m,
-                n=n,
-                k=k,
+        for candidate in _profile_candidates(required_item):
+            workloads.append(
+                GemmProfileWorkload(
+                    node_id=str(node["id"]),
+                    op=op_name,
+                    dtype=dtype,
+                    kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                    profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                    candidate_set_id=(
+                        str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
+                    ),
+                    candidate_set_key=(
+                        str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
+                    ),
+                    candidate_id=str(candidate["candidate_id"]),
+                    candidate_config_key=(
+                        str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                    ),
+                    candidate=candidate,
+                    a_tensor=a_name,
+                    b_tensor=b_name,
+                    bias_tensor=bias_name,
+                    output_tensor=output_name,
+                    a_shape=(a_shape[0], a_shape[1]),
+                    b_shape=(b_shape[0], b_shape[1]),
+                    bias_shape=bias_shape,
+                    output_shape=output_shape,
+                    m=m,
+                    n=n,
+                    k=k,
+                )
             )
-        )
     return workloads
+
+
+def _profile_candidates(required_item: Mapping[str, Any]) -> list[dict[str, Any]]:
+    candidates = [dict(candidate) for candidate in required_item.get("candidates", [])]
+    if candidates:
+        return candidates
+    return [_selected_profile_candidate(required_item)]
 
 
 def _selected_profile_candidate(required_item: Mapping[str, Any]) -> dict[str, Any]:

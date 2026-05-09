@@ -48,9 +48,13 @@ porting. It intentionally excludes the op inventory, which lives in
   hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.
   Profile keys now include a best-effort CUDA hardware/toolchain fingerprint,
   support-library source/binary hashes, CUTLASS support-build provenance, and
-  target-policy-specific candidate/config keys.
-  Remaining gaps are candidate enumeration, richer statistical confidence, and
-  persistent SQLite/shared cache workflows.
+  target-policy-specific candidate/config keys. Profiling now also writes
+  `debug/execution_plan.json`, selecting the fastest measured candidate per
+  profiled node/shape and exposing a static overlay when all profiled shapes for
+  an op/dtype/candidate-set agree.
+  Remaining gaps are consuming that overlay during recompile/relink, dynamic
+  shape buckets and guarded dispatch, alignment-aware filtering, split-K, richer
+  statistical confidence, and persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

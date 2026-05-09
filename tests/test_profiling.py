@@ -14,11 +14,13 @@ from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 from dinoml.kernels.profiling import (
+    EXECUTION_PLAN_SCHEMA_VERSION,
     PROFILE_REPORT_SCHEMA_VERSION,
     _cache_entry,
     _profile_key,
     _profile_key_payload,
     _profile_result,
+    build_execution_plan,
     build_profile_workloads,
     parse_shape_overrides,
     profile_artifact,
@@ -367,6 +369,86 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert _profile_key(payload_a) != _profile_key(payload_c)
 
 
+def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    slow = _profile_result(workloads[0], 0.25, 5, profile_key="slow-profile", status="ok")
+    fast = _profile_result(workloads[1], 0.10, 5, profile_key="fast-profile", status="ok")
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "artifact": str(tmp_path / "profile_execution_plan_gemm.dinoml"),
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": codegen_plan["cache_key"],
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [slow, fast],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert plan["schema_version"] == EXECUTION_PLAN_SCHEMA_VERSION
+    assert plan["selection_policy"] == "lowest_elapsed_ms_per_node_shape"
+    assert plan["summary"] == {"selection_count": 1, "static_selection_count": 1, "conflict_count": 0}
+    assert plan["execution_plan_key"]
+    selection = plan["selections"][0]
+    assert selection["selected_candidate_id"] == workloads[1].candidate_id
+    assert selection["candidate_config_key"] == workloads[1].candidate_config_key
+    assert selection["kernel_symbol"] == workloads[1].kernel_symbol
+    assert selection["profiler_symbol"] == workloads[1].profiler_symbol
+    assert selection["shape"] == {"m": 4, "n": 6, "k": 8, "source": "runtime_override_or_graph_max_shape"}
+    assert selection["workspace_nbytes"] == 0
+    assert selection["split_k"] == 1
+    static_selection = plan["static_selections"][0]
+    assert static_selection["selected_candidate_id"] == workloads[1].candidate_id
+    assert static_selection["node_id"] is None
+    assert static_selection["shape"]["source"] == "static_overlay_from_consistent_profiled_shapes"
+
+
+def test_build_execution_plan_marks_static_conflict_for_shape_specific_winners(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_conflict",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    shape_a = _profile_result(workloads[0], 0.10, 5, profile_key="shape-a", status="ok")
+    shape_b = _profile_result(replace(workloads[1], node_id="n1", m=8), 0.09, 5, profile_key="shape-b", status="ok")
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [shape_a, shape_b],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert plan["summary"] == {"selection_count": 2, "static_selection_count": 0, "conflict_count": 1}
+    assert plan["static_selections"] == []
+    assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidates"
+    assert plan["conflicts"][0]["selected_candidate_ids"] == sorted(
+        [workloads[0].candidate_id, workloads[1].candidate_id]
+    )
+
+
 def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     monkeypatch.setattr(
         profiling_mod,
@@ -465,6 +547,11 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     report = profile_artifact(artifact, iterations=3)
 
     assert report["summary"] == {"cached": _cutlass_candidate_count("float32"), "failed": 0, "profiled": 0, "skipped": 0}
+    execution_plan_path = artifact / "debug" / "execution_plan.json"
+    assert report["execution_plan"]["path"] == str(execution_plan_path.resolve())
+    assert report["execution_plan"]["schema_version"] == EXECUTION_PLAN_SCHEMA_VERSION
+    assert report["execution_plan"]["selection_count"] == 1
+    assert read_json(execution_plan_path)["summary"]["selection_count"] == 1
     assert report["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
     assert report["kernel_manifest_cache_key"] == kernel_manifest["cache_key"]
     assert report["codegen_plan_cache_key"] == codegen_plan["cache_key"]
@@ -544,12 +631,13 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
 def test_cli_profile_smoke(monkeypatch, capsys):
     calls = []
 
-    def fake_profile_artifact(artifact, *, input_shapes, iterations, output, refresh):
-        calls.append((artifact, input_shapes, iterations, output, refresh))
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, output, execution_plan_output, refresh):
+        calls.append((artifact, input_shapes, iterations, output, execution_plan_output, refresh))
         return {
             "artifact": str(artifact),
             "target": {"name": "cuda", "arch": "sm_86"},
             "iterations": iterations,
+            "execution_plan": {"path": "plan.json", "selection_count": 1},
             "summary": {"cached": 0, "failed": 0, "profiled": 1, "skipped": 0},
             "problems": [
                 {
@@ -568,8 +656,26 @@ def test_cli_profile_smoke(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "profile_artifact", fake_profile_artifact)
 
-    assert cli.main(["profile", "artifact.dinoml", "--iterations", "2", "--shape", "a=4,8", "--out", "report.json", "--refresh"]) == 0
+    assert (
+        cli.main(
+            [
+                "profile",
+                "artifact.dinoml",
+                "--iterations",
+                "2",
+                "--shape",
+                "a=4,8",
+                "--out",
+                "report.json",
+                "--execution-plan-out",
+                "plan.json",
+                "--refresh",
+            ]
+        )
+        == 0
+    )
     stdout = capsys.readouterr().out
 
-    assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, "report.json", True)]
+    assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, "report.json", "plan.json", True)]
     assert f"dinoml_profile_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}" in stdout
+    assert "plan.json" in stdout

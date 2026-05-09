@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     profile_parser.add_argument("--iterations", type=int, default=20)
     profile_parser.add_argument("--shape", action="append", default=[])
     profile_parser.add_argument("--out")
+    profile_parser.add_argument("--execution-plan-out")
     profile_parser.add_argument("--refresh", action="store_true")
 
     args = parser.parse_args(argv)
@@ -126,6 +127,7 @@ def _profile(args: argparse.Namespace) -> int:
         input_shapes=parse_shape_overrides(args.shape),
         iterations=args.iterations,
         output=args.out,
+        execution_plan_output=args.execution_plan_out,
         refresh=args.refresh,
     )
     print(json.dumps(
@@ -145,6 +147,7 @@ def _profile(args: argparse.Namespace) -> int:
                 }
                 for item in report["problems"]
             ],
+            "execution_plan": report.get("execution_plan"),
             "summary": report["summary"],
         },
         indent=2,

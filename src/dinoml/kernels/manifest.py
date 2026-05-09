@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
@@ -62,13 +63,86 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         "codegen_strategy": "prebuilt_static_library",
         "profiler_strategy": "manifest_declared_not_yet_generated",
     }
-    manifest["cache_key"] = hashlib.sha256(canonical_json(manifest).encode("utf-8")).hexdigest()
-    support_manifest = dict(manifest)
+    return _with_kernel_manifest_cache_keys(manifest)
+
+
+def apply_execution_plan(
+    kernel_manifest: Mapping[str, Any],
+    execution_plan: Mapping[str, Any],
+    *,
+    strict: bool = False,
+) -> dict[str, Any]:
+    manifest = deepcopy(dict(kernel_manifest))
+    selections = _execution_plan_static_selections(execution_plan)
+    if not selections:
+        return _with_kernel_manifest_cache_keys(manifest)
+    for item in manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        candidate_set = item.get("candidate_set", {})
+        dtype = str(candidate_set.get("dtype", "")) if isinstance(candidate_set, Mapping) else ""
+        key = (str(item.get("op", "")), dtype, str(item.get("candidate_set_key", "")))
+        selection = selections.get(key)
+        if selection is None:
+            continue
+        selected_id = str(selection.get("selected_candidate_id", ""))
+        selected_candidate = _candidate_by_id(item, selected_id)
+        if selected_candidate is None:
+            if strict:
+                raise ValueError(
+                    "Execution plan selected unknown CUTLASS candidate "
+                    f"{selected_id!r} for {key[0]} {key[1]} candidate set {key[2]}"
+                )
+            continue
+        item["selected_candidate_id"] = selected_id
+        item["kernel_symbol"] = str(selection.get("kernel_symbol") or selected_candidate["kernel_symbol"])
+        item["profiler_symbol"] = str(selection.get("profiler_symbol") or selected_candidate["profiler_symbol"])
+        item["execution_plan_selection"] = {
+            "schema_version": int(execution_plan.get("schema_version", 1)),
+            "selection_key": selection.get("selection_key"),
+            "candidate_set_key": key[2],
+            "candidate_config_key": selection.get("candidate_config_key") or selected_candidate.get("candidate_config_key"),
+            "shape": dict(selection.get("shape", {})) if isinstance(selection.get("shape"), Mapping) else {},
+            "avg_ms": selection.get("avg_ms"),
+            "split_k": int(selection.get("split_k", 1) or 1),
+            "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
+        }
+    return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _execution_plan_static_selections(execution_plan: Mapping[str, Any]) -> dict[tuple[str, str, str], Mapping[str, Any]]:
+    selections: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    for selection in execution_plan.get("static_selections", ()):
+        if not isinstance(selection, Mapping):
+            continue
+        key = (
+            str(selection.get("op", "")),
+            str(selection.get("dtype", "")),
+            str(selection.get("candidate_set_key", "")),
+        )
+        if all(key):
+            selections[key] = selection
+    return selections
+
+
+def _candidate_by_id(item: Mapping[str, Any], candidate_id: str) -> Mapping[str, Any] | None:
+    for candidate in item.get("candidates", []):
+        if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
+            return candidate
+    return None
+
+
+def _with_kernel_manifest_cache_keys(manifest: Mapping[str, Any]) -> dict[str, Any]:
+    result = deepcopy(dict(manifest))
+    result.pop("cache_key", None)
+    result.pop("support_cache_key", None)
+    result["cache_key"] = hashlib.sha256(canonical_json(result).encode("utf-8")).hexdigest()
+    support_manifest = dict(result)
     support_manifest["required_kernels"] = [
-        item for item in required if item["kernel_library"] != "model"
+        item for item in result.get("required_kernels", []) if item["kernel_library"] != "model"
     ]
-    manifest["support_cache_key"] = hashlib.sha256(canonical_json(support_manifest).encode("utf-8")).hexdigest()
-    return manifest
+    result["support_cache_key"] = hashlib.sha256(canonical_json(support_manifest).encode("utf-8")).hexdigest()
+    return result
 
 
 def build_support_manifest(

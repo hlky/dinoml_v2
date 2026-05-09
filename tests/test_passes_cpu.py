@@ -15,7 +15,12 @@ from dinoml.kernels.providers.cutlass.gemm import (
     cutlass_gemm_candidates,
     cutlass_gemm_used_candidate_plan,
 )
-from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan, build_kernel_manifest
+from dinoml.kernels.manifest import (
+    PROFILE_CACHE_SCHEMA_VERSION,
+    apply_execution_plan,
+    build_external_kernel_plan,
+    build_kernel_manifest,
+)
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
@@ -613,6 +618,68 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
     assert no_tf32_required["candidates"][0]["cutlass_policy"] in rendered_support
     assert no_tf32_required["candidates"][0]["symbol_id"] in rendered_support
     assert default_required["candidates"][0]["symbol_id"] not in rendered_support
+
+
+def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_profile_selected_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    default_candidate = required["candidates"][0]
+    selected_candidate = required["candidates"][1]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8},
+                "avg_ms": 0.01,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
+    selected_required = selected_manifest["required_kernels"][0]
+    plan = create_codegen_plan(selected_manifest, "/tmp/dinoml-test-cache")
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+    rendered_support = render_cutlass_gemm_source(
+        (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+            encoding="utf-8"
+        ),
+        cutlass_gemm_used_candidate_plan(selected_manifest),
+    )
+
+    assert selected_required["selected_candidate_id"] == selected_candidate["candidate_id"]
+    assert selected_required["kernel_symbol"] == selected_candidate["kernel_symbol"]
+    assert selected_required["profiler_symbol"] == selected_candidate["profiler_symbol"]
+    assert selected_required["execution_plan_selection"]["candidate_config_key"] == selected_candidate["candidate_config_key"]
+    assert selected_manifest["cache_key"] != manifest["cache_key"]
+    assert selected_manifest["support_cache_key"] != manifest["support_cache_key"]
+    assert plan.kernel_symbols == (selected_candidate["kernel_symbol"],)
+    assert plan.profiler_symbols == (selected_candidate["profiler_symbol"],)
+    assert selected_candidate["kernel_symbol"] in generated
+    assert default_candidate["kernel_symbol"] not in generated
+    assert selected_candidate["symbol_id"] in rendered_support
 
 
 def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():

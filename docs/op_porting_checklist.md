@@ -161,11 +161,25 @@ normalization or softmax patterns, otherwise use custom block reductions.
   accept `A[..., K]`, preserve output/residual shape `[..., N]`, and flatten
   leading `A` dimensions into the CUTLASS `m` argument for CUDA lowering and
   profiling.
+- [x] First profile-selected execution-plan artifact:
+  `dinoml profile` now writes `debug/execution_plan.json`, selecting the fastest
+  measured candidate per profiled node/shape and emitting a static overlay only
+  when all profiled shapes for an op/dtype/candidate-set agree on the same
+  winner.
+- [ ] Consume profile-selected execution plans during recompile/relink so CUDA
+  lowering uses the profiled candidate instead of the manifest seed candidate.
+- [ ] Dynamic-shape profiling buckets from `Dim.buckets`, with guarded
+  candidate dispatch or clearly scoped static-overlay rules.
+- [ ] Alignment-aware candidate filtering using tensor accessor alignment,
+  strides, byte offsets, and layout metadata before profiling.
+- [ ] Split-K candidate/launch selection with cacheable workspace requirements.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
   broader broadcast forms beyond the first folded RCR residual set.
-- [ ] Remaining activation epilogues: `elup1`.
+- [ ] Remaining activation epilogues: `elup1`, deferred behind the profiling
+  selection loop because v1 parity now depends more on candidate choice than
+  additional declared GEMM surface area.
 - [ ] Beyond-v1 CUTLASS epilogues: once v1 parity is stable, evaluate additional
   CUTLASS epilogue functors and visitor forms that can remove useful post-GEMM
   elementwise launches.

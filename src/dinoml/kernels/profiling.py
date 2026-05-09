@@ -22,6 +22,7 @@ from dinoml.shapes import validate_runtime_shape
 
 
 PROFILE_REPORT_SCHEMA_VERSION = 5
+EXECUTION_PLAN_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)
@@ -220,6 +221,7 @@ def profile_artifact(
     input_shapes: Mapping[str, Sequence[int]] | None = None,
     iterations: int = 20,
     output: str | Path | None = None,
+    execution_plan_output: str | Path | None = None,
     seed: int = 2027,
     refresh: bool = False,
 ) -> dict[str, Any]:
@@ -246,6 +248,9 @@ def profile_artifact(
             summary,
             context=context,
         )
+        execution_plan = build_execution_plan(report)
+        execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
+        report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
         _write_profile_report(report, artifact_dir, output)
         return report
 
@@ -284,6 +289,9 @@ def profile_artifact(
         summary,
         context=context,
     )
+    execution_plan = build_execution_plan(report)
+    execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
+    report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
     _write_profile_report(report, artifact_dir, output)
     return report
 
@@ -733,6 +741,177 @@ def _profile_result_from_cache(workload: GemmProfileWorkload, entry: Mapping[str
         status="cached",
         reason="cache_hit",
     )
+
+
+def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
+    groups: dict[tuple[str, str, str, str, int, int, int], list[Mapping[str, Any]]] = {}
+    for problem in report.get("problems", []):
+        if not isinstance(problem, Mapping) or problem.get("status") not in {"ok", "cached"}:
+            continue
+        candidate_set_key = problem.get("candidate_set_key")
+        if not candidate_set_key:
+            continue
+        key = (
+            str(problem.get("node_id", "")),
+            str(problem.get("op", "")),
+            str(problem.get("dtype", "")),
+            str(candidate_set_key),
+            int(problem.get("m", 0)),
+            int(problem.get("n", 0)),
+            int(problem.get("k", 0)),
+        )
+        if key[0] and key[1] and key[2] and key[3] and key[4] > 0 and key[5] > 0 and key[6] > 0:
+            groups.setdefault(key, []).append(problem)
+
+    selections = [_selection_from_group(key, entries) for key, entries in sorted(groups.items())]
+    static_selections, conflicts = _static_execution_selections(selections)
+    plan = {
+        "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+        "kind": "dinoml.execution_plan",
+        "profile_report_schema_version": report.get("schema_version"),
+        "profile_cache_schema_version": report.get("profile_cache_schema_version"),
+        "target": dict(report.get("target", {})) if isinstance(report.get("target"), Mapping) else {},
+        "artifact": report.get("artifact"),
+        "kernel_manifest_cache_key": report.get("kernel_manifest_cache_key"),
+        "codegen_plan_cache_key": report.get("codegen_plan_cache_key"),
+        "fingerprint": dict(report.get("fingerprint", {})) if isinstance(report.get("fingerprint"), Mapping) else {},
+        "hardware_cache_key": report.get("hardware_cache_key"),
+        "support_libraries_cache_key": report.get("support_libraries_cache_key"),
+        "selection_policy": "lowest_elapsed_ms_per_node_shape",
+        "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
+        "selections": selections,
+        "static_selections": static_selections,
+        "conflicts": conflicts,
+        "summary": {
+            "selection_count": len(selections),
+            "static_selection_count": len(static_selections),
+            "conflict_count": len(conflicts),
+        },
+    }
+    plan["execution_plan_key"] = hashlib.sha256(
+        canonical_json({key: value for key, value in plan.items() if key != "execution_plan_key"}).encode("utf-8")
+    ).hexdigest()
+    return plan
+
+
+def _selection_from_group(
+    key: tuple[str, str, str, str, int, int, int],
+    entries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    best = min(entries, key=lambda item: (float(item.get("elapsed_ms", float("inf"))), str(item.get("candidate_id", ""))))
+    candidate = _result_candidate(best)
+    shape = dict(best.get("shape", {})) if isinstance(best.get("shape"), Mapping) else {}
+    shape.setdefault("m", key[4])
+    shape.setdefault("n", key[5])
+    shape.setdefault("k", key[6])
+    return {
+        "selection_key": hashlib.sha256(
+            canonical_json(
+                {
+                    "node_id": key[0],
+                    "op": key[1],
+                    "dtype": key[2],
+                    "candidate_set_key": key[3],
+                    "shape": {"m": key[4], "n": key[5], "k": key[6]},
+                }
+            ).encode("utf-8")
+        ).hexdigest(),
+        "node_id": key[0],
+        "op": key[1],
+        "dtype": key[2],
+        "candidate_set_id": best.get("candidate_set_id"),
+        "candidate_set_key": key[3],
+        "selected_candidate_id": best.get("candidate_id"),
+        "candidate_config_key": best.get("candidate_config_key") or candidate.get("candidate_config_key"),
+        "kernel_symbol": best.get("kernel_symbol") or candidate.get("kernel_symbol"),
+        "profiler_symbol": best.get("profiler_symbol") or candidate.get("profiler_symbol"),
+        "shape": shape,
+        "workspace_nbytes": 0,
+        "split_k": 1,
+        "avg_ms": float(best.get("elapsed_ms", 0.0)),
+        "gflops": float(best.get("gflops", 0.0)),
+        "iterations": int(best.get("iterations", 0) or 0),
+        "profile_key": best.get("profile_key"),
+        "status": best.get("status"),
+    }
+
+
+def _result_candidate(problem: Mapping[str, Any]) -> Mapping[str, Any]:
+    candidates = problem.get("candidates", [])
+    if isinstance(candidates, (list, tuple)) and candidates:
+        first = candidates[0]
+        if isinstance(first, Mapping):
+            return first
+    return {}
+
+
+def _static_execution_selections(
+    selections: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    by_candidate_set: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+    for selection in selections:
+        key = (
+            str(selection.get("op", "")),
+            str(selection.get("dtype", "")),
+            str(selection.get("candidate_set_key", "")),
+        )
+        by_candidate_set.setdefault(key, []).append(selection)
+
+    static_selections: list[dict[str, Any]] = []
+    conflicts: list[dict[str, Any]] = []
+    for key, group in sorted(by_candidate_set.items()):
+        selected_ids = {str(item.get("selected_candidate_id", "")) for item in group}
+        if len(selected_ids) == 1:
+            selection = dict(group[0])
+            selection["selection_key"] = hashlib.sha256(
+                canonical_json(
+                    {
+                        "op": key[0],
+                        "dtype": key[1],
+                        "candidate_set_key": key[2],
+                        "selected_candidate_id": selection.get("selected_candidate_id"),
+                    }
+                ).encode("utf-8")
+            ).hexdigest()
+            selection["node_id"] = None
+            selection["shape"] = {
+                "source": "static_overlay_from_consistent_profiled_shapes",
+                "profiled_shapes": [dict(item.get("shape", {})) for item in group],
+            }
+            static_selections.append(selection)
+        else:
+            conflicts.append(
+                {
+                    "op": key[0],
+                    "dtype": key[1],
+                    "candidate_set_key": key[2],
+                    "reason": "profiled_shapes_selected_different_candidates",
+                    "selected_candidate_ids": sorted(selected_ids),
+                    "profiled_shapes": [dict(item.get("shape", {})) for item in group],
+                }
+            )
+    return static_selections, conflicts
+
+
+def _write_execution_plan(
+    execution_plan: Mapping[str, Any],
+    artifact_dir: Path,
+    output: str | Path | None,
+) -> Path:
+    plan_path = Path(output) if output is not None else artifact_dir / "debug" / "execution_plan.json"
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(plan_path, dict(execution_plan))
+    return plan_path
+
+
+def _execution_plan_summary(execution_plan: Mapping[str, Any], path: Path) -> dict[str, Any]:
+    summary = dict(execution_plan.get("summary", {})) if isinstance(execution_plan.get("summary"), Mapping) else {}
+    return {
+        "path": str(path.resolve()),
+        "schema_version": execution_plan.get("schema_version"),
+        "execution_plan_key": execution_plan.get("execution_plan_key"),
+        **summary,
+    }
 
 
 class _CudaProfiler:

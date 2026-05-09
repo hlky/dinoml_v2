@@ -78,10 +78,13 @@ The runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
-`dinoml profile <artifact>` now executes the exported profiler symbol for the
-manifest-selected CUTLASS candidate, writes
-`debug/profile_report.json`, and caches results under the support-library cache.
-The report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
+`dinoml profile <artifact>` now executes exported profiler symbols for every
+manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
+profile-selected `debug/execution_plan.json`, and caches results under the
+support-library cache. The execution plan chooses the lowest elapsed-time
+candidate per profiled node/shape and emits a static overlay only when all
+profiled shapes for an op/dtype/candidate-set agree on the same winner. The
+report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
 support-library source/binary hashes, support-build provenance, and the
 candidate set/config keys. CUTLASS support manifests also record compile flags,
 NVCC version output, dependency header hashes, and a provenance key that
@@ -123,10 +126,13 @@ is wired for RCR epilogues
 including frontend shape metadata, CPU reference execution, CUDA lowering checks,
 support-library runtime smoke coverage, and profiler workload shapes.
 
-Next steps are broader broadcast/folded-M arithmetic epilogues, `elup1`,
-v1 `dual_gemm`/dual-output GEMM families, beyond-v1 CUTLASS epilogues where
-CUTLASS gives useful fused functionality, BMM and grouped GEMM parity, and then
-public `matmul` layout selection.
+Next steps should prioritize consuming `execution_plan.json` during a recompile
+or relink path, adding dynamic-shape buckets, alignment-aware candidate
+filtering, and split-K as a candidate dimension. Broader broadcast/folded-M
+arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output GEMM families,
+beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused functionality, BMM
+and grouped GEMM parity should wait behind that profiling loop so v2 does not
+accumulate more declared surface area without v1-grade selection behavior.
 
 ## Dependency Discovery
 

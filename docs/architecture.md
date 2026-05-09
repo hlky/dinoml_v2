@@ -113,11 +113,15 @@ support library, and let many model artifacts reuse the result.
 `dinoml profile <artifact>` is the first explicit profiler runner. It reads the
 artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
 currently supported CUTLASS GEMM profiler symbols, writes
-`debug/profile_report.json`, and stores a small `profile_cache.v5.json` beside
-the support-library cache. Profile reports and cache keys include a best-effort
-CUDA hardware/toolchain fingerprint plus support-library source/binary hashes,
-toolchain/dependency provenance, so timings do not silently float across
-different GPUs or regenerated support libraries. GEMM manifests now emit
+`debug/profile_report.json`, writes the first profile-selected
+`debug/execution_plan.json`, and stores a small `profile_cache.v5.json` beside
+the support-library cache. The execution plan chooses the lowest elapsed-time
+candidate per profiled node/shape and exposes a static candidate overlay when
+all profiled shapes for an op/dtype/candidate-set agree. Profile reports and
+cache keys include a best-effort CUDA hardware/toolchain fingerprint plus
+support-library source/binary hashes, toolchain/dependency provenance, so
+timings do not silently float across different GPUs or regenerated support
+libraries. GEMM manifests now emit
 explicit CUTLASS tensor-op candidates under each dtype/layout-specific candidate
 set. The candidate set records provider, layout, epilogue, accumulator, target
 policy, launch ABI, generator id, candidate config keys, and its own

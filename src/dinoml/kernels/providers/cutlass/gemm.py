@@ -539,7 +539,14 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
         return f"DINOML_FORWARD_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
     layout_b = "cutlass::layout::ColumnMajor" if "_rcr" in op_name else "cutlass::layout::RowMajor"
     ldb = "k" if "_rcr" in op_name else "n"
-    if epilogue in {"bias_add", "bias_add_relu", "bias_mul"}:
+    if epilogue in {
+        "bias_add",
+        "bias_add_relu",
+        "bias_mul",
+        "bias_mul_tanh",
+        "bias_sigmoid_mul",
+        "bias_sigmoid_mul_tanh",
+    }:
         return (
             f"DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
             f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
@@ -590,6 +597,9 @@ def _cutlass_epilogue_alias(epilogue: str) -> str:
         "bias_add_add_relu": "BiasAddAddReluEpilogue",
         "bias_mul": "BiasMulEpilogue",
         "bias_mul_add": "BiasMulAddEpilogue",
+        "bias_mul_tanh": "BiasMulTanhEpilogue",
+        "bias_sigmoid_mul": "BiasSigmoidMulEpilogue",
+        "bias_sigmoid_mul_tanh": "BiasSigmoidMulTanhEpilogue",
     }
     try:
         return aliases[epilogue]

@@ -89,6 +89,9 @@ GEMM_BIAS_RESIDUAL_CASES = (
     *GEMM_BIAS_RESIDUAL_CASES,
     ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
     ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
 )
 
 
@@ -229,7 +232,15 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
     assert workload.bias_shape == (11,)
     assert workload.candidate["epilogue"] == epilogue
     assert workload.candidate["epilogue_config"]["inputs"] == list(epilogue_inputs)
-    assert workload.candidate["epilogue_config"]["activation"] == ("relu" if epilogue.endswith("_relu") else None)
+    expected_activation = {
+        "bias_add_relu": "relu",
+        "bias_add_add_relu": "relu",
+        "bias_mul_tanh": "tanh",
+        "bias_sigmoid_mul_tanh": "tanh",
+    }.get(epilogue)
+    expected_pre_activation = "sigmoid" if epilogue in {"bias_sigmoid_mul", "bias_sigmoid_mul_tanh"} else None
+    assert workload.candidate["epilogue_config"]["activation"] == expected_activation
+    assert workload.candidate["epilogue_config"].get("pre_residual_activation") == expected_pre_activation
     assert workload.candidate["launch_abi"].startswith("dinoml_cutlass_gemm_")
     inputs = workload.to_json()["inputs"]
     assert inputs["bias"] == [11]

@@ -202,6 +202,8 @@ template <
     BiasResidualKind Kind_,
     template <typename>
     class ElementwiseOp_ = cutlass::epilogue::thread::Identity,
+    template <typename>
+    class BaseElementwiseOp_ = cutlass::epilogue::thread::Identity,
     int ElementsPerAccess = 1>
 class BiasResidualEpilogue {
  public:
@@ -220,7 +222,9 @@ class BiasResidualEpilogue {
   static bool const IsEltActSupported = true;
   static bool const kIsSingleSource = Kind_ == BiasResidualKind::kAdd || Kind_ == BiasResidualKind::kMul;
   using ElementwiseOp = ElementwiseOp_<ElementCompute>;
-  static bool const kIsHeavy = cutlass::epilogue::thread::kIsHeavy_member_or_false<ElementwiseOp>::value;
+  using BaseElementwiseOp = BaseElementwiseOp_<ElementCompute>;
+  static bool const kIsHeavy = cutlass::epilogue::thread::kIsHeavy_member_or_false<ElementwiseOp>::value ||
+      cutlass::epilogue::thread::kIsHeavy_member_or_false<BaseElementwiseOp>::value;
   static bool const kStoreZ = true;
   static bool const kStoreT = false;
   static constexpr bool IsPerChannelScalingSupported = false;
@@ -318,9 +322,10 @@ class BiasResidualEpilogue {
     FragmentCompute converted_accum =
         cutlass::NumericArrayConverter<ElementCompute, ElementAccumulator, kElementsPerAccess>()(accum);
     FragmentCompute result;
+    BaseElementwiseOp base_elementwise_op;
     CUTLASS_PRAGMA_UNROLL
     for (int i = 0; i < kElementsPerAccess; ++i) {
-      result[i] = alpha_ * converted_accum[i] + bias[i];
+      result[i] = base_elementwise_op(alpha_ * converted_accum[i] + bias[i]);
     }
     return result;
   }
@@ -357,6 +362,26 @@ using BiasMulEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasRe
 
 template <typename Element, typename ElementAccumulator = float>
 using BiasMulAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kMulAdd>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasMulTanhEpilogue =
+    BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kMul, cutlass::epilogue::thread::Tanh>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasSigmoidMulEpilogue = BiasResidualEpilogue<
+    Element,
+    ElementAccumulator,
+    BiasResidualKind::kMul,
+    cutlass::epilogue::thread::Identity,
+    cutlass::epilogue::thread::Sigmoid>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasSigmoidMulTanhEpilogue = BiasResidualEpilogue<
+    Element,
+    ElementAccumulator,
+    BiasResidualKind::kMul,
+    cutlass::epilogue::thread::Tanh,
+    cutlass::epilogue::thread::Sigmoid>;
 
 template <
     typename OperatorClass_,

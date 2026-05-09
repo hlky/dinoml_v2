@@ -147,21 +147,22 @@ normalization or softmax patterns, otherwise use custom block reductions.
   execution through CUTLASS thread epilogue functors.
 - [x] First residual epilogues:
   `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` and
-  `gemm_rcr_bias_{add_relu,add_add_relu}` support rank-2 residual tensors
-  through fused CUTLASS epilogues, CUDA lowering/profiler pointer ABIs, and CPU
-  reference execution. These do not use a post-GEMM activation or elementwise
-  launch.
+  `gemm_rcr_bias_{add_relu,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`
+  support rank-2 residual tensors through fused CUTLASS epilogues, CUDA
+  lowering/profiler pointer ABIs, and CPU reference execution. These do not use
+  a post-GEMM activation or elementwise launch.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
   broader broadcast forms.
-- [ ] Remaining activation epilogues: `elup1` and compound sigmoid/mul/tanh forms.
+- [ ] Remaining activation epilogues: `elup1`.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,
   `bmm_*_permute`, `perm021fc_*`, `perm102_bmm_*`.
 - [ ] Grouped GEMM: `group_gemm_rcr*`.
 - [ ] Softmax/attention matmul chains: `bmm_softmax_bmm*`,
   `bmm_rcr_softmax`, `gemm_rcr*_softmax`, `dual_bmm_rrr_div`.
-- [ ] Dual-output/dual-GEMM epilogue families: `dual_gemm_rcr_*`.
+- [ ] v1 dual-GEMM and dual-output GEMM epilogue families:
+  `dual_gemm_rcr_*`.
 - [ ] Specialized small/degenerate kernels: `gemm_rrr_small_nk`,
   `bmm_rcr_n1`, `bmm_rrr_k1_tanh`, `batched_dense_vec_jagged_2d_mul`.
 - [ ] Back-to-back BMM: `classic_b2b_bmm`, `fmha_style_b2b_bmm`,

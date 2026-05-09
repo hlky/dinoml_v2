@@ -207,6 +207,8 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     if spec.epilogue.has_bias:
         bias = np.reshape(inputs[2], [-1])
         result = result + bias
+    if spec.epilogue.pre_residual_activation is not None:
+        result = _execute_gemm_activation(spec.epilogue.pre_residual_activation, result)
     if spec.epilogue.name == "bias_add":
         result = result + inputs[3]
     elif spec.epilogue.name == "bias_add_add":
@@ -215,7 +217,7 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
         result = result + inputs[3]
     elif spec.epilogue.name == "bias_add_add_relu":
         result = result + inputs[3] + inputs[4]
-    elif spec.epilogue.name == "bias_mul":
+    elif spec.epilogue.name in {"bias_mul", "bias_mul_tanh", "bias_sigmoid_mul", "bias_sigmoid_mul_tanh"}:
         result = result * inputs[3]
     elif spec.epilogue.name == "bias_mul_add":
         result = result * inputs[3] + inputs[4]

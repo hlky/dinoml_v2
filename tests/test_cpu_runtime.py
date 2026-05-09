@@ -137,9 +137,15 @@ GEMM_RCR_BIAS_RESIDUAL_RELU_CASES = (
     ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
     ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
 )
+GEMM_RCR_BIAS_RESIDUAL_COMPOUND_CASES = (
+    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+)
 GEMM_BIAS_RESIDUAL_CASES = (
     *GEMM_BIAS_RESIDUAL_CASES,
     *GEMM_RCR_BIAS_RESIDUAL_RELU_CASES,
+    *GEMM_RCR_BIAS_RESIDUAL_COMPOUND_CASES,
 )
 
 
@@ -883,6 +889,12 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
         result = result * inputs["d0"]
     elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_mul_add"):
         result = result * inputs["d0"] + inputs["d1"]
+    elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_mul_tanh"):
+        result = np.tanh(result * inputs["d0"])
+    elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_sigmoid_mul"):
+        result = (1.0 / (1.0 + np.exp(-result))) * inputs["d0"]
+    elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_sigmoid_mul_tanh"):
+        result = np.tanh((1.0 / (1.0 + np.exp(-result))) * inputs["d0"])
     else:
         raise AssertionError(f"Unhandled residual GEMM op: {op_name}")
     expected = result.astype(np.float32)

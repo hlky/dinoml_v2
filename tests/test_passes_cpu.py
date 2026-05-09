@@ -38,6 +38,9 @@ GEMM_BIAS_RESIDUAL_EPILOGUES = (
     *GEMM_BIAS_RESIDUAL_EPILOGUES,
     ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
     ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
 )
 GEMM_BIAS_RESIDUAL_EXPORT_MACROS = {
     "bias_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
@@ -46,6 +49,9 @@ GEMM_BIAS_RESIDUAL_EXPORT_MACROS = {
     "bias_add_add_relu": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
     "bias_mul": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
     "bias_mul_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
+    "bias_mul_tanh": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
+    "bias_sigmoid_mul": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
+    "bias_sigmoid_mul_tanh": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
 }
 GEMM_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
     "bias_add": "BiasAddEpilogue",
@@ -54,6 +60,9 @@ GEMM_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
     "bias_add_add_relu": "BiasAddAddReluEpilogue",
     "bias_mul": "BiasMulEpilogue",
     "bias_mul_add": "BiasMulAddEpilogue",
+    "bias_mul_tanh": "BiasMulTanhEpilogue",
+    "bias_sigmoid_mul": "BiasSigmoidMulEpilogue",
+    "bias_sigmoid_mul_tanh": "BiasSigmoidMulTanhEpilogue",
 }
 
 

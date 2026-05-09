@@ -15,6 +15,7 @@ class GemmEpilogue:
     cutlass_functor: str
     inputs: tuple[str, ...] = ()
     activation: str | None = None
+    pre_residual_activation: str | None = None
     bias_axis: str | None = None
     accumulator_dtype: str = "float32"
     output_dtype: str = "same"
@@ -29,7 +30,7 @@ class GemmEpilogue:
         return tuple(name for name in self.inputs if name.startswith("d"))
 
     def to_json(self) -> dict[str, Any]:
-        return {
+        payload = {
             "name": self.name,
             "cutlass_functor": self.cutlass_functor,
             "inputs": list(self.inputs),
@@ -39,6 +40,9 @@ class GemmEpilogue:
             "output_dtype": self.output_dtype,
             "launch_abi": self.launch_abi,
         }
+        if self.pre_residual_activation is not None:
+            payload["pre_residual_activation"] = self.pre_residual_activation
+        return payload
 
 
 @dataclass(frozen=True)
@@ -218,6 +222,31 @@ BIAS_RESIDUAL_RELU_EPILOGUES: dict[str, GemmEpilogue] = {
     ),
 }
 
+BIAS_RESIDUAL_COMPOUND_EPILOGUES: dict[str, GemmEpilogue] = {
+    "sigmoid_mul": GemmEpilogue(
+        name="bias_sigmoid_mul",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasSigmoidMul",
+        inputs=("bias", "d0"),
+        pre_residual_activation="sigmoid",
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+    "sigmoid_mul_tanh": GemmEpilogue(
+        name="bias_sigmoid_mul_tanh",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasSigmoidMulTanh",
+        inputs=("bias", "d0"),
+        activation="tanh",
+        pre_residual_activation="sigmoid",
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+    "mul_tanh": GemmEpilogue(
+        name="bias_mul_tanh",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasMulTanh",
+        inputs=("bias", "d0"),
+        activation="tanh",
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+}
+
 
 def _gemm_op_spec(name: str, base_layout: str, epilogue: GemmEpilogue) -> GemmOpSpec:
     return GemmOpSpec(
@@ -248,6 +277,10 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
     **{
         f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
         for name, epilogue in BIAS_RESIDUAL_RELU_EPILOGUES.items()
+    },
+    **{
+        f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
+        for name, epilogue in BIAS_RESIDUAL_COMPOUND_EPILOGUES.items()
     },
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)

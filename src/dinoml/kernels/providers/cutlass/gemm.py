@@ -539,6 +539,16 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
         return f"DINOML_FORWARD_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
     layout_b = "cutlass::layout::ColumnMajor" if "_rcr" in op_name else "cutlass::layout::RowMajor"
     ldb = "k" if "_rcr" in op_name else "n"
+    if epilogue in {"bias_add", "bias_mul"}:
+        return (
+            f"DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+        )
+    if epilogue in {"bias_add_add", "bias_mul_add"}:
+        return (
+            f"DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+        )
     return (
         f"DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
         f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
@@ -574,6 +584,10 @@ def _cutlass_epilogue_alias(epilogue: str) -> str:
         "bias_tanh": "BiasTanhEpilogue",
         "bias_swish": "BiasSwishEpilogue",
         "bias_hardswish": "BiasHardSwishEpilogue",
+        "bias_add": "BiasAddEpilogue",
+        "bias_add_add": "BiasAddAddEpilogue",
+        "bias_mul": "BiasMulEpilogue",
+        "bias_mul_add": "BiasMulAddEpilogue",
     }
     try:
         return aliases[epilogue]
@@ -585,7 +599,7 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
     if not stripped.startswith("DINOML_FORWARD_GEMM"):
         return frozenset()
-    match = re.match(r"(DINOML_FORWARD_GEMM(?:_BIAS(?:_ACTIVATION)?)?_EXPORT)\((.*)\)\s*$", stripped)
+    match = re.match(r"(DINOML_FORWARD_GEMM(?:_BIAS(?:_ACTIVATION|_RESIDUAL2|_RESIDUAL)?)?_EXPORT)\((.*)\)\s*$", stripped)
     if match is None:
         return frozenset()
     macro = match.group(1)

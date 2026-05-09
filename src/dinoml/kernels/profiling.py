@@ -39,10 +39,12 @@ class GemmProfileWorkload:
     a_tensor: str
     b_tensor: str
     bias_tensor: str | None
+    residual_tensors: tuple[str, ...]
     output_tensor: str
     a_shape: tuple[int, int]
     b_shape: tuple[int, int]
     bias_shape: tuple[int, ...] | None
+    residual_shapes: tuple[tuple[int, int], ...]
     output_shape: tuple[int, int]
     m: int
     n: int
@@ -64,6 +66,7 @@ class GemmProfileWorkload:
                 self.a_tensor: list(self.a_shape),
                 self.b_tensor: list(self.b_shape),
                 **({self.bias_tensor: list(self.bias_shape or ())} if self.bias_tensor is not None else {}),
+                **{name: list(shape) for name, shape in zip(self.residual_tensors, self.residual_shapes)},
             },
             "output": {
                 self.output_tensor: list(self.output_shape),
@@ -115,13 +118,19 @@ def build_profile_workloads(
             continue
         spec = gemm_op_spec(op_name)
         a_name, b_name = (str(name) for name in node["inputs"][:2])
-        bias_name = str(node["inputs"][2]) if spec.epilogue.has_bias else None
+        epilogue_tensor_names = {
+            input_name: str(node["inputs"][input_offset])
+            for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2)
+        }
+        bias_name = epilogue_tensor_names.get("bias")
+        residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
         a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], overrides)
         b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], overrides)
         bias_shape = (
             _runtime_tensor_shape(bias_name, tensor_map[bias_name], overrides) if bias_name is not None else None
         )
-        problem_shapes = [shape for shape in (a_shape, b_shape, bias_shape) if shape is not None]
+        residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], overrides) for name in residual_names)
+        problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
         m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
         for candidate in _profile_candidates(required_item):
             workloads.append(
@@ -145,10 +154,12 @@ def build_profile_workloads(
                     a_tensor=a_name,
                     b_tensor=b_name,
                     bias_tensor=bias_name,
+                    residual_tensors=residual_names,
                     output_tensor=output_name,
                     a_shape=(a_shape[0], a_shape[1]),
                     b_shape=(b_shape[0], b_shape[1]),
                     bias_shape=bias_shape,
+                    residual_shapes=tuple((shape[0], shape[1]) for shape in residual_shapes),
                     output_shape=output_shape,
                     m=m,
                     n=n,
@@ -753,6 +764,10 @@ class _CudaProfiler:
             if workload.bias_shape is not None
             else None
         )
+        residuals = [
+            self._device_array(_random_storage(shape, workload.dtype, rng))
+            for shape in workload.residual_shapes
+        ]
         c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
         fn = getattr(self._cutlass, workload.profiler_symbol)
         pointer_args = [ctypes.c_void_p, ctypes.c_void_p]
@@ -760,6 +775,9 @@ class _CudaProfiler:
         if bias is not None:
             pointer_args.append(ctypes.c_void_p)
             call_args.append(bias)
+        for residual in residuals:
+            pointer_args.append(ctypes.c_void_p)
+            call_args.append(residual)
         pointer_args.append(ctypes.c_void_p)
         call_args.append(c)
         fn.argtypes = [

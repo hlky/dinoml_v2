@@ -45,7 +45,7 @@ def register_gemm_ops(registry: OpRegistry) -> None:
         registry.register(
             OpDef(
                 name=op_name,
-                schema=OpSchema(inputs=_schema_inputs(spec.input_count)),
+                schema=OpSchema(inputs=_schema_inputs(spec)),
                 infer_shape=_infer_shape_fn(op_name),
                 backend_kernels={
                     "cuda": KernelBinding(
@@ -63,12 +63,10 @@ def register_gemm_ops(registry: OpRegistry) -> None:
         )
 
 
-def _gemm(op_name: str, a: object, b: object, bias: object | None = None) -> Tensor:
+def _gemm(op_name: str, a: object, b: object, *epilogue_inputs: object) -> Tensor:
     a_tensor = as_tensor(a, dtype_hint=b.dtype if isinstance(b, Tensor) else "float32")
     b_tensor = as_tensor(b, dtype_hint=a_tensor.dtype)
-    tensors = [a_tensor, b_tensor]
-    if bias is not None:
-        tensors.append(as_tensor(bias, dtype_hint=a_tensor.dtype))
+    tensors = [a_tensor, b_tensor, *(as_tensor(value, dtype_hint=a_tensor.dtype) for value in epilogue_inputs)]
     for tensor in tensors[1:]:
         if a_tensor.builder is not tensor.builder:
             raise ValueError("Cannot combine tensors from different DinoML traces")
@@ -89,8 +87,7 @@ def _make_gemm_frontend(op_name: str):
         expected_epilogue_inputs = spec.input_count - 2
         if len(epilogue_inputs) != expected_epilogue_inputs:
             raise ValueError(f"{op_name} expects {spec.input_count} inputs, got {2 + len(epilogue_inputs)}")
-        bias = epilogue_inputs[0] if spec.epilogue.has_bias else None
-        return _gemm(op_name, a, b, bias)
+        return _gemm(op_name, a, b, *epilogue_inputs)
 
     _frontend.__name__ = op_name
     _frontend.__qualname__ = op_name
@@ -113,12 +110,8 @@ def _cutlass_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
     }
 
 
-def _schema_inputs(input_count: int) -> tuple[str, ...]:
-    if input_count == 2:
-        return ("a", "b")
-    if input_count == 3:
-        return ("a", "b", "bias")
-    raise ValueError(f"Unsupported GEMM input count: {input_count}")
+def _schema_inputs(spec) -> tuple[str, ...]:
+    return ("a", "b", *spec.epilogue.inputs)
 
 
 def _infer_shape_fn(op_name: str):

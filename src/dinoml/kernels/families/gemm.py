@@ -24,6 +24,10 @@ class GemmEpilogue:
     def has_bias(self) -> bool:
         return "bias" in self.inputs
 
+    @property
+    def residual_inputs(self) -> tuple[str, ...]:
+        return tuple(name for name in self.inputs if name.startswith("d"))
+
     def to_json(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -75,8 +79,11 @@ class GemmOpSpec:
             n = int(b_shape[0])
         else:
             raise ValueError(f"Unsupported GEMM layout: {self.base_layout}")
-        if self.epilogue.has_bias:
-            _validate_bias_shape(self.name, shapes[2], n)
+        for input_name, shape in zip(self.epilogue.inputs, shapes[2:]):
+            if input_name == "bias":
+                _validate_bias_shape(self.name, shape, n)
+            elif input_name.startswith("d"):
+                _validate_residual_shape(self.name, input_name, shape, (m, n))
         return [m, n]
 
     def output_shape_spec(self, shape_specs: Sequence[Sequence[Any]]) -> list[Any]:
@@ -167,6 +174,33 @@ BIAS_ACTIVATION_EPILOGUES: dict[str, GemmEpilogue] = {
     ),
 }
 
+BIAS_RESIDUAL_EPILOGUES: dict[str, GemmEpilogue] = {
+    "add": GemmEpilogue(
+        name="bias_add",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasAdd",
+        inputs=("bias", "d0"),
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+    "add_add": GemmEpilogue(
+        name="bias_add_add",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasAddAdd",
+        inputs=("bias", "d0", "d1"),
+        launch_abi="dinoml_cutlass_gemm_bias_residual2_v1",
+    ),
+    "mul": GemmEpilogue(
+        name="bias_mul",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasMul",
+        inputs=("bias", "d0"),
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+    "mul_add": GemmEpilogue(
+        name="bias_mul_add",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasMulAdd",
+        inputs=("bias", "d0", "d1"),
+        launch_abi="dinoml_cutlass_gemm_bias_residual2_v1",
+    ),
+}
+
 
 def _gemm_op_spec(name: str, base_layout: str, epilogue: GemmEpilogue) -> GemmOpSpec:
     return GemmOpSpec(
@@ -188,6 +222,10 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
         f"gemm_{layout}_bias_{activation}": _gemm_op_spec(f"gemm_{layout}_bias_{activation}", layout, epilogue)
         for activation, epilogue in BIAS_ACTIVATION_EPILOGUES.items()
         for layout in ("rcr", "rrr")
+    },
+    **{
+        f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
+        for name, epilogue in BIAS_RESIDUAL_EPILOGUES.items()
     },
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)
@@ -213,6 +251,12 @@ def _validate_bias_shape(op_name: str, bias_shape: Sequence[int], n: int) -> Non
     if len(bias_shape) == 2 and int(bias_shape[0]) == 1 and int(bias_shape[1]) == n:
         return
     raise ValueError(f"{op_name} expected bias shape [N] or [1, N] with N={n}, got {list(bias_shape)}")
+
+
+def _validate_residual_shape(op_name: str, input_name: str, shape: Sequence[int], output_shape: tuple[int, int]) -> None:
+    if len(shape) == 2 and (int(shape[0]), int(shape[1])) == output_shape:
+        return
+    raise ValueError(f"{op_name} expected {input_name} shape {list(output_shape)}, got {list(shape)}")
 
 
 def normalize_gemm_dtype(dtype: str) -> str:

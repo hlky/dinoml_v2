@@ -101,16 +101,20 @@ def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
-    bias_arg = ""
+    extra_args = ""
     if launch_abi == "dinoml_cutlass_gemm_bias_v1":
-        bias_arg = f"    const {cpp_type}* bias,\n"
+        extra_args = f"    const {cpp_type}* bias,\n"
+    elif launch_abi == "dinoml_cutlass_gemm_bias_residual_v1":
+        extra_args = f"    const {cpp_type}* bias,\n" f"    const {cpp_type}* d0,\n"
+    elif launch_abi == "dinoml_cutlass_gemm_bias_residual2_v1":
+        extra_args = f"    const {cpp_type}* bias,\n" f"    const {cpp_type}* d0,\n" f"    const {cpp_type}* d1,\n"
     elif launch_abi != "dinoml_cutlass_gemm_v1":
         raise ValueError(f"Unsupported CUTLASS GEMM launch ABI: {launch_abi!r}")
     return (
         f"extern \"C\" int {symbol}(\n"
         f"    const {cpp_type}* a,\n"
         f"    const {cpp_type}* b,\n"
-        f"{bias_arg}"
+        f"{extra_args}"
         f"    {cpp_type}* c,\n"
         "    int m,\n"
         "    int n,\n"

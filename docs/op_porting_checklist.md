@@ -145,10 +145,15 @@ normalization or softmax patterns, otherwise use custom block reductions.
   registered as explicit GEMM family ops with CUTLASS candidate metadata,
   CUDA support-library symbols, candidate profiling coverage, and CPU reference
   execution through CUTLASS thread epilogue functors.
+- [x] First RCR residual epilogues:
+  `gemm_rcr_bias_{add,add_add,mul,mul_add}` support rank-2 residual tensors
+  through fused CUTLASS epilogues, CUDA lowering/profiler pointer ABIs, and CPU
+  reference execution. These do not use a post-GEMM activation or elementwise
+  launch.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
-- [ ] Remaining bias/broadcast epilogues: add/add-add/mul/mul-add and broader
-  broadcast forms.
+- [ ] Remaining bias/broadcast epilogues: RRR residual variants, folded/batched
+  leading dimensions, and broader broadcast forms.
 - [ ] Remaining activation epilogues: `elup1` and compound sigmoid/mul/tanh
   forms.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,
@@ -162,6 +167,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [ ] Back-to-back BMM: `classic_b2b_bmm`, `fmha_style_b2b_bmm`,
   `grouped_classic_b2b_bmm`, `grouped_fmha_style_b2b_bmm`.
 - [ ] Direct-import helpers: `bmm`, `bmm_xxx`, `bmm_xxx_add`.
+- [ ] Future weight-loading/offload path: CPU-resident constants that can move
+  to GPU at run time, later expanding to sequential, grouped/block/layer, and
+  multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`
+  CUDA quantize/dequantize kernels for load-time full dequantization and
+  kernel-local direct dequantization strategies.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is
@@ -269,9 +279,12 @@ custom kernels.
    reshape, permute, concatenate, split, slice, gather, topk, softmax.
 3. Build the GEMM/BMM backbone once: base layouts, bias, activation epilogues,
    permuted outputs, grouped variants, and profiler/cache integration.
-4. Port normalization, convolution, pooling, padding, and upsampling with
+4. Add the weight-loading/offload foundation before large model artifacts
+   depend on a fixed constants lifecycle: CPU-starting weights, optional GPU
+   prefetch/copy policies, and an integration point for GGUF quantized storage.
+5. Port normalization, convolution, pooling, padding, and upsampling with
    library-backed paths where available.
-5. Add attention and jagged/ragged support, because they combine multiple
+6. Add attention and jagged/ragged support, because they combine multiple
    primitive families and shape rules.
-6. Finish model-fused helpers, FIR resampling, NMS, and ROI after the reusable
+7. Finish model-fused helpers, FIR resampling, NMS, and ROI after the reusable
    primitives are stable or when a target model makes one urgent.

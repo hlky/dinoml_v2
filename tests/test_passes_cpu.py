@@ -24,6 +24,45 @@ from dinoml.passes.validation import ValidationError
 
 
 DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
+GEMM_RCR_BIAS_RESIDUAL_EPILOGUES = (
+    ("gemm_rcr_bias_add", "bias_add", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add", "bias_add_add", ("bias", "d0", "d1")),
+    ("gemm_rcr_bias_mul", "bias_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_mul_add", "bias_mul_add", ("bias", "d0", "d1")),
+)
+GEMM_RCR_BIAS_RESIDUAL_EXPORT_MACROS = {
+    "gemm_rcr_bias_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
+    "gemm_rcr_bias_add_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
+    "gemm_rcr_bias_mul": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
+    "gemm_rcr_bias_mul_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
+}
+GEMM_RCR_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
+    "bias_add": "BiasAddEpilogue",
+    "bias_add_add": "BiasAddAddEpilogue",
+    "bias_mul": "BiasMulEpilogue",
+    "bias_mul_add": "BiasMulAddEpilogue",
+}
+
+
+def _trace_gemm_rcr_bias_residual(op_name: str, *, dtype: str = "float32"):
+    import dinoml as dml
+
+    class GemmResidualModule(dml.Module):
+        def forward(self, a, b, bias, d0, d1=None):
+            op = getattr(dml.ops, op_name)
+            if d1 is None:
+                return dml.ops.output(op(a, b, bias, d0), "y")
+            return dml.ops.output(op(a, b, bias, d0, d1), "y")
+
+    inputs = {
+        "a": dml.TensorSpec([7, 32], dtype),
+        "b": dml.TensorSpec([11, 32], dtype),
+        "bias": dml.TensorSpec([11], dtype),
+        "d0": dml.TensorSpec([7, 11], dtype),
+    }
+    if op_name.endswith("_add_add") or op_name.endswith("_mul_add"):
+        inputs["d1"] = dml.TensorSpec([7, 11], dtype)
+    return dml.trace(GemmResidualModule(), inputs=inputs, name=f"{op_name}_{dtype}_residual")
 
 
 def _cutlass_symbol_ids(dtype: str) -> list[str]:
@@ -297,6 +336,36 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert len(plan["cache_key"]) == 64
 
 
+@pytest.mark.parametrize(("op_name", "epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_EPILOGUES)
+def test_external_cuda_kernel_plan_lists_cutlass_gemm_residual_epilogues(op_name, epilogue, epilogue_inputs):
+    plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
+    families = {family["op_name"]: family for family in plan["families"]}
+    family = families[op_name]
+    default_symbol_id = _cutlass_default_symbol_id("float32")
+
+    assert family["provider"] == "cutlass"
+    assert family["attrs"]["b_layout"] == "column"
+    assert family["attrs"]["epilogue"] == epilogue
+    epilogue_config = family["attrs"]["epilogue_config"]
+    assert epilogue_config["name"] == epilogue
+    assert epilogue_config["inputs"] == list(epilogue_inputs)
+    assert epilogue_config["launch_abi"].startswith("dinoml_cutlass_gemm_")
+    assert epilogue_config["launch_abi"].endswith("_v1")
+    assert epilogue_config["launch_abi"] != "dinoml_cutlass_gemm_bias_v1"
+    assert family["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_{op_name}_float32_{default_symbol_id}"
+    assert family["profiler_symbols_by_dtype"]["float32"] == f"dinoml_profile_cutlass_{op_name}_float32_{default_symbol_id}"
+
+    candidate_set = family["candidate_sets_by_dtype"]["float32"]
+    assert candidate_set["candidate_set_id"] == f"cutlass_{op_name}_float32_{epilogue}_v1"
+    assert candidate_set["epilogue"] == epilogue
+    assert candidate_set["epilogue_config"] == epilogue_config
+    assert candidate_set["launch_abi"] == epilogue_config["launch_abi"]
+    candidate = family["candidates_by_dtype"]["float32"][0]
+    assert candidate["epilogue"] == epilogue
+    assert candidate["epilogue_config"] == epilogue_config
+    assert candidate["launch_abi"] == epilogue_config["launch_abi"]
+
+
 @pytest.mark.parametrize(
     ("dtype", "suffix"),
     [
@@ -500,6 +569,56 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     assert _cutlass_symbol_ids("float32")[1] in rendered
     assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rcr, float32" not in rendered
     assert "tensorop_sm80_tf32_256x128x64" not in rendered
+
+
+@pytest.mark.parametrize(("op_name", "epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_EPILOGUES)
+def test_cutlass_gemm_source_renderer_emits_residual_epilogue_exports(op_name, epilogue, epilogue_inputs):
+    spec = _trace_gemm_rcr_bias_residual(op_name)
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    support = cutlass_gemm_used_candidate_plan(manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(encoding="utf-8")
+
+    rendered = render_cutlass_gemm_source(source, support)
+
+    required = manifest["required_kernels"][0]
+    candidate = required["candidates"][0]
+    export_macro = GEMM_RCR_BIAS_RESIDUAL_EXPORT_MACROS[op_name]
+    assert "DINOML_CUTLASS_GENERATED_EXPORTS" in rendered
+    assert f"{export_macro}({op_name}, float32" in rendered
+    assert GEMM_RCR_BIAS_RESIDUAL_EPILOGUE_ALIASES[epilogue] in rendered
+    assert candidate["symbol_id"] in rendered
+    assert candidate["cutlass_policy"] in rendered
+    assert "d0" in rendered
+    if "d1" in epilogue_inputs:
+        assert "d1" in rendered
+    assert required["candidate_set"]["epilogue_config"]["inputs"] == list(epilogue_inputs)
+
+
+@pytest.mark.parametrize(("op_name", "_epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_EPILOGUES)
+def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, _epilogue, epilogue_inputs):
+    spec = _trace_gemm_rcr_bias_residual(op_name)
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=manifest)
+
+    symbol = manifest["required_kernels"][0]["kernel_symbol"]
+    output_ptr = f"ptr_{lowered['nodes'][0]['outputs'][0]}"
+    residual_ptrs = ["ptr_d0", *(["ptr_d1"] if "d1" in epilogue_inputs else [])]
+    expected_call = (
+        f"{symbol}(ptr_a, ptr_b, ptr_bias, {', '.join(residual_ptrs)}, {output_ptr}, "
+        "static_cast<int>(shape_a_0), static_cast<int>(shape_b_0), "
+        "static_cast<int>(shape_a_1), session->stream)"
+    )
+    assert f'extern "C" int {symbol}(' in generated
+    assert "const float* bias," in generated
+    assert "const float* d0," in generated
+    if "d1" in epilogue_inputs:
+        assert "const float* d1," in generated
+    else:
+        assert "const float* d1," not in generated
+    assert expected_call in generated
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():

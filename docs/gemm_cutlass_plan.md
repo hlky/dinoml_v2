@@ -63,8 +63,9 @@ The runtime GEMM port now wires model lowering into that support library:
 
 1. `gemm_rcr`/`gemm_rrr`, bias epilogue ops
    `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
-   `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, and v1-style activation epilogue
-   ops `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}` are explicit
+   `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, v1-style activation epilogue ops
+   `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}`, and the first RCR
+   residual epilogues `gemm_rcr_bias_{add,add_add,mul,mul_add}` are explicit
    frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
    `matmul`; they preserve dynamic `M/N` shape metadata while requiring rank-2
    matrix tensors and compatible max-shape `K`.
@@ -102,15 +103,17 @@ filters them out and leaves 11 exact f32 SIMT candidates. Each candidate records
 tile, stage count, warp count, alignment, math mode, optional status, and
 accumulator dtype so profiling can distinguish real kernel variants. Generated
 support source is pruned from the macro-backed checked-in source to only the
-launcher/profiler symbols in the used candidate plan, and activation epilogue
-exports instantiate CUTLASS thread epilogue functors directly with the selected
-candidate accumulator type. Target policy now participates in the per-artifact
-manifest: `Target(use_fp16_acc=True)` selects only fp16-accumulation fp16
-launchers/profilers and changes the support/profile cache keys. `Target(no_tf32=True)`
-selects the SIMT f32 fallback launchers/profilers and changes those keys too.
+launcher/profiler symbols in the used candidate plan, and activation/residual
+epilogue exports instantiate CUTLASS thread epilogue functors directly with the
+selected candidate accumulator type. Target policy now participates in the
+per-artifact manifest: `Target(use_fp16_acc=True)` selects only
+fp16-accumulation fp16 launchers/profilers and changes the support/profile cache
+keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
+and changes those keys too.
 
-Next steps are broader broadcast/arithmetic epilogues, broader v1 candidate enumeration, BMM and
-grouped GEMM parity, and then public `matmul` layout selection.
+Next steps are broader broadcast/folded-M arithmetic epilogues, broader v1
+candidate enumeration, BMM and grouped GEMM parity, and then public `matmul`
+layout selection.
 
 ## Dependency Discovery
 
@@ -136,7 +139,8 @@ git submodule update --init --recursive
 ## Remaining Near-Term Non-Goals
 
 - No naive C++/CUDA matmul.
-- No full epilogue visitor port beyond the bias and ReLU fused CUTLASS slices.
+- No full epilogue visitor port beyond the bias, activation, and first rank-2
+  residual fused CUTLASS slices.
 - No grouped GEMM.
 - No convolution implicit-GEMM yet.
 - No public `dml.ops.matmul` until CUDA and CPU/reference behavior are both

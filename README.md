@@ -65,9 +65,9 @@ model-specific generated fused-elementwise kernels. Reusable kernels and shared
 scalar math helpers live outside the model wrapper. The previous naive matmul
 placeholder was removed; current `gemm_rrr`/`gemm_rcr` and
 `gemm_rrr_bias`/`gemm_rcr_bias` plus
-`gemm_rrr_bias_relu`/`gemm_rcr_bias_relu` CUDA ops call the cached CUTLASS
-support library, and broader GEMM/BMM coverage should extend that
-library-backed path.
+`gemm_rrr_bias_relu`/`gemm_rcr_bias_relu`, v1-style bias activation epilogues,
+and first rank-2 RCR residual epilogues call the cached CUTLASS support library.
+Broader GEMM/BMM coverage should extend that library-backed path.
 
 Constants are loaded from `constants.bin` when a module is opened and can also be
 updated at runtime with `RuntimeModule.set_constant_numpy(...)`.

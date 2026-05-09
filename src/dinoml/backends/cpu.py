@@ -207,6 +207,14 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     if spec.epilogue.has_bias:
         bias = np.reshape(inputs[2], [-1])
         result = result + bias
+    if spec.epilogue.name == "bias_add":
+        result = result + inputs[3]
+    elif spec.epilogue.name == "bias_add_add":
+        result = result + inputs[3] + inputs[4]
+    elif spec.epilogue.name == "bias_mul":
+        result = result * inputs[3]
+    elif spec.epilogue.name == "bias_mul_add":
+        result = result * inputs[3] + inputs[4]
     if spec.epilogue.activation is not None:
         result = _execute_gemm_activation(spec.epilogue.activation, result)
     return np.asarray(result, dtype=np.float32)

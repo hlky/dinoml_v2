@@ -42,28 +42,41 @@ def render_launch(
         n_expr = f"shape_{b_ident}_0"
         k_check = f"shape_{a_ident}_1 != shape_{b_ident}_1"
         output_check = f"shape_{c_ident}_0 != shape_{a_ident}_0 || shape_{c_ident}_1 != shape_{b_ident}_0"
-    bias_check = None
-    bias_arg = ""
-    if spec.epilogue.has_bias:
-        bias_name = str(node["inputs"][2])
-        bias_ident = _c_ident(bias_name)
-        bias_rank = len(tensor_map[bias_name]["shape"])
-        if bias_rank == 1:
-            bias_check = f"shape_{bias_ident}_0 != {n_expr}"
-        elif bias_rank == 2:
-            bias_check = f"shape_{bias_ident}_0 != 1 || shape_{bias_ident}_1 != {n_expr}"
+    epilogue_checks = []
+    epilogue_args = []
+    for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2):
+        tensor_name = str(node["inputs"][input_offset])
+        tensor_ident = _c_ident(tensor_name)
+        tensor_rank = len(tensor_map[tensor_name]["shape"])
+        if input_name == "bias":
+            if tensor_rank == 1:
+                epilogue_checks.append(f'if (shape_{tensor_ident}_0 != {n_expr}) return dinoml::module::fail("{op_name} bias shape mismatch");')
+            elif tensor_rank == 2:
+                epilogue_checks.append(
+                    f'if (shape_{tensor_ident}_0 != 1 || shape_{tensor_ident}_1 != {n_expr}) '
+                    f'return dinoml::module::fail("{op_name} bias shape mismatch");'
+                )
+            else:
+                raise NotImplementedError(f"{op_name} CUDA lowering supports rank-1 or rank-2 bias only")
+        elif input_name.startswith("d"):
+            if tensor_rank != 2:
+                raise NotImplementedError(f"{op_name} CUDA lowering supports rank-2 residual tensors only")
+            epilogue_checks.append(
+                f'if (shape_{tensor_ident}_0 != {m_expr} || shape_{tensor_ident}_1 != {n_expr}) '
+                f'return dinoml::module::fail("{op_name} {input_name} shape mismatch");'
+            )
         else:
-            raise NotImplementedError(f"{op_name} CUDA lowering supports rank-1 or rank-2 bias only")
-        bias_arg = f"ptr_{bias_ident}, "
+            raise NotImplementedError(f"{op_name} CUDA lowering does not support epilogue input {input_name!r}")
+        epilogue_args.append(f"ptr_{tensor_ident}")
 
     lines = [
         f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
-    if bias_check is not None:
-        lines.append(f'if ({bias_check}) return dinoml::module::fail("{op_name} bias shape mismatch");')
+    lines.extend(epilogue_checks)
+    epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
     lines.append(
-        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {bias_arg}ptr_{c_ident}, "
+        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {epilogue_arg_text}ptr_{c_ident}, "
         f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), session->stream)) "
         f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
     )

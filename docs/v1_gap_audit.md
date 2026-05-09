@@ -18,10 +18,10 @@ porting. It intentionally excludes the op inventory, which lives in
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for
   `run_numpy`, torch/device-pointer execution where applicable, and runtime
-  constants. CUTLASS GEMM is wired for base, bias, ReLU, and v1-style bias
-  activation epilogue `float32`, `float16`, and `bfloat16`
-  `gemm_rcr`/`gemm_rrr` families, while broadcast epilogues, softmax, and
-  reductions remain narrower.
+  constants. CUTLASS GEMM is wired for base, bias, ReLU, v1-style bias
+  activation epilogue, and first rank-2 RCR residual epilogue `float32`,
+  `float16`, and `bfloat16` families, while broader broadcast epilogues,
+  softmax, and reductions remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via
@@ -38,10 +38,11 @@ porting. It intentionally excludes the op inventory, which lives in
   future ROCm/Metal/Vulkan parity. CUDA GEMM now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
-  explicit CUTLASS tensor-op candidate sets, including bias, ReLU, and v1-style
-  bias activation epilogue variants. `use_fp16_acc=True` now changes the
-  manifest/profile/build candidate set for fp16 GEMM; `no_tf32=True` now
-  filters float32 GEMM to v1 SM80 SIMT f32 fallback candidates.
+  explicit CUTLASS tensor-op candidate sets, including bias, ReLU, v1-style
+  bias activation, and first rank-2 RCR residual epilogue variants.
+  `use_fp16_acc=True` now changes the manifest/profile/build candidate set for
+  fp16 GEMM; `no_tf32=True` now filters float32 GEMM to v1 SM80 SIMT f32
+  fallback candidates.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.
@@ -84,3 +85,19 @@ porting. It intentionally excludes the op inventory, which lives in
   streams, generated fused elementwise, per-op debug source files, and source
   manifests. Remaining gaps: bucket guards, profiler integration, richer debug
   metadata, and source dedup by normalized codegen signature.
+
+## Future Large-Model Runtime Work
+
+- CPU weight offloading: constants should be able to begin resident on CPU and
+  move to GPU on first run or planned prefetch. Design this as an extensible
+  runtime policy rather than a one-off copy path so it can grow into sequential
+  offload, grouped/block/layer offload, additional CUDA streams, and explicit
+  prefetch/eviction scheduling.
+- GGUF weight ingestion: evaluate `hlky/libgguf` for GGUF read/convert support
+  and CUDA quantize/dequantize kernels. The integration should allow weights to
+  load from GGUF, copy to GPU, and either dequantize the whole weight before
+  launch or feed quantized storage to kernels that can dequantize directly.
+- Code layout discipline: prefer reusable concrete `.h`/`.cu` support sources
+  and explicit backend registries over broad text templating. V1 patterns are a
+  good reference when they separate op metadata, candidate generation, profiler
+  support, and handwritten kernel code.

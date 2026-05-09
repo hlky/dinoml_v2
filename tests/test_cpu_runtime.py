@@ -15,6 +15,7 @@ from dinoml.ir import (
     dtype_runtime_enum,
     read_json,
 )
+from dinoml.ops.definitions import get_op_def
 
 
 class DynamicChannelBias(dml.Module):
@@ -109,6 +110,25 @@ class GemmBiasModule(dml.Module):
     def forward(self, a, b, bias):
         op = getattr(dml.ops, self.op_name)
         return dml.ops.output(op(a, b, bias), "y")
+
+
+class GemmResidualModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias, d0, d1=None):
+        op = getattr(dml.ops, self.op_name)
+        if d1 is None:
+            return dml.ops.output(op(a, b, bias, d0), "y")
+        return dml.ops.output(op(a, b, bias, d0, d1), "y")
+
+
+GEMM_RCR_BIAS_RESIDUAL_CASES = (
+    ("gemm_rcr_bias_add", "bias_add", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add", "bias_add_add", ("bias", "d0", "d1")),
+    ("gemm_rcr_bias_mul", "bias_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_mul_add", "bias_mul_add", ("bias", "d0", "d1")),
+)
 
 
 def _storage_roundtrip(value, dtype: str):
@@ -790,6 +810,70 @@ def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype,
     expected = array_from_storage(array_to_storage(result, dtype), dtype)
     actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(("op_name", "epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_CASES)
+def test_gemm_rcr_bias_residual_frontend_emits_shape_and_schema(op_name, epilogue, epilogue_inputs):
+    batch = dml.Dim("batch", min=1, max=4)
+    tokens = dml.Dim("tokens", min=1, max=6)
+    input_specs = {
+        "a": dml.TensorSpec([batch, 8], "float32"),
+        "b": dml.TensorSpec([tokens, 8], "float32"),
+        "bias": dml.TensorSpec([tokens], "float32"),
+        "d0": dml.TensorSpec([batch, tokens], "float32"),
+    }
+    if "d1" in epilogue_inputs:
+        input_specs["d1"] = dml.TensorSpec([batch, tokens], "float32")
+
+    spec = dml.trace(GemmResidualModule(op_name), inputs=input_specs, name=f"{op_name}_frontend")
+    node = spec.ir["nodes"][0]
+    output = spec.ir["outputs"][0]
+
+    assert get_op_def(op_name).schema.inputs == ("a", "b", *epilogue_inputs)
+    assert node["op"] == op_name
+    assert node["inputs"] == ["a", "b", *epilogue_inputs]
+    assert output["shape"] == [4, 6]
+    assert output["shape_spec"][0]["name"] == "batch"
+    assert output["shape_spec"][1]["name"] == "tokens"
+    assert get_op_def(op_name).backend_kernels["cuda"].resolve("float32").candidate_set["epilogue"] == epilogue
+
+
+@pytest.mark.parametrize(("op_name", "_epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_CASES)
+def test_cpu_reference_gemm_rcr_bias_residual_epilogues_match_numpy(op_name, _epilogue, epilogue_inputs):
+    input_specs = {
+        "a": dml.TensorSpec([4, 8], "float32"),
+        "b": dml.TensorSpec([6, 8], "float32"),
+        "bias": dml.TensorSpec([1, 6], "float32"),
+        "d0": dml.TensorSpec([4, 6], "float32"),
+    }
+    if "d1" in epilogue_inputs:
+        input_specs["d1"] = dml.TensorSpec([4, 6], "float32")
+    spec = dml.trace(GemmResidualModule(op_name), inputs=input_specs, name=f"{op_name}_float32_reference")
+    rng = np.random.default_rng(991)
+    inputs = {
+        "a": rng.standard_normal((4, 8)).astype(np.float32),
+        "b": rng.standard_normal((6, 8)).astype(np.float32),
+        "bias": rng.standard_normal((1, 6)).astype(np.float32),
+        "d0": rng.standard_normal((4, 6)).astype(np.float32),
+    }
+    if "d1" in epilogue_inputs:
+        inputs["d1"] = rng.standard_normal((4, 6)).astype(np.float32)
+    result = inputs["a"] @ inputs["b"].T + inputs["bias"]
+    if op_name == "gemm_rcr_bias_add":
+        result = result + inputs["d0"]
+    elif op_name == "gemm_rcr_bias_add_add":
+        result = result + inputs["d0"] + inputs["d1"]
+    elif op_name == "gemm_rcr_bias_mul":
+        result = result * inputs["d0"]
+    elif op_name == "gemm_rcr_bias_mul_add":
+        result = result * inputs["d0"] + inputs["d1"]
+    else:
+        raise AssertionError(f"Unhandled residual GEMM op: {op_name}")
+    expected = result.astype(np.float32)
+
+    actual = execute_cpu(spec, inputs)["y"]
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 @pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])

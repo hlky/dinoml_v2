@@ -6,6 +6,7 @@
 #include <cutlass/cutlass.h>
 #include <cutlass/epilogue/thread/activation.h>
 #include <cutlass/epilogue/thread/linear_combination.h>
+#include <cutlass/epilogue/thread/linear_combination_bias_elementwise.h>
 #include <cutlass/epilogue/thread/linear_combination_gelu.h>
 #include <cutlass/epilogue/thread/linear_combination_generic.h>
 #include <cutlass/epilogue/thread/linear_combination_hardswish.h>
@@ -13,6 +14,7 @@
 #include <cutlass/epilogue/thread/linear_combination_sigmoid.h>
 #include <cutlass/epilogue/thread/linear_combination_silu.h>
 #include <cutlass/gemm/device/gemm.h>
+#include <cutlass/gemm/device/gemm_universal_with_broadcast.h>
 #include <cutlass/gemm/threadblock/threadblock_swizzle.h>
 #include <cutlass/half.h>
 #include <cutlass/layout/matrix.h>
@@ -186,6 +188,155 @@ using BiasHardSwishEpilogue = cutlass::epilogue::thread::LinearCombinationHardSw
     ElementAccumulator,
     float,
     cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
+
+enum class BiasResidualKind {
+  kAdd,
+  kAddAdd,
+  kMul,
+  kMulAdd,
+};
+
+template <typename Element_, typename ElementAccumulator_, BiasResidualKind Kind_, int ElementsPerAccess = 1>
+class BiasResidualEpilogue {
+ public:
+  using ElementOutput = Element_;
+  using ElementD = ElementOutput;
+  using ElementC = Element_;
+  using ElementAccumulator = ElementAccumulator_;
+  using ElementCompute = float;
+  using ElementScalar = ElementCompute;
+  using ElementZ = Element_;
+  using ElementT = Element_;
+  using ElementVector = Element_;
+  using ElementSource = ElementC;
+  static int const kElementsPerAccess = ElementsPerAccess;
+  static int const kCount = kElementsPerAccess;
+  static bool const IsEltActSupported = true;
+  static bool const kIsSingleSource = Kind_ == BiasResidualKind::kAdd || Kind_ == BiasResidualKind::kMul;
+  static bool const kIsHeavy = false;
+  static bool const kStoreZ = true;
+  static bool const kStoreT = false;
+  static constexpr bool IsPerChannelScalingSupported = false;
+  static const cutlass::epilogue::thread::ScaleType::Kind kScale = cutlass::epilogue::thread::ScaleType::Default;
+
+  using ElementwiseOp = cutlass::epilogue::thread::Identity<ElementCompute>;
+  using ActivationFn = ElementwiseOp;
+  using FragmentAccumulator = cutlass::Array<ElementAccumulator, kElementsPerAccess>;
+  using FragmentCompute = cutlass::Array<ElementCompute, kElementsPerAccess>;
+  using FragmentC = cutlass::Array<ElementC, kElementsPerAccess>;
+  using FragmentZ = cutlass::Array<ElementZ, kElementsPerAccess>;
+  using FragmentT = cutlass::Array<ElementT, kElementsPerAccess>;
+  using FragmentSource = FragmentC;
+  using FragmentOutput = FragmentZ;
+  using ElementBias = ElementVector;
+  using FragmentBias = cutlass::Array<ElementBias, kElementsPerAccess>;
+
+  struct Params {
+    ElementCompute alpha;
+
+    CUTLASS_HOST_DEVICE
+    Params(ElementCompute alpha_ = ElementCompute(1)) : alpha(alpha_) {}
+  };
+
+ private:
+  ElementCompute alpha_;
+
+ public:
+  CUTLASS_HOST_DEVICE
+  BiasResidualEpilogue(Params const& params) : alpha_(params.alpha) {}
+
+  CUTLASS_HOST_DEVICE
+  bool is_source_needed() const {
+    return true;
+  }
+
+  CUTLASS_HOST_DEVICE
+  void set_k_partition(int, int) {}
+
+  CUTLASS_HOST_DEVICE
+  void operator()(
+      FragmentZ& frag_z,
+      FragmentT& frag_t,
+      FragmentAccumulator const& accum,
+      FragmentC const& d0,
+      FragmentCompute const& bias) const {
+    FragmentCompute base = base_fragment(accum, bias);
+    FragmentCompute source0 = cutlass::NumericArrayConverter<ElementCompute, ElementC, kElementsPerAccess>()(d0);
+    FragmentCompute result;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < kElementsPerAccess; ++i) {
+      if constexpr (Kind_ == BiasResidualKind::kMul) {
+        result[i] = base[i] * source0[i];
+      } else {
+        result[i] = base[i] + source0[i];
+      }
+    }
+    store_result(frag_z, frag_t, result);
+  }
+
+  CUTLASS_HOST_DEVICE
+  void operator()(
+      FragmentZ& frag_z,
+      FragmentT& frag_t,
+      FragmentAccumulator const& accum,
+      FragmentC const& d0,
+      FragmentC const& d1,
+      FragmentCompute const& bias) const {
+    FragmentCompute base = base_fragment(accum, bias);
+    FragmentCompute source0 = cutlass::NumericArrayConverter<ElementCompute, ElementC, kElementsPerAccess>()(d0);
+    FragmentCompute source1 = cutlass::NumericArrayConverter<ElementCompute, ElementC, kElementsPerAccess>()(d1);
+    FragmentCompute result;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < kElementsPerAccess; ++i) {
+      if constexpr (Kind_ == BiasResidualKind::kMulAdd) {
+        result[i] = base[i] * source0[i] + source1[i];
+      } else {
+        result[i] = base[i] + source0[i] + source1[i];
+      }
+    }
+    store_result(frag_z, frag_t, result);
+  }
+
+  CUTLASS_HOST_DEVICE
+  void operator()(
+      FragmentZ& frag_z,
+      FragmentT& frag_t,
+      FragmentAccumulator const& accum,
+      FragmentCompute const& bias) const {
+    store_result(frag_z, frag_t, base_fragment(accum, bias));
+  }
+
+ private:
+  CUTLASS_HOST_DEVICE
+  FragmentCompute base_fragment(FragmentAccumulator const& accum, FragmentCompute const& bias) const {
+    FragmentCompute converted_accum =
+        cutlass::NumericArrayConverter<ElementCompute, ElementAccumulator, kElementsPerAccess>()(accum);
+    FragmentCompute result;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < kElementsPerAccess; ++i) {
+      result[i] = alpha_ * converted_accum[i] + bias[i];
+    }
+    return result;
+  }
+
+  CUTLASS_HOST_DEVICE
+  void store_result(FragmentZ& frag_z, FragmentT& frag_t, FragmentCompute const& result) const {
+    frag_z = cutlass::NumericArrayConverter<ElementZ, ElementCompute, kElementsPerAccess>()(result);
+    frag_t.clear();
+  }
+};
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kAdd>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasAddAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kAddAdd>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasMulEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kMul>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasMulAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kMulAdd>;
 
 template <
     typename OperatorClass_,
@@ -1627,6 +1778,105 @@ int launch_gemm_bias(
   return status == cutlass::Status::kSuccess ? 0 : 3;
 }
 
+template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp, typename Policy = BiasGemmPolicy<Element>>
+int launch_gemm_bias_residual(
+    Storage const* a,
+    Storage const* b,
+    Storage const* bias,
+    Storage const* d0,
+    Storage const* d1,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    cudaStream_t stream) {
+  if (a == nullptr || b == nullptr || bias == nullptr || d0 == nullptr || c == nullptr) {
+    return 1;
+  }
+  if constexpr (!EpilogueOp::kIsSingleSource) {
+    if (d1 == nullptr) {
+      return 1;
+    }
+  }
+  if (m <= 0 || n <= 0 || k <= 0) {
+    return 2;
+  }
+  using Gemm = cutlass::gemm::device::GemmUniversalWithBroadcast<
+      Element,
+      cutlass::layout::RowMajor,
+      Element,
+      LayoutB,
+      Element,
+      cutlass::layout::RowMajor,
+      typename Policy::ElementAccumulator,
+      typename Policy::OperatorClass,
+      typename Policy::ArchTag,
+      typename Policy::ThreadblockShape,
+      typename Policy::WarpShape,
+      typename Policy::InstructionShape,
+      EpilogueOp,
+      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+      Policy::kStages>;
+  Gemm gemm;
+  if constexpr (EpilogueOp::kIsSingleSource) {
+    typename Gemm::Arguments args(
+        cutlass::gemm::GemmUniversalMode::kGemm,
+        {m, n, k},
+        1,
+        typename EpilogueOp::Params(1.0f),
+        cutlass_ptr<Storage, Element>(a),
+        cutlass_ptr<Storage, Element>(b),
+        cutlass_ptr<Storage, Element>(d0),
+        cutlass_ptr<Storage, Element>(c),
+        const_cast<Element*>(cutlass_ptr<Storage, Element>(bias)),
+        nullptr,
+        static_cast<int64_t>(m) * k,
+        static_cast<int64_t>(n) * k,
+        static_cast<int64_t>(m) * n,
+        static_cast<int64_t>(m) * n,
+        0,
+        static_cast<int64_t>(m) * n,
+        k,
+        ldb,
+        n,
+        n,
+        0,
+        n);
+    cutlass::Status status = gemm(args, nullptr, stream);
+    return status == cutlass::Status::kSuccess ? 0 : 3;
+  } else {
+    typename Gemm::Arguments args(
+        cutlass::gemm::GemmUniversalMode::kGemm,
+        {m, n, k},
+        1,
+        typename EpilogueOp::Params(1.0f),
+        cutlass_ptr<Storage, Element>(a),
+        cutlass_ptr<Storage, Element>(b),
+        cutlass_ptr<Storage, Element>(d0),
+        cutlass_ptr<Storage, Element>(d1),
+        cutlass_ptr<Storage, Element>(c),
+        const_cast<Element*>(cutlass_ptr<Storage, Element>(bias)),
+        nullptr,
+        static_cast<int64_t>(m) * k,
+        static_cast<int64_t>(n) * k,
+        static_cast<int64_t>(m) * n,
+        static_cast<int64_t>(m) * n,
+        static_cast<int64_t>(m) * n,
+        0,
+        static_cast<int64_t>(m) * n,
+        k,
+        ldb,
+        n,
+        n,
+        n,
+        0,
+        n);
+    cutlass::Status status = gemm(args, nullptr, stream);
+    return status == cutlass::Status::kSuccess ? 0 : 3;
+  }
+}
+
 template <typename Storage, typename Element, typename LayoutB>
 float profile_gemm(
     Storage const* a,
@@ -1747,6 +1997,41 @@ float profile_gemm_bias_policy(
   cudaEventRecord(start, stream);
   for (int i = 0; i < iterations; ++i) {
     launch_gemm_bias<Storage, Element, LayoutB, EpilogueOp, Policy>(a, b, bias, c, m, n, k, ldb, stream);
+  }
+  cudaEventRecord(end, stream);
+  cudaEventSynchronize(end);
+  float ms = 0.0f;
+  cudaEventElapsedTime(&ms, start, end);
+  cudaEventDestroy(start);
+  cudaEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp, typename Policy>
+float profile_gemm_bias_residual_policy(
+    Storage const* a,
+    Storage const* b,
+    Storage const* bias,
+    Storage const* d0,
+    Storage const* d1,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int iterations,
+    cudaStream_t stream) {
+  if (iterations <= 0) {
+    iterations = 20;
+  }
+  cudaEvent_t start;
+  cudaEvent_t end;
+  cudaEventCreate(&start);
+  cudaEventCreate(&end);
+  launch_gemm_bias_residual<Storage, Element, LayoutB, EpilogueOp, Policy>(a, b, bias, d0, d1, c, m, n, k, ldb, stream);
+  cudaEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    launch_gemm_bias_residual<Storage, Element, LayoutB, EpilogueOp, Policy>(a, b, bias, d0, d1, c, m, n, k, ldb, stream);
   }
   cudaEventRecord(end, stream);
   cudaEventSynchronize(end);
@@ -2320,6 +2605,62 @@ extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int iterations, \
     cudaStream_t stream) { \
   return profile_gemm_bias_policy<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, LDB, iterations, stream); \
+}
+
+#define DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT(OP, DTYPE_NAME, CTYPE, ELEMENT, LAYOUT_B, LDB, EPILOGUE, SYMBOL_ID, POLICY) \
+extern "C" int dinoml_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE const* d0, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    cudaStream_t stream) { \
+  return launch_gemm_bias_residual<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, d0, nullptr, c, m, n, k, LDB, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE const* d0, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return profile_gemm_bias_residual_policy<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, d0, nullptr, c, m, n, k, LDB, iterations, stream); \
+}
+
+#define DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(OP, DTYPE_NAME, CTYPE, ELEMENT, LAYOUT_B, LDB, EPILOGUE, SYMBOL_ID, POLICY) \
+extern "C" int dinoml_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE const* d0, \
+    CTYPE const* d1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    cudaStream_t stream) { \
+  return launch_gemm_bias_residual<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, d0, d1, c, m, n, k, LDB, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE const* d0, \
+    CTYPE const* d1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return profile_gemm_bias_residual_policy<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, d0, d1, c, m, n, k, LDB, iterations, stream); \
 }
 
 #define DINOML_LAYOUT_B_gemm_rrr cutlass::layout::RowMajor

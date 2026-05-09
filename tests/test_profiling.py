@@ -64,6 +64,25 @@ class GemmBiasModule(dml.Module):
         return dml.ops.output(op(a, b, bias), "y")
 
 
+class GemmResidualModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b, bias, d0, d1=None):
+        op = getattr(dml.ops, self.op_name)
+        if d1 is None:
+            return dml.ops.output(op(a, b, bias, d0), "y")
+        return dml.ops.output(op(a, b, bias, d0, d1), "y")
+
+
+GEMM_RCR_BIAS_RESIDUAL_CASES = (
+    ("gemm_rcr_bias_add", "bias_add", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add", "bias_add_add", ("bias", "d0", "d1")),
+    ("gemm_rcr_bias_mul", "bias_mul", ("bias", "d0")),
+    ("gemm_rcr_bias_mul_add", "bias_mul_add", ("bias", "d0", "d1")),
+)
+
+
 def test_parse_shape_overrides():
     assert parse_shape_overrides(["x=1,128,768", "tokens=77"]) == {
         "x": (1, 128, 768),
@@ -175,6 +194,40 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
     assert workload.candidate["epilogue_config"]["inputs"] == ["bias"]
     assert workload.candidate["epilogue_config"]["activation"] == ("relu" if epilogue == "bias_relu" else None)
     assert workload.to_json()["inputs"]["bias"] == [11]
+
+
+@pytest.mark.parametrize(("op_name", "epilogue", "epilogue_inputs"), GEMM_RCR_BIAS_RESIDUAL_CASES)
+def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name, epilogue, epilogue_inputs):
+    input_specs = {
+        "a": dml.TensorSpec([7, 32], "float32"),
+        "b": dml.TensorSpec([11, 32], "float32"),
+        "bias": dml.TensorSpec([11], "float32"),
+        "d0": dml.TensorSpec([7, 11], "float32"),
+    }
+    if "d1" in epilogue_inputs:
+        input_specs["d1"] = dml.TensorSpec([7, 11], "float32")
+    spec = dml.trace(GemmResidualModule(op_name), inputs=input_specs, name=f"profile_{op_name}")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32")
+    workload = workloads[0]
+    assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_{_cutlass_default_symbol_id('float32')}"
+    assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
+    assert workload.bias_tensor == "bias"
+    assert workload.bias_shape == (11,)
+    assert workload.candidate["epilogue"] == epilogue
+    assert workload.candidate["epilogue_config"]["inputs"] == list(epilogue_inputs)
+    assert workload.candidate["launch_abi"].startswith("dinoml_cutlass_gemm_")
+    inputs = workload.to_json()["inputs"]
+    assert inputs["bias"] == [11]
+    assert inputs["d0"] == [7, 11]
+    if "d1" in epilogue_inputs:
+        assert inputs["d1"] == [7, 11]
+    else:
+        assert "d1" not in inputs
 
 
 def test_profile_key_changes_with_fingerprint_keys(tmp_path):

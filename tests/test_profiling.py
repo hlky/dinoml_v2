@@ -1248,25 +1248,46 @@ def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
 
 
 def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
-    calls = []
+    build_calls = []
+    lower_calls = []
     report_calls = []
+    lowered_ir = {"name": "lowered-once"}
+    reports = [{"name": "pass-report"}]
 
-    def fake_compile_once(spec, target, output, *, clean, pass_manager, execution_plan):
-        del pass_manager
-        path = Path(output).resolve()
-        if clean and path.exists():
-            shutil.rmtree(path)
-        (path / "debug").mkdir(parents=True, exist_ok=True)
-        calls.append(
+    def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
+        lower_calls.append((spec, target.to_json(), str(artifact_dir), pass_manager))
+        return lowered_ir, reports
+
+    def fake_build_artifact(
+        spec,
+        target,
+        *,
+        artifact_dir,
+        generated_src_dir,
+        lowered_ir,
+        reports,
+        backend,
+        execution_plan_payload,
+    ):
+        del backend
+        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
+        stale_source = generated_src_dir / "stale_candidate_source.cu"
+        if execution_plan_payload is None:
+            generated_src_dir.mkdir(parents=True, exist_ok=True)
+            stale_source.write_text("// candidate-only source\n", encoding="utf-8")
+        else:
+            assert not stale_source.exists()
+        build_calls.append(
             {
                 "spec": spec,
                 "target": target.to_json(),
-                "output": str(path),
-                "clean": clean,
-                "execution_plan": execution_plan,
+                "output": str(artifact_dir),
+                "lowered_ir": lowered_ir,
+                "reports": reports,
+                "execution_plan": execution_plan_payload,
             }
         )
-        return compiler_mod.Artifact(path)
+        return compiler_mod.Artifact(artifact_dir)
 
     def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
         artifact = Path(artifact)
@@ -1285,7 +1306,8 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
             "problems": [],
         }
 
-    monkeypatch.setattr(compiler_mod, "_compile_once", fake_compile_once)
+    monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
     monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
 
     artifact = compiler_mod.compile(
@@ -1300,25 +1322,42 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
     )
 
     assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
-    assert [call["execution_plan"] for call in calls] == [
+    assert len(lower_calls) == 1
+    assert [call["execution_plan"] for call in build_calls] == [
         None,
         {"schema_version": 1, "kind": "dinoml.execution_plan", "static_selections": [{"selection_key": "profile-selection"}]},
     ]
-    assert calls[0]["clean"] is True
-    assert calls[1]["clean"] is True
+    assert build_calls[0]["lowered_ir"] is lowered_ir
+    assert build_calls[1]["lowered_ir"] is lowered_ir
+    assert build_calls[0]["reports"] is reports
+    assert build_calls[1]["reports"] is reports
     assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, 3, True)]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 1
 
 
 def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, monkeypatch):
-    calls = []
+    build_calls = []
+    lower_calls = []
 
-    def fake_compile_once(spec, target, output, *, clean, pass_manager, execution_plan):
-        del spec, target, clean, pass_manager
-        path = Path(output).resolve()
-        (path / "debug").mkdir(parents=True, exist_ok=True)
-        calls.append(execution_plan)
-        return compiler_mod.Artifact(path)
+    def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
+        lower_calls.append((spec, target.to_json(), str(artifact_dir), pass_manager))
+        return {"name": "lowered-once"}, []
+
+    def fake_build_artifact(
+        spec,
+        target,
+        *,
+        artifact_dir,
+        generated_src_dir,
+        lowered_ir,
+        reports,
+        backend,
+        execution_plan_payload,
+    ):
+        del spec, target, generated_src_dir, lowered_ir, reports, backend
+        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
+        build_calls.append(execution_plan_payload)
+        return compiler_mod.Artifact(artifact_dir)
 
     def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
         del input_shapes, iterations, repeats, refresh
@@ -1341,13 +1380,15 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
             "problems": [],
         }
 
-    monkeypatch.setattr(compiler_mod, "_compile_once", fake_compile_once)
+    monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
     monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
 
     artifact = compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
 
     assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
-    assert calls == [None]
+    assert len(lower_calls) == 1
+    assert build_calls == [None]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 0
 
 

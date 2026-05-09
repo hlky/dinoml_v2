@@ -54,7 +54,10 @@ porting. It intentionally excludes the op inventory, which lives in
   an op/dtype/candidate-set agree. Compile can consume that static overlay via
   `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen, and
   the first opt-in `profile=True` / `compile --profile` path now automates the
-  build-profile-rebuild loop around the existing artifact profiler.
+  build-profile-rebuild loop around the existing artifact profiler. That
+  profile-assisted compile path now runs graph passes and constants
+  materialization once, then builds candidate and selected artifacts from the
+  same lowered IR.
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases and
   carries bucket case metadata into profile reports and execution plans. The
   first alignment filter prunes CUTLASS profiler workloads from static dense
@@ -68,8 +71,7 @@ porting. It intentionally excludes the op inventory, which lives in
   on median elapsed time. Residual/broadcast split-K remains intentionally
   disabled until the fused residual epilogue is partition-aware.
   Remaining gaps are residual/broadcast split-K coverage, statistical confidence
-  thresholds, pass-once profile-assisted compile plumbing, and persistent
-  SQLite/shared cache workflows.
+  thresholds, and persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

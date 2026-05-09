@@ -4,7 +4,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, Sequence
 
 import numpy as np
 
@@ -83,13 +83,26 @@ def _compile_with_profile(
     input_shapes: Mapping[str, Any] | None,
     refresh: bool,
 ) -> Artifact:
-    initial_artifact = _compile_once(
+    backend = get_backend_spec(target.name)
+    artifact_dir = _prepare_artifact_dir(output, clean=clean)
+    debug_dir = artifact_dir / "debug"
+    generated_src_dir = debug_dir / "generated_src"
+    generated_src_dir.mkdir(parents=True, exist_ok=True)
+    lowered_ir, reports = _lower_for_compile(
         spec,
         target,
-        output,
-        clean=clean,
+        artifact_dir=artifact_dir,
         pass_manager=pass_manager,
-        execution_plan=None,
+    )
+    initial_artifact = _build_artifact_from_lowered_ir(
+        spec,
+        target,
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        lowered_ir=lowered_ir,
+        reports=reports,
+        backend=backend,
+        execution_plan_payload=None,
     )
     profile_report = profile_artifact(
         initial_artifact.path,
@@ -105,13 +118,16 @@ def _compile_with_profile(
         write_json(initial_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
         return initial_artifact
     execution_plan_payload = read_json(Path(str(execution_plan_summary["path"])))
-    final_artifact = _compile_once(
+    _reset_generated_sources(generated_src_dir)
+    final_artifact = _build_artifact_from_lowered_ir(
         spec,
         target,
-        output,
-        clean=True,
-        pass_manager=pass_manager,
-        execution_plan=execution_plan_payload,
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        lowered_ir=lowered_ir,
+        reports=reports,
+        backend=backend,
+        execution_plan_payload=execution_plan_payload,
     )
     write_json(final_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
     return final_artifact
@@ -128,19 +144,68 @@ def _compile_once(
 ) -> Artifact:
     backend = get_backend_spec(target.name)
     execution_plan_payload = _load_execution_plan(execution_plan)
+    artifact_dir = _prepare_artifact_dir(output, clean=clean)
+    debug_dir = artifact_dir / "debug"
+    generated_src_dir = debug_dir / "generated_src"
+    generated_src_dir.mkdir(parents=True, exist_ok=True)
+    lowered_ir, reports = _lower_for_compile(
+        spec,
+        target,
+        artifact_dir=artifact_dir,
+        pass_manager=pass_manager,
+    )
+    return _build_artifact_from_lowered_ir(
+        spec,
+        target,
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        lowered_ir=lowered_ir,
+        reports=reports,
+        backend=backend,
+        execution_plan_payload=execution_plan_payload,
+    )
+
+
+def _prepare_artifact_dir(output: str | Path, *, clean: bool) -> Path:
     artifact_dir = Path(output).resolve()
     if clean and artifact_dir.exists():
         shutil.rmtree(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    debug_dir = artifact_dir / "debug"
-    pass_dump_dir = debug_dir / "pass_dumps"
-    generated_src_dir = debug_dir / "generated_src"
+    return artifact_dir
+
+
+def _reset_generated_sources(generated_src_dir: Path) -> None:
+    if generated_src_dir.exists():
+        shutil.rmtree(generated_src_dir)
     generated_src_dir.mkdir(parents=True, exist_ok=True)
 
+
+def _lower_for_compile(
+    spec: ModelSpec,
+    target: Target,
+    *,
+    artifact_dir: Path,
+    pass_manager: Optional[PassManager],
+) -> tuple[dict[str, Any], Sequence[Any]]:
     manager = pass_manager or PassManager()
-    lowered_ir, reports = manager.run(spec.ir, dump_dir=pass_dump_dir)
+    lowered_ir, reports = manager.run(spec.ir, dump_dir=artifact_dir / "debug" / "pass_dumps")
     _validate_mvp_runtime_contract(lowered_ir, target)
-    lowered_ir = _write_constants(artifact_dir, lowered_ir, spec.constants)
+    return _write_constants(artifact_dir, lowered_ir, spec.constants), reports
+
+
+def _build_artifact_from_lowered_ir(
+    spec: ModelSpec,
+    target: Target,
+    *,
+    artifact_dir: Path,
+    generated_src_dir: Path,
+    lowered_ir: Mapping[str, Any],
+    reports: Sequence[Any],
+    backend: Any,
+    execution_plan_payload: Mapping[str, Any] | None,
+) -> Artifact:
+    debug_dir = artifact_dir / "debug"
+    lowered_ir = dict(lowered_ir)
 
     compile_config = {
         "target": target.to_json(),

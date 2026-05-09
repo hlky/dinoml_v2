@@ -139,7 +139,10 @@ manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
 As a first closed-loop compile path, `dml.compile(..., profile=True)` and
 `dinoml compile --profile` now build a candidate artifact, run the CUTLASS
 profiler, load the generated execution plan, and rebuild the artifact with that
-plan applied.
+plan applied. That profile-assisted path reuses one lowered IR and one
+constants materialization for the candidate and final artifacts, keeping graph
+preparation deterministic while still refreshing generated CUDA for the selected
+plan.
 Profile reports and cache keys include a best-effort CUDA hardware/toolchain
 fingerprint plus support-library source/binary hashes, toolchain/dependency
 provenance, so timings do not silently float across different GPUs or

@@ -176,6 +176,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   candidate CUDA artifact, run the existing CUTLASS artifact profiler, then
   rebuild with the generated execution plan applied. The bootstrap timing report
   is retained as `debug/bootstrap_profile_report.json`.
+- [x] Pass-once profile-assisted compile:
+  profile-assisted compile now runs graph passes and writes constants once, then
+  materializes the candidate and final artifacts from the same lowered IR while
+  refreshing only generated CUDA sources for the selected execution plan.
 - [x] First dynamic-shape profiling buckets:
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases
   when no runtime override is supplied, preserves shared named dim values across

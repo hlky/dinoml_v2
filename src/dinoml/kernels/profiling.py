@@ -22,7 +22,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 5
+PROFILE_REPORT_SCHEMA_VERSION = 6
 EXECUTION_PLAN_SCHEMA_VERSION = 1
 
 
@@ -60,6 +60,8 @@ class GemmProfileWorkload:
     m: int
     n: int
     k: int
+    split_k: int
+    workspace_nbytes: int
     shape_source: str
     shape_case_id: str
     dim_values: Mapping[str, int]
@@ -89,6 +91,11 @@ class GemmProfileWorkload:
             "m": self.m,
             "n": self.n,
             "k": self.k,
+            "split_k": self.split_k,
+            "workspace_nbytes": self.workspace_nbytes,
+            "profile_variant": {
+                "split_k": self.split_k,
+            },
             "shape_case": {
                 "source": self.shape_source,
                 "case_id": self.shape_case_id,
@@ -157,43 +164,50 @@ def build_profile_workloads(
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
             for candidate in profile_candidates:
-                workloads.append(
-                    GemmProfileWorkload(
-                        node_id=str(node["id"]),
-                        op=op_name,
-                        dtype=dtype,
-                        kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
-                        profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
-                        candidate_set_id=(
-                            str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
-                        ),
-                        candidate_set_key=(
-                            str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
-                        ),
-                        candidate_id=str(candidate["candidate_id"]),
-                        candidate_config_key=(
-                            str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
-                        ),
-                        candidate=candidate,
-                        a_tensor=a_name,
-                        b_tensor=b_name,
-                        bias_tensor=bias_name,
-                        residual_tensors=residual_names,
-                        output_tensor=output_name,
-                        a_shape=tuple(a_shape),
-                        b_shape=tuple(b_shape),
-                        bias_shape=bias_shape,
-                        residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
-                        output_shape=tuple(output_shape),
-                        m=m,
-                        n=n,
-                        k=k,
-                        shape_source=scenario.source,
-                        shape_case_id=scenario.case_id,
-                        dim_values=scenario.dim_values,
-                        dim_sources=scenario.dim_sources,
+                for split_k in _candidate_profile_split_k_values(candidate):
+                    workloads.append(
+                        GemmProfileWorkload(
+                            node_id=str(node["id"]),
+                            op=op_name,
+                            dtype=dtype,
+                            kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                            profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                            candidate_set_id=(
+                                str(required_item["candidate_set_id"])
+                                if required_item.get("candidate_set_id") is not None
+                                else None
+                            ),
+                            candidate_set_key=(
+                                str(required_item["candidate_set_key"])
+                                if required_item.get("candidate_set_key") is not None
+                                else None
+                            ),
+                            candidate_id=str(candidate["candidate_id"]),
+                            candidate_config_key=(
+                                str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                            ),
+                            candidate=candidate,
+                            a_tensor=a_name,
+                            b_tensor=b_name,
+                            bias_tensor=bias_name,
+                            residual_tensors=residual_names,
+                            output_tensor=output_name,
+                            a_shape=tuple(a_shape),
+                            b_shape=tuple(b_shape),
+                            bias_shape=bias_shape,
+                            residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
+                            output_shape=tuple(output_shape),
+                            m=m,
+                            n=n,
+                            k=k,
+                            split_k=split_k,
+                            workspace_nbytes=int(candidate.get("workspace_nbytes", 0) or 0),
+                            shape_source=scenario.source,
+                            shape_case_id=scenario.case_id,
+                            dim_values=scenario.dim_values,
+                            dim_sources=scenario.dim_sources,
+                        )
                     )
-                )
     return workloads
 
 
@@ -237,6 +251,16 @@ def _candidate_cutlass_alignment(candidate: Mapping[str, Any]) -> int:
     if isinstance(cutlass, Mapping) and cutlass.get("align") is not None:
         return int(cutlass["align"])
     return 1
+
+
+def _candidate_profile_split_k_values(candidate: Mapping[str, Any]) -> tuple[int, ...]:
+    raw_values = candidate.get("split_k_values")
+    if raw_values is None:
+        raw_values = (candidate.get("split_k_default", 1),)
+    elif isinstance(raw_values, int):
+        raw_values = (raw_values,)
+    values = tuple(sorted({int(value) for value in raw_values if int(value) > 0}))
+    return values or (1,)
 
 
 def _required_profile_item(
@@ -488,6 +512,8 @@ def _profile_result(
     candidate_result.update(
         {
             "candidate_id": workload.candidate_id,
+            "split_k": workload.split_k,
+            "workspace_nbytes": workload.workspace_nbytes,
             "avg_ms": float(elapsed_ms),
             "gflops": float(tflops * 1000.0),
             "iterations": int(iterations),
@@ -515,13 +541,19 @@ def _profile_result(
             "kernel_library": "cutlass_gemm",
             "elapsed_ms": float(elapsed_ms),
             "iterations": int(iterations),
+            "split_k": workload.split_k,
+            "workspace_nbytes": workload.workspace_nbytes,
             "flops": int(flops),
             "bytes": int(bytes_moved),
             "gflops": float(tflops * 1000.0),
             "tflops": tflops,
             "gbps": gbps,
             "candidates": [candidate_result],
-            "selected": {"candidate_id": workload.candidate_id, "reason": reason},
+            "selected": {
+                "candidate_id": workload.candidate_id,
+                "split_k": workload.split_k,
+                "reason": reason,
+            },
         }
     )
     return payload
@@ -840,6 +872,8 @@ def _profile_key_payload(
         "epilogue": workload.candidate.get("epilogue"),
         "epilogue_config": workload.candidate.get("epilogue_config"),
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
+        "profile_variant": {"split_k": workload.split_k},
+        "split_k": workload.split_k,
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "candidate_set_id": workload.candidate_set_id,
@@ -889,6 +923,8 @@ def _cache_entry(
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "best_candidate_id": workload.candidate_id,
+        "split_k": int(result.get("split_k", workload.split_k)),
+        "workspace_nbytes": int(result.get("workspace_nbytes", workload.workspace_nbytes)),
         "avg_ms": float(candidate["avg_ms"]),
         "gflops": float(candidate["gflops"]),
         "iterations": int(candidate["iterations"]),
@@ -961,12 +997,20 @@ def _selection_from_group(
     key: tuple[str, str, str, str, int, int, int],
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    best = min(entries, key=lambda item: (float(item.get("elapsed_ms", float("inf"))), str(item.get("candidate_id", ""))))
+    best = min(
+        entries,
+        key=lambda item: (
+            float(item.get("elapsed_ms", float("inf"))),
+            str(item.get("candidate_id", "")),
+            _problem_split_k(item),
+        ),
+    )
     candidate = _result_candidate(best)
     shape = dict(best.get("shape", {})) if isinstance(best.get("shape"), Mapping) else {}
     shape.setdefault("m", key[4])
     shape.setdefault("n", key[5])
     shape.setdefault("k", key[6])
+    split_k = _problem_split_k(best)
     return {
         "selection_key": hashlib.sha256(
             canonical_json(
@@ -989,14 +1033,35 @@ def _selection_from_group(
         "kernel_symbol": best.get("kernel_symbol") or candidate.get("kernel_symbol"),
         "profiler_symbol": best.get("profiler_symbol") or candidate.get("profiler_symbol"),
         "shape": shape,
-        "workspace_nbytes": 0,
-        "split_k": 1,
+        "workspace_nbytes": _problem_workspace_nbytes(best),
+        "split_k": split_k,
+        "profile_variant": {"split_k": split_k},
         "avg_ms": float(best.get("elapsed_ms", 0.0)),
         "gflops": float(best.get("gflops", 0.0)),
         "iterations": int(best.get("iterations", 0) or 0),
         "profile_key": best.get("profile_key"),
         "status": best.get("status"),
     }
+
+
+def _problem_split_k(problem: Mapping[str, Any]) -> int:
+    if problem.get("split_k") is not None:
+        return int(problem["split_k"])
+    variant = problem.get("profile_variant")
+    if isinstance(variant, Mapping) and variant.get("split_k") is not None:
+        return int(variant["split_k"])
+    selected = problem.get("selected")
+    if isinstance(selected, Mapping) and selected.get("split_k") is not None:
+        return int(selected["split_k"])
+    candidate = _result_candidate(problem)
+    return int(candidate.get("split_k_default", 1) or 1)
+
+
+def _problem_workspace_nbytes(problem: Mapping[str, Any]) -> int:
+    if problem.get("workspace_nbytes") is not None:
+        return int(problem["workspace_nbytes"])
+    candidate = _result_candidate(problem)
+    return int(candidate.get("workspace_nbytes", 0) or 0)
 
 
 def _result_candidate(problem: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1023,9 +1088,13 @@ def _static_execution_selections(
     static_selections: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     for key, group in sorted(by_candidate_set.items()):
-        selected_ids = {str(item.get("selected_candidate_id", "")) for item in group}
-        if len(selected_ids) == 1:
+        selected_signatures = {
+            (str(item.get("selected_candidate_id", "")), int(item.get("split_k", 1) or 1))
+            for item in group
+        }
+        if len(selected_signatures) == 1:
             selection = dict(group[0])
+            selection["workspace_nbytes"] = max(int(item.get("workspace_nbytes", 0) or 0) for item in group)
             selection["selection_key"] = hashlib.sha256(
                 canonical_json(
                     {
@@ -1033,6 +1102,7 @@ def _static_execution_selections(
                         "dtype": key[1],
                         "candidate_set_key": key[2],
                         "selected_candidate_id": selection.get("selected_candidate_id"),
+                        "split_k": int(selection.get("split_k", 1) or 1),
                     }
                 ).encode("utf-8")
             ).hexdigest()
@@ -1048,8 +1118,9 @@ def _static_execution_selections(
                     "op": key[0],
                     "dtype": key[1],
                     "candidate_set_key": key[2],
-                    "reason": "profiled_shapes_selected_different_candidates",
-                    "selected_candidate_ids": sorted(selected_ids),
+                    "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+                    "selected_candidate_ids": sorted({item[0] for item in selected_signatures}),
+                    "selected_split_k": sorted({item[1] for item in selected_signatures}),
                     "profiled_shapes": [dict(item.get("shape", {})) for item in group],
                 }
             )

@@ -222,10 +222,18 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
                 item["candidate_config_key"] for item in candidates
             ]
             assert len(candidate_set["candidate_set_key"]) == 64
+            assert candidate_set["split_k_values"] == [1]
+            assert candidate_set["split_k_default"] == 1
+            assert candidate_set["supports_split_k"] is False
+            assert candidate_set["workspace_nbytes"] == 0
             assert [item["candidate_id"] for item in candidates] == _cutlass_candidate_ids(dtype)
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
+            assert candidate["split_k_values"] == [1]
+            assert candidate["split_k_default"] == 1
+            assert candidate["supports_split_k"] is False
+            assert candidate["workspace_nbytes"] == 0
             assert candidate["cutlass"]["opclass"] == "tensorop"
             assert candidate["cutlass"]["arch"] == "sm80"
             assert candidate["optional"] is (dtype == "float32")

@@ -12,7 +12,7 @@ from dinoml.ops.definitions import get_op_def
 
 KERNEL_MANIFEST_SCHEMA_VERSION = 3
 KERNEL_ABI_VERSION = 1
-PROFILE_CACHE_SCHEMA_VERSION = 5
+PROFILE_CACHE_SCHEMA_VERSION = 6
 
 
 def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> dict[str, Any]:

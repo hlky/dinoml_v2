@@ -90,10 +90,14 @@ and carries `shape.case_id`, dynamic dim values, and dim sources into the report
 and execution plan. Profiling also honors optional dense layout element
 alignment metadata on GEMM A/B tensors: when both operands are annotated,
 candidate workloads whose CUTLASS `align` exceeds the smaller A/B alignment are
-pruned before timing. The report/cache key records a best-effort CUDA
-hardware/toolchain fingerprint, support-library source/binary hashes,
-support-build provenance, and the candidate set/config keys. CUTLASS support
-manifests also record compile flags, NVCC version output, dependency header
+pruned before timing. Profile results, cache keys, execution-plan selections,
+and static overlays preserve `split_k` plus `workspace_nbytes` as launch/result
+metadata. Current generated candidates advertise `split_k_values: [1]`, and CUDA
+lowering rejects execution plans requesting `split_k > 1` until the launcher and
+profiler ABI grow a workspace/split-K parameter. The report/cache key records a
+best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
+hashes, support-build provenance, and the candidate set/config keys. CUTLASS
+support manifests also record compile flags, NVCC version output, dependency header
 hashes, and a provenance key that participates in support-cache reuse. The
 support cache writes a
 `dinoml.support_source_manifest` at `src/source_manifest.json` beside the rendered
@@ -138,8 +142,9 @@ now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
 source. That closes the first profile-to-recompile loop for shapes whose
 profiled buckets agree on a single candidate. Next steps should prioritize
-split-K as a candidate dimension, richer runtime/stride alignment guards, and
-guarded dynamic-shape dispatch when bucket winners differ. Broader
+actual CUTLASS split-K launch/profiler ABI and workspace allocation, richer
+runtime/stride alignment guards, and guarded dynamic-shape dispatch when bucket
+winners differ. Broader
 broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
 functionality, BMM and grouped GEMM parity should wait behind that profiling

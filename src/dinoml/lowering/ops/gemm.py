@@ -70,6 +70,7 @@ def render_launch(
             raise NotImplementedError(f"{op_name} CUDA lowering does not support epilogue input {input_name!r}")
         epilogue_args.append(f"ptr_{tensor_ident}")
 
+    _validate_cutlass_execution_plan_selection(op_name, dtype, kernel_manifest)
     lines = [
         f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
@@ -104,7 +105,33 @@ def _folded_output_shape_check(output_ident: str, a_ident: str, a_rank: int, n_e
     return " || ".join(checks)
 
 
+def _validate_cutlass_execution_plan_selection(
+    op_name: str,
+    dtype: str,
+    kernel_manifest: Mapping[str, Any] | None,
+) -> None:
+    item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
+    if item is None:
+        return
+    selection = item.get("execution_plan_selection")
+    if not isinstance(selection, Mapping):
+        return
+    split_k = int(selection.get("split_k", 1) or 1)
+    if split_k != 1:
+        raise NotImplementedError(
+            f"{op_name} CUDA lowering does not support CUTLASS split-K > 1 yet; "
+            f"execution plan requested split_k={split_k}"
+        )
+
+
 def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:
+    item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
+    if item is None:
+        return None
+    return str(item["kernel_symbol"])
+
+
+def _manifest_kernel_item(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> Mapping[str, Any] | None:
     if kernel_manifest is None:
         return None
     for item in kernel_manifest.get("required_kernels", []):
@@ -113,10 +140,10 @@ def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: 
         selected_id = item.get("selected_candidate_id")
         for candidate in item.get("candidates", []):
             if candidate.get("candidate_id") == selected_id and candidate.get("dtype") == dtype:
-                return str(item.get("kernel_symbol") or candidate.get("kernel_symbol"))
+                return {**item, "kernel_symbol": str(item.get("kernel_symbol") or candidate.get("kernel_symbol"))}
         candidate_set = item.get("candidate_set", {})
         if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
-            return str(item["kernel_symbol"])
+            return item
     return None
 
 

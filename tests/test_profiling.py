@@ -597,9 +597,12 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     payload_a = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context_a)
     payload_b = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context_b)
     payload_c = _profile_key_payload(other_workload, manifest, kernel_manifest, codegen_plan, context=context_a)
+    payload_d = _profile_key_payload(replace(workload, split_k=4), manifest, kernel_manifest, codegen_plan, context=context_a)
 
     assert payload_a["hardware_fingerprint_key"] == "hardware-a"
     assert payload_a["support_libraries_fingerprint_key"] == "support-a"
+    assert payload_a["profile_variant"] == {"split_k": 1}
+    assert payload_d["profile_variant"] == {"split_k": 4}
     assert payload_a["candidate_id"] == _cutlass_default_candidate_id("float32")
     assert payload_a["candidate_set_id"] == "cutlass_gemm_rrr_float32_linear_combination_v1"
     assert payload_a["candidate_set_key"] == workload.candidate_set_key
@@ -609,6 +612,7 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert payload_a["epilogue_config"] == workload.candidate["epilogue_config"]
     assert _profile_key(payload_a) != _profile_key(payload_b)
     assert _profile_key(payload_a) != _profile_key(payload_c)
+    assert _profile_key(payload_a) != _profile_key(payload_d)
 
 
 def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_path):
@@ -665,6 +669,47 @@ def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_p
     assert static_selection["shape"]["source"] == "static_overlay_from_consistent_profiled_shapes"
 
 
+def test_build_execution_plan_preserves_profiled_split_k_and_workspace(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_split_k_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    split1 = _profile_result(workloads[0], 0.25, 5, profile_key="split1-profile", status="ok")
+    split4 = _profile_result(
+        replace(workloads[0], split_k=4, workspace_nbytes=8192),
+        0.10,
+        5,
+        profile_key="split4-profile",
+        status="ok",
+    )
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "artifact": str(tmp_path / "profile_execution_plan_split_k_gemm.dinoml"),
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [split1, split4],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    selection = plan["selections"][0]
+    assert selection["selected_candidate_id"] == workloads[0].candidate_id
+    assert selection["split_k"] == 4
+    assert selection["profile_variant"] == {"split_k": 4}
+    assert selection["workspace_nbytes"] == 8192
+    assert plan["static_selections"][0]["split_k"] == 4
+
+
 def test_build_execution_plan_marks_static_conflict_for_shape_specific_winners(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),
@@ -693,10 +738,49 @@ def test_build_execution_plan_marks_static_conflict_for_shape_specific_winners(t
 
     assert plan["summary"] == {"selection_count": 2, "static_selection_count": 0, "conflict_count": 1}
     assert plan["static_selections"] == []
-    assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidates"
+    assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidate_or_split_k"
     assert plan["conflicts"][0]["selected_candidate_ids"] == sorted(
         [workloads[0].candidate_id, workloads[1].candidate_id]
     )
+    assert plan["conflicts"][0]["selected_split_k"] == [1]
+
+
+def test_build_execution_plan_marks_static_conflict_for_shape_specific_split_k(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_execution_plan_split_k_conflict",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    shape_a = _profile_result(workloads[0], 0.10, 5, profile_key="shape-a", status="ok")
+    shape_b = _profile_result(
+        replace(workloads[0], node_id="n1", m=8, split_k=4, workspace_nbytes=8192),
+        0.09,
+        5,
+        profile_key="shape-b",
+        status="ok",
+    )
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [shape_a, shape_b],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert plan["summary"] == {"selection_count": 2, "static_selection_count": 0, "conflict_count": 1}
+    assert plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidate_or_split_k"
+    assert plan["conflicts"][0]["selected_candidate_ids"] == [workloads[0].candidate_id]
+    assert plan["conflicts"][0]["selected_split_k"] == [1, 4]
 
 
 def test_build_execution_plan_preserves_bucket_shape_metadata(tmp_path):

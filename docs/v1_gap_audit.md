@@ -56,10 +56,15 @@ porting. It intentionally excludes the op inventory, which lives in
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases and
   carries bucket case metadata into profile reports and execution plans. The
   first alignment filter prunes CUTLASS profiler workloads from static dense
-  layout element alignment on GEMM A/B when both operands are annotated.
+  layout element alignment on GEMM A/B when both operands are annotated. The
+  first split-K surface preserves `split_k` and `workspace_nbytes` through
+  profile results, cache keys, execution plans, and static overlays while
+  explicitly rejecting `split_k > 1` plans until the CUDA launcher/profiler ABI
+  exists.
   Remaining gaps are guarded dispatch when dynamic bucket winners differ,
-  runtime/stride/offset alignment guards, split-K, richer statistical
-  confidence, and persistent SQLite/shared cache workflows.
+  runtime/stride/offset alignment guards, actual split-K launch/workspace
+  support with v1-style search, richer statistical confidence, and persistent
+  SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

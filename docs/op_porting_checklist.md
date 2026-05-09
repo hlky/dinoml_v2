@@ -185,7 +185,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   separate epilogue/source alignment requirements exist.
 - [ ] Runtime/stride/offset alignment guards using tensor accessor alignment,
   strides, byte offsets, and future layout metadata before profiling or launch.
-- [ ] Split-K candidate/launch selection with cacheable workspace requirements.
+- [x] First split-K profile metadata surface:
+  CUTLASS GEMM candidates and candidate sets advertise `split_k_values: [1]`,
+  profile reports/cache keys/execution plans preserve `split_k` and
+  `workspace_nbytes`, static overlays require agreement on candidate and
+  `split_k`, and CUDA lowering rejects `split_k > 1` plans until the ABI exists.
+- [ ] Split-K launcher/profiler ABI with cacheable workspace requirements and
+  v1-style search over profiled split-K values.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and

@@ -115,6 +115,9 @@ CUTLASS_SM80_SIMT_F32_TILES = (
 CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
 CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
 CUTLASS_SM80_SIMT_F32_ALIGNMENTS = (1,)
+CUTLASS_GEMM_SPLIT_K_VALUES = (1,)
+CUTLASS_GEMM_DEFAULT_SPLIT_K = 1
+CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES = 0
 
 
 def _cutlass_symbol_id(
@@ -391,6 +394,10 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
         "cutlass_policy": str(candidate_config["cutlass_policy"]),
         "optional": bool(candidate_config.get("optional", False)),
         "launch_abi": spec.epilogue.launch_abi,
+        "split_k_values": list(CUTLASS_GEMM_SPLIT_K_VALUES),
+        "split_k_default": CUTLASS_GEMM_DEFAULT_SPLIT_K,
+        "supports_split_k": False,
+        "workspace_nbytes": CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES,
         "cutlass": cutlass_config,
     }
     candidate = {
@@ -435,6 +442,10 @@ def cutlass_gemm_candidate_set(
         "accumulator_dtypes": sorted({str(candidate["accumulator_dtype"]) for candidate in candidates}),
         "target_policy": cutlass_gemm_target_policy(target),
         "launch_abi": spec.epilogue.launch_abi,
+        "split_k_values": list(CUTLASS_GEMM_SPLIT_K_VALUES),
+        "split_k_default": CUTLASS_GEMM_DEFAULT_SPLIT_K,
+        "supports_split_k": False,
+        "workspace_nbytes": CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES,
         "generator": "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
@@ -501,6 +512,11 @@ def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
             ),
             "selected_candidate_id": item.get("selected_candidate_id"),
             "selected_candidate": selected,
+            "execution_plan_selection": (
+                dict(item["execution_plan_selection"])
+                if isinstance(item.get("execution_plan_selection"), Mapping)
+                else None
+            ),
             "candidate_set": candidate_set,
             "candidates": candidates,
         }

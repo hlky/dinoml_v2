@@ -115,6 +115,24 @@ def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float3
     return dml.trace(GemmResidualModule(), inputs=inputs, name=f"{op_name}_{dtype}_residual")
 
 
+def _trace_gemm_bias_activation(op_name: str, layout: str, *, dtype: str = "float32"):
+    import dinoml as dml
+
+    class GemmBiasActivationModule(dml.Module):
+        def forward(self, a, b, bias):
+            return dml.ops.output(getattr(dml.ops, op_name)(a, b, bias), "y")
+
+    return dml.trace(
+        GemmBiasActivationModule(),
+        inputs={
+            "a": dml.TensorSpec([7, 32], dtype),
+            "b": dml.TensorSpec([11, 32] if layout == "rcr" else [32, 11], dtype),
+            "bias": dml.TensorSpec([11], dtype),
+        },
+        name=f"{op_name}_{dtype}_bias_activation",
+    )
+
+
 def _cutlass_symbol_ids(dtype: str) -> list[str]:
     return [str(config["symbol_id"]) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]]
 
@@ -399,6 +417,10 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rcr_bias_gelu"]["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_gemm_rcr_bias_gelu_float32_{default_symbol_id}"
     assert families["gemm_rcr_bias_hardswish"]["attrs"]["epilogue"] == "bias_hardswish"
     assert families["gemm_rcr_bias_hardswish"]["attrs"]["epilogue_config"]["activation"] == "hardswish"
+    assert families["gemm_rcr_bias_elup1"]["attrs"]["epilogue"] == "bias_elup1"
+    assert families["gemm_rcr_bias_elup1"]["attrs"]["epilogue_config"]["activation"] == "elup1"
+    assert families["gemm_rcr_bias_elup1"]["attrs"]["epilogue_config"]["inputs"] == ["bias"]
+    assert families["gemm_rcr_bias_elup1"]["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_gemm_rcr_bias_elup1_float32_{default_symbol_id}"
     rrr_f32_candidates = families["gemm_rrr"]["candidates_by_dtype"]["float32"]
     _assert_float32_candidate_math_families(rrr_f32_candidates)
     rrr_f16_candidates = families["gemm_rrr"]["candidates_by_dtype"]["float16"]
@@ -1033,6 +1055,28 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     assert _cutlass_symbol_ids("float32")[1] in rendered
     assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rcr, float32" not in rendered
     assert "tensorop_sm80_tf32_256x128x64" not in rendered
+
+
+def test_cutlass_gemm_source_renderer_emits_elup1_epilogue_export():
+    spec = _trace_gemm_bias_activation("gemm_rcr_bias_elup1", "rcr")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    support = cutlass_gemm_used_candidate_plan(manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+
+    rendered = render_cutlass_gemm_source(source, support)
+
+    required = manifest["required_kernels"][0]
+    candidate = required["candidates"][0]
+    assert "DINOML_CUTLASS_GENERATED_EXPORTS" in rendered
+    assert "DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT(gemm_rcr_bias_elup1, float32" in rendered
+    assert "BiasElup1Epilogue" in rendered
+    assert "LinearCombinationELUp1" in rendered
+    assert candidate["symbol_id"] in rendered
+    assert candidate["cutlass_policy"] in rendered
+    assert required["candidate_set"]["epilogue_config"]["activation"] == "elup1"
 
 
 @pytest.mark.parametrize(("op_name", "layout", "epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_EPILOGUES)

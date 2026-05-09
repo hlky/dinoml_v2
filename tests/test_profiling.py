@@ -545,6 +545,7 @@ def test_build_profile_workloads_rejects_layout_alignment_without_candidate():
     [
         ("gemm_rcr_bias", "bias"),
         ("gemm_rcr_bias_relu", "bias_relu"),
+        ("gemm_rcr_bias_elup1", "bias_elup1"),
     ],
 )
 def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
@@ -570,7 +571,8 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
     assert workload.bias_shape == (11,)
     assert workload.candidate["epilogue"] == epilogue
     assert workload.candidate["epilogue_config"]["inputs"] == ["bias"]
-    assert workload.candidate["epilogue_config"]["activation"] == ("relu" if epilogue == "bias_relu" else None)
+    expected_activation = {"bias_relu": "relu", "bias_elup1": "elup1"}.get(epilogue)
+    assert workload.candidate["epilogue_config"]["activation"] == expected_activation
     assert workload.to_json()["inputs"]["bias"] == [11]
 
 

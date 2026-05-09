@@ -206,7 +206,7 @@ cached by manifest key.
 The first CUTLASS path is concrete but still intentionally compact:
 `dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
 real CUTLASS `gemm_rcr`, `gemm_rrr`, bias, ReLU, and v1-style bias activation
-GEMM epilogue launchers plus first residual epilogue launchers and v1 RCR
+GEMM epilogue launchers, including `ELUp1`, plus first residual epilogue launchers and v1 RCR
 compound residual activation epilogue launchers and profiler entrypoints for
 `float32`, `float16`, and `bfloat16`.
 Public `dml.ops.gemm_*` lower into dtype-resolved calls to that support library,

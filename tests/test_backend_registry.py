@@ -330,6 +330,17 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert bias_gelu_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
     assert bias_gelu_candidates[0]["epilogue_config"]["activation"] == "gelu"
     assert bias_gelu_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
+    bias_elup1_candidates = [
+        candidate
+        for family in manifest["families"]
+        if family["op_name"] == "gemm_rcr_bias_elup1"
+        for candidate in family["candidates_by_dtype"]["float32"]
+    ]
+    assert bias_elup1_candidates[0]["epilogue"] == "bias_elup1"
+    assert bias_elup1_candidates[0]["epilogue_config"]["inputs"] == ["bias"]
+    assert bias_elup1_candidates[0]["epilogue_config"]["activation"] == "elup1"
+    assert bias_elup1_candidates[0]["epilogue_config"]["cutlass_functor"] == "cutlass::epilogue::thread::LinearCombinationELUp1"
+    assert bias_elup1_candidates[0]["launch_abi"] == "dinoml_cutlass_gemm_bias_v1"
     residual_ops = {
         f"gemm_{layout}_bias_{suffix}": (inputs, launch_abi)
         for layout in ("rcr", "rrr")

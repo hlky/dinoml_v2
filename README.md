@@ -66,7 +66,7 @@ scalar math helpers live outside the model wrapper. The previous naive matmul
 placeholder was removed; current `gemm_rrr`/`gemm_rcr` and
 `gemm_rrr_bias`/`gemm_rcr_bias` plus
 `gemm_rrr_bias_relu`/`gemm_rcr_bias_relu`, v1-style bias activation epilogues,
-first rank-2 residual epilogues, and v1 RCR compound residual activation
+including `ELUp1`, first rank-2 residual epilogues, and v1 RCR compound residual activation
 epilogues call the cached CUTLASS support library.
 Broader GEMM/BMM coverage should extend that library-backed path.
 

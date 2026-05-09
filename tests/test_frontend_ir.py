@@ -320,7 +320,7 @@ def test_gemm_bias_frontend_emits_epilogue_ops(module, b_shape, op_name):
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 
 
-@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])
+@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish", "elup1"])
 @pytest.mark.parametrize(("layout", "b_shape"), [("rcr", [6, 8]), ("rrr", [8, 6])])
 def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activation):
     op_name = f"gemm_{layout}_bias_{activation}"

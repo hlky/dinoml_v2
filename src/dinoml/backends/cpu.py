@@ -241,6 +241,8 @@ def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
         return value / (1.0 + np.exp(-value))
     if activation == "hardswish":
         return value * np.clip(value + 3.0, 0.0, 6.0) / 6.0
+    if activation == "elup1":
+        return np.where(value >= 0.0, value + 1.0, np.exp(value))
     raise ValueError(f"Unsupported GEMM activation: {activation}")
 
 

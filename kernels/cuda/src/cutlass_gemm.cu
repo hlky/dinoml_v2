@@ -16,11 +16,59 @@
 #include <cutlass/epilogue/thread/linear_combination_relu.h>
 #include <cutlass/epilogue/thread/linear_combination_sigmoid.h>
 #include <cutlass/epilogue/thread/linear_combination_silu.h>
+#include <cutlass/fast_math.h>
 #include <cutlass/gemm/device/gemm.h>
 #include <cutlass/gemm/device/gemm_universal_with_broadcast.h>
 #include <cutlass/gemm/threadblock/threadblock_swizzle.h>
 #include <cutlass/half.h>
 #include <cutlass/layout/matrix.h>
+
+namespace cutlass {
+namespace epilogue {
+namespace thread {
+
+template <typename T>
+struct ELUp1 {
+  CUTLASS_HOST_DEVICE
+  T operator()(T const& scalar) const {
+    return scalar >= T(0) ? scalar + T(1) : cutlass::fast_exp(scalar);
+  }
+};
+
+template <typename T, int N>
+struct ELUp1<Array<T, N>> {
+  CUTLASS_HOST_DEVICE
+  Array<T, N> operator()(Array<T, N> const& value) const {
+    Array<T, N> result;
+    ELUp1<T> elup1;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < N; ++i) {
+      result[i] = elup1(value[i]);
+    }
+    return result;
+  }
+};
+
+template <
+    typename ElementOutput,
+    int Count,
+    typename ElementAccumulator = ElementOutput,
+    typename ElementCompute = ElementOutput,
+    ScaleType::Kind Scale = ScaleType::Default,
+    FloatRoundStyle Round = FloatRoundStyle::round_to_nearest>
+using LinearCombinationELUp1 = LinearCombinationGeneric<
+    ELUp1,
+    ElementOutput,
+    Count,
+    ElementAccumulator,
+    ElementCompute,
+    Scale,
+    Round,
+    false>;
+
+}  // namespace thread
+}  // namespace epilogue
+}  // namespace cutlass
 
 namespace {
 
@@ -282,6 +330,15 @@ using BiasHardSwishEpilogue = cutlass::epilogue::thread::LinearCombinationHardSw
     ElementAccumulator,
     float,
     cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasElup1Epilogue = cutlass::epilogue::thread::LinearCombinationELUp1<
+    Element,
+    1,
+    ElementAccumulator,
+    float,
+    cutlass::epilogue::thread::ScaleType::NoBetaScaling,
+    cutlass::FloatRoundStyle::round_to_nearest>;
 
 enum class BiasResidualKind {
   kAdd,

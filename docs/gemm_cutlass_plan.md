@@ -64,7 +64,7 @@ The runtime GEMM port now wires model lowering into that support library:
 1. `gemm_rcr`/`gemm_rrr`, bias epilogue ops
    `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
    `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, v1-style activation epilogue ops
-   `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}`, and the first
+   `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish,elup1}`, and the first
    residual epilogues `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` plus
    `gemm_rcr_bias_{add_relu,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}` are
    explicit frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
@@ -174,9 +174,11 @@ or split-K values, the manifest now carries guarded per-node dispatch selections
 generated CUDA checks profiled `M/N/K` cases, calls the selected candidate
 symbol, sizes a shared CUTLASS workspace for split-K dispatches, and falls back
 to the safe manifest default when no guard matches. Next steps should prioritize
-richer tensor-accessor offset/layout alignment filtering and extending split-K
-coverage to residual/broadcast epilogues once the CUTLASS broadcast path is proven. Broader
-broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
+extending split-K only to additive residual/broadcast epilogues once their
+partition behavior is implemented and tested. The v1 `ELUp1` activation is now
+available as a bias-activation GEMM epilogue; the permuted
+`gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
+Broader broadcast/folded-M arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
 functionality, BMM and grouped GEMM parity should wait behind that profiling
 loop so v2 does not accumulate more declared surface area without v1-grade

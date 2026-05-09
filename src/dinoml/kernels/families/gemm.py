@@ -177,6 +177,14 @@ BIAS_ACTIVATION_EPILOGUES: dict[str, GemmEpilogue] = {
         bias_axis="n",
         launch_abi="dinoml_cutlass_gemm_bias_v1",
     ),
+    "elup1": GemmEpilogue(
+        name="bias_elup1",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationELUp1",
+        inputs=("bias",),
+        activation="elup1",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
 }
 
 BIAS_RESIDUAL_EPILOGUES: dict[str, GemmEpilogue] = {

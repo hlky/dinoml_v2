@@ -19,8 +19,8 @@ porting. It intentionally excludes the op inventory, which lives in
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for
   `run_numpy`, torch/device-pointer execution where applicable, and runtime
   constants. CUTLASS GEMM is wired for base, bias, ReLU, v1-style bias
-  activation epilogue, and first rank-2 residual epilogue `float32`, `float16`,
-  and `bfloat16` families, while broader broadcast epilogues, softmax, and
+  activation epilogues including `ELUp1`, and first rank-2 residual epilogue
+  `float32`, `float16`, and `bfloat16` families, while broader broadcast epilogues, softmax, and
   reductions remain narrower.
 - Runtime/container contract: v1 has module/container/session concepts for
   streams, sync, CUDA graph mode, constants, output shape reporting, runtime

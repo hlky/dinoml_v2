@@ -736,6 +736,7 @@ def _cutlass_epilogue_alias(epilogue: str) -> str:
         "bias_tanh": "BiasTanhEpilogue",
         "bias_swish": "BiasSwishEpilogue",
         "bias_hardswish": "BiasHardSwishEpilogue",
+        "bias_elup1": "BiasElup1Epilogue",
         "bias_add": "BiasAddEpilogue",
         "bias_add_add": "BiasAddAddEpilogue",
         "bias_add_relu": "BiasAddReluEpilogue",

@@ -1033,7 +1033,7 @@ def test_cpu_reference_gemm_rcr_dual_residual_folded_m_matches_numpy(op_name):
     np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
-@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])
+@pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish", "elup1"])
 @pytest.mark.parametrize(("layout", "a_shape", "b_shape"), [("rrr", (4, 8), (8, 6)), ("rcr", (4, 8), (6, 8))])
 def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_shape, activation):
     op_name = f"gemm_{layout}_bias_{activation}"
@@ -1063,6 +1063,8 @@ def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_sha
         result = result / (1.0 + np.exp(-result))
     elif activation == "hardswish":
         result = result * np.clip(result + 3.0, 0.0, 6.0) / 6.0
+    elif activation == "elup1":
+        result = np.where(result >= 0.0, result + 1.0, np.exp(result))
     expected = result.astype(np.float32)
 
     actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]

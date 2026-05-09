@@ -146,8 +146,8 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `gemm_rrr_bias_relu` use CUTLASS `LinearCombinationRelu` with the same bias
   shape/dtype/runtime/profiler contracts as the bias-only GEMM ops.
 - [x] v1-style bias activation epilogue names:
-  `gemm_{rcr,rrr}_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}` are
-  registered as explicit GEMM family ops with CUTLASS candidate metadata,
+  `gemm_{rcr,rrr}_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish,elup1}`
+  are registered as explicit GEMM family ops with CUTLASS candidate metadata,
   CUDA support-library symbols, candidate profiling coverage, and CPU reference
   execution through CUTLASS thread epilogue functors.
 - [x] First residual epilogues:
@@ -246,9 +246,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
   broader broadcast forms beyond the first folded RCR residual set.
-- [ ] Remaining activation epilogues: `elup1`, deferred behind the profiling
-  selection loop because v1 parity now depends more on candidate choice than
-  additional declared GEMM surface area.
+- [x] Remaining activation epilogue: `elup1` is available as
+  `gemm_{rcr,rrr}_bias_elup1` through the existing CUTLASS bias-activation
+  ABI. The v1 `gemm_rcr_permute_elup1` layout-fused form remains under
+  permuted/layout-fused output families.
 - [ ] Beyond-v1 CUTLASS epilogues: once v1 parity is stable, evaluate additional
   CUTLASS epilogue functors and visitor forms that can remove useful post-GEMM
   elementwise launches.

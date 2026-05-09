@@ -254,14 +254,15 @@ def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target
         for dtype, candidates in sorted(dict(family.get("candidates_by_dtype", {})).items()):
             candidate_set = dict(family["candidate_sets_by_dtype"][dtype])
             candidates = [dict(candidate) for candidate in candidates]
+            default_candidates = candidates[:1]
             required.append(
                 {
                     "op": family["op_name"],
                     "kernel_symbol": family["kernel_symbols_by_dtype"][dtype],
                     "kernel_library": "cutlass_gemm",
                     "profiler_symbol": family["profiler_symbols_by_dtype"][dtype],
-                    "selected_candidate_id": candidates[0]["candidate_id"],
-                    "candidates": candidates,
+                    "selected_candidate_id": default_candidates[0]["candidate_id"],
+                    "candidates": default_candidates,
                     "candidate_set_id": candidate_set["candidate_set_id"],
                     "candidate_set_key": candidate_set["candidate_set_key"],
                     "candidate_set": candidate_set,

@@ -95,16 +95,19 @@ the manifest candidate plan. The first epilogue slice uses a structured GEMM des
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
 GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for
 `float16`/`bfloat16`, including alignment variants and `float16` versus
-`float32` accumulation choices where v1 generated both. `float32` candidates
-are tracked separately as optional TF32 TensorOp configs rather than being
-treated as exact f32 parity. Each candidate records tile, stage count, warp
-count, alignment, math mode, and accumulator dtype so profiling can distinguish
-real kernel variants. Activation epilogue exports instantiate CUTLASS
-thread epilogue functors directly.
+`float32` accumulation choices where v1 generated both. `float32` candidates use
+the v1 SM80 TensorOp 1688 TF32 tile list, are marked optional rather than exact
+f32 parity, and avoid being mixed with 16816 tile shapes. Each candidate records
+tile, stage count, warp count, alignment, math mode, optional status, and
+accumulator dtype so profiling can distinguish real kernel variants. Generated
+support source is pruned from the macro-backed checked-in source to only the
+launcher/profiler symbols in the used candidate plan, and activation epilogue
+exports instantiate CUTLASS thread epilogue functors directly with the selected
+candidate accumulator type.
 
-Next steps are broader broadcast/arithmetic epilogues, optional
-accumulation-policy variants, broader v1 candidate enumeration, BMM and grouped
-GEMM parity, and then public `matmul` layout selection.
+Next steps are target-level TF32/accumulation policy gates, broader
+broadcast/arithmetic epilogues, broader v1 candidate enumeration, BMM and
+grouped GEMM parity, and then public `matmul` layout selection.
 
 ## Dependency Discovery
 

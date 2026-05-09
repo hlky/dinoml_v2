@@ -328,8 +328,9 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert candidate["profiler_symbol"] == default_profiler
     assert candidate["cutlass"]["opclass"] == "tensorop"
     assert candidate["cutlass"]["arch"] == "sm80"
-    assert candidate["cutlass"]["threadblock"] == ([256, 128, 32] if dtype != "float32" else [256, 128, 32])
-    assert candidate["cutlass"]["warp"] == [64, 64, 32]
+    assert candidate["optional"] is (dtype == "float32")
+    assert candidate["cutlass"]["threadblock"] == ([256, 128, 16] if dtype == "float32" else [256, 128, 32])
+    assert candidate["cutlass"]["warp"] == ([64, 64, 16] if dtype == "float32" else [64, 64, 32])
     assert candidate["cutlass"]["instruction"] == ([16, 8, 8] if dtype == "float32" else [16, 8, 16])
     assert candidate["cutlass"]["stages"] == 3
     assert candidate["cutlass"]["align"] == (4 if dtype == "float32" else 8)
@@ -373,6 +374,8 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rrr, float32, float, float, f32" in rendered
     assert _cutlass_default_symbol_id("float32") in rendered
     assert _cutlass_symbol_ids("float32")[1] in rendered
+    assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rcr, float32" not in rendered
+    assert "tensorop_sm80_tf32_256x128x64" not in rendered
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():

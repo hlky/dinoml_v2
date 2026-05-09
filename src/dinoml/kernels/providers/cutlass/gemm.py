@@ -63,6 +63,27 @@ CUTLASS_SM80_TENSOROP_16816_TILES = (
     ((192, 96, 32), 3, (4, 2, 1)),
     ((96, 192, 32), 3, (2, 4, 1)),
 )
+CUTLASS_SM80_TENSOROP_1688_TILES = (
+    ((256, 128, 16), 3, (4, 2, 1)),
+    ((128, 256, 16), 3, (2, 4, 1)),
+    ((256, 64, 16), 4, (4, 1, 1)),
+    ((64, 256, 16), 4, (1, 4, 1)),
+    ((128, 128, 16), 5, (2, 2, 1)),
+    ((128, 128, 16), 4, (2, 2, 1)),
+    ((128, 128, 16), 3, (2, 2, 1)),
+    ((128, 64, 16), 6, (2, 2, 1)),
+    ((64, 128, 16), 6, (2, 2, 1)),
+    ((64, 64, 16), 10, (2, 2, 1)),
+    ((256, 128, 32), 3, (4, 2, 1)),
+    ((128, 256, 32), 3, (2, 4, 1)),
+    ((256, 64, 32), 4, (4, 1, 1)),
+    ((64, 256, 32), 4, (1, 4, 1)),
+    ((128, 128, 32), 4, (2, 2, 1)),
+    ((128, 128, 32), 3, (2, 2, 1)),
+    ((128, 64, 32), 3, (2, 2, 1)),
+    ((64, 128, 32), 3, (2, 2, 1)),
+    ((64, 64, 32), 5, (2, 2, 1)),
+)
 CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
 CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
 
@@ -171,7 +192,7 @@ def _cutlass_sm80_tensorop_tf32_candidate_configs() -> tuple[dict[str, Any], ...
             math="tf32",
             optional=True,
         )
-        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_16816_TILES
+        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_1688_TILES
         for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
     )
 
@@ -229,6 +250,7 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
         "epilogue": spec.epilogue.name,
         "epilogue_config": epilogue,
         "accumulator_dtype": str(candidate_config["accumulator_dtype"]),
+        "optional": bool(candidate_config.get("optional", False)),
         "launch_abi": spec.epilogue.launch_abi,
         "cutlass": cutlass_config,
     }
@@ -338,7 +360,7 @@ def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
 
 def render_cutlass_gemm_source(source: str, used_candidate_plan: Mapping[str, Any]) -> str:
     if "DINOML_CUTLASS_GENERATED_EXPORTS" in source:
-        return source.rstrip() + "\n"
+        return _render_generated_cutlass_gemm_source(source, used_candidate_plan)
     symbols = {
         *[str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])],
         *[str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])],
@@ -356,6 +378,58 @@ def render_cutlass_gemm_source(source: str, used_candidate_plan: Mapping[str, An
     prefix = source[:first_extern].rstrip()
     selected_blocks = [block.strip() for name, block in blocks if name in symbols]
     return "\n\n".join([prefix, *selected_blocks]) + "\n"
+
+
+def _render_generated_cutlass_gemm_source(source: str, used_candidate_plan: Mapping[str, Any]) -> str:
+    symbols = {
+        *[str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])],
+        *[str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])],
+    }
+    if not symbols:
+        raise ValueError("CUTLASS GEMM used candidate plan does not contain any symbols")
+    lines = source.rstrip().splitlines()
+    try:
+        first_export = next(index for index, line in enumerate(lines) if line.startswith("DINOML_FORWARD_GEMM"))
+    except StopIteration as exc:
+        raise ValueError("CUTLASS GEMM generated source does not contain export invocations") from exc
+    generated_lines = lines[first_export:]
+    available = {symbol for line in generated_lines for symbol in _generated_export_symbols(line)}
+    missing = sorted(symbols - available)
+    if missing:
+        raise ValueError(f"CUTLASS GEMM source is missing symbols: {', '.join(missing)}")
+    selected = []
+    seen = set()
+    for line in generated_lines:
+        line_symbols = _generated_export_symbols(line)
+        if not line_symbols or not (symbols & line_symbols) or line in seen:
+            continue
+        selected.append(line)
+        seen.add(line)
+    return "\n".join([*lines[:first_export], "", *selected]) + "\n"
+
+
+def _generated_export_symbols(line: str) -> frozenset[str]:
+    stripped = line.strip()
+    if not stripped.startswith("DINOML_FORWARD_GEMM"):
+        return frozenset()
+    match = re.match(r"(DINOML_FORWARD_GEMM(?:_BIAS(?:_ACTIVATION)?)?_EXPORT)\((.*)\)\s*$", stripped)
+    if match is None:
+        return frozenset()
+    macro = match.group(1)
+    args = [arg.strip() for arg in match.group(2).split(",")]
+    try:
+        if macro in {"DINOML_FORWARD_GEMM_EXPORT", "DINOML_FORWARD_GEMM_BIAS_EXPORT"}:
+            op_name, dtype_name, symbol_id = args[0], args[1], args[5]
+        else:
+            op_name, dtype_name, symbol_id = args[0], args[1], args[7]
+    except IndexError as exc:
+        raise ValueError(f"Malformed CUTLASS GEMM generated export: {line[:160]!r}") from exc
+    return frozenset(
+        {
+            f"dinoml_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+            f"dinoml_profile_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+        }
+    )
 
 
 def gemm_dtype_suffix(dtype: str) -> str:

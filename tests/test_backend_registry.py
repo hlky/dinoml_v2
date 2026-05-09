@@ -128,7 +128,7 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == expected_gemm_entry_count
-    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == sum(_cutlass_candidate_count(dtype) for _ in range(expected_gemm_entry_count // 3) for dtype in ("float32", "float16", "bfloat16"))
+    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == expected_gemm_entry_count
     assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
         symbol
         for family in manifest["families"]
@@ -165,10 +165,11 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
             assert candidate["cutlass"]["opclass"] == "tensorop"
             assert candidate["cutlass"]["arch"] == "sm80"
-            assert candidate["cutlass"]["threadblock"] == [256, 128, 32]
+            assert candidate["optional"] is (dtype == "float32")
+            assert candidate["cutlass"]["threadblock"] == ([256, 128, 16] if dtype == "float32" else [256, 128, 32])
             assert candidates[1]["cutlass"]["opclass"] == "tensorop"
-            assert candidates[1]["cutlass"]["align"] in {2, 4, 8}
-            assert candidates[-1]["cutlass"]["threadblock"] == [96, 192, 32]
+            assert candidates[1]["cutlass"]["align"] in ({1, 2, 4} if dtype == "float32" else {2, 4, 8})
+            assert candidates[-1]["cutlass"]["threadblock"] == ([64, 64, 32] if dtype == "float32" else [96, 192, 32])
             if dtype == "float16":
                 assert {item["accumulator_dtype"] for item in candidates} == {"float16", "float32"}
             else:

@@ -210,9 +210,15 @@ normalization or softmax patterns, otherwise use custom block reductions.
   generated CPU/CUDA modules apply `DinoTensor.byte_offset` to logical tensor
   pointers for inputs, outputs, runtime constants, and public alias
   materialization; CUTLASS pointer-alignment checks now see the logical pointer.
-- [ ] Full tensor-accessor alignment selection:
-  fold tensor offsets and future non-dense layout metadata into manifest/profile
-  candidate filtering before launch.
+- [x] First tensor-accessor alignment selection:
+  manifest/profile filtering now records a CUTLASS alignment context that folds
+  shape-derived caps, partial A/B dense layout alignment, known tensor/layout
+  storage offsets, and current C/epilogue alignment metadata into candidate
+  filters. Generated CUDA falls back through lower-alignment CUTLASS candidates
+  when runtime logical A/B pointers do not satisfy the selected candidate.
+- [ ] Full non-dense tensor-accessor GEMM:
+  extend the CUTLASS launch ABI beyond dense leading dimensions before treating
+  arbitrary non-row-major strides as correct GEMM inputs.
 - [x] First split-K profile metadata surface:
   CUTLASS GEMM candidates and candidate sets advertise `split_k_values: [1]`,
   profile reports/cache keys/execution plans preserve `split_k` and

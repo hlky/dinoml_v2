@@ -91,21 +91,24 @@ profiled shapes for an op/dtype/candidate-set agree on the same confident winner
 GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override
 is supplied, profiling now expands those buckets into concrete workload cases
 and carries `shape.case_id`, dynamic dim values, and dim sources into the report
-and execution plan. Profiling also honors optional dense layout element
-alignment metadata on GEMM A/B tensors: when both operands are annotated,
-candidate workloads whose CUTLASS `align` exceeds the smaller A/B alignment are
+and execution plan. Profiling also builds a CUTLASS alignment context for each
+workload. The context combines optional dense layout element alignment on either
+GEMM A/B operand, known tensor or layout storage offsets, current output and
+epilogue-input alignment metadata, and the profiled shape-derived cap. Candidate
+workloads whose CUTLASS A/B or epilogue alignment exceeds that context are
 pruned before timing. v2 also mirrors v1's shape-derived A/B alignment rule:
 `gemm_rrr` caps candidate alignment by `gcd(K, N)`, `gemm_rcr` caps it by `K`,
 manifest defaults use static dimensions or dynamic `Dim.divisible_by`, and
 profiling workloads use each concrete bucket, override, or max-shape case.
-Kernel manifests preserve this all-runtime `cutlass_alignment_cap`, and
-execution-plan overlays are rejected in strict mode when they try to install a
-profiled candidate whose CUTLASS alignment exceeds that cap.
-Generated CUDA modules also check the selected candidate's A/B pointer
-byte-alignment requirement before calling the CUTLASS launcher, while the common
-runtime support path applies ABI byte offsets to logical tensor pointers,
-validates offset-adjusted byte capacity, and still requires contiguous row-major
-strides when stride metadata is supplied. Profile results, cache keys,
+Kernel manifests preserve this all-runtime `cutlass_alignment` context plus the
+legacy `cutlass_alignment_cap`, and execution-plan overlays are rejected in
+strict mode when they try to install a profiled candidate whose CUTLASS
+alignment exceeds that cap. Generated CUDA modules branch on selected-candidate
+A/B pointer byte alignment and fall back through lower-alignment CUTLASS
+candidates before failing, while the common runtime support path applies ABI
+byte offsets to logical tensor pointers, validates offset-adjusted byte
+capacity, and still requires contiguous row-major strides when stride metadata
+is supplied. Profile results, cache keys,
 execution-plan selections, and static overlays preserve `split_k` plus
 `workspace_nbytes` as launch/result metadata. Base and bias/activation
 `device::Gemm` candidates now advertise

@@ -136,6 +136,18 @@ def _cutlass_item_declarations(item: Mapping[str, Any]) -> list[dict[str, Any]]:
                 split_k=int(selection.get("split_k", 1) or 1),
             )
         )
+    for fallback in item.get("alignment_fallbacks", ()):
+        if not isinstance(fallback, Mapping):
+            continue
+        candidate = _candidate_by_id(item, str(fallback.get("candidate_id", "")))
+        declarations.append(
+            _cutlass_declaration_context(
+                item,
+                candidate,
+                str(fallback.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                split_k=1,
+            )
+        )
     return declarations
 
 

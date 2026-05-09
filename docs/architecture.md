@@ -127,10 +127,15 @@ thresholds over the runner-up. Low-confidence winners are retained in the report
 for audit but are not emitted as consumable execution-plan selections. GEMM profiling expands
 explicit `Dim.buckets` into concrete workload cases when no runtime override is
 supplied, and carries case IDs plus dynamic dim values through the report and
-execution plan. Profiling prunes CUTLASS candidates using optional dense layout
-element alignment metadata when both GEMM A/B operands are annotated. Profile
-results and execution plans now carry `split_k` and `workspace_nbytes` as
-profiled launch metadata. Base and bias/activation CUTLASS GEMMs expand
+execution plan. Manifest/profile candidate filters now carry a CUTLASS
+alignment context that combines shape/divisibility guarantees, partial A/B dense
+layout alignment, known tensor or layout storage offsets, output/epilogue
+alignment metadata, and the effective candidate filter. Generated CUDA tries
+the selected vectorized candidate when runtime A/B logical pointers satisfy its
+alignment and falls back through lower-alignment CUTLASS candidates before
+failing. Profile results and execution plans now carry `split_k` and
+`workspace_nbytes` as profiled launch metadata. Base and bias/activation
+CUTLASS GEMMs expand
 v1-style split-K profile variants, query the CUTLASS workspace requirement, and
 lower `split_k > 1` static overlays to companion split-K launcher symbols with a
 session-owned workspace. Residual/broadcast epilogue families remain restricted

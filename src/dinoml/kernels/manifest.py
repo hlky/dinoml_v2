@@ -8,16 +8,18 @@ from dinoml.ir import canonical_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
-    combine_alignment_caps,
+    alignment_context_candidate_filter,
     cutlass_candidate_alignment,
-    cutlass_gemm_guaranteed_alignment,
-    cutlass_gemm_layout_alignment,
+    cutlass_candidate_epilogue_alignment,
+    cutlass_gemm_static_alignment_context,
+    merge_cutlass_alignment_contexts,
     filter_candidates_by_alignment,
 )
+from dinoml.kernels.gemm import gemm_op_spec
 from dinoml.ops.definitions import get_op_def
 
 
-KERNEL_MANIFEST_SCHEMA_VERSION = 3
+KERNEL_MANIFEST_SCHEMA_VERSION = 4
 KERNEL_ABI_VERSION = 1
 PROFILE_CACHE_SCHEMA_VERSION = 7
 
@@ -27,7 +29,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     required = []
     seen = set()
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
-    cutlass_alignment_caps = _cutlass_gemm_alignment_caps(ir, target_name, tensor_map)
+    cutlass_alignment_contexts = _cutlass_gemm_alignment_contexts(ir, target_name, tensor_map)
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
@@ -42,11 +44,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         if resolved.library == "cutlass_gemm":
             candidates = [dict(candidate) for candidate in cutlass_gemm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_gemm_candidate_set(str(node["op"]), dtype, target=target)
+            alignment_context = cutlass_alignment_contexts.get((str(node["op"]), dtype))
             selected_candidate = _select_cutlass_manifest_candidate(
                 str(node["op"]),
                 dtype,
                 candidates,
-                cutlass_alignment_caps.get((str(node["op"]), dtype)),
+                alignment_context,
             )
             kernel_symbol = str(selected_candidate["kernel_symbol"])
             profiler_symbol = str(selected_candidate["profiler_symbol"])
@@ -70,7 +73,13 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
         if resolved.library == "cutlass_gemm":
-            item["cutlass_alignment_cap"] = cutlass_alignment_caps.get((str(node["op"]), dtype))
+            alignment_context = cutlass_alignment_contexts.get((str(node["op"]), dtype))
+            if alignment_context is not None:
+                item["cutlass_alignment"] = alignment_context
+                item["cutlass_alignment_cap"] = alignment_context_candidate_filter(alignment_context)[
+                    "max_operand_alignment"
+                ]
+            _attach_cutlass_alignment_fallbacks(item)
         required.append(item)
     manifest = {
         "schema_version": KERNEL_MANIFEST_SCHEMA_VERSION,
@@ -84,12 +93,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     return _with_kernel_manifest_cache_keys(manifest)
 
 
-def _cutlass_gemm_alignment_caps(
+def _cutlass_gemm_alignment_contexts(
     ir: Mapping[str, Any],
     target_name: str,
     tensor_map: Mapping[str, Mapping[str, Any]],
-) -> dict[tuple[str, str], int | None]:
-    caps: dict[tuple[str, str], int | None] = {}
+) -> dict[tuple[str, str], dict[str, Any]]:
+    contexts: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
@@ -98,32 +107,43 @@ def _cutlass_gemm_alignment_caps(
         resolved = binding.resolve(dtype)
         if resolved.library != "cutlass_gemm":
             continue
+        spec = gemm_op_spec(str(node["op"]))
         a_name, b_name = (str(name) for name in node["inputs"][:2])
-        cap = combine_alignment_caps(
-            cutlass_gemm_guaranteed_alignment(
-                str(node["op"]),
-                dtype,
-                tensor_map[a_name],
-                tensor_map[b_name],
-            ),
-            cutlass_gemm_layout_alignment((a_name, b_name), tensor_map),
+        epilogue_names = tuple(
+            str(node["inputs"][input_offset])
+            for input_offset, _input_name in enumerate(spec.epilogue.inputs, start=2)
         )
+        context = cutlass_gemm_static_alignment_context(
+            str(node["op"]),
+            dtype,
+            tensor_map,
+            a_name=a_name,
+            b_name=b_name,
+            c_name=str(node["outputs"][0]),
+            epilogue_names=epilogue_names,
+        )
+        context["node_id"] = str(node["id"])
         key = (str(node["op"]), dtype)
-        caps[key] = combine_alignment_caps(caps.get(key), cap)
-    return caps
+        contexts.setdefault(key, []).append(context)
+    return {key: merge_cutlass_alignment_contexts(values) for key, values in contexts.items()}
 
 
 def _select_cutlass_manifest_candidate(
     op_name: str,
     dtype: str,
     candidates: Sequence[Mapping[str, Any]],
-    max_alignment: int | None,
+    alignment_context: Mapping[str, Any] | None,
 ) -> Mapping[str, Any]:
-    filtered = filter_candidates_by_alignment(candidates, max_alignment)
+    candidate_filter = alignment_context_candidate_filter(alignment_context)
+    filtered = filter_candidates_by_alignment(
+        candidates,
+        candidate_filter["max_operand_alignment"],
+        candidate_filter["max_epilogue_alignment"],
+    )
     if not filtered:
         raise ValueError(
             "CUTLASS GEMM manifest alignment filter removed all candidates "
-            f"for {op_name} {dtype} with max alignment {max_alignment}"
+            f"for {op_name} {dtype} with filter {candidate_filter}"
         )
     return filtered[0]
 
@@ -175,6 +195,7 @@ def apply_execution_plan(
             if dispatch_entries:
                 item["execution_plan_dispatch"] = dispatch_entries
                 applied_guarded_keys.add(key)
+        _attach_cutlass_alignment_fallbacks(item)
     if strict:
         missing = sorted(set(selections) - applied_keys)
         if missing:
@@ -297,6 +318,56 @@ def _candidate_by_id(item: Mapping[str, Any], candidate_id: str) -> Mapping[str,
         if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
             return candidate
     return None
+
+
+def _attach_cutlass_alignment_fallbacks(item: dict[str, Any]) -> None:
+    selected_candidate = _candidate_by_id(item, str(item.get("selected_candidate_id", "")))
+    if selected_candidate is None:
+        item.pop("alignment_fallbacks", None)
+        return
+    selected_alignment = cutlass_candidate_alignment(selected_candidate)
+    if selected_alignment <= 1:
+        item.pop("alignment_fallbacks", None)
+        return
+    candidate_filter = alignment_context_candidate_filter(item.get("cutlass_alignment"))
+    fallback_by_alignment: dict[int, Mapping[str, Any]] = {}
+    for candidate in item.get("candidates", []):
+        if not isinstance(candidate, Mapping):
+            continue
+        alignment = cutlass_candidate_alignment(candidate)
+        if alignment >= selected_alignment:
+            continue
+        max_operand_alignment = candidate_filter["max_operand_alignment"]
+        if max_operand_alignment is not None and alignment > max_operand_alignment:
+            continue
+        max_epilogue_alignment = candidate_filter["max_epilogue_alignment"]
+        if (
+            max_epilogue_alignment is not None
+            and cutlass_candidate_epilogue_alignment(candidate) > max_epilogue_alignment
+        ):
+            continue
+        fallback_by_alignment.setdefault(alignment, candidate)
+    fallbacks = [
+        _alignment_fallback_payload(fallback_by_alignment[alignment])
+        for alignment in sorted(fallback_by_alignment, reverse=True)
+    ]
+    if fallbacks:
+        item["alignment_fallbacks"] = fallbacks
+    else:
+        item.pop("alignment_fallbacks", None)
+
+
+def _alignment_fallback_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "candidate_id": str(candidate["candidate_id"]),
+        "candidate_config_key": candidate.get("candidate_config_key"),
+        "kernel_symbol": str(candidate["kernel_symbol"]),
+        "profiler_symbol": str(candidate["profiler_symbol"]),
+        "cutlass_alignment": cutlass_candidate_alignment(candidate),
+        "split_k": 1,
+        "workspace_nbytes": 0,
+        "source": "runtime_pointer_alignment_fallback",
+    }
 
 
 def _with_kernel_manifest_cache_keys(manifest: Mapping[str, Any]) -> dict[str, Any]:

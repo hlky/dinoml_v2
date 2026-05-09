@@ -62,6 +62,12 @@ def _clear_tensor_layout_alignment(graph, names) -> None:
             tensor.setdefault("layout", {}).pop("alignment", None)
 
 
+def _set_tensor_layout_storage_offset(graph, names, offset: int) -> None:
+    for tensor in graph["tensors"]:
+        if tensor["name"] in names:
+            tensor.setdefault("layout", {})["storage_offset"] = int(offset)
+
+
 class GemmModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -422,7 +428,7 @@ def test_build_profile_workloads_filters_candidates_by_layout_alignment():
 
 
 @pytest.mark.parametrize("annotated_tensor", ["a", "b"])
-def test_build_profile_workloads_does_not_filter_when_only_one_gemm_input_has_layout_alignment(annotated_tensor):
+def test_build_profile_workloads_uses_partial_a_b_layout_alignment(annotated_tensor):
     spec = dml.trace(
         GemmModule("gemm_rrr"),
         inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 12], "float32")},
@@ -435,7 +441,13 @@ def test_build_profile_workloads_does_not_filter_when_only_one_gemm_input_has_la
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    assert workloads
+    assert len(workloads) < _cutlass_candidate_count("float32")
+    assert {workload.candidate["cutlass"]["align"] for workload in workloads} <= {1, 2}
+    assert all(
+        workload.alignment_context["candidate_filter"]["max_operand_alignment"] == 2
+        for workload in workloads
+    )
 
 
 def test_build_profile_workloads_uses_minimum_a_b_layout_alignment():
@@ -452,6 +464,30 @@ def test_build_profile_workloads_uses_minimum_a_b_layout_alignment():
     workloads = build_profile_workloads(lowered, manifest)
 
     assert {workload.candidate["cutlass"]["align"] for workload in workloads} <= {1, 2}
+
+
+def test_build_profile_workloads_filters_candidates_by_layout_storage_offset():
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([7, 32], "float32"), "b": dml.TensorSpec([32, 12], "float32")},
+        name="profile_storage_offset_alignment_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    _set_tensor_layout_alignment(lowered, {"a", "b"}, 4)
+    _set_tensor_layout_storage_offset(lowered, {"a"}, 1)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    required = manifest["required_kernels"][0]
+    assert required["cutlass_alignment_cap"] == 1
+    assert required["cutlass_alignment"]["candidate_filter"]["max_operand_alignment"] == 1
+    assert {workload.candidate["cutlass"]["align"] for workload in workloads} == {1}
+    assert workloads[0].alignment_context["operands"]["a"]["sources"][-1] == {
+        "source": "layout.storage_offset",
+        "offset_elements": 1,
+        "alignment": 1,
+    }
 
 
 def test_build_profile_workloads_filters_rcr_candidates_by_a_b_layout_alignment():
@@ -702,6 +738,7 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert payload_a["layouts"] == workload.candidate["layouts"]
     assert payload_a["epilogue"] == workload.candidate["epilogue"]
     assert payload_a["epilogue_config"] == workload.candidate["epilogue_config"]
+    assert payload_a["alignment_context"] == workload.alignment_context
     assert _profile_key(payload_a) != _profile_key(payload_b)
     assert _profile_key(payload_a) != _profile_key(payload_c)
     assert _profile_key(payload_a) != _profile_key(payload_d)

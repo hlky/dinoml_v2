@@ -84,11 +84,13 @@ def render_launch(
     ]
     lines.extend(epilogue_checks)
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
-    default_launch = _cutlass_launch_lines(
+    selected_candidate = _selected_cutlass_candidate(manifest_item)
+    default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
         symbol=symbol,
-        candidate=_selected_cutlass_candidate(manifest_item),
+        candidate=selected_candidate,
         selection=selection,
+        fallback_candidates=_cutlass_alignment_fallback_candidates(manifest_item, selected_candidate),
         dtype=dtype,
         a_ident=a_ident,
         b_ident=b_ident,
@@ -194,6 +196,75 @@ def _cutlass_launch_lines(
         f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}){launch_tail})) "
         f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
     )
+    return lines
+
+
+def _cutlass_launch_with_alignment_fallback_lines(
+    *,
+    op_name: str,
+    symbol: str,
+    candidate: Mapping[str, Any] | None,
+    selection: Mapping[str, Any] | None,
+    fallback_candidates: list[Mapping[str, Any]],
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    epilogue_arg_text: str,
+    c_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> list[str]:
+    selected_alignment = _candidate_cutlass_alignment(candidate)
+    if selected_alignment <= 1 or not fallback_candidates:
+        return _cutlass_launch_lines(
+            op_name=op_name,
+            symbol=symbol,
+            candidate=candidate,
+            selection=selection,
+            dtype=dtype,
+            a_ident=a_ident,
+            b_ident=b_ident,
+            epilogue_arg_text=epilogue_arg_text,
+            c_ident=c_ident,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+        )
+    attempts: list[tuple[str, Mapping[str, Any] | None, Mapping[str, Any] | None]] = [
+        (symbol, candidate, selection),
+        *[
+            (str(fallback["kernel_symbol"]), fallback, {"split_k": 1})
+            for fallback in fallback_candidates
+        ],
+    ]
+    lines: list[str] = []
+    for index, (attempt_symbol, attempt_candidate, attempt_selection) in enumerate(attempts):
+        alignment = _candidate_cutlass_alignment(attempt_candidate)
+        conditions = _cutlass_runtime_alignment_conditions(alignment, dtype, a_ident, b_ident)
+        if index == 0:
+            lines.append(f"if ({' && '.join(conditions)}) {{")
+        elif index == len(attempts) - 1 or not conditions:
+            lines.append("else {")
+        else:
+            lines.append(f"else if ({' && '.join(conditions)}) {{")
+        body = _cutlass_launch_lines(
+            op_name=op_name,
+            symbol=attempt_symbol,
+            candidate=attempt_candidate,
+            selection=attempt_selection,
+            dtype=dtype,
+            a_ident=a_ident,
+            b_ident=b_ident,
+            epilogue_arg_text=epilogue_arg_text,
+            c_ident=c_ident,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            check_alignment=index == len(attempts) - 1,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
     return lines
 
 
@@ -315,6 +386,22 @@ def _candidate_by_id(item: Mapping[str, Any] | None, candidate_id: str) -> Mappi
         if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
             return candidate
     return {}
+
+
+def _cutlass_alignment_fallback_candidates(
+    item: Mapping[str, Any] | None,
+    selected_candidate: Mapping[str, Any] | None,
+) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping) or not isinstance(selected_candidate, Mapping):
+        return []
+    candidates = []
+    for fallback in item.get("alignment_fallbacks", ()):
+        if not isinstance(fallback, Mapping):
+            continue
+        candidate = _candidate_by_id(item, str(fallback.get("candidate_id", "")))
+        if candidate:
+            candidates.append(candidate)
+    return candidates
 
 
 def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:

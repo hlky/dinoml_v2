@@ -13,6 +13,15 @@ def cutlass_candidate_alignment(candidate: Mapping[str, Any]) -> int:
     return 1
 
 
+def cutlass_candidate_epilogue_alignment(candidate: Mapping[str, Any]) -> int:
+    cutlass = candidate.get("cutlass", {})
+    if isinstance(cutlass, Mapping):
+        for key in ("align_c", "epilogue_align", "epilogue_alignment"):
+            if cutlass.get(key) is not None:
+                return int(cutlass[key])
+    return 1
+
+
 def cutlass_gemm_problem_alignment(op_name: str, dtype: str, *, n: int, k: int) -> int:
     spec = gemm_op_spec(op_name)
     if spec.base_layout == "rrr":
@@ -50,12 +59,147 @@ def cutlass_gemm_layout_alignment(
 ) -> int | None:
     alignments = []
     for name in tensor_names:
-        layout = tensor_map[str(name)].get("layout", {})
-        if isinstance(layout, Mapping) and layout.get("alignment") is not None:
-            alignments.append(int(layout["alignment"]))
+        alignment = cutlass_tensor_accessor_alignment(str(name), tensor_map)
+        if alignment is not None:
+            alignments.append(alignment)
     if len(alignments) != len(tensor_names):
         return None
     return min(alignments)
+
+
+def cutlass_gemm_static_alignment_context(
+    op_name: str,
+    dtype: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    a_name: str,
+    b_name: str,
+    c_name: str | None = None,
+    epilogue_names: Sequence[str] = (),
+) -> dict[str, Any]:
+    a_tensor = tensor_map[str(a_name)]
+    b_tensor = tensor_map[str(b_name)]
+    shape_alignment = cutlass_gemm_guaranteed_alignment(op_name, dtype, a_tensor, b_tensor)
+    return _cutlass_gemm_alignment_context(
+        op_name,
+        dtype,
+        tensor_map,
+        a_name=a_name,
+        b_name=b_name,
+        c_name=c_name,
+        epilogue_names=epilogue_names,
+        shape_alignment=shape_alignment,
+        shape_alignment_source="shape_spec_divisibility",
+    )
+
+
+def cutlass_gemm_profile_alignment_context(
+    op_name: str,
+    dtype: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    a_name: str,
+    b_name: str,
+    c_name: str | None = None,
+    epilogue_names: Sequence[str] = (),
+    n: int,
+    k: int,
+) -> dict[str, Any]:
+    shape_alignment = cutlass_gemm_problem_alignment(op_name, dtype, n=n, k=k)
+    return _cutlass_gemm_alignment_context(
+        op_name,
+        dtype,
+        tensor_map,
+        a_name=a_name,
+        b_name=b_name,
+        c_name=c_name,
+        epilogue_names=epilogue_names,
+        shape_alignment=shape_alignment,
+        shape_alignment_source="profiled_problem_shape",
+    )
+
+
+def cutlass_tensor_accessor_alignment(
+    tensor_name: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> int | None:
+    return cutlass_tensor_accessor_alignment_context(tensor_name, tensor_map)["alignment"]
+
+
+def cutlass_tensor_accessor_alignment_context(
+    tensor_name: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    tensor = tensor_map[str(tensor_name)]
+    dtype = str(tensor.get("dtype", ""))
+    layout = tensor.get("layout", {})
+    caps: list[int] = []
+    sources: list[dict[str, Any]] = []
+    if isinstance(layout, Mapping):
+        kind = str(layout.get("kind", "dense"))
+        if kind != "dense":
+            caps.append(1)
+            sources.append({"source": "layout.kind", "kind": kind, "alignment": 1})
+        if layout.get("alignment") is not None:
+            alignment = int(layout["alignment"])
+            caps.append(alignment)
+            sources.append({"source": "layout.alignment", "alignment": alignment})
+        if layout.get("storage_offset") is not None:
+            offset_alignment = _offset_alignment(int(layout["storage_offset"]), dtype)
+            if offset_alignment is not None:
+                caps.append(offset_alignment)
+                sources.append(
+                    {
+                        "source": "layout.storage_offset",
+                        "offset_elements": int(layout["storage_offset"]),
+                        "alignment": offset_alignment,
+                    }
+                )
+    for key in ("storage_offset", "offset_elements"):
+        if tensor.get(key) is not None:
+            offset_alignment = _offset_alignment(int(tensor[key]), dtype)
+            if offset_alignment is not None:
+                caps.append(offset_alignment)
+                sources.append(
+                    {
+                        "source": f"tensor.{key}",
+                        "offset_elements": int(tensor[key]),
+                        "alignment": offset_alignment,
+                    }
+                )
+    alignment = min(caps) if caps else None
+    return {
+        "tensor": str(tensor_name),
+        "alignment": alignment,
+        "sources": sources,
+    }
+
+
+def merge_cutlass_alignment_contexts(contexts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    copied = [dict(context) for context in contexts]
+    operand_cap = combine_alignment_caps(
+        *(
+            _candidate_filter_value(context, "max_operand_alignment")
+            for context in copied
+        )
+    )
+    epilogue_cap = combine_alignment_caps(
+        *(
+            _candidate_filter_value(context, "max_epilogue_alignment")
+            for context in copied
+        )
+    )
+    return {
+        "schema_version": 1,
+        "kind": "cutlass_gemm_alignment_context",
+        "scope": "merged_kernel_manifest",
+        "node_count": len(copied),
+        "candidate_filter": {
+            "max_operand_alignment": operand_cap,
+            "max_epilogue_alignment": epilogue_cap,
+        },
+        "nodes": copied,
+    }
 
 
 def combine_alignment_caps(*alignments: int | None) -> int | None:
@@ -66,11 +210,107 @@ def combine_alignment_caps(*alignments: int | None) -> int | None:
 def filter_candidates_by_alignment(
     candidates: Sequence[Mapping[str, Any]],
     max_alignment: int | None,
+    max_epilogue_alignment: int | None = None,
 ) -> list[dict[str, Any]]:
     copied = [dict(candidate) for candidate in candidates]
-    if max_alignment is None:
+    if max_alignment is None and max_epilogue_alignment is None:
         return copied
-    return [candidate for candidate in copied if cutlass_candidate_alignment(candidate) <= max_alignment]
+    return [
+        candidate
+        for candidate in copied
+        if (max_alignment is None or cutlass_candidate_alignment(candidate) <= max_alignment)
+        and (
+            max_epilogue_alignment is None
+            or cutlass_candidate_epilogue_alignment(candidate) <= max_epilogue_alignment
+        )
+    ]
+
+
+def alignment_context_candidate_filter(context: Mapping[str, Any] | None) -> dict[str, int | None]:
+    if not isinstance(context, Mapping):
+        return {"max_operand_alignment": None, "max_epilogue_alignment": None}
+    candidate_filter = context.get("candidate_filter", {})
+    if not isinstance(candidate_filter, Mapping):
+        return {"max_operand_alignment": None, "max_epilogue_alignment": None}
+    return {
+        "max_operand_alignment": _optional_int(candidate_filter.get("max_operand_alignment")),
+        "max_epilogue_alignment": _optional_int(candidate_filter.get("max_epilogue_alignment")),
+    }
+
+
+def _cutlass_gemm_alignment_context(
+    op_name: str,
+    dtype: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    a_name: str,
+    b_name: str,
+    c_name: str | None,
+    epilogue_names: Sequence[str],
+    shape_alignment: int,
+    shape_alignment_source: str,
+) -> dict[str, Any]:
+    a_context = cutlass_tensor_accessor_alignment_context(a_name, tensor_map)
+    b_context = cutlass_tensor_accessor_alignment_context(b_name, tensor_map)
+    c_context = (
+        cutlass_tensor_accessor_alignment_context(c_name, tensor_map)
+        if c_name is not None
+        else None
+    )
+    epilogue_contexts = [
+        cutlass_tensor_accessor_alignment_context(name, tensor_map)
+        for name in epilogue_names
+    ]
+    operand_cap = combine_alignment_caps(
+        int(shape_alignment),
+        a_context["alignment"],
+        b_context["alignment"],
+    )
+    epilogue_cap = combine_alignment_caps(
+        c_context["alignment"] if c_context is not None else None,
+        *(context["alignment"] for context in epilogue_contexts),
+    )
+    return {
+        "schema_version": 1,
+        "kind": "cutlass_gemm_alignment_context",
+        "scope": shape_alignment_source,
+        "op": str(op_name),
+        "dtype": str(dtype),
+        "shape_alignment": {
+            "alignment": int(shape_alignment),
+            "source": shape_alignment_source,
+        },
+        "operands": {
+            "a": a_context,
+            "b": b_context,
+        },
+        "epilogue": {
+            "c": c_context,
+            "inputs": epilogue_contexts,
+        },
+        "candidate_filter": {
+            "max_operand_alignment": operand_cap,
+            "max_epilogue_alignment": epilogue_cap,
+        },
+    }
+
+
+def _candidate_filter_value(context: Mapping[str, Any], key: str) -> int | None:
+    candidate_filter = context.get("candidate_filter", {})
+    if not isinstance(candidate_filter, Mapping):
+        return None
+    return _optional_int(candidate_filter.get(key))
+
+
+def _optional_int(value: Any) -> int | None:
+    return None if value is None else int(value)
+
+
+def _offset_alignment(offset_elements: int, dtype: str) -> int | None:
+    offset = abs(int(offset_elements))
+    if offset == 0:
+        return None
+    return _max_dtype_alignment(dtype, offset)
 
 
 def _max_dtype_alignment(dtype: str, number: int) -> int:

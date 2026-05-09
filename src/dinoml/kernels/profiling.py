@@ -20,10 +20,9 @@ from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json,
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
 from dinoml.kernels.providers.cutlass.alignment import (
-    combine_alignment_caps,
+    alignment_context_candidate_filter,
     cutlass_candidate_alignment,
-    cutlass_gemm_layout_alignment,
-    cutlass_gemm_problem_alignment,
+    cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
 from dinoml.ops.definitions import get_op_def
@@ -80,6 +79,7 @@ class GemmProfileWorkload:
     shape_case_id: str
     dim_values: Mapping[str, int]
     dim_sources: Mapping[str, str]
+    alignment_context: Mapping[str, Any]
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -116,6 +116,7 @@ class GemmProfileWorkload:
                 "dims": dict(self.dim_values),
                 "dim_sources": dict(self.dim_sources),
             },
+            "alignment_context": dict(self.alignment_context),
         }
 
 
@@ -166,7 +167,6 @@ def build_profile_workloads(
         }
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
-        layout_max_candidate_alignment = cutlass_gemm_layout_alignment((a_name, b_name), tensor_map)
         for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
             a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
             b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
@@ -176,11 +176,18 @@ def build_profile_workloads(
             residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
-            max_candidate_alignment = combine_alignment_caps(
-                layout_max_candidate_alignment,
-                cutlass_gemm_problem_alignment(op_name, dtype, n=n, k=k),
+            alignment_context = cutlass_gemm_profile_alignment_context(
+                op_name,
+                dtype,
+                tensor_map,
+                a_name=a_name,
+                b_name=b_name,
+                c_name=output_name,
+                epilogue_names=tuple(name for name in (bias_name, *residual_names) if name is not None),
+                n=n,
+                k=k,
             )
-            profile_candidates = _profile_candidates(required_item, max_alignment=max_candidate_alignment)
+            profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
             for candidate in profile_candidates:
                 for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
                     workloads.append(
@@ -224,25 +231,38 @@ def build_profile_workloads(
                             shape_case_id=scenario.case_id,
                             dim_values=scenario.dim_values,
                             dim_sources=scenario.dim_sources,
+                            alignment_context=alignment_context,
                         )
                     )
     return workloads
 
 
-def _profile_candidates(required_item: Mapping[str, Any], *, max_alignment: int | None = None) -> list[dict[str, Any]]:
-    candidates = filter_candidates_by_alignment(required_item.get("candidates", []), max_alignment)
+def _profile_candidates(
+    required_item: Mapping[str, Any],
+    *,
+    alignment_context: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    candidate_filter = alignment_context_candidate_filter(alignment_context)
+    candidates = filter_candidates_by_alignment(
+        required_item.get("candidates", []),
+        candidate_filter["max_operand_alignment"],
+        candidate_filter["max_epilogue_alignment"],
+    )
     if candidates:
         return candidates
     if required_item.get("candidates"):
         raise ValueError(
             "CUTLASS GEMM profiling alignment filter removed all candidates "
-            f"for {required_item.get('op')} with max alignment {max_alignment}"
+            f"for {required_item.get('op')} with filter {candidate_filter}"
         )
     fallback = _selected_profile_candidate(required_item)
-    if max_alignment is not None and cutlass_candidate_alignment(fallback) > max_alignment:
+    if (
+        candidate_filter["max_operand_alignment"] is not None
+        and cutlass_candidate_alignment(fallback) > candidate_filter["max_operand_alignment"]
+    ):
         raise ValueError(
             "CUTLASS GEMM profiling alignment filter removed manifest default "
-            f"for {required_item.get('op')} with max alignment {max_alignment}"
+            f"for {required_item.get('op')} with filter {candidate_filter}"
         )
     return [fallback]
 
@@ -956,6 +976,7 @@ def _profile_key_payload(
         "layouts": dict(workload.candidate.get("layouts", {})),
         "epilogue": workload.candidate.get("epilogue"),
         "epilogue_config": workload.candidate.get("epilogue_config"),
+        "alignment_context": dict(workload.alignment_context),
         "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
         "profile_variant": {"split_k": workload.split_k},
         "split_k": workload.split_k,
@@ -1016,6 +1037,7 @@ def _cache_entry(
         "op": workload.op,
         "dtype": workload.dtype,
         "shape": dict(result["shape"]),
+        "alignment_context": dict(result.get("alignment_context", workload.alignment_context)),
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "best_candidate_id": workload.candidate_id,

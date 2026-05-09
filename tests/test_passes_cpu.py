@@ -716,11 +716,19 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert selected_candidate["kernel_symbol"] in generated
     assert default_candidate["kernel_symbol"] not in generated
     required_alignment = int(selected_candidate["cutlass"]["align"]) * 4
-    assert f'dinoml::module::check_tensor_pointer_alignment(abi_a, ptr_a, "gemm_rrr A", {required_alignment})' in generated
-    assert f'dinoml::module::check_tensor_pointer_alignment(abi_b, ptr_b, "gemm_rrr B", {required_alignment})' in generated
+    fallback = selected_required["alignment_fallbacks"][0]
+    assert fallback["cutlass_alignment"] == 1
+    assert fallback["kernel_symbol"] in generated
+    assert f"dinoml::module::is_tensor_pointer_aligned(abi_a, ptr_a, {required_alignment})" in generated
+    assert f"dinoml::module::is_tensor_pointer_aligned(abi_b, ptr_b, {required_alignment})" in generated
+    assert f"else {{\n  if (int err = {fallback['kernel_symbol']}(" in generated
     assert "cutlass_workspace" not in generated
     assert "dinoml_cutlass_splitk_" not in generated
     assert selected_candidate["symbol_id"] in rendered_support
+    fallback_candidate = next(
+        candidate for candidate in selected_required["candidates"] if candidate["candidate_id"] == fallback["candidate_id"]
+    )
+    assert fallback_candidate["symbol_id"] in rendered_support
 
 
 def test_apply_execution_plan_rejects_cutlass_candidate_above_alignment_cap():

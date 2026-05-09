@@ -533,6 +533,16 @@ def cutlass_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
                 if isinstance(item.get("execution_plan_selection"), Mapping)
                 else None
             ),
+            "alignment_fallbacks": [
+                dict(fallback)
+                for fallback in item.get("alignment_fallbacks", [])
+                if isinstance(fallback, Mapping)
+            ],
+            "cutlass_alignment": (
+                dict(item["cutlass_alignment"])
+                if isinstance(item.get("cutlass_alignment"), Mapping)
+                else None
+            ),
             "candidate_set": candidate_set,
             "candidates": candidates,
         }

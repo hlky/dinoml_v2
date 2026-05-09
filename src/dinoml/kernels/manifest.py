@@ -9,6 +9,7 @@ from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
     combine_alignment_caps,
+    cutlass_candidate_alignment,
     cutlass_gemm_guaranteed_alignment,
     cutlass_gemm_layout_alignment,
     filter_candidates_by_alignment,
@@ -68,6 +69,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
+        if resolved.library == "cutlass_gemm":
+            item["cutlass_alignment_cap"] = cutlass_alignment_caps.get((str(node["op"]), dtype))
         required.append(item)
     manifest = {
         "schema_version": KERNEL_MANIFEST_SCHEMA_VERSION,
@@ -153,6 +156,23 @@ def apply_execution_plan(
                 raise ValueError(
                     "Execution plan selected unknown CUTLASS candidate "
                     f"{selected_id!r} for {key[0]} {key[1]} candidate set {key[2]}"
+            )
+            continue
+        selected_config_key = selected_candidate.get("candidate_config_key")
+        plan_config_key = selection.get("candidate_config_key")
+        if selected_config_key is not None and plan_config_key is not None and str(selected_config_key) != str(plan_config_key):
+            if strict:
+                raise ValueError(
+                    "Execution plan candidate_config_key mismatch for CUTLASS candidate "
+                    f"{selected_id!r} on {key[0]} {key[1]}"
+                )
+            continue
+        alignment_cap = item.get("cutlass_alignment_cap")
+        if alignment_cap is not None and cutlass_candidate_alignment(selected_candidate) > int(alignment_cap):
+            if strict:
+                raise ValueError(
+                    "Execution plan selected CUTLASS candidate "
+                    f"{selected_id!r} for {key[0]} {key[1]} exceeds alignment cap {int(alignment_cap)}"
                 )
             continue
         item["selected_candidate_id"] = selected_id

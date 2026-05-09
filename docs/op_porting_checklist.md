@@ -187,7 +187,8 @@ normalization or softmax patterns, otherwise use custom block reductions.
   manifest defaults use the all-runtime shape contract (`K` for RCR,
   `gcd(K, N)` for RRR, with dynamic dims capped by `divisible_by`), and
   profiling workloads use each concrete bucket/override/max shape before timing
-  candidates.
+  candidates. Execution-plan overlays now validate selected candidate alignment
+  against the manifest cap before replacing the safe default.
 - [x] First CUTLASS runtime alignment guard:
   generated CUDA checks selected-candidate A/B pointer byte alignment before
   launching vectorized CUTLASS GEMMs. The shared module support path already

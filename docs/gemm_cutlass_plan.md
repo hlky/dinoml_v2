@@ -94,6 +94,9 @@ pruned before timing. v2 also mirrors v1's shape-derived A/B alignment rule:
 `gemm_rrr` caps candidate alignment by `gcd(K, N)`, `gemm_rcr` caps it by `K`,
 manifest defaults use static dimensions or dynamic `Dim.divisible_by`, and
 profiling workloads use each concrete bucket, override, or max-shape case.
+Kernel manifests preserve this all-runtime `cutlass_alignment_cap`, and
+execution-plan overlays are rejected in strict mode when they try to install a
+profiled candidate whose CUTLASS alignment exceeds that cap.
 Generated CUDA modules also check the selected candidate's A/B pointer
 byte-alignment requirement before calling the CUTLASS launcher, while the common
 runtime support path enforces zero byte offsets, sufficient byte capacity, and

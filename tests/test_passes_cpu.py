@@ -516,6 +516,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["candidate_set"]["candidate_count"] == len(manifest_candidates)
     _assert_split_k_metadata(required["candidate_set"], str(required["candidate_set"]["launch_abi"]))
     assert required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
+    assert required["cutlass_alignment_cap"] == 2
     assert required["selected_candidate_id"] == selected_candidate["candidate_id"]
     assert len(required["candidates"]) == len(manifest_candidates)
     candidate = required["candidates"][0]
@@ -715,6 +716,102 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert "cutlass_workspace" not in generated
     assert "dinoml_cutlass_splitk_" not in generated
     assert selected_candidate["symbol_id"] in rendered_support
+
+
+def test_apply_execution_plan_rejects_cutlass_candidate_above_alignment_cap():
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(8, 16))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_alignment_cap_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    unsafe_candidate = next(candidate for candidate in required["candidates"] if int(candidate["cutlass"]["align"]) == 4)
+    original_selected = required["selected_candidate_id"]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": unsafe_candidate["candidate_id"],
+                "candidate_config_key": unsafe_candidate["candidate_config_key"],
+                "kernel_symbol": unsafe_candidate["kernel_symbol"],
+                "profiler_symbol": unsafe_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 16, "k": 32},
+                "avg_ms": 0.01,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="exceeds alignment cap 1"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert required["cutlass_alignment_cap"] == 1
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == original_selected
+    assert relaxed["required_kernels"][0]["kernel_symbol"] == required["kernel_symbol"]
+
+
+def test_apply_execution_plan_rejects_stale_cutlass_candidate_config_key():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 8], "float32")},
+        name="gemm_profile_stale_candidate_config_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][0]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": "stale-candidate-config-key",
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 8},
+                "avg_ms": 0.01,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="candidate_config_key mismatch"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_selection" not in relaxed["required_kernels"][0]
 
 
 def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace():

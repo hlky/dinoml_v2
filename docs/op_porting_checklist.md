@@ -195,8 +195,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] First CUTLASS runtime alignment guard:
   generated CUDA checks selected-candidate A/B pointer byte alignment before
   launching vectorized CUTLASS GEMMs. The shared module support path already
-  rejects non-zero byte offsets, too-small byte capacity, and non-contiguous
-  row-major strides when stride metadata is supplied.
+  validates offset-adjusted byte capacity and non-contiguous row-major strides
+  when stride metadata is supplied.
+- [x] First ABI byte-offset support:
+  generated CPU/CUDA modules apply `DinoTensor.byte_offset` to logical tensor
+  pointers for inputs, outputs, runtime constants, and public alias
+  materialization; CUTLASS pointer-alignment checks now see the logical pointer.
 - [ ] Full tensor-accessor alignment selection:
   fold tensor offsets and future non-dense layout metadata into manifest/profile
   candidate filtering before launch.

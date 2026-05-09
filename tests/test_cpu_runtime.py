@@ -237,12 +237,62 @@ def test_cpu_runtime_rejects_non_contiguous_abi_strides(tmp_path):
         module.close()
 
 
+def test_cpu_runtime_honors_byte_offsets_in_abi_tensors(tmp_path):
+    spec = dml.trace(AddZeroModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="add_zero_byte_offset")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "identity_byte_offset.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    backing_input = np.arange(8, dtype=np.float32)
+    backing_output = np.full(8, -1.0, dtype=np.float32)
+    input_shape = runtime._shape_buffer((2, 3))
+    output_shape = runtime._shape_buffer((2, 3))
+    input_strides = runtime._stride_buffer((2, 3))
+    output_strides = runtime._stride_buffer((2, 3))
+    input_tensor = runtime._DinoTensor(
+        ctypes.c_void_p(backing_input.ctypes.data),
+        input_shape,
+        2,
+        dtype_runtime_enum("float32"),
+        input_strides,
+        backing_input.itemsize,
+        backing_input.nbytes,
+        runtime.DINO_DEVICE_CPU,
+        runtime.DINO_TENSOR_FLAG_CONTIGUOUS,
+        0,
+    )
+    output_tensor = runtime._DinoTensor(
+        ctypes.c_void_p(backing_output.ctypes.data),
+        output_shape,
+        2,
+        dtype_runtime_enum("float32"),
+        output_strides,
+        backing_output.itemsize,
+        backing_output.nbytes,
+        runtime.DINO_DEVICE_CPU,
+        runtime.DINO_TENSOR_FLAG_CONTIGUOUS,
+        0,
+    )
+    inputs = (runtime._DinoTensor * 1)(input_tensor)
+    outputs = (runtime._DinoTensor * 1)(output_tensor)
+
+    try:
+        module._check(module._dll.dino_session_run(session._handle, inputs, ctypes.c_size_t(1), outputs, ctypes.c_size_t(1)))
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_array_equal(backing_output[1:7].reshape(2, 3), backing_input[1:7].reshape(2, 3))
+    assert backing_output[0] == -1.0
+    assert backing_output[7] == -1.0
+
+
 def test_cpu_runtime_materializes_direct_input_output(tmp_path):
     spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="direct_identity_cpu")
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "direct_identity_cpu.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "const float* ptr_" in generated
-    assert "std::memcpy(outputs[0].data" in generated
+    assert "std::memcpy(dinoml::module::tensor_data(outputs[0])" in generated
 
     module = runtime.load(artifact.path)
     session = module.create_session()
@@ -262,7 +312,7 @@ def test_cpu_runtime_materializes_reduced_precision_direct_input_output(tmp_path
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"direct_identity_{dtype}_cpu.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert ("dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16") in generated
-    assert "std::memcpy(outputs[0].data" in generated
+    assert "std::memcpy(dinoml::module::tensor_data(outputs[0])" in generated
 
     x = np.array([[-2.25, -1.0, 0.0], [1.125, 2.5, 3.75]], dtype=np.float32)
     expected = _storage_roundtrip(x, dtype)
@@ -397,7 +447,7 @@ def test_cpu_runtime_materializes_output_view_of_input_on_repeated_runs(tmp_path
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "shape_view_input_alias.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "const float* ptr_y = ptr_x;" in generated
-    assert "std::memcpy(outputs[0].data, ptr_y, runtime_numel_y * sizeof(float));" in generated
+    assert "std::memcpy(dinoml::module::tensor_data(outputs[0]), ptr_y, runtime_numel_y * sizeof(float));" in generated
 
     module = runtime.load(artifact.path)
     session = module.create_session()

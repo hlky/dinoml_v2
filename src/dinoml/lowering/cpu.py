@@ -132,7 +132,7 @@ def _pointer_decls(
     for tensor_name, idx in input_map.items():
         ident = _c_ident(tensor_name)
         cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
-        yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(inputs[{idx}].data);"
+        yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(dinoml::module::tensor_data(inputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
         yield f"session->shape_{ident}.assign(inputs[{idx}].shape, inputs[{idx}].shape + {len(tensor_map[tensor_name]['shape'])});"
@@ -163,7 +163,7 @@ def _pointer_decls(
             continue
         ident = _c_ident(tensor_name)
         cpp_type = cpu_storage_type(str(tensor_map[tensor_name]["dtype"]))
-        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(outputs[{idx}].data);"
+        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(dinoml::module::tensor_data(outputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
         yield f"session->shape_{ident}.assign(outputs[{idx}].shape, outputs[{idx}].shape + {len(tensor_map[tensor_name]['shape'])});"
@@ -236,7 +236,7 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
         if output_idx is None:
             continue
         materializations.append(
-            f"std::memcpy(outputs[{int(output_idx)}].data, ptr_{view['ident']}, {view['nbytes_expr']});"
+            f"std::memcpy(dinoml::module::tensor_data(outputs[{int(output_idx)}]), ptr_{view['ident']}, {view['nbytes_expr']});"
         )
     return materializations
 

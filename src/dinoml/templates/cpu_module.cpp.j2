@@ -97,7 +97,7 @@ DINO_EXPORT int dino_module_set_constant(
     }
     std::memcpy(
         module->const_{{ constant.ident }}.data(),
-        tensor->data,
+        dinoml::module::tensor_data(*tensor),
         static_cast<size_t>(runtime_numel) * {{ constant.dtype_nbytes }});
     module->const_{{ constant.ident }}_loaded = true;
     return 0;

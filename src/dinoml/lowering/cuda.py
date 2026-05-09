@@ -298,7 +298,8 @@ def _pointer_decls(
     for tensor_name, idx in input_map.items():
         ident = _c_ident(tensor_name)
         cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
-        yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(inputs[{idx}].data);"
+        yield f"const DinoTensor* abi_{ident} = &inputs[{idx}];"
+        yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(dinoml::module::tensor_data(inputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
         yield f"DINO_CUDA_CHECK(cudaMemcpy(session->shape_{ident}, inputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, cudaMemcpyHostToDevice));"
@@ -308,6 +309,7 @@ def _pointer_decls(
         ident = _c_ident(tensor_name)
         cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         rank = len(tensor_map[tensor_name]["shape"])
+        yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(rank):
             yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
         yield f"DINO_CUDA_CHECK(cudaMemcpy(session->shape_{ident}, module->const_shape_{ident}.data(), sizeof(int64_t) * {rank}, cudaMemcpyHostToDevice));"
@@ -321,6 +323,7 @@ def _pointer_decls(
         tensor_name = item["tensor"]
         ident = _c_ident(tensor_name)
         cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
+        yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
         yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
@@ -333,7 +336,8 @@ def _pointer_decls(
             continue
         ident = _c_ident(tensor_name)
         cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
-        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(outputs[{idx}].data);"
+        yield f"const DinoTensor* abi_{ident} = &outputs[{idx}];"
+        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(dinoml::module::tensor_data(outputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
         yield f"DINO_CUDA_CHECK(cudaMemcpy(session->shape_{ident}, outputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, cudaMemcpyHostToDevice));"
@@ -346,6 +350,7 @@ def _pointer_decls(
         source_ident = _c_ident(source_name)
         cpp_type = cuda_storage_type(str(tensor_map[tensor_name]["dtype"]))
         output_idx = view.get("output_index")
+        yield f"const DinoTensor* abi_{ident} = abi_{source_ident};"
         if output_idx is None:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
                 yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
@@ -408,7 +413,7 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
             continue
         materializations.append(
             "DINO_CUDA_CHECK(cudaMemcpyAsync("
-            f"outputs[{int(output_idx)}].data, ptr_{view['ident']}, {view['nbytes_expr']}, "
+            f"dinoml::module::tensor_data(outputs[{int(output_idx)}]), ptr_{view['ident']}, {view['nbytes_expr']}, "
             "cudaMemcpyDeviceToDevice, session->stream));"
         )
     return materializations

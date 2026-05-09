@@ -279,7 +279,10 @@ def test_cuda_lowering_binds_and_materializes_shape_view_output_alias():
     generated = render_cuda_module(lowered, generated_kernels=[])
 
     assert "const float* ptr_y = ptr_x;" in generated
-    assert "cudaMemcpyAsync(outputs[0].data, ptr_y, runtime_numel_y * sizeof(float), cudaMemcpyDeviceToDevice, session->stream)" in generated
+    assert (
+        "cudaMemcpyAsync(dinoml::module::tensor_data(outputs[0]), ptr_y, runtime_numel_y * sizeof(float), "
+        "cudaMemcpyDeviceToDevice, session->stream)"
+    ) in generated
 
 
 def test_cpu_reference_matches_numpy_formula():
@@ -643,8 +646,8 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
 
     assert no_tf32_required["kernel_symbol"] in generated
     assert default_required["kernel_symbol"] not in generated
-    assert "check_pointer_alignment(ptr_a" not in generated
-    assert "check_pointer_alignment(ptr_b" not in generated
+    assert "check_tensor_pointer_alignment(abi_a" not in generated
+    assert "check_tensor_pointer_alignment(abi_b" not in generated
     assert "cutlass::arch::OpClassSimt" in rendered_support
     assert no_tf32_required["candidates"][0]["cutlass_policy"] in rendered_support
     assert no_tf32_required["candidates"][0]["symbol_id"] in rendered_support
@@ -711,8 +714,8 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert selected_candidate["kernel_symbol"] in generated
     assert default_candidate["kernel_symbol"] not in generated
     required_alignment = int(selected_candidate["cutlass"]["align"]) * 4
-    assert f'dinoml::module::check_pointer_alignment(ptr_a, "gemm_rrr A", {required_alignment})' in generated
-    assert f'dinoml::module::check_pointer_alignment(ptr_b, "gemm_rrr B", {required_alignment})' in generated
+    assert f'dinoml::module::check_tensor_pointer_alignment(abi_a, ptr_a, "gemm_rrr A", {required_alignment})' in generated
+    assert f'dinoml::module::check_tensor_pointer_alignment(abi_b, ptr_b, "gemm_rrr B", {required_alignment})' in generated
     assert "cutlass_workspace" not in generated
     assert "dinoml_cutlass_splitk_" not in generated
     assert selected_candidate["symbol_id"] in rendered_support
@@ -893,8 +896,10 @@ def test_cuda_lowering_uses_guarded_execution_plan_dispatch_for_shape_conflicts(
     assert "size_t cutlass_workspace_nbytes = 4096;" in generated
     assert "if ((shape_a_0) == 4 && (shape_b_1) == 6 && (shape_a_1) == 32 &&" in generated
     assert "else if ((shape_a_0) == 4 && (shape_b_1) == 8 && (shape_a_1) == 32 &&" in generated
-    assert "dinoml::module::is_pointer_aligned(ptr_a, 16)" in generated
-    assert "dinoml::module::is_pointer_aligned(ptr_b, 16)" in generated
+    assert "const DinoTensor* abi_a = &inputs[0];" in generated
+    assert "const DinoTensor* abi_b = &inputs[1];" in generated
+    assert "dinoml::module::is_tensor_pointer_aligned(abi_a, ptr_a, 16)" in generated
+    assert "dinoml::module::is_tensor_pointer_aligned(abi_b, ptr_b, 16)" in generated
     assert f"if (int err = {split_symbol}(" in generated
     assert ", 2, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream" in generated
     assert f"if (int err = {align4_candidate['kernel_symbol']}(" in generated

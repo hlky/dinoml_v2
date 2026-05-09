@@ -628,7 +628,7 @@ def test_cuda_runtime_materializes_direct_input_output(tmp_path):
     spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="direct_identity_cuda")
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "direct_identity_cuda.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "cudaMemcpyAsync(outputs[0].data" in generated
+    assert "cudaMemcpyAsync(dinoml::module::tensor_data(outputs[0])" in generated
 
     module = runtime.load(artifact.path)
     session = module.create_session()

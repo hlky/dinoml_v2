@@ -44,8 +44,8 @@ struct DinoTensor {
   // v5 generated modules still require contiguous tensors, but carrying this
   // metadata now gives future strided/layout kernels a stable ABI field.
   const int64_t* strides;
-  // Byte offset from data to the logical first element. Non-zero offsets are
-  // reserved for future view/layout support and are rejected by current modules.
+  // Byte offset from data to the logical first element. Generated modules add
+  // this to data before launching kernels or materializing outputs.
   size_t byte_offset;
   // Available bytes from the logical first element. Zero means unknown.
   size_t nbytes;

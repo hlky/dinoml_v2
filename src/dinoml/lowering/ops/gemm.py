@@ -275,9 +275,9 @@ def _cutlass_runtime_alignment_checks(
         return []
     byte_alignment = align * dtype_nbytes(dtype)
     return [
-        f'if (int err = dinoml::module::check_pointer_alignment(ptr_{a_ident}, "{op_name} A", {byte_alignment})) '
+        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{a_ident}, ptr_{a_ident}, "{op_name} A", {byte_alignment})) '
         "return err;",
-        f'if (int err = dinoml::module::check_pointer_alignment(ptr_{b_ident}, "{op_name} B", {byte_alignment})) '
+        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{b_ident}, ptr_{b_ident}, "{op_name} B", {byte_alignment})) '
         "return err;",
     ]
 
@@ -287,8 +287,8 @@ def _cutlass_runtime_alignment_conditions(align: int, dtype: str, a_ident: str, 
         return []
     byte_alignment = align * dtype_nbytes(dtype)
     return [
-        f"dinoml::module::is_pointer_aligned(ptr_{a_ident}, {byte_alignment})",
-        f"dinoml::module::is_pointer_aligned(ptr_{b_ident}, {byte_alignment})",
+        f"dinoml::module::is_tensor_pointer_aligned(abi_{a_ident}, ptr_{a_ident}, {byte_alignment})",
+        f"dinoml::module::is_tensor_pointer_aligned(abi_{b_ident}, ptr_{b_ident}, {byte_alignment})",
     ]
 
 

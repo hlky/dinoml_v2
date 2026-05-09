@@ -99,10 +99,11 @@ execution-plan overlays are rejected in strict mode when they try to install a
 profiled candidate whose CUTLASS alignment exceeds that cap.
 Generated CUDA modules also check the selected candidate's A/B pointer
 byte-alignment requirement before calling the CUTLASS launcher, while the common
-runtime support path enforces zero byte offsets, sufficient byte capacity, and
-contiguous row-major strides when stride metadata is supplied. Profile results,
-cache keys, execution-plan selections, and static overlays preserve `split_k`
-plus `workspace_nbytes` as launch/result metadata. Base and bias/activation
+runtime support path applies ABI byte offsets to logical tensor pointers,
+validates offset-adjusted byte capacity, and still requires contiguous row-major
+strides when stride metadata is supplied. Profile results, cache keys,
+execution-plan selections, and static overlays preserve `split_k` plus
+`workspace_nbytes` as launch/result metadata. Base and bias/activation
 `device::Gemm` candidates now advertise
 v1-style split-K search metadata, the profiler expands split-K values using the
 v1 `K // max(M, N)` heuristic, and generated CUDA uses companion split-K

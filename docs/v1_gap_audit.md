@@ -77,13 +77,14 @@ porting. It intentionally excludes the op inventory, which lives in
   materialize public alias outputs into ABI output buffers. Public `identity`,
   `reshape`, `flatten`, `squeeze`, and `unsqueeze` use that path. Remaining
   gaps: view-of-view normalization, liveness extension beyond the current static
-  temporary plan, storage offsets, and strided/layout views.
+  temporary plan and strided/layout views.
 - Layout and accessors: v1 models tensor accessors, alignment, channel-last
   conventions, and GEMM layout descriptors. V2 has a small TensorAccessor,
   CUDA vectorized dense elementwise paths, and ABI v5 fields for strides, byte
-  capacity, device type, flags, and alignment. Current generated modules still
-  require row-major contiguous tensors and most lowering assumes dense layout;
-  storage offsets, layout views, and NHWC/channel-last policies remain open.
+  capacity, device type, flags, and alignment. Current generated modules apply
+  ABI byte offsets to logical tensor pointers, still require row-major
+  contiguous tensors, and most lowering assumes dense layout; layout views and
+  NHWC/channel-last policies remain open.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants, but no constant-folding lifecycle.

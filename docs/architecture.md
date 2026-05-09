@@ -63,8 +63,10 @@ and output-shape inference.
 `DinoTensor` ABI v5 also carries optional contiguous-layout metadata: host
 element strides, byte capacity, byte offset, device type, flags, and pointer
 alignment. Current generated modules still require row-major contiguous tensors
-and reject non-zero byte offsets, but these fields make the ABI ready for future
-strided views, layout-aware kernels, and alignment-sensitive launch policies.
+when stride metadata is supplied, but they apply byte offsets to logical tensor
+pointers and use pointer-alignment metadata for alignment-sensitive launch
+policies. These fields keep the ABI ready for future strided views and
+layout-aware kernels.
 The graph IR mirrors that direction with optional per-tensor `layout` metadata;
 v1 currently accepts only schema-v1 dense row-major layouts with zero storage
 offset and canonical element strides.

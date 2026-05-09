@@ -83,12 +83,16 @@ manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
 profile-selected `debug/execution_plan.json`, and caches results under the
 support-library cache. The execution plan chooses the lowest elapsed-time
 candidate per profiled node/shape and emits a static overlay only when all
-profiled shapes for an op/dtype/candidate-set agree on the same winner. The
-report/cache key records a best-effort CUDA hardware/toolchain fingerprint,
-support-library source/binary hashes, support-build provenance, and the
-candidate set/config keys. CUTLASS support manifests also record compile flags,
-NVCC version output, dependency header hashes, and a provenance key that
-participates in support-cache reuse. The support cache writes a
+profiled shapes for an op/dtype/candidate-set agree on the same winner. When
+GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override
+is supplied, profiling now expands those buckets into concrete workload cases
+and carries `shape.case_id`, dynamic dim values, and dim sources into the report
+and execution plan. The report/cache key records a best-effort CUDA
+hardware/toolchain fingerprint, support-library source/binary hashes,
+support-build provenance, and the candidate set/config keys. CUTLASS support
+manifests also record compile flags, NVCC version output, dependency header
+hashes, and a provenance key that participates in support-cache reuse. The
+support cache writes a
 `dinoml.support_source_manifest` at `src/source_manifest.json` beside the rendered
 CUTLASS source; that manifest maps source files to the used candidate set keys,
 candidate config keys, launcher/profiler symbols, and support build units so
@@ -131,12 +135,13 @@ now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
 source. That closes the first profile-to-recompile loop for shapes whose
 profiled buckets agree on a single candidate. Next steps should prioritize
-dynamic-shape buckets, alignment-aware candidate filtering, and split-K as a
-candidate dimension. Broader broadcast/folded-M arithmetic epilogues, `elup1`,
-v1 `dual_gemm`/dual-output GEMM families, beyond-v1 CUTLASS epilogues where
-CUTLASS gives useful fused functionality, BMM and grouped GEMM parity should
-wait behind that profiling loop so v2 does not accumulate more declared surface
-area without v1-grade selection behavior.
+alignment-aware candidate filtering and split-K as a candidate dimension, then
+guarded dynamic-shape dispatch when bucket winners differ. Broader
+broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
+GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
+functionality, BMM and grouped GEMM parity should wait behind that profiling
+loop so v2 does not accumulate more declared surface area without v1-grade
+selection behavior.
 
 ## Dependency Discovery
 

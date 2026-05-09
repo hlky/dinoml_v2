@@ -53,9 +53,11 @@ porting. It intentionally excludes the op inventory, which lives in
   profiled node/shape and exposing a static overlay when all profiled shapes for
   an op/dtype/candidate-set agree. Compile can consume that static overlay via
   `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen.
-  Remaining gaps are dynamic shape buckets and guarded dispatch, alignment-aware
-  filtering, split-K, richer statistical confidence, and persistent
-  SQLite/shared cache workflows.
+  GEMM profiling expands explicit `Dim.buckets` into concrete workload cases and
+  carries bucket case metadata into profile reports and execution plans.
+  Remaining gaps are guarded dispatch when dynamic bucket winners differ,
+  alignment-aware filtering, split-K, richer statistical confidence, and
+  persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

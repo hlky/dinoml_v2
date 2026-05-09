@@ -133,6 +133,129 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
     assert workload.candidate_config_key
     assert (workload.m, workload.n, workload.k) == (7, 11, 32)
     assert workload.output_shape == (7, 11)
+    assert workload.to_json()["shape_case"] == {
+        "source": "runtime_override",
+        "case_id": "runtime_override",
+        "dims": {},
+        "dim_sources": {},
+    }
+
+
+def test_build_profile_workloads_expands_dim_buckets():
+    batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    tokens = dml.Dim("tokens", min=1, max=11, buckets=(5, 11))
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([batch, 32], "float16"), "b": dml.TensorSpec([32, tokens], "float16")},
+        name="profile_bucket_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    candidate_count = _cutlass_candidate_count("float16")
+    assert len(workloads) == candidate_count * 4
+    cases = {
+        (workload.m, workload.n, workload.k, workload.shape_case_id, tuple(sorted(workload.dim_values.items())))
+        for workload in workloads
+    }
+    assert cases == {
+        (2, 5, 32, "bucket_batch=2_tokens=5", (("batch", 2), ("tokens", 5))),
+        (2, 11, 32, "bucket_batch=2_tokens=11", (("batch", 2), ("tokens", 11))),
+        (4, 5, 32, "bucket_batch=4_tokens=5", (("batch", 4), ("tokens", 5))),
+        (4, 11, 32, "bucket_batch=4_tokens=11", (("batch", 4), ("tokens", 11))),
+    }
+    assert {workload.shape_source for workload in workloads} == {"dim_buckets"}
+    assert {tuple(sorted(workload.dim_sources.items())) for workload in workloads} == {
+        (("batch", "bucket"), ("tokens", "bucket"))
+    }
+
+
+def test_build_profile_workloads_overrides_disable_bucket_expansion():
+    batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    tokens = dml.Dim("tokens", min=1, max=11, buckets=(5, 11))
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([batch, 32], "float16"), "b": dml.TensorSpec([32, tokens], "float16")},
+        name="profile_override_bucket_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (3, 32), "b": (32, 7)})
+
+    assert len(workloads) == _cutlass_candidate_count("float16")
+    assert {(workload.m, workload.n, workload.k) for workload in workloads} == {(3, 7, 32)}
+    assert {workload.shape_source for workload in workloads} == {"runtime_override"}
+
+
+def test_build_profile_workloads_records_max_sourced_dynamic_dims_with_buckets():
+    batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    tokens = dml.Dim("tokens", min=1, max=11)
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([batch, 32], "float16"), "b": dml.TensorSpec([32, tokens], "float16")},
+        name="profile_bucket_and_max_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float16") * 2
+    assert {
+        (workload.m, workload.n, workload.shape_case_id, tuple(sorted(workload.dim_sources.items())))
+        for workload in workloads
+    } == {
+        (2, 11, "bucket_batch=2_tokens=11", (("batch", "bucket"), ("tokens", "max"))),
+        (4, 11, "bucket_batch=4_tokens=11", (("batch", "bucket"), ("tokens", "max"))),
+    }
+
+
+def test_build_profile_workloads_bucket_expansion_preserves_shared_dim_values():
+    batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    spec = dml.trace(
+        GemmResidualModule("gemm_rcr_bias_add"),
+        inputs={
+            "a": dml.TensorSpec([batch, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+            "d0": dml.TensorSpec([batch, 11], "float32"),
+        },
+        name="profile_bucket_residual_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32") * 2
+    case_inputs = {workload.shape_case_id: workload.to_json()["inputs"] for workload in workloads[: _cutlass_candidate_count("float32") * 2]}
+    assert case_inputs["bucket_batch=2"]["a"] == [2, 32]
+    assert case_inputs["bucket_batch=2"]["d0"] == [2, 11]
+    assert case_inputs["bucket_batch=4"]["a"] == [4, 32]
+    assert case_inputs["bucket_batch=4"]["d0"] == [4, 11]
+
+
+def test_build_profile_workloads_rejects_inconsistent_same_name_buckets():
+    batch_a = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    batch_d0 = dml.Dim("batch", min=1, max=4, buckets=(3, 4))
+    spec = dml.trace(
+        GemmResidualModule("gemm_rcr_bias_add"),
+        inputs={
+            "a": dml.TensorSpec([batch_a, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+            "d0": dml.TensorSpec([batch_d0, 11], "float32"),
+        },
+        name="profile_inconsistent_bucket_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    with pytest.raises(ValueError, match="Inconsistent profiling bucket metadata"):
+        build_profile_workloads(lowered, manifest)
 
 
 def test_build_profile_workloads_uses_manifest_selected_fp16_accumulation_policy():
@@ -406,7 +529,15 @@ def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_p
     assert selection["candidate_config_key"] == workloads[1].candidate_config_key
     assert selection["kernel_symbol"] == workloads[1].kernel_symbol
     assert selection["profiler_symbol"] == workloads[1].profiler_symbol
-    assert selection["shape"] == {"m": 4, "n": 6, "k": 8, "source": "runtime_override_or_graph_max_shape"}
+    assert selection["shape"] == {
+        "m": 4,
+        "n": 6,
+        "k": 8,
+        "source": "graph_max_shape",
+        "case_id": "max",
+        "dims": {},
+        "dim_sources": {},
+    }
     assert selection["workspace_nbytes"] == 0
     assert selection["split_k"] == 1
     static_selection = plan["static_selections"][0]
@@ -447,6 +578,44 @@ def test_build_execution_plan_marks_static_conflict_for_shape_specific_winners(t
     assert plan["conflicts"][0]["selected_candidate_ids"] == sorted(
         [workloads[0].candidate_id, workloads[1].candidate_id]
     )
+
+
+def test_build_execution_plan_preserves_bucket_shape_metadata(tmp_path):
+    batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([batch, 32], "float16"), "b": dml.TensorSpec([32, 11], "float16")},
+        name="profile_execution_plan_bucket_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    candidate_count = _cutlass_candidate_count("float16")
+    case_a = _profile_result(workloads[0], 0.25, 5, profile_key="bucket-a", status="ok")
+    case_b = _profile_result(workloads[candidate_count], 0.30, 5, profile_key="bucket-b", status="ok")
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": codegen_plan["cache_key"],
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [case_a, case_b],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert [selection["shape"]["source"] for selection in plan["selections"]] == ["dim_buckets", "dim_buckets"]
+    assert [selection["shape"]["case_id"] for selection in plan["selections"]] == [
+        "bucket_batch=2",
+        "bucket_batch=4",
+    ]
+    assert plan["static_selections"][0]["shape"]["profiled_shapes"][0]["dims"] == {"batch": 2}
+    assert plan["static_selections"][0]["shape"]["profiled_shapes"][1]["dims"] == {"batch": 4}
 
 
 def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):

@@ -171,8 +171,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `dinoml compile --execution-plan` apply matching static selections before
   writing kernel manifests or generated CUDA, so lowering uses the profiled
   candidate instead of the manifest seed candidate when no shape conflict exists.
-- [ ] Dynamic-shape profiling buckets from `Dim.buckets`, with guarded
-  candidate dispatch or clearly scoped static-overlay rules.
+- [x] First dynamic-shape profiling buckets:
+  GEMM profiling expands explicit `Dim.buckets` into concrete workload cases
+  when no runtime override is supplied, preserves shared named dim values across
+  inputs, rejects conflicting bucket metadata for the same dim name, and carries
+  bucket case metadata into execution-plan selections/conflicts.
+- [ ] Guarded dynamic-shape dispatch when profiled buckets select different
+  candidates and therefore cannot produce a single static execution-plan overlay.
 - [ ] Alignment-aware candidate filtering using tensor accessor alignment,
   strides, byte offsets, and layout metadata before profiling.
 - [ ] Split-K candidate/launch selection with cacheable workspace requirements.

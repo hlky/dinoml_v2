@@ -117,13 +117,16 @@ currently supported CUTLASS GEMM profiler symbols, writes
 `debug/execution_plan.json`, and stores a small `profile_cache.v5.json` beside
 the support-library cache. The execution plan chooses the lowest elapsed-time
 candidate per profiled node/shape and exposes a static candidate overlay when
-all profiled shapes for an op/dtype/candidate-set agree. `dml.compile` and
-`dinoml compile` can consume that overlay through `execution_plan=...` /
-`--execution-plan`, applying it before manifest/codegen/backend build so CUDA
-lowering calls the profiled candidate. Profile reports and cache keys include a
-best-effort CUDA hardware/toolchain fingerprint plus support-library
-source/binary hashes, toolchain/dependency provenance, so timings do not
-silently float across different GPUs or regenerated support libraries. GEMM manifests now emit
+all profiled shapes for an op/dtype/candidate-set agree. GEMM profiling expands
+explicit `Dim.buckets` into concrete workload cases when no runtime override is
+supplied, and carries case IDs plus dynamic dim values through the report and
+execution plan. `dml.compile` and `dinoml compile` can consume the static
+overlay through `execution_plan=...` / `--execution-plan`, applying it before
+manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
+Profile reports and cache keys include a best-effort CUDA hardware/toolchain
+fingerprint plus support-library source/binary hashes, toolchain/dependency
+provenance, so timings do not silently float across different GPUs or
+regenerated support libraries. GEMM manifests now emit
 explicit CUTLASS tensor-op candidates under each dtype/layout-specific candidate
 set. The candidate set records provider, layout, epilogue, accumulator, target
 policy, launch ABI, generator id, candidate config keys, and its own

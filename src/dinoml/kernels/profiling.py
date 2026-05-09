@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -23,6 +24,15 @@ from dinoml.shapes import validate_runtime_shape
 
 PROFILE_REPORT_SCHEMA_VERSION = 5
 EXECUTION_PLAN_SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class ProfileShapeScenario:
+    source: str
+    case_id: str
+    dim_values: Mapping[str, int]
+    dim_sources: Mapping[str, str]
+    overrides: Mapping[str, Sequence[int]]
 
 
 @dataclass(frozen=True)
@@ -50,6 +60,10 @@ class GemmProfileWorkload:
     m: int
     n: int
     k: int
+    shape_source: str
+    shape_case_id: str
+    dim_values: Mapping[str, int]
+    dim_sources: Mapping[str, str]
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -75,6 +89,12 @@ class GemmProfileWorkload:
             "m": self.m,
             "n": self.n,
             "k": self.k,
+            "shape_case": {
+                "source": self.shape_source,
+                "case_id": self.shape_case_id,
+                "dims": dict(self.dim_values),
+                "dim_sources": dict(self.dim_sources),
+            },
         }
 
 
@@ -125,48 +145,53 @@ def build_profile_workloads(
         }
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
-        a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], overrides)
-        b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], overrides)
-        bias_shape = (
-            _runtime_tensor_shape(bias_name, tensor_map[bias_name], overrides) if bias_name is not None else None
-        )
-        residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], overrides) for name in residual_names)
-        problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
-        m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
-        for candidate in _profile_candidates(required_item):
-            workloads.append(
-                GemmProfileWorkload(
-                    node_id=str(node["id"]),
-                    op=op_name,
-                    dtype=dtype,
-                    kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
-                    profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
-                    candidate_set_id=(
-                        str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
-                    ),
-                    candidate_set_key=(
-                        str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
-                    ),
-                    candidate_id=str(candidate["candidate_id"]),
-                    candidate_config_key=(
-                        str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
-                    ),
-                    candidate=candidate,
-                    a_tensor=a_name,
-                    b_tensor=b_name,
-                    bias_tensor=bias_name,
-                    residual_tensors=residual_names,
-                    output_tensor=output_name,
-                    a_shape=tuple(a_shape),
-                    b_shape=tuple(b_shape),
-                    bias_shape=bias_shape,
-                    residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
-                    output_shape=tuple(output_shape),
-                    m=m,
-                    n=n,
-                    k=k,
-                )
+        for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+            a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
+            b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
+            bias_shape = (
+                _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides) if bias_name is not None else None
             )
+            residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
+            problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
+            m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
+            for candidate in _profile_candidates(required_item):
+                workloads.append(
+                    GemmProfileWorkload(
+                        node_id=str(node["id"]),
+                        op=op_name,
+                        dtype=dtype,
+                        kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                        profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                        candidate_set_id=(
+                            str(required_item["candidate_set_id"]) if required_item.get("candidate_set_id") is not None else None
+                        ),
+                        candidate_set_key=(
+                            str(required_item["candidate_set_key"]) if required_item.get("candidate_set_key") is not None else None
+                        ),
+                        candidate_id=str(candidate["candidate_id"]),
+                        candidate_config_key=(
+                            str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                        ),
+                        candidate=candidate,
+                        a_tensor=a_name,
+                        b_tensor=b_name,
+                        bias_tensor=bias_name,
+                        residual_tensors=residual_names,
+                        output_tensor=output_name,
+                        a_shape=tuple(a_shape),
+                        b_shape=tuple(b_shape),
+                        bias_shape=bias_shape,
+                        residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
+                        output_shape=tuple(output_shape),
+                        m=m,
+                        n=n,
+                        k=k,
+                        shape_source=scenario.source,
+                        shape_case_id=scenario.case_id,
+                        dim_values=scenario.dim_values,
+                        dim_sources=scenario.dim_sources,
+                    )
+                )
     return workloads
 
 
@@ -310,6 +335,99 @@ def _runtime_tensor_shape(
     return tuple(int(dim) for dim in tensor["shape"])
 
 
+def _profile_shape_scenarios(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    overrides: Mapping[str, Sequence[int]],
+) -> list[ProfileShapeScenario]:
+    if overrides:
+        return [
+            ProfileShapeScenario(
+                source="runtime_override",
+                case_id="runtime_override",
+                dim_values={},
+                dim_sources={},
+                overrides=overrides,
+            )
+        ]
+    dynamic_values = _profile_dim_values(node, tensor_map)
+    if not dynamic_values or not any(info["source"] == "bucket" for info in dynamic_values.values()):
+        return [
+            ProfileShapeScenario(
+                source="graph_max_shape",
+                case_id="max",
+                dim_values={},
+                dim_sources={},
+                overrides={},
+            )
+        ]
+
+    scenarios = []
+    dim_names = sorted(dynamic_values)
+    for values in itertools.product(*(dynamic_values[name]["values"] for name in dim_names)):
+        assignments = dict(zip(dim_names, values))
+        scenario_overrides = {
+            str(tensor_name): _shape_from_dim_assignments(tensor_map[str(tensor_name)], assignments)
+            for tensor_name in node.get("inputs", [])
+        }
+        scenarios.append(
+            ProfileShapeScenario(
+                source="dim_buckets",
+                case_id="bucket_" + "_".join(f"{name}={assignments[name]}" for name in dim_names),
+                dim_values=assignments,
+                dim_sources={name: str(dynamic_values[name]["source"]) for name in dim_names},
+                overrides=scenario_overrides,
+            )
+        )
+    return scenarios
+
+
+def _profile_dim_values(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    by_name: dict[str, dict[str, Any]] = {}
+    for tensor_name in node.get("inputs", []):
+        tensor = tensor_map[str(tensor_name)]
+        for dim in tensor.get("shape_spec", tensor["shape"]):
+            if not isinstance(dim, Mapping):
+                continue
+            name = str(dim["name"])
+            buckets = tuple(int(bucket) for bucket in dim.get("buckets", ()))
+            signature = (
+                int(dim["min"]),
+                int(dim["max"]),
+                int(dim.get("divisible_by", 1)),
+                buckets,
+            )
+            info = by_name.setdefault(
+                name,
+                {
+                    "signature": signature,
+                    "values": buckets or (int(dim["max"]),),
+                    "source": "bucket" if buckets else "max",
+                },
+            )
+            if info["signature"] != signature:
+                raise ValueError(
+                    f"Inconsistent profiling bucket metadata for dynamic dimension {name!r}"
+                )
+    return {name: dict(info) for name, info in sorted(by_name.items())}
+
+
+def _shape_from_dim_assignments(
+    tensor: Mapping[str, Any],
+    assignments: Mapping[str, int],
+) -> tuple[int, ...]:
+    shape = []
+    for dim in tensor.get("shape_spec", tensor["shape"]):
+        if isinstance(dim, Mapping):
+            shape.append(int(assignments.get(str(dim["name"]), int(dim["max"]))))
+        else:
+            shape.append(int(dim))
+    return tuple(validate_runtime_shape(str(tensor["name"]), shape, tensor))
+
+
 def _profile_result(
     workload: GemmProfileWorkload,
     elapsed_ms: float,
@@ -342,7 +460,15 @@ def _profile_result(
         {
             "profile_key": profile_key,
             "status": status,
-            "shape": {"m": workload.m, "n": workload.n, "k": workload.k, "source": "runtime_override_or_graph_max_shape"},
+            "shape": {
+                "m": workload.m,
+                "n": workload.n,
+                "k": workload.k,
+                "source": workload.shape_source,
+                "case_id": workload.shape_case_id,
+                "dims": dict(workload.dim_values),
+                "dim_sources": dict(workload.dim_sources),
+            },
             "tensors": {
                 "a": workload.a_tensor,
                 "b": workload.b_tensor,
@@ -722,7 +848,7 @@ def _cache_entry(
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "op": workload.op,
         "dtype": workload.dtype,
-        "shape": {"m": workload.m, "n": workload.n, "k": workload.k},
+        "shape": dict(result["shape"]),
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "best_candidate_id": workload.candidate_id,

@@ -1,8 +1,10 @@
 from dinoml.kernels.families.bmm import (
+    BMM_BASE_OPS,
     BMM_OPS,
     BMM_SUPPORTED_DTYPES,
     BmmOpSpec,
     bmm_op_spec,
+    bmm_problem,
 )
 from dinoml.kernels.families.gemm import (
     GEMM_OPS,
@@ -14,6 +16,7 @@ from dinoml.kernels.families.gemm import (
 )
 
 __all__ = [
+    "BMM_BASE_OPS",
     "BMM_OPS",
     "BMM_SUPPORTED_DTYPES",
     "BmmOpSpec",
@@ -22,6 +25,7 @@ __all__ = [
     "GemmEpilogue",
     "GemmOpSpec",
     "bmm_op_spec",
+    "bmm_problem",
     "gemm_op_spec",
     "gemm_problem",
 ]

@@ -725,6 +725,14 @@ def _profile_libraries(
             artifact_path=str(path.resolve()),
             artifact_sha256=_file_sha256(path),
         )
+    if "cutlass_bmm_library" in files:
+        path = artifact_dir / files["cutlass_bmm_library"]
+        merge(
+            "cutlass_bmm",
+            path=str(path.resolve()),
+            artifact_path=str(path.resolve()),
+            artifact_sha256=_file_sha256(path),
+        )
     for item in codegen_plan.get("external_support_libraries", []):
         name = str(item["name"])
         cache_dir = Path(str(item.get("cache_dir", ""))) if item.get("cache_dir") else None
@@ -789,6 +797,8 @@ def _support_library_manifest_path(name: str, cache_dir: Path | None) -> Path | 
         return None
     if name == "cutlass_gemm":
         return cache_dir / "lib" / "cutlass_gemm_manifest.json"
+    if name == "cutlass_bmm":
+        return cache_dir / "lib" / "cutlass_bmm_manifest.json"
     return cache_dir / "lib" / f"{name}_manifest.json"
 
 

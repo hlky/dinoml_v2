@@ -8,6 +8,7 @@ from dinoml.ir import normalize_dtype
 
 BMM_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 BMM_LAYOUTS = ("ccc", "ccr", "crc", "crr", "rcc", "rcr", "rrc", "rrr")
+BMM_BASE_OPS = tuple(f"bmm_{layout}" for layout in BMM_LAYOUTS)
 
 
 @dataclass(frozen=True)
@@ -157,7 +158,7 @@ def _dim_is_not_one(dim: Any) -> bool:
 
 
 BMM_OP_SPECS: dict[str, BmmOpSpec] = {
-    **{f"bmm_{layout}": _bmm_op_spec(layout) for layout in BMM_LAYOUTS},
+    **{op_name: _bmm_op_spec(op_name.removeprefix("bmm_")) for op_name in BMM_BASE_OPS},
     **{f"bmm_{layout}_add": _bmm_op_spec(layout, add=True) for layout in BMM_LAYOUTS},
 }
 BMM_OPS = tuple(BMM_OP_SPECS)
@@ -177,3 +178,14 @@ def normalize_bmm_dtype(dtype: str) -> str:
         supported = ", ".join(BMM_SUPPORTED_DTYPES)
         raise ValueError(f"Unsupported BMM dtype {dtype!r}; supported dtypes: {supported}")
     return normalized
+
+
+def bmm_problem(op_name: str, shapes: Sequence[Sequence[int]]) -> tuple[int, int, int, int, list[int]]:
+    spec = bmm_op_spec(op_name)
+    output_shape = spec.validate_shapes(shapes)
+    a_shape, b_shape = shapes[0], shapes[1]
+    batch = int(output_shape[0])
+    m = int(a_shape[_a_m_axis(spec.a_layout)])
+    n = int(b_shape[_b_n_axis(spec.b_layout)])
+    k = int(a_shape[_a_k_axis(spec.a_layout)])
+    return batch, m, n, k, output_shape

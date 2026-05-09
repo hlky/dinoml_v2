@@ -1,3 +1,14 @@
+from dinoml.kernels.providers.cutlass.bmm import (
+    CUTLASS_BMM_CANDIDATE_SET_SCHEMA_VERSION,
+    CUTLASS_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
+    cutlass_bmm_candidate_set,
+    cutlass_bmm_candidate_set_id,
+    cutlass_bmm_candidates,
+    cutlass_bmm_profiler_symbol,
+    cutlass_bmm_symbol,
+    cutlass_bmm_used_candidate_plan,
+    render_cutlass_bmm_source,
+)
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_DEFAULT_CANDIDATE_ID,
     CUTLASS_DEFAULT_SYMBOL_ID,
@@ -17,12 +28,20 @@ from dinoml.kernels.providers.cutlass.gemm import (
 )
 
 __all__ = [
+    "CUTLASS_BMM_CANDIDATE_SET_SCHEMA_VERSION",
+    "CUTLASS_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "CUTLASS_DEFAULT_CANDIDATE_ID",
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_CONFIGS",
     "CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
     "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
+    "cutlass_bmm_candidate_set",
+    "cutlass_bmm_candidate_set_id",
+    "cutlass_bmm_candidates",
+    "cutlass_bmm_profiler_symbol",
+    "cutlass_bmm_symbol",
+    "cutlass_bmm_used_candidate_plan",
     "cutlass_gemm_candidate_set",
     "cutlass_gemm_candidate_set_id",
     "cutlass_gemm_candidates",
@@ -31,5 +50,6 @@ __all__ = [
     "cutlass_gemm_symbol",
     "cutlass_gemm_used_candidate_plan",
     "gemm_dtype_suffix",
+    "render_cutlass_bmm_source",
     "render_cutlass_gemm_source",
 ]

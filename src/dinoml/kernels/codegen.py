@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
 
 
@@ -83,6 +84,21 @@ def _external_support_libraries(
                     "name": library,
                     "cache_dir": str(cache_dir),
                     "library": "lib/libdinoml_cutlass_gemm.so",
+                    "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+                    "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
+                    "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
+                    "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
+                    "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                }
+            )
+        elif library == "cutlass_bmm":
+            cache_dir = cache_root / "support" / target_dir / "cutlass-bmm" / support_key
+            used_candidate_plan = cutlass_bmm_used_candidate_plan(kernel_manifest)
+            result.append(
+                {
+                    "name": library,
+                    "cache_dir": str(cache_dir),
+                    "library": "lib/libdinoml_cutlass_bmm.so",
                     "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
                     "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),

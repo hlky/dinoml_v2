@@ -15,6 +15,7 @@ from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
@@ -33,36 +34,100 @@ def ensure_cutlass_gemm_support_lib(
     cache_key: str | None = None,
     used_candidate_plan: Mapping[str, Any] | None = None,
 ) -> CutlassSupportLib:
+    return _ensure_cutlass_support_lib(
+        arch,
+        cache_key=cache_key,
+        used_candidate_plan=used_candidate_plan,
+        library_name="cutlass_gemm",
+        family_name="gemm_universal",
+        support_dir_name="cutlass-gemm",
+        source_name="dinoml_cutlass_gemm.cu",
+        library_file_name="libdinoml_cutlass_gemm.so",
+        manifest_file_name="cutlass_gemm_manifest.json",
+        repo_source=_repo_cutlass_gemm_source(),
+        render_source=render_cutlass_gemm_source,
+        used_candidate_plan_builder=cutlass_gemm_used_candidate_plan,
+        source_id="cutlass_gemm_static_default",
+        build_unit_id="cutlass_gemm_shared",
+    )
+
+
+def ensure_cutlass_bmm_support_lib(
+    arch: str,
+    *,
+    cache_key: str | None = None,
+    used_candidate_plan: Mapping[str, Any] | None = None,
+) -> CutlassSupportLib:
+    return _ensure_cutlass_support_lib(
+        arch,
+        cache_key=cache_key,
+        used_candidate_plan=used_candidate_plan,
+        library_name="cutlass_bmm",
+        family_name="bmm_strided",
+        support_dir_name="cutlass-bmm",
+        source_name="dinoml_cutlass_bmm.cu",
+        library_file_name="libdinoml_cutlass_bmm.so",
+        manifest_file_name="cutlass_bmm_manifest.json",
+        repo_source=_repo_cutlass_bmm_source(),
+        render_source=render_cutlass_bmm_source,
+        used_candidate_plan_builder=cutlass_bmm_used_candidate_plan,
+        source_id="cutlass_bmm_static_default",
+        build_unit_id="cutlass_bmm_shared",
+    )
+
+
+def _ensure_cutlass_support_lib(
+    arch: str,
+    *,
+    cache_key: str | None,
+    used_candidate_plan: Mapping[str, Any] | None,
+    library_name: str,
+    family_name: str,
+    support_dir_name: str,
+    source_name: str,
+    library_file_name: str,
+    manifest_file_name: str,
+    repo_source: Path,
+    render_source: Any,
+    used_candidate_plan_builder: Any,
+    source_id: str,
+    build_unit_id: str,
+) -> CutlassSupportLib:
     cutlass = require_cuda_library("cutlass")
     cublaslt = require_cuda_library("cublaslt")
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_num = _cmake_arch(arch)
     default_target = {"name": "cuda", "arch": f"sm_{arch_num}"}
-    families = [family.to_json() for family in external_kernel_families(provider="cutlass", backend="cuda")]
+    families = [
+        family.to_json()
+        for family in external_kernel_families(provider="cutlass", backend="cuda")
+        if family.family == family_name
+    ]
     if used_candidate_plan is None:
-        used_candidate_plan = cutlass_gemm_used_candidate_plan(_kernel_manifest_from_families(families, default_target))
+        used_candidate_plan = used_candidate_plan_builder(
+            _kernel_manifest_from_families(families, default_target, library_name=library_name)
+        )
     target = dict(used_candidate_plan.get("target", default_target))
     plan = build_external_kernel_plan(target)
     family_cache_key = _family_cache_key(target, families)
     used_candidate_plan_key = str(used_candidate_plan["used_candidate_plan_key"])
     manifest_key = cache_key or plan["cache_key"][:16]
-    support_root = cache_root / "support" / f"cuda-{arch_num}" / "cutlass-gemm" / manifest_key
+    support_root = cache_root / "support" / f"cuda-{arch_num}" / support_dir_name / manifest_key
     src_dir = support_root / "src"
     lib_dir = support_root / "lib"
     src_dir.mkdir(parents=True, exist_ok=True)
     lib_dir.mkdir(parents=True, exist_ok=True)
-    source = src_dir / "dinoml_cutlass_gemm.cu"
-    library = lib_dir / "libdinoml_cutlass_gemm.so"
-    manifest = lib_dir / "cutlass_gemm_manifest.json"
+    source = src_dir / source_name
+    library = lib_dir / library_file_name
+    manifest = lib_dir / manifest_file_name
     source_manifest = src_dir / "source_manifest.json"
-    repo_source = _repo_cutlass_gemm_source()
     include_roots = (
         *cutlass.include_roots,
         *(root.parent / "tools" / "util" / "include" for root in cutlass.include_roots if root.name == "include"),
     )
     repo_source_text = repo_source.read_text(encoding="utf-8")
     repo_source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
-    rendered_source = render_cutlass_gemm_source(repo_source_text, used_candidate_plan)
+    rendered_source = render_source(repo_source_text, used_candidate_plan)
     source_hash = hashlib.sha256(rendered_source.encode("utf-8")).hexdigest()
     source_metrics = _support_source_metrics(rendered_source, used_candidate_plan)
     compile_flags = _compile_flags(arch_num)
@@ -112,6 +177,10 @@ def ensure_cutlass_gemm_support_lib(
         family_cache_key=family_cache_key,
         external_kernel_plan_cache_key=plan["cache_key"],
         used_candidate_plan=used_candidate_plan,
+        library_name=library_name,
+        source_id=source_id,
+        build_unit_id=build_unit_id,
+        library_file_name=library_file_name,
     )
 
     compile_command = ["nvcc", *compile_flags, *include_args, str(source), "-o", str(library)]
@@ -125,6 +194,7 @@ def ensure_cutlass_gemm_support_lib(
             "schema_version": 2,
             "target": target,
             "provider": "cutlass",
+            "library_name": library_name,
             "families": families,
             "library": library.name,
             "library_sha256": library_hash,
@@ -162,6 +232,14 @@ def _repo_cutlass_gemm_source() -> Path:
     source = repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm.cu"
     if not source.exists():
         raise FileNotFoundError(f"Missing CUTLASS GEMM source: {source}")
+    return source
+
+
+def _repo_cutlass_bmm_source() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    source = repo_root / "kernels" / "cuda" / "src" / "cutlass_bmm.cu"
+    if not source.exists():
+        raise FileNotFoundError(f"Missing CUTLASS BMM source: {source}")
     return source
 
 
@@ -292,7 +370,12 @@ def _family_cache_key(target: Mapping[str, Any], families: Sequence[Mapping[str,
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target: Mapping[str, Any]) -> dict[str, Any]:
+def _kernel_manifest_from_families(
+    families: Sequence[Mapping[str, Any]],
+    target: Mapping[str, Any],
+    *,
+    library_name: str = "cutlass_gemm",
+) -> dict[str, Any]:
     required = []
     for family in families:
         for dtype, candidates in sorted(dict(family.get("candidates_by_dtype", {})).items()):
@@ -303,7 +386,7 @@ def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target
                 {
                     "op": family["op_name"],
                     "kernel_symbol": family["kernel_symbols_by_dtype"][dtype],
-                    "kernel_library": "cutlass_gemm",
+                    "kernel_library": library_name,
                     "profiler_symbol": family["profiler_symbols_by_dtype"][dtype],
                     "selected_candidate_id": default_candidates[0]["candidate_id"],
                     "candidates": default_candidates,
@@ -351,14 +434,18 @@ def _write_source_manifest(
     family_cache_key: str,
     external_kernel_plan_cache_key: str,
     used_candidate_plan: Mapping[str, Any],
+    library_name: str,
+    source_id: str,
+    build_unit_id: str,
+    library_file_name: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     candidate_sets = [dict(item) for item in used_candidate_plan.get("candidate_sets", [])]
     candidates = [
         {
             **dict(candidate),
-            "source_ids": ["cutlass_gemm_static_default"],
-            "profiler_source_ids": ["cutlass_gemm_static_default"],
+            "source_ids": [source_id],
+            "profiler_source_ids": [source_id],
         }
         for candidate in used_candidate_plan.get("candidates", [])
     ]
@@ -367,7 +454,7 @@ def _write_source_manifest(
         "kind": "dinoml.support_source_manifest",
         "target": dict(target),
         "provider": "cutlass",
-        "library": "cutlass_gemm",
+        "library": library_name,
         "kernel_abi_version": KERNEL_ABI_VERSION,
         "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
         "family_cache_key": family_cache_key,
@@ -381,7 +468,7 @@ def _write_source_manifest(
         },
         "sources": [
             {
-                "source_id": "cutlass_gemm_static_default",
+                "source_id": source_id,
                 "source_key": source_hash,
                 "source_role": "support_library",
                 "generated": False,
@@ -400,13 +487,13 @@ def _write_source_manifest(
         "candidates": candidates,
         "build_units": [
             {
-                "build_unit_id": "cutlass_gemm_shared",
-                "source_ids": ["cutlass_gemm_static_default"],
+                "build_unit_id": build_unit_id,
+                "source_ids": [source_id],
                 "output_role": "shared_library",
                 "expected_outputs": [
                     {
                         "kind": "shared_library",
-                        "path": "../lib/libdinoml_cutlass_gemm.so",
+                        "path": f"../lib/{library_file_name}",
                     }
                 ],
             }

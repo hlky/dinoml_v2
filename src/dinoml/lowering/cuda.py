@@ -77,22 +77,31 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
     declarations = []
     seen = set()
     for item in kernel_manifest.get("required_kernels", []):
-        if item.get("kernel_library") != "cutlass_gemm":
+        if item.get("kernel_library") not in {"cutlass_gemm", "cutlass_bmm"}:
             continue
         for declaration in _cutlass_item_declarations(item):
             symbol = declaration["symbol"]
             if symbol in seen:
                 continue
             cpp_type = cuda_storage_type(str(declaration["dtype"]))
-            declarations.append(
-                _cutlass_gemm_declaration(
-                    symbol,
-                    cpp_type,
-                    str(declaration["launch_abi"]),
-                    str(declaration["epilogue"]),
-                    split_k=bool(declaration["split_k"]),
+            if item.get("kernel_library") == "cutlass_bmm":
+                declarations.append(
+                    _cutlass_bmm_declaration(
+                        symbol,
+                        cpp_type,
+                        str(declaration["launch_abi"]),
+                    )
                 )
-            )
+            else:
+                declarations.append(
+                    _cutlass_gemm_declaration(
+                        symbol,
+                        cpp_type,
+                        str(declaration["launch_abi"]),
+                        str(declaration["epilogue"]),
+                        split_k=bool(declaration["split_k"]),
+                    )
+                )
             seen.add(symbol)
     return declarations
 
@@ -209,6 +218,32 @@ def _cutlass_gemm_declaration(
         "    int n,\n"
         "    int k,\n"
         f"{launch_args}"
+    )
+
+
+def _cutlass_bmm_declaration(
+    symbol: str,
+    cpp_type: str,
+    launch_abi: str,
+) -> str:
+    if launch_abi != "dinoml_cutlass_bmm_v1":
+        raise ValueError(f"Unsupported CUTLASS BMM launch ABI: {launch_abi!r}")
+    return (
+        f"extern \"C\" int {symbol}(\n"
+        f"    const {cpp_type}* a,\n"
+        f"    const {cpp_type}* b,\n"
+        f"    {cpp_type}* c,\n"
+        "    int batch_count,\n"
+        "    int m,\n"
+        "    int n,\n"
+        "    int k,\n"
+        "    int64_t batch_stride_a,\n"
+        "    int64_t batch_stride_b,\n"
+        "    int64_t batch_stride_c,\n"
+        "    int lda,\n"
+        "    int ldb,\n"
+        "    int ldc,\n"
+        "    cudaStream_t stream);"
     )
 
 

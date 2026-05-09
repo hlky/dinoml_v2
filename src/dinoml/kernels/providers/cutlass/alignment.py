@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from dinoml.kernels.families.bmm import bmm_op_spec
 from dinoml.kernels.families.gemm import gemm_op_spec
 
 
@@ -91,6 +92,82 @@ def cutlass_gemm_static_alignment_context(
         shape_alignment=shape_alignment,
         shape_alignment_source="shape_spec_divisibility",
     )
+
+
+def cutlass_bmm_problem_alignment(op_name: str, dtype: str, *, m: int, n: int, k: int) -> int:
+    spec = bmm_op_spec(op_name)
+    lda = int(m) if spec.a_layout == "c" else int(k)
+    ldb = int(k) if spec.b_layout == "c" else int(n)
+    return _max_dtype_alignment(dtype, math.gcd(lda, ldb))
+
+
+def cutlass_bmm_guaranteed_alignment(
+    op_name: str,
+    dtype: str,
+    a_tensor: Mapping[str, Any],
+    b_tensor: Mapping[str, Any],
+) -> int:
+    del op_name
+    a_spec = a_tensor.get("shape_spec", a_tensor["shape"])
+    b_spec = b_tensor.get("shape_spec", b_tensor["shape"])
+    lda_alignment = _dim_divisible_by(a_spec[2])
+    ldb_alignment = _dim_divisible_by(b_spec[2])
+    return _max_dtype_alignment(dtype, math.gcd(lda_alignment, ldb_alignment))
+
+
+def cutlass_bmm_static_alignment_context(
+    op_name: str,
+    dtype: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    a_name: str,
+    b_name: str,
+    c_name: str | None = None,
+) -> dict[str, Any]:
+    a_tensor = tensor_map[str(a_name)]
+    b_tensor = tensor_map[str(b_name)]
+    shape_alignment = cutlass_bmm_guaranteed_alignment(op_name, dtype, a_tensor, b_tensor)
+    context = _cutlass_gemm_alignment_context(
+        op_name,
+        dtype,
+        tensor_map,
+        a_name=a_name,
+        b_name=b_name,
+        c_name=c_name,
+        epilogue_names=(),
+        shape_alignment=shape_alignment,
+        shape_alignment_source="bmm_shape_spec_divisibility",
+    )
+    context["kind"] = "cutlass_bmm_alignment_context"
+    return context
+
+
+def cutlass_bmm_profile_alignment_context(
+    op_name: str,
+    dtype: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    a_name: str,
+    b_name: str,
+    c_name: str | None = None,
+    m: int,
+    n: int,
+    k: int,
+) -> dict[str, Any]:
+    shape_alignment = cutlass_bmm_problem_alignment(op_name, dtype, m=m, n=n, k=k)
+    context = _cutlass_gemm_alignment_context(
+        op_name,
+        dtype,
+        tensor_map,
+        a_name=a_name,
+        b_name=b_name,
+        c_name=c_name,
+        epilogue_names=(),
+        shape_alignment=shape_alignment,
+        shape_alignment_source="profiled_bmm_problem_shape",
+    )
+    context["kind"] = "cutlass_bmm_alignment_context"
+    return context
 
 
 def cutlass_gemm_profile_alignment_context(

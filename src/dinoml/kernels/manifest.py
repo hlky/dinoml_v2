@@ -6,9 +6,11 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
 from dinoml.kernels.external import external_kernel_families
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
+    cutlass_bmm_static_alignment_context,
     cutlass_candidate_alignment,
     cutlass_candidate_epilogue_alignment,
     cutlass_gemm_static_alignment_context,
@@ -30,6 +32,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     seen = set()
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     cutlass_alignment_contexts = _cutlass_gemm_alignment_contexts(ir, target_name, tensor_map)
+    cutlass_bmm_alignment_contexts = _cutlass_bmm_alignment_contexts(ir, target_name, tensor_map)
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
@@ -45,6 +48,19 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             candidates = [dict(candidate) for candidate in cutlass_gemm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_gemm_candidate_set(str(node["op"]), dtype, target=target)
             alignment_context = cutlass_alignment_contexts.get((str(node["op"]), dtype))
+            selected_candidate = _select_cutlass_manifest_candidate(
+                str(node["op"]),
+                dtype,
+                candidates,
+                alignment_context,
+            )
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
+        elif resolved.library == "cutlass_bmm":
+            candidates = [dict(candidate) for candidate in cutlass_bmm_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = cutlass_bmm_candidate_set(str(node["op"]), dtype, target=target)
+            alignment_context = cutlass_bmm_alignment_contexts.get((str(node["op"]), dtype))
             selected_candidate = _select_cutlass_manifest_candidate(
                 str(node["op"]),
                 dtype,
@@ -72,8 +88,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
-        if resolved.library == "cutlass_gemm":
-            alignment_context = cutlass_alignment_contexts.get((str(node["op"]), dtype))
+        if resolved.library in {"cutlass_gemm", "cutlass_bmm"}:
+            alignment_context = (
+                cutlass_alignment_contexts.get((str(node["op"]), dtype))
+                if resolved.library == "cutlass_gemm"
+                else cutlass_bmm_alignment_contexts.get((str(node["op"]), dtype))
+            )
             if alignment_context is not None:
                 item["cutlass_alignment"] = alignment_context
                 item["cutlass_alignment_cap"] = alignment_context_candidate_filter(alignment_context)[
@@ -121,6 +141,37 @@ def _cutlass_gemm_alignment_contexts(
             b_name=b_name,
             c_name=str(node["outputs"][0]),
             epilogue_names=epilogue_names,
+        )
+        context["node_id"] = str(node["id"])
+        key = (str(node["op"]), dtype)
+        contexts.setdefault(key, []).append(context)
+    return {key: merge_cutlass_alignment_contexts(values) for key, values in contexts.items()}
+
+
+def _cutlass_bmm_alignment_contexts(
+    ir: Mapping[str, Any],
+    target_name: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    contexts: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for node in ir["nodes"]:
+        op_def = get_op_def(node["op"])
+        binding = op_def.backend_kernels.get(target_name)
+        if binding is None:
+            continue
+        output_name = str(node["outputs"][0])
+        dtype = str(tensor_map[output_name]["dtype"])
+        resolved = binding.resolve(dtype)
+        if resolved.library != "cutlass_bmm":
+            continue
+        a_name, b_name = (str(name) for name in node["inputs"][:2])
+        context = cutlass_bmm_static_alignment_context(
+            str(node["op"]),
+            dtype,
+            tensor_map,
+            a_name=a_name,
+            b_name=b_name,
+            c_name=str(node["outputs"][0]),
         )
         context["node_id"] = str(node["id"])
         key = (str(node["op"]), dtype)

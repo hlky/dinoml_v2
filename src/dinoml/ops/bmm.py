@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.kernels.bmm import BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
-from dinoml.ops.registry import FrontendBinding, OpDef, OpRegistry, OpSchema
+from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
+from dinoml.kernels.providers.cutlass.bmm import (
+    cutlass_bmm_candidate_set,
+    cutlass_bmm_candidates,
+    cutlass_bmm_profiler_symbol,
+    cutlass_bmm_symbol,
+)
+from dinoml.ops.registry import FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
 
 
 def register_bmm_ops(registry: OpRegistry) -> None:
@@ -13,8 +19,10 @@ def register_bmm_ops(registry: OpRegistry) -> None:
                 name=op_name,
                 schema=OpSchema(inputs=("a", "b", *spec.inputs)),
                 infer_shape=_infer_shape_fn(op_name),
+                backend_kernels=_backend_kernels(op_name),
                 frontend=FrontendBinding(op_name),
                 allowed_dtypes=BMM_SUPPORTED_DTYPES,
+                profiler=op_name in BMM_BASE_OPS,
                 description=_description(op_name),
             )
         )
@@ -57,6 +65,27 @@ globals().update(BMM_FRONTEND_OPS)
 
 def _infer_shape_fn(op_name: str):
     return lambda shapes: bmm_op_spec(op_name).validate_shapes(shapes)
+
+
+def _backend_kernels(op_name: str) -> dict[str, KernelBinding]:
+    if op_name not in BMM_BASE_OPS:
+        return {}
+    return {
+        "cuda": KernelBinding(
+            cutlass_bmm_symbol(op_name, "float32"),
+            "cutlass_bmm",
+            profiler_symbol=cutlass_bmm_profiler_symbol(op_name, "float32"),
+            dtype_variants={
+                dtype: KernelVariant(
+                    cutlass_bmm_symbol(op_name, dtype),
+                    profiler_symbol=cutlass_bmm_profiler_symbol(op_name, dtype),
+                    candidates=cutlass_bmm_candidates(op_name, dtype),
+                    candidate_set=cutlass_bmm_candidate_set(op_name, dtype),
+                )
+                for dtype in BMM_SUPPORTED_DTYPES
+            },
+        ),
+    }
 
 
 def _description(op_name: str) -> str:

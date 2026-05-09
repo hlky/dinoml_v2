@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from dinoml.kernels.bmm import (
+    BMM_BASE_OPS,
+    BMM_SUPPORTED_DTYPES,
+    bmm_op_spec,
+)
 from dinoml.kernels.gemm import (
     GEMM_OPS,
     GEMM_SUPPORTED_DTYPES,
@@ -11,6 +16,12 @@ from dinoml.kernels.gemm import (
     cutlass_gemm_profiler_symbol,
     cutlass_gemm_symbol,
     gemm_op_spec,
+)
+from dinoml.kernels.providers.cutlass.bmm import (
+    cutlass_bmm_candidate_set,
+    cutlass_bmm_candidates,
+    cutlass_bmm_profiler_symbol,
+    cutlass_bmm_symbol,
 )
 
 
@@ -84,8 +95,35 @@ def _cutlass_gemm_family(op_name: str) -> ExternalKernelFamily:
 CUTLASS_GEMM_FAMILIES = tuple(_cutlass_gemm_family(op_name) for op_name in GEMM_OPS)
 
 
+def _cutlass_bmm_family(op_name: str) -> ExternalKernelFamily:
+    spec = bmm_op_spec(op_name)
+    return ExternalKernelFamily(
+        op_name=op_name,
+        backend="cuda",
+        provider="cutlass",
+        family="bmm_strided",
+        required_libraries=("cutlass", "cublaslt"),
+        profiler_symbol=cutlass_bmm_profiler_symbol(op_name, "float32"),
+        kernel_symbol=cutlass_bmm_symbol(op_name, "float32"),
+        kernel_symbols_by_dtype={dtype: cutlass_bmm_symbol(op_name, dtype) for dtype in BMM_SUPPORTED_DTYPES},
+        profiler_symbols_by_dtype={dtype: cutlass_bmm_profiler_symbol(op_name, dtype) for dtype in BMM_SUPPORTED_DTYPES},
+        candidates_by_dtype={dtype: cutlass_bmm_candidates(op_name, dtype) for dtype in BMM_SUPPORTED_DTYPES},
+        candidate_sets_by_dtype={dtype: cutlass_bmm_candidate_set(op_name, dtype) for dtype in BMM_SUPPORTED_DTYPES},
+        attrs={
+            "a_layout": spec.layouts["a"],
+            "b_layout": spec.layouts["b"],
+            "c_layout": spec.layouts["c"],
+            "epilogue": spec.epilogue,
+            "supported_dtypes": list(BMM_SUPPORTED_DTYPES),
+        },
+    )
+
+
+CUTLASS_BMM_FAMILIES = tuple(_cutlass_bmm_family(op_name) for op_name in BMM_BASE_OPS)
+
+
 def external_kernel_families(provider: str | None = None, backend: str | None = None) -> tuple[ExternalKernelFamily, ...]:
-    families = CUTLASS_GEMM_FAMILIES
+    families = (*CUTLASS_GEMM_FAMILIES, *CUTLASS_BMM_FAMILIES)
     if provider is not None:
         families = tuple(family for family in families if family.provider == provider)
     if backend is not None:

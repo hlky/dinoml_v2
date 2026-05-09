@@ -78,15 +78,19 @@ The runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
-Base BMM layout contracts are staged separately from CUTLASS launch support.
-The public frontend and CPU reference now cover
+Base BMM layout contracts have their first CUTLASS runtime slice. The public
+frontend and CPU reference cover
 `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` and matching `_add` variants with the
 same v1 layout semantics: A and B `c` layouts transpose the last two logical
 dimensions, and C `c` layouts return `[B, N, M]` output. `_add` accepts an
 output-shaped addend or v1-style trailing-bias addend after leading `1`s are
-squeezed. They are not listed in the CUTLASS external-kernel plan yet; that
-waits on a real batched GEMM ABI with batch strides, C-layout-aware output
-handling, candidate metadata, profiling workloads, and execution-plan feedback.
+squeezed. The base `bmm_*` ops now register a separate `cutlass_bmm` external
+library with a real batched GEMM ABI carrying batch count, per-operand batch
+strides, leading dimensions, C-layout-aware output handling, v1-style batch
+broadcast through zero batch strides, candidate metadata, and alignment
+fallbacks. `_add` BMM variants are still CPU/reference-only until their addend
+or trailing-bias broadcast contract is represented as a proper CUTLASS epilogue
+ABI. BMM profiling workloads and execution-plan feedback remain follow-up work.
 
 `dinoml profile <artifact>` now executes exported profiler symbols for every
 manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
@@ -195,9 +199,9 @@ residual/broadcast split-K remains a targeted follow-up. The permuted
 `gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
 Broader broadcast arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
-functionality, BMM and grouped GEMM parity should wait behind that profiling
-loop so v2 does not accumulate more declared surface area without v1-grade
-selection behavior.
+functionality, BMM `_add`/profile-selection parity, and grouped GEMM parity
+should wait behind that profiling loop so v2 does not accumulate more declared
+surface area without v1-grade selection behavior.
 
 ## Dependency Discovery
 

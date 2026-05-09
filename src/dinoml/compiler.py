@@ -248,6 +248,8 @@ def _build_artifact_from_lowered_ir(
     files.update(backend.support_libraries)
     if _requires_kernel_library(kernel_manifest, "cutlass_gemm"):
         files["cutlass_gemm_library"] = "lib/libdinoml_cutlass_gemm.so"
+    if _requires_kernel_library(kernel_manifest, "cutlass_bmm"):
+        files["cutlass_bmm_library"] = "lib/libdinoml_cutlass_bmm.so"
 
     manifest = {
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,

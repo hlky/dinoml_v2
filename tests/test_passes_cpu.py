@@ -9,8 +9,9 @@ from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.bmm import BMM_OPS
+from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS
 from dinoml.kernels.gemm import GEMM_OPS, render_cutlass_gemm_source
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
     cutlass_gemm_candidates,
@@ -401,7 +402,8 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
     families = {family["op_name"]: family for family in plan["families"]}
     assert set(GEMM_OPS).issubset(families)
-    assert set(BMM_OPS).isdisjoint(families)
+    assert set(BMM_BASE_OPS).issubset(families)
+    assert (set(BMM_OPS) - set(BMM_BASE_OPS)).isdisjoint(families)
     assert set(families) >= {
         "gemm_rcr",
         "gemm_rcr_bias",
@@ -475,6 +477,41 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert len(rrr_f16_candidate_set["candidate_set_key"]) == 64
     assert plan["profiler_strategy"] == "generate_used_candidates_once_then_cache_results"
     assert len(plan["cache_key"]) == 64
+
+
+def test_external_cuda_kernel_plan_lists_cutlass_bmm_base_families():
+    plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
+    families = {family["op_name"]: family for family in plan["families"]}
+    default_symbol_id = _cutlass_default_symbol_id("float32")
+    default_f16_symbol_id = _cutlass_default_symbol_id("float16")
+
+    family = families["bmm_ccc"]
+    assert family["provider"] == "cutlass"
+    assert family["family"] == "bmm_strided"
+    assert family["required_libraries"] == ["cutlass", "cublaslt"]
+    assert family["attrs"] == {
+        "a_layout": "column",
+        "b_layout": "column",
+        "c_layout": "column",
+        "epilogue": "none",
+        "supported_dtypes": ["float16", "float32", "bfloat16"],
+    }
+    assert family["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_bmm_ccc_float32_{default_symbol_id}"
+    assert family["kernel_symbols_by_dtype"]["float16"] == f"dinoml_cutlass_bmm_ccc_float16_{default_f16_symbol_id}"
+    assert family["profiler_symbols_by_dtype"]["float32"] == f"dinoml_profile_cutlass_bmm_ccc_float32_{default_symbol_id}"
+    candidate = family["candidates_by_dtype"]["float32"][0]
+    assert candidate["family"] == "bmm_strided"
+    assert candidate["launch_abi"] == "dinoml_cutlass_bmm_v1"
+    assert candidate["layouts"] == {"a": "column", "b": "column", "c": "column"}
+    assert candidate["cutlass"]["api"] == "device_gemm_batched"
+    assert candidate["cutlass"]["align"] == 4
+    assert candidate["split_k_values"] == [1]
+    assert candidate["supports_split_k"] is False
+    candidate_set = family["candidate_sets_by_dtype"]["float32"]
+    assert candidate_set["candidate_set_id"] == "cutlass_bmm_ccc_float32_linear_combination_v1"
+    assert candidate_set["candidate_count"] == _cutlass_candidate_count("float32")
+    assert candidate_set["launch_abi"] == "dinoml_cutlass_bmm_v1"
+    assert candidate_set["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
 
 
 @pytest.mark.parametrize(("op_name", "layout", "epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_EPILOGUES)
@@ -599,6 +636,58 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     ]
     assert plan.external_support_libraries[0]["kernel_symbols"] == sorted(candidate_symbols)
     assert plan.external_support_libraries[0]["profiler_symbols"] == sorted(candidate_profilers)
+
+
+def test_bmm_kernel_manifest_uses_cutlass_external_library():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_ccc(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 8, 2], "float32"), "b": dml.TensorSpec([1, 6, 8], "float32")},
+        name="bmm_ccc_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
+    required = manifest["required_kernels"][0]
+    selected_symbol_id = str(_cutlass_manifest_first_candidate_with_alignment("float32", 2, op_name="gemm_rrr")["symbol_id"])
+
+    assert required["op"] == "bmm_ccc"
+    assert required["kernel_library"] == "cutlass_bmm"
+    assert required["kernel_symbol"] == f"dinoml_cutlass_bmm_ccc_float32_{selected_symbol_id}"
+    assert required["profiler_symbol"] == f"dinoml_profile_cutlass_bmm_ccc_float32_{selected_symbol_id}"
+    assert required["has_profiler"] is True
+    assert required["candidate_set_id"] == "cutlass_bmm_ccc_float32_linear_combination_v1"
+    assert required["candidate_set"]["family"] == "bmm_strided"
+    assert required["candidate_set"]["launch_abi"] == "dinoml_cutlass_bmm_v1"
+    assert required["cutlass_alignment_cap"] == 2
+    assert required["candidates"][0]["cutlass"]["api"] == "device_gemm_batched"
+    assert required["candidates"][0]["layouts"] == {"a": "column", "b": "column", "c": "column"}
+    assert plan.external_support_libraries[0]["name"] == "cutlass_bmm"
+    assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_bmm.so"
+
+    launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
+    assert "batch dimension mismatch" in launch
+    assert "static_cast<int64_t>(((shape_a_0 == 1" in launch
+    assert "static_cast<int>(shape_a_2)" in launch
+    assert "static_cast<int>(shape_b_1)" in launch
+    assert required["kernel_symbol"] in launch
+
+    module_source = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=manifest)
+    assert f'extern "C" int {required["kernel_symbol"]}(' in module_source
+    assert "int64_t batch_stride_a" in module_source
+
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_bmm.cu").read_text(
+        encoding="utf-8"
+    )
+    rendered_support = render_cutlass_bmm_source(source, cutlass_bmm_used_candidate_plan(manifest))
+    assert f"DINOML_FORWARD_BMM_EXPORT(bmm_ccc, float32" in rendered_support
+    assert selected_symbol_id in rendered_support
 
 
 def test_gemm_kernel_manifest_filters_fp16_accumulation_policy():

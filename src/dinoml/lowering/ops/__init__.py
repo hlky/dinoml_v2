@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
+from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
@@ -19,6 +20,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
 }
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)
+OP_LOWERINGS.update(BMM_LOWERINGS)
 
 
 def render_generated_kernels(

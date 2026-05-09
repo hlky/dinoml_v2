@@ -130,9 +130,15 @@ porting. It intentionally excludes the op inventory, which lives in
   values; this keeps current dense GEMM/CUTLASS lowering intact while leaving
   room for fused quantized-RHS candidate families. The Python runtime can now
   rehydrate GGUF storage metadata and refresh runtime constants through the
-  dense setter path, giving us the initial dequant-then-kernel behavior. Next
-  GGUF work is artifact-level encoded-constant fixtures and then load-time CUDA
-  dequant/offload policies.
+  dense setter path, giving us the initial dequant-then-kernel behavior.
+  Artifacts with GGUF-backed constants now also write `encoded_constants.json`,
+  which normalizes source metadata, logical dense shape/size, and the declared
+  materialization/residency policy. The only runtime-supported policy remains
+  dense dequantization before launch with eager dense device residency; GPU
+  dequant, direct fused dequant-in-kernel, and CPU/offload residency modes are
+  declared as future policies so the artifact contract can grow without changing
+  the dense ABI again. Next GGUF work is load-time CUDA dequant/offload policy
+  execution.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

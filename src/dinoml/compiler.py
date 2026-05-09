@@ -17,7 +17,12 @@ from dinoml.ir import (
     read_json,
     write_json,
 )
-from dinoml.constant_sources import materialize_constant_value
+from dinoml.constant_sources import (
+    GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH,
+    GGUF_RESIDENCY_EAGER_DENSE_DEVICE,
+    gguf_constant_policy_status,
+    materialize_constant_value,
+)
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
@@ -223,6 +228,11 @@ def _build_artifact_from_lowered_ir(
 
     write_json(artifact_dir / "graph.dinoir.json", lowered_ir)
     write_json(artifact_dir / "metadata.json", _runtime_metadata(lowered_ir))
+    encoded_constants_manifest = _encoded_constants_manifest(lowered_ir)
+    if encoded_constants_manifest is not None:
+        write_json(artifact_dir / "encoded_constants.json", encoded_constants_manifest)
+    else:
+        (artifact_dir / "encoded_constants.json").unlink(missing_ok=True)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
     if execution_plan_payload is not None:
         _validate_execution_plan_overlay(execution_plan_payload, target.to_json(), kernel_manifest)
@@ -250,6 +260,8 @@ def _build_artifact_from_lowered_ir(
         files["cutlass_gemm_library"] = "lib/libdinoml_cutlass_gemm.so"
     if _requires_kernel_library(kernel_manifest, "cutlass_bmm"):
         files["cutlass_bmm_library"] = "lib/libdinoml_cutlass_bmm.so"
+    if encoded_constants_manifest is not None:
+        files["encoded_constants"] = "encoded_constants.json"
 
     manifest = {
         "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
@@ -365,6 +377,59 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any])
     ir["constants"] = constant_infos
     ir.setdefault("metadata", {})["constants_nbytes"] = offset
     return ir
+
+
+def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
+    encoded_constants = []
+    total_logical_nbytes = 0
+    total_encoded_nbytes = 0
+    for constant in ir.get("constants", []):
+        storage = constant.get("storage")
+        if not isinstance(storage, Mapping):
+            continue
+        if storage.get("kind") != "gguf":
+            continue
+        materialization = str(storage.get("materialization", GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH))
+        residency = str(storage.get("residency", GGUF_RESIDENCY_EAGER_DENSE_DEVICE))
+        policy_status = gguf_constant_policy_status(materialization, residency)
+        logical_nbytes = int(constant.get("nbytes", 0) or 0)
+        encoded_nbytes = int(storage.get("encoded_nbytes", 0) or 0)
+        total_logical_nbytes += logical_nbytes
+        total_encoded_nbytes += encoded_nbytes
+        encoded_constants.append(
+            {
+                "name": constant["name"],
+                "tensor": constant.get("tensor", constant["name"]),
+                "dtype": constant["dtype"],
+                "shape": list(constant.get("shape", [])),
+                "logical_nbytes": logical_nbytes,
+                "storage": dict(storage),
+                "policy": {
+                    "materialization": materialization,
+                    "materialization_status": policy_status["materialization"],
+                    "residency": residency,
+                    "residency_status": policy_status["residency"],
+                },
+            }
+        )
+    if not encoded_constants:
+        return None
+    return {
+        "schema_version": 1,
+        "kind": "dinoml.encoded_constants",
+        "constants": encoded_constants,
+        "summary": {
+            "constant_count": len(encoded_constants),
+            "logical_nbytes": total_logical_nbytes,
+            "encoded_nbytes": total_encoded_nbytes,
+            "runtime_supported_count": sum(
+                1
+                for item in encoded_constants
+                if item["policy"]["materialization_status"] == "runtime_supported"
+                and item["policy"]["residency_status"] == "runtime_supported"
+            ),
+        },
+    }
 
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:

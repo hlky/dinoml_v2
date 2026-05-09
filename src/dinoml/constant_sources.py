@@ -10,6 +10,30 @@ import numpy as np
 from dinoml.ir import array_to_storage, bfloat16_storage_to_float32, normalize_dtype
 
 
+GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH = "dequantize_full_before_launch"
+GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH = "dequantize_on_gpu_before_launch"
+GGUF_MATERIALIZATION_DIRECT_DEQUANTIZE_IN_KERNEL = "direct_dequantize_in_kernel"
+
+GGUF_RESIDENCY_EAGER_DENSE_DEVICE = "eager_dense_device"
+GGUF_RESIDENCY_CPU_UNTIL_FIRST_USE = "cpu_until_first_use"
+GGUF_RESIDENCY_SEQUENTIAL_OFFLOAD = "sequential_offload"
+GGUF_RESIDENCY_GROUPED_OFFLOAD = "grouped_offload"
+GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD = "manual_runtime_load"
+
+GGUF_MATERIALIZATION_POLICIES: Mapping[str, str] = {
+    GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH: "runtime_supported",
+    GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH: "future",
+    GGUF_MATERIALIZATION_DIRECT_DEQUANTIZE_IN_KERNEL: "future",
+}
+GGUF_RESIDENCY_POLICIES: Mapping[str, str] = {
+    GGUF_RESIDENCY_EAGER_DENSE_DEVICE: "runtime_supported",
+    GGUF_RESIDENCY_CPU_UNTIL_FIRST_USE: "future",
+    GGUF_RESIDENCY_SEQUENTIAL_OFFLOAD: "future",
+    GGUF_RESIDENCY_GROUPED_OFFLOAD: "future",
+    GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD: "future",
+}
+
+
 @dataclass(frozen=True)
 class MaterializedConstant:
     array: np.ndarray
@@ -25,10 +49,14 @@ class GGUFConstant:
     qtype: str | None = None
     encoded_nbytes: int | None = None
     n_per_row: int | None = None
-    materialization: str = "dequantize_full_before_launch"
-    residency: str = "eager_dense_device"
+    materialization: str = GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH
+    residency: str = GGUF_RESIDENCY_EAGER_DENSE_DEVICE
+
+    def __post_init__(self) -> None:
+        validate_gguf_constant_policy(self.materialization, self.residency)
 
     def materialize(self, dtype: str, shape: Sequence[int]) -> MaterializedConstant:
+        validate_gguf_constant_policy(self.materialization, self.residency, require_runtime_supported=True)
         logical_dtype = normalize_dtype(dtype)
         expected_shape = tuple(int(dim) for dim in shape)
         if self.logical_dtype is not None and normalize_dtype(self.logical_dtype) != logical_dtype:
@@ -106,8 +134,8 @@ def gguf_constant(
     qtype: str | None = None,
     encoded_nbytes: int | None = None,
     n_per_row: int | None = None,
-    materialization: str = "dequantize_full_before_launch",
-    residency: str = "eager_dense_device",
+    materialization: str = GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH,
+    residency: str = GGUF_RESIDENCY_EAGER_DENSE_DEVICE,
 ) -> GGUFConstant:
     return GGUFConstant(
         path=path,
@@ -152,9 +180,46 @@ def constant_source_from_storage(storage: Mapping[str, Any]) -> GGUFConstant | N
         qtype=_optional_str(storage.get("qtype")),
         encoded_nbytes=_optional_int(storage.get("encoded_nbytes")),
         n_per_row=_optional_int(storage.get("n_per_row")),
-        materialization=str(storage.get("materialization", "dequantize_full_before_launch")),
-        residency=str(storage.get("residency", "eager_dense_device")),
+        materialization=str(storage.get("materialization", GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH)),
+        residency=str(storage.get("residency", GGUF_RESIDENCY_EAGER_DENSE_DEVICE)),
     )
+
+
+def validate_gguf_constant_policy(
+    materialization: str,
+    residency: str,
+    *,
+    require_runtime_supported: bool = False,
+) -> None:
+    materialization_status = GGUF_MATERIALIZATION_POLICIES.get(materialization)
+    if materialization_status is None:
+        raise ValueError(
+            f"Unsupported GGUF materialization policy {materialization!r}; "
+            f"expected one of {sorted(GGUF_MATERIALIZATION_POLICIES)}"
+        )
+    residency_status = GGUF_RESIDENCY_POLICIES.get(residency)
+    if residency_status is None:
+        raise ValueError(
+            f"Unsupported GGUF residency policy {residency!r}; expected one of {sorted(GGUF_RESIDENCY_POLICIES)}"
+        )
+    if require_runtime_supported and materialization_status != "runtime_supported":
+        raise NotImplementedError(
+            f"GGUF materialization policy {materialization!r} is declared for future runtime support; "
+            f"current runtime supports {GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH!r}"
+        )
+    if require_runtime_supported and residency_status != "runtime_supported":
+        raise NotImplementedError(
+            f"GGUF residency policy {residency!r} is declared for future runtime support; "
+            f"current runtime supports {GGUF_RESIDENCY_EAGER_DENSE_DEVICE!r}"
+        )
+
+
+def gguf_constant_policy_status(materialization: str, residency: str) -> dict[str, str]:
+    validate_gguf_constant_policy(materialization, residency)
+    return {
+        "materialization": GGUF_MATERIALIZATION_POLICIES[materialization],
+        "residency": GGUF_RESIDENCY_POLICIES[residency],
+    }
 
 
 def _materialize_gguf_constant(
@@ -255,8 +320,20 @@ def _optional_shape(value: Any) -> tuple[int, ...] | None:
 
 __all__ = [
     "GGUFConstant",
+    "GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH",
+    "GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH",
+    "GGUF_MATERIALIZATION_DIRECT_DEQUANTIZE_IN_KERNEL",
+    "GGUF_MATERIALIZATION_POLICIES",
+    "GGUF_RESIDENCY_CPU_UNTIL_FIRST_USE",
+    "GGUF_RESIDENCY_EAGER_DENSE_DEVICE",
+    "GGUF_RESIDENCY_GROUPED_OFFLOAD",
+    "GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD",
+    "GGUF_RESIDENCY_POLICIES",
+    "GGUF_RESIDENCY_SEQUENTIAL_OFFLOAD",
     "MaterializedConstant",
     "constant_source_from_storage",
+    "gguf_constant_policy_status",
     "gguf_constant",
     "materialize_constant_value",
+    "validate_gguf_constant_policy",
 ]

@@ -8,6 +8,7 @@ import pytest
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
+from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import (
     IR_SCHEMA_VERSION,
     RUNTIME_ABI_VERSION,
@@ -16,6 +17,7 @@ from dinoml.ir import (
     array_to_storage,
     dtype_runtime_enum,
     read_json,
+    write_json,
 )
 from dinoml.ops.definitions import get_op_def
 
@@ -76,6 +78,23 @@ class PublicShapeViewOutputs(dml.Module):
 class AddZeroModel(dml.Module):
     def forward(self, x):
         return dml.ops.output(x + 0.0, "y")
+
+
+class EncodedWeightModel(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([2, 2], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(x + self.weight, "y")
+
+
+class MaterializingConstant:
+    def __init__(self, value, storage):
+        self.value = np.asarray(value)
+        self.storage = storage
+
+    def materialize(self, dtype, shape):
+        return MaterializedConstant(array_to_storage(self.value, dtype), self.storage)
 
 
 class DirectIdentityModel(dml.Module):
@@ -394,7 +413,45 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     np.testing.assert_allclose(zeroed["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
 
 
-def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch):
+def test_compile_writes_encoded_constants_manifest(tmp_path):
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": [2, 2],
+        "qtype": "F32",
+        "encoded_nbytes": 16,
+        "materialization": "dequantize_full_before_launch",
+        "residency": "eager_dense_device",
+    }
+    traced = dml.trace(
+        EncodedWeightModel(),
+        inputs={"x": dml.TensorSpec([2, 2])},
+        constants={"weight": MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage)},
+        name="encoded_weight",
+    )
+    spec = ModelSpec(
+        name=traced.name,
+        ir=traced.ir,
+        constants={"weight": MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage)},
+    )
+
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "encoded_weight.dinoml")
+
+    manifest = read_json(artifact.path / "manifest.json")
+    assert manifest["files"]["encoded_constants"] == "encoded_constants.json"
+    encoded_constants = read_json(artifact.path / "encoded_constants.json")
+    assert encoded_constants["summary"] == {
+        "constant_count": 1,
+        "logical_nbytes": 16,
+        "encoded_nbytes": 16,
+        "runtime_supported_count": 1,
+    }
+    assert encoded_constants["constants"][0]["policy"]["residency_status"] == "runtime_supported"
+
+
+def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, tmp_path):
     values = np.arange(6, dtype=np.float32).reshape(3, 2)
     tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
     fake_file = SimpleNamespace(
@@ -404,25 +461,35 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch):
     monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
 
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
-    module.metadata = {
-        "constants": [
-            {
-                "name": "weight",
-                "dtype": "float32",
-                "shape": [3, 2],
-                "storage": {
-                    "kind": "gguf",
-                    "path": "weights.gguf",
-                    "tensor": "blk.0.ffn.weight",
-                    "logical_dtype": "float32",
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
                     "shape": [3, 2],
-                    "qtype": "F32",
-                    "encoded_nbytes": values.nbytes,
-                    "n_per_row": 2,
-                },
-            }
-        ]
-    }
+                    "logical_nbytes": values.nbytes,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "blk.0.ffn.weight",
+                        "logical_dtype": "float32",
+                        "shape": [3, 2],
+                        "qtype": "F32",
+                        "encoded_nbytes": values.nbytes,
+                        "n_per_row": 2,
+                    },
+                }
+            ],
+            "summary": {"constant_count": 1, "logical_nbytes": values.nbytes, "encoded_nbytes": values.nbytes},
+        },
+    )
     captured = {}
 
     def set_constant_numpy(name, value):

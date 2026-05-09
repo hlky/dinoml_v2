@@ -7,7 +7,7 @@ import numpy as np
 
 import dinoml as dml
 from dinoml.constant_sources import GGUFConstant, MaterializedConstant, gguf_constant
-from dinoml.compiler import _write_constants
+from dinoml.compiler import _encoded_constants_manifest, _write_constants
 from dinoml.ir import array_from_storage, array_to_storage, canonical_json
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
@@ -120,6 +120,44 @@ def test_write_constants_materializes_constant_source_and_preserves_gguf_metadat
     assert lowered["metadata"]["constants_nbytes"] == 16
 
 
+def test_encoded_constants_manifest_summarizes_gguf_policy(tmp_path):
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "qtype": "Q4_K_M",
+        "encoded_nbytes": 4096,
+        "logical_dtype": "float32",
+        "materialization": "dequantize_full_before_launch",
+        "residency": "eager_dense_device",
+    }
+    lowered = _write_constants(
+        tmp_path,
+        _gguf_constant_ir(),
+        {"weight": MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage=storage)},
+    )
+
+    manifest = _encoded_constants_manifest(lowered)
+
+    assert manifest["kind"] == "dinoml.encoded_constants"
+    assert manifest["summary"] == {
+        "constant_count": 1,
+        "logical_nbytes": 16,
+        "encoded_nbytes": 4096,
+        "runtime_supported_count": 1,
+    }
+    constant = manifest["constants"][0]
+    assert constant["name"] == "weight"
+    assert constant["logical_nbytes"] == 16
+    assert constant["storage"] == storage
+    assert constant["policy"] == {
+        "materialization": "dequantize_full_before_launch",
+        "materialization_status": "runtime_supported",
+        "residency": "eager_dense_device",
+        "residency_status": "runtime_supported",
+    }
+
+
 def test_write_constants_clears_source_metadata_for_dense_rebinding(tmp_path):
     lowered = _write_constants(
         tmp_path,
@@ -164,6 +202,19 @@ def test_write_constants_validates_missing_and_shape_mismatched_constant_sources
 def test_gguf_constant_validates_shape_and_logical_dtype_before_importing_libgguf():
     assert isinstance(gguf_constant("weights.gguf", "blk.0.ffn.weight"), GGUFConstant)
     assert isinstance(dml.gguf_constant("weights.gguf", "blk.0.ffn.weight"), GGUFConstant)
+
+    with pytest.raises(ValueError, match="Unsupported GGUF materialization policy"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", materialization="unknown_policy")
+
+    with pytest.raises(ValueError, match="Unsupported GGUF residency policy"):
+        GGUFConstant("weights.gguf", "blk.0.ffn.weight", residency="unknown_policy")
+
+    with pytest.raises(NotImplementedError, match="future runtime support"):
+        GGUFConstant(
+            "weights.gguf",
+            "blk.0.ffn.weight",
+            materialization="dequantize_on_gpu_before_launch",
+        ).materialize("float32", [2, 2])
 
     with pytest.raises(ValueError, match="logical dtype float16, expected float32"):
         GGUFConstant("weights.gguf", "blk.0.ffn.weight", logical_dtype="float16").materialize("float32", [2, 2])

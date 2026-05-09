@@ -99,7 +99,7 @@ class RuntimeModule:
         self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
 
     def load_encoded_constants(self) -> None:
-        for constant_spec in self.metadata["constants"]:
+        for constant_spec in self._encoded_constant_specs():
             storage = constant_spec.get("storage")
             if not isinstance(storage, Mapping):
                 continue
@@ -108,6 +108,17 @@ class RuntimeModule:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
             self.set_constant_numpy(str(constant_spec["name"]), materialized.array)
+
+    def _encoded_constant_specs(self) -> list[Mapping[str, object]]:
+        files = self.manifest.get("files", {}) if isinstance(getattr(self, "manifest", None), Mapping) else {}
+        encoded_constants_file = files.get("encoded_constants") if isinstance(files, Mapping) else None
+        if encoded_constants_file:
+            payload = read_json(self.artifact_dir / str(encoded_constants_file))
+            specs = payload.get("constants", [])
+            if not isinstance(specs, list):
+                raise ValueError("encoded_constants.json constants field must be a list")
+            return [item for item in specs if isinstance(item, Mapping)]
+        return [item for item in self.metadata["constants"] if isinstance(item.get("storage"), Mapping)]
 
     def set_constant_numpy(self, name: str, value: np.ndarray) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}

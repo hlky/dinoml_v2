@@ -18,6 +18,13 @@ import numpy as np
 from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json, write_json
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
+from dinoml.kernels.providers.cutlass.alignment import (
+    combine_alignment_caps,
+    cutlass_candidate_alignment,
+    cutlass_gemm_layout_alignment,
+    cutlass_gemm_problem_alignment,
+    filter_candidates_by_alignment,
+)
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
@@ -152,8 +159,7 @@ def build_profile_workloads(
         }
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
-        max_candidate_alignment = _gemm_profile_candidate_max_alignment((a_name, b_name), tensor_map)
-        profile_candidates = _profile_candidates(required_item, max_alignment=max_candidate_alignment)
+        layout_max_candidate_alignment = cutlass_gemm_layout_alignment((a_name, b_name), tensor_map)
         for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
             a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
             b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
@@ -163,6 +169,11 @@ def build_profile_workloads(
             residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
+            max_candidate_alignment = combine_alignment_caps(
+                layout_max_candidate_alignment,
+                cutlass_gemm_problem_alignment(op_name, dtype, n=n, k=k),
+            )
+            profile_candidates = _profile_candidates(required_item, max_alignment=max_candidate_alignment)
             for candidate in profile_candidates:
                 for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
                     workloads.append(
@@ -212,45 +223,21 @@ def build_profile_workloads(
 
 
 def _profile_candidates(required_item: Mapping[str, Any], *, max_alignment: int | None = None) -> list[dict[str, Any]]:
-    candidates = [dict(candidate) for candidate in required_item.get("candidates", [])]
+    candidates = filter_candidates_by_alignment(required_item.get("candidates", []), max_alignment)
     if candidates:
-        if max_alignment is None:
-            return candidates
-        filtered = [candidate for candidate in candidates if _candidate_cutlass_alignment(candidate) <= max_alignment]
-        if not filtered:
-            raise ValueError(
-                "CUTLASS GEMM profiling alignment filter removed all candidates "
-                f"for {required_item.get('op')} with max alignment {max_alignment}"
-            )
-        return filtered
+        return candidates
+    if required_item.get("candidates"):
+        raise ValueError(
+            "CUTLASS GEMM profiling alignment filter removed all candidates "
+            f"for {required_item.get('op')} with max alignment {max_alignment}"
+        )
     fallback = _selected_profile_candidate(required_item)
-    if max_alignment is not None and _candidate_cutlass_alignment(fallback) > max_alignment:
+    if max_alignment is not None and cutlass_candidate_alignment(fallback) > max_alignment:
         raise ValueError(
             "CUTLASS GEMM profiling alignment filter removed manifest default "
             f"for {required_item.get('op')} with max alignment {max_alignment}"
         )
     return [fallback]
-
-
-def _gemm_profile_candidate_max_alignment(
-    tensor_names: Sequence[str],
-    tensor_map: Mapping[str, Mapping[str, Any]],
-) -> int | None:
-    alignments = []
-    for name in tensor_names:
-        layout = tensor_map[str(name)].get("layout", {})
-        if isinstance(layout, Mapping) and layout.get("alignment") is not None:
-            alignments.append(int(layout["alignment"]))
-    if len(alignments) != len(tensor_names):
-        return None
-    return min(alignments)
-
-
-def _candidate_cutlass_alignment(candidate: Mapping[str, Any]) -> int:
-    cutlass = candidate.get("cutlass", {})
-    if isinstance(cutlass, Mapping) and cutlass.get("align") is not None:
-        return int(cutlass["align"])
-    return 1
 
 
 def _candidate_profile_split_k_values(candidate: Mapping[str, Any], *, m: int, n: int, k: int) -> tuple[int, ...]:

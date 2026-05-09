@@ -2,11 +2,17 @@ from __future__ import annotations
 
 import hashlib
 from copy import deepcopy
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
+from dinoml.kernels.providers.cutlass.alignment import (
+    combine_alignment_caps,
+    cutlass_gemm_guaranteed_alignment,
+    cutlass_gemm_layout_alignment,
+    filter_candidates_by_alignment,
+)
 from dinoml.ops.definitions import get_op_def
 
 
@@ -20,6 +26,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     required = []
     seen = set()
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    cutlass_alignment_caps = _cutlass_gemm_alignment_caps(ir, target_name, tensor_map)
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
         binding = op_def.backend_kernels[target_name]
@@ -30,11 +37,19 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         profiler_symbol = resolved.profiler_symbol
         candidates = [dict(candidate) for candidate in resolved.candidates]
         candidate_set = dict(resolved.candidate_set) if resolved.candidate_set else None
+        selected_candidate_id = candidates[0]["candidate_id"] if candidates else None
         if resolved.library == "cutlass_gemm":
             candidates = [dict(candidate) for candidate in cutlass_gemm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_gemm_candidate_set(str(node["op"]), dtype, target=target)
-            kernel_symbol = str(candidates[0]["kernel_symbol"])
-            profiler_symbol = str(candidates[0]["profiler_symbol"])
+            selected_candidate = _select_cutlass_manifest_candidate(
+                str(node["op"]),
+                dtype,
+                candidates,
+                cutlass_alignment_caps.get((str(node["op"]), dtype)),
+            )
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
         key = (node["op"], kernel_symbol)
         if key in seen:
             continue
@@ -47,7 +62,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             "has_profiler": op_def.profiler,
         }
         if candidates:
-            item["selected_candidate_id"] = candidates[0]["candidate_id"]
+            item["selected_candidate_id"] = selected_candidate_id
             item["candidates"] = candidates
         if candidate_set:
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
@@ -64,6 +79,50 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         "profiler_strategy": "manifest_declared_not_yet_generated",
     }
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _cutlass_gemm_alignment_caps(
+    ir: Mapping[str, Any],
+    target_name: str,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[tuple[str, str], int | None]:
+    caps: dict[tuple[str, str], int | None] = {}
+    for node in ir["nodes"]:
+        op_def = get_op_def(node["op"])
+        binding = op_def.backend_kernels[target_name]
+        output_name = str(node["outputs"][0])
+        dtype = str(tensor_map[output_name]["dtype"])
+        resolved = binding.resolve(dtype)
+        if resolved.library != "cutlass_gemm":
+            continue
+        a_name, b_name = (str(name) for name in node["inputs"][:2])
+        cap = combine_alignment_caps(
+            cutlass_gemm_guaranteed_alignment(
+                str(node["op"]),
+                dtype,
+                tensor_map[a_name],
+                tensor_map[b_name],
+            ),
+            cutlass_gemm_layout_alignment((a_name, b_name), tensor_map),
+        )
+        key = (str(node["op"]), dtype)
+        caps[key] = combine_alignment_caps(caps.get(key), cap)
+    return caps
+
+
+def _select_cutlass_manifest_candidate(
+    op_name: str,
+    dtype: str,
+    candidates: Sequence[Mapping[str, Any]],
+    max_alignment: int | None,
+) -> Mapping[str, Any]:
+    filtered = filter_candidates_by_alignment(candidates, max_alignment)
+    if not filtered:
+        raise ValueError(
+            "CUTLASS GEMM manifest alignment filter removed all candidates "
+            f"for {op_name} {dtype} with max alignment {max_alignment}"
+        )
+    return filtered[0]
 
 
 def apply_execution_plan(

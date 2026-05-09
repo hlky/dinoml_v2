@@ -150,6 +150,14 @@ def _cutlass_manifest_candidates(dtype: str, target=None, op_name: str = "gemm_r
     return cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)
 
 
+def _cutlass_manifest_first_candidate_with_alignment(dtype: str, max_alignment: int, target=None, op_name: str = "gemm_rrr"):
+    return next(
+        candidate
+        for candidate in _cutlass_manifest_candidates(dtype, target, op_name)
+        if int(candidate["cutlass"]["align"]) <= max_alignment
+    )
+
+
 def _cutlass_manifest_symbol_ids(dtype: str, target=None, op_name: str = "gemm_rrr") -> list[str]:
     return [str(candidate["symbol_id"]) for candidate in _cutlass_manifest_candidates(dtype, target, op_name)]
 
@@ -471,6 +479,8 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     manifest_symbol_ids = _cutlass_manifest_symbol_ids(dtype)
     manifest_candidate_ids = _cutlass_manifest_candidate_ids(dtype)
     default_symbol_id = manifest_symbol_ids[0]
+    selected_candidate = _cutlass_manifest_first_candidate_with_alignment(dtype, 2)
+    selected_symbol_id = str(selected_candidate["symbol_id"])
 
     class GemmModel(dml.Module):
         def forward(self, a, b):
@@ -492,11 +502,13 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["op"] == "gemm_rrr"
     default_symbol = f"dinoml_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
     default_profiler = f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{default_symbol_id}"
+    selected_symbol = f"dinoml_cutlass_gemm_rrr_{suffix}_{selected_symbol_id}"
+    selected_profiler = f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{selected_symbol_id}"
     candidate_symbols = [f"dinoml_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in manifest_symbol_ids]
     candidate_profilers = [f"dinoml_profile_cutlass_gemm_rrr_{suffix}_{symbol_id}" for symbol_id in manifest_symbol_ids]
-    assert required["kernel_symbol"] == default_symbol
+    assert required["kernel_symbol"] == selected_symbol
     assert required["kernel_library"] == "cutlass_gemm"
-    assert required["profiler_symbol"] == default_profiler
+    assert required["profiler_symbol"] == selected_profiler
     assert required["has_profiler"] is True
     assert required["candidate_set_id"] == f"cutlass_gemm_rrr_{suffix}_linear_combination_v1"
     assert len(required["candidate_set_key"]) == 64
@@ -504,7 +516,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert required["candidate_set"]["candidate_count"] == len(manifest_candidates)
     _assert_split_k_metadata(required["candidate_set"], str(required["candidate_set"]["launch_abi"]))
     assert required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
-    assert required["selected_candidate_id"] == manifest_candidate_ids[0]
+    assert required["selected_candidate_id"] == selected_candidate["candidate_id"]
     assert len(required["candidates"]) == len(manifest_candidates)
     candidate = required["candidates"][0]
     assert [item["candidate_id"] for item in required["candidates"]] == manifest_candidate_ids
@@ -528,8 +540,8 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert candidate["cutlass"]["stages"] == 3
     assert candidate["cutlass"]["align"] == (4 if dtype == "float32" else 8)
     assert len(candidate["candidate_config_key"]) == 64
-    assert plan.kernel_symbols == (default_symbol,)
-    assert plan.profiler_symbols == (default_profiler,)
+    assert plan.kernel_symbols == (selected_symbol,)
+    assert plan.profiler_symbols == (selected_profiler,)
     assert plan.candidate_profiler_symbols == tuple(candidate_profilers)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
     assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
@@ -988,10 +1000,12 @@ def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():
     float16_symbol_ids = [str(candidate["symbol_id"]) for candidate in float16_candidates]
     float32_candidate_ids = [str(candidate["candidate_id"]) for candidate in float32_candidates]
     float16_candidate_ids = [str(candidate["candidate_id"]) for candidate in float16_candidates]
+    selected_float32 = _cutlass_manifest_first_candidate_with_alignment("float32", 2)
+    selected_float16 = _cutlass_manifest_first_candidate_with_alignment("float16", 2)
 
     assert [item["kernel_symbol"] for item in manifest["required_kernels"]] == [
-        f"dinoml_cutlass_gemm_rrr_float32_{float32_symbol_ids[0]}",
-        f"dinoml_cutlass_gemm_rrr_float16_{float16_symbol_ids[0]}",
+        f"dinoml_cutlass_gemm_rrr_float32_{selected_float32['symbol_id']}",
+        f"dinoml_cutlass_gemm_rrr_float16_{selected_float16['symbol_id']}",
     ]
     candidates = [candidate for item in manifest["required_kernels"] for candidate in item["candidates"]]
     assert [candidate["candidate_id"] for candidate in candidates] == [

@@ -904,7 +904,16 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
-@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add", "gemm_rcr_bias_mul"])
+@pytest.mark.parametrize(
+    "op_name",
+    [
+        "gemm_rcr_bias_add",
+        "gemm_rcr_bias_mul",
+        "gemm_rcr_bias_mul_tanh",
+        "gemm_rcr_bias_sigmoid_mul",
+        "gemm_rcr_bias_sigmoid_mul_tanh",
+    ],
+)
 def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
     spec = dml.trace(
         GemmResidualModule(op_name),
@@ -926,8 +935,14 @@ def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
     result = inputs["a"] @ inputs["b"].T + inputs["bias"]
     if op_name.endswith("_bias_add"):
         result = result + inputs["d0"]
-    else:
+    elif op_name.endswith("_bias_mul"):
         result = result * inputs["d0"]
+    elif op_name.endswith("_bias_mul_tanh"):
+        result = np.tanh(result * inputs["d0"])
+    elif op_name.endswith("_bias_sigmoid_mul"):
+        result = (1.0 / (1.0 + np.exp(-result))) * inputs["d0"]
+    else:
+        result = np.tanh((1.0 / (1.0 + np.exp(-result))) * inputs["d0"])
 
     actual = execute_cpu(spec, inputs)["y"]
 

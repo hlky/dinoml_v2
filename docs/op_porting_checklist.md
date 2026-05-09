@@ -157,13 +157,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
   lowering/profiler pointer ABIs, and CPU reference execution. These do not use
   a post-GEMM activation or elementwise launch.
 - [x] First folded-M residual coverage:
-  `gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu}` accept `A[..., K]`,
-  preserve output/residual shape `[..., N]`, and flatten leading `A` dimensions
-  into the CUTLASS `m` argument for CUDA lowering and profiling.
+  `gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`
+  accept `A[..., K]`, preserve output/residual shape `[..., N]`, and flatten
+  leading `A` dimensions into the CUTLASS `m` argument for CUDA lowering and
+  profiling.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
-  broader broadcast forms, including folded compound residual epilogues.
+  broader broadcast forms beyond the first folded RCR residual set.
 - [ ] Remaining activation epilogues: `elup1`.
 - [ ] Beyond-v1 CUTLASS epilogues: once v1 parity is stable, evaluate additional
   CUTLASS epilogue functors and visitor forms that can remove useful post-GEMM

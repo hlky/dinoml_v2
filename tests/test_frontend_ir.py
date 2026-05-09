@@ -372,7 +372,7 @@ def test_gemm_bias_residual_frontend_emits_epilogue_ops(layout, b_shape, suffix,
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 
 
-@pytest.mark.parametrize("suffix", ["add", "mul"])
+@pytest.mark.parametrize("suffix", ["add", "mul", "mul_tanh", "sigmoid_mul", "sigmoid_mul_tanh"])
 def test_gemm_rcr_single_residual_frontend_accepts_folded_m(suffix):
     batch = dml.Dim("batch", min=1, max=4)
     heads = dml.Dim("heads", min=1, max=3)

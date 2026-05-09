@@ -737,7 +737,16 @@ def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, layou
     assert expected_call in generated
 
 
-@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add", "gemm_rcr_bias_mul"])
+@pytest.mark.parametrize(
+    "op_name",
+    [
+        "gemm_rcr_bias_add",
+        "gemm_rcr_bias_mul",
+        "gemm_rcr_bias_mul_tanh",
+        "gemm_rcr_bias_sigmoid_mul",
+        "gemm_rcr_bias_sigmoid_mul_tanh",
+    ],
+)
 def test_cuda_lowering_flattens_gemm_rcr_single_residual_folded_m(op_name):
     import dinoml as dml
 

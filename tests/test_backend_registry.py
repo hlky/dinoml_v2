@@ -654,6 +654,59 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         torch.cuda.synchronize()
         torch.testing.assert_close(c_folded_mul, folded_base * d0_folded, atol=atol, rtol=rtol)
 
+        c_folded_mul_tanh = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_mul_tanh_{suffix}")(
+            ctypes.c_void_p(a_folded.data_ptr()),
+            ctypes.c_void_p(b_folded.data_ptr()),
+            ctypes.c_void_p(bias_folded.data_ptr()),
+            ctypes.c_void_p(d0_folded.data_ptr()),
+            ctypes.c_void_p(c_folded_mul_tanh.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_folded_mul_tanh, torch.tanh(folded_base * d0_folded), atol=atol, rtol=rtol)
+
+        c_folded_sigmoid_mul = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_sigmoid_mul_{suffix}")(
+            ctypes.c_void_p(a_folded.data_ptr()),
+            ctypes.c_void_p(b_folded.data_ptr()),
+            ctypes.c_void_p(bias_folded.data_ptr()),
+            ctypes.c_void_p(d0_folded.data_ptr()),
+            ctypes.c_void_p(c_folded_sigmoid_mul.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_folded_sigmoid_mul, torch.sigmoid(folded_base) * d0_folded, atol=atol, rtol=rtol)
+
+        c_folded_sigmoid_mul_tanh = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_sigmoid_mul_tanh_{suffix}")(
+            ctypes.c_void_p(a_folded.data_ptr()),
+            ctypes.c_void_p(b_folded.data_ptr()),
+            ctypes.c_void_p(bias_folded.data_ptr()),
+            ctypes.c_void_p(d0_folded.data_ptr()),
+            ctypes.c_void_p(c_folded_sigmoid_mul_tanh.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(
+            c_folded_sigmoid_mul_tanh,
+            torch.tanh(torch.sigmoid(folded_base) * d0_folded),
+            atol=atol,
+            rtol=rtol,
+        )
+
         c_folded_add_add = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
         err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_add_{suffix}")(
             ctypes.c_void_p(a_folded.data_ptr()),

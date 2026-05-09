@@ -171,6 +171,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `dinoml compile --execution-plan` apply matching static selections before
   writing kernel manifests or generated CUDA, so lowering uses the profiled
   candidate instead of the manifest seed candidate when no shape conflict exists.
+- [x] First profile-assisted compile loop:
+  `dml.compile(..., profile=True)` and `dinoml compile --profile` build a
+  candidate CUDA artifact, run the existing CUTLASS artifact profiler, then
+  rebuild with the generated execution plan applied. The bootstrap timing report
+  is retained as `debug/bootstrap_profile_report.json`.
 - [x] First dynamic-shape profiling buckets:
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases
   when no runtime override is supplied, preserves shared named dim values across
@@ -242,7 +247,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`
   CUDA quantize/dequantize kernels for load-time full dequantization and
-  kernel-local direct dequantization strategies.
+  kernel-local direct dequantization strategies. First GGUF support should model
+  GGUF as quantized constant storage with a dense logical dtype, copy packed
+  bytes, fully dequantize into a dense weight buffer before GEMM, and leave
+  fused quantized-RHS CUTLASS candidate families for a later step.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

@@ -52,7 +52,9 @@ porting. It intentionally excludes the op inventory, which lives in
   `debug/execution_plan.json`, selecting the fastest measured candidate per
   profiled node/shape and exposing a static overlay when all profiled shapes for
   an op/dtype/candidate-set agree. Compile can consume that static overlay via
-  `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen.
+  `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen, and
+  the first opt-in `profile=True` / `compile --profile` path now automates the
+  build-profile-rebuild loop around the existing artifact profiler.
   GEMM profiling expands explicit `Dim.buckets` into concrete workload cases and
   carries bucket case metadata into profile reports and execution plans. The
   first alignment filter prunes CUTLASS profiler workloads from static dense
@@ -62,9 +64,9 @@ porting. It intentionally excludes the op inventory, which lives in
   bias/activation CUTLASS GEMMs now profile v1-style split-K variants and lower
   `split_k > 1` static overlays through companion launcher/profiler symbols plus
   a session-owned workspace.
-  Remaining gaps are guarded dispatch when dynamic bucket winners differ,
-  runtime/stride/offset alignment guards, residual/broadcast split-K coverage,
-  richer statistical confidence, and persistent SQLite/shared cache workflows.
+  Remaining gaps are residual/broadcast split-K coverage, richer statistical
+  confidence, pass-once profile-assisted compile plumbing, and persistent
+  SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 
@@ -112,6 +114,10 @@ porting. It intentionally excludes the op inventory, which lives in
   and CUDA quantize/dequantize kernels. The integration should allow weights to
   load from GGUF, copy to GPU, and either dequantize the whole weight before
   launch or feed quantized storage to kernels that can dequantize directly.
+  Start by treating GGUF as constant storage metadata with dense logical dtype
+  rather than adding GGUF quantization types as normal `DinoDtype` values; this
+  keeps current dense GEMM/CUTLASS lowering intact while leaving room for fused
+  quantized-RHS candidate families.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

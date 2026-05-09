@@ -133,6 +133,10 @@ to `split_k=1` until their CUTLASS broadcast path has matching workspace ABI
 coverage. `dml.compile` and `dinoml compile` can consume the static overlay
 through `execution_plan=...` / `--execution-plan`, applying it before
 manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
+As a first closed-loop compile path, `dml.compile(..., profile=True)` and
+`dinoml compile --profile` now build a candidate artifact, run the CUTLASS
+profiler, load the generated execution plan, and rebuild the artifact with that
+plan applied.
 Profile reports and cache keys include a best-effort CUDA hardware/toolchain
 fingerprint plus support-library source/binary hashes, toolchain/dependency
 provenance, so timings do not silently float across different GPUs or

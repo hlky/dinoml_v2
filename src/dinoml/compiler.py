@@ -21,6 +21,7 @@ from dinoml.ir import (
 )
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.profiling import profile_artifact
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
 
@@ -31,6 +32,88 @@ class Artifact:
 
 
 def compile(
+    spec: ModelSpec,
+    target: Target,
+    output: str | Path,
+    *,
+    clean: bool = True,
+    pass_manager: Optional[PassManager] = None,
+    execution_plan: str | Path | Mapping[str, Any] | None = None,
+    profile: bool = False,
+    profile_iterations: int = 20,
+    profile_input_shapes: Mapping[str, Any] | None = None,
+    profile_refresh: bool = False,
+) -> Artifact:
+    if profile:
+        if execution_plan is not None:
+            raise ValueError("compile(profile=True) cannot also consume an explicit execution_plan")
+        if target.name != "cuda":
+            raise ValueError("compile(profile=True) currently supports CUDA targets only")
+        return _compile_with_profile(
+            spec,
+            target,
+            output,
+            clean=clean,
+            pass_manager=pass_manager,
+            iterations=profile_iterations,
+            input_shapes=profile_input_shapes,
+            refresh=profile_refresh,
+        )
+    return _compile_once(
+        spec,
+        target,
+        output,
+        clean=clean,
+        pass_manager=pass_manager,
+        execution_plan=execution_plan,
+    )
+
+
+def _compile_with_profile(
+    spec: ModelSpec,
+    target: Target,
+    output: str | Path,
+    *,
+    clean: bool,
+    pass_manager: Optional[PassManager],
+    iterations: int,
+    input_shapes: Mapping[str, Any] | None,
+    refresh: bool,
+) -> Artifact:
+    initial_artifact = _compile_once(
+        spec,
+        target,
+        output,
+        clean=clean,
+        pass_manager=pass_manager,
+        execution_plan=None,
+    )
+    profile_report = profile_artifact(
+        initial_artifact.path,
+        input_shapes=input_shapes,
+        iterations=iterations,
+        refresh=refresh,
+    )
+    execution_plan_summary = profile_report.get("execution_plan", {})
+    if not isinstance(execution_plan_summary, Mapping) or not execution_plan_summary.get("path"):
+        raise ValueError("Profiler did not produce an execution plan")
+    if int(execution_plan_summary.get("selection_count", 0) or 0) == 0:
+        write_json(initial_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
+        return initial_artifact
+    execution_plan_payload = read_json(Path(str(execution_plan_summary["path"])))
+    final_artifact = _compile_once(
+        spec,
+        target,
+        output,
+        clean=True,
+        pass_manager=pass_manager,
+        execution_plan=execution_plan_payload,
+    )
+    write_json(final_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
+    return final_artifact
+
+
+def _compile_once(
     spec: ModelSpec,
     target: Target,
     output: str | Path,

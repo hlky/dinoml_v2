@@ -7,6 +7,7 @@ import pytest
 
 import dinoml as dml
 import dinoml.cli as cli
+import dinoml.compiler as compiler_mod
 import dinoml.kernels.profiling as profiling_mod
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.ir import read_json, write_json
@@ -1181,6 +1182,196 @@ def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
             {"name": "cuda", "arch": "sm_86", "no_tf32": False, "use_fp16_acc": False},
             str(tmp_path / "artifact.dinoml"),
             "plan.json",
+        )
+    ]
+    assert "artifact.dinoml" in capsys.readouterr().out
+
+
+def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
+    calls = []
+    report_calls = []
+
+    def fake_compile_once(spec, target, output, *, clean, pass_manager, execution_plan):
+        del pass_manager
+        path = Path(output).resolve()
+        if clean and path.exists():
+            shutil.rmtree(path)
+        (path / "debug").mkdir(parents=True, exist_ok=True)
+        calls.append(
+            {
+                "spec": spec,
+                "target": target.to_json(),
+                "output": str(path),
+                "clean": clean,
+                "execution_plan": execution_plan,
+            }
+        )
+        return compiler_mod.Artifact(path)
+
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, refresh):
+        artifact = Path(artifact)
+        plan_path = artifact / "debug" / "execution_plan.json"
+        plan = {
+            "schema_version": 1,
+            "kind": "dinoml.execution_plan",
+            "static_selections": [{"selection_key": "profile-selection"}],
+        }
+        write_json(plan_path, plan)
+        report_calls.append((str(artifact), input_shapes, iterations, refresh))
+        return {
+            "artifact": str(artifact),
+            "execution_plan": {"path": str(plan_path), "selection_count": 1},
+            "summary": {"cached": 0, "failed": 0, "profiled": 1, "skipped": 0},
+            "problems": [],
+        }
+
+    monkeypatch.setattr(compiler_mod, "_compile_once", fake_compile_once)
+    monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
+
+    artifact = compiler_mod.compile(
+        "spec",
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "profiled.dinoml",
+        profile=True,
+        profile_iterations=7,
+        profile_input_shapes={"a": (4, 8)},
+        profile_refresh=True,
+    )
+
+    assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
+    assert [call["execution_plan"] for call in calls] == [
+        None,
+        {"schema_version": 1, "kind": "dinoml.execution_plan", "static_selections": [{"selection_key": "profile-selection"}]},
+    ]
+    assert calls[0]["clean"] is True
+    assert calls[1]["clean"] is True
+    assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, True)]
+    assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 1
+
+
+def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_compile_once(spec, target, output, *, clean, pass_manager, execution_plan):
+        del spec, target, clean, pass_manager
+        path = Path(output).resolve()
+        (path / "debug").mkdir(parents=True, exist_ok=True)
+        calls.append(execution_plan)
+        return compiler_mod.Artifact(path)
+
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, refresh):
+        del input_shapes, iterations, refresh
+        artifact = Path(artifact)
+        plan_path = artifact / "debug" / "execution_plan.json"
+        write_json(
+            plan_path,
+            {
+                "schema_version": 1,
+                "kind": "dinoml.execution_plan",
+                "selections": [],
+                "static_selections": [],
+                "summary": {"selection_count": 0},
+            },
+        )
+        return {
+            "artifact": str(artifact),
+            "execution_plan": {"path": str(plan_path), "selection_count": 0},
+            "summary": {"cached": 0, "failed": 0, "profiled": 0, "skipped": 0},
+            "problems": [],
+        }
+
+    monkeypatch.setattr(compiler_mod, "_compile_once", fake_compile_once)
+    monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
+
+    artifact = compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
+
+    assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
+    assert calls == [None]
+    assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 0
+
+
+def test_compile_profile_rejects_ambiguous_or_non_cuda_requests(tmp_path):
+    with pytest.raises(ValueError, match="cannot also consume"):
+        compiler_mod.compile(
+            "spec",
+            dml.Target("cuda", arch="sm_86"),
+            tmp_path / "profiled.dinoml",
+            profile=True,
+            execution_plan={"schema_version": 1, "static_selections": []},
+        )
+
+    with pytest.raises(ValueError, match="CUDA targets only"):
+        compiler_mod.compile("spec", dml.Target("cpu"), tmp_path / "profiled_cpu.dinoml", profile=True)
+
+
+def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
+    model_path = tmp_path / "model.py"
+    model_path.write_text("def build_spec():\n    return 'spec'\n", encoding="utf-8")
+    calls = []
+
+    def fake_compile(
+        spec,
+        *,
+        target,
+        output,
+        execution_plan,
+        profile,
+        profile_iterations,
+        profile_input_shapes,
+        profile_refresh,
+    ):
+        calls.append(
+            (
+                spec,
+                target.to_json(),
+                output,
+                execution_plan,
+                profile,
+                profile_iterations,
+                profile_input_shapes,
+                profile_refresh,
+            )
+        )
+
+        class FakeArtifact:
+            path = Path(output)
+
+        return FakeArtifact()
+
+    monkeypatch.setattr(cli.dml, "compile", fake_compile)
+
+    assert (
+        cli.main(
+            [
+                "compile",
+                str(model_path),
+                "--target",
+                "cuda",
+                "--arch",
+                "sm_86",
+                "--profile",
+                "--profile-iterations",
+                "7",
+                "--shape",
+                "a=4,8",
+                "--profile-refresh",
+                "--out",
+                str(tmp_path / "artifact.dinoml"),
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        (
+            "spec",
+            {"name": "cuda", "arch": "sm_86", "no_tf32": False, "use_fp16_acc": False},
+            str(tmp_path / "artifact.dinoml"),
+            None,
+            True,
+            7,
+            {"a": (4, 8)},
+            True,
         )
     ]
     assert "artifact.dinoml" in capsys.readouterr().out

@@ -156,8 +156,12 @@ support-library runtime smoke coverage, and profiler workload shapes.
 `dml.compile(..., execution_plan=...)` and `dinoml compile --execution-plan`
 now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
-source. For profiled dynamic shapes whose buckets choose different candidates or
-split-K values, the manifest now carries guarded per-node dispatch selections:
+source. `dml.compile(..., profile=True)` and `dinoml compile --profile` provide
+the first opt-in closed loop: build the candidate artifact, profile it, load the
+generated execution plan, and rebuild with the plan applied. The bootstrap timing
+report is preserved as `debug/bootstrap_profile_report.json` on the final
+artifact. For profiled dynamic shapes whose buckets choose different candidates
+or split-K values, the manifest now carries guarded per-node dispatch selections:
 generated CUDA checks profiled `M/N/K` cases, calls the selected candidate
 symbol, sizes a shared CUTLASS workspace for split-K dispatches, and falls back
 to the safe manifest default when no guard matches. Next steps should prioritize

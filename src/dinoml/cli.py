@@ -25,6 +25,10 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
     compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")
+    compile_parser.add_argument("--profile", action="store_true", help="Profile CUTLASS candidates and rebuild with the selected execution plan")
+    compile_parser.add_argument("--profile-iterations", type=int, default=20)
+    compile_parser.add_argument("--profile-shape", "--shape", dest="profile_shape", action="append", default=[])
+    compile_parser.add_argument("--profile-refresh", action="store_true")
     compile_parser.add_argument("--out", required=True)
 
     inspect_parser = subparsers.add_parser("inspect")
@@ -61,12 +65,21 @@ def _compile(args: argparse.Namespace) -> int:
     if not hasattr(module, "build_spec"):
         raise RuntimeError(f"{args.model} must define build_spec()")
     spec = module.build_spec()
-    artifact = dml.compile(
-        spec,
-        target=dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
-        output=args.out,
-        execution_plan=args.execution_plan,
-    )
+    compile_kwargs = {
+        "target": dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
+        "output": args.out,
+        "execution_plan": args.execution_plan,
+    }
+    if args.profile:
+        compile_kwargs.update(
+            {
+                "profile": True,
+                "profile_iterations": args.profile_iterations,
+                "profile_input_shapes": parse_shape_overrides(args.profile_shape),
+                "profile_refresh": args.profile_refresh,
+            }
+        )
+    artifact = dml.compile(spec, **compile_kwargs)
     print(f"Wrote {artifact.path}")
     return 0
 

@@ -170,10 +170,11 @@ TensorOp versus SIMT broadcast epilogues, so the same no-TF32 policy applies to
 those fused epilogues. The CUTLASS support cache also writes a
 `dinoml.support_source_manifest` at
 `src/source_manifest.json`, mapping the rendered support source to the candidate
-set keys, candidate config keys, launcher/profiler symbols, and support build
-units actually required by the artifact. The rendered support source is pruned
-from the checked-in CUTLASS source to the symbols required by the artifact's
-used candidate plan.
+set keys, candidate config keys, launcher/profiler symbols, source metrics, and
+support build units actually required by the artifact. The support manifest also
+records source-size/candidate-symbol counts and total NVCC wall time for the
+build. The rendered support source is pruned from the checked-in CUTLASS source
+to the symbols required by the artifact's used candidate plan.
 
 Current reusable kernels are intentionally simple:
 

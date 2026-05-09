@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -63,6 +64,7 @@ def ensure_cutlass_gemm_support_lib(
     repo_source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
     rendered_source = render_cutlass_gemm_source(repo_source_text, used_candidate_plan)
     source_hash = hashlib.sha256(rendered_source.encode("utf-8")).hexdigest()
+    source_metrics = _support_source_metrics(rendered_source, used_candidate_plan)
     compile_flags = _compile_flags(arch_num)
     include_args = [f"-I{root}" for root in include_roots if root.exists()]
     provenance = _build_provenance(
@@ -106,13 +108,16 @@ def ensure_cutlass_gemm_support_lib(
         repo_source=repo_source,
         repo_source_hash=repo_source_hash,
         source_hash=source_hash,
+        source_metrics=source_metrics,
         family_cache_key=family_cache_key,
         external_kernel_plan_cache_key=plan["cache_key"],
         used_candidate_plan=used_candidate_plan,
     )
 
     compile_command = ["nvcc", *compile_flags, *include_args, str(source), "-o", str(library)]
+    compile_started = time.perf_counter()
     _run_nvcc(compile_command, cwd=support_root)
+    compile_duration_ms = round((time.perf_counter() - compile_started) * 1000.0, 3)
     library_hash = _file_sha256(library)
     write_json(
         manifest,
@@ -137,6 +142,8 @@ def ensure_cutlass_gemm_support_lib(
                 "command": compile_command,
                 "flags": compile_flags,
                 "include_roots": [str(root) for root in include_roots if root.exists()],
+                "duration_ms": compile_duration_ms,
+                "source_metrics": source_metrics,
             },
             "cache_key": manifest_key,
         },
@@ -174,6 +181,7 @@ def _cached_manifest_matches(
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False
+    compile_payload = payload.get("compile")
     return (
         payload.get("schema_version") == 2
         and payload.get("provider") == "cutlass"
@@ -183,6 +191,9 @@ def _cached_manifest_matches(
         and payload.get("library_sha256") == library_hash
         and payload.get("family_cache_key") == family_cache_key
         and payload.get("used_candidate_plan_key") == used_candidate_plan_key
+        and isinstance(compile_payload, Mapping)
+        and isinstance(compile_payload.get("source_metrics"), Mapping)
+        and compile_payload.get("duration_ms") is not None
     )
 
 
@@ -309,6 +320,24 @@ def _kernel_manifest_from_families(families: Sequence[Mapping[str, Any]], target
     }
 
 
+def _support_source_metrics(source_text: str, used_candidate_plan: Mapping[str, Any]) -> dict[str, int]:
+    entries = [item for item in used_candidate_plan.get("entries", []) if isinstance(item, Mapping)]
+    candidates = [item for item in used_candidate_plan.get("candidates", []) if isinstance(item, Mapping)]
+    candidate_sets = [item for item in used_candidate_plan.get("candidate_sets", []) if isinstance(item, Mapping)]
+    kernel_symbols = {str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])}
+    profiler_symbols = {str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])}
+    return {
+        "source_nbytes": len(source_text.encode("utf-8")),
+        "source_line_count": len(source_text.splitlines()),
+        "entry_count": len(entries),
+        "candidate_count": len(candidates),
+        "candidate_set_count": len(candidate_sets),
+        "kernel_symbol_count": len(kernel_symbols),
+        "profiler_symbol_count": len(profiler_symbols),
+        "symbol_count": len(kernel_symbols | profiler_symbols),
+    }
+
+
 def _write_source_manifest(
     path: Path,
     *,
@@ -318,6 +347,7 @@ def _write_source_manifest(
     repo_source: Path,
     repo_source_hash: str,
     source_hash: str,
+    source_metrics: Mapping[str, int],
     family_cache_key: str,
     external_kernel_plan_cache_key: str,
     used_candidate_plan: Mapping[str, Any],
@@ -360,6 +390,7 @@ def _write_source_manifest(
                 "repo_source_path": str(repo_source),
                 "repo_source_sha256": repo_source_hash,
                 "source_sha256": source_hash,
+                "source_metrics": dict(source_metrics),
                 "candidate_set_keys": sorted({item["candidate_set_key"] for item in candidate_sets}),
                 "candidate_config_keys": sorted({item["candidate_config_key"] for item in candidates}),
                 "symbols": _source_symbols(candidates),

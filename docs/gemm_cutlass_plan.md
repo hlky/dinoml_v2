@@ -123,15 +123,16 @@ report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
 support manifests also record compile flags, NVCC version output, dependency header
-hashes, and a provenance key that participates in support-cache reuse. The
+hashes, support source size/candidate-symbol counts, total NVCC wall time for the
+support build, and a provenance key that participates in support-cache reuse. The
 support cache writes a
 `dinoml.support_source_manifest` at `src/source_manifest.json` beside the rendered
 CUTLASS source; that manifest maps source files to the used candidate set keys,
-candidate config keys, launcher/profiler symbols, and support build units so
-future generated candidates can be inspected without embedding generated source
-in model artifacts. The support source is currently rendered from a checked-in
-static source file and pruned to only the launcher/profiler symbols required by
-the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
+candidate config keys, launcher/profiler symbols, source metrics, and support
+build units so future generated candidates can be inspected without embedding
+generated source in model artifacts. The support source is currently rendered
+from a checked-in static source file and pruned to only the launcher/profiler
+symbols required by the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
 GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for

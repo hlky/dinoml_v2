@@ -254,10 +254,19 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert len(source_manifest["used_candidate_plan"]["entries"]) == expected_gemm_entry_count
     assert len(source_manifest["source_manifest_key"]) == 64
     static_source = next(item for item in source_manifest["sources"] if item["source_id"] == "cutlass_gemm_static_default")
+    rendered_source = support.source.read_text(encoding="utf-8")
     assert static_source["emitted_source_path"] == support.source.name
     assert static_source["source_key"] == manifest["source_sha256"]
     assert static_source["source_sha256"] == manifest["source_sha256"]
     assert len(static_source["repo_source_sha256"]) == 64
+    assert static_source["source_metrics"]["candidate_count"] == 1
+    assert static_source["source_metrics"]["entry_count"] == 1
+    assert static_source["source_metrics"]["candidate_set_count"] == 1
+    assert static_source["source_metrics"]["kernel_symbol_count"] == 1
+    assert static_source["source_metrics"]["profiler_symbol_count"] == 1
+    assert static_source["source_metrics"]["symbol_count"] == 2
+    assert static_source["source_metrics"]["source_line_count"] == rendered_source.count("\n")
+    assert static_source["source_metrics"]["source_nbytes"] == len(rendered_source.encode("utf-8"))
     assert sorted({item["candidate_set_key"] for item in source_manifest["candidate_sets"]}) == static_source["candidate_set_keys"]
     assert sorted({item["candidate_config_key"] for item in source_manifest["candidates"]}) == static_source["candidate_config_keys"]
     assert {"kernel", "profiler"} == {item["kind"] for item in static_source["symbols"]}
@@ -265,7 +274,6 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == expected_gemm_entry_count
     assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == expected_gemm_entry_count
-    rendered_source = support.source.read_text(encoding="utf-8")
     assert manifest["used_candidate_plan"]["kernel_symbols"] == used_candidate_plan["kernel_symbols"]
     assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rrr, float32" in rendered_source
     assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rcr, float32" not in rendered_source
@@ -277,6 +285,8 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert manifest["provenance"]["nvcc"]["available"] is True
     assert "-arch=sm_86" in manifest["compile"]["flags"]
     assert manifest["compile"]["flags"] == manifest["provenance"]["compile_flags"]
+    assert manifest["compile"]["duration_ms"] >= 0
+    assert manifest["compile"]["source_metrics"] == static_source["source_metrics"]
     assert manifest["provenance"]["dependencies"]["cutlass"]["headers"][0]["sha256"]
     assert manifest["provenance"]["dependencies"]["cublaslt"]["headers"][0]["sha256"]
     assert {family["op_name"] for family in manifest["families"]} == set(GEMM_OPS)

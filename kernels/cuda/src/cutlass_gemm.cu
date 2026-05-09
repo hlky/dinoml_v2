@@ -90,7 +90,7 @@ int launch_gemm_policy(
       1,
       typename Policy::ElementAccumulator,
       float,
-      cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
+      cutlass::epilogue::thread::ScaleType::OnlyAlphaScaling>;
   using Gemm = cutlass::gemm::device::Gemm<
       Element,
       cutlass::layout::RowMajor,
@@ -196,7 +196,13 @@ enum class BiasResidualKind {
   kMulAdd,
 };
 
-template <typename Element_, typename ElementAccumulator_, BiasResidualKind Kind_, int ElementsPerAccess = 1>
+template <
+    typename Element_,
+    typename ElementAccumulator_,
+    BiasResidualKind Kind_,
+    template <typename>
+    class ElementwiseOp_ = cutlass::epilogue::thread::Identity,
+    int ElementsPerAccess = 1>
 class BiasResidualEpilogue {
  public:
   using ElementOutput = Element_;
@@ -213,13 +219,13 @@ class BiasResidualEpilogue {
   static int const kCount = kElementsPerAccess;
   static bool const IsEltActSupported = true;
   static bool const kIsSingleSource = Kind_ == BiasResidualKind::kAdd || Kind_ == BiasResidualKind::kMul;
-  static bool const kIsHeavy = false;
+  using ElementwiseOp = ElementwiseOp_<ElementCompute>;
+  static bool const kIsHeavy = cutlass::epilogue::thread::kIsHeavy_member_or_false<ElementwiseOp>::value;
   static bool const kStoreZ = true;
   static bool const kStoreT = false;
   static constexpr bool IsPerChannelScalingSupported = false;
   static const cutlass::epilogue::thread::ScaleType::Kind kScale = cutlass::epilogue::thread::ScaleType::Default;
 
-  using ElementwiseOp = cutlass::epilogue::thread::Identity<ElementCompute>;
   using ActivationFn = ElementwiseOp;
   using FragmentAccumulator = cutlass::Array<ElementAccumulator, kElementsPerAccess>;
   using FragmentCompute = cutlass::Array<ElementCompute, kElementsPerAccess>;
@@ -321,7 +327,13 @@ class BiasResidualEpilogue {
 
   CUTLASS_HOST_DEVICE
   void store_result(FragmentZ& frag_z, FragmentT& frag_t, FragmentCompute const& result) const {
-    frag_z = cutlass::NumericArrayConverter<ElementZ, ElementCompute, kElementsPerAccess>()(result);
+    ElementwiseOp elementwise_op;
+    FragmentCompute activated;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < kElementsPerAccess; ++i) {
+      activated[i] = elementwise_op(result[i]);
+    }
+    frag_z = cutlass::NumericArrayConverter<ElementZ, ElementCompute, kElementsPerAccess>()(activated);
     frag_t.clear();
   }
 };
@@ -331,6 +343,14 @@ using BiasAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasRe
 
 template <typename Element, typename ElementAccumulator = float>
 using BiasAddAddEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kAddAdd>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasAddReluEpilogue =
+    BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kAdd, cutlass::epilogue::thread::ReLu>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasAddAddReluEpilogue =
+    BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kAddAdd, cutlass::epilogue::thread::ReLu>;
 
 template <typename Element, typename ElementAccumulator = float>
 using BiasMulEpilogue = BiasResidualEpilogue<Element, ElementAccumulator, BiasResidualKind::kMul>;

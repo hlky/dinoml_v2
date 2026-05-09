@@ -133,6 +133,14 @@ GEMM_BIAS_RESIDUAL_CASES = tuple(
         ("mul_add", "bias_mul_add", ("bias", "d0", "d1")),
     )
 )
+GEMM_RCR_BIAS_RESIDUAL_RELU_CASES = (
+    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+)
+GEMM_BIAS_RESIDUAL_CASES = (
+    *GEMM_BIAS_RESIDUAL_CASES,
+    *GEMM_RCR_BIAS_RESIDUAL_RELU_CASES,
+)
 
 
 def _storage_roundtrip(value, dtype: str):
@@ -867,6 +875,10 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
         result = result + inputs["d0"]
     elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_add_add"):
         result = result + inputs["d0"] + inputs["d1"]
+    elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_add_relu"):
+        result = np.maximum(result + inputs["d0"], 0.0)
+    elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_add_add_relu"):
+        result = np.maximum(result + inputs["d0"] + inputs["d1"], 0.0)
     elif epilogue_inputs == ("bias", "d0") and op_name.endswith("_bias_mul"):
         result = result * inputs["d0"]
     elif epilogue_inputs == ("bias", "d0", "d1") and op_name.endswith("_bias_mul_add"):

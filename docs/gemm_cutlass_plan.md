@@ -65,7 +65,8 @@ The runtime GEMM port now wires model lowering into that support library:
    `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
    `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, v1-style activation epilogue ops
    `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish}`, and the first
-   residual epilogues `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` are
+   residual epilogues `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` plus
+   `gemm_rcr_bias_{add_relu,add_add_relu}` are
    explicit frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
    `matmul`; they preserve dynamic `M/N` shape metadata while requiring rank-2
    matrix tensors and compatible max-shape `K`.
@@ -111,7 +112,7 @@ fp16-accumulation fp16 launchers/profilers and changes the support/profile cache
 keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
 and changes those keys too.
 
-Next steps are broader broadcast/folded-M arithmetic epilogues, broader v1
+Next steps are sigmoid/mul/tanh compound epilogues, broader broadcast/folded-M arithmetic epilogues, broader v1
 candidate enumeration, BMM and grouped GEMM parity, and then public `matmul`
 layout selection.
 

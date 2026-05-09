@@ -340,6 +340,8 @@ def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activ
     [
         ("rcr", [6, 8], "add", ("bias", "d0")),
         ("rcr", [6, 8], "add_add", ("bias", "d0", "d1")),
+        ("rcr", [6, 8], "add_relu", ("bias", "d0")),
+        ("rcr", [6, 8], "add_add_relu", ("bias", "d0", "d1")),
         ("rcr", [6, 8], "mul", ("bias", "d0")),
         ("rcr", [6, 8], "mul_add", ("bias", "d0", "d1")),
         ("rrr", [8, 6], "add", ("bias", "d0")),

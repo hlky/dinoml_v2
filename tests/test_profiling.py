@@ -85,6 +85,11 @@ GEMM_BIAS_RESIDUAL_CASES = tuple(
         ("mul_add", "bias_mul_add", ("bias", "d0", "d1")),
     )
 )
+GEMM_BIAS_RESIDUAL_CASES = (
+    *GEMM_BIAS_RESIDUAL_CASES,
+    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+)
 
 
 def test_parse_shape_overrides():
@@ -224,6 +229,7 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
     assert workload.bias_shape == (11,)
     assert workload.candidate["epilogue"] == epilogue
     assert workload.candidate["epilogue_config"]["inputs"] == list(epilogue_inputs)
+    assert workload.candidate["epilogue_config"]["activation"] == ("relu" if epilogue.endswith("_relu") else None)
     assert workload.candidate["launch_abi"].startswith("dinoml_cutlass_gemm_")
     inputs = workload.to_json()["inputs"]
     assert inputs["bias"] == [11]

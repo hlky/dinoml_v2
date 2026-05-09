@@ -211,6 +211,10 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
         result = result + inputs[3]
     elif spec.epilogue.name == "bias_add_add":
         result = result + inputs[3] + inputs[4]
+    elif spec.epilogue.name == "bias_add_relu":
+        result = result + inputs[3]
+    elif spec.epilogue.name == "bias_add_add_relu":
+        result = result + inputs[3] + inputs[4]
     elif spec.epilogue.name == "bias_mul":
         result = result * inputs[3]
     elif spec.epilogue.name == "bias_mul_add":

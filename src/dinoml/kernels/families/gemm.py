@@ -201,6 +201,23 @@ BIAS_RESIDUAL_EPILOGUES: dict[str, GemmEpilogue] = {
     ),
 }
 
+BIAS_RESIDUAL_RELU_EPILOGUES: dict[str, GemmEpilogue] = {
+    "add_relu": GemmEpilogue(
+        name="bias_add_relu",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasAddRelu",
+        inputs=("bias", "d0"),
+        activation="relu",
+        launch_abi="dinoml_cutlass_gemm_bias_residual_v1",
+    ),
+    "add_add_relu": GemmEpilogue(
+        name="bias_add_add_relu",
+        cutlass_functor="dinoml::cutlass_epilogue::BiasAddAddRelu",
+        inputs=("bias", "d0", "d1"),
+        activation="relu",
+        launch_abi="dinoml_cutlass_gemm_bias_residual2_v1",
+    ),
+}
+
 
 def _gemm_op_spec(name: str, base_layout: str, epilogue: GemmEpilogue) -> GemmOpSpec:
     return GemmOpSpec(
@@ -227,6 +244,10 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
         f"gemm_{layout}_bias_{name}": _gemm_op_spec(f"gemm_{layout}_bias_{name}", layout, epilogue)
         for name, epilogue in BIAS_RESIDUAL_EPILOGUES.items()
         for layout in ("rcr", "rrr")
+    },
+    **{
+        f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
+        for name, epilogue in BIAS_RESIDUAL_RELU_EPILOGUES.items()
     },
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)

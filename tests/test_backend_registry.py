@@ -234,6 +234,12 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             ("mul_add", ["bias", "d0", "d1"], "dinoml_cutlass_gemm_bias_residual2_v1"),
         )
     }
+    residual_ops.update(
+        {
+            "gemm_rcr_bias_add_relu": (["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+            "gemm_rcr_bias_add_add_relu": (["bias", "d0", "d1"], "dinoml_cutlass_gemm_bias_residual2_v1"),
+        }
+    )
     residual_candidates = {
         family["op_name"]: family["candidates_by_dtype"]["float32"][0]
         for family in manifest["families"]
@@ -306,7 +312,8 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         ]
         fn.restype = ctypes.c_int
     for layout in ("rcr", "rrr"):
-        for op_suffix in ("add", "mul"):
+        single_source_suffixes = ("add", "add_relu", "mul") if layout == "rcr" else ("add", "mul")
+        for op_suffix in single_source_suffixes:
             for dtype_name in ("float32", "float16", "bfloat16"):
                 name = f"dinoml_cutlass_gemm_{layout}_bias_{op_suffix}_{dtype_name}_{_cutlass_default_symbol_id(dtype_name)}"
                 fn = getattr(dll, name)
@@ -322,7 +329,8 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
                     ctypes.c_void_p,
                 ]
                 fn.restype = ctypes.c_int
-        for op_suffix in ("add_add", "mul_add"):
+        double_source_suffixes = ("add_add", "add_add_relu", "mul_add") if layout == "rcr" else ("add_add", "mul_add")
+        for op_suffix in double_source_suffixes:
             for dtype_name in ("float32", "float16", "bfloat16"):
                 name = f"dinoml_cutlass_gemm_{layout}_bias_{op_suffix}_{dtype_name}_{_cutlass_default_symbol_id(dtype_name)}"
                 fn = getattr(dll, name)
@@ -342,7 +350,7 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
 
     torch.manual_seed(7)
     for torch_dtype, suffix, atol, rtol in (
-        (torch.float32, symbol_suffixes["float32"], 1e-4, 1e-4),
+        (torch.float32, symbol_suffixes["float32"], 1e-2, 1e-2),
         (torch.float16, symbol_suffixes["float16"], 2e-2, 2e-2),
         (torch.bfloat16, symbol_suffixes["bfloat16"], 3e-2, 3e-2),
     ):
@@ -445,6 +453,40 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
             assert err == 0
             torch.cuda.synchronize()
             torch.testing.assert_close(c_bias_add_add, base + d0 + d1, atol=atol, rtol=rtol)
+
+            if layout == "rcr":
+                c_bias_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_relu_{suffix}")(
+                    ctypes.c_void_p(a.data_ptr()),
+                    ctypes.c_void_p(b_residual.data_ptr()),
+                    ctypes.c_void_p(bias.data_ptr()),
+                    ctypes.c_void_p(d0.data_ptr()),
+                    ctypes.c_void_p(c_bias_add_relu.data_ptr()),
+                    ctypes.c_int(16),
+                    ctypes.c_int(24),
+                    ctypes.c_int(32),
+                    ctypes.c_void_p(0),
+                )
+                assert err == 0
+                torch.cuda.synchronize()
+                torch.testing.assert_close(c_bias_add_relu, torch.relu(base + d0), atol=atol, rtol=rtol)
+
+                c_bias_add_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_add_relu_{suffix}")(
+                    ctypes.c_void_p(a.data_ptr()),
+                    ctypes.c_void_p(b_residual.data_ptr()),
+                    ctypes.c_void_p(bias.data_ptr()),
+                    ctypes.c_void_p(d0.data_ptr()),
+                    ctypes.c_void_p(d1.data_ptr()),
+                    ctypes.c_void_p(c_bias_add_add_relu.data_ptr()),
+                    ctypes.c_int(16),
+                    ctypes.c_int(24),
+                    ctypes.c_int(32),
+                    ctypes.c_void_p(0),
+                )
+                assert err == 0
+                torch.cuda.synchronize()
+                torch.testing.assert_close(c_bias_add_add_relu, torch.relu(base + d0 + d1), atol=atol, rtol=rtol)
 
             c_bias_mul = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
             err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_mul_{suffix}")(

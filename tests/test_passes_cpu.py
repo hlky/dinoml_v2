@@ -34,15 +34,24 @@ GEMM_BIAS_RESIDUAL_EPILOGUES = tuple(
         ("mul_add", "bias_mul_add", ("bias", "d0", "d1")),
     )
 )
+GEMM_BIAS_RESIDUAL_EPILOGUES = (
+    *GEMM_BIAS_RESIDUAL_EPILOGUES,
+    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
+    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+)
 GEMM_BIAS_RESIDUAL_EXPORT_MACROS = {
     "bias_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
     "bias_add_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
+    "bias_add_relu": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
+    "bias_add_add_relu": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
     "bias_mul": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
     "bias_mul_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT",
 }
 GEMM_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
     "bias_add": "BiasAddEpilogue",
     "bias_add_add": "BiasAddAddEpilogue",
+    "bias_add_relu": "BiasAddReluEpilogue",
+    "bias_add_add_relu": "BiasAddAddReluEpilogue",
     "bias_mul": "BiasMulEpilogue",
     "bias_mul_add": "BiasMulAddEpilogue",
 }
@@ -64,7 +73,7 @@ def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float3
         "bias": dml.TensorSpec([11], dtype),
         "d0": dml.TensorSpec([7, 11], dtype),
     }
-    if op_name.endswith("_add_add") or op_name.endswith("_mul_add"):
+    if "add_add" in op_name or op_name.endswith("_mul_add"):
         inputs["d1"] = dml.TensorSpec([7, 11], dtype)
     return dml.trace(GemmResidualModule(), inputs=inputs, name=f"{op_name}_{dtype}_residual")
 

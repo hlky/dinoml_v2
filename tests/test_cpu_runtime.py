@@ -399,22 +399,31 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
 
     inputs = build_validation_inputs()
     expected = execute_cpu(spec, inputs)
+    expected_loaded = {constant["name"]: True for constant in spec.ir["constants"]}
+    expected_unloaded = {constant["name"]: False for constant in spec.ir["constants"]}
 
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
     assert hasattr(module._dll, "dino_session_set_stream")
     assert hasattr(module._dll, "dino_module_load_deferred")
+    assert module.constant_load_state() == expected_loaded
+    assert module.is_constant_loaded("scale") is True
+    with pytest.raises(ValueError, match="Unknown constant"):
+        module.is_constant_loaded("missing")
     session = module.create_session()
     session.set_stream(ctypes.c_void_p(0))
     session.set_stream(None)
     actual = session.run_numpy(inputs)
     module.set_constant_numpy("scale", np.zeros_like(spec.constants["scale"]))
     module.set_constant_numpy("bias", np.zeros_like(spec.constants["bias"]))
+    assert module.constant_load_state() == expected_loaded
     zeroed = session.run_numpy(inputs)
     module.unload_constants()
+    assert module.constant_load_state() == expected_unloaded
     with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
         session.run_numpy(inputs)
     module.load_constants_from_file()
+    assert module.constant_load_state() == expected_loaded
     reloaded = session.run_numpy(inputs)
     session.close()
     module.close()
@@ -424,11 +433,13 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     np.testing.assert_allclose(reloaded["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
     module = runtime.load(artifact.path, load_constants=False)
+    assert module.constant_load_state() == expected_unloaded
     session = module.create_session()
     try:
         with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
             session.run_numpy(inputs)
         module.load_constants_from_file()
+        assert module.constant_load_state() == expected_loaded
         deferred = session.run_numpy(inputs)
     finally:
         session.close()
@@ -451,12 +462,16 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
 
     inputs = build_validation_inputs()
     expected = execute_cpu(spec, inputs)
+    expected_loaded = {constant["name"]: True for constant in spec.ir["constants"]}
+    expected_unloaded = {constant["name"]: False for constant in spec.ir["constants"]}
     module = runtime.load(artifact.path)
+    assert module.constant_load_state() == expected_unloaded
     session = module.create_session()
     try:
         with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
             session.run_numpy(inputs)
         module.load_constants_from_file()
+        assert module.constant_load_state() == expected_loaded
         actual = session.run_numpy(inputs)
     finally:
         session.close()
@@ -464,6 +479,7 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
     eager_module = runtime.load(artifact.path, load_constants=True)
+    assert eager_module.constant_load_state() == expected_loaded
     eager_session = eager_module.create_session()
     try:
         eager_actual = eager_session.run_numpy(inputs)

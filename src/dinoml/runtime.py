@@ -92,6 +92,10 @@ class RuntimeModule:
         self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
         metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
         self.metadata = json.loads(metadata_raw.decode("utf-8"))
+        self._constant_loaded = {
+            str(constant["name"]): bool(load_constants)
+            for constant in self.metadata.get("constants", [])
+        }
 
     def close(self) -> None:
         if getattr(self, "_handle", None):
@@ -110,9 +114,19 @@ class RuntimeModule:
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
         constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
         self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
+        self._mark_all_constants_loaded(True)
 
     def unload_constants(self) -> None:
         self._check(self._dll.dino_module_unload_constants(self._handle))
+        self._mark_all_constants_loaded(False)
+
+    def constant_load_state(self) -> dict[str, bool]:
+        return dict(self._constant_loaded)
+
+    def is_constant_loaded(self, name: str) -> bool:
+        if name not in self._constant_loaded:
+            raise ValueError(f"Unknown constant: {name}")
+        return self._constant_loaded[name]
 
     def load_encoded_constants(self) -> None:
         for constant_spec in self._encoded_constant_specs():
@@ -159,6 +173,7 @@ class RuntimeModule:
                     ctypes.byref(tensor),
                 )
             )
+            self._mark_constant_loaded(name, True)
             return
         if self._cuda_runtime_dll is None:
             raise RuntimeError("CUDA runtime library is not loaded")
@@ -186,6 +201,7 @@ class RuntimeModule:
                     ctypes.byref(tensor),
                 )
             )
+            self._mark_constant_loaded(name, True)
         finally:
             self._check(self._cuda_runtime_dll.dino_device_free(ptr))
 
@@ -210,6 +226,7 @@ class RuntimeModule:
             device_type=DINO_DEVICE_CUDA,
         )
         self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
+        self._mark_constant_loaded(name, True)
 
     def set_constant_torch(self, name: str, value: object) -> None:
         if not getattr(value, "is_cuda", False):
@@ -274,6 +291,15 @@ class RuntimeModule:
             ctypes.c_size_t,
         ]
         self._dll.dino_session_run.restype = ctypes.c_int
+
+    def _mark_constant_loaded(self, name: str, loaded: bool) -> None:
+        if name not in self._constant_loaded:
+            raise ValueError(f"Unknown constant: {name}")
+        self._constant_loaded[name] = loaded
+
+    def _mark_all_constants_loaded(self, loaded: bool) -> None:
+        for name in self._constant_loaded:
+            self._constant_loaded[name] = loaded
 
     def _check(self, err: int) -> None:
         if err:

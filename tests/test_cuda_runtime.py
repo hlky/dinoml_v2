@@ -86,16 +86,22 @@ def test_runtime_constant_update_changes_output(tmp_path):
     spec = build_spec()
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "fused_elementwise_constants.dinoml")
     inputs = build_validation_inputs()
+    expected_loaded = {constant["name"]: True for constant in spec.ir["constants"]}
+    expected_unloaded = {constant["name"]: False for constant in spec.ir["constants"]}
 
     module = runtime.load(artifact.path)
+    assert module.constant_load_state() == expected_loaded
     session = module.create_session()
     module.set_constant_numpy("scale", np.zeros_like(spec.constants["scale"]))
     module.set_constant_numpy("bias", np.zeros_like(spec.constants["bias"]))
+    assert module.constant_load_state() == expected_loaded
     actual = session.run_numpy(inputs)
     module.unload_constants()
+    assert module.constant_load_state() == expected_unloaded
     with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
         session.run_numpy(inputs)
     module.load_constants_from_file()
+    assert module.constant_load_state() == expected_loaded
     reloaded = session.run_numpy(inputs)
     session.close()
     module.close()
@@ -104,11 +110,13 @@ def test_runtime_constant_update_changes_output(tmp_path):
     np.testing.assert_allclose(reloaded["y"], execute_cpu(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
 
     module = runtime.load(artifact.path, load_constants=False)
+    assert module.constant_load_state() == expected_unloaded
     session = module.create_session()
     try:
         with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
             session.run_numpy(inputs)
         module.load_constants_from_file()
+        assert module.constant_load_state() == expected_loaded
         deferred = session.run_numpy(inputs)
     finally:
         session.close()

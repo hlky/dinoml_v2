@@ -126,13 +126,17 @@ is wired for RCR epilogues
 including frontend shape metadata, CPU reference execution, CUDA lowering checks,
 support-library runtime smoke coverage, and profiler workload shapes.
 
-Next steps should prioritize consuming `execution_plan.json` during a recompile
-or relink path, adding dynamic-shape buckets, alignment-aware candidate
-filtering, and split-K as a candidate dimension. Broader broadcast/folded-M
-arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output GEMM families,
-beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused functionality, BMM
-and grouped GEMM parity should wait behind that profiling loop so v2 does not
-accumulate more declared surface area without v1-grade selection behavior.
+`dml.compile(..., execution_plan=...)` and `dinoml compile --execution-plan`
+now consume the static overlay from a profile-selected execution plan before
+writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
+source. That closes the first profile-to-recompile loop for shapes whose
+profiled buckets agree on a single candidate. Next steps should prioritize
+dynamic-shape buckets, alignment-aware candidate filtering, and split-K as a
+candidate dimension. Broader broadcast/folded-M arithmetic epilogues, `elup1`,
+v1 `dual_gemm`/dual-output GEMM families, beyond-v1 CUTLASS epilogues where
+CUTLASS gives useful fused functionality, BMM and grouped GEMM parity should
+wait behind that profiling loop so v2 does not accumulate more declared surface
+area without v1-grade selection behavior.
 
 ## Dependency Discovery
 

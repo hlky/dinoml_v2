@@ -4,7 +4,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 import numpy as np
 
@@ -15,11 +15,11 @@ from dinoml.ir import (
     RUNTIME_ABI_VERSION,
     ModelSpec,
     array_to_storage,
-    canonical_json,
     graph_hash,
+    read_json,
     write_json,
 )
-from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
@@ -37,8 +37,10 @@ def compile(
     *,
     clean: bool = True,
     pass_manager: Optional[PassManager] = None,
+    execution_plan: str | Path | Mapping[str, Any] | None = None,
 ) -> Artifact:
     backend = get_backend_spec(target.name)
+    execution_plan_payload = _load_execution_plan(execution_plan)
     artifact_dir = Path(output).resolve()
     if clean and artifact_dir.exists():
         shutil.rmtree(artifact_dir)
@@ -65,11 +67,17 @@ def compile(
             for report in reports
         ],
     }
+    if execution_plan_payload is not None:
+        compile_config["execution_plan"] = _execution_plan_compile_config(execution_plan_payload)
 
     write_json(artifact_dir / "graph.dinoir.json", lowered_ir)
     write_json(artifact_dir / "metadata.json", _runtime_metadata(lowered_ir))
-    write_json(artifact_dir / "compile_config.json", compile_config)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    if execution_plan_payload is not None:
+        _validate_execution_plan_overlay(execution_plan_payload, target.to_json(), kernel_manifest)
+        kernel_manifest = apply_execution_plan(kernel_manifest, execution_plan_payload, strict=True)
+        write_json(debug_dir / "execution_plan.json", dict(execution_plan_payload))
+    write_json(artifact_dir / "compile_config.json", compile_config)
     write_json(artifact_dir / "kernel_manifest.json", kernel_manifest)
     codegen_plan = create_codegen_plan(
         kernel_manifest,
@@ -109,6 +117,58 @@ def compile(
     )
 
     return Artifact(artifact_dir)
+
+
+def _load_execution_plan(execution_plan: str | Path | Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if execution_plan is None:
+        return None
+    if isinstance(execution_plan, Mapping):
+        return dict(execution_plan)
+    return read_json(Path(execution_plan))
+
+
+def _validate_execution_plan_overlay(
+    execution_plan: Mapping[str, Any],
+    target: Mapping[str, Any],
+    kernel_manifest: Mapping[str, Any],
+) -> None:
+    kind = execution_plan.get("kind")
+    if kind is not None and kind != "dinoml.execution_plan":
+        raise ValueError(f"Unsupported execution plan kind: {kind!r}")
+    schema_version = execution_plan.get("schema_version")
+    if schema_version is not None and int(schema_version) != 1:
+        raise ValueError(f"Unsupported execution plan schema version: {schema_version!r}")
+    plan_target = execution_plan.get("target")
+    if isinstance(plan_target, Mapping) and dict(plan_target) and dict(plan_target) != dict(target):
+        raise ValueError(
+            f"Execution plan target {dict(plan_target)!r} does not match compile target {dict(target)!r}"
+        )
+    expected_manifest_key = execution_plan.get("kernel_manifest_cache_key")
+    if expected_manifest_key and expected_manifest_key != kernel_manifest["cache_key"]:
+        raise ValueError(
+            "Execution plan was generated for a different kernel manifest "
+            f"({expected_manifest_key} != {kernel_manifest['cache_key']})"
+        )
+    conflicts = execution_plan.get("conflicts", [])
+    if conflicts:
+        raise ValueError(
+            "Execution plan contains shape-specific candidate conflicts and cannot be applied "
+            "as a static compile overlay"
+        )
+    if not execution_plan.get("static_selections"):
+        raise ValueError("Execution plan does not contain any static candidate selections to apply")
+
+
+def _execution_plan_compile_config(execution_plan: Mapping[str, Any]) -> dict[str, Any]:
+    summary = dict(execution_plan.get("summary", {})) if isinstance(execution_plan.get("summary"), Mapping) else {}
+    return {
+        "schema_version": execution_plan.get("schema_version"),
+        "execution_plan_key": execution_plan.get("execution_plan_key"),
+        "kernel_manifest_cache_key": execution_plan.get("kernel_manifest_cache_key"),
+        "selection_policy": execution_plan.get("selection_policy"),
+        "static_selection_policy": execution_plan.get("static_selection_policy"),
+        "summary": summary,
+    }
 
 
 def _runtime_metadata(ir: Dict) -> Dict:

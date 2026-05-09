@@ -11,7 +11,9 @@ from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import read_json
 from dinoml.kernels.gemm import GEMM_OPS
+from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+from dinoml.passes import PassManager
 
 
 FLOAT32_CANDIDATE_MATH_COUNTS = {
@@ -67,6 +69,11 @@ def test_cutlass_float32_candidate_registry_lists_v1_fast_math_families():
 class Identity(dml.Module):
     def forward(self, x):
         return dml.ops.output(x, "y")
+
+
+class GemmRRR(dml.Module):
+    def forward(self, a, b):
+        return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
 
 
 def test_target_defaults_are_loaded_from_backend_registry():
@@ -787,9 +794,114 @@ def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path,
     assert manifest["files"]["kernel_library"] == get_backend_spec("cpu").support_libraries["kernel_library"]
     assert calls == [
         {
-            "target": {"name": "cpu", "arch": "native"},
+            "target": {"name": "cpu", "arch": "native", "no_tf32": False, "use_fp16_acc": False},
             "artifact_dir": artifact.path,
             "generated_src_dir": artifact.path / "debug" / "generated_src",
             "kernel_manifest": read_json(artifact.path / "kernel_manifest.json"),
         }
     ]
+
+
+def test_compile_applies_execution_plan_before_build_and_codegen(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_build(ir, *, target, artifact_dir, generated_src_dir, kernel_manifest):
+        calls.append(
+            {
+                "target": target.to_json(),
+                "artifact_dir": artifact_dir,
+                "generated_src_dir": generated_src_dir,
+                "kernel_manifest": kernel_manifest,
+            }
+        )
+
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: fake_build)
+
+    spec = dml.trace(
+        GemmRRR(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="compile_profile_selected_gemm",
+    )
+    target = dml.Target("cuda", arch="sm_86")
+    lowered, _ = PassManager().run(spec.ir)
+    base_manifest = build_kernel_manifest(lowered, target.to_json())
+    required = base_manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][1]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": base_manifest["cache_key"],
+        "execution_plan_key": "profile-plan-key",
+        "selection_policy": "lowest_elapsed_ms_per_node_shape",
+        "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
+        "summary": {"selection_count": 1, "static_selection_count": 1, "conflict_count": 0},
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8},
+                "avg_ms": 0.01,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "compile_profile_selected_gemm.dinoml",
+        execution_plan=execution_plan,
+    )
+
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    compile_config = read_json(artifact.path / "compile_config.json")
+    selected_required = kernel_manifest["required_kernels"][0]
+
+    assert calls[0]["kernel_manifest"] == kernel_manifest
+    assert selected_required["selected_candidate_id"] == selected_candidate["candidate_id"]
+    assert selected_required["kernel_symbol"] == selected_candidate["kernel_symbol"]
+    assert selected_required["profiler_symbol"] == selected_candidate["profiler_symbol"]
+    assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
+    assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
+    assert compile_config["execution_plan"]["execution_plan_key"] == "profile-plan-key"
+    assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan
+
+
+def test_compile_rejects_stale_execution_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: lambda **kwargs: None)
+    spec = dml.trace(
+        GemmRRR(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="compile_stale_profile_plan",
+    )
+    target = dml.Target("cuda", arch="sm_86")
+    stale_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": "stale-kernel-manifest-key",
+        "static_selections": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": "unused",
+                "selected_candidate_id": "unused",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="different kernel manifest"):
+        dml.compile(
+            spec,
+            target,
+            tmp_path / "compile_stale_profile_plan.dinoml",
+            execution_plan=stale_plan,
+        )

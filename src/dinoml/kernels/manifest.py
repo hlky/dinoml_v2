@@ -76,6 +76,7 @@ def apply_execution_plan(
     selections = _execution_plan_static_selections(execution_plan)
     if not selections:
         return _with_kernel_manifest_cache_keys(manifest)
+    applied_keys: set[tuple[str, str, str]] = set()
     for item in manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":
             continue
@@ -85,6 +86,7 @@ def apply_execution_plan(
         selection = selections.get(key)
         if selection is None:
             continue
+        applied_keys.add(key)
         selected_id = str(selection.get("selected_candidate_id", ""))
         selected_candidate = _candidate_by_id(item, selected_id)
         if selected_candidate is None:
@@ -107,6 +109,11 @@ def apply_execution_plan(
             "split_k": int(selection.get("split_k", 1) or 1),
             "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
         }
+    if strict:
+        missing = sorted(set(selections) - applied_keys)
+        if missing:
+            missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing)
+            raise ValueError(f"Execution plan selections did not match the kernel manifest: {missing_text}")
     return _with_kernel_manifest_cache_keys(manifest)
 
 

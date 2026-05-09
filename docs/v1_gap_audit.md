@@ -51,10 +51,11 @@ porting. It intentionally excludes the op inventory, which lives in
   target-policy-specific candidate/config keys. Profiling now also writes
   `debug/execution_plan.json`, selecting the fastest measured candidate per
   profiled node/shape and exposing a static overlay when all profiled shapes for
-  an op/dtype/candidate-set agree.
-  Remaining gaps are consuming that overlay during recompile/relink, dynamic
-  shape buckets and guarded dispatch, alignment-aware filtering, split-K, richer
-  statistical confidence, and persistent SQLite/shared cache workflows.
+  an op/dtype/candidate-set agree. Compile can consume that static overlay via
+  `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen.
+  Remaining gaps are dynamic shape buckets and guarded dispatch, alignment-aware
+  filtering, split-K, richer statistical confidence, and persistent
+  SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

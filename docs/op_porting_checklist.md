@@ -166,8 +166,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   measured candidate per profiled node/shape and emitting a static overlay only
   when all profiled shapes for an op/dtype/candidate-set agree on the same
   winner.
-- [ ] Consume profile-selected execution plans during recompile/relink so CUDA
-  lowering uses the profiled candidate instead of the manifest seed candidate.
+- [x] Static execution-plan consumption:
+  `dml.compile(..., execution_plan=...)` and
+  `dinoml compile --execution-plan` apply matching static selections before
+  writing kernel manifests or generated CUDA, so lowering uses the profiled
+  candidate instead of the manifest seed candidate when no shape conflict exists.
 - [ ] Dynamic-shape profiling buckets from `Dim.buckets`, with guarded
   candidate dispatch or clearly scoped static-overlay rules.
 - [ ] Alignment-aware candidate filtering using tensor accessor alignment,

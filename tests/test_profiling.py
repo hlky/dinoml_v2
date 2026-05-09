@@ -679,3 +679,47 @@ def test_cli_profile_smoke(monkeypatch, capsys):
     assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, "report.json", "plan.json", True)]
     assert f"dinoml_profile_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}" in stdout
     assert "plan.json" in stdout
+
+
+def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
+    model_path = tmp_path / "model.py"
+    model_path.write_text("def build_spec():\n    return 'spec'\n", encoding="utf-8")
+    calls = []
+
+    def fake_compile(spec, *, target, output, execution_plan):
+        calls.append((spec, target.to_json(), output, execution_plan))
+
+        class FakeArtifact:
+            path = Path(output)
+
+        return FakeArtifact()
+
+    monkeypatch.setattr(cli.dml, "compile", fake_compile)
+
+    assert (
+        cli.main(
+            [
+                "compile",
+                str(model_path),
+                "--target",
+                "cuda",
+                "--arch",
+                "sm_86",
+                "--execution-plan",
+                "plan.json",
+                "--out",
+                str(tmp_path / "artifact.dinoml"),
+            ]
+        )
+        == 0
+    )
+
+    assert calls == [
+        (
+            "spec",
+            {"name": "cuda", "arch": "sm_86", "no_tf32": False, "use_fp16_acc": False},
+            str(tmp_path / "artifact.dinoml"),
+            "plan.json",
+        )
+    ]
+    assert "artifact.dinoml" in capsys.readouterr().out

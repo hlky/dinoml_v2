@@ -313,7 +313,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   kernel-local direct dequantization strategies. First GGUF support should model
   GGUF as quantized constant storage with a dense logical dtype, copy packed
   bytes, fully dequantize into a dense weight buffer before GEMM, and leave
-  fused quantized-RHS CUTLASS candidate families for a later step.
+  fused quantized-RHS CUTLASS candidate families for a later step. The current
+  foundation includes artifact-level eager/deferred constant-load policy plus
+  runtime reload/unload primitives; remaining work is policy execution for
+  selective GPU residency, prefetch, eviction, and CUDA/GGUF dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

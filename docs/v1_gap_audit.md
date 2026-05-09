@@ -124,6 +124,9 @@ porting. It intentionally excludes the op inventory, which lives in
   constant loading plus an explicit unload/reload lifecycle for dense constants,
   which gives a future offload scheduler the basic residency and eviction
   primitives while keeping module load eager by default for existing callers.
+  Artifacts can now declare an eager or deferred constant-load policy, and the
+  Python runtime honors that policy by default while still allowing callers to
+  override it.
 - GGUF weight ingestion: evaluate `hlky/libgguf` for GGUF read/convert support
   and CUDA quantize/dequantize kernels. The integration should allow weights to
   load from GGUF, copy to GPU, and either dequantize the whole weight before

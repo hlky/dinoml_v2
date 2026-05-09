@@ -41,12 +41,23 @@ DINO_DEVICE_CUDA = 1
 DINO_TENSOR_FLAG_CONTIGUOUS = 1
 
 
-def load(path: str | Path, *, load_constants: bool = True) -> "RuntimeModule":
+def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
     return RuntimeModule(Path(path), load_constants=load_constants)
 
 
+def _resolve_load_constants(load_constants: bool | None, manifest: Mapping[str, object]) -> bool:
+    if load_constants is not None:
+        return bool(load_constants)
+    policy = str(manifest.get("constant_load_policy", "eager"))
+    if policy == "eager":
+        return True
+    if policy == "deferred":
+        return False
+    raise ValueError(f"Unsupported artifact constant_load_policy {policy!r}")
+
+
 class RuntimeModule:
-    def __init__(self, artifact_dir: Path, *, load_constants: bool = True):
+    def __init__(self, artifact_dir: Path, *, load_constants: bool | None = None):
         self.artifact_dir = artifact_dir
         manifest_path = artifact_dir / "manifest.json"
         module_path = artifact_dir / "module.so"
@@ -55,6 +66,7 @@ class RuntimeModule:
         if not module_path.exists():
             raise FileNotFoundError(f"Missing module: {module_path}")
         self.manifest = read_json(manifest_path)
+        load_constants = _resolve_load_constants(load_constants, self.manifest)
         self.target_name = self.manifest.get("target", {}).get("name")
         if self.manifest.get("runtime_abi_version") != RUNTIME_ABI_VERSION:
             raise RuntimeError(

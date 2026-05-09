@@ -30,6 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--profile-repeats", type=int, default=3)
     compile_parser.add_argument("--profile-shape", "--shape", dest="profile_shape", action="append", default=[])
     compile_parser.add_argument("--profile-refresh", action="store_true")
+    compile_parser.add_argument("--constant-load-policy", choices=("eager", "deferred"), default="eager")
     compile_parser.add_argument("--out", required=True)
 
     inspect_parser = subparsers.add_parser("inspect")
@@ -71,6 +72,7 @@ def _compile(args: argparse.Namespace) -> int:
         "target": dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
         "output": args.out,
         "execution_plan": args.execution_plan,
+        "constant_load_policy": args.constant_load_policy,
     }
     if args.profile:
         compile_kwargs.update(

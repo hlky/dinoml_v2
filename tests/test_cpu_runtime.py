@@ -377,7 +377,9 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert (artifact.path / "lib" / "libdinoml_cpu_kernels.so").exists()
     assert (artifact.path / "kernel_manifest.json").exists()
     assert (artifact.path / "metadata.json").exists()
-    assert read_json(artifact.path / "manifest.json")["files"]["metadata"] == "metadata.json"
+    manifest = read_json(artifact.path / "manifest.json")
+    assert manifest["files"]["metadata"] == "metadata.json"
+    assert manifest["constant_load_policy"] == "eager"
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "kMetadataJson" not in generated
     assert "R\"DINOJSON" not in generated
@@ -432,6 +434,55 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
         session.close()
         module.close()
     np.testing.assert_allclose(deferred["y"], expected["y"], atol=1e-5, rtol=1e-5)
+
+
+def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
+    from tests.models.fused_elementwise import build_spec, build_validation_inputs
+
+    spec = build_spec()
+    artifact = dml.compile(
+        spec,
+        dml.Target("cpu"),
+        tmp_path / "deferred_constants_cpu.dinoml",
+        constant_load_policy="deferred",
+    )
+    manifest = read_json(artifact.path / "manifest.json")
+    assert manifest["constant_load_policy"] == "deferred"
+
+    inputs = build_validation_inputs()
+    expected = execute_cpu(spec, inputs)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
+            session.run_numpy(inputs)
+        module.load_constants_from_file()
+        actual = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+    np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
+
+    eager_module = runtime.load(artifact.path, load_constants=True)
+    eager_session = eager_module.create_session()
+    try:
+        eager_actual = eager_session.run_numpy(inputs)
+    finally:
+        eager_session.close()
+        eager_module.close()
+    np.testing.assert_allclose(eager_actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
+
+
+def test_compile_rejects_unknown_constant_load_policy(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    with pytest.raises(ValueError, match="Unsupported constant_load_policy"):
+        dml.compile(
+            build_spec(),
+            dml.Target("cpu"),
+            tmp_path / "bad_constant_load_policy.dinoml",
+            constant_load_policy="lazy",
+        )
 
 
 def test_compile_writes_encoded_constants_manifest(tmp_path):

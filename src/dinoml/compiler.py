@@ -48,7 +48,9 @@ def compile(
     profile_repeats: int = 3,
     profile_input_shapes: Mapping[str, Any] | None = None,
     profile_refresh: bool = False,
+    constant_load_policy: str = "eager",
 ) -> Artifact:
+    constant_load_policy = _validate_constant_load_policy(constant_load_policy)
     if profile:
         if execution_plan is not None:
             raise ValueError("compile(profile=True) cannot also consume an explicit execution_plan")
@@ -64,6 +66,7 @@ def compile(
             repeats=profile_repeats,
             input_shapes=profile_input_shapes,
             refresh=profile_refresh,
+            constant_load_policy=constant_load_policy,
         )
     return _compile_once(
         spec,
@@ -72,6 +75,7 @@ def compile(
         clean=clean,
         pass_manager=pass_manager,
         execution_plan=execution_plan,
+        constant_load_policy=constant_load_policy,
     )
 
 
@@ -86,6 +90,7 @@ def _compile_with_profile(
     repeats: int,
     input_shapes: Mapping[str, Any] | None,
     refresh: bool,
+    constant_load_policy: str,
 ) -> Artifact:
     backend = get_backend_spec(target.name)
     artifact_dir = _prepare_artifact_dir(output, clean=clean)
@@ -107,6 +112,7 @@ def _compile_with_profile(
         reports=reports,
         backend=backend,
         execution_plan_payload=None,
+        constant_load_policy=constant_load_policy,
     )
     profile_report = profile_artifact(
         initial_artifact.path,
@@ -132,6 +138,7 @@ def _compile_with_profile(
         reports=reports,
         backend=backend,
         execution_plan_payload=execution_plan_payload,
+        constant_load_policy=constant_load_policy,
     )
     write_json(final_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
     return final_artifact
@@ -145,6 +152,7 @@ def _compile_once(
     clean: bool = True,
     pass_manager: Optional[PassManager] = None,
     execution_plan: str | Path | Mapping[str, Any] | None = None,
+    constant_load_policy: str = "eager",
 ) -> Artifact:
     backend = get_backend_spec(target.name)
     execution_plan_payload = _load_execution_plan(execution_plan)
@@ -167,6 +175,7 @@ def _compile_once(
         reports=reports,
         backend=backend,
         execution_plan_payload=execution_plan_payload,
+        constant_load_policy=constant_load_policy,
     )
 
 
@@ -207,12 +216,14 @@ def _build_artifact_from_lowered_ir(
     reports: Sequence[Any],
     backend: Any,
     execution_plan_payload: Mapping[str, Any] | None,
+    constant_load_policy: str,
 ) -> Artifact:
     debug_dir = artifact_dir / "debug"
     lowered_ir = dict(lowered_ir)
 
     compile_config = {
         "target": target.to_json(),
+        "constant_load_policy": constant_load_policy,
         "passes": [
             {
                 "name": report.name,
@@ -268,6 +279,7 @@ def _build_artifact_from_lowered_ir(
         "runtime_abi_version": RUNTIME_ABI_VERSION,
         "name": spec.name,
         "target": target.to_json(),
+        "constant_load_policy": constant_load_policy,
         "files": files,
         "graph_hash": graph_hash(lowered_ir),
     }
@@ -290,6 +302,13 @@ def _load_execution_plan(execution_plan: str | Path | Mapping[str, Any] | None) 
     if isinstance(execution_plan, Mapping):
         return dict(execution_plan)
     return read_json(Path(execution_plan))
+
+
+def _validate_constant_load_policy(policy: str) -> str:
+    normalized = str(policy)
+    if normalized not in {"eager", "deferred"}:
+        raise ValueError(f"Unsupported constant_load_policy {policy!r}; expected 'eager' or 'deferred'")
+    return normalized
 
 
 def _validate_execution_plan_overlay(

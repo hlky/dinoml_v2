@@ -1691,8 +1691,8 @@ def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
     model_path.write_text("def build_spec():\n    return 'spec'\n", encoding="utf-8")
     calls = []
 
-    def fake_compile(spec, *, target, output, execution_plan):
-        calls.append((spec, target.to_json(), output, execution_plan))
+    def fake_compile(spec, *, target, output, execution_plan, constant_load_policy):
+        calls.append((spec, target.to_json(), output, execution_plan, constant_load_policy))
 
         class FakeArtifact:
             path = Path(output)
@@ -1725,6 +1725,7 @@ def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
             {"name": "cuda", "arch": "sm_86", "no_tf32": False, "use_fp16_acc": False},
             str(tmp_path / "artifact.dinoml"),
             "plan.json",
+            "eager",
         )
     ]
     assert "artifact.dinoml" in capsys.readouterr().out
@@ -1751,8 +1752,10 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
         reports,
         backend,
         execution_plan_payload,
+        constant_load_policy,
     ):
         del backend
+        assert constant_load_policy == "eager"
         (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
         stale_source = generated_src_dir / "stale_candidate_source.cu"
         if execution_plan_payload is None:
@@ -1836,8 +1839,10 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
         reports,
         backend,
         execution_plan_payload,
+        constant_load_policy,
     ):
         del spec, target, generated_src_dir, lowered_ir, reports, backend
+        assert constant_load_policy == "eager"
         (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
         build_calls.append(execution_plan_payload)
         return compiler_mod.Artifact(artifact_dir)
@@ -1905,6 +1910,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
         profile_repeats,
         profile_input_shapes,
         profile_refresh,
+        constant_load_policy,
     ):
         calls.append(
             (
@@ -1917,6 +1923,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
                 profile_repeats,
                 profile_input_shapes,
                 profile_refresh,
+                constant_load_policy,
             )
         )
 
@@ -1944,6 +1951,8 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
                 "--shape",
                 "a=4,8",
                 "--profile-refresh",
+                "--constant-load-policy",
+                "deferred",
                 "--out",
                 str(tmp_path / "artifact.dinoml"),
             ]
@@ -1962,6 +1971,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
             3,
             {"a": (4, 8)},
             True,
+            "deferred",
         )
     ]
     assert "artifact.dinoml" in capsys.readouterr().out

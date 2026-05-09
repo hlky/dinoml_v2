@@ -176,6 +176,10 @@ with:
 git submodule update --init --recursive
 ```
 
+Support builds enable NVCC `--split-compile=8` when the local compiler supports
+it. Set `DINOML_NVCC_SPLIT_COMPILE=1` to disable that flag, or set it to another
+positive integer to tune the number of device optimization workers.
+
 ## Remaining Near-Term Non-Goals
 
 - No naive C++/CUDA matmul.

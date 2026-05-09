@@ -187,7 +187,7 @@ def _cached_manifest_matches(
 
 
 def _compile_flags(arch_num: str) -> list[str]:
-    return [
+    flags = [
         "-std=c++17",
         "-O3",
         "--use_fast_math",
@@ -196,6 +196,37 @@ def _compile_flags(arch_num: str) -> list[str]:
         "-Xcompiler=-fPIC",
         f"-arch=sm_{arch_num}",
     ]
+    split_compile = _nvcc_split_compile_flag()
+    if split_compile is not None:
+        flags.append(split_compile)
+    return flags
+
+
+def _nvcc_split_compile_flag() -> str | None:
+    raw_jobs = os.environ.get("DINOML_NVCC_SPLIT_COMPILE", "8")
+    try:
+        jobs = int(raw_jobs)
+    except ValueError:
+        return None
+    if jobs <= 1 or not _nvcc_supports_option("--split-compile"):
+        return None
+    return f"--split-compile={jobs}"
+
+
+def _nvcc_supports_option(option: str) -> bool:
+    if shutil.which("nvcc") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["nvcc", "--help"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and option in result.stdout
 
 
 def _build_provenance(

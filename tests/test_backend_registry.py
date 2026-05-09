@@ -6,13 +6,19 @@ from collections import Counter
 import pytest
 
 import dinoml as dml
+import dinoml.backends.cutlass as cutlass_backend
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import read_json
 from dinoml.kernels.gemm import GEMM_OPS
 from dinoml.kernels.manifest import build_kernel_manifest
-from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+from dinoml.kernels.providers.cutlass.gemm import (
+    CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
+    cutlass_gemm_candidate_set,
+    cutlass_gemm_candidates,
+    cutlass_gemm_used_candidate_plan,
+)
 from dinoml.passes import PassManager
 
 
@@ -63,6 +69,31 @@ def _cutlass_default_symbol_id(dtype: str) -> str:
     return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
 
 
+def _tiny_cutlass_used_candidate_plan(target=None):
+    target = target or {"name": "cuda", "arch": "sm_86"}
+    candidates = [dict(cutlass_gemm_candidates("gemm_rrr", "float32", target=target)[0])]
+    candidate_set = cutlass_gemm_candidate_set("gemm_rrr", "float32", target=target)
+    required = {
+        "op": "gemm_rrr",
+        "kernel_symbol": candidates[0]["kernel_symbol"],
+        "kernel_library": "cutlass_gemm",
+        "profiler_symbol": candidates[0]["profiler_symbol"],
+        "selected_candidate_id": candidates[0]["candidate_id"],
+        "candidates": candidates,
+        "candidate_set_id": candidate_set["candidate_set_id"],
+        "candidate_set_key": candidate_set["candidate_set_key"],
+        "candidate_set": candidate_set,
+    }
+    return cutlass_gemm_used_candidate_plan(
+        {
+            "target": dict(target),
+            "cache_key": "test-tiny-cutlass-cache-key",
+            "support_cache_key": "test-tiny-cutlass-support-key",
+            "required_kernels": [required],
+        }
+    )
+
+
 def _assert_split_k_metadata(payload, launch_abi: str) -> None:
     assert payload["split_k_values"] == [1]
     assert payload["split_k_default"] == 1
@@ -76,6 +107,16 @@ def _assert_split_k_metadata(payload, launch_abi: str) -> None:
 
 def test_cutlass_float32_candidate_registry_lists_v1_fast_math_families():
     _assert_float32_candidate_math_families(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float32"])
+
+
+def test_cutlass_compile_flags_enable_bounded_split_compile(monkeypatch):
+    monkeypatch.setattr(cutlass_backend, "_nvcc_supports_option", lambda option: option == "--split-compile")
+
+    assert "--split-compile=8" in cutlass_backend._compile_flags("86")
+    monkeypatch.setenv("DINOML_NVCC_SPLIT_COMPILE", "4")
+    assert "--split-compile=4" in cutlass_backend._compile_flags("86")
+    monkeypatch.setenv("DINOML_NVCC_SPLIT_COMPILE", "1")
+    assert not any(flag.startswith("--split-compile") for flag in cutlass_backend._compile_flags("86"))
 
 
 class Identity(dml.Module):
@@ -168,8 +209,13 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     if not libraries["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    used_candidate_plan = _tiny_cutlass_used_candidate_plan()
 
-    support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass")
+    support = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass",
+        used_candidate_plan=used_candidate_plan,
+    )
 
     assert support.library.exists()
     assert support.source.exists()
@@ -189,7 +235,8 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
     assert source_manifest["used_candidate_plan"]["used_candidate_plan_key"] == manifest["used_candidate_plan_key"]
     assert len(manifest["used_candidate_plan_key"]) == 64
-    expected_gemm_entry_count = len(GEMM_OPS) * 3
+    assert manifest["used_candidate_plan_key"] == used_candidate_plan["used_candidate_plan_key"]
+    expected_gemm_entry_count = 1
     assert len(source_manifest["used_candidate_plan"]["entries"]) == expected_gemm_entry_count
     assert len(source_manifest["source_manifest_key"]) == 64
     static_source = next(item for item in source_manifest["sources"] if item["source_id"] == "cutlass_gemm_static_default")
@@ -204,11 +251,10 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == expected_gemm_entry_count
     assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == expected_gemm_entry_count
-    assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
-        symbol
-        for family in manifest["families"]
-        for symbol in family["kernel_symbols_by_dtype"].values()
-    )
+    rendered_source = support.source.read_text(encoding="utf-8")
+    assert manifest["used_candidate_plan"]["kernel_symbols"] == used_candidate_plan["kernel_symbols"]
+    assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rrr, float32" in rendered_source
+    assert "DINOML_FORWARD_GEMM_EXPORT(gemm_rcr, float32" not in rendered_source
     assert len(manifest["build_fingerprint"]) == 64
     assert manifest["provenance_key"]
     assert manifest["build_fingerprint"] == manifest["provenance_key"]

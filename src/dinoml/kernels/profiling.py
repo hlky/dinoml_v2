@@ -25,6 +25,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
@@ -1433,10 +1434,7 @@ def _execution_plan_summary(execution_plan: Mapping[str, Any], path: Path) -> di
 
 
 def _cutlass_split_k_supported(candidate: Mapping[str, Any]) -> bool:
-    return bool(candidate.get("supports_split_k")) and str(candidate.get("launch_abi")) in {
-        "dinoml_cutlass_gemm_v1",
-        "dinoml_cutlass_gemm_bias_v1",
-    }
+    return bool(candidate.get("supports_split_k")) and cutlass_gemm_split_k_supported(candidate)
 
 
 def _cutlass_split_k_profiler_symbol(symbol: str) -> str:

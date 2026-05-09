@@ -8,6 +8,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import dtype_nbytes, dtype_runtime_enum
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
@@ -88,6 +89,7 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
                     symbol,
                     cpp_type,
                     str(declaration["launch_abi"]),
+                    str(declaration["epilogue"]),
                     split_k=bool(declaration["split_k"]),
                 )
             )
@@ -159,18 +161,27 @@ def _cutlass_declaration_context(
     split_k: int,
 ) -> dict[str, Any]:
     launch_abi = str(candidate.get("launch_abi") or item.get("candidate_set", {}).get("launch_abi"))
+    epilogue = str(candidate.get("epilogue") or item.get("candidate_set", {}).get("epilogue"))
     dtype = str(candidate.get("dtype") or item.get("candidate_set", {}).get("dtype"))
     return {
         "symbol": _cutlass_split_k_kernel_symbol(symbol) if split_k > 1 else symbol,
         "dtype": dtype,
         "launch_abi": launch_abi,
+        "epilogue": epilogue,
         "split_k": split_k > 1,
     }
 
 
-def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str, *, split_k: bool = False) -> str:
-    if split_k and launch_abi not in {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}:
-        raise ValueError(f"Unsupported CUTLASS split-K launch ABI: {launch_abi!r}")
+def _cutlass_gemm_declaration(
+    symbol: str,
+    cpp_type: str,
+    launch_abi: str,
+    epilogue: str,
+    *,
+    split_k: bool = False,
+) -> str:
+    if split_k and not cutlass_gemm_split_k_supported({"launch_abi": launch_abi, "epilogue": epilogue}):
+        raise ValueError(f"Unsupported CUTLASS split-K epilogue/launch ABI: {epilogue!r} / {launch_abi!r}")
     extra_args = ""
     if launch_abi == "dinoml_cutlass_gemm_bias_v1":
         extra_args = f"    const {cpp_type}* bias,\n"

@@ -38,17 +38,26 @@ FLOAT32_OPTIONAL_MATH_COUNTS = {
     math: count for math, count in FLOAT32_CANDIDATE_MATH_COUNTS.items() if math != "f32"
 }
 SPLIT_K_LAUNCH_ABIS = {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}
+SPLIT_K_RESIDUAL_EPILOGUES = {"bias_add", "bias_add_add", "bias_add_relu", "bias_add_add_relu"}
+SPLIT_K_RESIDUAL_LAUNCH_ABIS = {
+    "dinoml_cutlass_gemm_bias_residual_v1",
+    "dinoml_cutlass_gemm_bias_residual2_v1",
+}
 
 
-def _assert_float32_candidate_math_families(candidates):
-    assert len(candidates) == sum(FLOAT32_CANDIDATE_MATH_COUNTS.values())
-    assert Counter(item["cutlass"]["math"] for item in candidates) == Counter(FLOAT32_CANDIDATE_MATH_COUNTS)
+def _assert_float32_candidate_math_families(candidates, *, expect_simt: bool = True):
+    expected_counts = FLOAT32_CANDIDATE_MATH_COUNTS if expect_simt else FLOAT32_OPTIONAL_MATH_COUNTS
+    assert len(candidates) == sum(expected_counts.values())
+    assert Counter(item["cutlass"]["math"] for item in candidates) == Counter(expected_counts)
     assert Counter(item["cutlass"]["math"] for item in candidates if item["optional"]) == Counter(
         FLOAT32_OPTIONAL_MATH_COUNTS
     )
-    assert Counter(item["cutlass"]["math"] for item in candidates if not item["optional"]) == Counter({"f32": 11})
+    if expect_simt:
+        assert Counter(item["cutlass"]["math"] for item in candidates if not item["optional"]) == Counter({"f32": 11})
+        assert {item["cutlass"]["opclass"] for item in candidates if not item["optional"]} == {"simt"}
+    else:
+        assert all(item["optional"] for item in candidates)
     assert {item["cutlass"]["opclass"] for item in candidates if item["optional"]} == {"tensorop"}
-    assert {item["cutlass"]["opclass"] for item in candidates if not item["optional"]} == {"simt"}
     for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
         assert {
             item["cutlass"].get("math_operator", "multiply_add")
@@ -57,12 +66,12 @@ def _assert_float32_candidate_math_families(candidates):
         } == {math_operator}
 
 
-def _cutlass_candidate_count(dtype: str) -> int:
-    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
+def _cutlass_candidate_count(dtype: str, op_name: str = "gemm_rrr") -> int:
+    return len(cutlass_gemm_candidates(op_name, dtype))
 
 
-def _cutlass_candidate_ids(dtype: str) -> list[str]:
-    return [str(config["candidate_id"]) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]]
+def _cutlass_candidate_ids(dtype: str, op_name: str = "gemm_rrr") -> list[str]:
+    return [str(candidate["candidate_id"]) for candidate in cutlass_gemm_candidates(op_name, dtype)]
 
 
 def _cutlass_default_symbol_id(dtype: str) -> str:
@@ -94,12 +103,17 @@ def _tiny_cutlass_used_candidate_plan(target=None):
     )
 
 
-def _assert_split_k_metadata(payload, launch_abi: str) -> None:
+def _assert_split_k_metadata(payload, launch_abi: str | None = None) -> None:
+    launch_abi = str(payload["launch_abi"] if launch_abi is None else launch_abi)
+    epilogue = str(payload.get("epilogue", ""))
+    supports_split_k = launch_abi in SPLIT_K_LAUNCH_ABIS or (
+        launch_abi in SPLIT_K_RESIDUAL_LAUNCH_ABIS and epilogue in SPLIT_K_RESIDUAL_EPILOGUES
+    )
     assert payload["split_k_values"] == [1]
     assert payload["split_k_default"] == 1
-    assert payload["supports_split_k"] is (launch_abi in SPLIT_K_LAUNCH_ABIS)
+    assert payload["supports_split_k"] is supports_split_k
     assert payload["workspace_nbytes"] == 0
-    if launch_abi in SPLIT_K_LAUNCH_ABIS:
+    if supports_split_k:
         assert payload["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32}
     else:
         assert "split_k_search" not in payload
@@ -267,21 +281,22 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert manifest["provenance"]["dependencies"]["cublaslt"]["headers"][0]["sha256"]
     assert {family["op_name"] for family in manifest["families"]} == set(GEMM_OPS)
     for family in manifest["families"]:
+        op_name = str(family["op_name"])
         assert sorted(family["kernel_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["profiler_symbols_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidates_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidate_sets_by_dtype"]) == ["bfloat16", "float16", "float32"]
         for dtype, candidates in family["candidates_by_dtype"].items():
-            assert len(candidates) == _cutlass_candidate_count(dtype)
+            assert len(candidates) == _cutlass_candidate_count(dtype, op_name)
             candidate = candidates[0]
             candidate_set = family["candidate_sets_by_dtype"][dtype]
-            assert candidate_set["candidate_count"] == _cutlass_candidate_count(dtype)
+            assert candidate_set["candidate_count"] == _cutlass_candidate_count(dtype, op_name)
             assert candidate_set["candidate_config_keys"] == [
                 item["candidate_config_key"] for item in candidates
             ]
             assert len(candidate_set["candidate_set_key"]) == 64
             _assert_split_k_metadata(candidate_set, str(candidate_set["launch_abi"]))
-            assert [item["candidate_id"] for item in candidates] == _cutlass_candidate_ids(dtype)
+            assert [item["candidate_id"] for item in candidates] == _cutlass_candidate_ids(dtype, op_name)
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]

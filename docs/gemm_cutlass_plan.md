@@ -110,15 +110,16 @@ byte offsets to logical tensor pointers, validates offset-adjusted byte
 capacity, and still requires contiguous row-major strides when stride metadata
 is supplied. Profile results, cache keys,
 execution-plan selections, and static overlays preserve `split_k` plus
-`workspace_nbytes` as launch/result metadata. Base and bias/activation
-`device::Gemm` candidates now advertise
+`workspace_nbytes` as launch/result metadata. Base, bias/activation, and
+additive residual `device::Gemm` candidates now advertise
 v1-style split-K search metadata, the profiler expands split-K values using the
 v1 `K // max(M, N)` heuristic, and generated CUDA uses companion split-K
 launcher/profiler symbols plus a session-owned CUTLASS workspace when an
-execution plan selects `split_k > 1`. Residual/broadcast epilogue families still
-profile and launch with `split_k=1`; their fused epilogue currently has no
-partition-aware `set_k_partition` behavior, so serial split-K would reapply
-residual operands or final activations incorrectly. The report/cache key records a
+execution plan selects `split_k > 1`. Non-additive residual and broader
+broadcast epilogue families still profile and launch with `split_k=1`; their
+fused epilogues need epilogue-specific partition behavior before serial split-K
+can avoid reapplying residual operands or final activations incorrectly. The
+report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
 support manifests also record compile flags, NVCC version output, dependency header
@@ -140,10 +141,13 @@ candidates now total 221 variants: 57 regular TF32 TensorOp, 57
 `multiply_add_fast_f16` TensorOp, 57 `multiply_add_fast_bf16` TensorOp, 39
 3xTF32 `multiply_add_fast_f32` TensorOp, and 11 exact f32 SIMT fallback
 candidates. All TensorOp float32 families are optional; `no_tf32=True` filters
-them out and leaves only the 11 exact f32 SIMT candidates. Each candidate
-records tile, stage count, warp count, alignment, math mode, optional status,
-math operator, and accumulator dtype so profiling can distinguish real kernel
-variants. Generated support source is pruned from the macro-backed checked-in
+them out and leaves only the 11 exact f32 SIMT candidates. Residual broadcast
+GEMMs use a local CUTLASS selector so TensorOp policies use
+`DefaultGemmWithBroadcast` while SIMT policies use the SIMT broadcast epilogue
+path. Each candidate records tile, stage count, warp count, alignment, math
+mode, optional status, math operator, and accumulator dtype so profiling can
+distinguish real kernel variants. Generated support source is pruned from the
+macro-backed checked-in
 source to only the launcher/profiler symbols in the used candidate plan, and
 activation/residual epilogue exports instantiate CUTLASS thread epilogue
 functors directly with the selected candidate accumulator type. Candidate policy
@@ -173,10 +177,10 @@ refreshing generated CUDA sources for the selected plan. For profiled dynamic sh
 or split-K values, the manifest now carries guarded per-node dispatch selections:
 generated CUDA checks profiled `M/N/K` cases, calls the selected candidate
 symbol, sizes a shared CUTLASS workspace for split-K dispatches, and falls back
-to the safe manifest default when no guard matches. Next steps should prioritize
-extending split-K only to additive residual/broadcast epilogues once their
-partition behavior is implemented and tested. The v1 `ELUp1` activation is now
-available as a bias-activation GEMM epilogue; the permuted
+to the safe manifest default when no guard matches. The v1 `ELUp1` activation is now
+available as a bias-activation GEMM epilogue, and additive residual epilogues now
+have partition-aware serial split-K launch/profiling coverage. Non-additive
+residual/broadcast split-K remains a targeted follow-up. The permuted
 `gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
 Broader broadcast/folded-M arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused

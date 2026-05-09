@@ -349,17 +349,55 @@ def test_build_profile_workloads_expands_v1_split_k_for_supported_gemm():
     assert all(workload.workspace_nbytes > 0 for workload in workloads if workload.split_k > 1)
 
 
-def test_build_profile_workloads_keeps_residual_epilogues_split_k_one():
+@pytest.mark.parametrize(
+    ("op_name", "has_d1"),
+    [
+        ("gemm_rcr_bias_add", False),
+        ("gemm_rcr_bias_add_add_relu", True),
+    ],
+)
+def test_build_profile_workloads_expands_split_k_for_additive_residual_epilogues(op_name, has_d1):
+    target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
+    inputs = {
+        "a": dml.TensorSpec([64, 1024], "float32"),
+        "b": dml.TensorSpec([64, 1024], "float32"),
+        "bias": dml.TensorSpec([64], "float32"),
+        "d0": dml.TensorSpec([64, 64], "float32"),
+    }
+    if has_d1:
+        inputs["d1"] = dml.TensorSpec([64, 64], "float32")
+    spec = dml.trace(
+        GemmResidualModule(op_name),
+        inputs=inputs,
+        name=f"profile_{op_name}_split_k_search_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, target)
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    expected_split_k = [1, 4, 6, 8, 10, 12, 14]
+    first_candidate = workloads[0].candidate_id
+    assert len(workloads) == 11 * len(expected_split_k)
+    assert [workload.split_k for workload in workloads if workload.candidate_id == first_candidate] == expected_split_k
+    assert all(workload.candidate["supports_split_k"] is True for workload in workloads)
+    assert all(workload.candidate["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32} for workload in workloads)
+    assert all(workload.workspace_nbytes == 0 for workload in workloads if workload.split_k == 1)
+    assert all(workload.workspace_nbytes > 0 for workload in workloads if workload.split_k > 1)
+
+
+@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_mul", "gemm_rcr_bias_sigmoid_mul"])
+def test_build_profile_workloads_keeps_non_additive_residual_epilogues_split_k_one(op_name):
     target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
     spec = dml.trace(
-        GemmResidualModule("gemm_rcr_bias_add"),
+        GemmResidualModule(op_name),
         inputs={
             "a": dml.TensorSpec([64, 1024], "float32"),
             "b": dml.TensorSpec([64, 1024], "float32"),
             "bias": dml.TensorSpec([64], "float32"),
             "d0": dml.TensorSpec([64, 64], "float32"),
         },
-        name="profile_residual_no_split_k_search_gemm",
+        name=f"profile_{op_name}_no_split_k_search_gemm",
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, target)
@@ -611,8 +649,12 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
     assert workload.candidate["epilogue_config"]["activation"] == expected_activation
     assert workload.candidate["epilogue_config"].get("pre_residual_activation") == expected_pre_activation
     assert workload.candidate["launch_abi"].startswith("dinoml_cutlass_gemm_")
-    assert workload.candidate["supports_split_k"] is False
-    assert "split_k_search" not in workload.candidate
+    expected_split_k_support = epilogue in {"bias_add", "bias_add_add", "bias_add_relu", "bias_add_add_relu"}
+    assert workload.candidate["supports_split_k"] is expected_split_k_support
+    if expected_split_k_support:
+        assert workload.candidate["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32}
+    else:
+        assert "split_k_search" not in workload.candidate
     inputs = workload.to_json()["inputs"]
     assert inputs["bias"] == [n]
     assert inputs["d0"] == [7, n]

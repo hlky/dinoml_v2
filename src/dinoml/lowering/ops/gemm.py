@@ -6,6 +6,7 @@ from typing import Any, Iterable, Mapping
 from dinoml.ir import dtype_nbytes
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 
 
@@ -77,7 +78,6 @@ def render_launch(
         epilogue_args.append(f"ptr_{tensor_ident}")
 
     selection = _cutlass_execution_plan_selection(manifest_item)
-    _validate_cutlass_execution_plan_selection(op_name, manifest_item, selection)
     lines = [
         f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
@@ -145,18 +145,20 @@ def _folded_output_shape_check(output_ident: str, a_ident: str, a_rank: int, n_e
 
 def _validate_cutlass_execution_plan_selection(
     op_name: str,
-    item: Mapping[str, Any] | None,
+    candidate: Mapping[str, Any] | None,
     selection: Mapping[str, Any] | None,
 ) -> None:
-    if item is None or selection is None:
+    if candidate is None or selection is None:
         return
     split_k = int(selection.get("split_k", 1) or 1)
     if split_k <= 1:
         return
-    launch_abi = _manifest_launch_abi(item)
-    if launch_abi not in {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}:
+    if not cutlass_gemm_split_k_supported(candidate):
+        launch_abi = str(candidate.get("launch_abi", ""))
+        epilogue = str(candidate.get("epilogue", ""))
         raise NotImplementedError(
-            f"{op_name} CUDA lowering does not support CUTLASS split-K > 1 for launch ABI {launch_abi}; "
+            f"{op_name} CUDA lowering does not support CUTLASS split-K > 1 for epilogue {epilogue} "
+            f"and launch ABI {launch_abi}; "
             f"execution plan requested split_k={split_k}"
         )
     workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
@@ -182,6 +184,7 @@ def _cutlass_launch_lines(
 ) -> list[str]:
     split_k = int(selection.get("split_k", 1) or 1) if selection is not None else 1
     if split_k > 1:
+        _validate_cutlass_execution_plan_selection(op_name, candidate, selection)
         symbol = _cutlass_split_k_kernel_symbol(symbol)
         launch_tail = f", {split_k}, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream"
     else:
@@ -426,16 +429,6 @@ def _cutlass_execution_plan_selection(item: Mapping[str, Any] | None) -> Mapping
         return None
     selection = item.get("execution_plan_selection")
     return selection if isinstance(selection, Mapping) else None
-
-
-def _manifest_launch_abi(item: Mapping[str, Any]) -> str:
-    selected = item.get("selected_candidate")
-    if isinstance(selected, Mapping) and selected.get("launch_abi"):
-        return str(selected["launch_abi"])
-    candidate_set = item.get("candidate_set", {})
-    if isinstance(candidate_set, Mapping) and candidate_set.get("launch_abi"):
-        return str(candidate_set["launch_abi"])
-    return ""
 
 
 def _cutlass_split_k_kernel_symbol(symbol: str) -> str:

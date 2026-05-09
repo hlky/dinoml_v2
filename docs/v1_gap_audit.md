@@ -41,8 +41,8 @@ porting. It intentionally excludes the op inventory, which lives in
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, v1-style
   bias activation, and first rank-2 residual epilogue variants.
   `use_fp16_acc=True` now changes the manifest/profile/build candidate set for
-  fp16 GEMM; `no_tf32=True` now filters float32 GEMM to v1 SM80 SIMT f32
-  fallback candidates.
+  fp16 GEMM; `no_tf32=True` now filters float32 GEMM, including residual
+  broadcast epilogues, to v1 SM80 SIMT f32 fallback candidates.
 - Profiling/cache: v1 builds candidate profilers, runs them, and stores
   hardware/compiler/op keyed cache entries. V2 has manifests, codegen-plan
   hooks, and a JSON cache/report for CUTLASS GEMM candidate profiles.
@@ -66,18 +66,18 @@ porting. It intentionally excludes the op inventory, which lives in
   lower-alignment CUTLASS candidates when runtime logical pointers do not meet
   the selected vectorized candidate. The first split-K surface preserves
   `split_k` and `workspace_nbytes` through profile results, cache keys,
-  execution plans, and static overlays. Base and
-  bias/activation CUTLASS GEMMs now profile v1-style split-K variants and lower
+  execution plans, and static overlays. Base, bias/activation, and additive
+  residual CUTLASS GEMMs now profile v1-style split-K variants and lower
   `split_k > 1` static overlays through companion launcher/profiler symbols plus
   a session-owned workspace. Profiling can now collect repeated timing samples
   per workload, store median/mean/min/max/stddev timing statistics, and select
   on median elapsed time only when repeat-count, absolute/relative margin, and
   confidence-interval thresholds clear the runner-up; close/noisy winners are
-  recorded as non-consumable low-confidence selections. Residual/broadcast
-  split-K remains intentionally disabled until the fused residual epilogue is
-  partition-aware.
-  Remaining gaps are residual/broadcast split-K coverage and persistent
-  SQLite/shared cache workflows.
+  recorded as non-consumable low-confidence selections. Non-additive residual and
+  broader broadcast split-K remain intentionally disabled until their fused
+  epilogues have correct partition behavior.
+  Remaining gaps are non-additive residual/broadcast split-K coverage and
+  persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

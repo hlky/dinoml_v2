@@ -92,6 +92,11 @@ FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH = {
     "tf32_fast_f32": "cutlass::arch::OpMultiplyAddFastF32",
 }
 SPLIT_K_LAUNCH_ABIS = {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}
+SPLIT_K_RESIDUAL_EPILOGUES = {"bias_add", "bias_add_add", "bias_add_relu", "bias_add_add_relu"}
+SPLIT_K_RESIDUAL_LAUNCH_ABIS = {
+    "dinoml_cutlass_gemm_bias_residual_v1",
+    "dinoml_cutlass_gemm_bias_residual2_v1",
+}
 
 
 def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float32"):
@@ -153,12 +158,17 @@ def _cutlass_default_candidate_id(dtype: str) -> str:
     return _cutlass_candidate_ids(dtype)[0]
 
 
-def _assert_split_k_metadata(payload, launch_abi: str) -> None:
+def _assert_split_k_metadata(payload, launch_abi: str | None = None) -> None:
+    launch_abi = str(payload["launch_abi"] if launch_abi is None else launch_abi)
+    epilogue = str(payload.get("epilogue", ""))
+    supports_split_k = launch_abi in SPLIT_K_LAUNCH_ABIS or (
+        launch_abi in SPLIT_K_RESIDUAL_LAUNCH_ABIS and epilogue in SPLIT_K_RESIDUAL_EPILOGUES
+    )
     assert payload["split_k_values"] == [1]
     assert payload["split_k_default"] == 1
-    assert payload["supports_split_k"] is (launch_abi in SPLIT_K_LAUNCH_ABIS)
+    assert payload["supports_split_k"] is supports_split_k
     assert payload["workspace_nbytes"] == 0
-    if launch_abi in SPLIT_K_LAUNCH_ABIS:
+    if supports_split_k:
         assert payload["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32}
     else:
         assert "split_k_search" not in payload
@@ -483,10 +493,12 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_residual_epilogues(op_name
     assert candidate_set["epilogue"] == epilogue
     assert candidate_set["epilogue_config"] == epilogue_config
     assert candidate_set["launch_abi"] == epilogue_config["launch_abi"]
+    _assert_split_k_metadata(candidate_set)
     candidate = family["candidates_by_dtype"]["float32"][0]
     assert candidate["epilogue"] == epilogue
     assert candidate["epilogue_config"] == epilogue_config
     assert candidate["launch_abi"] == epilogue_config["launch_abi"]
+    _assert_split_k_metadata(candidate)
 
 
 @pytest.mark.parametrize(
@@ -985,6 +997,78 @@ def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace():
     assert "size_t cutlass_workspace_nbytes = 4096;" in generated
     assert "cudaMalloc(&session->cutlass_workspace, 4096)" in generated
     assert ", 2, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream" in generated
+
+
+def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace_for_additive_residual():
+    spec = _trace_gemm_bias_residual("gemm_rcr_bias_add", "rcr")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][0]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rcr_bias_add",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 7, "n": 11, "k": 32},
+                "avg_ms": 0.01,
+                "split_k": 2,
+                "workspace_nbytes": 4096,
+            }
+        ],
+    }
+    selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+
+    split_symbol = selected_candidate["kernel_symbol"].replace("dinoml_cutlass_", "dinoml_cutlass_splitk_", 1)
+    assert f'extern "C" int {split_symbol}(' in generated
+    assert "const float* bias," in generated
+    assert "const float* d0," in generated
+    assert f"if (int err = {split_symbol}(" in generated
+    assert "size_t cutlass_workspace_nbytes = 4096;" in generated
+    assert "cudaMalloc(&session->cutlass_workspace, 4096)" in generated
+    assert ", 2, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream" in generated
+
+
+def test_cuda_lowering_rejects_split_k_for_non_additive_residual():
+    spec = _trace_gemm_bias_residual("gemm_rcr_bias_mul", "rcr")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][0]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection",
+                "op": "gemm_rcr_bias_mul",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 7, "n": 11, "k": 32},
+                "avg_ms": 0.01,
+                "split_k": 2,
+                "workspace_nbytes": 4096,
+            }
+        ],
+    }
+    selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    with pytest.raises((NotImplementedError, ValueError), match="split-K"):
+        render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
 
 
 def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():

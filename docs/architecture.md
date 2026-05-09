@@ -134,13 +134,14 @@ alignment metadata, and the effective candidate filter. Generated CUDA tries
 the selected vectorized candidate when runtime A/B logical pointers satisfy its
 alignment and falls back through lower-alignment CUTLASS candidates before
 failing. Profile results and execution plans now carry `split_k` and
-`workspace_nbytes` as profiled launch metadata. Base and bias/activation
-CUTLASS GEMMs expand
+`workspace_nbytes` as profiled launch metadata. Base, bias/activation, and
+additive residual CUTLASS GEMMs expand
 v1-style split-K profile variants, query the CUTLASS workspace requirement, and
 lower `split_k > 1` static overlays to companion split-K launcher symbols with a
-session-owned workspace. Residual/broadcast epilogue families remain restricted
-to `split_k=1`; their fused residual epilogue must become partition-aware before
-serial split-K can avoid reapplying residual inputs or final activations.
+session-owned workspace. Non-additive residual and broader broadcast epilogue
+families remain restricted to `split_k=1`; they need epilogue-specific
+partition behavior before serial split-K can avoid reapplying residual inputs or
+final activations.
 `dml.compile` and `dinoml compile` can consume the static overlay
 through `execution_plan=...` / `--execution-plan`, applying it before
 manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
@@ -164,7 +165,10 @@ candidate sets to fp16 accumulation and flows through CUDA lowering, profile
 workload construction, support-source pruning, and cache keys. `Target(no_tf32=True)`
 filters float32 GEMM to the v1 SM80 SIMT f32 fallback candidates, so TF32 stays
 the default selected path while exact f32 accumulation remains available through
-target policy. The CUTLASS support cache also writes a `dinoml.support_source_manifest` at
+target policy. Residual broadcast GEMMs use a local CUTLASS selector for
+TensorOp versus SIMT broadcast epilogues, so the same no-TF32 policy applies to
+those fused epilogues. The CUTLASS support cache also writes a
+`dinoml.support_source_manifest` at
 `src/source_manifest.json`, mapping the rendered support source to the candidate
 set keys, candidate config keys, launcher/profiler symbols, and support build
 units actually required by the artifact. The rendered support source is pruned

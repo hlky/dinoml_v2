@@ -136,7 +136,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   f32 SIMT fallback set. The manifest carries target policy for optional TF32
   and fp16 accumulation; fp16 accumulation and TF32 opt-out now select
   policy-specific CUTLASS candidate sets, and rendered policy aliases apply the
-  selected candidate alignment and math operator. Public `matmul` should wait
+  selected candidate alignment and math operator. Residual broadcast epilogues
+  now select a TensorOp or SIMT CUTLASS broadcast epilogue path to keep the
+  exact-f32 no-TF32 fallback available. Public `matmul` should wait
   until layout selection, multi-candidate profiler selection, and epilogue
   contracts are ready.
 - [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1
@@ -239,9 +241,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
   confidence-interval thresholds before emitting consumable static or guarded
   candidate selections; close/noisy winners stay in `low_confidence_selections`
   for audit and fall back to manifest defaults at compile/run time.
-- [ ] Extend split-K coverage to residual/broadcast CUTLASS epilogues after their
-  `GemmUniversalWithBroadcast` workspace behavior is proven and the fused
-  residual epilogue implements partition-aware `set_k_partition` behavior.
+- [x] Additive residual split-K coverage:
+  `bias_add`, `bias_add_add`, `bias_add_relu`, and `bias_add_add_relu` CUTLASS
+  residual epilogues now advertise v1-style split-K search metadata, use
+  partition-aware serial split-K epilogues, and lower/profile through companion
+  split-K symbols.
+- [ ] Extend split-K coverage to non-additive residual/broadcast CUTLASS
+  epilogues after their `GemmUniversalWithBroadcast` workspace behavior is
+  proven and their fused epilogues implement correct partition behavior.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and

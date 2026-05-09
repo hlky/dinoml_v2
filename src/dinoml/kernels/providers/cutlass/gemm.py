@@ -124,10 +124,33 @@ CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS = frozenset(
         "dinoml_cutlass_gemm_bias_v1",
     }
 )
+CUTLASS_GEMM_SPLIT_K_RESIDUAL_EPILOGUES = frozenset(
+    {
+        "bias_add",
+        "bias_add_add",
+        "bias_add_relu",
+        "bias_add_add_relu",
+    }
+)
+CUTLASS_GEMM_SPLIT_K_RESIDUAL_LAUNCH_ABIS = frozenset(
+    {
+        "dinoml_cutlass_gemm_bias_residual_v1",
+        "dinoml_cutlass_gemm_bias_residual2_v1",
+    }
+)
 CUTLASS_GEMM_SPLIT_K_SEARCH = {
     "strategy": "v1_gemm_factor",
     "max_split_k": 32,
 }
+
+
+def cutlass_gemm_split_k_supported(candidate_or_set: Mapping[str, Any]) -> bool:
+    launch_abi = str(candidate_or_set.get("launch_abi", ""))
+    epilogue = str(candidate_or_set.get("epilogue", ""))
+    return launch_abi in CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS or (
+        launch_abi in CUTLASS_GEMM_SPLIT_K_RESIDUAL_LAUNCH_ABIS
+        and epilogue in CUTLASS_GEMM_SPLIT_K_RESIDUAL_EPILOGUES
+    )
 
 
 def _cutlass_symbol_id(
@@ -390,7 +413,7 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
     profiler_symbol = cutlass_gemm_profiler_symbol(op_name, normalized_dtype, symbol_id)
     epilogue = spec.epilogue.to_json()
     cutlass_config = dict(candidate_config["cutlass"])
-    supports_split_k = spec.epilogue.launch_abi in CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS
+    supports_split_k = cutlass_gemm_split_k_supported({"launch_abi": spec.epilogue.launch_abi, "epilogue": spec.epilogue.name})
     config = {
         "candidate_id": str(candidate_config["candidate_id"]),
         "symbol_id": str(candidate_config["symbol_id"]),
@@ -442,7 +465,7 @@ def cutlass_gemm_candidate_set(
     spec = gemm_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     candidates = cutlass_gemm_candidates(op_name, normalized_dtype, target=target)
-    supports_split_k = spec.epilogue.launch_abi in CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS
+    supports_split_k = cutlass_gemm_split_k_supported({"launch_abi": spec.epilogue.launch_abi, "epilogue": spec.epilogue.name})
     config = {
         "schema_version": CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
         "candidate_set_id": cutlass_gemm_candidate_set_id(op_name, normalized_dtype),
@@ -851,6 +874,7 @@ __all__ = [
     "cutlass_gemm_candidates",
     "cutlass_gemm_default_candidate",
     "cutlass_gemm_profiler_symbol",
+    "cutlass_gemm_split_k_supported",
     "cutlass_gemm_symbol",
     "cutlass_gemm_used_candidate_plan",
     "gemm_dtype_suffix",

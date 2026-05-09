@@ -1,3 +1,5 @@
+import re
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +66,26 @@ GEMM_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
     "bias_sigmoid_mul": "BiasSigmoidMulEpilogue",
     "bias_sigmoid_mul_tanh": "BiasSigmoidMulTanhEpilogue",
 }
+FLOAT32_CANDIDATE_MATH_COUNTS = {
+    "tf32": 57,
+    "fast_f16": 57,
+    "fast_bf16": 57,
+    "tf32_fast_f32": 39,
+    "f32": 11,
+}
+FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH = {
+    "fast_f16": "multiply_add_fast_f16",
+    "fast_bf16": "multiply_add_fast_bf16",
+    "tf32_fast_f32": "multiply_add_fast_f32",
+}
+FLOAT32_OPTIONAL_MATH_COUNTS = {
+    math: count for math, count in FLOAT32_CANDIDATE_MATH_COUNTS.items() if math != "f32"
+}
+FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH = {
+    "fast_f16": "cutlass::arch::OpMultiplyAddFastF16",
+    "fast_bf16": "cutlass::arch::OpMultiplyAddFastBF16",
+    "tf32_fast_f32": "cutlass::arch::OpMultiplyAddFastF32",
+}
 
 
 def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float32"):
@@ -125,6 +147,31 @@ def _cutlass_manifest_default_symbol_id(dtype: str, target=None, op_name: str = 
 
 def _cutlass_manifest_default_candidate_id(dtype: str, target=None, op_name: str = "gemm_rrr") -> str:
     return _cutlass_manifest_candidate_ids(dtype, target, op_name)[0]
+
+
+def _cutlass_rendered_policy_alias(rendered: str, policy: str) -> str:
+    start = rendered.index(f"using {policy} = GemmPolicy<")
+    end = rendered.index(";\n", start) + 2
+    return rendered[start:end]
+
+
+def _assert_float32_candidate_math_families(candidates):
+    assert len(candidates) == sum(FLOAT32_CANDIDATE_MATH_COUNTS.values())
+    assert Counter(candidate["cutlass"]["math"] for candidate in candidates) == Counter(FLOAT32_CANDIDATE_MATH_COUNTS)
+    assert Counter(candidate["cutlass"]["math"] for candidate in candidates if candidate["optional"]) == Counter(
+        FLOAT32_OPTIONAL_MATH_COUNTS
+    )
+    assert Counter(candidate["cutlass"]["math"] for candidate in candidates if not candidate["optional"]) == Counter(
+        {"f32": 11}
+    )
+    assert {candidate["cutlass"]["opclass"] for candidate in candidates if candidate["optional"]} == {"tensorop"}
+    assert {candidate["cutlass"]["opclass"] for candidate in candidates if not candidate["optional"]} == {"simt"}
+    for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
+        assert {
+            candidate["cutlass"].get("math_operator", "multiply_add")
+            for candidate in candidates
+            if candidate["cutlass"]["math"] == math
+        } == {math_operator}
 
 
 def test_pass_manager_runs_expected_pipeline():
@@ -324,6 +371,8 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     assert families["gemm_rcr_bias_gelu"]["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_gemm_rcr_bias_gelu_float32_{default_symbol_id}"
     assert families["gemm_rcr_bias_hardswish"]["attrs"]["epilogue"] == "bias_hardswish"
     assert families["gemm_rcr_bias_hardswish"]["attrs"]["epilogue_config"]["activation"] == "hardswish"
+    rrr_f32_candidates = families["gemm_rrr"]["candidates_by_dtype"]["float32"]
+    _assert_float32_candidate_math_families(rrr_f32_candidates)
     rrr_f16_candidates = families["gemm_rrr"]["candidates_by_dtype"]["float16"]
     assert [candidate["candidate_id"] for candidate in rrr_f16_candidates] == _cutlass_candidate_ids("float16")
     assert [candidate["symbol_id"] for candidate in rrr_f16_candidates] == _cutlass_symbol_ids("float16")
@@ -547,6 +596,7 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
     assert len(no_tf32_required["candidates"]) == 11
     assert {candidate["cutlass"]["opclass"] for candidate in no_tf32_required["candidates"]} == {"simt"}
     assert {candidate["cutlass"]["math"] for candidate in no_tf32_required["candidates"]} == {"f32"}
+    assert not any(candidate["optional"] for candidate in no_tf32_required["candidates"])
     assert {candidate["cutlass"]["align"] for candidate in no_tf32_required["candidates"]} == {1}
     assert no_tf32_required["candidates"][0]["symbol_id"] == "simt_sm80_f32_256x128x8_s5_w4x2x1_f32_align1"
     assert no_tf32_required["candidates"][-1]["symbol_id"] == "simt_sm80_f32_32x128x8_s5_w1x2x1_f32_align1"
@@ -563,6 +613,48 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
     assert no_tf32_required["candidates"][0]["cutlass_policy"] in rendered_support
     assert no_tf32_required["candidates"][0]["symbol_id"] in rendered_support
     assert default_required["candidates"][0]["symbol_id"] not in rendered_support
+
+
+def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_rrr_fast_tensorop_used_source",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    support = cutlass_gemm_used_candidate_plan(manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+
+    rendered = render_cutlass_gemm_source(source, support)
+
+    required = manifest["required_kernels"][0]
+    _assert_float32_candidate_math_families(required["candidates"])
+    for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
+        fast_candidate = next(
+            candidate
+            for candidate in required["candidates"]
+            if candidate["cutlass"]["math"] == math and candidate["cutlass"]["align"] == 4
+        )
+        policy_alias = _cutlass_rendered_policy_alias(rendered, fast_candidate["cutlass_policy"])
+        cutlass_operator = FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH[math]
+
+        assert fast_candidate["optional"] is True
+        assert fast_candidate["cutlass"]["math_operator"] == math_operator
+        assert fast_candidate["symbol_id"] in rendered
+        assert fast_candidate["cutlass_policy"] in rendered
+        assert re.search(r"Align4GemmPolicy$", fast_candidate["cutlass_policy"])
+        assert cutlass_operator in rendered
+        assert cutlass_operator in policy_alias
+        assert re.search(r"\n    4[,>]", policy_alias)
 
 
 def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():

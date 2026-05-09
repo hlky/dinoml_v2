@@ -1,7 +1,9 @@
-import pytest
-import shutil
 import ctypes
 import hashlib
+import shutil
+from collections import Counter
+
+import pytest
 
 import dinoml as dml
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
@@ -10,6 +12,40 @@ from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_b
 from dinoml.ir import read_json
 from dinoml.kernels.gemm import GEMM_OPS
 from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+
+
+FLOAT32_CANDIDATE_MATH_COUNTS = {
+    "tf32": 57,
+    "fast_f16": 57,
+    "fast_bf16": 57,
+    "tf32_fast_f32": 39,
+    "f32": 11,
+}
+FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH = {
+    "fast_f16": "multiply_add_fast_f16",
+    "fast_bf16": "multiply_add_fast_bf16",
+    "tf32_fast_f32": "multiply_add_fast_f32",
+}
+FLOAT32_OPTIONAL_MATH_COUNTS = {
+    math: count for math, count in FLOAT32_CANDIDATE_MATH_COUNTS.items() if math != "f32"
+}
+
+
+def _assert_float32_candidate_math_families(candidates):
+    assert len(candidates) == sum(FLOAT32_CANDIDATE_MATH_COUNTS.values())
+    assert Counter(item["cutlass"]["math"] for item in candidates) == Counter(FLOAT32_CANDIDATE_MATH_COUNTS)
+    assert Counter(item["cutlass"]["math"] for item in candidates if item["optional"]) == Counter(
+        FLOAT32_OPTIONAL_MATH_COUNTS
+    )
+    assert Counter(item["cutlass"]["math"] for item in candidates if not item["optional"]) == Counter({"f32": 11})
+    assert {item["cutlass"]["opclass"] for item in candidates if item["optional"]} == {"tensorop"}
+    assert {item["cutlass"]["opclass"] for item in candidates if not item["optional"]} == {"simt"}
+    for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
+        assert {
+            item["cutlass"].get("math_operator", "multiply_add")
+            for item in candidates
+            if item["cutlass"]["math"] == math
+        } == {math_operator}
 
 
 def _cutlass_candidate_count(dtype: str) -> int:
@@ -22,6 +58,10 @@ def _cutlass_candidate_ids(dtype: str) -> list[str]:
 
 def _cutlass_default_symbol_id(dtype: str) -> str:
     return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
+
+
+def test_cutlass_float32_candidate_registry_lists_v1_fast_math_families():
+    _assert_float32_candidate_math_families(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float32"])
 
 
 class Identity(dml.Module):
@@ -187,8 +227,7 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
             assert candidates[1]["cutlass"]["align"] in ({1, 2, 4} if dtype == "float32" else {2, 4, 8})
             assert candidates[-1]["cutlass"]["threadblock"] == ([32, 128, 8] if dtype == "float32" else [96, 192, 32])
             if dtype == "float32":
-                assert {item["cutlass"]["opclass"] for item in candidates} == {"simt", "tensorop"}
-                assert {item["cutlass"]["math"] for item in candidates} == {"f32", "tf32"}
+                _assert_float32_candidate_math_families(candidates)
                 assert {item["cutlass"]["instruction"][0] for item in candidates if item["cutlass"]["opclass"] == "simt"} == {1}
             if dtype == "float16":
                 assert {item["accumulator_dtype"] for item in candidates} == {"float16", "float32"}

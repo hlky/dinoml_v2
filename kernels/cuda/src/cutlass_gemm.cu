@@ -3,6 +3,7 @@
 #include <cuda_runtime.h>
 
 #include <cutlass/bfloat16.h>
+#include <cutlass/arch/mma.h>
 #include <cutlass/cutlass.h>
 #include <cutlass/epilogue/thread/activation.h>
 #include <cutlass/epilogue/thread/linear_combination.h>
@@ -106,7 +107,11 @@ int launch_gemm_policy(
       typename Policy::InstructionShape,
       EpilogueOp,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      Policy::kStages>;
+      Policy::kStages,
+      Policy::kAlignmentA,
+      Policy::kAlignmentB,
+      false,
+      typename Policy::Operator>;
   Gemm gemm;
   typename Gemm::Arguments args(
       {m, n, k},
@@ -390,7 +395,10 @@ template <
     typename WarpShape_,
     typename InstructionShape_,
     typename ElementAccumulator_,
-    int Stages_>
+    int Stages_,
+    int AlignmentA_ = 1,
+    int AlignmentB_ = 1,
+    typename Operator_ = cutlass::arch::OpMultiplyAdd>
 struct GemmPolicy {
   using OperatorClass = OperatorClass_;
   using ArchTag = ArchTag_;
@@ -398,7 +406,10 @@ struct GemmPolicy {
   using WarpShape = WarpShape_;
   using InstructionShape = InstructionShape_;
   using ElementAccumulator = ElementAccumulator_;
+  using Operator = Operator_;
   static int const kStages = Stages_;
+  static int const kAlignmentA = AlignmentA_;
+  static int const kAlignmentB = AlignmentB_;
 };
 
 using Sm80TensorOp256x128x32S3W4x2x1TF32F32GemmPolicy = GemmPolicy<
@@ -1810,7 +1821,11 @@ int launch_gemm_bias(
       typename Policy::InstructionShape,
       EpilogueOp,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      Policy::kStages>;
+      Policy::kStages,
+      Policy::kAlignmentA,
+      Policy::kAlignmentB,
+      false,
+      typename Policy::Operator>;
   Gemm gemm;
   typename Gemm::Arguments args(
       {m, n, k},
@@ -1862,7 +1877,10 @@ int launch_gemm_bias_residual(
       typename Policy::InstructionShape,
       EpilogueOp,
       cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      Policy::kStages>;
+      Policy::kStages,
+      Policy::kAlignmentA,
+      Policy::kAlignmentB,
+      typename Policy::Operator>;
   Gemm gemm;
   if constexpr (EpilogueOp::kIsSingleSource) {
     typename Gemm::Arguments args(
@@ -2089,6 +2107,9 @@ float profile_gemm_bias_residual_policy(
 
 }  // namespace
 
+// Legacy static smoke wrappers are kept out of the generated support build so
+// all compiled exports go through the candidate-specific policy path.
+#if 0
 static int dinoml_cutlass_legacy_gemm_rrr_f32(
     float const* a,
     float const* b,
@@ -2576,6 +2597,7 @@ static float dinoml_profile_cutlass_legacy_gemm_rcr_bias_relu_bf16(
       cutlass::layout::ColumnMajor,
       BiasReluEpilogue<cutlass::bfloat16_t>>(a, b, bias, c, m, n, k, k, iterations, stream);
 }
+#endif
 
 #define DINOML_CUTLASS_GENERATED_EXPORTS 1
 

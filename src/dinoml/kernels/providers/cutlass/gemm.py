@@ -84,6 +84,21 @@ CUTLASS_SM80_TENSOROP_1688_TILES = (
     ((64, 128, 32), 3, (2, 2, 1)),
     ((64, 64, 32), 5, (2, 2, 1)),
 )
+CUTLASS_SM80_TENSOROP_FAST_F32_TILES = (
+    ((128, 128, 16), 4, (4, 2, 1)),
+    ((128, 128, 16), 3, (4, 2, 1)),
+    ((256, 64, 16), 3, (4, 2, 1)),
+    ((64, 256, 16), 3, (2, 4, 1)),
+    ((128, 64, 16), 4, (2, 2, 1)),
+    ((64, 128, 16), 4, (2, 2, 1)),
+    ((64, 64, 16), 3, (2, 2, 1)),
+    ((128, 128, 32), 3, (4, 2, 1)),
+    ((256, 64, 32), 3, (4, 2, 1)),
+    ((64, 256, 32), 3, (2, 4, 1)),
+    ((128, 64, 32), 3, (2, 2, 1)),
+    ((64, 128, 32), 3, (2, 2, 1)),
+    ((64, 64, 32), 3, (2, 2, 1)),
+)
 CUTLASS_SM80_SIMT_F32_TILES = (
     ((256, 128, 8), 5, (4, 2, 1)),
     ((128, 256, 8), 5, (2, 4, 1)),
@@ -121,16 +136,23 @@ def _cutlass_policy_name(
     threadblock: tuple[int, int, int],
     stages: int,
     warp_count: tuple[int, int, int],
+    align: int,
     accumulator_dtype: str,
     math: str,
     opclass: str,
 ) -> str:
     opclass_name = "TensorOp" if opclass == "tensorop" else "Simt"
-    math_name = "TF32" if math == "tf32" else ("F32" if math == "f32" else "F16")
+    math_name = {
+        "tf32": "TF32",
+        "fast_f16": "FastF16",
+        "fast_bf16": "FastBF16",
+        "tf32_fast_f32": "TF32FastF32",
+        "f32": "F32",
+    }.get(math, "F16")
     accumulator = accumulator_dtype.replace("float", "F").replace("bfloat", "BF").upper()
     tb = "x".join(str(dim) for dim in threadblock)
     wc = "x".join(str(dim) for dim in warp_count)
-    return f"Sm80{opclass_name}{tb}S{stages}W{wc}{math_name}{accumulator}GemmPolicy"
+    return f"Sm80{opclass_name}{tb}S{stages}W{wc}{math_name}{accumulator}Align{align}GemmPolicy"
 
 
 def _cutlass_candidate_config(
@@ -145,27 +167,31 @@ def _cutlass_candidate_config(
     math: str,
     opclass: str = "tensorop",
     optional: bool = False,
+    math_operator: str = "multiply_add",
 ) -> dict[str, Any]:
     symbol_id = _cutlass_symbol_id(threadblock, stages, warp_count, align, accumulator_dtype, math, opclass=opclass)
+    cutlass_config: dict[str, Any] = {
+        "api": "device_gemm",
+        "opclass": opclass,
+        "arch": "sm80",
+        "math": math,
+        "threadblock": list(threadblock),
+        "warp_count": list(warp_count),
+        "warp": [int(threadblock[index] // warp_count[index]) for index in range(3)],
+        "instruction": list(instruction),
+        "stages": stages,
+        "align": align,
+    }
+    if math_operator != "multiply_add":
+        cutlass_config["math_operator"] = math_operator
     return {
         "candidate_id": f"cutlass_{symbol_id}",
         "symbol_id": symbol_id,
         "dtype": dtype,
         "accumulator_dtype": accumulator_dtype,
         "optional": optional,
-        "cutlass_policy": _cutlass_policy_name(threadblock, stages, warp_count, accumulator_dtype, math, opclass),
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": opclass,
-            "arch": "sm80",
-            "math": math,
-            "threadblock": list(threadblock),
-            "warp_count": list(warp_count),
-            "warp": [int(threadblock[index] // warp_count[index]) for index in range(3)],
-            "instruction": list(instruction),
-            "stages": stages,
-            "align": align,
-        },
+        "cutlass_policy": _cutlass_policy_name(threadblock, stages, warp_count, align, accumulator_dtype, math, opclass),
+        "cutlass": cutlass_config,
     }
 
 
@@ -230,6 +256,63 @@ def _cutlass_sm80_tensorop_tf32_candidate_configs() -> tuple[dict[str, Any], ...
     )
 
 
+def _cutlass_sm80_tensorop_fast_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _cutlass_candidate_config(
+            threadblock,
+            stages,
+            warp_count,
+            align,
+            dtype="float32",
+            accumulator_dtype="float32",
+            instruction=(16, 8, 8),
+            math="tf32_fast_f32",
+            optional=True,
+            math_operator="multiply_add_fast_f32",
+        )
+        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_FAST_F32_TILES
+        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
+    )
+
+
+def _cutlass_sm80_tensorop_fast_f16_candidate_configs() -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _cutlass_candidate_config(
+            threadblock,
+            stages,
+            warp_count,
+            align,
+            dtype="float32",
+            accumulator_dtype="float32",
+            instruction=(16, 8, 8),
+            math="fast_f16",
+            optional=True,
+            math_operator="multiply_add_fast_f16",
+        )
+        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_1688_TILES
+        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
+    )
+
+
+def _cutlass_sm80_tensorop_fast_bf16_candidate_configs() -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _cutlass_candidate_config(
+            threadblock,
+            stages,
+            warp_count,
+            align,
+            dtype="float32",
+            accumulator_dtype="float32",
+            instruction=(16, 8, 8),
+            math="fast_bf16",
+            optional=True,
+            math_operator="multiply_add_fast_bf16",
+        )
+        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_1688_TILES
+        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
+    )
+
+
 def _cutlass_sm80_simt_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
     return tuple(
         _cutlass_candidate_config(
@@ -251,6 +334,9 @@ def _cutlass_sm80_simt_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
 CUTLASS_GEMM_CANDIDATE_CONFIGS = (
     *_cutlass_sm80_tensorop_16816_candidate_configs(),
     *_cutlass_sm80_tensorop_tf32_candidate_configs(),
+    *_cutlass_sm80_tensorop_fast_f16_candidate_configs(),
+    *_cutlass_sm80_tensorop_fast_bf16_candidate_configs(),
+    *_cutlass_sm80_tensorop_fast_f32_candidate_configs(),
     *_cutlass_sm80_simt_f32_candidate_configs(),
 )
 CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE = {
@@ -381,7 +467,7 @@ def _cutlass_candidate_configs_for_target(
         return configs
     policy = cutlass_gemm_target_policy(target)
     if dtype == "float32" and policy["no_tf32"]:
-        configs = tuple(config for config in configs if config["cutlass"]["math"] != "tf32")
+        configs = tuple(config for config in configs if config["cutlass"]["opclass"] != "tensorop")
     if dtype == "float16":
         accumulator_dtype = "float16" if policy["use_fp16_acc"] else "float32"
         configs = tuple(config for config in configs if config["accumulator_dtype"] == accumulator_dtype)
@@ -486,7 +572,7 @@ def _render_generated_cutlass_gemm_source(source: str, used_candidate_plan: Mapp
             continue
         export_line = _generated_export_line(candidate)
         export_symbols = _generated_export_symbols(export_line)
-        if not export_symbols or export_symbols <= available:
+        if not export_symbols:
             continue
         policy_name = str(candidate["cutlass_policy"])
         if policy_name not in source and policy_name not in "\n".join(dynamic_policy_aliases):
@@ -498,12 +584,12 @@ def _render_generated_cutlass_gemm_source(source: str, used_candidate_plan: Mapp
         raise ValueError(f"CUTLASS GEMM source is missing symbols: {', '.join(missing)}")
     selected = []
     seen = set()
-    for line in [*generated_lines, *dynamic_export_lines]:
+    for line in [*dynamic_export_lines, *generated_lines]:
         line_symbols = _generated_export_symbols(line)
-        if not line_symbols or not (symbols & line_symbols) or line in seen:
+        if not line_symbols or not (symbols & line_symbols) or line_symbols & seen:
             continue
         selected.append(line)
-        seen.add(line)
+        seen.update(line_symbols)
     return "\n".join([*lines[:first_export], *dynamic_policy_aliases, "", *selected]) + "\n"
 
 
@@ -514,6 +600,8 @@ def _generated_policy_alias(candidate: Mapping[str, Any]) -> str:
     instruction = [int(dim) for dim in cutlass_config["instruction"]]
     opclass = "cutlass::arch::OpClassSimt" if cutlass_config["opclass"] == "simt" else "cutlass::arch::OpClassTensorOp"
     accumulator = _cutlass_cpp_element(str(candidate["accumulator_dtype"]))
+    align = int(cutlass_config["align"])
+    math_operator = _cutlass_math_operator_cpp(str(cutlass_config.get("math_operator", "multiply_add")))
     return (
         f"using {candidate['cutlass_policy']} = GemmPolicy<\n"
         f"    {opclass},\n"
@@ -522,7 +610,10 @@ def _generated_policy_alias(candidate: Mapping[str, Any]) -> str:
         f"    cutlass::gemm::GemmShape<{warp[0]}, {warp[1]}, {warp[2]}>,\n"
         f"    cutlass::gemm::GemmShape<{instruction[0]}, {instruction[1]}, {instruction[2]}>,\n"
         f"    {accumulator},\n"
-        f"    {int(cutlass_config['stages'])}>;"
+        f"    {int(cutlass_config['stages'])},\n"
+        f"    {align},\n"
+        f"    {align},\n"
+        f"    {math_operator}>;"
     )
 
 
@@ -580,6 +671,18 @@ def _cutlass_cpp_element(dtype: str) -> str:
     if dtype == "bfloat16":
         return "cutlass::bfloat16_t"
     raise ValueError(f"Unsupported CUTLASS element dtype: {dtype!r}")
+
+
+def _cutlass_math_operator_cpp(math_operator: str) -> str:
+    if math_operator == "multiply_add":
+        return "cutlass::arch::OpMultiplyAdd"
+    if math_operator == "multiply_add_fast_f16":
+        return "cutlass::arch::OpMultiplyAddFastF16"
+    if math_operator == "multiply_add_fast_bf16":
+        return "cutlass::arch::OpMultiplyAddFastBF16"
+    if math_operator == "multiply_add_fast_f32":
+        return "cutlass::arch::OpMultiplyAddFastF32"
+    raise ValueError(f"Unsupported CUTLASS math operator: {math_operator!r}")
 
 
 def _cutlass_epilogue_alias(epilogue: str) -> str:

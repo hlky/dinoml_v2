@@ -97,17 +97,22 @@ the manifest candidate plan. The first epilogue slice uses a structured GEMM des
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
 GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for
 `float16`/`bfloat16`, including alignment variants and `float16` versus
-`float32` accumulation choices where v1 generated both. `float32` candidates use
-the v1 SM80 TensorOp 1688 TF32 tile list plus the v1 SM80 SIMT f32 fallback tile
-list. TF32 candidates stay first/default and are marked optional; `no_tf32=True`
-filters them out and leaves 11 exact f32 SIMT candidates. Each candidate records
-tile, stage count, warp count, alignment, math mode, optional status, and
-accumulator dtype so profiling can distinguish real kernel variants. Generated
-support source is pruned from the macro-backed checked-in source to only the
-launcher/profiler symbols in the used candidate plan, and activation/residual
-epilogue exports instantiate CUTLASS thread epilogue functors directly with the
-selected candidate accumulator type. Target policy now participates in the
-per-artifact manifest: `Target(use_fp16_acc=True)` selects only
+`float32` accumulation choices where v1 generated both. Default `float32`
+candidates now total 221 variants: 57 regular TF32 TensorOp, 57
+`multiply_add_fast_f16` TensorOp, 57 `multiply_add_fast_bf16` TensorOp, 39
+3xTF32 `multiply_add_fast_f32` TensorOp, and 11 exact f32 SIMT fallback
+candidates. All TensorOp float32 families are optional; `no_tf32=True` filters
+them out and leaves only the 11 exact f32 SIMT candidates. Each candidate
+records tile, stage count, warp count, alignment, math mode, optional status,
+math operator, and accumulator dtype so profiling can distinguish real kernel
+variants. Generated support source is pruned from the macro-backed checked-in
+source to only the launcher/profiler symbols in the used candidate plan, and
+activation/residual epilogue exports instantiate CUTLASS thread epilogue
+functors directly with the selected candidate accumulator type. Candidate policy
+aliases carry and apply the selected alignment and math operator, including
+`OpMultiplyAddFastF16`, `OpMultiplyAddFastBF16`, and `OpMultiplyAddFastF32` for
+the optional fast TensorOp float32 candidates. Target policy now participates in
+the per-artifact manifest: `Target(use_fp16_acc=True)` selects only
 fp16-accumulation fp16 launchers/profilers and changes the support/profile cache
 keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
 and changes those keys too.

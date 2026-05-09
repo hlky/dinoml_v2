@@ -129,9 +129,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] Base GEMM layouts: `gemm_rcr`, `gemm_rrr` are explicit CUDA ops for
   `float32`, `float16`, and `bfloat16`, backed by cached CUTLASS launchers with
   explicit tensor-op manifest candidate sets and CPU reference
-  execution but no CPU compiled GEMM. The manifest carries target policy for
-  optional TF32 and fp16 accumulation; fp16 accumulation and TF32 opt-out now
-  select policy-specific CUTLASS candidate sets. Public `matmul` should wait
+  execution but no CPU compiled GEMM. Float32 candidate parity includes 221
+  default candidates: optional v1 SM80 regular TF32 TensorOp candidates,
+  optional fast TensorOp families for `multiply_add_fast_f16`,
+  `multiply_add_fast_bf16`, and 3xTF32 `multiply_add_fast_f32`, plus the exact
+  f32 SIMT fallback set. The manifest carries target policy for optional TF32
+  and fp16 accumulation; fp16 accumulation and TF32 opt-out now select
+  policy-specific CUTLASS candidate sets, and rendered policy aliases apply the
+  selected candidate alignment and math operator. Public `matmul` should wait
   until layout selection, multi-candidate profiler selection, and epilogue
   contracts are ready.
 - [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1

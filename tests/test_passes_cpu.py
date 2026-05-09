@@ -1187,6 +1187,28 @@ def test_cutlass_gemm_source_renderer_emits_residual_epilogue_exports(op_name, l
     assert required["candidate_set"]["epilogue_config"]["inputs"] == list(epilogue_inputs)
 
 
+def test_cutlass_gemm_source_renderer_emits_no_tf32_simt_residual_epilogue_exports():
+    spec = _trace_gemm_bias_residual("gemm_rcr_bias_add_add_relu", "rcr")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {**DEFAULT_CUDA_TARGET, "no_tf32": True})
+    support = cutlass_gemm_used_candidate_plan(manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+
+    rendered = render_cutlass_gemm_source(source, support)
+
+    required = manifest["required_kernels"][0]
+    candidate = required["candidates"][0]
+    assert len(required["candidates"]) == 11
+    assert {item["cutlass"]["opclass"] for item in required["candidates"]} == {"simt"}
+    assert required["candidate_set"]["supports_split_k"] is True
+    assert "DefaultEpilogueWithBroadcastSimt" in rendered
+    assert "DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rcr_bias_add_add_relu, float32" in rendered
+    assert candidate["symbol_id"] in rendered
+    assert candidate["cutlass_policy"] in rendered
+
+
 @pytest.mark.parametrize(("op_name", "layout", "_epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_EPILOGUES)
 def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, layout, _epilogue, epilogue_inputs):
     spec = _trace_gemm_bias_residual(op_name, layout)

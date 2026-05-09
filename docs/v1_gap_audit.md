@@ -58,13 +58,13 @@ porting. It intentionally excludes the op inventory, which lives in
   first alignment filter prunes CUTLASS profiler workloads from static dense
   layout element alignment on GEMM A/B when both operands are annotated. The
   first split-K surface preserves `split_k` and `workspace_nbytes` through
-  profile results, cache keys, execution plans, and static overlays while
-  explicitly rejecting `split_k > 1` plans until the CUDA launcher/profiler ABI
-  exists.
+  profile results, cache keys, execution plans, and static overlays. Base and
+  bias/activation CUTLASS GEMMs now profile v1-style split-K variants and lower
+  `split_k > 1` static overlays through companion launcher/profiler symbols plus
+  a session-owned workspace.
   Remaining gaps are guarded dispatch when dynamic bucket winners differ,
-  runtime/stride/offset alignment guards, actual split-K launch/workspace
-  support with v1-style search, richer statistical confidence, and persistent
-  SQLite/shared cache workflows.
+  runtime/stride/offset alignment guards, residual/broadcast split-K coverage,
+  richer statistical confidence, and persistent SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports
 

@@ -2,6 +2,8 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
+#include <cstddef>
+
 #include <cutlass/bfloat16.h>
 #include <cutlass/arch/mma.h>
 #include <cutlass/cutlass.h>
@@ -32,6 +34,41 @@ template <typename Storage, typename Element>
 Element* cutlass_ptr(Storage* ptr) {
   static_assert(sizeof(Storage) == sizeof(Element), "CUTLASS storage type size mismatch");
   return reinterpret_cast<Element*>(ptr);
+}
+
+template <typename Element, typename LayoutB, typename EpilogueOp, typename Policy, bool SplitKSerial>
+using PolicyDeviceGemm = cutlass::gemm::device::Gemm<
+    Element,
+    cutlass::layout::RowMajor,
+    Element,
+    LayoutB,
+    Element,
+    cutlass::layout::RowMajor,
+    typename Policy::ElementAccumulator,
+    typename Policy::OperatorClass,
+    typename Policy::ArchTag,
+    typename Policy::ThreadblockShape,
+    typename Policy::WarpShape,
+    typename Policy::InstructionShape,
+    EpilogueOp,
+    cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
+    Policy::kStages,
+    Policy::kAlignmentA,
+    Policy::kAlignmentB,
+    SplitKSerial,
+    typename Policy::Operator>;
+
+int validate_split_k_workspace(size_t required_nbytes, void* workspace, size_t workspace_nbytes) {
+  if (required_nbytes == 0) {
+    return 0;
+  }
+  if (workspace == nullptr) {
+    return 4;
+  }
+  if (workspace_nbytes < required_nbytes) {
+    return 5;
+  }
+  return 0;
 }
 
 template <typename Storage, typename Element, typename LayoutB>
@@ -92,26 +129,7 @@ int launch_gemm_policy(
       typename Policy::ElementAccumulator,
       float,
       cutlass::epilogue::thread::ScaleType::OnlyAlphaScaling>;
-  using Gemm = cutlass::gemm::device::Gemm<
-      Element,
-      cutlass::layout::RowMajor,
-      Element,
-      LayoutB,
-      Element,
-      cutlass::layout::RowMajor,
-      typename Policy::ElementAccumulator,
-      typename Policy::OperatorClass,
-      typename Policy::ArchTag,
-      typename Policy::ThreadblockShape,
-      typename Policy::WarpShape,
-      typename Policy::InstructionShape,
-      EpilogueOp,
-      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      Policy::kStages,
-      Policy::kAlignmentA,
-      Policy::kAlignmentB,
-      false,
-      typename Policy::Operator>;
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, false>;
   Gemm gemm;
   typename Gemm::Arguments args(
       {m, n, k},
@@ -121,6 +139,77 @@ int launch_gemm_policy(
       {cutlass_ptr<Storage, Element>(c), n},
       {1.0f, 0.0f});
   cutlass::Status status = gemm(args, nullptr, stream);
+  return status == cutlass::Status::kSuccess ? 0 : 3;
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename Policy>
+size_t gemm_policy_workspace_size(
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k) {
+  if (m <= 0 || n <= 0 || k <= 0 || split_k <= 1) {
+    return 0;
+  }
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      Element,
+      1,
+      typename Policy::ElementAccumulator,
+      float,
+      cutlass::epilogue::thread::ScaleType::OnlyAlphaScaling>;
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, true>;
+  typename Gemm::Arguments args(
+      {m, n, k},
+      {static_cast<Element const*>(nullptr), k},
+      {static_cast<Element const*>(nullptr), ldb},
+      {static_cast<Element const*>(nullptr), n},
+      {static_cast<Element*>(nullptr), n},
+      {1.0f, 0.0f},
+      split_k);
+  return Gemm::get_workspace_size(args);
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename Policy>
+int launch_gemm_policy_splitk(
+    Storage const* a,
+    Storage const* b,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k,
+    void* workspace,
+    size_t workspace_nbytes,
+    cudaStream_t stream) {
+  if (a == nullptr || b == nullptr || c == nullptr) {
+    return 1;
+  }
+  if (m <= 0 || n <= 0 || k <= 0 || split_k <= 0) {
+    return 2;
+  }
+  using EpilogueOp = cutlass::epilogue::thread::LinearCombination<
+      Element,
+      1,
+      typename Policy::ElementAccumulator,
+      float,
+      cutlass::epilogue::thread::ScaleType::OnlyAlphaScaling>;
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, true>;
+  Gemm gemm;
+  typename Gemm::Arguments args(
+      {m, n, k},
+      {cutlass_ptr<Storage, Element>(a), k},
+      {cutlass_ptr<Storage, Element>(b), ldb},
+      {cutlass_ptr<Storage, Element>(c), n},
+      {cutlass_ptr<Storage, Element>(c), n},
+      {1.0f, 0.0f},
+      split_k);
+  int workspace_err = validate_split_k_workspace(Gemm::get_workspace_size(args), workspace, workspace_nbytes);
+  if (workspace_err) {
+    return workspace_err;
+  }
+  cutlass::Status status = gemm(args, workspace, stream);
   return status == cutlass::Status::kSuccess ? 0 : 3;
 }
 
@@ -1806,26 +1895,7 @@ int launch_gemm_bias(
   if (m <= 0 || n <= 0 || k <= 0) {
     return 2;
   }
-  using Gemm = cutlass::gemm::device::Gemm<
-      Element,
-      cutlass::layout::RowMajor,
-      Element,
-      LayoutB,
-      Element,
-      cutlass::layout::RowMajor,
-      typename Policy::ElementAccumulator,
-      typename Policy::OperatorClass,
-      typename Policy::ArchTag,
-      typename Policy::ThreadblockShape,
-      typename Policy::WarpShape,
-      typename Policy::InstructionShape,
-      EpilogueOp,
-      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>,
-      Policy::kStages,
-      Policy::kAlignmentA,
-      Policy::kAlignmentB,
-      false,
-      typename Policy::Operator>;
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, false>;
   Gemm gemm;
   typename Gemm::Arguments args(
       {m, n, k},
@@ -1835,6 +1905,66 @@ int launch_gemm_bias(
       {cutlass_ptr<Storage, Element>(c), n},
       typename EpilogueOp::Params(1.0f));
   cutlass::Status status = gemm(args, nullptr, stream);
+  return status == cutlass::Status::kSuccess ? 0 : 3;
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp, typename Policy = BiasGemmPolicy<Element>>
+size_t gemm_bias_policy_workspace_size(
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k) {
+  if (m <= 0 || n <= 0 || k <= 0 || split_k <= 1) {
+    return 0;
+  }
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, true>;
+  typename Gemm::Arguments args(
+      {m, n, k},
+      {static_cast<Element const*>(nullptr), k},
+      {static_cast<Element const*>(nullptr), ldb},
+      {static_cast<Element const*>(nullptr), 0},
+      {static_cast<Element*>(nullptr), n},
+      typename EpilogueOp::Params(1.0f),
+      split_k);
+  return Gemm::get_workspace_size(args);
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp, typename Policy = BiasGemmPolicy<Element>>
+int launch_gemm_bias_splitk(
+    Storage const* a,
+    Storage const* b,
+    Storage const* bias,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k,
+    void* workspace,
+    size_t workspace_nbytes,
+    cudaStream_t stream) {
+  if (a == nullptr || b == nullptr || bias == nullptr || c == nullptr) {
+    return 1;
+  }
+  if (m <= 0 || n <= 0 || k <= 0 || split_k <= 0) {
+    return 2;
+  }
+  using Gemm = PolicyDeviceGemm<Element, LayoutB, EpilogueOp, Policy, true>;
+  Gemm gemm;
+  typename Gemm::Arguments args(
+      {m, n, k},
+      {cutlass_ptr<Storage, Element>(a), k},
+      {cutlass_ptr<Storage, Element>(b), ldb},
+      {cutlass_ptr<Storage, Element>(bias), 0},
+      {cutlass_ptr<Storage, Element>(c), n},
+      typename EpilogueOp::Params(1.0f),
+      split_k);
+  int workspace_err = validate_split_k_workspace(Gemm::get_workspace_size(args), workspace, workspace_nbytes);
+  if (workspace_err) {
+    return workspace_err;
+  }
+  cutlass::Status status = gemm(args, workspace, stream);
   return status == cutlass::Status::kSuccess ? 0 : 3;
 }
 
@@ -2004,6 +2134,51 @@ float profile_gemm_policy(
   return ms / static_cast<float>(iterations);
 }
 
+template <typename Storage, typename Element, typename LayoutB, typename Policy>
+float profile_gemm_policy_splitk(
+    Storage const* a,
+    Storage const* b,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k,
+    void* workspace,
+    size_t workspace_nbytes,
+    int iterations,
+    cudaStream_t stream) {
+  if (iterations <= 0) {
+    iterations = 20;
+  }
+  cudaEvent_t start;
+  cudaEvent_t end;
+  cudaEventCreate(&start);
+  cudaEventCreate(&end);
+  if (launch_gemm_policy_splitk<Storage, Element, LayoutB, Policy>(
+          a, b, c, m, n, k, ldb, split_k, workspace, workspace_nbytes, stream)) {
+    cudaEventDestroy(start);
+    cudaEventDestroy(end);
+    return -1.0f;
+  }
+  cudaEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    if (launch_gemm_policy_splitk<Storage, Element, LayoutB, Policy>(
+            a, b, c, m, n, k, ldb, split_k, workspace, workspace_nbytes, stream)) {
+      cudaEventDestroy(start);
+      cudaEventDestroy(end);
+      return -1.0f;
+    }
+  }
+  cudaEventRecord(end, stream);
+  cudaEventSynchronize(end);
+  float ms = 0.0f;
+  cudaEventElapsedTime(&ms, start, end);
+  cudaEventDestroy(start);
+  cudaEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
 template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp>
 float profile_gemm_bias(
     Storage const* a,
@@ -2060,6 +2235,52 @@ float profile_gemm_bias_policy(
   cudaEventRecord(start, stream);
   for (int i = 0; i < iterations; ++i) {
     launch_gemm_bias<Storage, Element, LayoutB, EpilogueOp, Policy>(a, b, bias, c, m, n, k, ldb, stream);
+  }
+  cudaEventRecord(end, stream);
+  cudaEventSynchronize(end);
+  float ms = 0.0f;
+  cudaEventElapsedTime(&ms, start, end);
+  cudaEventDestroy(start);
+  cudaEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, typename Element, typename LayoutB, typename EpilogueOp, typename Policy>
+float profile_gemm_bias_policy_splitk(
+    Storage const* a,
+    Storage const* b,
+    Storage const* bias,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int ldb,
+    int split_k,
+    void* workspace,
+    size_t workspace_nbytes,
+    int iterations,
+    cudaStream_t stream) {
+  if (iterations <= 0) {
+    iterations = 20;
+  }
+  cudaEvent_t start;
+  cudaEvent_t end;
+  cudaEventCreate(&start);
+  cudaEventCreate(&end);
+  if (launch_gemm_bias_splitk<Storage, Element, LayoutB, EpilogueOp, Policy>(
+          a, b, bias, c, m, n, k, ldb, split_k, workspace, workspace_nbytes, stream)) {
+    cudaEventDestroy(start);
+    cudaEventDestroy(end);
+    return -1.0f;
+  }
+  cudaEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    if (launch_gemm_bias_splitk<Storage, Element, LayoutB, EpilogueOp, Policy>(
+            a, b, bias, c, m, n, k, ldb, split_k, workspace, workspace_nbytes, stream)) {
+      cudaEventDestroy(start);
+      cudaEventDestroy(end);
+      return -1.0f;
+    }
   }
   cudaEventRecord(end, stream);
   cudaEventSynchronize(end);
@@ -2622,6 +2843,40 @@ extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int iterations, \
     cudaStream_t stream) { \
   return profile_gemm_policy<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, POLICY>(a, b, c, m, n, k, DINOML_LDB_##OP, iterations, stream); \
+} \
+extern "C" size_t dinoml_cutlass_workspace_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    int m, \
+    int n, \
+    int k, \
+    int split_k) { \
+  return gemm_policy_workspace_size<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, POLICY>(m, n, k, DINOML_LDB_##OP, split_k); \
+} \
+extern "C" int dinoml_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    cudaStream_t stream) { \
+  return launch_gemm_policy_splitk<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, POLICY>(a, b, c, m, n, k, DINOML_LDB_##OP, split_k, workspace, workspace_nbytes, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return profile_gemm_policy_splitk<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, POLICY>(a, b, c, m, n, k, DINOML_LDB_##OP, split_k, workspace, workspace_nbytes, iterations, stream); \
 }
 
 #define DINOML_FORWARD_GEMM_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, ELEMENT, OLD_SUFFIX, SYMBOL_ID, POLICY) \
@@ -2647,6 +2902,42 @@ extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int iterations, \
     cudaStream_t stream) { \
   return profile_gemm_bias_policy<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, DINOML_BIAS_EPILOGUE_##OP<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, DINOML_LDB_##OP, iterations, stream); \
+} \
+extern "C" size_t dinoml_cutlass_workspace_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    int m, \
+    int n, \
+    int k, \
+    int split_k) { \
+  return gemm_bias_policy_workspace_size<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, DINOML_BIAS_EPILOGUE_##OP<ELEMENT, POLICY::ElementAccumulator>, POLICY>(m, n, k, DINOML_LDB_##OP, split_k); \
+} \
+extern "C" int dinoml_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    cudaStream_t stream) { \
+  return launch_gemm_bias_splitk<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, DINOML_BIAS_EPILOGUE_##OP<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, DINOML_LDB_##OP, split_k, workspace, workspace_nbytes, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return profile_gemm_bias_policy_splitk<CTYPE, ELEMENT, DINOML_LAYOUT_B_##OP, DINOML_BIAS_EPILOGUE_##OP<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, DINOML_LDB_##OP, split_k, workspace, workspace_nbytes, iterations, stream); \
 }
 
 #define DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT(OP, DTYPE_NAME, CTYPE, ELEMENT, LAYOUT_B, LDB, EPILOGUE, SYMBOL_ID, POLICY) \
@@ -2672,6 +2963,42 @@ extern "C" float dinoml_profile_cutlass_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int iterations, \
     cudaStream_t stream) { \
   return profile_gemm_bias_policy<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, LDB, iterations, stream); \
+} \
+extern "C" size_t dinoml_cutlass_workspace_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    int m, \
+    int n, \
+    int k, \
+    int split_k) { \
+  return gemm_bias_policy_workspace_size<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(m, n, k, LDB, split_k); \
+} \
+extern "C" int dinoml_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    cudaStream_t stream) { \
+  return launch_gemm_bias_splitk<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, LDB, split_k, workspace, workspace_nbytes, stream); \
+} \
+extern "C" float dinoml_profile_cutlass_splitk_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b, \
+    CTYPE const* bias, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int split_k, \
+    void* workspace, \
+    size_t workspace_nbytes, \
+    int iterations, \
+    cudaStream_t stream) { \
+  return profile_gemm_bias_policy_splitk<CTYPE, ELEMENT, LAYOUT_B, EPILOGUE<ELEMENT, POLICY::ElementAccumulator>, POLICY>(a, b, bias, c, m, n, k, LDB, split_k, workspace, workspace_nbytes, iterations, stream); \
 }
 
 #define DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT(OP, DTYPE_NAME, CTYPE, ELEMENT, LAYOUT_B, LDB, EPILOGUE, SYMBOL_ID, POLICY) \

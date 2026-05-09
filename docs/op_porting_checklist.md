@@ -189,9 +189,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
   CUTLASS GEMM candidates and candidate sets advertise `split_k_values: [1]`,
   profile reports/cache keys/execution plans preserve `split_k` and
   `workspace_nbytes`, static overlays require agreement on candidate and
-  `split_k`, and CUDA lowering rejects `split_k > 1` plans until the ABI exists.
-- [ ] Split-K launcher/profiler ABI with cacheable workspace requirements and
-  v1-style search over profiled split-K values.
+  `split_k`.
+- [x] Split-K launcher/profiler ABI for base and bias/activation CUTLASS GEMMs:
+  companion split-K symbols preserve the old v1 ABI for `split_k=1`, profiler
+  workloads expand v1-style split-K values, workspace queries feed profile
+  results/execution plans, and generated modules allocate one session workspace
+  when a static overlay selects `split_k > 1`.
+- [ ] Extend split-K coverage to residual/broadcast CUTLASS epilogues after their
+  `GemmUniversalWithBroadcast` workspace behavior is proven.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and

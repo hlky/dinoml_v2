@@ -53,6 +53,7 @@ def render_cuda_module(
             if generated_kernels is not None
             else render_generated_kernels("cuda", ir["nodes"], tensor_map),
             "external_kernel_declarations": _external_kernel_declarations(kernel_manifest),
+            "cutlass_workspace": _cutlass_workspace_context(kernel_manifest),
             "pointer_decls": list(
                 _pointer_decls(
                     input_map=input_map,
@@ -77,14 +78,14 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":
             continue
-        symbol = str(item["kernel_symbol"])
+        symbol = _cutlass_declaration_symbol(item)
         if symbol in seen:
             continue
         candidate = _selected_candidate(item)
         dtype = str(candidate.get("dtype") or item.get("candidate_set", {}).get("dtype"))
         launch_abi = str(candidate.get("launch_abi") or item.get("candidate_set", {}).get("launch_abi"))
         cpp_type = cuda_storage_type(dtype)
-        declarations.append(_cutlass_gemm_declaration(symbol, cpp_type, launch_abi))
+        declarations.append(_cutlass_gemm_declaration(symbol, cpp_type, launch_abi, split_k=_cutlass_item_split_k(item) > 1))
         seen.add(symbol)
     return declarations
 
@@ -100,7 +101,9 @@ def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
     return {}
 
 
-def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
+def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str, *, split_k: bool = False) -> str:
+    if split_k and launch_abi not in {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}:
+        raise ValueError(f"Unsupported CUTLASS split-K launch ABI: {launch_abi!r}")
     extra_args = ""
     if launch_abi == "dinoml_cutlass_gemm_bias_v1":
         extra_args = f"    const {cpp_type}* bias,\n"
@@ -110,6 +113,14 @@ def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> st
         extra_args = f"    const {cpp_type}* bias,\n" f"    const {cpp_type}* d0,\n" f"    const {cpp_type}* d1,\n"
     elif launch_abi != "dinoml_cutlass_gemm_v1":
         raise ValueError(f"Unsupported CUTLASS GEMM launch ABI: {launch_abi!r}")
+    launch_args = (
+        "    int split_k,\n"
+        "    void* workspace,\n"
+        "    size_t workspace_nbytes,\n"
+        "    cudaStream_t stream);"
+        if split_k
+        else "    cudaStream_t stream);"
+    )
     return (
         f"extern \"C\" int {symbol}(\n"
         f"    const {cpp_type}* a,\n"
@@ -119,8 +130,47 @@ def _cutlass_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> st
         "    int m,\n"
         "    int n,\n"
         "    int k,\n"
-        "    cudaStream_t stream);"
+        f"{launch_args}"
     )
+
+
+def _cutlass_workspace_context(kernel_manifest: Mapping[str, Any] | None) -> dict[str, int] | None:
+    if kernel_manifest is None:
+        return None
+    max_workspace = 0
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        selection = item.get("execution_plan_selection")
+        if not isinstance(selection, Mapping):
+            continue
+        if int(selection.get("split_k", 1) or 1) <= 1:
+            continue
+        max_workspace = max(max_workspace, int(selection.get("workspace_nbytes", 0) or 0))
+    if max_workspace <= 0:
+        return None
+    return {"nbytes": max_workspace}
+
+
+def _cutlass_declaration_symbol(item: Mapping[str, Any]) -> str:
+    symbol = str(item["kernel_symbol"])
+    if _cutlass_item_split_k(item) > 1:
+        return _cutlass_split_k_kernel_symbol(symbol)
+    return symbol
+
+
+def _cutlass_item_split_k(item: Mapping[str, Any]) -> int:
+    selection = item.get("execution_plan_selection")
+    if not isinstance(selection, Mapping):
+        return 1
+    return int(selection.get("split_k", 1) or 1)
+
+
+def _cutlass_split_k_kernel_symbol(symbol: str) -> str:
+    prefix = "dinoml_cutlass_"
+    if not symbol.startswith(prefix):
+        raise ValueError(f"Unsupported CUTLASS kernel symbol for split-K: {symbol!r}")
+    return f"dinoml_cutlass_splitk_{symbol[len(prefix):]}"
 
 
 def render_template(name: str, context: Mapping[str, Any]) -> str:

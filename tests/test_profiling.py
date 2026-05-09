@@ -167,7 +167,7 @@ def test_build_profile_workloads_expands_dim_buckets():
     workloads = build_profile_workloads(lowered, manifest)
 
     candidate_count = _cutlass_candidate_count("float16")
-    assert len(workloads) == candidate_count * 4
+    assert len(workloads) == candidate_count * 8
     cases = {
         (workload.m, workload.n, workload.k, workload.shape_case_id, tuple(sorted(workload.dim_values.items())))
         for workload in workloads
@@ -181,6 +181,15 @@ def test_build_profile_workloads_expands_dim_buckets():
     assert {workload.shape_source for workload in workloads} == {"dim_buckets"}
     assert {tuple(sorted(workload.dim_sources.items())) for workload in workloads} == {
         (("batch", "bucket"), ("tokens", "bucket"))
+    }
+    splits_by_case = {}
+    for workload in workloads:
+        splits_by_case.setdefault(workload.shape_case_id, set()).add(workload.split_k)
+    assert splits_by_case == {
+        "bucket_batch=2_tokens=5": {1, 2, 4},
+        "bucket_batch=2_tokens=11": {1},
+        "bucket_batch=4_tokens=5": {1, 2, 4},
+        "bucket_batch=4_tokens=11": {1},
     }
 
 
@@ -197,8 +206,9 @@ def test_build_profile_workloads_overrides_disable_bucket_expansion():
 
     workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (3, 32), "b": (32, 7)})
 
-    assert len(workloads) == _cutlass_candidate_count("float16")
+    assert len(workloads) == _cutlass_candidate_count("float16") * 2
     assert {(workload.m, workload.n, workload.k) for workload in workloads} == {(3, 7, 32)}
+    assert {workload.split_k for workload in workloads} == {1, 2}
     assert {workload.shape_source for workload in workloads} == {"runtime_override"}
 
 
@@ -309,6 +319,48 @@ def test_build_profile_workloads_uses_manifest_selected_no_tf32_policy():
     assert all("simt_sm80_f32" in workload.kernel_symbol for workload in workloads)
     assert all("tf32" not in workload.kernel_symbol for workload in workloads)
     assert workloads[0].candidate_id == _cutlass_default_candidate_id("float32", target=target)
+
+
+def test_build_profile_workloads_expands_v1_split_k_for_supported_gemm():
+    target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([64, 1024], "float32"), "b": dml.TensorSpec([1024, 64], "float32")},
+        name="profile_split_k_search_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, target)
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    expected_split_k = [1, 4, 6, 8, 10, 12, 14]
+    first_candidate = workloads[0].candidate_id
+    assert len(workloads) == 11 * len(expected_split_k)
+    assert [workload.split_k for workload in workloads if workload.candidate_id == first_candidate] == expected_split_k
+    assert all(workload.workspace_nbytes == 0 for workload in workloads if workload.split_k == 1)
+    assert all(workload.workspace_nbytes > 0 for workload in workloads if workload.split_k > 1)
+
+
+def test_build_profile_workloads_keeps_residual_epilogues_split_k_one():
+    target = {**DEFAULT_CUDA_TARGET, "no_tf32": True}
+    spec = dml.trace(
+        GemmResidualModule("gemm_rcr_bias_add"),
+        inputs={
+            "a": dml.TensorSpec([64, 1024], "float32"),
+            "b": dml.TensorSpec([64, 1024], "float32"),
+            "bias": dml.TensorSpec([64], "float32"),
+            "d0": dml.TensorSpec([64, 64], "float32"),
+        },
+        name="profile_residual_no_split_k_search_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, target)
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == 11
+    assert {workload.split_k for workload in workloads} == {1}
+    assert all(workload.workspace_nbytes == 0 for workload in workloads)
 
 
 def test_build_profile_workloads_filters_candidates_by_layout_alignment():

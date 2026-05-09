@@ -5,6 +5,7 @@
 #include <dinoml/runtime.h>
 #include <dinoml/tensor_accessor.h>
 
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -31,6 +32,10 @@ struct DinoSession {
   bool external_stream = false;
   std::vector<std::vector<int64_t>> last_output_shapes;
   std::vector<bool> last_output_shapes_valid;
+{% if cutlass_workspace %}
+  void* cutlass_workspace = nullptr;
+  size_t cutlass_workspace_nbytes = {{ cutlass_workspace.nbytes }};
+{% endif %}
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
@@ -168,6 +173,9 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   session->module = module;
   session->last_output_shapes.resize({{ output_count }});
   session->last_output_shapes_valid.resize({{ output_count }}, false);
+{% if cutlass_workspace %}
+  DINO_CUDA_CHECK(cudaMalloc(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
+{% endif %}
 {% for temp in temporaries %}
   DINO_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
@@ -202,6 +210,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
     cudaFree(session->tmp_{{ temp.ident }});
   }
 {% endfor %}
+{% if cutlass_workspace %}
+  if (session->cutlass_workspace) {
+    cudaFree(session->cutlass_workspace);
+  }
+{% endif %}
   delete session;
   return 0;
 }

@@ -123,9 +123,12 @@ supplied, and carries case IDs plus dynamic dim values through the report and
 execution plan. Profiling prunes CUTLASS candidates using optional dense layout
 element alignment metadata when both GEMM A/B operands are annotated. Profile
 results and execution plans now carry `split_k` and `workspace_nbytes` as
-profiled launch metadata; current generated CUTLASS launchers advertise only
-`split_k=1` and CUDA lowering rejects larger planned values until the split-K ABI
-is implemented. `dml.compile` and `dinoml compile` can consume the static overlay
+profiled launch metadata. Base and bias/activation CUTLASS GEMMs expand
+v1-style split-K profile variants, query the CUTLASS workspace requirement, and
+lower `split_k > 1` static overlays to companion split-K launcher symbols with a
+session-owned workspace. Residual/broadcast epilogue families remain restricted
+to `split_k=1` until their CUTLASS broadcast path has matching workspace ABI
+coverage. `dml.compile` and `dinoml compile` can consume the static overlay
 through `execution_plan=...` / `--execution-plan`, applying it before
 manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
 Profile reports and cache keys include a best-effort CUDA hardware/toolchain

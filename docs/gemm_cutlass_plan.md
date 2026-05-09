@@ -92,9 +92,13 @@ alignment metadata on GEMM A/B tensors: when both operands are annotated,
 candidate workloads whose CUTLASS `align` exceeds the smaller A/B alignment are
 pruned before timing. Profile results, cache keys, execution-plan selections,
 and static overlays preserve `split_k` plus `workspace_nbytes` as launch/result
-metadata. Current generated candidates advertise `split_k_values: [1]`, and CUDA
-lowering rejects execution plans requesting `split_k > 1` until the launcher and
-profiler ABI grow a workspace/split-K parameter. The report/cache key records a
+metadata. Base and bias/activation `device::Gemm` candidates now advertise
+v1-style split-K search metadata, the profiler expands split-K values using the
+v1 `K // max(M, N)` heuristic, and generated CUDA uses companion split-K
+launcher/profiler symbols plus a session-owned CUTLASS workspace when an
+execution plan selects `split_k > 1`. Residual/broadcast epilogue families still
+profile and launch with `split_k=1` until their CUTLASS broadcast path has the
+same workspace ABI coverage. The report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
 support manifests also record compile flags, NVCC version output, dependency header
@@ -142,9 +146,9 @@ now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
 source. That closes the first profile-to-recompile loop for shapes whose
 profiled buckets agree on a single candidate. Next steps should prioritize
-actual CUTLASS split-K launch/profiler ABI and workspace allocation, richer
-runtime/stride alignment guards, and guarded dynamic-shape dispatch when bucket
-winners differ. Broader
+richer runtime/stride alignment guards, guarded dynamic-shape dispatch when
+bucket winners differ, and extending split-K coverage to residual/broadcast
+epilogues once the CUTLASS broadcast path is proven. Broader
 broadcast/folded-M arithmetic epilogues, `elup1`, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
 functionality, BMM and grouped GEMM parity should wait behind that profiling

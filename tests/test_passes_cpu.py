@@ -91,6 +91,7 @@ FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH = {
     "fast_bf16": "cutlass::arch::OpMultiplyAddFastBF16",
     "tf32_fast_f32": "cutlass::arch::OpMultiplyAddFastF32",
 }
+SPLIT_K_LAUNCH_ABIS = {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}
 
 
 def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float32"):
@@ -132,6 +133,17 @@ def _cutlass_default_symbol_id(dtype: str) -> str:
 
 def _cutlass_default_candidate_id(dtype: str) -> str:
     return _cutlass_candidate_ids(dtype)[0]
+
+
+def _assert_split_k_metadata(payload, launch_abi: str) -> None:
+    assert payload["split_k_values"] == [1]
+    assert payload["split_k_default"] == 1
+    assert payload["supports_split_k"] is (launch_abi in SPLIT_K_LAUNCH_ABIS)
+    assert payload["workspace_nbytes"] == 0
+    if launch_abi in SPLIT_K_LAUNCH_ABIS:
+        assert payload["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32}
+    else:
+        assert "split_k_search" not in payload
 
 
 def _cutlass_manifest_candidates(dtype: str, target=None, op_name: str = "gemm_rrr") -> tuple[dict[str, object], ...]:
@@ -384,10 +396,7 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     rrr_f16_candidate = rrr_f16_candidates[0]
     assert rrr_f16_candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rrr_float16_{default_f16_symbol_id}"
     assert rrr_f16_candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rrr_float16_{default_f16_symbol_id}"
-    assert rrr_f16_candidate["split_k_values"] == [1]
-    assert rrr_f16_candidate["split_k_default"] == 1
-    assert rrr_f16_candidate["supports_split_k"] is False
-    assert rrr_f16_candidate["workspace_nbytes"] == 0
+    _assert_split_k_metadata(rrr_f16_candidate, str(rrr_f16_candidate["launch_abi"]))
     assert rrr_f16_candidate["cutlass"] == {
         "api": "device_gemm",
         "opclass": "tensorop",
@@ -408,10 +417,7 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     rrr_f16_candidate_set = families["gemm_rrr"]["candidate_sets_by_dtype"]["float16"]
     assert rrr_f16_candidate_set["candidate_set_id"] == "cutlass_gemm_rrr_float16_linear_combination_v1"
     assert rrr_f16_candidate_set["candidate_count"] == _cutlass_candidate_count("float16")
-    assert rrr_f16_candidate_set["split_k_values"] == [1]
-    assert rrr_f16_candidate_set["split_k_default"] == 1
-    assert rrr_f16_candidate_set["supports_split_k"] is False
-    assert rrr_f16_candidate_set["workspace_nbytes"] == 0
+    _assert_split_k_metadata(rrr_f16_candidate_set, str(rrr_f16_candidate_set["launch_abi"]))
     assert rrr_f16_candidate_set["candidate_config_keys"] == [
         candidate["candidate_config_key"] for candidate in rrr_f16_candidates
     ]
@@ -496,10 +502,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert len(required["candidate_set_key"]) == 64
     assert required["candidate_set"]["candidate_set_key"] == required["candidate_set_key"]
     assert required["candidate_set"]["candidate_count"] == len(manifest_candidates)
-    assert required["candidate_set"]["split_k_values"] == [1]
-    assert required["candidate_set"]["split_k_default"] == 1
-    assert required["candidate_set"]["supports_split_k"] is False
-    assert required["candidate_set"]["workspace_nbytes"] == 0
+    _assert_split_k_metadata(required["candidate_set"], str(required["candidate_set"]["launch_abi"]))
     assert required["candidate_set"]["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
     assert required["selected_candidate_id"] == manifest_candidate_ids[0]
     assert len(required["candidates"]) == len(manifest_candidates)
@@ -515,10 +518,7 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert candidate["accumulator_dtype"] == "float32"
     assert candidate["kernel_symbol"] == default_symbol
     assert candidate["profiler_symbol"] == default_profiler
-    assert candidate["split_k_values"] == [1]
-    assert candidate["split_k_default"] == 1
-    assert candidate["supports_split_k"] is False
-    assert candidate["workspace_nbytes"] == 0
+    _assert_split_k_metadata(candidate, str(candidate["launch_abi"]))
     assert candidate["cutlass"]["opclass"] == "tensorop"
     assert candidate["cutlass"]["arch"] == "sm80"
     assert candidate["optional"] is (dtype == "float32")
@@ -695,10 +695,12 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     assert plan.profiler_symbols == (selected_candidate["profiler_symbol"],)
     assert selected_candidate["kernel_symbol"] in generated
     assert default_candidate["kernel_symbol"] not in generated
+    assert "cutlass_workspace" not in generated
+    assert "dinoml_cutlass_splitk_" not in generated
     assert selected_candidate["symbol_id"] in rendered_support
 
 
-def test_cuda_lowering_rejects_split_k_execution_plan_until_abi_exists():
+def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace():
     import dinoml as dml
 
     class GemmModel(dml.Module):
@@ -708,7 +710,7 @@ def test_cuda_lowering_rejects_split_k_execution_plan_until_abi_exists():
     spec = dml.trace(
         GemmModel(),
         inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
-        name="gemm_split_k_rejected_manifest",
+        name="gemm_split_k_selected_manifest",
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
@@ -736,8 +738,15 @@ def test_cuda_lowering_rejects_split_k_execution_plan_until_abi_exists():
     }
     selected_manifest = apply_execution_plan(manifest, execution_plan, strict=True)
 
-    with pytest.raises(NotImplementedError, match="split-K > 1"):
-        render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+
+    split_symbol = selected_candidate["kernel_symbol"].replace("dinoml_cutlass_", "dinoml_cutlass_splitk_", 1)
+    assert f'extern "C" int {split_symbol}(' in generated
+    assert f"if (int err = {split_symbol}(" in generated
+    assert "void* cutlass_workspace = nullptr;" in generated
+    assert "size_t cutlass_workspace_nbytes = 4096;" in generated
+    assert "cudaMalloc(&session->cutlass_workspace, 4096)" in generated
+    assert ", 2, session->cutlass_workspace, session->cutlass_workspace_nbytes, session->stream" in generated
 
 
 def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():

@@ -118,6 +118,16 @@ CUTLASS_SM80_SIMT_F32_ALIGNMENTS = (1,)
 CUTLASS_GEMM_SPLIT_K_VALUES = (1,)
 CUTLASS_GEMM_DEFAULT_SPLIT_K = 1
 CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES = 0
+CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS = frozenset(
+    {
+        "dinoml_cutlass_gemm_v1",
+        "dinoml_cutlass_gemm_bias_v1",
+    }
+)
+CUTLASS_GEMM_SPLIT_K_SEARCH = {
+    "strategy": "v1_gemm_factor",
+    "max_split_k": 32,
+}
 
 
 def _cutlass_symbol_id(
@@ -380,6 +390,7 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
     profiler_symbol = cutlass_gemm_profiler_symbol(op_name, normalized_dtype, symbol_id)
     epilogue = spec.epilogue.to_json()
     cutlass_config = dict(candidate_config["cutlass"])
+    supports_split_k = spec.epilogue.launch_abi in CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS
     config = {
         "candidate_id": str(candidate_config["candidate_id"]),
         "symbol_id": str(candidate_config["symbol_id"]),
@@ -396,10 +407,12 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
         "launch_abi": spec.epilogue.launch_abi,
         "split_k_values": list(CUTLASS_GEMM_SPLIT_K_VALUES),
         "split_k_default": CUTLASS_GEMM_DEFAULT_SPLIT_K,
-        "supports_split_k": False,
+        "supports_split_k": supports_split_k,
         "workspace_nbytes": CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES,
         "cutlass": cutlass_config,
     }
+    if supports_split_k:
+        config["split_k_search"] = dict(CUTLASS_GEMM_SPLIT_K_SEARCH)
     candidate = {
         **config,
         "kernel_symbol": kernel_symbol,
@@ -429,6 +442,7 @@ def cutlass_gemm_candidate_set(
     spec = gemm_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     candidates = cutlass_gemm_candidates(op_name, normalized_dtype, target=target)
+    supports_split_k = spec.epilogue.launch_abi in CUTLASS_GEMM_SPLIT_K_LAUNCH_ABIS
     config = {
         "schema_version": CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
         "candidate_set_id": cutlass_gemm_candidate_set_id(op_name, normalized_dtype),
@@ -444,11 +458,13 @@ def cutlass_gemm_candidate_set(
         "launch_abi": spec.epilogue.launch_abi,
         "split_k_values": list(CUTLASS_GEMM_SPLIT_K_VALUES),
         "split_k_default": CUTLASS_GEMM_DEFAULT_SPLIT_K,
-        "supports_split_k": False,
+        "supports_split_k": supports_split_k,
         "workspace_nbytes": CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES,
         "generator": "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
+    if supports_split_k:
+        config["split_k_search"] = dict(CUTLASS_GEMM_SPLIT_K_SEARCH)
     return {
         **config,
         "candidate_count": len(candidates),
@@ -745,7 +761,10 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
     return frozenset(
         {
             f"dinoml_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+            f"dinoml_cutlass_splitk_{op_name}_{dtype_name}_{symbol_id}",
+            f"dinoml_cutlass_workspace_{op_name}_{dtype_name}_{symbol_id}",
             f"dinoml_profile_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+            f"dinoml_profile_cutlass_splitk_{op_name}_{dtype_name}_{symbol_id}",
         }
     )
 
@@ -786,7 +805,7 @@ def _extern_c_blocks(source: str) -> list[tuple[str, str]]:
         if brace < 0:
             raise ValueError("Malformed CUTLASS GEMM source: missing function body")
         signature = source[start:brace]
-        match = re.search(r'extern\s+"C"\s+(?:int|float)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(', signature)
+        match = re.search(r'extern\s+"C"\s+(?:int|float|size_t)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(', signature)
         if match is None:
             raise ValueError(f"Malformed CUTLASS GEMM source signature: {signature[:120]!r}")
         depth = 0

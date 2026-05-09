@@ -164,7 +164,7 @@ def build_profile_workloads(
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
             for candidate in profile_candidates:
-                for split_k in _candidate_profile_split_k_values(candidate):
+                for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
                     workloads.append(
                         GemmProfileWorkload(
                             node_id=str(node["id"]),
@@ -201,7 +201,7 @@ def build_profile_workloads(
                             n=n,
                             k=k,
                             split_k=split_k,
-                            workspace_nbytes=int(candidate.get("workspace_nbytes", 0) or 0),
+                            workspace_nbytes=_candidate_profile_workspace_nbytes(candidate, m=m, n=n, split_k=split_k),
                             shape_source=scenario.source,
                             shape_case_id=scenario.case_id,
                             dim_values=scenario.dim_values,
@@ -253,14 +253,56 @@ def _candidate_cutlass_alignment(candidate: Mapping[str, Any]) -> int:
     return 1
 
 
-def _candidate_profile_split_k_values(candidate: Mapping[str, Any]) -> tuple[int, ...]:
+def _candidate_profile_split_k_values(candidate: Mapping[str, Any], *, m: int, n: int, k: int) -> tuple[int, ...]:
     raw_values = candidate.get("split_k_values")
     if raw_values is None:
         raw_values = (candidate.get("split_k_default", 1),)
     elif isinstance(raw_values, int):
         raw_values = (raw_values,)
-    values = tuple(sorted({int(value) for value in raw_values if int(value) > 0}))
+    values = {int(value) for value in raw_values if int(value) > 0}
+    if candidate.get("supports_split_k"):
+        search = candidate.get("split_k_search", {})
+        if not isinstance(search, Mapping) or search.get("strategy") == "v1_gemm_factor":
+            max_split_k = int(search.get("max_split_k", 32) or 32) if isinstance(search, Mapping) else 32
+            values.update(_v1_split_k_values(m=m, n=n, k=k, max_split_k=max_split_k))
+    values = tuple(sorted(values))
     return values or (1,)
+
+
+def _v1_split_k_values(*, m: int, n: int, k: int, max_split_k: int = 32) -> tuple[int, ...]:
+    values = {1}
+    largest_mn = max(int(m), int(n))
+    if largest_mn <= 0:
+        return (1,)
+    factor = int(k) // largest_mn
+    if factor <= 1:
+        return (1,)
+    low = max(1, factor // 4)
+    high = min(factor, int(max_split_k))
+    if low == 1:
+        low += 1
+    if low < high:
+        values.update(range(low, high, 2))
+    return tuple(sorted(value for value in values if value > 0))
+
+
+def _candidate_profile_workspace_nbytes(candidate: Mapping[str, Any], *, m: int, n: int, split_k: int) -> int:
+    if int(split_k) <= 1:
+        return int(candidate.get("workspace_nbytes", 0) or 0)
+    cutlass = candidate.get("cutlass", {})
+    if not isinstance(cutlass, Mapping):
+        return int(candidate.get("workspace_nbytes", 0) or 0)
+    threadblock = cutlass.get("threadblock", ())
+    try:
+        tb_m = int(threadblock[0])
+        tb_n = int(threadblock[1])
+    except (IndexError, TypeError, ValueError):
+        return int(candidate.get("workspace_nbytes", 0) or 0)
+    if tb_m <= 0 or tb_n <= 0:
+        return int(candidate.get("workspace_nbytes", 0) or 0)
+    tiles_m = (int(m) + tb_m - 1) // tb_m
+    tiles_n = (int(n) + tb_n - 1) // tb_n
+    return max(int(candidate.get("workspace_nbytes", 0) or 0), int(tiles_m * tiles_n * 4))
 
 
 def _required_profile_item(
@@ -354,8 +396,15 @@ def profile_artifact(
             else:
                 if profiler is None:
                     profiler = _CudaProfiler(artifact_dir, manifest)
-                elapsed_ms = profiler.profile_gemm(workload, iterations=iterations, rng=rng)
-                result = _profile_result(workload, elapsed_ms, iterations, profile_key=profile_key, status="ok")
+                elapsed_ms, workspace_nbytes = profiler.profile_gemm(workload, iterations=iterations, rng=rng)
+                result = _profile_result(
+                    workload,
+                    elapsed_ms,
+                    iterations,
+                    profile_key=profile_key,
+                    status="ok",
+                    workspace_nbytes=workspace_nbytes,
+                )
                 results.append(result)
                 cache["entries"][profile_key] = _cache_entry(workload, result, key_payload)
                 summary["profiled"] += 1
@@ -497,7 +546,9 @@ def _profile_result(
     profile_key: str,
     status: str,
     reason: str = "only_candidate",
+    workspace_nbytes: int | None = None,
 ) -> dict[str, Any]:
+    actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
     flops = 2 * workload.m * workload.n * workload.k
     bytes_moved = dtype_nbytes(workload.dtype) * (
         workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
@@ -513,7 +564,7 @@ def _profile_result(
         {
             "candidate_id": workload.candidate_id,
             "split_k": workload.split_k,
-            "workspace_nbytes": workload.workspace_nbytes,
+            "workspace_nbytes": actual_workspace_nbytes,
             "avg_ms": float(elapsed_ms),
             "gflops": float(tflops * 1000.0),
             "iterations": int(iterations),
@@ -542,7 +593,7 @@ def _profile_result(
             "elapsed_ms": float(elapsed_ms),
             "iterations": int(iterations),
             "split_k": workload.split_k,
-            "workspace_nbytes": workload.workspace_nbytes,
+            "workspace_nbytes": actual_workspace_nbytes,
             "flops": int(flops),
             "bytes": int(bytes_moved),
             "gflops": float(tflops * 1000.0),
@@ -939,6 +990,7 @@ def _profile_result_from_cache(workload: GemmProfileWorkload, entry: Mapping[str
         profile_key=str(entry["profile_key"]),
         status="cached",
         reason="cache_hit",
+        workspace_nbytes=int(entry.get("workspace_nbytes", workload.workspace_nbytes) or 0),
     )
 
 
@@ -1148,6 +1200,27 @@ def _execution_plan_summary(execution_plan: Mapping[str, Any], path: Path) -> di
     }
 
 
+def _cutlass_split_k_supported(candidate: Mapping[str, Any]) -> bool:
+    return bool(candidate.get("supports_split_k")) and str(candidate.get("launch_abi")) in {
+        "dinoml_cutlass_gemm_v1",
+        "dinoml_cutlass_gemm_bias_v1",
+    }
+
+
+def _cutlass_split_k_profiler_symbol(symbol: str) -> str:
+    prefix = "dinoml_profile_cutlass_"
+    if not symbol.startswith(prefix):
+        raise ValueError(f"Unsupported CUTLASS profiler symbol for split-K: {symbol!r}")
+    return f"dinoml_profile_cutlass_splitk_{symbol[len(prefix):]}"
+
+
+def _cutlass_workspace_symbol(symbol: str) -> str:
+    prefix = "dinoml_cutlass_"
+    if not symbol.startswith(prefix):
+        raise ValueError(f"Unsupported CUTLASS kernel symbol for workspace query: {symbol!r}")
+    return f"dinoml_cutlass_workspace_{symbol[len(prefix):]}"
+
+
 class _CudaProfiler:
     def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any]):
         files = manifest["files"]
@@ -1169,7 +1242,7 @@ class _CudaProfiler:
             ptr = self._buffers.pop()
             self._check(self._cuda_runtime.dino_device_free(ptr))
 
-    def profile_gemm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> float:
+    def profile_gemm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
         b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
         bias = (
@@ -1182,7 +1255,18 @@ class _CudaProfiler:
             for shape in workload.residual_shapes
         ]
         c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-        fn = getattr(self._cutlass, workload.profiler_symbol)
+        split_k = int(workload.split_k)
+        workspace_nbytes = int(workload.workspace_nbytes)
+        workspace = ctypes.c_void_p(0)
+        profiler_symbol = workload.profiler_symbol
+        if split_k > 1:
+            if not _cutlass_split_k_supported(workload.candidate):
+                raise RuntimeError(f"CUTLASS candidate {workload.candidate_id} does not support split-K profiling")
+            profiler_symbol = _cutlass_split_k_profiler_symbol(workload.profiler_symbol)
+            workspace_nbytes = max(workspace_nbytes, self._cutlass_workspace_nbytes(workload))
+            if workspace_nbytes > 0:
+                workspace = self._device_buffer(workspace_nbytes)
+        fn = getattr(self._cutlass, profiler_symbol)
         pointer_args = [ctypes.c_void_p, ctypes.c_void_p]
         call_args = [a, b]
         if bias is not None:
@@ -1193,25 +1277,74 @@ class _CudaProfiler:
             call_args.append(residual)
         pointer_args.append(ctypes.c_void_p)
         call_args.append(c)
-        fn.argtypes = [
-            *pointer_args,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_void_p,
-        ]
         fn.restype = ctypes.c_float
-        return float(
+        if split_k > 1:
+            fn.argtypes = [
+                *pointer_args,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
+            elapsed_ms = float(
+                fn(
+                    *call_args,
+                    ctypes.c_int(workload.m),
+                    ctypes.c_int(workload.n),
+                    ctypes.c_int(workload.k),
+                    ctypes.c_int(split_k),
+                    workspace,
+                    ctypes.c_size_t(workspace_nbytes),
+                    ctypes.c_int(iterations),
+                    ctypes.c_void_p(0),
+                )
+            )
+        else:
+            fn.argtypes = [
+                *pointer_args,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
+            elapsed_ms = float(
+                fn(
+                    *call_args,
+                    ctypes.c_int(workload.m),
+                    ctypes.c_int(workload.n),
+                    ctypes.c_int(workload.k),
+                    ctypes.c_int(iterations),
+                    ctypes.c_void_p(0),
+                )
+            )
+        if elapsed_ms < 0.0:
+            raise RuntimeError(f"CUTLASS profiler {profiler_symbol} failed")
+        return elapsed_ms, workspace_nbytes
+
+    def _cutlass_workspace_nbytes(self, workload: GemmProfileWorkload) -> int:
+        symbol = _cutlass_workspace_symbol(workload.kernel_symbol)
+        fn = getattr(self._cutlass, symbol)
+        fn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+        fn.restype = ctypes.c_size_t
+        return int(
             fn(
-                *call_args,
                 ctypes.c_int(workload.m),
                 ctypes.c_int(workload.n),
                 ctypes.c_int(workload.k),
-                ctypes.c_int(iterations),
-                ctypes.c_void_p(0),
+                ctypes.c_int(workload.split_k),
             )
         )
+
+    def _device_buffer(self, nbytes: int) -> ctypes.c_void_p:
+        ptr = ctypes.c_void_p()
+        self._check(self._cuda_runtime.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(int(nbytes))))
+        self._buffers.append(ptr)
+        return ptr
 
     def _device_array(self, array: np.ndarray) -> ctypes.c_void_p:
         contiguous = np.ascontiguousarray(array)

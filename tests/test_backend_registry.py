@@ -31,6 +31,7 @@ FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH = {
 FLOAT32_OPTIONAL_MATH_COUNTS = {
     math: count for math, count in FLOAT32_CANDIDATE_MATH_COUNTS.items() if math != "f32"
 }
+SPLIT_K_LAUNCH_ABIS = {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}
 
 
 def _assert_float32_candidate_math_families(candidates):
@@ -60,6 +61,17 @@ def _cutlass_candidate_ids(dtype: str) -> list[str]:
 
 def _cutlass_default_symbol_id(dtype: str) -> str:
     return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
+
+
+def _assert_split_k_metadata(payload, launch_abi: str) -> None:
+    assert payload["split_k_values"] == [1]
+    assert payload["split_k_default"] == 1
+    assert payload["supports_split_k"] is (launch_abi in SPLIT_K_LAUNCH_ABIS)
+    assert payload["workspace_nbytes"] == 0
+    if launch_abi in SPLIT_K_LAUNCH_ABIS:
+        assert payload["split_k_search"] == {"strategy": "v1_gemm_factor", "max_split_k": 32}
+    else:
+        assert "split_k_search" not in payload
 
 
 def test_cutlass_float32_candidate_registry_lists_v1_fast_math_families():
@@ -222,18 +234,12 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
                 item["candidate_config_key"] for item in candidates
             ]
             assert len(candidate_set["candidate_set_key"]) == 64
-            assert candidate_set["split_k_values"] == [1]
-            assert candidate_set["split_k_default"] == 1
-            assert candidate_set["supports_split_k"] is False
-            assert candidate_set["workspace_nbytes"] == 0
+            _assert_split_k_metadata(candidate_set, str(candidate_set["launch_abi"]))
             assert [item["candidate_id"] for item in candidates] == _cutlass_candidate_ids(dtype)
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
-            assert candidate["split_k_values"] == [1]
-            assert candidate["split_k_default"] == 1
-            assert candidate["supports_split_k"] is False
-            assert candidate["workspace_nbytes"] == 0
+            _assert_split_k_metadata(candidate, str(candidate["launch_abi"]))
             assert candidate["cutlass"]["opclass"] == "tensorop"
             assert candidate["cutlass"]["arch"] == "sm80"
             assert candidate["optional"] is (dtype == "float32")

@@ -399,8 +399,10 @@ class BmmOpModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
 
-    def forward(self, a, b):
+    def forward(self, a, b, d0=None):
         op = getattr(dml.ops, self.op_name)
+        if d0 is not None:
+            return dml.ops.output(op(a, b, d0), "y")
         return dml.ops.output(op(a, b), "y")
 
 
@@ -546,6 +548,7 @@ BMM_LAYOUT_CASES = tuple(
     )
     for layout in ("ccc", "ccr", "crc", "crr", "rcc", "rcr", "rrc", "rrr")
 )
+BMM_ADD_LAYOUT_CASES = tuple((f"{op_name}_add", a_shape, b_shape, out_shape) for op_name, a_shape, b_shape, out_shape in BMM_LAYOUT_CASES)
 
 
 @pytest.mark.parametrize(("op_name", "a_shape", "b_shape", "out_shape"), BMM_LAYOUT_CASES)
@@ -559,6 +562,51 @@ def test_bmm_frontend_emits_explicit_layout_ops(op_name, a_shape, b_shape, out_s
     assert spec.ir["nodes"][0]["op"] == op_name
     assert spec.ir["outputs"][0]["shape"] == out_shape
     assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+
+
+@pytest.mark.parametrize(("op_name", "a_shape", "b_shape", "out_shape"), BMM_ADD_LAYOUT_CASES)
+def test_bmm_add_frontend_emits_explicit_layout_ops(op_name, a_shape, b_shape, out_shape):
+    spec = dml.trace(
+        BmmOpModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape), "b": dml.TensorSpec(b_shape), "d0": dml.TensorSpec(out_shape)},
+        name=f"{op_name}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["nodes"][0]["inputs"] == ["a", "b", "d0"]
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+    assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+
+
+@pytest.mark.parametrize(
+    ("op_name", "d0_shape", "out_shape"),
+    [
+        ("bmm_rrr_add", [5], [2, 3, 5]),
+        ("bmm_rrc_add", [3], [2, 5, 3]),
+        ("bmm_rrr_add", [1, 5], [2, 3, 5]),
+        ("bmm_rrc_add", [1, 3], [2, 5, 3]),
+    ],
+)
+def test_bmm_add_frontend_accepts_trailing_bias_broadcast(op_name, d0_shape, out_shape):
+    spec = dml.trace(
+        BmmOpModule(op_name),
+        inputs={"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([2, 4, 5]), "d0": dml.TensorSpec(d0_shape)},
+        name=f"{op_name}_bias_frontend",
+    )
+
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+
+
+def test_bmm_add_frontend_rejects_non_v1_broadcast_shape():
+    with pytest.raises(ValueError, match="bmm_rrr_add expected d0 shape"):
+        dml.trace(
+            BmmOpModule("bmm_rrr_add"),
+            inputs={
+                "a": dml.TensorSpec([2, 3, 4]),
+                "b": dml.TensorSpec([2, 4, 5]),
+                "d0": dml.TensorSpec([2, 1, 5]),
+            },
+        )
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])

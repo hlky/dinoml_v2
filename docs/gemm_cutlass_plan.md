@@ -80,10 +80,12 @@ The runtime GEMM port now wires model lowering into that support library:
 
 Base BMM layout contracts are staged separately from CUTLASS launch support.
 The public frontend and CPU reference now cover
-`bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` with the same v1 layout semantics: A and
-B `c` layouts transpose the last two logical dimensions, and C `c` layouts return
-`[B, N, M]` output. They are not listed in the CUTLASS external-kernel plan yet;
-that waits on a real batched GEMM ABI with batch strides, C-layout-aware output
+`bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` and matching `_add` variants with the
+same v1 layout semantics: A and B `c` layouts transpose the last two logical
+dimensions, and C `c` layouts return `[B, N, M]` output. `_add` accepts an
+output-shaped addend or v1-style trailing-bias addend after leading `1`s are
+squeezed. They are not listed in the CUTLASS external-kernel plan yet; that
+waits on a real batched GEMM ABI with batch strides, C-layout-aware output
 handling, candidate metadata, profiling workloads, and execution-plan feedback.
 
 `dinoml profile <artifact>` now executes exported profiler symbols for every

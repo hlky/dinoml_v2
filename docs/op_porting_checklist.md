@@ -249,13 +249,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   epilogues after their `GemmUniversalWithBroadcast` workspace behavior is
   proven and their fused epilogues implement correct partition behavior.
 - [x] Base BMM frontend/CPU contracts:
-  `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` now exist as explicit frontend ops
-  with v1-compatible A/B/C layout shape semantics, batch broadcasting, dynamic
-  shape metadata, and CPU reference execution.
+  `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` and matching `_add` variants now
+  exist as explicit frontend ops with v1-compatible A/B/C layout shape
+  semantics, batch broadcasting, dynamic shape metadata, v1-style trailing-bias
+  addend validation, and CPU reference execution.
 - [ ] CUTLASS BMM launch/profiling family:
   add a real batched CUTLASS ABI with batch strides, C row/column output layout,
   candidate metadata, profiling workloads, and execution-plan selections.
-- [ ] Base BMM `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: broader broadcast forms beyond rank-2
   output-shaped residual tensors.
 - [x] Remaining activation epilogue: `elup1` is available as

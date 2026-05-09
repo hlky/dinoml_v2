@@ -15,10 +15,12 @@ class BmmOpSpec:
     name: str
     base_layout: str
     layouts: Mapping[str, str]
+    epilogue: str = "none"
+    inputs: tuple[str, ...] = ()
 
     @property
     def input_count(self) -> int:
-        return 2
+        return 2 + len(self.inputs)
 
     @property
     def a_layout(self) -> str:
@@ -35,7 +37,7 @@ class BmmOpSpec:
     def validate_shapes(self, shapes: Sequence[Sequence[int]]) -> list[int]:
         if len(shapes) != self.input_count:
             raise ValueError(f"{self.name} expects exactly {self.input_count} inputs")
-        a_shape, b_shape = shapes
+        a_shape, b_shape = shapes[0], shapes[1]
         if len(a_shape) != 3 or len(b_shape) != 3:
             raise ValueError(f"{self.name} expects rank-3 A and B tensors")
         if any(int(dim) <= 0 for shape in (a_shape, b_shape) for dim in shape):
@@ -50,10 +52,14 @@ class BmmOpSpec:
                 f"{self.name} expected compatible K dimensions, got A K={k_a} from {list(a_shape)} "
                 f"and B K={k_b} from {list(b_shape)}"
             )
-        return [batch, n, m] if self.c_layout == "c" else [batch, m, n]
+        output_shape = [batch, n, m] if self.c_layout == "c" else [batch, m, n]
+        for input_name, shape in zip(self.inputs, shapes[2:]):
+            if input_name == "d0":
+                _validate_add_shape(self.name, shape, output_shape)
+        return output_shape
 
     def output_shape_spec(self, shape_specs: Sequence[Sequence[Any]]) -> list[Any]:
-        a_shape, b_shape = shape_specs
+        a_shape, b_shape = shape_specs[0], shape_specs[1]
         batch = a_shape[0] if _dim_is_not_one(a_shape[0]) else b_shape[0]
         m = a_shape[_a_m_axis(self.a_layout)]
         n = b_shape[_b_n_axis(self.b_layout)]
@@ -64,19 +70,23 @@ class BmmOpSpec:
             "name": self.name,
             "base_layout": self.base_layout,
             "layouts": dict(self.layouts),
+            "epilogue": self.epilogue,
+            "inputs": list(self.inputs),
             "input_count": self.input_count,
         }
 
 
-def _bmm_op_spec(layout: str) -> BmmOpSpec:
+def _bmm_op_spec(layout: str, *, add: bool = False) -> BmmOpSpec:
     return BmmOpSpec(
-        name=f"bmm_{layout}",
+        name=f"bmm_{layout}_add" if add else f"bmm_{layout}",
         base_layout=layout,
         layouts={
             "a": _layout_name(layout[0]),
             "b": _layout_name(layout[1]),
             "c": _layout_name(layout[2]),
         },
+        epilogue="add" if add else "none",
+        inputs=("d0",) if add else (),
     )
 
 
@@ -118,6 +128,26 @@ def _validate_batch(op_name: str, a_shape: Sequence[int], b_shape: Sequence[int]
     )
 
 
+def _validate_add_shape(op_name: str, add_shape: Sequence[int], output_shape: Sequence[int]) -> None:
+    normalized = [int(dim) for dim in add_shape]
+    expected = [int(dim) for dim in output_shape]
+    if normalized == expected:
+        return
+    bias_shape = _squeeze_leading_ones(normalized)
+    if len(bias_shape) >= len(expected):
+        raise ValueError(f"{op_name} expected d0 shape {expected} or broadcastable trailing bias, got {normalized}")
+    for output_dim, bias_dim in zip(reversed(expected), reversed(bias_shape)):
+        if output_dim != bias_dim:
+            raise ValueError(f"{op_name} expected d0 shape {expected} or broadcastable trailing bias, got {normalized}")
+
+
+def _squeeze_leading_ones(shape: Sequence[int]) -> list[int]:
+    result = [int(dim) for dim in shape]
+    while len(result) > 1 and result[0] == 1:
+        result = result[1:]
+    return result
+
+
 def _dim_is_not_one(dim: Any) -> bool:
     if isinstance(dim, int):
         return int(dim) != 1
@@ -126,7 +156,10 @@ def _dim_is_not_one(dim: Any) -> bool:
     return True
 
 
-BMM_OP_SPECS: dict[str, BmmOpSpec] = {f"bmm_{layout}": _bmm_op_spec(layout) for layout in BMM_LAYOUTS}
+BMM_OP_SPECS: dict[str, BmmOpSpec] = {
+    **{f"bmm_{layout}": _bmm_op_spec(layout) for layout in BMM_LAYOUTS},
+    **{f"bmm_{layout}_add": _bmm_op_spec(layout, add=True) for layout in BMM_LAYOUTS},
+}
 BMM_OPS = tuple(BMM_OP_SPECS)
 
 

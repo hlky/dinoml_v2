@@ -241,6 +241,8 @@ def _execute_bmm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     result = np.matmul(a, b)
     if spec.c_layout == "c":
         result = np.swapaxes(result, -1, -2)
+    if spec.epilogue == "add":
+        result = result + inputs[2]
     return np.asarray(result, dtype=np.float32)
 
 

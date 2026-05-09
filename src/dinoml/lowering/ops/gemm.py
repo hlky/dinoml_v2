@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
@@ -29,19 +29,20 @@ def render_launch(
     b_ident = _c_ident(b_name)
     c_ident = _c_ident(c_name)
     _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
+    a_rank = len(tensor_map[a_name]["shape"])
+    c_rank = len(tensor_map[c_name]["shape"])
     dtype = str(tensor_map[c_name]["dtype"])
     symbol = _manifest_kernel_symbol(kernel_manifest, op_name, dtype) or get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
 
-    m_expr = f"shape_{a_ident}_0"
-    k_expr = f"shape_{a_ident}_1"
+    m_expr = _product_expr(f"shape_{a_ident}_{axis}" for axis in range(a_rank - 1))
+    k_expr = f"shape_{a_ident}_{a_rank - 1}"
     if spec.base_layout == "rrr":
         n_expr = f"shape_{b_ident}_1"
-        k_check = f"shape_{a_ident}_1 != shape_{b_ident}_0"
-        output_check = f"shape_{c_ident}_0 != shape_{a_ident}_0 || shape_{c_ident}_1 != shape_{b_ident}_1"
+        k_check = f"{k_expr} != shape_{b_ident}_0"
     else:
         n_expr = f"shape_{b_ident}_0"
-        k_check = f"shape_{a_ident}_1 != shape_{b_ident}_1"
-        output_check = f"shape_{c_ident}_0 != shape_{a_ident}_0 || shape_{c_ident}_1 != shape_{b_ident}_0"
+        k_check = f"{k_expr} != shape_{b_ident}_1"
+    output_check = _folded_output_shape_check(c_ident, a_ident, a_rank, n_expr)
     epilogue_checks = []
     epilogue_args = []
     for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2):
@@ -59,10 +60,10 @@ def render_launch(
             else:
                 raise NotImplementedError(f"{op_name} CUDA lowering supports rank-1 or rank-2 bias only")
         elif input_name.startswith("d"):
-            if tensor_rank != 2:
-                raise NotImplementedError(f"{op_name} CUDA lowering supports rank-2 residual tensors only")
+            if tensor_rank != c_rank:
+                raise NotImplementedError(f"{op_name} CUDA lowering requires residual tensors to match output rank")
             epilogue_checks.append(
-                f'if (shape_{tensor_ident}_0 != {m_expr} || shape_{tensor_ident}_1 != {n_expr}) '
+                f'if ({_folded_output_shape_check(tensor_ident, a_ident, a_rank, n_expr)}) '
                 f'return dinoml::module::fail("{op_name} {input_name} shape mismatch");'
             )
         else:
@@ -93,6 +94,16 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
     return None
 
 
+def _product_expr(terms: Iterable[str]) -> str:
+    return " * ".join(str(term) for term in terms)
+
+
+def _folded_output_shape_check(output_ident: str, a_ident: str, a_rank: int, n_expr: str) -> str:
+    checks = [f"shape_{output_ident}_{axis} != shape_{a_ident}_{axis}" for axis in range(a_rank - 1)]
+    checks.append(f"shape_{output_ident}_{a_rank - 1} != {n_expr}")
+    return " || ".join(checks)
+
+
 def _manifest_kernel_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:
     if kernel_manifest is None:
         return None
@@ -119,8 +130,12 @@ def _validate_static_contract(
         raise NotImplementedError(f"{op_name} CUDA lowering requires matching input/output dtypes")
     if str(c_info["dtype"]) not in op_def.allowed_dtypes:
         raise NotImplementedError(f"{op_name} CUDA lowering does not support dtype {c_info['dtype']}")
-    if len(input_infos[0]["shape"]) != 2 or len(input_infos[1]["shape"]) != 2 or len(c_info["shape"]) != 2:
-        raise NotImplementedError(f"{op_name} CUDA lowering currently supports rank-2 tensors only")
+    if (
+        len(input_infos[0]["shape"]) < 2
+        or len(input_infos[1]["shape"]) != 2
+        or len(c_info["shape"]) != len(input_infos[0]["shape"])
+    ):
+        raise NotImplementedError(f"{op_name} CUDA lowering expects A[...,K], rank-2 B, and C[...,N]")
 
 
 def _c_ident(name: str) -> str:

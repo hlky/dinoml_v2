@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import prod
 from typing import Any, Mapping, Sequence
 
 from dinoml.ir import normalize_dtype
@@ -67,34 +68,34 @@ class GemmOpSpec:
         if len(shapes) != self.input_count:
             raise ValueError(f"{self.name} expects exactly {self.input_count} inputs")
         a_shape, b_shape = shapes[0], shapes[1]
-        if len(a_shape) != 2 or len(b_shape) != 2:
-            raise ValueError(f"{self.name} currently supports rank-2 matrix inputs only")
+        if len(a_shape) < 2 or len(b_shape) != 2:
+            raise ValueError(f"{self.name} expects A[...,K] and rank-2 B")
         if any(int(dim) <= 0 for shape in (a_shape, b_shape) for dim in shape):
             raise ValueError(f"{self.name} dimensions must be positive")
-        m = int(a_shape[0])
-        k = int(a_shape[1])
+        k = int(a_shape[-1])
         if self.base_layout == "rrr":
             if k != int(b_shape[0]):
-                raise ValueError(f"{self.name} expected A[M,K] and B[K,N], got {list(a_shape)} and {list(b_shape)}")
+                raise ValueError(f"{self.name} expected A[...,K] and B[K,N], got {list(a_shape)} and {list(b_shape)}")
             n = int(b_shape[1])
         elif self.base_layout == "rcr":
             if k != int(b_shape[1]):
-                raise ValueError(f"{self.name} expected A[M,K] and B[N,K], got {list(a_shape)} and {list(b_shape)}")
+                raise ValueError(f"{self.name} expected A[...,K] and B[N,K], got {list(a_shape)} and {list(b_shape)}")
             n = int(b_shape[0])
         else:
             raise ValueError(f"Unsupported GEMM layout: {self.base_layout}")
+        output_shape = [*(int(dim) for dim in a_shape[:-1]), n]
         for input_name, shape in zip(self.epilogue.inputs, shapes[2:]):
             if input_name == "bias":
                 _validate_bias_shape(self.name, shape, n)
             elif input_name.startswith("d"):
-                _validate_residual_shape(self.name, input_name, shape, (m, n))
-        return [m, n]
+                _validate_residual_shape(self.name, input_name, shape, output_shape)
+        return output_shape
 
     def output_shape_spec(self, shape_specs: Sequence[Sequence[Any]]) -> list[Any]:
         if self.base_layout == "rrr":
-            return [shape_specs[0][0], shape_specs[1][1]]
+            return [*shape_specs[0][:-1], shape_specs[1][1]]
         if self.base_layout == "rcr":
-            return [shape_specs[0][0], shape_specs[1][0]]
+            return [*shape_specs[0][:-1], shape_specs[1][0]]
         raise ValueError(f"Unsupported GEMM layout: {self.base_layout}")
 
     def to_json(self) -> dict[str, Any]:
@@ -294,10 +295,13 @@ def gemm_op_spec(op_name: str) -> GemmOpSpec:
         raise ValueError(f"Unsupported GEMM op {op_name!r}; supported ops: {supported}") from exc
 
 
-def gemm_problem(op_name: str, shapes: Sequence[Sequence[int]]) -> tuple[int, int, int, tuple[int, int]]:
+def gemm_problem(op_name: str, shapes: Sequence[Sequence[int]]) -> tuple[int, int, int, tuple[int, ...]]:
     spec = gemm_op_spec(op_name)
     output = spec.validate_shapes(shapes)
-    return int(output[0]), int(output[1]), int(shapes[0][1]), (int(output[0]), int(output[1]))
+    m = int(prod(int(dim) for dim in shapes[0][:-1]))
+    n = int(output[-1])
+    k = int(shapes[0][-1])
+    return m, n, k, tuple(int(dim) for dim in output)
 
 
 def _validate_bias_shape(op_name: str, bias_shape: Sequence[int], n: int) -> None:
@@ -308,8 +312,8 @@ def _validate_bias_shape(op_name: str, bias_shape: Sequence[int], n: int) -> Non
     raise ValueError(f"{op_name} expected bias shape [N] or [1, N] with N={n}, got {list(bias_shape)}")
 
 
-def _validate_residual_shape(op_name: str, input_name: str, shape: Sequence[int], output_shape: tuple[int, int]) -> None:
-    if len(shape) == 2 and (int(shape[0]), int(shape[1])) == output_shape:
+def _validate_residual_shape(op_name: str, input_name: str, shape: Sequence[int], output_shape: Sequence[int]) -> None:
+    if tuple(int(dim) for dim in shape) == tuple(int(dim) for dim in output_shape):
         return
     raise ValueError(f"{op_name} expected {input_name} shape {list(output_shape)}, got {list(shape)}")
 

@@ -41,11 +41,11 @@ class GemmProfileWorkload:
     bias_tensor: str | None
     residual_tensors: tuple[str, ...]
     output_tensor: str
-    a_shape: tuple[int, int]
-    b_shape: tuple[int, int]
+    a_shape: tuple[int, ...]
+    b_shape: tuple[int, ...]
     bias_shape: tuple[int, ...] | None
-    residual_shapes: tuple[tuple[int, int], ...]
-    output_shape: tuple[int, int]
+    residual_shapes: tuple[tuple[int, ...], ...]
+    output_shape: tuple[int, ...]
     m: int
     n: int
     k: int
@@ -156,11 +156,11 @@ def build_profile_workloads(
                     bias_tensor=bias_name,
                     residual_tensors=residual_names,
                     output_tensor=output_name,
-                    a_shape=(a_shape[0], a_shape[1]),
-                    b_shape=(b_shape[0], b_shape[1]),
+                    a_shape=tuple(a_shape),
+                    b_shape=tuple(b_shape),
                     bias_shape=bias_shape,
-                    residual_shapes=tuple((shape[0], shape[1]) for shape in residual_shapes),
-                    output_shape=output_shape,
+                    residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
+                    output_shape=tuple(output_shape),
                     m=m,
                     n=n,
                     k=k,

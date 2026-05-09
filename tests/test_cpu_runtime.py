@@ -904,6 +904,36 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add", "gemm_rcr_bias_mul"])
+def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
+    spec = dml.trace(
+        GemmResidualModule(op_name),
+        inputs={
+            "a": dml.TensorSpec([2, 3, 8], "float32"),
+            "b": dml.TensorSpec([6, 8], "float32"),
+            "bias": dml.TensorSpec([6], "float32"),
+            "d0": dml.TensorSpec([2, 3, 6], "float32"),
+        },
+        name=f"{op_name}_folded_m_reference",
+    )
+    rng = np.random.default_rng(992)
+    inputs = {
+        "a": rng.standard_normal((2, 3, 8)).astype(np.float32),
+        "b": rng.standard_normal((6, 8)).astype(np.float32),
+        "bias": rng.standard_normal((6,)).astype(np.float32),
+        "d0": rng.standard_normal((2, 3, 6)).astype(np.float32),
+    }
+    result = inputs["a"] @ inputs["b"].T + inputs["bias"]
+    if op_name.endswith("_bias_add"):
+        result = result + inputs["d0"]
+    else:
+        result = result * inputs["d0"]
+
+    actual = execute_cpu(spec, inputs)["y"]
+
+    np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
+
+
 @pytest.mark.parametrize("activation", ["gelu", "fast_gelu", "sigmoid", "tanh", "swish", "hardswish"])
 @pytest.mark.parametrize(("layout", "a_shape", "b_shape"), [("rrr", (4, 8), (8, 6)), ("rcr", (4, 8), (6, 8))])
 def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_shape, activation):

@@ -615,6 +615,44 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
             torch.cuda.synchronize()
             torch.testing.assert_close(c_bias_mul_add, base * d0 + d1, atol=atol, rtol=rtol)
 
+        a_folded = torch.randn((2, 8, 32), device="cuda", dtype=torch_dtype)
+        b_folded = torch.randn((24, 32), device="cuda", dtype=torch_dtype)
+        bias_folded = torch.randn((24,), device="cuda", dtype=torch_dtype)
+        d0_folded = torch.randn((2, 8, 24), device="cuda", dtype=torch_dtype)
+        folded_base = a_folded @ b_folded.t() + bias_folded
+
+        c_folded_add = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_{suffix}")(
+            ctypes.c_void_p(a_folded.data_ptr()),
+            ctypes.c_void_p(b_folded.data_ptr()),
+            ctypes.c_void_p(bias_folded.data_ptr()),
+            ctypes.c_void_p(d0_folded.data_ptr()),
+            ctypes.c_void_p(c_folded_add.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_folded_add, folded_base + d0_folded, atol=atol, rtol=rtol)
+
+        c_folded_mul = torch.empty((2, 8, 24), device="cuda", dtype=torch_dtype)
+        err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_mul_{suffix}")(
+            ctypes.c_void_p(a_folded.data_ptr()),
+            ctypes.c_void_p(b_folded.data_ptr()),
+            ctypes.c_void_p(bias_folded.data_ptr()),
+            ctypes.c_void_p(d0_folded.data_ptr()),
+            ctypes.c_void_p(c_folded_mul.data_ptr()),
+            ctypes.c_int(16),
+            ctypes.c_int(24),
+            ctypes.c_int(32),
+            ctypes.c_void_p(0),
+        )
+        assert err == 0
+        torch.cuda.synchronize()
+        torch.testing.assert_close(c_folded_mul, folded_base * d0_folded, atol=atol, rtol=rtol)
+
 
 def test_compile_uses_backend_registry_for_manifest_and_build_dispatch(tmp_path, monkeypatch):
     calls = []

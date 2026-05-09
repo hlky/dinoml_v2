@@ -169,18 +169,21 @@ cached by manifest key.
 The first CUTLASS path is concrete but still intentionally compact:
 `dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
 real CUTLASS `gemm_rcr`, `gemm_rrr`, bias, ReLU, and v1-style bias activation
-GEMM epilogue launchers plus first rank-2 residual epilogue launchers and
-v1 RCR compound residual activation epilogue launchers and profiler entrypoints
-for `float32`, `float16`, and `bfloat16`.
+GEMM epilogue launchers plus first residual epilogue launchers and v1 RCR
+compound residual activation epilogue launchers and profiler entrypoints for
+`float32`, `float16`, and `bfloat16`.
 Public `dml.ops.gemm_*` lower into dtype-resolved calls to that support library,
 so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
 without embedding a handwritten matmul. These ops preserve dynamic `M/N`
-metadata and launch with runtime `M/N/K`; the bias epilogue accepts a rank-1
-`N` bias or rank-2 `[1, N]` bias, and activation/residual epilogues instantiate
-CUTLASS thread epilogue functors directly. The checked-in macro-backed support
-source is rendered down to the used launcher/profiler symbols for each support
-build. Richer broadcast/visitor epilogues, folded residual forms, BMM/grouped
-GEMM, and public `matmul` layout selection remain follow-up work.
+metadata and launch with runtime `M/N/K`; folded leading dimensions on
+`A[..., K]` are flattened into CUTLASS `m` while retaining logical `C[..., N]`
+shape metadata, with first RCR single-source residual coverage for
+`gemm_rcr_bias_{add,mul}`. The bias epilogue accepts a rank-1 `N` bias or rank-2
+`[1, N]` bias, and activation/residual epilogues instantiate CUTLASS thread
+epilogue functors directly. The checked-in macro-backed support source is
+rendered down to the used launcher/profiler symbols for each support build.
+Richer broadcast/visitor epilogues, folded dual-source residual forms,
+BMM/grouped GEMM, and public `matmul` layout selection remain follow-up work.
 
 GEMM metadata now has a contributor-facing split:
 

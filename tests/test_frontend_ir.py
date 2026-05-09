@@ -372,6 +372,30 @@ def test_gemm_bias_residual_frontend_emits_epilogue_ops(layout, b_shape, suffix,
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 
 
+@pytest.mark.parametrize("suffix", ["add", "mul"])
+def test_gemm_rcr_single_residual_frontend_accepts_folded_m(suffix):
+    batch = dml.Dim("batch", min=1, max=4)
+    heads = dml.Dim("heads", min=1, max=3)
+    tokens = dml.Dim("tokens", min=1, max=6)
+    op_name = f"gemm_rcr_bias_{suffix}"
+    spec = dml.trace(
+        GemmResidualOpModule(op_name),
+        inputs={
+            "a": dml.TensorSpec([batch, heads, 8]),
+            "b": dml.TensorSpec([tokens, 8]),
+            "bias": dml.TensorSpec([tokens]),
+            "d0": dml.TensorSpec([batch, heads, tokens]),
+        },
+        name=f"{op_name}_folded_m_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == [4, 3, 6]
+    assert spec.ir["outputs"][0]["shape_spec"][0]["name"] == "batch"
+    assert spec.ir["outputs"][0]["shape_spec"][1]["name"] == "heads"
+    assert spec.ir["outputs"][0]["shape_spec"][2]["name"] == "tokens"
+
+
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
 def test_gemm_frontend_accepts_reduced_precision_dtype(dtype):
     spec = dml.trace(

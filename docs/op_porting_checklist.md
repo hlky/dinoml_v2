@@ -156,10 +156,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   support rank-2 residual tensors through fused CUTLASS epilogues, CUDA
   lowering/profiler pointer ABIs, and CPU reference execution. These do not use
   a post-GEMM activation or elementwise launch.
+- [x] First folded-M residual coverage: `gemm_rcr_bias_{add,mul}` accept
+  `A[..., K]`, preserve output/residual shape `[..., N]`, and flatten leading
+  `A` dimensions into the CUTLASS `m` argument for CUDA lowering and profiling.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and
-  broader broadcast forms.
+  broader broadcast forms, including folded dual-source residual epilogues.
 - [ ] Remaining activation epilogues: `elup1`.
 - [ ] Permuted/layout-fused output families: `gemm_*_permute*`,
   `bmm_*_permute`, `perm021fc_*`, `perm102_bmm_*`.

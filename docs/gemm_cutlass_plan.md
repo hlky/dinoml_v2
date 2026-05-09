@@ -115,11 +115,17 @@ the optional fast TensorOp float32 candidates. Target policy now participates in
 the per-artifact manifest: `Target(use_fp16_acc=True)` selects only
 fp16-accumulation fp16 launchers/profilers and changes the support/profile cache
 keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
-and changes those keys too.
+and changes those keys too. The logical GEMM shape contract now accepts
+`A[..., K]` with rank-2 `B`, preserves `C[..., N]`, and flattens the leading
+`A` dimensions into the CUTLASS `m` argument. The first folded residual coverage
+is wired for RCR single-source epilogues `gemm_rcr_bias_{add,mul}`, including
+frontend shape metadata, CPU reference execution, CUDA lowering checks, and
+profiler workload shapes.
 
-Next steps are broader broadcast/folded-M arithmetic epilogues, `elup1`, v1
-`dual_gemm`/dual-output GEMM families, broader v1 candidate enumeration, BMM and
-grouped GEMM parity, and then public `matmul` layout selection.
+Next steps are broader broadcast/folded-M arithmetic epilogues, folded
+dual-source residual epilogues, `elup1`, v1 `dual_gemm`/dual-output GEMM
+families, BMM and grouped GEMM parity, and then public `matmul` layout
+selection.
 
 ## Dependency Discovery
 

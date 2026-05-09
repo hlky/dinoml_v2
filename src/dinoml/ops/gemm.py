@@ -127,4 +127,4 @@ def _description(op_name: str) -> str:
         epilogue = "with fused bias epilogue"
     else:
         epilogue = "with linear-combination epilogue"
-    return f"CUTLASS-backed rank-2 GEMM: row-major A[M,K], {rhs}, row-major C[M,N], {epilogue}."
+    return f"CUTLASS-backed folded GEMM: row-major A[...,K], {rhs}, row-major C[...,N], {epilogue}."

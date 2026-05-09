@@ -718,7 +718,8 @@ def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, layou
     generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=manifest)
 
     symbol = manifest["required_kernels"][0]["kernel_symbol"]
-    output_ptr = f"ptr_{lowered['nodes'][0]['outputs'][0]}"
+    output_name = lowered["nodes"][0]["outputs"][0]
+    output_ptr = f"ptr_{output_name}"
     residual_ptrs = ["ptr_d0", *(["ptr_d1"] if "d1" in epilogue_inputs else [])]
     n_expr = "shape_b_0" if layout == "rcr" else "shape_b_1"
     expected_call = (
@@ -734,6 +735,43 @@ def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, layou
     else:
         assert "const float* d1," not in generated
     assert expected_call in generated
+
+
+@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add", "gemm_rcr_bias_mul"])
+def test_cuda_lowering_flattens_gemm_rcr_single_residual_folded_m(op_name):
+    import dinoml as dml
+
+    class GemmResidualModel(dml.Module):
+        def forward(self, a, b, bias, d0):
+            op = getattr(dml.ops, op_name)
+            return dml.ops.output(op(a, b, bias, d0), "y")
+
+    spec = dml.trace(
+        GemmResidualModel(),
+        inputs={
+            "a": dml.TensorSpec([2, 3, 8], "float32"),
+            "b": dml.TensorSpec([6, 8], "float32"),
+            "bias": dml.TensorSpec([6], "float32"),
+            "d0": dml.TensorSpec([2, 3, 6], "float32"),
+        },
+        name=f"{op_name}_folded_m_lowering",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=manifest)
+
+    symbol = manifest["required_kernels"][0]["kernel_symbol"]
+    output_name = lowered["nodes"][0]["outputs"][0]
+    output_ptr = f"ptr_{output_name}"
+    expected_call = (
+        f"{symbol}(ptr_a, ptr_b, ptr_bias, ptr_d0, {output_ptr}, "
+        "static_cast<int>(shape_a_0 * shape_a_1), static_cast<int>(shape_b_0), "
+        "static_cast<int>(shape_a_2), session->stream)"
+    )
+    assert expected_call in generated
+    assert f"shape_{output_name}_0 != shape_a_0 || shape_{output_name}_1 != shape_a_1 || shape_{output_name}_2 != shape_b_0" in generated
+    assert "shape_d0_0 != shape_a_0 || shape_d0_1 != shape_a_1 || shape_d0_2 != shape_b_0" in generated
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():

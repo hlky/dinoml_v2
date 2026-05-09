@@ -251,6 +251,42 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
         assert "d1" not in inputs
 
 
+@pytest.mark.parametrize(
+    ("op_name", "epilogue"),
+    [
+        ("gemm_rcr_bias_add", "bias_add"),
+        ("gemm_rcr_bias_mul", "bias_mul"),
+    ],
+)
+def test_build_profile_workloads_flattens_gemm_rcr_single_residual_folded_m(op_name, epilogue):
+    spec = dml.trace(
+        GemmResidualModule(op_name),
+        inputs={
+            "a": dml.TensorSpec([2, 3, 32], "float32"),
+            "b": dml.TensorSpec([11, 32], "float32"),
+            "bias": dml.TensorSpec([11], "float32"),
+            "d0": dml.TensorSpec([2, 3, 11], "float32"),
+        },
+        name=f"profile_{op_name}_folded_m",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float32")
+    workload = workloads[0]
+    assert (workload.m, workload.n, workload.k) == (6, 11, 32)
+    assert workload.a_shape == (2, 3, 32)
+    assert workload.b_shape == (11, 32)
+    assert workload.residual_shapes == ((2, 3, 11),)
+    assert workload.output_shape == (2, 3, 11)
+    assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
+    assert workload.to_json()["inputs"]["a"] == [2, 3, 32]
+    assert workload.to_json()["inputs"]["d0"] == [2, 3, 11]
+    assert list(workload.to_json()["output"].values()) == [[2, 3, 11]]
+
+
 def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

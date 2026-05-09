@@ -54,7 +54,7 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     output_tensor = tensor_map[node["outputs"][0]]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
-    return {
+    context = {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
         "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
@@ -64,10 +64,13 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         "cols_per_thread": (cols + 31) // 32,
         "rows_per_block": _cuda_rows_per_block(cols),
         "use_warp_kernel": cols <= 1024,
+        "two_accumulators": node["op"] == "var",
         "initial_value": _initial_value(node["op"]),
         "combine_expr": _combine_expr(node["op"]),
-        "final_expr": _final_expr(node["op"], cols),
+        "unbiased": bool(node.get("attrs", {}).get("unbiased", False)),
     }
+    context["final_expr"] = _final_expr(node["op"], cols, context["unbiased"])
+    return context
 
 
 def _validate_node_contract(
@@ -90,6 +93,10 @@ def _validate_node_contract(
     cols = input_tensor["shape"][-1]
     if not isinstance(shape_spec[-1], int) or not isinstance(cols, int) or int(cols) <= 0:
         raise ValueError("reduction lowering requires a positive static last dimension")
+    if node["op"] == "vector_norm" and float(node.get("attrs", {}).get("ord", 2.0)) != 2.0:
+        raise NotImplementedError("vector_norm lowering currently supports only ord=2")
+    if node["op"] == "var" and bool(node.get("attrs", {}).get("unbiased", False)) and int(cols) <= 1:
+        raise ValueError("unbiased var requires a reduction dimension larger than one")
     expected = list(input_tensor["shape"])
     if bool(node.get("attrs", {}).get("keepdim", False)):
         expected[-1] = 1
@@ -100,7 +107,7 @@ def _validate_node_contract(
 
 
 def _initial_value(op: str) -> str:
-    if op in {"reduce_sum", "reduce_mean"}:
+    if op in {"reduce_sum", "reduce_mean", "var", "vector_norm"}:
         return "0.0f"
     if op == "reduce_max":
         return "-3.4028234663852886e38f"
@@ -112,6 +119,10 @@ def _initial_value(op: str) -> str:
 def _combine_expr(op: str) -> str:
     if op in {"reduce_sum", "reduce_mean"}:
         return "acc + value"
+    if op == "vector_norm":
+        return "acc + value * value"
+    if op == "var":
+        return "acc + value"
     if op == "reduce_max":
         return "fmaxf(acc, value)"
     if op == "reduce_min":
@@ -119,9 +130,14 @@ def _combine_expr(op: str) -> str:
     raise ValueError(op)
 
 
-def _final_expr(op: str, cols: int) -> str:
+def _final_expr(op: str, cols: int, unbiased: bool = False) -> str:
     if op == "reduce_mean":
         return f"acc / {float(cols):.8f}f"
+    if op == "vector_norm":
+        return "sqrtf(acc)"
+    if op == "var":
+        denominator = cols - 1 if unbiased else cols
+        return f"(sum_sq_acc - (acc * acc) / {float(cols):.8f}f) / {float(denominator):.8f}f"
     return "acc"
 
 
@@ -150,6 +166,10 @@ def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str
         "dim": dim,
         "keepdim": bool(node.get("attrs", {}).get("keepdim", False)),
     }
+    if node["op"] == "var":
+        signature["unbiased"] = bool(node.get("attrs", {}).get("unbiased", False))
+    elif node["op"] == "vector_norm":
+        signature["ord"] = float(node.get("attrs", {}).get("ord", 2.0))
     digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
     return f"{node['op']}_{digest}"
 

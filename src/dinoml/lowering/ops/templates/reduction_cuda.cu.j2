@@ -13,12 +13,18 @@ __global__ void {{ warp_kernel }}(
   const int64_t base = static_cast<int64_t>(row) * cols;
 
   float acc = {{ initial_value }};
+{% if two_accumulators %}
+  float sum_sq_acc = 0.0f;
+{% endif %}
 #pragma unroll
   for (int i = 0; i < cols_per_thread; ++i) {
     const int col = i * 32 + lane;
     if (col < cols) {
       const float value = x[base + col];
       acc = {{ combine_expr }};
+{% if two_accumulators %}
+      sum_sq_acc += value * value;
+{% endif %}
     }
   }
 
@@ -26,6 +32,9 @@ __global__ void {{ warp_kernel }}(
   for (int offset = 16; offset > 0; offset >>= 1) {
     const float value = __shfl_down_sync(0xffffffffu, acc, offset);
     acc = {{ combine_expr }};
+{% if two_accumulators %}
+    sum_sq_acc += __shfl_down_sync(0xffffffffu, sum_sq_acc, offset);
+{% endif %}
   }
 
   if (lane == 0) {
@@ -48,11 +57,20 @@ __global__ void {{ kernel }}(
   const int64_t base = static_cast<int64_t>(row) * cols;
 
   float acc = {{ initial_value }};
+{% if two_accumulators %}
+  float sum_sq_acc = 0.0f;
+{% endif %}
   for (int64_t col = tid; col < cols; col += blockDim.x) {
     const float value = x[base + col];
     acc = {{ combine_expr }};
+{% if two_accumulators %}
+    sum_sq_acc += value * value;
+{% endif %}
   }
   shared[tid] = acc;
+{% if two_accumulators %}
+  shared[blockDim.x + tid] = sum_sq_acc;
+{% endif %}
   __syncthreads();
 
   for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
@@ -60,11 +78,17 @@ __global__ void {{ kernel }}(
       const float value = shared[tid + stride];
       acc = shared[tid];
       shared[tid] = {{ combine_expr }};
+{% if two_accumulators %}
+      shared[blockDim.x + tid] += shared[blockDim.x + tid + stride];
+{% endif %}
     }
     __syncthreads();
   }
   if (tid == 0) {
     acc = shared[0];
+{% if two_accumulators %}
+    sum_sq_acc = shared[blockDim.x];
+{% endif %}
     y[row] = {{ final_expr }};
   }
 }
@@ -83,7 +107,7 @@ static int {{ func }}(
   {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_rows);
 {% else %}
   const int block = {{ block_size }};
-  {{ kernel }}<<<static_cast<unsigned int>(runtime_rows), block, block * sizeof(float), stream>>>(x, y, runtime_rows);
+  {{ kernel }}<<<static_cast<unsigned int>(runtime_rows), block, block * sizeof(float) * {{ 2 if two_accumulators else 1 }}, stream>>>(x, y, runtime_rows);
 {% endif %}
   DINO_CUDA_CHECK(cudaGetLastError());
   return 0;

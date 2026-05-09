@@ -55,13 +55,14 @@ class SoftmaxNonLastDim(dml.Module):
 
 
 class ReductionLastDim(dml.Module):
-    def __init__(self, op_name: str, keepdim: bool = False):
+    def __init__(self, op_name: str, keepdim: bool = False, **attrs):
         self.op_name = op_name
         self.keepdim = keepdim
+        self.attrs = attrs
 
     def forward(self, x):
         op = getattr(dml.ops, self.op_name)
-        return dml.ops.output(op(x, dim=-1, keepdim=self.keepdim), "y")
+        return dml.ops.output(op(x, dim=-1, keepdim=self.keepdim, **self.attrs), "y")
 
 
 class PublicShapeViewOutputs(dml.Module):
@@ -1017,6 +1018,8 @@ def test_cpu_artifact_runs_generated_softmax_for_attention_rows(tmp_path):
         ("reduce_max", np.max),
         ("reduce_min", np.min),
         ("reduce_mean", np.mean),
+        ("var", np.var),
+        ("vector_norm", lambda value, axis: np.sqrt(np.sum(value * value, axis=axis))),
     ],
 )
 def test_cpu_reference_reductions_match_numpy(op_name, numpy_op):
@@ -1438,6 +1441,37 @@ def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):
 
     assert actual.shape == (4, 8, 1)
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "attrs", "expected_fn", "source_snippet"),
+    [
+        ("var", {}, lambda x: np.var(x, axis=-1, keepdims=True).astype(np.float32), "sum_sq_acc"),
+        ("var", {"unbiased": True}, lambda x: np.var(x, axis=-1, keepdims=True, ddof=1).astype(np.float32), "/ 15.00000000f"),
+        ("vector_norm", {}, lambda x: np.sqrt(np.sum(x * x, axis=-1, keepdims=True)).astype(np.float32), "sqrtf(acc)"),
+    ],
+)
+def test_cpu_artifact_runs_generated_var_and_vector_norm(tmp_path, op_name, attrs, expected_fn, source_snippet):
+    spec = dml.trace(
+        ReductionLastDim(op_name, keepdim=True, **attrs),
+        inputs={"x": dml.TensorSpec([4, 8, 16], "float32")},
+        name=f"{op_name}_{'_'.join(attrs) if attrs else 'default'}_keepdim_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{spec.name}.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert f"{op_name}_" in generated
+    assert source_snippet in generated
+
+    x = np.random.default_rng(43).standard_normal((4, 8, 16)).astype(np.float32)
+    expected = expected_fn(x)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    assert actual.shape == (4, 8, 1)
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 def test_reduction_rejects_non_last_dim():

@@ -12,9 +12,15 @@ static int {{ func }}(
   for (int64_t row = 0; row < runtime_rows; ++row) {
     const int64_t base = row * cols;
     float acc = {{ initial_value }};
+{% if two_accumulators %}
+    float sum_sq_acc = 0.0f;
+{% endif %}
     for (int64_t col = 0; col < cols; ++col) {
       const float value = x[base + col];
       acc = {{ combine_expr }};
+{% if two_accumulators %}
+      sum_sq_acc += value * value;
+{% endif %}
     }
     y[row] = {{ final_expr }};
   }

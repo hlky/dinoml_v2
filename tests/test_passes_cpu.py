@@ -1944,6 +1944,42 @@ def test_reduction_manifest_and_keepdim_shape_inference():
     assert "acc / 4.00000000f" in sources["kernels"][0]
 
 
+@pytest.mark.parametrize(
+    ("op_name", "source_snippet"),
+    [
+        ("var", "sum_sq_acc"),
+        ("vector_norm", "sqrtf(acc)"),
+    ],
+)
+def test_var_and_vector_norm_manifest_and_cuda_source(op_name, source_snippet):
+    import dinoml as dml
+
+    class ReduceModel(dml.Module):
+        def forward(self, x):
+            op = getattr(dml.ops, op_name)
+            return dml.ops.output(op(x, keepdim=True), "y")
+
+    spec = dml.trace(
+        ReduceModel(),
+        inputs={"x": dml.TensorSpec([2, 3, 4], "float32")},
+        name=f"{op_name}_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    output_tensor = tensor_map[lowered["outputs"][0]["tensor"]]
+    assert output_tensor["shape"] == [2, 3, 1]
+    assert output_tensor["shape_spec"] == [2, 3, 1]
+
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    assert manifest["required_kernels"][0]["op"] == op_name
+    assert manifest["required_kernels"][0]["kernel_symbol"] == "generated_reduction"
+
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 1
+    assert f"{op_name}_" in sources["kernels"][0]
+    assert source_snippet in sources["kernels"][0]
+
+
 def test_shape_type_infer_propagates_dynamic_shape_spec_through_elementwise_broadcast():
     batch = {"kind": "dim", "name": "batch", "min": 1, "max": 4}
     ir = {

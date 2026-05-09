@@ -7,7 +7,7 @@ from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.bmm import BMM_FRONTEND_OPS
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
-from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum
+from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
 
@@ -115,4 +115,6 @@ __all__ = list(dict.fromkeys([
     "softmax",
     "squeeze",
     "unsqueeze",
+    "var",
+    "vector_norm",
 ]))

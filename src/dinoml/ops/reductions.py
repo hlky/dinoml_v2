@@ -6,7 +6,7 @@ from dinoml.frontend import Tensor, as_tensor
 from dinoml.ops.registry import AttrDef, KernelBinding, OpDef, OpRegistry, OpSchema
 
 
-REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean")
+REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm")
 
 
 def infer_reduction(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -29,10 +29,15 @@ def infer_reduction_with_attrs(shape: Sequence[int], keepdim: bool) -> list[int]
 
 def register_reduction_ops(registry: OpRegistry) -> None:
     for op_name in REDUCTION_OPS:
+        attrs = [AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)]
+        if op_name == "var":
+            attrs.append(AttrDef("unbiased", "bool", False))
+        elif op_name == "vector_norm":
+            attrs.append(AttrDef("ord", "float", 2.0))
         registry.register(
             OpDef(
                 name=op_name,
-                schema=OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False))),
+                schema=OpSchema(inputs=("x",), attrs=tuple(attrs)),
                 infer_shape=infer_reduction,
                 backend_kernels={
                     "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
@@ -60,7 +65,17 @@ def reduce_mean(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
     return _reduction("reduce_mean", x, dim, keepdim)
 
 
-def _reduction(op_name: str, x: object, dim: int, keepdim: bool) -> Tensor:
+def var(x: object, dim: int = -1, keepdim: bool = False, unbiased: bool = False) -> Tensor:
+    return _reduction("var", x, dim, keepdim, {"unbiased": bool(unbiased)})
+
+
+def vector_norm(x: object, dim: int = -1, keepdim: bool = False, ord: float = 2.0) -> Tensor:
+    if float(ord) != 2.0:
+        raise NotImplementedError("vector_norm currently supports only ord=2")
+    return _reduction("vector_norm", x, dim, keepdim, {"ord": 2.0})
+
+
+def _reduction(op_name: str, x: object, dim: int, keepdim: bool, extra_attrs: dict[str, object] | None = None) -> Tensor:
     tensor = as_tensor(x, dtype_hint="float32")
     if tensor.dtype != "float32":
         raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
@@ -85,12 +100,15 @@ def _reduction(op_name: str, x: object, dim: int, keepdim: bool) -> Tensor:
         if not out_shape:
             out_shape = [1]
             out_shape_spec = [1]
+    attrs = {"dim": axis, "keepdim": bool(keepdim)}
+    if extra_attrs is not None:
+        attrs.update(extra_attrs)
     return tensor.builder.emit(
         op_name,
         [tensor],
         out_shape,
         tensor.dtype,
-        {"dim": axis, "keepdim": bool(keepdim)},
+        attrs,
         shape_spec=out_shape_spec,
     )
 

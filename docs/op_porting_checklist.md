@@ -106,8 +106,11 @@ add xsimd or `std::simd` only where measurable.
   shared-memory fallback for larger reductions. Remaining parity work: non-last
   dimensions, multi-axis rejection that mirrors v1 more closely, optional output
   dtype, fp16/bf16 accumulation policy, v1 CUTLASS/`reduce_3d` strategy,
-  profiler selection, and reduction ops `var`/`vector_norm`.
-- [ ] `var`, `vector_norm`.
+  and profiler selection.
+- [x] `var`, `vector_norm`: initial public ports for dense contiguous float32
+  tensors over a positive static last dimension, with negative dim
+  normalization and `keepdim`. `var` defaults to population variance and
+  exposes an `unbiased` flag; `vector_norm` currently supports L2 norm only.
 - [x] `softmax`: initial public `dml.ops.softmax(x, dim=-1)` port for dense
   contiguous float32 tensors on CPU and CUDA. Current implementation supports
   only the last dimension with a positive static reduction extent, uses stable

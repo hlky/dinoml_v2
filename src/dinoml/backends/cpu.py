@@ -46,7 +46,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_softmax(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean"}:
+        elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
@@ -195,6 +195,14 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
         result = np.min(value, axis=dim, keepdims=keepdim)
     elif op == "reduce_mean":
         result = np.mean(value, axis=dim, keepdims=keepdim)
+    elif op == "var":
+        ddof = 1 if bool(attrs.get("unbiased", False)) else 0
+        result = np.var(value, axis=dim, keepdims=keepdim, ddof=ddof)
+    elif op == "vector_norm":
+        ord_value = float(attrs.get("ord", 2.0))
+        if ord_value != 2.0:
+            raise NotImplementedError("CPU reference vector_norm currently supports only ord=2")
+        result = np.sqrt(np.sum(value * value, axis=dim, keepdims=keepdim))
     else:
         raise ValueError(f"Unsupported reduction op: {op}")
     if result.shape == ():

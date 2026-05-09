@@ -47,7 +47,7 @@ _BACKENDS: dict[str, BackendSpec] = {
     "cpu": BackendSpec(
         name="cpu",
         default_arch="native",
-        supported_dtypes=frozenset({"float16", "float32", "bfloat16"}),
+        supported_dtypes=frozenset({"float16", "float32", "bfloat16", "bool"}),
         build_function="dinoml.backends.cpu.build_cpu_module",
         cmake=CMakeCapabilities(
             supports_openmp=True,
@@ -63,7 +63,7 @@ _BACKENDS: dict[str, BackendSpec] = {
     "cuda": BackendSpec(
         name="cuda",
         default_arch="sm_86",
-        supported_dtypes=frozenset({"float16", "float32", "bfloat16"}),
+        supported_dtypes=frozenset({"float16", "float32", "bfloat16", "bool"}),
         build_function="dinoml.backends.cuda.build_cuda_module",
         cmake=CMakeCapabilities(
             requires_cuda=True,

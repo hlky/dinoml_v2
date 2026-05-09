@@ -6,7 +6,7 @@ from typing import Any, Mapping, Sequence
 from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
 from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
-from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES
+from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import validate_shape_spec
 
@@ -136,6 +136,17 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
             raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
         if inputs[0]["dtype"] not in op_def.allowed_dtypes:
             raise ValidationError(f"{op_def.name} does not support dtype {inputs[0]['dtype']}")
+        expected_output_dtype = (
+            elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]))
+            if str(node["op"]) in ELEMENTWISE_BY_NAME
+            else str(inputs[0]["dtype"])
+        )
+        for output_name in node["outputs"]:
+            if str(tensors[output_name]["dtype"]) != expected_output_dtype:
+                raise ValidationError(
+                    f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
+                    f"expected {expected_output_dtype}"
+                )
 
 
 def _validate_fused_elementwise_node(
@@ -158,13 +169,31 @@ def _validate_fused_elementwise_node(
             raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
         if inputs[0]["dtype"] not in FLOAT_ELEMENTWISE_DTYPES:
             raise ValidationError(f"fused_elementwise does not support dtype {inputs[0]['dtype']}")
+    dtype_env = {name: str(tensor["dtype"]) for name, tensor in tensors.items()}
     for sub_op in sub_ops:
         elementwise_spec = ELEMENTWISE_BY_NAME.get(sub_op.get("op"))
         if elementwise_spec is None:
             raise ValidationError(f"Unsupported fused sub-op: {sub_op.get('op')}")
-        if len(sub_op.get("inputs", [])) != elementwise_spec.arity:
+        sub_inputs = list(sub_op.get("inputs", []))
+        if len(sub_inputs) != elementwise_spec.arity:
             raise ValidationError(
-                f"Fused sub-op {sub_op.get('op')} expects {elementwise_spec.arity} inputs, got {len(sub_op.get('inputs', []))}"
+                f"Fused sub-op {sub_op.get('op')} expects {elementwise_spec.arity} inputs, got {len(sub_inputs)}"
             )
         if len(sub_op.get("outputs", [])) != 1:
             raise ValidationError(f"Fused sub-op {sub_op.get('op')} must have exactly one output")
+        try:
+            input_dtypes = [dtype_env[name] for name in sub_inputs]
+        except KeyError as exc:
+            raise ValidationError(f"Fused sub-op {sub_op.get('op')} references missing input {exc.args[0]}") from exc
+        if input_dtypes and any(dtype != input_dtypes[0] for dtype in input_dtypes):
+            raise ValidationError(f"Fused sub-op {sub_op.get('op')} has mismatched input dtypes")
+        if input_dtypes and input_dtypes[0] not in FLOAT_ELEMENTWISE_DTYPES:
+            raise ValidationError(f"Fused sub-op {sub_op.get('op')} does not support dtype {input_dtypes[0]}")
+        output_name = sub_op["outputs"][0]
+        output_dtype = elementwise_output_dtype(str(sub_op["op"]), input_dtypes[0])
+        dtype_env[output_name] = output_dtype
+        if output_name in tensors and str(tensors[output_name]["dtype"]) != output_dtype:
+            raise ValidationError(
+                f"Fused sub-op {sub_op.get('op')} output {output_name} has dtype {tensors[output_name]['dtype']}, "
+                f"expected {output_dtype}"
+            )

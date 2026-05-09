@@ -7,7 +7,7 @@ import numpy as np
 from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.layout import dense_layout
 from dinoml.ops.definitions import get_op_def
-from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
+from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS, elementwise_output_dtype
 from dinoml.ops.reductions import REDUCTION_OPS, infer_reduction_with_attrs
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError, validate_view_metadata
@@ -36,6 +36,10 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
         expected_shape_spec = _infer_node_shape_spec(node, inputs, expected_shape)
         expected_dtype = inputs[0]["dtype"] if inputs else tensors[node["outputs"][0]]["dtype"]
+        if node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
+            expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]))
+        elif node["op"] == "fused_elementwise":
+            expected_dtype = _fused_output_dtype(node, tensors)
         for output_name in node["outputs"]:
             out = tensors[output_name]
             out["shape"] = expected_shape
@@ -69,6 +73,18 @@ def _infer_node_shape_spec(
         keepdim = bool(node.get("attrs", {}).get("keepdim", False))
         return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
     return None
+
+
+def _fused_output_dtype(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, Any]]) -> str:
+    dtype_env = {name: str(tensor["dtype"]) for name, tensor in tensors.items()}
+    for sub_op in node.get("attrs", {}).get("sub_ops", []):
+        input_names = list(sub_op.get("inputs", []))
+        if input_names:
+            input_dtype = dtype_env[input_names[0]]
+        else:
+            input_dtype = str(tensors[node["outputs"][0]]["dtype"])
+        dtype_env[sub_op["outputs"][0]] = elementwise_output_dtype(str(sub_op["op"]), input_dtype)
+    return dtype_env.get(node["outputs"][0], str(tensors[node["outputs"][0]]["dtype"]))
 
 
 def _infer_broadcast_shape_spec(shape_specs: Sequence[Sequence[Any]], expected_shape: Sequence[int]) -> list[Any]:

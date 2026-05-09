@@ -40,8 +40,8 @@ def render_launch(
     func = _function_name(node)
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_shape_ident = f"shape_{_c_ident(node['outputs'][0])}"
-    inputs = _inputs(node, tensor_map, output_shape)
-    outputs = [{"name": name, "ident": _c_ident(name)} for name in node["outputs"]]
+    inputs = _inputs(node, tensor_map, output_shape, target=target)
+    outputs = [_output_info(name, tensor_map, target=target) for name in node["outputs"]]
     args = _kernel_arg_names(inputs, outputs, output_shape=output_shape, output_shape_ident=output_shape_ident).split(", ")
     args.append(_runtime_total_expr(node, tensor_map))
     if target == "cpu":
@@ -66,13 +66,14 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
 def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+    compute_dtype = _fused_compute_dtype(node, tensor_map, output_dtype)
     func = _function_name(node)
     storage_type = _storage_type(output_dtype, target=target)
-    compute_type = _compute_type(output_dtype, node, target=target)
+    compute_type = _compute_type(compute_dtype, node, target=target)
     storage_alias = f"{func}_storage_t"
     compute_alias = f"{func}_compute_t"
-    inputs = _inputs(node, tensor_map, output_shape)
-    outputs = [{"name": name, "ident": _c_ident(name)} for name in node["outputs"]]
+    inputs = _inputs(node, tensor_map, output_shape, target=target)
+    outputs = [_output_info(name, tensor_map, target=target) for name in node["outputs"]]
     output_shape_ident = f"shape_{outputs[0]['ident']}"
     vector_plan = _cuda_vector_plan(inputs, outputs, output_shape, output_dtype) if target == "cuda" else _VectorPlan()
     suffix_inner_extent = None if vector_plan.width > 1 else _suffix_inner_extent(inputs, output_shape)
@@ -102,7 +103,6 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
             inputs,
             outputs,
             node["attrs"]["sub_ops"],
-            storage_type=storage_alias,
             compute_type=compute_alias,
             output_shape=output_shape,
             output_shape_ident=output_shape_ident,
@@ -111,7 +111,6 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
             inputs,
             outputs,
             node["attrs"]["sub_ops"],
-            storage_type=storage_alias,
             compute_type=compute_alias,
             output_shape=output_shape,
             output_shape_ident=output_shape_ident,
@@ -140,10 +139,17 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     }
 
 
-def _inputs(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], output_shape: Sequence[int]) -> list[dict[str, Any]]:
+def _inputs(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    output_shape: Sequence[int],
+    *,
+    target: str,
+) -> list[dict[str, Any]]:
     result = []
     for name in node["inputs"]:
         shape = tensor_map[name]["shape"]
+        dtype = str(tensor_map[name]["dtype"])
         index_kind, index_expr = _broadcast_index_expr(shape, output_shape)
         input_numel = _numel(shape)
         result.append(
@@ -151,6 +157,8 @@ def _inputs(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]
                 "name": name,
                 "ident": _c_ident(name),
                 "shape": shape,
+                "dtype": dtype,
+                "storage_type": _storage_type(dtype, target=target),
                 "numel": input_numel,
                 "index_kind": index_kind,
                 "broadcast_func": _broadcast_function_name(node, name),
@@ -160,6 +168,11 @@ def _inputs(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]
             }
         )
     return result
+
+
+def _output_info(name: str, tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
+    dtype = str(tensor_map[name]["dtype"])
+    return {"name": name, "ident": _c_ident(name), "dtype": dtype, "storage_type": _storage_type(dtype, target=target)}
 
 
 def _broadcast_helpers(inputs: Sequence[Mapping[str, Any]], output_shape: Sequence[int], *, device: bool = False) -> list[str]:
@@ -238,7 +251,6 @@ def _scalar_body(
     outputs: Sequence[Mapping[str, Any]],
     sub_ops: Sequence[Mapping[str, Any]],
     *,
-    storage_type: str,
     compute_type: str,
     output_shape: Sequence[int],
     output_shape_ident: str,
@@ -268,14 +280,18 @@ def _scalar_body(
         args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
         output = sub_op["outputs"][0]
         ident = f"v_{_c_ident(output)}"
-        lines.append(f"    {compute_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
+        result_type = "bool" if elementwise_spec.output_dtype == "bool" else compute_type
+        lines.append(f"    {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
         exprs[output] = ident
 
     for output in outputs:
         output_name = output["name"]
         if output_name not in exprs:
             raise ValueError(f"Fused output {output_name} was not produced by sub_ops")
-        lines.append(f"    ptr_{output['ident']}[acc_{output['ident']}.index(idx)] = dinoml::math::cast<{storage_type}>({exprs[output_name]});")
+        lines.append(
+            f"    ptr_{output['ident']}[acc_{output['ident']}.index(idx)] = "
+            f"dinoml::math::cast<{output['storage_type']}>({exprs[output_name]});"
+        )
     return "\n".join(lines)
 
 
@@ -347,8 +363,9 @@ def _kernel_params(
     storage_type: str,
     output_shape_ident: str,
 ) -> str:
-    input_params = [f"const {storage_type}* DINO_RESTRICT ptr_{item['ident']}" for item in inputs]
-    output_params = [f"{storage_type}* DINO_RESTRICT ptr_{item['ident']}" for item in outputs]
+    del storage_type
+    input_params = [f"const {item['storage_type']}* DINO_RESTRICT ptr_{item['ident']}" for item in inputs]
+    output_params = [f"{item['storage_type']}* DINO_RESTRICT ptr_{item['ident']}" for item in outputs]
     shape_params = [f"const int64_t* shape_{item['ident']}" for item in inputs if item["index_kind"] == "generic"]
     if shape_params:
         shape_params.append(f"const int64_t* {output_shape_ident}")
@@ -516,6 +533,18 @@ def _compute_type(dtype: str, node: Mapping[str, Any], *, target: str) -> str:
     if dtype in {"float16", "bfloat16"}:
         return "float"
     return storage_type
+
+
+def _fused_compute_dtype(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    output_dtype: str,
+) -> str:
+    for name in node.get("inputs", []):
+        dtype = str(tensor_map[name]["dtype"])
+        if dtype != "bool":
+            return dtype
+    return output_dtype
 
 
 def _storage_type(dtype: str, *, target: str) -> str:

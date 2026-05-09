@@ -44,22 +44,25 @@ These should be reusable building blocks. They generally map to `torch` or
 
 - [x] `elementwise`: initial dense coverage for arithmetic,
   min/max, trig/log/exp/sqrt, activations, `nan_to_num`,
-  `clamp_nan_to_num`, `pow`, `floor_div`, and `floor`. Remaining v1 parity
-  work: jagged broadcasting, broader CPU/vector accessors, scalar dtype
-  promotion, and exhaustive edge-case tests.
+  `clamp_nan_to_num`, `pow`, `floor_div`, `floor`, and relational ops
+  `eq`/`ge`/`gt`/`le`/`lt`/`ne` with bool outputs. Remaining v1 parity work:
+  jagged broadcasting, broader CPU/vector accessors, scalar dtype promotion,
+  and exhaustive edge-case tests.
 - [x] `fused_elementwise`: connected registered unary/binary elementwise
   subgraphs lower to model-generated CPU/CUDA kernels that call
   `dinoml::math::<name>` helpers. CPU and CUDA support float32, float16, and
   bfloat16 storage; CUDA has optional fp32 accumulation and vectorized dense
   paths, while CPU reduced precision always computes in fp32 for now. Runtime
-  shape buffers support generic broadcasting. Multi-output same-shape metadata
-  is represented; broader tests and v1-style jagged codegen remain.
+  shape buffers support generic broadcasting, and standalone relational fused
+  outputs use bool storage while keeping float inputs typed as float pointers.
+  Multi-output same-shape metadata is represented; broader tests and v1-style
+  jagged codegen remain.
 - [ ] `int_elementwise`: `ADD`, `SUB`, `MUL`, `DIV` for symbolic integer math.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,
-  `floor_div`, `celu`, `floor`, plus `sub`, `mul`, `div`, and
-  `clamp_nan_to_num`.
+  `floor_div`, `celu`, `floor`, `eq`, `ge`, `gt`, `le`, `lt`, `ne`, plus
+  `sub`, `mul`, `div`, and `clamp_nan_to_num`.
 
 Library hints: CPU can use scalar loops first, then `std::simd` or xsimd for
 vector paths. CUDA/HIP elementwise kernels are usually simpler than library

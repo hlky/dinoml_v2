@@ -6,6 +6,7 @@ from typing import Any, Callable, Mapping
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
+from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
@@ -24,7 +25,8 @@ def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None
         op_attrs.update(attrs)
     out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
-    return builder.emit(op_name, tensors, out_shape, dtype, op_attrs, shape_spec=out_shape_spec)
+    out_dtype = elementwise_output_dtype(op_name, dtype) if op_name in ELEMENTWISE_BY_NAME else dtype
+    return builder.emit(op_name, tensors, out_shape, out_dtype, op_attrs, shape_spec=out_shape_spec)
 
 
 def make_frontend_op(op_name: str) -> Callable[..., Tensor]:

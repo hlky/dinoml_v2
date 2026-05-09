@@ -377,6 +377,24 @@ DINO_HD DINO_FORCEINLINE T celu(T x, T alpha = from_float<T>(1.0f)) {
 template <typename T>
 DINO_HD DINO_FORCEINLINE T floor(T x) { return from_float<T>(floorf(to_float(x))); }
 
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool eq(T a, T b) { return to_float(a) == to_float(b); }
+
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool ge(T a, T b) { return to_float(a) >= to_float(b); }
+
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool gt(T a, T b) { return to_float(a) > to_float(b); }
+
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool le(T a, T b) { return to_float(a) <= to_float(b); }
+
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool lt(T a, T b) { return to_float(a) < to_float(b); }
+
+template <typename T>
+DINO_HD DINO_FORCEINLINE bool ne(T a, T b) { return to_float(a) != to_float(b); }
+
 }  // namespace dinoml::math
 
 #undef DINO_HD

@@ -12,6 +12,7 @@ class ElementwiseSpec:
     arity: int
     math_func: str
     attr_defaults: tuple[tuple[str, Any], ...] = ()
+    output_dtype: str | None = None
 
 
 ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
@@ -56,11 +57,23 @@ ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
     ElementwiseSpec("floor_div", 2, "floor_div"),
     ElementwiseSpec("celu", 1, "celu", (("alpha", 1.0),)),
     ElementwiseSpec("floor", 1, "floor"),
+    ElementwiseSpec("eq", 2, "eq", output_dtype="bool"),
+    ElementwiseSpec("ge", 2, "ge", output_dtype="bool"),
+    ElementwiseSpec("gt", 2, "gt", output_dtype="bool"),
+    ElementwiseSpec("le", 2, "le", output_dtype="bool"),
+    ElementwiseSpec("lt", 2, "lt", output_dtype="bool"),
+    ElementwiseSpec("ne", 2, "ne", output_dtype="bool"),
 )
 
 ELEMENTWISE_BY_NAME = {spec.name: spec for spec in ELEMENTWISE_SPECS}
 FUSABLE_ELEMENTWISE_OPS = frozenset(ELEMENTWISE_BY_NAME)
 FLOAT_ELEMENTWISE_DTYPES = ("float16", "float32", "bfloat16")
+ELEMENTWISE_OUTPUT_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "bool")
+
+
+def elementwise_output_dtype(op_name: str, input_dtype: str) -> str:
+    spec = ELEMENTWISE_BY_NAME[op_name]
+    return spec.output_dtype or input_dtype
 
 
 def broadcast_shape(a_shape: Sequence[int], b_shape: Sequence[int]) -> list[int]:
@@ -115,8 +128,8 @@ def register_elementwise_ops(registry: OpRegistry) -> None:
                 "cuda": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cuda"),
                 "cpu": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cpu"),
             },
-            allowed_dtypes=FLOAT_ELEMENTWISE_DTYPES,
             variadic_inputs=True,
+            allowed_dtypes=ELEMENTWISE_OUTPUT_DTYPES,
             description="Internal fused elementwise subgraph generated into the model module.",
         )
     )

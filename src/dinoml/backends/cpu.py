@@ -164,6 +164,18 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
         result = np.maximum(0.0, inputs[0]) + np.minimum(0.0, alpha * (np.exp(inputs[0] / alpha) - 1.0))
     elif op == "floor":
         result = np.floor(inputs[0])
+    elif op == "eq":
+        return np.equal(inputs[0], inputs[1])
+    elif op == "ge":
+        return np.greater_equal(inputs[0], inputs[1])
+    elif op == "gt":
+        return np.greater(inputs[0], inputs[1])
+    elif op == "le":
+        return np.less_equal(inputs[0], inputs[1])
+    elif op == "lt":
+        return np.less(inputs[0], inputs[1])
+    elif op == "ne":
+        return np.not_equal(inputs[0], inputs[1])
     else:
         raise ValueError(f"Unsupported elementwise op: {op}")
     return np.asarray(result, dtype=np.float32)

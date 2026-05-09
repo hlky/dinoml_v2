@@ -10,7 +10,19 @@ from dinoml import runtime
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import read_json
+from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
 
+
+def _cutlass_default_symbol_id(dtype: str) -> str:
+    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
+
+
+def _cutlass_default_candidate_id(dtype: str) -> str:
+    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["candidate_id"])
+
+
+def _cutlass_candidate_count(dtype: str) -> int:
+    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
 
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 
@@ -204,13 +216,13 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
     assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
     assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
-    symbol = f"dinoml_cutlass_{op_name}_{suffix}_tensorop_sm80_128x128x32_align8"
+    symbol = f"dinoml_cutlass_{op_name}_{suffix}_{_cutlass_default_symbol_id(dtype)}"
     assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == symbol
     assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_linear_combination_v1"
-    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == 6
-    assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
-    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == 6
-    assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert kernel_manifest["required_kernels"][0]["candidate_set"]["candidate_count"] == _cutlass_candidate_count(dtype)
+    assert kernel_manifest["required_kernels"][0]["selected_candidate_id"] == _cutlass_default_candidate_id(dtype)
+    assert len(kernel_manifest["required_kernels"][0]["candidates"]) == _cutlass_candidate_count(dtype)
+    assert kernel_manifest["required_kernels"][0]["candidates"][0]["candidate_id"] == _cutlass_default_candidate_id(dtype)
     assert kernel_manifest["required_kernels"][0]["candidates"][0]["kernel_symbol"] == symbol
     assert source_manifest["sources"] == []
     assert symbol in generated
@@ -276,7 +288,7 @@ def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
 
     required = kernel_manifest["required_kernels"][0]
     epilogue = "bias_relu" if op_name.endswith("_bias_relu") else "bias"
-    symbol = f"dinoml_cutlass_{op_name}_{suffix}_tensorop_sm80_128x128x32_align8"
+    symbol = f"dinoml_cutlass_{op_name}_{suffix}_{_cutlass_default_symbol_id(dtype)}"
     assert required["kernel_symbol"] == symbol
     assert required["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_{epilogue}_v1"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]

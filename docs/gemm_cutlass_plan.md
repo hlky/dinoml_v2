@@ -56,8 +56,8 @@ The CUTLASS slice adds:
   `libdinoml_cutlass_gemm.so` once per CUDA arch/cache key.
 - Exported launcher/profiler symbols use long dtype names and CUTLASS
   candidate ids, for example
-  `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8` and
-  `dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_64x128x32_align8`.
+  `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_16816_256x128x32_s3_w4x2x1_f32_align8` and
+  `dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_16816_256x128x32_s3_w4x2x1_f16_align8`.
 
 The runtime GEMM port now wires model lowering into that support library:
 
@@ -93,17 +93,18 @@ static source file and pruned to only the launcher/profiler symbols required by
 the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
-Each GEMM candidate set now seeds six SM80 TensorOp tile/alignment variants,
-keeps `tensorop_sm80_128x128x32_align8` as the default selection, and profiles
-each candidate independently. Activation epilogue exports are functional today;
-the non-ReLU activations are implemented as bias GEMM plus a CUDA activation
-pass in the checked-in support source until the CUTLASS visitor/functor-backed
-fused epilogue port lands.
+GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for
+`float16`/`bfloat16`, including alignment variants and `float16` versus
+`float32` accumulation choices where v1 generated both. `float32` candidates
+are tracked separately as optional TF32 TensorOp configs rather than being
+treated as exact f32 parity. Each candidate records tile, stage count, warp
+count, alignment, math mode, and accumulator dtype so profiling can distinguish
+real kernel variants. Activation epilogue exports instantiate CUTLASS
+thread epilogue functors directly.
 
 Next steps are broader broadcast/arithmetic epilogues, optional
-accumulation-policy variants, BMM and grouped GEMM parity, true fused
-CUTLASS visitor epilogues for the non-ReLU activations, and then public
-`matmul` layout selection.
+accumulation-policy variants, broader v1 candidate enumeration, BMM and grouped
+GEMM parity, and then public `matmul` layout selection.
 
 ## Dependency Discovery
 

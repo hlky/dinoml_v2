@@ -9,18 +9,19 @@ from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import read_json
 from dinoml.kernels.gemm import GEMM_OPS
+from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
 
 
-CUTLASS_GEMM_SYMBOL_IDS = [
-    "tensorop_sm80_128x128x32_align8",
-    "tensorop_sm80_64x128x32_align8",
-    "tensorop_sm80_128x64x32_align8",
-    "tensorop_sm80_64x64x32_align8",
-    "tensorop_sm80_256x128x32_align8",
-    "tensorop_sm80_128x128x32_align4",
-]
-CUTLASS_GEMM_CANDIDATE_IDS = [f"cutlass_{symbol_id}" for symbol_id in CUTLASS_GEMM_SYMBOL_IDS]
-CUTLASS_GEMM_CANDIDATE_COUNT = len(CUTLASS_GEMM_SYMBOL_IDS)
+def _cutlass_candidate_count(dtype: str) -> int:
+    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
+
+
+def _cutlass_candidate_ids(dtype: str) -> list[str]:
+    return [str(config["candidate_id"]) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]]
+
+
+def _cutlass_default_symbol_id(dtype: str) -> str:
+    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
 
 
 class Identity(dml.Module):
@@ -127,7 +128,7 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     assert source_manifest["build_units"][0]["source_ids"] == ["cutlass_gemm_static_default"]
     assert len(manifest["family_cache_key"]) == 64
     assert len(manifest["used_candidate_plan"]["candidate_set_keys"]) == expected_gemm_entry_count
-    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == expected_gemm_entry_count * CUTLASS_GEMM_CANDIDATE_COUNT
+    assert len(manifest["used_candidate_plan"]["candidate_config_keys"]) == sum(_cutlass_candidate_count(dtype) for _ in range(expected_gemm_entry_count // 3) for dtype in ("float32", "float16", "bfloat16"))
     assert manifest["used_candidate_plan"]["kernel_symbols"] == sorted(
         symbol
         for family in manifest["families"]
@@ -150,27 +151,28 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
         assert sorted(family["candidates_by_dtype"]) == ["bfloat16", "float16", "float32"]
         assert sorted(family["candidate_sets_by_dtype"]) == ["bfloat16", "float16", "float32"]
         for dtype, candidates in family["candidates_by_dtype"].items():
-            assert len(candidates) == CUTLASS_GEMM_CANDIDATE_COUNT
+            assert len(candidates) == _cutlass_candidate_count(dtype)
             candidate = candidates[0]
             candidate_set = family["candidate_sets_by_dtype"][dtype]
-            assert candidate_set["candidate_count"] == CUTLASS_GEMM_CANDIDATE_COUNT
+            assert candidate_set["candidate_count"] == _cutlass_candidate_count(dtype)
             assert candidate_set["candidate_config_keys"] == [
                 item["candidate_config_key"] for item in candidates
             ]
             assert len(candidate_set["candidate_set_key"]) == 64
-            assert [item["candidate_id"] for item in candidates] == CUTLASS_GEMM_CANDIDATE_IDS
+            assert [item["candidate_id"] for item in candidates] == _cutlass_candidate_ids(dtype)
             assert candidate["dtype"] == dtype
             assert candidate["kernel_symbol"] == family["kernel_symbols_by_dtype"][dtype]
             assert candidate["profiler_symbol"] == family["profiler_symbols_by_dtype"][dtype]
             assert candidate["cutlass"]["opclass"] == "tensorop"
             assert candidate["cutlass"]["arch"] == "sm80"
-            assert candidate["cutlass"]["threadblock"] == [128, 128, 32]
+            assert candidate["cutlass"]["threadblock"] == [256, 128, 32]
             assert candidates[1]["cutlass"]["opclass"] == "tensorop"
-            assert candidates[1]["cutlass"]["align"] == 8
-            assert candidates[2]["cutlass"]["threadblock"] == [128, 64, 32]
-            assert candidates[3]["cutlass"]["threadblock"] == [64, 64, 32]
-            assert candidates[4]["cutlass"]["threadblock"] == [256, 128, 32]
-            assert candidates[5]["cutlass"]["align"] == 4
+            assert candidates[1]["cutlass"]["align"] in {2, 4, 8}
+            assert candidates[-1]["cutlass"]["threadblock"] == [96, 192, 32]
+            if dtype == "float16":
+                assert {item["accumulator_dtype"] for item in candidates} == {"float16", "float32"}
+            else:
+                assert {item["accumulator_dtype"] for item in candidates} == {"float32"}
             assert len(candidate["candidate_config_key"]) == 64
     bias_candidates = [
         candidate
@@ -214,17 +216,17 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
     support = ensure_cutlass_gemm_support_lib("sm_86", cache_key="test-cutlass-run")
     dll = ctypes.CDLL(str(support.library))
     symbol_suffixes = {
-        "float32": "float32_tensorop_sm80_128x128x32_align8",
-        "float16": "float16_tensorop_sm80_128x128x32_align8",
-        "bfloat16": "bfloat16_tensorop_sm80_128x128x32_align8",
+        "float32": f"float32_{_cutlass_default_symbol_id("float32")}",
+        "float16": f"float16_{_cutlass_default_symbol_id("float16")}",
+        "bfloat16": f"bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
     }
     for name in (
-        "dinoml_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bfloat16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bfloat16_tensorop_sm80_128x128x32_align8",
+        f"dinoml_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rrr_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rcr_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rrr_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
+        f"dinoml_cutlass_gemm_rcr_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
     ):
         fn = getattr(dll, name)
         fn.argtypes = [
@@ -238,18 +240,18 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
         ]
         fn.restype = ctypes.c_int
     for name in (
-        "dinoml_cutlass_gemm_rrr_bias_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bias_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bias_bfloat16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_bfloat16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bias_relu_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_relu_float32_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bias_relu_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_relu_float16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rrr_bias_relu_bfloat16_tensorop_sm80_128x128x32_align8",
-        "dinoml_cutlass_gemm_rcr_bias_relu_bfloat16_tensorop_sm80_128x128x32_align8",
+        f"dinoml_cutlass_gemm_rrr_bias_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rcr_bias_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rrr_bias_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rcr_bias_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rrr_bias_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
+        f"dinoml_cutlass_gemm_rcr_bias_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
+        f"dinoml_cutlass_gemm_rrr_bias_relu_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rcr_bias_relu_float32_{_cutlass_default_symbol_id("float32")}",
+        f"dinoml_cutlass_gemm_rrr_bias_relu_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rcr_bias_relu_float16_{_cutlass_default_symbol_id("float16")}",
+        f"dinoml_cutlass_gemm_rrr_bias_relu_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
+        f"dinoml_cutlass_gemm_rcr_bias_relu_bfloat16_{_cutlass_default_symbol_id("bfloat16")}",
     ):
         fn = getattr(dll, name)
         fn.argtypes = [

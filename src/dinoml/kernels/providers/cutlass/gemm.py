@@ -13,109 +13,196 @@ GEMM_DTYPE_SUFFIXES = {
     "float32": "float32",
     "bfloat16": "bfloat16",
 }
-CUTLASS_DEFAULT_CANDIDATE_ID = "cutlass_tensorop_sm80_128x128x32_align8"
-CUTLASS_DEFAULT_SYMBOL_ID = "tensorop_sm80_128x128x32_align8"
 CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION = 1
 CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
-CUTLASS_GEMM_CANDIDATE_CONFIGS = (
-    {
-        "candidate_id": CUTLASS_DEFAULT_CANDIDATE_ID,
-        "symbol_id": CUTLASS_DEFAULT_SYMBOL_ID,
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [128, 128, 32],
-            "warp": [64, 64, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 3,
-            "align": 8,
-        },
-    },
-    {
-        "candidate_id": "cutlass_tensorop_sm80_64x128x32_align8",
-        "symbol_id": "tensorop_sm80_64x128x32_align8",
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [64, 128, 32],
-            "warp": [32, 64, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 4,
-            "align": 8,
-        },
-    },
-    {
-        "candidate_id": "cutlass_tensorop_sm80_128x64x32_align8",
-        "symbol_id": "tensorop_sm80_128x64x32_align8",
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [128, 64, 32],
-            "warp": [64, 32, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 4,
-            "align": 8,
-        },
-    },
-    {
-        "candidate_id": "cutlass_tensorop_sm80_64x64x32_align8",
-        "symbol_id": "tensorop_sm80_64x64x32_align8",
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [64, 64, 32],
-            "warp": [32, 32, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 4,
-            "align": 8,
-        },
-    },
-    {
-        "candidate_id": "cutlass_tensorop_sm80_256x128x32_align8",
-        "symbol_id": "tensorop_sm80_256x128x32_align8",
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [256, 128, 32],
-            "warp": [64, 64, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 3,
-            "align": 8,
-        },
-    },
-    {
-        "candidate_id": "cutlass_tensorop_sm80_128x128x32_align4",
-        "symbol_id": "tensorop_sm80_128x128x32_align4",
-        "cutlass": {
-            "api": "device_gemm",
-            "opclass": "tensorop",
-            "arch": "sm80",
-            "threadblock": [128, 128, 32],
-            "warp": [64, 64, 32],
-            "instruction": {"float32": [16, 8, 8], "float16": [16, 8, 16], "bfloat16": [16, 8, 16]},
-            "stages": 3,
-            "align": 4,
-        },
-    },
+CUTLASS_SM80_TENSOROP_16816_TILES = (
+    ((256, 128, 32), 3, (4, 2, 1)),
+    ((128, 256, 32), 3, (2, 4, 1)),
+    ((256, 64, 32), 3, (4, 1, 1)),
+    ((256, 64, 32), 4, (4, 1, 1)),
+    ((64, 256, 32), 4, (1, 4, 1)),
+    ((128, 128, 32), 3, (2, 2, 1)),
+    ((128, 128, 32), 4, (2, 2, 1)),
+    ((128, 128, 32), 5, (2, 2, 1)),
+    ((128, 64, 32), 6, (2, 2, 1)),
+    ((64, 128, 32), 6, (2, 2, 1)),
+    ((64, 64, 32), 10, (2, 2, 1)),
+    ((256, 128, 64), 3, (4, 2, 1)),
+    ((128, 256, 64), 3, (2, 4, 1)),
+    ((256, 64, 64), 4, (4, 1, 1)),
+    ((64, 256, 64), 4, (1, 4, 1)),
+    ((128, 128, 64), 4, (2, 2, 1)),
+    ((256, 64, 64), 3, (4, 1, 1)),
+    ((64, 256, 64), 3, (1, 4, 1)),
+    ((128, 128, 64), 3, (2, 2, 1)),
+    ((128, 64, 64), 3, (2, 2, 1)),
+    ((64, 128, 64), 3, (2, 2, 1)),
+    ((64, 64, 64), 5, (2, 2, 1)),
+    ((256, 64, 32), 2, (4, 1, 1)),
+    ((64, 256, 32), 2, (1, 4, 1)),
+    ((192, 128, 32), 3, (4, 2, 1)),
+    ((128, 192, 32), 3, (4, 2, 1)),
+    ((192, 128, 32), 4, (4, 2, 1)),
+    ((128, 192, 32), 4, (4, 2, 1)),
+    ((160, 128, 32), 3, (4, 2, 1)),
+    ((128, 160, 32), 3, (4, 2, 1)),
+    ((160, 128, 32), 4, (4, 2, 1)),
+    ((128, 160, 32), 4, (4, 2, 1)),
+    ((224, 128, 32), 3, (4, 2, 1)),
+    ((128, 224, 32), 3, (2, 4, 1)),
+    ((224, 128, 32), 4, (4, 2, 1)),
+    ((128, 224, 32), 4, (2, 4, 1)),
+    ((192, 160, 32), 3, (4, 2, 1)),
+    ((160, 192, 32), 3, (2, 4, 1)),
+    ((192, 160, 32), 4, (4, 2, 1)),
+    ((160, 192, 32), 4, (2, 4, 1)),
+    ((256, 96, 32), 3, (4, 2, 1)),
+    ((96, 256, 32), 3, (2, 4, 1)),
+    ((256, 96, 32), 2, (4, 2, 1)),
+    ((96, 256, 32), 2, (2, 4, 1)),
+    ((192, 96, 32), 3, (4, 2, 1)),
+    ((96, 192, 32), 3, (2, 4, 1)),
 )
+CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
+CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
+
+
+def _cutlass_symbol_id(
+    threadblock: tuple[int, int, int],
+    stages: int,
+    warp_count: tuple[int, int, int],
+    align: int,
+    accumulator_dtype: str,
+    math: str,
+) -> str:
+    tb = "x".join(str(dim) for dim in threadblock)
+    wc = "x".join(str(dim) for dim in warp_count)
+    accumulator = accumulator_dtype.replace("float", "f").replace("bfloat", "bf")
+    return f"tensorop_sm80_{math}_{tb}_s{stages}_w{wc}_{accumulator}_align{align}"
+
+
+def _cutlass_candidate_config(
+    threadblock: tuple[int, int, int],
+    stages: int,
+    warp_count: tuple[int, int, int],
+    align: int,
+    *,
+    dtype: str,
+    accumulator_dtype: str,
+    instruction: tuple[int, int, int],
+    math: str,
+    optional: bool = False,
+) -> dict[str, Any]:
+    symbol_id = _cutlass_symbol_id(threadblock, stages, warp_count, align, accumulator_dtype, math)
+    return {
+        "candidate_id": f"cutlass_{symbol_id}",
+        "symbol_id": symbol_id,
+        "dtype": dtype,
+        "accumulator_dtype": accumulator_dtype,
+        "optional": optional,
+        "cutlass": {
+            "api": "device_gemm",
+            "opclass": "tensorop",
+            "arch": "sm80",
+            "math": math,
+            "threadblock": list(threadblock),
+            "warp_count": list(warp_count),
+            "warp": [int(threadblock[index] // warp_count[index]) for index in range(3)],
+            "instruction": list(instruction),
+            "stages": stages,
+            "align": align,
+        },
+    }
+
+
+def _cutlass_sm80_tensorop_16816_candidate_configs() -> tuple[dict[str, Any], ...]:
+    configs = []
+    for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_16816_TILES:
+        for align in CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS:
+            configs.append(
+                _cutlass_candidate_config(
+                    threadblock,
+                    stages,
+                    warp_count,
+                    align,
+                    dtype="float16",
+                    accumulator_dtype="float32",
+                    instruction=(16, 8, 16),
+                    math="16816",
+                )
+            )
+            configs.append(
+                _cutlass_candidate_config(
+                    threadblock,
+                    stages,
+                    warp_count,
+                    align,
+                    dtype="float16",
+                    accumulator_dtype="float16",
+                    instruction=(16, 8, 16),
+                    math="16816",
+                )
+            )
+            configs.append(
+                _cutlass_candidate_config(
+                    threadblock,
+                    stages,
+                    warp_count,
+                    align,
+                    dtype="bfloat16",
+                    accumulator_dtype="float32",
+                    instruction=(16, 8, 16),
+                    math="16816",
+                )
+            )
+    return tuple(configs)
+
+
+def _cutlass_sm80_tensorop_tf32_candidate_configs() -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _cutlass_candidate_config(
+            threadblock,
+            stages,
+            warp_count,
+            align,
+            dtype="float32",
+            accumulator_dtype="float32",
+            instruction=(16, 8, 8),
+            math="tf32",
+            optional=True,
+        )
+        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_16816_TILES
+        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
+    )
+
+
+CUTLASS_GEMM_CANDIDATE_CONFIGS = (
+    *_cutlass_sm80_tensorop_16816_candidate_configs(),
+    *_cutlass_sm80_tensorop_tf32_candidate_configs(),
+)
+CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE = {
+    dtype: tuple(config for config in CUTLASS_GEMM_CANDIDATE_CONFIGS if config["dtype"] == dtype)
+    for dtype in GEMM_SUPPORTED_DTYPES
+}
+CUTLASS_DEFAULT_SYMBOL_ID = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float16"][0]["symbol_id"])
+CUTLASS_DEFAULT_CANDIDATE_ID = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float16"][0]["candidate_id"])
 
 
 def cutlass_gemm_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
     gemm_op_spec(op_name)
-    suffix = gemm_dtype_suffix(dtype)
-    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{CUTLASS_DEFAULT_SYMBOL_ID}"
+    normalized_dtype = normalize_gemm_dtype(dtype)
+    suffix = gemm_dtype_suffix(normalized_dtype)
+    default_symbol_id = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype][0]["symbol_id"])
+    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{default_symbol_id}"
     return f"dinoml_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
 def cutlass_gemm_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
     gemm_op_spec(op_name)
-    suffix = gemm_dtype_suffix(dtype)
-    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{CUTLASS_DEFAULT_SYMBOL_ID}"
+    normalized_dtype = normalize_gemm_dtype(dtype)
+    suffix = gemm_dtype_suffix(normalized_dtype)
+    default_symbol_id = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype][0]["symbol_id"])
+    candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{default_symbol_id}"
     return f"dinoml_profile_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
@@ -131,9 +218,6 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
     profiler_symbol = cutlass_gemm_profiler_symbol(op_name, normalized_dtype, symbol_id)
     epilogue = spec.epilogue.to_json()
     cutlass_config = dict(candidate_config["cutlass"])
-    instruction = cutlass_config.get("instruction")
-    if isinstance(instruction, Mapping):
-        cutlass_config["instruction"] = list(instruction[normalized_dtype])
     config = {
         "candidate_id": str(candidate_config["candidate_id"]),
         "symbol_id": str(candidate_config["symbol_id"]),
@@ -144,7 +228,7 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
         "layouts": dict(spec.layouts),
         "epilogue": spec.epilogue.name,
         "epilogue_config": epilogue,
-        "accumulator_dtype": spec.epilogue.accumulator_dtype,
+        "accumulator_dtype": str(candidate_config["accumulator_dtype"]),
         "launch_abi": spec.epilogue.launch_abi,
         "cutlass": cutlass_config,
     }
@@ -158,7 +242,11 @@ def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[
 
 
 def cutlass_gemm_candidates(op_name: str, dtype: str) -> tuple[dict[str, Any], ...]:
-    return tuple(_cutlass_gemm_candidate(op_name, dtype, config) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS)
+    normalized_dtype = normalize_gemm_dtype(dtype)
+    return tuple(
+        _cutlass_gemm_candidate(op_name, normalized_dtype, config)
+        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype]
+    )
 
 
 def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
@@ -175,7 +263,7 @@ def cutlass_gemm_candidate_set(op_name: str, dtype: str) -> dict[str, Any]:
         "layouts": dict(spec.layouts),
         "epilogue": spec.epilogue.name,
         "epilogue_config": spec.epilogue.to_json(),
-        "accumulator_dtype": spec.epilogue.accumulator_dtype,
+        "accumulator_dtypes": sorted({str(candidate["accumulator_dtype"]) for candidate in candidates}),
         "launch_abi": spec.epilogue.launch_abi,
         "generator": "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
@@ -334,6 +422,7 @@ __all__ = [
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
     "CUTLASS_GEMM_CANDIDATE_CONFIGS",
+    "CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE",
     "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "cutlass_gemm_candidate_set",
     "cutlass_gemm_candidate_set_id",

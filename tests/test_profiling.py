@@ -12,6 +12,7 @@ from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.ir import read_json, write_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
+from dinoml.kernels.providers.cutlass.gemm import CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
 from dinoml.kernels.profiling import (
     PROFILE_REPORT_SCHEMA_VERSION,
     _cache_entry,
@@ -26,7 +27,16 @@ from dinoml.kernels.profiling import (
 from dinoml.passes import PassManager
 
 
-CUTLASS_GEMM_CANDIDATE_COUNT = 6
+def _cutlass_candidate_count(dtype: str) -> int:
+    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
+
+
+def _cutlass_default_candidate_id(dtype: str) -> str:
+    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["candidate_id"])
+
+
+def _cutlass_default_symbol_id(dtype: str) -> str:
+    return str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype][0]["symbol_id"])
 
 
 class GemmModule(dml.Module):
@@ -69,17 +79,17 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
 
     workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (7, 32), "b": (32, 11)})
 
-    assert len(workloads) == CUTLASS_GEMM_CANDIDATE_COUNT
+    assert len(workloads) == _cutlass_candidate_count("float16")
     workload = workloads[0]
-    assert workload.profiler_symbol == "dinoml_profile_cutlass_gemm_rrr_float16_tensorop_sm80_128x128x32_align8"
+    assert workload.profiler_symbol == f"dinoml_profile_cutlass_gemm_rrr_float16_{_cutlass_default_symbol_id('float16')}"
     assert workload.dtype == "float16"
     assert workload.candidate_set_id == "cutlass_gemm_rrr_float16_linear_combination_v1"
     assert workload.candidate_set_key
-    assert workload.candidate_id == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert workload.candidate_id == _cutlass_default_candidate_id("float16")
     assert workload.candidate["provider"] == "cutlass"
     assert workload.candidate["layouts"] == {"a": "row", "b": "row", "c": "row"}
     assert workload.candidate["cutlass"]["opclass"] == "tensorop"
-    assert workload.candidate["cutlass"]["threadblock"] == [128, 128, 32]
+    assert workload.candidate["cutlass"]["threadblock"] == [256, 128, 32]
     assert workload.candidate_config_key
     assert (workload.m, workload.n, workload.k) == (7, 11, 32)
     assert workload.output_shape == (7, 11)
@@ -107,9 +117,9 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == CUTLASS_GEMM_CANDIDATE_COUNT
+    assert len(workloads) == _cutlass_candidate_count("float32")
     workload = workloads[0]
-    assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_tensorop_sm80_128x128x32_align8"
+    assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_{_cutlass_default_symbol_id('float32')}"
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
     assert workload.bias_tensor == "bias"
     assert workload.bias_shape == (11,)
@@ -147,7 +157,7 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
 
     assert payload_a["hardware_fingerprint_key"] == "hardware-a"
     assert payload_a["support_libraries_fingerprint_key"] == "support-a"
-    assert payload_a["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert payload_a["candidate_id"] == _cutlass_default_candidate_id("float32")
     assert payload_a["candidate_set_id"] == "cutlass_gemm_rrr_float32_linear_combination_v1"
     assert payload_a["candidate_set_key"] == workload.candidate_set_key
     assert payload_a["candidate_config_key"] == workload.candidate_config_key
@@ -255,7 +265,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
 
     report = profile_artifact(artifact, iterations=3)
 
-    assert report["summary"] == {"cached": CUTLASS_GEMM_CANDIDATE_COUNT, "failed": 0, "profiled": 0, "skipped": 0}
+    assert report["summary"] == {"cached": _cutlass_candidate_count("float32"), "failed": 0, "profiled": 0, "skipped": 0}
     assert report["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
     assert report["kernel_manifest_cache_key"] == kernel_manifest["cache_key"]
     assert report["codegen_plan_cache_key"] == codegen_plan["cache_key"]
@@ -277,7 +287,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["fingerprint"]["support_libraries"][0]["provenance"]["provenance_key"] == "provenance-hash"
     assert report["support_libraries_cache_key"] == key_payload["support_libraries_fingerprint_key"]
     assert report["problems"][0]["status"] == "cached"
-    assert report["problems"][0]["selected"]["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert report["problems"][0]["selected"]["candidate_id"] == _cutlass_default_candidate_id("float32")
     assert report["problems"][0]["selected"]["reason"] == "cache_hit"
     assert report["problems"][0]["candidates"][0]["candidate_config_key"]
     assert report["problems"][0]["profile_key"] in cached_entries
@@ -310,25 +320,25 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
     assert report["fingerprint"]["support_libraries_key"] == report["support_libraries_cache_key"]
     assert report["fingerprint"]["support_libraries"][0]["name"] == "cutlass_gemm"
     assert report["libraries"][0]["artifact_sha256"]
-    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": CUTLASS_GEMM_CANDIDATE_COUNT, "skipped": 0}
-    assert len(report["problems"]) == CUTLASS_GEMM_CANDIDATE_COUNT
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": _cutlass_candidate_count("float32"), "skipped": 0}
+    assert len(report["problems"]) == _cutlass_candidate_count("float32")
     workload = report["problems"][0]
     assert workload["status"] == "ok"
-    assert workload["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8"
+    assert workload["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
     assert workload["m"] == 8
     assert workload["n"] == 12
     assert workload["k"] == 16
     assert workload["elapsed_ms"] >= 0.0
     assert workload["flops"] == 2 * 8 * 12 * 16
     assert workload["selected"]["reason"] == "only_candidate"
-    assert workload["selected"]["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert workload["selected"]["candidate_id"] == _cutlass_default_candidate_id("float32")
     candidate = workload["candidates"][0]
-    assert candidate["candidate_id"] == "cutlass_tensorop_sm80_128x128x32_align8"
+    assert candidate["candidate_id"] == _cutlass_default_candidate_id("float32")
     assert candidate["provider"] == "cutlass"
     assert candidate["family"] == "gemm_universal"
     assert candidate["layouts"] == {"a": "row", "b": "column", "c": "row"}
-    assert candidate["kernel_symbol"] == "dinoml_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8"
-    assert candidate["profiler_symbol"] == "dinoml_profile_cutlass_gemm_rcr_float32_tensorop_sm80_128x128x32_align8"
+    assert candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
+    assert candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
     assert candidate["candidate_config_key"]
 
 
@@ -347,7 +357,7 @@ def test_cli_profile_smoke(monkeypatch, capsys):
                     "node_id": "n0",
                     "op": "gemm_rrr",
                     "dtype": "float32",
-                    "profiler_symbol": "dinoml_profile_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8",
+                    "profiler_symbol": f"dinoml_profile_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}",
                     "m": 4,
                     "n": 6,
                     "k": 8,
@@ -363,4 +373,4 @@ def test_cli_profile_smoke(monkeypatch, capsys):
     stdout = capsys.readouterr().out
 
     assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, "report.json", True)]
-    assert "dinoml_profile_cutlass_gemm_rrr_float32_tensorop_sm80_128x128x32_align8" in stdout
+    assert f"dinoml_profile_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}" in stdout

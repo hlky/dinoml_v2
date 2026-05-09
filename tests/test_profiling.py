@@ -245,6 +245,56 @@ def test_build_profile_workloads_supports_cutlass_bmm_batch_broadcast_and_column
     assert key_payload["shape"] == {"m": 4, "n": 5, "k": 8, "batch_count": 3}
 
 
+def test_build_profile_workloads_supports_cutlass_bmm_add_full_output_epilogue(tmp_path):
+    class BmmAddModule(dml.Module):
+        def forward(self, a, b, d0):
+            return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
+
+    spec = dml.trace(
+        BmmAddModule(),
+        inputs={
+            "a": dml.TensorSpec([2, 4, 8], "float32"),
+            "b": dml.TensorSpec([2, 8, 6], "float32"),
+            "d0": dml.TensorSpec([2, 4, 6], "float32"),
+        },
+        name="profile_bmm_rrr_add",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(manifest, tmp_path / "cache").to_json()
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert workloads
+    workload = workloads[0]
+    assert workload.kernel_library == "cutlass_bmm"
+    assert workload.op == "bmm_rrr_add"
+    assert workload.candidate_set_id == "cutlass_bmm_rrr_add_float32_add_v1"
+    assert workload.candidate["epilogue"] == "add"
+    assert workload.candidate["epilogue_config"]["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
+    assert workload.residual_tensors == ("d0",)
+    assert workload.residual_shapes == ((2, 4, 6),)
+    assert workload.output_shape == (2, 4, 6)
+    assert workload.batch_stride_c == 24
+    assert workload.alignment_context["epilogue"]["inputs"][0]["tensor"] == "d0"
+    payload = workload.to_json()
+    assert payload["inputs"]["d0"] == [2, 4, 6]
+    key_payload = _profile_key_payload(
+        workload,
+        {"target": DEFAULT_CUDA_TARGET},
+        manifest,
+        codegen_plan,
+        context={
+            "fingerprint": {
+                "hardware_key": "hardware-key",
+                "support_libraries_key": "support-key",
+            }
+        },
+    )
+    assert key_payload["epilogue"] == "add"
+    assert key_payload["epilogue_config"]["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
+
+
 def test_profile_result_records_bmm_batch_shape_and_cost_model():
     spec = dml.trace(
         BmmModule("bmm_ccc"),

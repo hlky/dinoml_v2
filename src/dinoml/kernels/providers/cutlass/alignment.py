@@ -123,6 +123,7 @@ def cutlass_bmm_static_alignment_context(
     a_name: str,
     b_name: str,
     c_name: str | None = None,
+    epilogue_names: Sequence[str] = (),
 ) -> dict[str, Any]:
     a_tensor = tensor_map[str(a_name)]
     b_tensor = tensor_map[str(b_name)]
@@ -134,7 +135,7 @@ def cutlass_bmm_static_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
-        epilogue_names=(),
+        epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="bmm_shape_spec_divisibility",
     )
@@ -150,6 +151,7 @@ def cutlass_bmm_profile_alignment_context(
     a_name: str,
     b_name: str,
     c_name: str | None = None,
+    epilogue_names: Sequence[str] = (),
     m: int,
     n: int,
     k: int,
@@ -162,7 +164,7 @@ def cutlass_bmm_profile_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
-        epilogue_names=(),
+        epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="profiled_bmm_problem_shape",
     )

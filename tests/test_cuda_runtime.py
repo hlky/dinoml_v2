@@ -27,6 +27,7 @@ def _cutlass_default_candidate_id(dtype: str, *, target=None) -> str:
 def _cutlass_candidate_count(dtype: str, *, target=None) -> int:
     return len(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET))
 
+
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 
 
@@ -122,6 +123,11 @@ class GemmBiasModule(dml.Module):
     def forward(self, a, b, bias):
         op = getattr(dml.ops, self.op_name)
         return dml.ops.output(op(a, b, bias), "y")
+
+
+class BmmAddModule(dml.Module):
+    def forward(self, a, b, d0):
+        return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
 
 
 @pytest.mark.parametrize(
@@ -245,6 +251,48 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert actual_torch.dtype == torch_dtype_obj
     torch.testing.assert_close(actual_torch, expected, atol=atol, rtol=rtol)
     np.testing.assert_allclose(actual_numpy.astype(np.float32), expected.float().cpu().numpy(), atol=atol, rtol=rtol)
+
+
+def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    spec = dml.trace(
+        BmmAddModule(),
+        inputs={
+            "a": dml.TensorSpec([2, 4, 8], "float32"),
+            "b": dml.TensorSpec([2, 8, 6], "float32"),
+            "d0": dml.TensorSpec([2, 4, 6], "float32"),
+        },
+        name="bmm_rrr_add_float32_cutlass_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "bmm_rrr_add_float32_cutlass_cuda.dinoml")
+    manifest = read_json(artifact.path / "manifest.json")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+
+    symbol = kernel_manifest["required_kernels"][0]["kernel_symbol"]
+    assert manifest["files"]["cutlass_bmm_library"] == "lib/libdinoml_cutlass_bmm.so"
+    assert symbol.startswith("dinoml_cutlass_bmm_rrr_add_float32_")
+    assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == "cutlass_bmm_rrr_add_float32_add_v1"
+    assert kernel_manifest["required_kernels"][0]["candidate_set"]["epilogue_config"]["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
+
+    torch.manual_seed(49)
+    a = torch.randn((2, 4, 8), device="cuda", dtype=torch.float32)
+    b = torch.randn((2, 8, 6), device="cuda", dtype=torch.float32)
+    d0 = torch.randn((2, 4, 6), device="cuda", dtype=torch.float32)
+    expected = torch.bmm(a, b) + d0
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual_torch = session.run_torch({"a": a, "b": b, "d0": d0})["y"]
+    session.close()
+    module.close()
+
+    torch.testing.assert_close(actual_torch, expected, atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.parametrize(

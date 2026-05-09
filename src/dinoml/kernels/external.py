@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from dinoml.kernels.bmm import (
-    BMM_BASE_OPS,
+    BMM_OPS,
     BMM_SUPPORTED_DTYPES,
     bmm_op_spec,
 )
@@ -114,12 +114,13 @@ def _cutlass_bmm_family(op_name: str) -> ExternalKernelFamily:
             "b_layout": spec.layouts["b"],
             "c_layout": spec.layouts["c"],
             "epilogue": spec.epilogue,
+            "epilogue_config": cutlass_bmm_candidate_set(op_name, "float32")["epilogue_config"],
             "supported_dtypes": list(BMM_SUPPORTED_DTYPES),
         },
     )
 
 
-CUTLASS_BMM_FAMILIES = tuple(_cutlass_bmm_family(op_name) for op_name in BMM_BASE_OPS)
+CUTLASS_BMM_FAMILIES = tuple(_cutlass_bmm_family(op_name) for op_name in BMM_OPS)
 
 
 def external_kernel_families(provider: str | None = None, backend: str | None = None) -> tuple[ExternalKernelFamily, ...]:

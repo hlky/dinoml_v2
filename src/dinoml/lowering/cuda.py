@@ -226,6 +226,27 @@ def _cutlass_bmm_declaration(
     cpp_type: str,
     launch_abi: str,
 ) -> str:
+    if launch_abi == "dinoml_cutlass_bmm_add_v1":
+        return (
+            f"extern \"C\" int {symbol}(\n"
+            f"    const {cpp_type}* a,\n"
+            f"    const {cpp_type}* b,\n"
+            f"    const {cpp_type}* d0,\n"
+            f"    {cpp_type}* c,\n"
+            "    int batch_count,\n"
+            "    int m,\n"
+            "    int n,\n"
+            "    int k,\n"
+            "    int64_t batch_stride_a,\n"
+            "    int64_t batch_stride_b,\n"
+            "    int64_t batch_stride_d0,\n"
+            "    int64_t batch_stride_c,\n"
+            "    int lda,\n"
+            "    int ldb,\n"
+            "    int ldd0,\n"
+            "    int ldc,\n"
+            "    cudaStream_t stream);"
+        )
     if launch_abi != "dinoml_cutlass_bmm_v1":
         raise ValueError(f"Unsupported CUTLASS BMM launch ABI: {launch_abi!r}")
     return (

@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
 from dinoml.kernels.external import external_kernel_families
+from dinoml.kernels.bmm import bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
@@ -164,7 +165,12 @@ def _cutlass_bmm_alignment_contexts(
         resolved = binding.resolve(dtype)
         if resolved.library != "cutlass_bmm":
             continue
+        spec = bmm_op_spec(str(node["op"]))
         a_name, b_name = (str(name) for name in node["inputs"][:2])
+        epilogue_names = tuple(
+            str(node["inputs"][input_offset])
+            for input_offset, _input_name in enumerate(spec.inputs, start=2)
+        )
         context = cutlass_bmm_static_alignment_context(
             str(node["op"]),
             dtype,
@@ -172,6 +178,7 @@ def _cutlass_bmm_alignment_contexts(
             a_name=a_name,
             b_name=b_name,
             c_name=str(node["outputs"][0]),
+            epilogue_names=epilogue_names,
         )
         context["node_id"] = str(node["id"])
         key = (str(node["op"]), dtype)

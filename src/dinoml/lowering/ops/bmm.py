@@ -4,7 +4,7 @@ import re
 from typing import Any, Mapping
 
 from dinoml.ir import dtype_nbytes
-from dinoml.kernels.bmm import BMM_BASE_OPS, bmm_op_spec
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.definitions import get_op_def
 
@@ -24,14 +24,18 @@ def render_launch(
         raise ValueError(f"{node['op']} lowering is currently CUDA-only")
     op_name = str(node["op"])
     spec = bmm_op_spec(op_name)
-    if spec.epilogue != "none":
-        raise NotImplementedError(f"{op_name} CUDA lowering only supports base BMM")
+    if spec.epilogue not in {"none", "add"}:
+        raise NotImplementedError(f"{op_name} CUDA lowering does not support BMM epilogue {spec.epilogue!r}")
     a_name, b_name = (str(name) for name in node["inputs"][:2])
+    d0_name = str(node["inputs"][2]) if spec.epilogue == "add" else None
     c_name = str(node["outputs"][0])
     a_ident = _c_ident(a_name)
     b_ident = _c_ident(b_name)
+    d0_ident = _c_ident(d0_name) if d0_name is not None else None
     c_ident = _c_ident(c_name)
     _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
+    if d0_name is not None and list(tensor_map[d0_name]["shape"]) != list(tensor_map[c_name]["shape"]):
+        raise NotImplementedError(f"{op_name} CUDA lowering requires full-output d0 shape for CUTLASS add epilogue")
     dtype = str(tensor_map[c_name]["dtype"])
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
     _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
@@ -54,6 +58,7 @@ def render_launch(
     ldc_expr = m_expr if spec.c_layout == "c" else n_expr
     batch_stride_a = f"(({a_batch} == 1 && {batch_expr} != 1) ? 0 : ({m_expr}) * ({k_expr}))"
     batch_stride_b = f"(({b_batch} == 1 && {batch_expr} != 1) ? 0 : ({n_expr}) * ({k_expr}))"
+    batch_stride_d0 = f"({m_expr}) * ({n_expr})"
     batch_stride_c = f"({m_expr}) * ({n_expr})"
     output_check = _output_shape_check(c_ident, batch_expr, m_expr, n_expr, spec.c_layout)
     selected_candidate = _selected_cutlass_candidate(manifest_item)
@@ -63,6 +68,12 @@ def render_launch(
         f'if ({k_a_expr} != {k_b_expr}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
+    if d0_ident is not None:
+        lines.append(
+            f'if (shape_{d0_ident}_0 != shape_{c_ident}_0 || shape_{d0_ident}_1 != shape_{c_ident}_1 || '
+            f'shape_{d0_ident}_2 != shape_{c_ident}_2) '
+            f'return dinoml::module::fail("{op_name} d0 shape mismatch");'
+        )
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
         symbol=symbol,
@@ -71,6 +82,7 @@ def render_launch(
         dtype=dtype,
         a_ident=a_ident,
         b_ident=b_ident,
+        d0_ident=d0_ident,
         c_ident=c_ident,
         batch_expr=batch_expr,
         m_expr=m_expr,
@@ -78,9 +90,11 @@ def render_launch(
         k_expr=k_expr,
         batch_stride_a=batch_stride_a,
         batch_stride_b=batch_stride_b,
+        batch_stride_d0=batch_stride_d0,
         batch_stride_c=batch_stride_c,
         lda_expr=lda_expr,
         ldb_expr=ldb_expr,
+        ldd0_expr=ldc_expr,
         ldc_expr=ldc_expr,
     )
     dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
@@ -94,6 +108,7 @@ def render_launch(
                 dtype=dtype,
                 a_ident=a_ident,
                 b_ident=b_ident,
+                d0_ident=d0_ident,
                 c_ident=c_ident,
                 batch_expr=batch_expr,
                 m_expr=m_expr,
@@ -101,9 +116,11 @@ def render_launch(
                 k_expr=k_expr,
                 batch_stride_a=batch_stride_a,
                 batch_stride_b=batch_stride_b,
+                batch_stride_d0=batch_stride_d0,
                 batch_stride_c=batch_stride_c,
                 lda_expr=lda_expr,
                 ldb_expr=ldb_expr,
+                ldd0_expr=ldc_expr,
                 ldc_expr=ldc_expr,
             )
         )
@@ -156,6 +173,7 @@ def _cutlass_launch_lines(
     dtype: str,
     a_ident: str,
     b_ident: str,
+    d0_ident: str | None,
     c_ident: str,
     batch_expr: str,
     m_expr: str,
@@ -163,25 +181,46 @@ def _cutlass_launch_lines(
     k_expr: str,
     batch_stride_a: str,
     batch_stride_b: str,
+    batch_stride_d0: str,
     batch_stride_c: str,
     lda_expr: str,
     ldb_expr: str,
+    ldd0_expr: str,
     ldc_expr: str,
     check_alignment: bool = True,
 ) -> list[str]:
     lines = (
-        _cutlass_runtime_alignment_checks(op_name, _candidate_cutlass_alignment(candidate), dtype, a_ident, b_ident)
+        _cutlass_runtime_alignment_checks(
+            op_name,
+            _candidate_cutlass_alignment(candidate),
+            _candidate_cutlass_epilogue_alignment(candidate),
+            dtype,
+            a_ident,
+            b_ident,
+            d0_ident,
+        )
         if check_alignment
         else []
     )
-    lines.append(
-        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{c_ident}, "
-        f"static_cast<int>({batch_expr}), static_cast<int>({m_expr}), static_cast<int>({n_expr}), "
-        f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
-        f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_c}), "
-        f"static_cast<int>({lda_expr}), static_cast<int>({ldb_expr}), static_cast<int>({ldc_expr}), "
-        f'session->stream)) return dinoml::module::fail("{op_name} CUTLASS BMM launcher failed");'
-    )
+    if d0_ident is None:
+        lines.append(
+            f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{c_ident}, "
+            f"static_cast<int>({batch_expr}), static_cast<int>({m_expr}), static_cast<int>({n_expr}), "
+            f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
+            f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_c}), "
+            f"static_cast<int>({lda_expr}), static_cast<int>({ldb_expr}), static_cast<int>({ldc_expr}), "
+            f'session->stream)) return dinoml::module::fail("{op_name} CUTLASS BMM launcher failed");'
+        )
+    else:
+        lines.append(
+            f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{d0_ident}, ptr_{c_ident}, "
+            f"static_cast<int>({batch_expr}), static_cast<int>({m_expr}), static_cast<int>({n_expr}), "
+            f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
+            f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_d0}), "
+            f"static_cast<int64_t>({batch_stride_c}), static_cast<int>({lda_expr}), "
+            f"static_cast<int>({ldb_expr}), static_cast<int>({ldd0_expr}), static_cast<int>({ldc_expr}), "
+            f'session->stream)) return dinoml::module::fail("{op_name} CUTLASS BMM launcher failed");'
+        )
     return lines
 
 
@@ -194,6 +233,7 @@ def _cutlass_launch_with_alignment_fallback_lines(
     dtype: str,
     a_ident: str,
     b_ident: str,
+    d0_ident: str | None,
     c_ident: str,
     batch_expr: str,
     m_expr: str,
@@ -201,9 +241,11 @@ def _cutlass_launch_with_alignment_fallback_lines(
     k_expr: str,
     batch_stride_a: str,
     batch_stride_b: str,
+    batch_stride_d0: str,
     batch_stride_c: str,
     lda_expr: str,
     ldb_expr: str,
+    ldd0_expr: str,
     ldc_expr: str,
 ) -> list[str]:
     selected_alignment = _candidate_cutlass_alignment(candidate)
@@ -215,6 +257,7 @@ def _cutlass_launch_with_alignment_fallback_lines(
             dtype=dtype,
             a_ident=a_ident,
             b_ident=b_ident,
+            d0_ident=d0_ident,
             c_ident=c_ident,
             batch_expr=batch_expr,
             m_expr=m_expr,
@@ -222,9 +265,11 @@ def _cutlass_launch_with_alignment_fallback_lines(
             k_expr=k_expr,
             batch_stride_a=batch_stride_a,
             batch_stride_b=batch_stride_b,
+            batch_stride_d0=batch_stride_d0,
             batch_stride_c=batch_stride_c,
             lda_expr=lda_expr,
             ldb_expr=ldb_expr,
+            ldd0_expr=ldd0_expr,
             ldc_expr=ldc_expr,
         )
     attempts: list[tuple[str, Mapping[str, Any] | None]] = [
@@ -234,7 +279,14 @@ def _cutlass_launch_with_alignment_fallback_lines(
     lines: list[str] = []
     for index, (attempt_symbol, attempt_candidate) in enumerate(attempts):
         alignment = _candidate_cutlass_alignment(attempt_candidate)
-        conditions = _cutlass_runtime_alignment_conditions(alignment, dtype, a_ident, b_ident)
+        conditions = _cutlass_runtime_alignment_conditions(
+            alignment,
+            _candidate_cutlass_epilogue_alignment(attempt_candidate),
+            dtype,
+            a_ident,
+            b_ident,
+            d0_ident,
+        )
         if index == 0:
             lines.append(f"if ({' && '.join(conditions)}) {{")
         elif index == len(attempts) - 1 or not conditions:
@@ -248,6 +300,7 @@ def _cutlass_launch_with_alignment_fallback_lines(
             dtype=dtype,
             a_ident=a_ident,
             b_ident=b_ident,
+            d0_ident=d0_ident,
             c_ident=c_ident,
             batch_expr=batch_expr,
             m_expr=m_expr,
@@ -255,9 +308,11 @@ def _cutlass_launch_with_alignment_fallback_lines(
             k_expr=k_expr,
             batch_stride_a=batch_stride_a,
             batch_stride_b=batch_stride_b,
+            batch_stride_d0=batch_stride_d0,
             batch_stride_c=batch_stride_c,
             lda_expr=lda_expr,
             ldb_expr=ldb_expr,
+            ldd0_expr=ldd0_expr,
             ldc_expr=ldc_expr,
             check_alignment=index == len(attempts) - 1,
         )
@@ -275,6 +330,7 @@ def _cutlass_dispatch_lines(
     dtype: str,
     a_ident: str,
     b_ident: str,
+    d0_ident: str | None,
     c_ident: str,
     batch_expr: str,
     m_expr: str,
@@ -282,9 +338,11 @@ def _cutlass_dispatch_lines(
     k_expr: str,
     batch_stride_a: str,
     batch_stride_b: str,
+    batch_stride_d0: str,
     batch_stride_c: str,
     lda_expr: str,
     ldb_expr: str,
+    ldd0_expr: str,
     ldc_expr: str,
 ) -> list[str]:
     lines = []
@@ -292,7 +350,7 @@ def _cutlass_dispatch_lines(
         candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
         branch = "if" if index == 0 else "else if"
         lines.append(
-            f"{branch} ({_cutlass_dispatch_guard(dispatch, candidate, dtype, a_ident, b_ident, batch_expr, m_expr, n_expr, k_expr)}) {{"
+            f"{branch} ({_cutlass_dispatch_guard(dispatch, candidate, dtype, a_ident, b_ident, d0_ident, batch_expr, m_expr, n_expr, k_expr)}) {{"
         )
         body = _cutlass_launch_lines(
             op_name=op_name,
@@ -301,6 +359,7 @@ def _cutlass_dispatch_lines(
             dtype=dtype,
             a_ident=a_ident,
             b_ident=b_ident,
+            d0_ident=d0_ident,
             c_ident=c_ident,
             batch_expr=batch_expr,
             m_expr=m_expr,
@@ -308,9 +367,11 @@ def _cutlass_dispatch_lines(
             k_expr=k_expr,
             batch_stride_a=batch_stride_a,
             batch_stride_b=batch_stride_b,
+            batch_stride_d0=batch_stride_d0,
             batch_stride_c=batch_stride_c,
             lda_expr=lda_expr,
             ldb_expr=ldb_expr,
+            ldd0_expr=ldd0_expr,
             ldc_expr=ldc_expr,
             check_alignment=False,
         )
@@ -328,6 +389,7 @@ def _cutlass_dispatch_guard(
     dtype: str,
     a_ident: str,
     b_ident: str,
+    d0_ident: str | None,
     batch_expr: str,
     m_expr: str,
     n_expr: str,
@@ -348,36 +410,69 @@ def _cutlass_dispatch_guard(
         f"({n_expr}) == {n}",
         f"({k_expr}) == {k}",
     ]
-    conditions.extend(_cutlass_runtime_alignment_conditions(_candidate_cutlass_alignment(candidate), dtype, a_ident, b_ident))
+    conditions.extend(
+        _cutlass_runtime_alignment_conditions(
+            _candidate_cutlass_alignment(candidate),
+            _candidate_cutlass_epilogue_alignment(candidate),
+            dtype,
+            a_ident,
+            b_ident,
+            d0_ident,
+        )
+    )
     return " && ".join(conditions)
 
 
 def _cutlass_runtime_alignment_checks(
     op_name: str,
     align: int,
+    epilogue_align: int,
     dtype: str,
     a_ident: str,
     b_ident: str,
+    d0_ident: str | None,
 ) -> list[str]:
-    if align <= 1:
-        return []
-    byte_alignment = align * dtype_nbytes(dtype)
-    return [
-        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{a_ident}, ptr_{a_ident}, "{op_name} A", {byte_alignment})) '
-        "return err;",
-        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{b_ident}, ptr_{b_ident}, "{op_name} B", {byte_alignment})) '
-        "return err;",
-    ]
+    lines = []
+    if align > 1:
+        byte_alignment = align * dtype_nbytes(dtype)
+        lines.extend(
+            [
+                f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{a_ident}, ptr_{a_ident}, "{op_name} A", {byte_alignment})) '
+                "return err;",
+                f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{b_ident}, ptr_{b_ident}, "{op_name} B", {byte_alignment})) '
+                "return err;",
+            ]
+        )
+    if d0_ident is not None and epilogue_align > 1:
+        byte_alignment = epilogue_align * dtype_nbytes(dtype)
+        lines.append(
+            f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{d0_ident}, ptr_{d0_ident}, "{op_name} d0", {byte_alignment})) '
+            "return err;"
+        )
+    return lines
 
 
-def _cutlass_runtime_alignment_conditions(align: int, dtype: str, a_ident: str, b_ident: str) -> list[str]:
-    if align <= 1:
-        return []
-    byte_alignment = align * dtype_nbytes(dtype)
-    return [
-        f"dinoml::module::is_tensor_pointer_aligned(abi_{a_ident}, ptr_{a_ident}, {byte_alignment})",
-        f"dinoml::module::is_tensor_pointer_aligned(abi_{b_ident}, ptr_{b_ident}, {byte_alignment})",
-    ]
+def _cutlass_runtime_alignment_conditions(
+    align: int,
+    epilogue_align: int,
+    dtype: str,
+    a_ident: str,
+    b_ident: str,
+    d0_ident: str | None,
+) -> list[str]:
+    conditions = []
+    if align > 1:
+        byte_alignment = align * dtype_nbytes(dtype)
+        conditions.extend(
+            [
+                f"dinoml::module::is_tensor_pointer_aligned(abi_{a_ident}, ptr_{a_ident}, {byte_alignment})",
+                f"dinoml::module::is_tensor_pointer_aligned(abi_{b_ident}, ptr_{b_ident}, {byte_alignment})",
+            ]
+        )
+    if d0_ident is not None and epilogue_align > 1:
+        byte_alignment = epilogue_align * dtype_nbytes(dtype)
+        conditions.append(f"dinoml::module::is_tensor_pointer_aligned(abi_{d0_ident}, ptr_{d0_ident}, {byte_alignment})")
+    return conditions
 
 
 def _candidate_cutlass_alignment(candidate: Mapping[str, Any] | None) -> int:
@@ -387,6 +482,18 @@ def _candidate_cutlass_alignment(candidate: Mapping[str, Any] | None) -> int:
     if not isinstance(cutlass_config, Mapping):
         return 1
     return int(cutlass_config.get("align", 1) or 1)
+
+
+def _candidate_cutlass_epilogue_alignment(candidate: Mapping[str, Any] | None) -> int:
+    if not isinstance(candidate, Mapping):
+        return 1
+    cutlass_config = candidate.get("cutlass")
+    if not isinstance(cutlass_config, Mapping):
+        return 1
+    for key in ("align_c", "epilogue_align", "epilogue_alignment"):
+        if cutlass_config.get(key) is not None:
+            return int(cutlass_config[key] or 1)
+    return 1
 
 
 def _selected_cutlass_candidate(item: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
@@ -480,5 +587,5 @@ BMM_LOWERINGS = {
         source_key=source_key,
         generated_function_name=generated_function_name,
     )
-    for op_name in BMM_BASE_OPS
+    for op_name in BMM_OPS
 }

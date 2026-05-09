@@ -17,7 +17,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json, write_json
-from dinoml.kernels.bmm import BMM_BASE_OPS, bmm_op_spec, bmm_problem
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec, bmm_problem
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
 from dinoml.kernels.providers.cutlass.alignment import (
@@ -175,7 +175,7 @@ def build_profile_workloads(
     workloads = []
     for node in graph["nodes"]:
         op_name = str(node["op"])
-        if op_name in BMM_BASE_OPS:
+        if op_name in BMM_OPS:
             _append_bmm_profile_workloads(
                 workloads,
                 node,
@@ -288,10 +288,12 @@ def _append_bmm_profile_workloads(
         return
     spec = bmm_op_spec(op_name)
     a_name, b_name = (str(name) for name in node["inputs"][:2])
+    residual_names = tuple(str(node["inputs"][input_offset]) for input_offset, _name in enumerate(spec.inputs, start=2))
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
         a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
         b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
-        batch_count, m, n, k, output_shape = bmm_problem(op_name, [a_shape, b_shape])
+        residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
+        batch_count, m, n, k, output_shape = bmm_problem(op_name, [a_shape, b_shape, *residual_shapes])
         alignment_context = cutlass_bmm_profile_alignment_context(
             op_name,
             dtype,
@@ -299,6 +301,7 @@ def _append_bmm_profile_workloads(
             a_name=a_name,
             b_name=b_name,
             c_name=output_name,
+            epilogue_names=residual_names,
             m=m,
             n=n,
             k=k,
@@ -337,12 +340,12 @@ def _append_bmm_profile_workloads(
                         a_tensor=a_name,
                         b_tensor=b_name,
                         bias_tensor=None,
-                        residual_tensors=(),
+                        residual_tensors=residual_names,
                         output_tensor=output_name,
                         a_shape=tuple(a_shape),
                         b_shape=tuple(b_shape),
                         bias_shape=None,
-                        residual_shapes=(),
+                        residual_shapes=tuple(tuple(shape) for shape in residual_shapes),
                         output_shape=tuple(output_shape),
                         m=m,
                         n=n,
@@ -1752,45 +1755,95 @@ class _CudaProfiler:
     def _profile_bmm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
         b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+        residuals = [
+            self._device_array(_random_storage(shape, workload.dtype, rng))
+            for shape in workload.residual_shapes
+        ]
         c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
         fn = getattr(self._cutlass_library("cutlass_bmm"), workload.profiler_symbol)
-        fn.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int64,
-            ctypes.c_int64,
-            ctypes.c_int64,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_void_p,
-        ]
         fn.restype = ctypes.c_float
-        elapsed_ms = float(
-            fn(
-                a,
-                b,
-                c,
-                ctypes.c_int(int(workload.batch_count or 1)),
-                ctypes.c_int(workload.m),
-                ctypes.c_int(workload.n),
-                ctypes.c_int(workload.k),
-                ctypes.c_int64(int(workload.batch_stride_a or 0)),
-                ctypes.c_int64(int(workload.batch_stride_b or 0)),
-                ctypes.c_int64(int(workload.batch_stride_c or 0)),
-                ctypes.c_int(int(workload.lda or 0)),
-                ctypes.c_int(int(workload.ldb or 0)),
-                ctypes.c_int(int(workload.ldc or 0)),
-                ctypes.c_int(iterations),
-                ctypes.c_void_p(0),
+        if residuals:
+            if len(residuals) != 1 or tuple(workload.residual_shapes[0]) != tuple(workload.output_shape):
+                raise RuntimeError(f"CUTLASS BMM profiler only supports full-output add epilogue for {workload.op}")
+            fn.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int64,
+                ctypes.c_int64,
+                ctypes.c_int64,
+                ctypes.c_int64,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
+            elapsed_ms = float(
+                fn(
+                    a,
+                    b,
+                    residuals[0],
+                    c,
+                    ctypes.c_int(int(workload.batch_count or 1)),
+                    ctypes.c_int(workload.m),
+                    ctypes.c_int(workload.n),
+                    ctypes.c_int(workload.k),
+                    ctypes.c_int64(int(workload.batch_stride_a or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_b or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
+                    ctypes.c_int(int(workload.lda or 0)),
+                    ctypes.c_int(int(workload.ldb or 0)),
+                    ctypes.c_int(int(workload.ldc or 0)),
+                    ctypes.c_int(int(workload.ldc or 0)),
+                    ctypes.c_int(iterations),
+                    ctypes.c_void_p(0),
+                )
             )
-        )
+        else:
+            fn.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int64,
+                ctypes.c_int64,
+                ctypes.c_int64,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_void_p,
+            ]
+            elapsed_ms = float(
+                fn(
+                    a,
+                    b,
+                    c,
+                    ctypes.c_int(int(workload.batch_count or 1)),
+                    ctypes.c_int(workload.m),
+                    ctypes.c_int(workload.n),
+                    ctypes.c_int(workload.k),
+                    ctypes.c_int64(int(workload.batch_stride_a or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_b or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
+                    ctypes.c_int(int(workload.lda or 0)),
+                    ctypes.c_int(int(workload.ldb or 0)),
+                    ctypes.c_int(int(workload.ldc or 0)),
+                    ctypes.c_int(iterations),
+                    ctypes.c_void_p(0),
+                )
+            )
         if elapsed_ms < 0.0:
             raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
         return elapsed_ms, int(workload.workspace_nbytes)

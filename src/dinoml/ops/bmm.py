@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
+from dinoml.kernels.bmm import BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import (
     cutlass_bmm_candidate_set,
     cutlass_bmm_candidates,
@@ -22,7 +22,7 @@ def register_bmm_ops(registry: OpRegistry) -> None:
                 backend_kernels=_backend_kernels(op_name),
                 frontend=FrontendBinding(op_name),
                 allowed_dtypes=BMM_SUPPORTED_DTYPES,
-                profiler=op_name in BMM_BASE_OPS,
+                profiler=True,
                 description=_description(op_name),
             )
         )
@@ -68,8 +68,6 @@ def _infer_shape_fn(op_name: str):
 
 
 def _backend_kernels(op_name: str) -> dict[str, KernelBinding]:
-    if op_name not in BMM_BASE_OPS:
-        return {}
     return {
         "cuda": KernelBinding(
             cutlass_bmm_symbol(op_name, "float32"),

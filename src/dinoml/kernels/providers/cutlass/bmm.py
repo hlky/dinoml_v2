@@ -50,10 +50,9 @@ def cutlass_bmm_candidate_set(
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     spec = bmm_op_spec(op_name)
-    if spec.epilogue != "none":
-        raise ValueError(f"CUTLASS BMM support is base-only for now, got {op_name!r}")
     normalized_dtype = normalize_bmm_dtype(dtype)
     candidates = cutlass_bmm_candidates(op_name, normalized_dtype, target=target)
+    epilogue_config = _cutlass_bmm_epilogue_config(spec.epilogue)
     config = {
         "schema_version": CUTLASS_BMM_CANDIDATE_SET_SCHEMA_VERSION,
         "candidate_set_id": cutlass_bmm_candidate_set_id(op_name, normalized_dtype),
@@ -63,10 +62,10 @@ def cutlass_bmm_candidate_set(
         "dtype": normalized_dtype,
         "layouts": dict(spec.layouts),
         "epilogue": spec.epilogue,
-        "epilogue_config": {"name": spec.epilogue, "inputs": [], "launch_abi": "dinoml_cutlass_bmm_v1"},
+        "epilogue_config": epilogue_config,
         "accumulator_dtypes": sorted({str(candidate["accumulator_dtype"]) for candidate in candidates}),
         "target_policy": cutlass_gemm_target_policy(target),
-        "launch_abi": "dinoml_cutlass_bmm_v1",
+        "launch_abi": epilogue_config["launch_abi"],
         "split_k_values": list(CUTLASS_BMM_SPLIT_K_VALUES),
         "split_k_default": CUTLASS_BMM_DEFAULT_SPLIT_K,
         "supports_split_k": False,
@@ -83,7 +82,9 @@ def cutlass_bmm_candidate_set(
 
 def cutlass_bmm_candidate_set_id(op_name: str, dtype: str) -> str:
     suffix = gemm_dtype_suffix(dtype)
-    return f"cutlass_{op_name}_{suffix}_linear_combination_v1"
+    spec = bmm_op_spec(op_name)
+    epilogue = "linear_combination" if spec.epilogue == "none" else spec.epilogue
+    return f"cutlass_{op_name}_{suffix}_{epilogue}_v1"
 
 
 def cutlass_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -197,12 +198,13 @@ def _cutlass_bmm_candidate(
     candidate_config: Mapping[str, Any],
 ) -> dict[str, Any]:
     spec = bmm_op_spec(op_name)
-    if spec.epilogue != "none":
-        raise ValueError(f"CUTLASS BMM support is base-only for now, got {op_name!r}")
     symbol_id = str(candidate_config["symbol_id"])
     kernel_symbol = f"dinoml_cutlass_{op_name}_{dtype}_{symbol_id}"
     profiler_symbol = f"dinoml_profile_cutlass_{op_name}_{dtype}_{symbol_id}"
     cutlass_config = {**dict(candidate_config["cutlass"]), "api": "device_gemm_batched"}
+    if spec.epilogue == "add":
+        cutlass_config["epilogue_source"] = "d0"
+    epilogue_config = _cutlass_bmm_epilogue_config(spec.epilogue)
     config = {
         "candidate_id": f"cutlass_{op_name}_{dtype}_{symbol_id}",
         "symbol_id": symbol_id,
@@ -212,11 +214,11 @@ def _cutlass_bmm_candidate(
         "dtype": dtype,
         "layouts": dict(spec.layouts),
         "epilogue": spec.epilogue,
-        "epilogue_config": {"name": spec.epilogue, "inputs": [], "launch_abi": "dinoml_cutlass_bmm_v1"},
+        "epilogue_config": epilogue_config,
         "accumulator_dtype": str(candidate_config["accumulator_dtype"]),
         "cutlass_policy": str(candidate_config["cutlass_policy"]),
         "optional": bool(candidate_config.get("optional", False)),
-        "launch_abi": "dinoml_cutlass_bmm_v1",
+        "launch_abi": epilogue_config["launch_abi"],
         "split_k_values": list(CUTLASS_BMM_SPLIT_K_VALUES),
         "split_k_default": CUTLASS_BMM_DEFAULT_SPLIT_K,
         "supports_split_k": False,
@@ -281,6 +283,11 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     layout_a = _cutlass_layout_cpp(spec.a_layout)
     layout_b = _cutlass_layout_cpp(spec.b_layout)
     layout_c = _cutlass_layout_cpp(spec.c_layout)
+    if str(candidate.get("epilogue")) == "add":
+        return (
+            f"DINOML_FORWARD_BMM_ADD_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+            f"{layout_a}, {layout_b}, {layout_c}, {symbol_id}, {policy})"
+        )
     return (
         f"DINOML_FORWARD_BMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
         f"{layout_a}, {layout_b}, {layout_c}, {symbol_id}, {policy})"
@@ -291,7 +298,7 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
     if not stripped.startswith("DINOML_FORWARD_BMM"):
         return frozenset()
-    match = re.match(r"(DINOML_FORWARD_BMM_EXPORT)\((.*)\)\s*$", stripped)
+    match = re.match(r"(DINOML_FORWARD_BMM(?:_ADD)?_EXPORT)\((.*)\)\s*$", stripped)
     if match is None:
         return frozenset()
     args = [arg.strip() for arg in match.group(2).split(",")]
@@ -305,6 +312,14 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
             f"dinoml_profile_cutlass_{op_name}_{dtype_name}_{symbol_id}",
         }
     )
+
+
+def _cutlass_bmm_epilogue_config(epilogue: str) -> dict[str, Any]:
+    if epilogue == "none":
+        return {"name": "none", "inputs": [], "launch_abi": "dinoml_cutlass_bmm_v1"}
+    if epilogue == "add":
+        return {"name": "add", "inputs": ["d0"], "launch_abi": "dinoml_cutlass_bmm_add_v1"}
+    raise ValueError(f"Unsupported CUTLASS BMM epilogue: {epilogue!r}")
 
 
 def _cutlass_export_dtype_args(dtype: str) -> tuple[str, str]:

@@ -88,13 +88,16 @@ squeezed. The base `bmm_*` ops now register a separate `cutlass_bmm` external
 library with a real batched GEMM ABI carrying batch count, per-operand batch
 strides, leading dimensions, C-layout-aware output handling, v1-style batch
 broadcast through zero batch strides, candidate metadata, and alignment
-fallbacks. `_add` BMM variants are still CPU/reference-only until their addend
-or trailing-bias broadcast contract is represented as a proper CUTLASS epilogue
-ABI. Base BMM profiling workloads now feed `dinoml profile` reports/cache using
-the BMM profiler ABI, batch count, batch strides, leading dimensions, and
-batch-aware execution-plan shape keys. Confident static BMM profile selections
-are consumed during compile by selecting the profiled BMM candidate in the
-kernel manifest. Conflicting BMM profile selections now generate guarded
+fallbacks. `_add` BMM variants now have a CUTLASS add epilogue ABI for
+full-output `d0` tensors: the launcher passes `d0` as CUTLASS source C, writes
+the result to the output tensor, and profiles/selects candidates with `d0` in
+the epilogue alignment context. The v1-style trailing-bias `_add` contract
+remains CPU/reference-only until a proper broadcast epilogue is added. BMM
+profiling workloads now feed `dinoml profile` reports/cache using the BMM
+profiler ABI, batch count, batch strides, leading dimensions, epilogue inputs,
+and batch-aware execution-plan shape keys. Confident static BMM profile
+selections are consumed during compile by selecting the profiled BMM candidate
+in the kernel manifest. Conflicting BMM profile selections now generate guarded
 runtime dispatch on profiled batch/M/N/K shapes with pointer-alignment guards
 and default-launch fallback.
 
@@ -205,9 +208,9 @@ residual/broadcast split-K remains a targeted follow-up. The permuted
 `gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
 Broader broadcast arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
-functionality, BMM `_add` parity, and grouped GEMM parity should wait behind
-that profiling loop so v2 does not accumulate more declared surface area
-without v1-grade selection behavior.
+functionality, BMM trailing-bias broadcast epilogues, and grouped GEMM parity
+should wait behind that profiling loop so v2 does not accumulate more declared
+surface area without v1-grade selection behavior.
 
 ## Dependency Discovery
 

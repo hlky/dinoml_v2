@@ -402,8 +402,7 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
     families = {family["op_name"]: family for family in plan["families"]}
     assert set(GEMM_OPS).issubset(families)
-    assert set(BMM_BASE_OPS).issubset(families)
-    assert (set(BMM_OPS) - set(BMM_BASE_OPS)).isdisjoint(families)
+    assert set(BMM_OPS).issubset(families)
     assert set(families) >= {
         "gemm_rcr",
         "gemm_rcr_bias",
@@ -494,6 +493,7 @@ def test_external_cuda_kernel_plan_lists_cutlass_bmm_base_families():
         "b_layout": "column",
         "c_layout": "column",
         "epilogue": "none",
+        "epilogue_config": {"name": "none", "inputs": [], "launch_abi": "dinoml_cutlass_bmm_v1"},
         "supported_dtypes": ["float16", "float32", "bfloat16"],
     }
     assert family["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_bmm_ccc_float32_{default_symbol_id}"
@@ -512,6 +512,21 @@ def test_external_cuda_kernel_plan_lists_cutlass_bmm_base_families():
     assert candidate_set["candidate_count"] == _cutlass_candidate_count("float32")
     assert candidate_set["launch_abi"] == "dinoml_cutlass_bmm_v1"
     assert candidate_set["target_policy"] == {"no_tf32": False, "use_fp16_acc": False}
+
+    add_family = families["bmm_rrr_add"]
+    assert add_family["provider"] == "cutlass"
+    assert add_family["attrs"]["epilogue"] == "add"
+    assert add_family["attrs"]["epilogue_config"] == {
+        "name": "add",
+        "inputs": ["d0"],
+        "launch_abi": "dinoml_cutlass_bmm_add_v1",
+    }
+    assert add_family["kernel_symbols_by_dtype"]["float32"] == f"dinoml_cutlass_bmm_rrr_add_float32_{default_symbol_id}"
+    add_candidate = add_family["candidates_by_dtype"]["float32"][0]
+    assert add_candidate["epilogue"] == "add"
+    assert add_candidate["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
+    assert add_candidate["cutlass"]["epilogue_source"] == "d0"
+    assert add_family["candidate_sets_by_dtype"]["float32"]["candidate_set_id"] == "cutlass_bmm_rrr_add_float32_add_v1"
 
 
 @pytest.mark.parametrize(("op_name", "layout", "epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_EPILOGUES)
@@ -688,6 +703,83 @@ def test_bmm_kernel_manifest_uses_cutlass_external_library():
     rendered_support = render_cutlass_bmm_source(source, cutlass_bmm_used_candidate_plan(manifest))
     assert f"DINOML_FORWARD_BMM_EXPORT(bmm_ccc, float32" in rendered_support
     assert selected_symbol_id in rendered_support
+
+
+def test_bmm_add_kernel_manifest_uses_cutlass_epilogue_abi():
+    import dinoml as dml
+
+    class BmmAddModel(dml.Module):
+        def forward(self, a, b, d0):
+            return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
+
+    spec = dml.trace(
+        BmmAddModel(),
+        inputs={
+            "a": dml.TensorSpec([2, 4, 8], "float32"),
+            "b": dml.TensorSpec([2, 8, 6], "float32"),
+            "d0": dml.TensorSpec([2, 4, 6], "float32"),
+        },
+        name="bmm_rrr_add_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    plan = create_codegen_plan(manifest, "/tmp/dinoml-test-cache")
+    required = manifest["required_kernels"][0]
+
+    assert required["op"] == "bmm_rrr_add"
+    assert required["kernel_library"] == "cutlass_bmm"
+    assert required["candidate_set_id"] == "cutlass_bmm_rrr_add_float32_add_v1"
+    assert required["candidate_set"]["epilogue"] == "add"
+    assert required["candidate_set"]["epilogue_config"] == {
+        "name": "add",
+        "inputs": ["d0"],
+        "launch_abi": "dinoml_cutlass_bmm_add_v1",
+    }
+    assert required["candidates"][0]["cutlass"]["epilogue_source"] == "d0"
+    assert required["cutlass_alignment"]["nodes"][0]["epilogue"]["inputs"][0]["tensor"] == "d0"
+    assert plan.external_support_libraries[0]["name"] == "cutlass_bmm"
+
+    launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
+    assert "ptr_a, ptr_b, ptr_d0, ptr_t0" in launch
+    assert "d0 shape mismatch" in launch
+    assert "static_cast<int64_t>((shape_a_1) * (shape_b_2))" in launch
+
+    module_source = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=manifest)
+    assert f'extern "C" int {required["kernel_symbol"]}(' in module_source
+    assert "const float* d0" in module_source
+    assert "int64_t batch_stride_d0" in module_source
+    assert "int ldd0" in module_source
+
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_bmm.cu").read_text(
+        encoding="utf-8"
+    )
+    rendered_support = render_cutlass_bmm_source(source, cutlass_bmm_used_candidate_plan(manifest))
+    assert "DINOML_FORWARD_BMM_ADD_EXPORT(bmm_rrr_add, float32" in rendered_support
+
+
+def test_cuda_bmm_add_lowering_rejects_trailing_bias_broadcast_until_broadcast_epilogue_exists():
+    import dinoml as dml
+
+    class BmmAddModel(dml.Module):
+        def forward(self, a, b, d0):
+            return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
+
+    spec = dml.trace(
+        BmmAddModel(),
+        inputs={
+            "a": dml.TensorSpec([2, 4, 8], "float32"),
+            "b": dml.TensorSpec([2, 8, 6], "float32"),
+            "d0": dml.TensorSpec([6], "float32"),
+        },
+        name="bmm_rrr_add_bias_cuda_rejected",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+
+    with pytest.raises(NotImplementedError, match="requires full-output d0 shape"):
+        render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
 
 
 def test_apply_execution_plan_selects_profiled_cutlass_bmm_candidate_for_lowering():

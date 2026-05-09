@@ -27,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")
     compile_parser.add_argument("--profile", action="store_true", help="Profile CUTLASS candidates and rebuild with the selected execution plan")
     compile_parser.add_argument("--profile-iterations", type=int, default=20)
+    compile_parser.add_argument("--profile-repeats", type=int, default=1)
     compile_parser.add_argument("--profile-shape", "--shape", dest="profile_shape", action="append", default=[])
     compile_parser.add_argument("--profile-refresh", action="store_true")
     compile_parser.add_argument("--out", required=True)
@@ -43,6 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     profile_parser = subparsers.add_parser("profile")
     profile_parser.add_argument("artifact")
     profile_parser.add_argument("--iterations", type=int, default=20)
+    profile_parser.add_argument("--repeats", type=int, default=1)
     profile_parser.add_argument("--shape", action="append", default=[])
     profile_parser.add_argument("--out")
     profile_parser.add_argument("--execution-plan-out")
@@ -75,6 +77,7 @@ def _compile(args: argparse.Namespace) -> int:
             {
                 "profile": True,
                 "profile_iterations": args.profile_iterations,
+                "profile_repeats": args.profile_repeats,
                 "profile_input_shapes": parse_shape_overrides(args.profile_shape),
                 "profile_refresh": args.profile_refresh,
             }
@@ -141,6 +144,7 @@ def _profile(args: argparse.Namespace) -> int:
         args.artifact,
         input_shapes=parse_shape_overrides(args.shape),
         iterations=args.iterations,
+        repeats=args.repeats,
         output=args.out,
         execution_plan_output=args.execution_plan_out,
         refresh=args.refresh,
@@ -150,6 +154,7 @@ def _profile(args: argparse.Namespace) -> int:
             "artifact": report["artifact"],
             "target": report["target"],
             "iterations": report["iterations"],
+            "repeats": report.get("repeats", 1),
             "problems": [
                 {
                     "node_id": item["node_id"],
@@ -158,6 +163,9 @@ def _profile(args: argparse.Namespace) -> int:
                     "profiler_symbol": item["profiler_symbol"],
                     "shape": {"m": item["m"], "n": item["n"], "k": item["k"]},
                     "elapsed_ms": item["elapsed_ms"],
+                    "split_k": item.get("split_k", 1),
+                    "workspace_nbytes": item.get("workspace_nbytes", 0),
+                    "timing": item.get("timing"),
                     "tflops": item["tflops"],
                 }
                 for item in report["problems"]

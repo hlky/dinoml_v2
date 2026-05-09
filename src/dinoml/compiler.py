@@ -41,6 +41,7 @@ def compile(
     execution_plan: str | Path | Mapping[str, Any] | None = None,
     profile: bool = False,
     profile_iterations: int = 20,
+    profile_repeats: int = 1,
     profile_input_shapes: Mapping[str, Any] | None = None,
     profile_refresh: bool = False,
 ) -> Artifact:
@@ -56,6 +57,7 @@ def compile(
             clean=clean,
             pass_manager=pass_manager,
             iterations=profile_iterations,
+            repeats=profile_repeats,
             input_shapes=profile_input_shapes,
             refresh=profile_refresh,
         )
@@ -77,6 +79,7 @@ def _compile_with_profile(
     clean: bool,
     pass_manager: Optional[PassManager],
     iterations: int,
+    repeats: int,
     input_shapes: Mapping[str, Any] | None,
     refresh: bool,
 ) -> Artifact:
@@ -92,6 +95,7 @@ def _compile_with_profile(
         initial_artifact.path,
         input_shapes=input_shapes,
         iterations=iterations,
+        repeats=repeats,
         refresh=refresh,
     )
     execution_plan_summary = profile_report.get("execution_plan", {})

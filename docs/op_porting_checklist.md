@@ -219,8 +219,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
   workloads expand v1-style split-K values, workspace queries feed profile
   results/execution plans, and generated modules allocate one session workspace
   when a static overlay selects `split_k > 1`.
+- [x] First profiler repeat statistics:
+  `dinoml profile --repeats` and `dml.compile(..., profile=True,
+  profile_repeats=...)` collect multiple timing samples per CUTLASS workload,
+  record median/mean/min/max/stddev plus relative stddev in profile reports and
+  cache entries, and use the median elapsed time for execution-plan selection.
 - [ ] Extend split-K coverage to residual/broadcast CUTLASS epilogues after their
-  `GemmUniversalWithBroadcast` workspace behavior is proven.
+  `GemmUniversalWithBroadcast` workspace behavior is proven and the fused
+  residual epilogue implements partition-aware `set_k_partition` behavior.
 - [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
   `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: folded/batched leading dimensions and

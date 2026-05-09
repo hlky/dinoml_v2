@@ -63,9 +63,12 @@ porting. It intentionally excludes the op inventory, which lives in
   profile results, cache keys, execution plans, and static overlays. Base and
   bias/activation CUTLASS GEMMs now profile v1-style split-K variants and lower
   `split_k > 1` static overlays through companion launcher/profiler symbols plus
-  a session-owned workspace.
-  Remaining gaps are residual/broadcast split-K coverage, richer statistical
-  confidence, pass-once profile-assisted compile plumbing, and persistent
+  a session-owned workspace. Profiling can now collect repeated timing samples
+  per workload, store median/mean/min/max/stddev timing statistics, and select
+  on median elapsed time. Residual/broadcast split-K remains intentionally
+  disabled until the fused residual epilogue is partition-aware.
+  Remaining gaps are residual/broadcast split-K coverage, statistical confidence
+  thresholds, pass-once profile-assisted compile plumbing, and persistent
   SQLite/shared cache workflows.
 
 ## Important Before Large Model Ports

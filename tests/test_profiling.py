@@ -21,6 +21,7 @@ from dinoml.kernels.profiling import (
     _profile_key,
     _profile_key_payload,
     _profile_result,
+    _profile_timing,
     build_execution_plan,
     build_profile_workloads,
     parse_shape_overrides,
@@ -362,6 +363,8 @@ def test_build_profile_workloads_keeps_residual_epilogues_split_k_one():
     assert len(workloads) == 11
     assert {workload.split_k for workload in workloads} == {1}
     assert all(workload.workspace_nbytes == 0 for workload in workloads)
+    assert all(workload.candidate["supports_split_k"] is False for workload in workloads)
+    assert all("split_k_search" not in workload.candidate for workload in workloads)
 
 
 def test_build_profile_workloads_filters_candidates_by_v1_rrr_shape_alignment():
@@ -570,6 +573,8 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
     assert workload.candidate["epilogue_config"]["activation"] == expected_activation
     assert workload.candidate["epilogue_config"].get("pre_residual_activation") == expected_pre_activation
     assert workload.candidate["launch_abi"].startswith("dinoml_cutlass_gemm_")
+    assert workload.candidate["supports_split_k"] is False
+    assert "split_k_search" not in workload.candidate
     inputs = workload.to_json()["inputs"]
     assert inputs["bias"] == [n]
     assert inputs["d0"] == [7, n]
@@ -700,6 +705,52 @@ def test_profile_key_changes_with_fingerprint_keys(tmp_path):
     assert _profile_key(payload_a) != _profile_key(payload_b)
     assert _profile_key(payload_a) != _profile_key(payload_c)
     assert _profile_key(payload_a) != _profile_key(payload_d)
+
+
+def test_profile_result_records_timing_statistics_and_residual_bytes(tmp_path):
+    spec = dml.trace(
+        GemmResidualModule("gemm_rcr_bias_add_add"),
+        inputs={
+            "a": dml.TensorSpec([7, 32], "float32"),
+            "b": dml.TensorSpec([12, 32], "float32"),
+            "bias": dml.TensorSpec([12], "float32"),
+            "d0": dml.TensorSpec([7, 12], "float32"),
+            "d1": dml.TensorSpec([7, 12], "float32"),
+        },
+        name="profile_timing_stats",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workload = build_profile_workloads(lowered, kernel_manifest)[0]
+    timing = _profile_timing([0.20, 0.10, 0.30], iterations=5)
+
+    result = _profile_result(workload, timing["median_ms"], 5, profile_key="timed-profile", status="ok", timing=timing)
+    cache_entry = _cache_entry(
+        workload,
+        result,
+        _profile_key_payload(
+            workload,
+            {"target": {"name": "cuda", "arch": "sm_86"}},
+            kernel_manifest,
+            codegen_plan,
+            context={"fingerprint": {"hardware_key": "hardware", "support_libraries_key": "support"}},
+        ),
+    )
+
+    assert result["elapsed_ms"] == pytest.approx(0.20)
+    assert result["bytes"] == 4 * (7 * 32 + 12 * 32 + 7 * 12 + 12 + 7 * 12 + 7 * 12)
+    assert result["repeats"] == 3
+    assert result["timing"]["samples_ms"] == [0.20, 0.10, 0.30]
+    assert result["timing"]["median_ms"] == pytest.approx(0.20)
+    assert result["timing"]["mean_ms"] == pytest.approx(0.20)
+    assert result["timing"]["stddev_ms"] > 0.0
+    assert result["candidates"][0]["repeats"] == 3
+    assert cache_entry["repeats"] == 3
+    assert cache_entry["timing"]["sample_count"] == 3
+    cached = profiling_mod._profile_result_from_cache(workload, cache_entry)
+    assert cached["status"] == "cached"
+    assert cached["timing"]["samples_ms"] == [0.20, 0.10, 0.30]
 
 
 def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_path):
@@ -1093,12 +1144,13 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
 def test_cli_profile_smoke(monkeypatch, capsys):
     calls = []
 
-    def fake_profile_artifact(artifact, *, input_shapes, iterations, output, execution_plan_output, refresh):
-        calls.append((artifact, input_shapes, iterations, output, execution_plan_output, refresh))
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, output, execution_plan_output, refresh):
+        calls.append((artifact, input_shapes, iterations, repeats, output, execution_plan_output, refresh))
         return {
             "artifact": str(artifact),
             "target": {"name": "cuda", "arch": "sm_86"},
             "iterations": iterations,
+            "repeats": repeats,
             "execution_plan": {"path": "plan.json", "selection_count": 1},
             "summary": {"cached": 0, "failed": 0, "profiled": 1, "skipped": 0},
             "problems": [
@@ -1110,7 +1162,10 @@ def test_cli_profile_smoke(monkeypatch, capsys):
                     "m": 4,
                     "n": 6,
                     "k": 8,
+                    "split_k": 2,
+                    "workspace_nbytes": 4096,
                     "elapsed_ms": 0.01,
+                    "timing": {"samples_ms": [0.011, 0.01], "median_ms": 0.0105, "repeats": 2},
                     "tflops": 0.00384,
                 }
             ],
@@ -1125,6 +1180,8 @@ def test_cli_profile_smoke(monkeypatch, capsys):
                 "artifact.dinoml",
                 "--iterations",
                 "2",
+                "--repeats",
+                "2",
                 "--shape",
                 "a=4,8",
                 "--out",
@@ -1138,8 +1195,11 @@ def test_cli_profile_smoke(monkeypatch, capsys):
     )
     stdout = capsys.readouterr().out
 
-    assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, "report.json", "plan.json", True)]
+    assert calls == [("artifact.dinoml", {"a": (4, 8)}, 2, 2, "report.json", "plan.json", True)]
     assert f"dinoml_profile_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id("float32")}" in stdout
+    assert '"repeats": 2' in stdout
+    assert '"split_k": 2' in stdout
+    assert '"workspace_nbytes": 4096' in stdout
     assert "plan.json" in stdout
 
 
@@ -1208,7 +1268,7 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
         )
         return compiler_mod.Artifact(path)
 
-    def fake_profile_artifact(artifact, *, input_shapes, iterations, refresh):
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
         artifact = Path(artifact)
         plan_path = artifact / "debug" / "execution_plan.json"
         plan = {
@@ -1217,7 +1277,7 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
             "static_selections": [{"selection_key": "profile-selection"}],
         }
         write_json(plan_path, plan)
-        report_calls.append((str(artifact), input_shapes, iterations, refresh))
+        report_calls.append((str(artifact), input_shapes, iterations, repeats, refresh))
         return {
             "artifact": str(artifact),
             "execution_plan": {"path": str(plan_path), "selection_count": 1},
@@ -1234,6 +1294,7 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
         tmp_path / "profiled.dinoml",
         profile=True,
         profile_iterations=7,
+        profile_repeats=3,
         profile_input_shapes={"a": (4, 8)},
         profile_refresh=True,
     )
@@ -1245,7 +1306,7 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
     ]
     assert calls[0]["clean"] is True
     assert calls[1]["clean"] is True
-    assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, True)]
+    assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, 3, True)]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 1
 
 
@@ -1259,8 +1320,8 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
         calls.append(execution_plan)
         return compiler_mod.Artifact(path)
 
-    def fake_profile_artifact(artifact, *, input_shapes, iterations, refresh):
-        del input_shapes, iterations, refresh
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
+        del input_shapes, iterations, repeats, refresh
         artifact = Path(artifact)
         plan_path = artifact / "debug" / "execution_plan.json"
         write_json(
@@ -1317,6 +1378,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
         execution_plan,
         profile,
         profile_iterations,
+        profile_repeats,
         profile_input_shapes,
         profile_refresh,
     ):
@@ -1328,6 +1390,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
                 execution_plan,
                 profile,
                 profile_iterations,
+                profile_repeats,
                 profile_input_shapes,
                 profile_refresh,
             )
@@ -1352,6 +1415,8 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
                 "--profile",
                 "--profile-iterations",
                 "7",
+                "--profile-repeats",
+                "3",
                 "--shape",
                 "a=4,8",
                 "--profile-refresh",
@@ -1370,6 +1435,7 @@ def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
             None,
             True,
             7,
+            3,
             {"a": (4, 8)},
             True,
         )

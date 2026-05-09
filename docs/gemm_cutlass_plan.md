@@ -81,8 +81,9 @@ The runtime GEMM port now wires model lowering into that support library:
 `dinoml profile <artifact>` now executes exported profiler symbols for every
 manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
 profile-selected `debug/execution_plan.json`, and caches results under the
-support-library cache. The execution plan chooses the lowest elapsed-time
-candidate per profiled node/shape and emits a static overlay only when all
+support-library cache. Profiling can repeat each workload sample and records
+median/mean/min/max/stddev timing statistics; the execution plan chooses the
+lowest median-time candidate per profiled node/shape and emits a static overlay only when all
 profiled shapes for an op/dtype/candidate-set agree on the same winner. When
 GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override
 is supplied, profiling now expands those buckets into concrete workload cases
@@ -109,8 +110,9 @@ v1-style split-K search metadata, the profiler expands split-K values using the
 v1 `K // max(M, N)` heuristic, and generated CUDA uses companion split-K
 launcher/profiler symbols plus a session-owned CUTLASS workspace when an
 execution plan selects `split_k > 1`. Residual/broadcast epilogue families still
-profile and launch with `split_k=1` until their CUTLASS broadcast path has the
-same workspace ABI coverage. The report/cache key records a
+profile and launch with `split_k=1`; their fused epilogue currently has no
+partition-aware `set_k_partition` behavior, so serial split-K would reapply
+residual operands or final activations incorrectly. The report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
 support manifests also record compile flags, NVCC version output, dependency header

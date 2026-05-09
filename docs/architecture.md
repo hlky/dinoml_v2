@@ -117,9 +117,11 @@ artifact graph, `kernel_manifest.json`, and `kernel_codegen_plan.json`, profiles
 currently supported CUTLASS GEMM profiler symbols, writes
 `debug/profile_report.json`, writes the first profile-selected
 `debug/execution_plan.json`, and stores a small `profile_cache.v6.json` beside
-the support-library cache. The execution plan chooses the lowest elapsed-time
-candidate per profiled node/shape and exposes a static candidate overlay when
-all profiled shapes for an op/dtype/candidate-set agree. GEMM profiling expands
+the support-library cache. Profiling accepts repeat samples per workload and
+records median/mean/min/max/stddev timing statistics while using the median
+elapsed time for candidate selection. The execution plan chooses the lowest
+median-time candidate per profiled node/shape and exposes a static candidate
+overlay when all profiled shapes for an op/dtype/candidate-set agree. GEMM profiling expands
 explicit `Dim.buckets` into concrete workload cases when no runtime override is
 supplied, and carries case IDs plus dynamic dim values through the report and
 execution plan. Profiling prunes CUTLASS candidates using optional dense layout
@@ -129,8 +131,9 @@ profiled launch metadata. Base and bias/activation CUTLASS GEMMs expand
 v1-style split-K profile variants, query the CUTLASS workspace requirement, and
 lower `split_k > 1` static overlays to companion split-K launcher symbols with a
 session-owned workspace. Residual/broadcast epilogue families remain restricted
-to `split_k=1` until their CUTLASS broadcast path has matching workspace ABI
-coverage. `dml.compile` and `dinoml compile` can consume the static overlay
+to `split_k=1`; their fused residual epilogue must become partition-aware before
+serial split-K can avoid reapplying residual inputs or final activations.
+`dml.compile` and `dinoml compile` can consume the static overlay
 through `execution_plan=...` / `--execution-plan`, applying it before
 manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
 As a first closed-loop compile path, `dml.compile(..., profile=True)` and

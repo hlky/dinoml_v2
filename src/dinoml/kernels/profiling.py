@@ -29,7 +29,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 6
+PROFILE_REPORT_SCHEMA_VERSION = 7
 EXECUTION_PLAN_SCHEMA_VERSION = 1
 
 
@@ -335,11 +335,14 @@ def profile_artifact(
     *,
     input_shapes: Mapping[str, Sequence[int]] | None = None,
     iterations: int = 20,
+    repeats: int = 1,
     output: str | Path | None = None,
     execution_plan_output: str | Path | None = None,
     seed: int = 2027,
     refresh: bool = False,
 ) -> dict[str, Any]:
+    iterations = _positive_int(iterations, "iterations")
+    repeats = _positive_int(repeats, "repeats")
     artifact_dir = Path(artifact)
     manifest = read_json(artifact_dir / "manifest.json")
     if manifest.get("target", {}).get("name") != "cuda":
@@ -359,6 +362,7 @@ def profile_artifact(
             kernel_manifest,
             codegen_plan,
             iterations,
+            repeats,
             [],
             summary,
             context=context,
@@ -377,20 +381,27 @@ def profile_artifact(
             key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
             profile_key = _profile_key(key_payload)
             cached = cache["entries"].get(profile_key)
-            if cached is not None and not refresh:
+            if cached is not None and not refresh and _cache_entry_satisfies(cached, iterations=iterations, repeats=repeats):
                 results.append(_profile_result_from_cache(workload, cached))
                 summary["cached"] += 1
             else:
                 if profiler is None:
                     profiler = _CudaProfiler(artifact_dir, manifest)
-                elapsed_ms, workspace_nbytes = profiler.profile_gemm(workload, iterations=iterations, rng=rng)
+                samples_ms = []
+                workspace_nbytes = int(workload.workspace_nbytes)
+                for _ in range(repeats):
+                    elapsed_ms, sample_workspace_nbytes = profiler.profile_gemm(workload, iterations=iterations, rng=rng)
+                    samples_ms.append(elapsed_ms)
+                    workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+                timing = _profile_timing(samples_ms, iterations=iterations)
                 result = _profile_result(
                     workload,
-                    elapsed_ms,
+                    timing["median_ms"],
                     iterations,
                     profile_key=profile_key,
                     status="ok",
                     workspace_nbytes=workspace_nbytes,
+                    timing=timing,
                 )
                 results.append(result)
                 cache["entries"][profile_key] = _cache_entry(workload, result, key_payload)
@@ -407,6 +418,7 @@ def profile_artifact(
         kernel_manifest,
         codegen_plan,
         iterations,
+        repeats,
         results,
         summary,
         context=context,
@@ -420,6 +432,16 @@ def profile_artifact(
 
 def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
     return Path(str(codegen_plan["support_cache_dir"])) / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.json"
+
+
+def _positive_int(value: int, name: str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return parsed
 
 
 def _runtime_tensor_shape(
@@ -534,14 +556,18 @@ def _profile_result(
     status: str,
     reason: str = "only_candidate",
     workspace_nbytes: int | None = None,
+    timing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
+    timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
     flops = 2 * workload.m * workload.n * workload.k
     bytes_moved = dtype_nbytes(workload.dtype) * (
         workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
     )
     if workload.bias_shape is not None:
         bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias_shape, dtype=np.int64))
+    for residual_shape in workload.residual_shapes:
+        bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(residual_shape, dtype=np.int64))
     seconds = max(float(elapsed_ms) / 1000.0, 1e-12)
     tflops = float(flops / seconds / 1.0e12)
     gbps = float(bytes_moved / seconds / 1.0e9)
@@ -552,9 +578,16 @@ def _profile_result(
             "candidate_id": workload.candidate_id,
             "split_k": workload.split_k,
             "workspace_nbytes": actual_workspace_nbytes,
-            "avg_ms": float(elapsed_ms),
+            "avg_ms": float(timing_payload["mean_ms"]),
+            "median_ms": float(timing_payload["median_ms"]),
+            "mean_ms": float(timing_payload["mean_ms"]),
+            "min_ms": float(timing_payload["min_ms"]),
+            "max_ms": float(timing_payload["max_ms"]),
+            "stddev_ms": float(timing_payload["stddev_ms"]),
+            "relative_stddev": float(timing_payload["relative_stddev"]),
             "gflops": float(tflops * 1000.0),
             "iterations": int(iterations),
+            "repeats": int(timing_payload["repeats"]),
         }
     )
     payload.update(
@@ -579,6 +612,8 @@ def _profile_result(
             "kernel_library": "cutlass_gemm",
             "elapsed_ms": float(elapsed_ms),
             "iterations": int(iterations),
+            "repeats": int(timing_payload["repeats"]),
+            "timing": timing_payload,
             "split_k": workload.split_k,
             "workspace_nbytes": actual_workspace_nbytes,
             "flops": int(flops),
@@ -603,6 +638,7 @@ def _profile_report(
     kernel_manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
     iterations: int,
+    repeats: int,
     problems: Sequence[Mapping[str, Any]],
     summary: Mapping[str, int],
     *,
@@ -625,6 +661,7 @@ def _profile_report(
         "support_libraries_cache_key": profile_context["fingerprint"]["support_libraries_key"],
         "problems": problem_payloads,
         "workloads": problem_payloads,
+        "repeats": int(repeats),
         "summary": dict(summary),
     }
 
@@ -945,12 +982,19 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
     write_json(path, dict(cache))
 
 
+def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:
+    entry_iterations = int(entry.get("iterations", 0) or 0)
+    entry_repeats = int(entry.get("repeats", 1) or 1)
+    return entry_iterations >= int(iterations) and entry_repeats >= int(repeats)
+
+
 def _cache_entry(
     workload: GemmProfileWorkload,
     result: Mapping[str, Any],
     key_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     candidate = result["candidates"][0]
+    timing = dict(result.get("timing", {})) if isinstance(result.get("timing"), Mapping) else {}
     return {
         "profile_key": result["profile_key"],
         "key": dict(key_payload),
@@ -963,22 +1007,48 @@ def _cache_entry(
         "best_candidate_id": workload.candidate_id,
         "split_k": int(result.get("split_k", workload.split_k)),
         "workspace_nbytes": int(result.get("workspace_nbytes", workload.workspace_nbytes)),
+        "elapsed_ms": float(result.get("elapsed_ms", candidate["avg_ms"])),
         "avg_ms": float(candidate["avg_ms"]),
+        "timing": timing,
         "gflops": float(candidate["gflops"]),
         "iterations": int(candidate["iterations"]),
+        "repeats": int(candidate.get("repeats", timing.get("repeats", 1)) or 1),
     }
 
 
 def _profile_result_from_cache(workload: GemmProfileWorkload, entry: Mapping[str, Any]) -> dict[str, Any]:
+    timing = dict(entry.get("timing", {})) if isinstance(entry.get("timing"), Mapping) and entry.get("timing") else None
     return _profile_result(
         workload,
-        float(entry["avg_ms"]),
+        float(entry.get("elapsed_ms", entry["avg_ms"])),
         int(entry["iterations"]),
         profile_key=str(entry["profile_key"]),
         status="cached",
         reason="cache_hit",
         workspace_nbytes=int(entry.get("workspace_nbytes", workload.workspace_nbytes) or 0),
+        timing=timing,
     )
+
+
+def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str, Any]:
+    samples = [float(sample) for sample in samples_ms]
+    if not samples:
+        raise ValueError("profile timing requires at least one sample")
+    values = np.asarray(samples, dtype=np.float64)
+    mean_ms = float(np.mean(values))
+    stddev_ms = float(np.std(values, ddof=1)) if len(samples) > 1 else 0.0
+    return {
+        "samples_ms": samples,
+        "sample_count": len(samples),
+        "repeats": len(samples),
+        "iterations_per_sample": int(iterations),
+        "median_ms": float(np.median(values)),
+        "mean_ms": mean_ms,
+        "min_ms": float(np.min(values)),
+        "max_ms": float(np.max(values)),
+        "stddev_ms": stddev_ms,
+        "relative_stddev": float(stddev_ms / mean_ms) if mean_ms > 0.0 else 0.0,
+    }
 
 
 def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:

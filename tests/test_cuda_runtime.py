@@ -253,7 +253,15 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     np.testing.assert_allclose(actual_numpy.astype(np.float32), expected.float().cpu().numpy(), atol=atol, rtol=rtol)
 
 
-def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("d0_shape",),
+    [
+        ((2, 4, 6),),
+        ((6,),),
+        ((1, 6),),
+    ],
+)
+def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch, d0_shape):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
@@ -266,7 +274,7 @@ def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch):
         inputs={
             "a": dml.TensorSpec([2, 4, 8], "float32"),
             "b": dml.TensorSpec([2, 8, 6], "float32"),
-            "d0": dml.TensorSpec([2, 4, 6], "float32"),
+            "d0": dml.TensorSpec(d0_shape, "float32"),
         },
         name="bmm_rrr_add_float32_cutlass_cuda",
     )
@@ -283,7 +291,7 @@ def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch):
     torch.manual_seed(49)
     a = torch.randn((2, 4, 8), device="cuda", dtype=torch.float32)
     b = torch.randn((2, 8, 6), device="cuda", dtype=torch.float32)
-    d0 = torch.randn((2, 4, 6), device="cuda", dtype=torch.float32)
+    d0 = torch.randn(d0_shape, device="cuda", dtype=torch.float32)
     expected = torch.bmm(a, b) + d0
 
     module = runtime.load(artifact.path)

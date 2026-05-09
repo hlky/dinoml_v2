@@ -758,7 +758,7 @@ def test_bmm_add_kernel_manifest_uses_cutlass_epilogue_abi():
     assert "DINOML_FORWARD_BMM_ADD_EXPORT(bmm_rrr_add, float32" in rendered_support
 
 
-def test_cuda_bmm_add_lowering_rejects_trailing_bias_broadcast_until_broadcast_epilogue_exists():
+def test_cuda_bmm_add_lowering_uses_zero_stride_for_trailing_bias_broadcast():
     import dinoml as dml
 
     class BmmAddModel(dml.Module):
@@ -778,8 +778,12 @@ def test_cuda_bmm_add_lowering_rejects_trailing_bias_broadcast_until_broadcast_e
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
 
-    with pytest.raises(NotImplementedError, match="requires full-output d0 shape"):
-        render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
+    launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
+
+    assert "ptr_a, ptr_b, ptr_d0, ptr_t0" in launch
+    assert "shape_d0_0 != shape_t0_2" in launch
+    assert "static_cast<int64_t>(0)" in launch
+    assert "static_cast<int>(0)" in launch
 
 
 def test_apply_execution_plan_selects_profiled_cutlass_bmm_candidate_for_lowering():

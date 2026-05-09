@@ -87,9 +87,11 @@ class GemmProfileWorkload:
     batch_count: int | None = None
     batch_stride_a: int | None = None
     batch_stride_b: int | None = None
+    batch_stride_d0: int | None = None
     batch_stride_c: int | None = None
     lda: int | None = None
     ldb: int | None = None
+    ldd0: int | None = None
     ldc: int | None = None
 
     def to_json(self) -> dict[str, Any]:
@@ -142,6 +144,9 @@ class GemmProfileWorkload:
                 "b": int(self.ldb or 0),
                 "c": int(self.ldc or 0),
             }
+            if self.residual_tensors:
+                payload["batch_strides"]["d0"] = int(self.batch_stride_d0 or 0)
+                payload["leading_dimensions"]["d0"] = int(self.ldd0 or 0)
         return payload
 
 
@@ -313,6 +318,7 @@ def _append_bmm_profile_workloads(
         batch_stride_a = 0 if int(a_shape[0]) == 1 and batch_count != 1 else m * k
         batch_stride_b = 0 if int(b_shape[0]) == 1 and batch_count != 1 else n * k
         batch_stride_c = m * n
+        batch_stride_d0, ldd0 = _bmm_d0_profile_layout(spec.c_layout, residual_shapes, output_shape, m=m, n=n)
         for candidate in profile_candidates:
             for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
                 workloads.append(
@@ -361,12 +367,36 @@ def _append_bmm_profile_workloads(
                         batch_count=batch_count,
                         batch_stride_a=batch_stride_a,
                         batch_stride_b=batch_stride_b,
+                        batch_stride_d0=batch_stride_d0,
                         batch_stride_c=batch_stride_c,
                         lda=lda,
                         ldb=ldb,
+                        ldd0=ldd0,
                         ldc=ldc,
                     )
                 )
+
+
+def _bmm_d0_profile_layout(
+    c_layout: str,
+    residual_shapes: Sequence[Sequence[int]],
+    output_shape: Sequence[int],
+    *,
+    m: int,
+    n: int,
+) -> tuple[int | None, int | None]:
+    if not residual_shapes:
+        return None, None
+    d0_shape = tuple(int(dim) for dim in residual_shapes[0])
+    output = tuple(int(dim) for dim in output_shape)
+    if d0_shape == output:
+        return int(m * n), int(m if c_layout == "c" else n)
+    squeezed = list(d0_shape)
+    while len(squeezed) > 1 and squeezed[0] == 1:
+        squeezed = squeezed[1:]
+    if len(squeezed) == 1 and int(squeezed[0]) == int(output[-1]):
+        return 0, 0
+    raise RuntimeError(f"CUTLASS BMM profiler only supports full-output or trailing-bias add epilogue, got {d0_shape}")
 
 
 def _profile_candidates(
@@ -1763,8 +1793,8 @@ class _CudaProfiler:
         fn = getattr(self._cutlass_library("cutlass_bmm"), workload.profiler_symbol)
         fn.restype = ctypes.c_float
         if residuals:
-            if len(residuals) != 1 or tuple(workload.residual_shapes[0]) != tuple(workload.output_shape):
-                raise RuntimeError(f"CUTLASS BMM profiler only supports full-output add epilogue for {workload.op}")
+            if len(residuals) != 1:
+                raise RuntimeError(f"CUTLASS BMM profiler only supports one add epilogue input for {workload.op}")
             fn.argtypes = [
                 ctypes.c_void_p,
                 ctypes.c_void_p,
@@ -1797,11 +1827,11 @@ class _CudaProfiler:
                     ctypes.c_int(workload.k),
                     ctypes.c_int64(int(workload.batch_stride_a or 0)),
                     ctypes.c_int64(int(workload.batch_stride_b or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
+                    ctypes.c_int64(int(workload.batch_stride_d0 or 0)),
                     ctypes.c_int64(int(workload.batch_stride_c or 0)),
                     ctypes.c_int(int(workload.lda or 0)),
                     ctypes.c_int(int(workload.ldb or 0)),
-                    ctypes.c_int(int(workload.ldc or 0)),
+                    ctypes.c_int(int(workload.ldd0 or 0)),
                     ctypes.c_int(int(workload.ldc or 0)),
                     ctypes.c_int(iterations),
                     ctypes.c_void_p(0),

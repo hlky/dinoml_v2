@@ -34,8 +34,6 @@ def render_launch(
     d0_ident = _c_ident(d0_name) if d0_name is not None else None
     c_ident = _c_ident(c_name)
     _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
-    if d0_name is not None and list(tensor_map[d0_name]["shape"]) != list(tensor_map[c_name]["shape"]):
-        raise NotImplementedError(f"{op_name} CUDA lowering requires full-output d0 shape for CUTLASS add epilogue")
     dtype = str(tensor_map[c_name]["dtype"])
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
     _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
@@ -58,7 +56,8 @@ def render_launch(
     ldc_expr = m_expr if spec.c_layout == "c" else n_expr
     batch_stride_a = f"(({a_batch} == 1 && {batch_expr} != 1) ? 0 : ({m_expr}) * ({k_expr}))"
     batch_stride_b = f"(({b_batch} == 1 && {batch_expr} != 1) ? 0 : ({n_expr}) * ({k_expr}))"
-    batch_stride_d0 = f"({m_expr}) * ({n_expr})"
+    d0_layout = _d0_layout_context(op_name, spec.c_layout, tensor_map[d0_name], tensor_map[c_name], m_expr, n_expr) if d0_name else None
+    batch_stride_d0 = d0_layout["batch_stride"] if d0_layout is not None else f"({m_expr}) * ({n_expr})"
     batch_stride_c = f"({m_expr}) * ({n_expr})"
     output_check = _output_shape_check(c_ident, batch_expr, m_expr, n_expr, spec.c_layout)
     selected_candidate = _selected_cutlass_candidate(manifest_item)
@@ -68,12 +67,8 @@ def render_launch(
         f'if ({k_a_expr} != {k_b_expr}) return dinoml::module::fail("{op_name} K dimension mismatch");',
         f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
     ]
-    if d0_ident is not None:
-        lines.append(
-            f'if (shape_{d0_ident}_0 != shape_{c_ident}_0 || shape_{d0_ident}_1 != shape_{c_ident}_1 || '
-            f'shape_{d0_ident}_2 != shape_{c_ident}_2) '
-            f'return dinoml::module::fail("{op_name} d0 shape mismatch");'
-        )
+    if d0_ident is not None and d0_layout is not None:
+        lines.append(_d0_shape_check(op_name, d0_ident, c_ident, d0_layout))
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
         symbol=symbol,
@@ -94,7 +89,7 @@ def render_launch(
         batch_stride_c=batch_stride_c,
         lda_expr=lda_expr,
         ldb_expr=ldb_expr,
-        ldd0_expr=ldc_expr,
+        ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
         ldc_expr=ldc_expr,
     )
     dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
@@ -120,7 +115,7 @@ def render_launch(
                 batch_stride_c=batch_stride_c,
                 lda_expr=lda_expr,
                 ldb_expr=ldb_expr,
-                ldd0_expr=ldc_expr,
+                ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
                 ldc_expr=ldc_expr,
             )
         )
@@ -143,6 +138,52 @@ def _output_shape_check(c_ident: str, batch_expr: str, m_expr: str, n_expr: str,
     if c_layout == "c":
         return f"shape_{c_ident}_0 != ({batch_expr}) || shape_{c_ident}_1 != ({n_expr}) || shape_{c_ident}_2 != ({m_expr})"
     return f"shape_{c_ident}_0 != ({batch_expr}) || shape_{c_ident}_1 != ({m_expr}) || shape_{c_ident}_2 != ({n_expr})"
+
+
+def _d0_layout_context(
+    op_name: str,
+    c_layout: str,
+    d0_info: Mapping[str, Any],
+    c_info: Mapping[str, Any],
+    m_expr: str,
+    n_expr: str,
+) -> dict[str, str]:
+    d0_shape = [int(dim) for dim in d0_info["shape"]]
+    c_shape = [int(dim) for dim in c_info["shape"]]
+    if d0_shape == c_shape:
+        ld = m_expr if c_layout == "c" else n_expr
+        return {"kind": "full_output", "batch_stride": f"({m_expr}) * ({n_expr})", "ld": ld}
+    squeezed = list(d0_shape)
+    squeezed_leading = 0
+    while len(squeezed) > 1 and squeezed[0] == 1:
+        squeezed = squeezed[1:]
+        squeezed_leading += 1
+    expected_extent = c_shape[-1]
+    if len(squeezed) == 1 and int(squeezed[0]) == int(expected_extent):
+        return {
+            "kind": "trailing_bias",
+            "batch_stride": "0",
+            "ld": "0",
+            "trailing_axis": str(len(d0_shape) - 1),
+            "leading_ones": str(squeezed_leading),
+        }
+    raise NotImplementedError(f"{op_name} CUDA lowering requires full-output or trailing-bias d0 shape")
+
+
+def _d0_shape_check(op_name: str, d0_ident: str, c_ident: str, d0_layout: Mapping[str, str]) -> str:
+    if d0_layout["kind"] == "full_output":
+        return (
+            f'if (shape_{d0_ident}_0 != shape_{c_ident}_0 || shape_{d0_ident}_1 != shape_{c_ident}_1 || '
+            f'shape_{d0_ident}_2 != shape_{c_ident}_2) '
+            f'return dinoml::module::fail("{op_name} d0 shape mismatch");'
+        )
+    leading_checks = [
+        f"shape_{d0_ident}_{axis} != 1"
+        for axis in range(int(d0_layout.get("leading_ones", "0")))
+    ]
+    trailing_axis = int(d0_layout["trailing_axis"])
+    checks = [*leading_checks, f"shape_{d0_ident}_{trailing_axis} != shape_{c_ident}_2"]
+    return f'if ({" || ".join(checks)}) return dinoml::module::fail("{op_name} d0 shape mismatch");'
 
 
 def _validate_cutlass_execution_plan_metadata(op_name: str, item: Mapping[str, Any] | None) -> None:

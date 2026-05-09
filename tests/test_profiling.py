@@ -295,6 +295,52 @@ def test_build_profile_workloads_supports_cutlass_bmm_add_full_output_epilogue(t
     assert key_payload["epilogue_config"]["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
 
 
+def test_build_profile_workloads_supports_cutlass_bmm_add_trailing_bias_epilogue(tmp_path):
+    class BmmAddModule(dml.Module):
+        def forward(self, a, b, d0):
+            return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
+
+    spec = dml.trace(
+        BmmAddModule(),
+        inputs={
+            "a": dml.TensorSpec([2, 4, 8], "float32"),
+            "b": dml.TensorSpec([2, 8, 6], "float32"),
+            "d0": dml.TensorSpec([6], "float32"),
+        },
+        name="profile_bmm_rrr_add_bias",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(manifest, tmp_path / "cache").to_json()
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert workloads
+    workload = workloads[0]
+    assert workload.op == "bmm_rrr_add"
+    assert workload.residual_tensors == ("d0",)
+    assert workload.residual_shapes == ((6,),)
+    assert workload.batch_stride_d0 == 0
+    assert workload.ldd0 == 0
+    payload = workload.to_json()
+    assert payload["batch_strides"]["d0"] == 0
+    assert payload["leading_dimensions"]["d0"] == 0
+    key_payload = _profile_key_payload(
+        workload,
+        {"target": DEFAULT_CUDA_TARGET},
+        manifest,
+        codegen_plan,
+        context={
+            "fingerprint": {
+                "hardware_key": "hardware-key",
+                "support_libraries_key": "support-key",
+            }
+        },
+    )
+    assert key_payload["epilogue"] == "add"
+    assert key_payload["candidate_set_id"] == "cutlass_bmm_rrr_add_float32_add_v1"
+
+
 def test_profile_result_records_bmm_batch_shape_and_cost_model():
     spec = dml.trace(
         BmmModule("bmm_ccc"),

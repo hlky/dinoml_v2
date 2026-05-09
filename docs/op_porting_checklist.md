@@ -174,10 +174,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] First BMM add epilogue:
   `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}_add` now registers CUTLASS candidate
   sets and a `dinoml_cutlass_bmm_add_v1` launcher/profiler ABI for full-output
-  `d0` tensors. The support source uses CUTLASS source-C/beta epilogue
-  semantics instead of a post-BMM elementwise kernel, and profiling includes
-  `d0` in epilogue alignment metadata. Remaining BMM work: v1-style trailing
-  bias broadcast epilogues plus split-K/grouped extensions.
+  `d0` tensors and v1-style trailing-bias `d0` tensors. The support source uses
+  CUTLASS source-C/beta epilogue semantics instead of a post-BMM elementwise
+  kernel, uses zero source-C stride/leading-dimension for trailing bias, and
+  profiling includes `d0` in epilogue alignment metadata. Remaining BMM work:
+  split-K/grouped extensions and broader non-trailing broadcast forms.
 - [x] First profile-selected execution-plan artifact:
   `dinoml profile` now writes `debug/execution_plan.json`, selecting the fastest
   measured candidate per profiled node/shape and emitting a static overlay only
@@ -270,11 +271,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   semantics, batch broadcasting, dynamic shape metadata, v1-style trailing-bias
   addend validation, and CPU reference execution.
 - [x] CUTLASS BMM launch/profiling family:
-  base BMM and full-output `_add` BMM use real batched CUTLASS ABIs with batch
-  strides, C row/column output layout, candidate metadata, profiling workloads,
-  and execution-plan selections.
-- [ ] Remaining bias/broadcast epilogues: BMM trailing-bias `_add` and broader
-  broadcast forms beyond rank-2 output-shaped residual tensors.
+  base BMM and `_add` BMM use real batched CUTLASS ABIs with batch strides, C
+  row/column output layout, candidate metadata, profiling workloads, and
+  execution-plan selections.
+- [ ] Remaining bias/broadcast epilogues: broader broadcast forms beyond
+  full-output and v1-style trailing-bias residual tensors.
 - [x] Remaining activation epilogue: `elup1` is available as
   `gemm_{rcr,rrr}_bias_elup1` through the existing CUTLASS bias-activation
   ABI. The v1 `gemm_rcr_permute_elup1` layout-fused form remains under

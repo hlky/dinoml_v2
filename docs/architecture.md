@@ -225,14 +225,15 @@ The bias epilogue accepts a rank-1 `N` bias or rank-2 `[1, N]` bias, and
 activation/residual epilogues instantiate CUTLASS thread epilogue functors
 directly. The checked-in macro-backed support source is rendered down to the
 used launcher/profiler symbols for each support build. Richer broadcast/visitor
-epilogues, BMM trailing-bias broadcast epilogues, grouped GEMM, and public
+epilogues, broader non-trailing BMM broadcast forms, grouped GEMM, and public
 `matmul` layout selection remain follow-up work. Base `bmm_*` layouts now use a
 separate `cutlass_bmm` support library and profile path with batch-count,
 batch-stride, and leading-dimension ABI fields, v1 layout semantics, C-column
 output handling, batch-broadcast strides, static profile-selected candidate
 consumption, and guarded profile dispatch for conflicting batch/M/N/K shapes.
-BMM `_add` variants use a separate CUTLASS add ABI for full-output `d0` tensors,
-passing `d0` as source C so the add remains a CUTLASS epilogue.
+BMM `_add` variants use a separate CUTLASS add ABI for full-output and
+v1-style trailing-bias `d0` tensors, passing `d0` as source C so the add remains
+a CUTLASS epilogue.
 
 GEMM metadata now has a contributor-facing split:
 

@@ -151,8 +151,8 @@ int launch_bmm_add_policy(
   if (batch_count <= 0 || m <= 0 || n <= 0 || k <= 0) {
     return 2;
   }
-  if (batch_stride_a < 0 || batch_stride_b < 0 || batch_stride_d0 <= 0 || batch_stride_c <= 0 || lda <= 0 ||
-      ldb <= 0 || ldd0 <= 0 || ldc <= 0) {
+  if (batch_stride_a < 0 || batch_stride_b < 0 || batch_stride_d0 < 0 || batch_stride_c <= 0 || lda <= 0 ||
+      ldb <= 0 || ldd0 < 0 || ldc <= 0) {
     return 2;
   }
   using EpilogueOp = cutlass::epilogue::thread::LinearCombination<

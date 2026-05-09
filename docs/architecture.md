@@ -218,8 +218,8 @@ so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
 without embedding a handwritten matmul. These ops preserve dynamic `M/N`
 metadata and launch with runtime `M/N/K`; folded leading dimensions on
 `A[..., K]` are flattened into CUTLASS `m` while retaining logical `C[..., N]`
-shape metadata, with first RCR folded residual coverage for
-`gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`.
+shape metadata, with first RCR/RRR folded residual coverage for
+`gemm_{rcr,rrr}_bias_{add,add_relu,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`.
 The bias epilogue accepts a rank-1 `N` bias or rank-2 `[1, N]` bias, and
 activation/residual epilogues instantiate CUTLASS thread epilogue functors
 directly. The checked-in macro-backed support source is rendered down to the

@@ -42,6 +42,19 @@ def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=No
     return len(_cutlass_candidates(dtype, op_name=op_name, target=target))
 
 
+def _assert_folded_residual_workload_alignment(workloads, *, layout: str, op_name: str) -> None:
+    full_candidate_count = _cutlass_candidate_count("float32", op_name=op_name)
+    if layout == "rcr":
+        assert len(workloads) == full_candidate_count
+    else:
+        assert len(workloads) < full_candidate_count
+        assert {workload.candidate["cutlass"]["align"] for workload in workloads} == {1}
+        assert all(
+            workload.alignment_context["candidate_filter"]["max_operand_alignment"] == 1
+            for workload in workloads
+        )
+
+
 def _cutlass_default_candidate_id(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> str:
     return str(_cutlass_candidates(dtype, op_name=op_name, target=target)[0]["candidate_id"])
 
@@ -109,11 +122,17 @@ GEMM_BIAS_RESIDUAL_CASES = tuple(
 )
 GEMM_BIAS_RESIDUAL_CASES = (
     *GEMM_BIAS_RESIDUAL_CASES,
-    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
-    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
-    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+    *(
+        (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
+        for layout in ("rcr", "rrr")
+        for suffix, epilogue, inputs in (
+            ("add_relu", "bias_add_relu", ("bias", "d0")),
+            ("add_add_relu", "bias_add_add_relu", ("bias", "d0", "d1")),
+            ("mul_tanh", "bias_mul_tanh", ("bias", "d0")),
+            ("sigmoid_mul", "bias_sigmoid_mul", ("bias", "d0")),
+            ("sigmoid_mul_tanh", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+        )
+    ),
 )
 
 
@@ -631,7 +650,9 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    required = manifest["required_kernels"][0]
+    assert len(workloads) == len(required["candidates"])
+    assert len(workloads) == _cutlass_candidate_count("float32", op_name=op_name)
     workload = workloads[0]
     assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_{_cutlass_default_symbol_id('float32')}"
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
@@ -665,21 +686,27 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
 
 
 @pytest.mark.parametrize(
-    ("op_name", "epilogue"),
+    ("op_name", "layout", "epilogue"),
     [
-        ("gemm_rcr_bias_add", "bias_add"),
-        ("gemm_rcr_bias_mul", "bias_mul"),
-        ("gemm_rcr_bias_mul_tanh", "bias_mul_tanh"),
-        ("gemm_rcr_bias_sigmoid_mul", "bias_sigmoid_mul"),
-        ("gemm_rcr_bias_sigmoid_mul_tanh", "bias_sigmoid_mul_tanh"),
+        (f"gemm_{layout}_bias_{suffix}", layout, epilogue)
+        for layout in ("rcr", "rrr")
+        for suffix, epilogue in (
+            ("add", "bias_add"),
+            ("add_relu", "bias_add_relu"),
+            ("mul", "bias_mul"),
+            ("mul_tanh", "bias_mul_tanh"),
+            ("sigmoid_mul", "bias_sigmoid_mul"),
+            ("sigmoid_mul_tanh", "bias_sigmoid_mul_tanh"),
+        )
     ],
 )
-def test_build_profile_workloads_flattens_gemm_rcr_single_residual_folded_m(op_name, epilogue):
+def test_build_profile_workloads_flattens_gemm_single_residual_folded_m(op_name, layout, epilogue):
+    b_shape = [11, 32] if layout == "rcr" else [32, 11]
     spec = dml.trace(
         GemmResidualModule(op_name),
         inputs={
             "a": dml.TensorSpec([2, 3, 32], "float32"),
-            "b": dml.TensorSpec([11, 32], "float32"),
+            "b": dml.TensorSpec(b_shape, "float32"),
             "bias": dml.TensorSpec([11], "float32"),
             "d0": dml.TensorSpec([2, 3, 11], "float32"),
         },
@@ -690,33 +717,39 @@ def test_build_profile_workloads_flattens_gemm_rcr_single_residual_folded_m(op_n
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    _assert_folded_residual_workload_alignment(workloads, layout=layout, op_name=op_name)
     workload = workloads[0]
     assert (workload.m, workload.n, workload.k) == (6, 11, 32)
     assert workload.a_shape == (2, 3, 32)
-    assert workload.b_shape == (11, 32)
+    assert workload.b_shape == tuple(b_shape)
     assert workload.residual_shapes == ((2, 3, 11),)
     assert workload.output_shape == (2, 3, 11)
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
+    assert workload.to_json()["inputs"]["b"] == b_shape
     assert workload.to_json()["inputs"]["a"] == [2, 3, 32]
     assert workload.to_json()["inputs"]["d0"] == [2, 3, 11]
     assert list(workload.to_json()["output"].values()) == [[2, 3, 11]]
 
 
 @pytest.mark.parametrize(
-    ("op_name", "epilogue"),
+    ("op_name", "layout", "epilogue"),
     [
-        ("gemm_rcr_bias_add_add", "bias_add_add"),
-        ("gemm_rcr_bias_mul_add", "bias_mul_add"),
-        ("gemm_rcr_bias_add_add_relu", "bias_add_add_relu"),
+        (f"gemm_{layout}_bias_{suffix}", layout, epilogue)
+        for layout in ("rcr", "rrr")
+        for suffix, epilogue in (
+            ("add_add", "bias_add_add"),
+            ("mul_add", "bias_mul_add"),
+            ("add_add_relu", "bias_add_add_relu"),
+        )
     ],
 )
-def test_build_profile_workloads_flattens_gemm_rcr_dual_residual_folded_m(op_name, epilogue):
+def test_build_profile_workloads_flattens_gemm_dual_residual_folded_m(op_name, layout, epilogue):
+    b_shape = [11, 32] if layout == "rcr" else [32, 11]
     spec = dml.trace(
         GemmResidualModule(op_name),
         inputs={
             "a": dml.TensorSpec([2, 3, 32], "float32"),
-            "b": dml.TensorSpec([11, 32], "float32"),
+            "b": dml.TensorSpec(b_shape, "float32"),
             "bias": dml.TensorSpec([11], "float32"),
             "d0": dml.TensorSpec([2, 3, 11], "float32"),
             "d1": dml.TensorSpec([2, 3, 11], "float32"),
@@ -728,14 +761,16 @@ def test_build_profile_workloads_flattens_gemm_rcr_dual_residual_folded_m(op_nam
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    _assert_folded_residual_workload_alignment(workloads, layout=layout, op_name=op_name)
     workload = workloads[0]
     assert (workload.m, workload.n, workload.k) == (6, 11, 32)
+    assert workload.b_shape == tuple(b_shape)
     assert workload.residual_tensors == ("d0", "d1")
     assert workload.residual_shapes == ((2, 3, 11), (2, 3, 11))
     assert workload.output_shape == (2, 3, 11)
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
     inputs = workload.to_json()["inputs"]
+    assert inputs["b"] == b_shape
     assert inputs["d0"] == [2, 3, 11]
     assert inputs["d1"] == [2, 3, 11]
     assert list(workload.to_json()["output"].values()) == [[2, 3, 11]]

@@ -578,8 +578,13 @@ def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activ
         ("rcr", [6, 8], "sigmoid_mul_tanh", ("bias", "d0")),
         ("rrr", [8, 6], "add", ("bias", "d0")),
         ("rrr", [8, 6], "add_add", ("bias", "d0", "d1")),
+        ("rrr", [8, 6], "add_relu", ("bias", "d0")),
+        ("rrr", [8, 6], "add_add_relu", ("bias", "d0", "d1")),
         ("rrr", [8, 6], "mul", ("bias", "d0")),
         ("rrr", [8, 6], "mul_add", ("bias", "d0", "d1")),
+        ("rrr", [8, 6], "mul_tanh", ("bias", "d0")),
+        ("rrr", [8, 6], "sigmoid_mul", ("bias", "d0")),
+        ("rrr", [8, 6], "sigmoid_mul_tanh", ("bias", "d0")),
     ],
 )
 def test_gemm_bias_residual_frontend_emits_epilogue_ops(layout, b_shape, suffix, epilogue_inputs):
@@ -601,17 +606,18 @@ def test_gemm_bias_residual_frontend_emits_epilogue_ops(layout, b_shape, suffix,
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 
 
-@pytest.mark.parametrize("suffix", ["add", "mul", "mul_tanh", "sigmoid_mul", "sigmoid_mul_tanh"])
-def test_gemm_rcr_single_residual_frontend_accepts_folded_m(suffix):
+@pytest.mark.parametrize("suffix", ["add", "add_relu", "mul", "mul_tanh", "sigmoid_mul", "sigmoid_mul_tanh"])
+@pytest.mark.parametrize("layout", ["rcr", "rrr"])
+def test_gemm_single_residual_frontend_accepts_folded_m(layout, suffix):
     batch = dml.Dim("batch", min=1, max=4)
     heads = dml.Dim("heads", min=1, max=3)
     tokens = dml.Dim("tokens", min=1, max=6)
-    op_name = f"gemm_rcr_bias_{suffix}"
+    op_name = f"gemm_{layout}_bias_{suffix}"
     spec = dml.trace(
         GemmResidualOpModule(op_name),
         inputs={
             "a": dml.TensorSpec([batch, heads, 8]),
-            "b": dml.TensorSpec([tokens, 8]),
+            "b": dml.TensorSpec([tokens, 8] if layout == "rcr" else [8, tokens]),
             "bias": dml.TensorSpec([tokens]),
             "d0": dml.TensorSpec([batch, heads, tokens]),
         },
@@ -626,16 +632,17 @@ def test_gemm_rcr_single_residual_frontend_accepts_folded_m(suffix):
 
 
 @pytest.mark.parametrize("suffix", ["add_add", "mul_add", "add_add_relu"])
-def test_gemm_rcr_dual_residual_frontend_accepts_folded_m(suffix):
+@pytest.mark.parametrize("layout", ["rcr", "rrr"])
+def test_gemm_dual_residual_frontend_accepts_folded_m(layout, suffix):
     batch = dml.Dim("batch", min=1, max=4)
     heads = dml.Dim("heads", min=1, max=3)
     tokens = dml.Dim("tokens", min=1, max=6)
-    op_name = f"gemm_rcr_bias_{suffix}"
+    op_name = f"gemm_{layout}_bias_{suffix}"
     spec = dml.trace(
         GemmResidualOpModule(op_name),
         inputs={
             "a": dml.TensorSpec([batch, heads, 8]),
-            "b": dml.TensorSpec([tokens, 8]),
+            "b": dml.TensorSpec([tokens, 8] if layout == "rcr" else [8, tokens]),
             "bias": dml.TensorSpec([tokens]),
             "d0": dml.TensorSpec([batch, heads, tokens]),
             "d1": dml.TensorSpec([batch, heads, tokens]),

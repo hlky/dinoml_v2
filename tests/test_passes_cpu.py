@@ -43,11 +43,17 @@ GEMM_BIAS_RESIDUAL_EPILOGUES = tuple(
 )
 GEMM_BIAS_RESIDUAL_EPILOGUES = (
     *GEMM_BIAS_RESIDUAL_EPILOGUES,
-    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
-    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
-    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+    *(
+        (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
+        for layout in ("rcr", "rrr")
+        for suffix, epilogue, inputs in (
+            ("add_relu", "bias_add_relu", ("bias", "d0")),
+            ("add_add_relu", "bias_add_add_relu", ("bias", "d0", "d1")),
+            ("mul_tanh", "bias_mul_tanh", ("bias", "d0")),
+            ("sigmoid_mul", "bias_sigmoid_mul", ("bias", "d0")),
+            ("sigmoid_mul_tanh", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+        )
+    ),
 )
 GEMM_BIAS_RESIDUAL_EXPORT_MACROS = {
     "bias_add": "DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT",
@@ -1238,16 +1244,14 @@ def test_cuda_lowering_passes_gemm_residual_epilogue_pointer_args(op_name, layou
 
 
 @pytest.mark.parametrize(
-    "op_name",
+    ("op_name", "layout"),
     [
-        "gemm_rcr_bias_add",
-        "gemm_rcr_bias_mul",
-        "gemm_rcr_bias_mul_tanh",
-        "gemm_rcr_bias_sigmoid_mul",
-        "gemm_rcr_bias_sigmoid_mul_tanh",
+        (f"gemm_{layout}_bias_{suffix}", layout)
+        for layout in ("rcr", "rrr")
+        for suffix in ("add", "add_relu", "mul", "mul_tanh", "sigmoid_mul", "sigmoid_mul_tanh")
     ],
 )
-def test_cuda_lowering_flattens_gemm_rcr_single_residual_folded_m(op_name):
+def test_cuda_lowering_flattens_gemm_single_residual_folded_m(op_name, layout):
     import dinoml as dml
 
     class GemmResidualModel(dml.Module):
@@ -1259,7 +1263,7 @@ def test_cuda_lowering_flattens_gemm_rcr_single_residual_folded_m(op_name):
         GemmResidualModel(),
         inputs={
             "a": dml.TensorSpec([2, 3, 8], "float32"),
-            "b": dml.TensorSpec([6, 8], "float32"),
+            "b": dml.TensorSpec([6, 8] if layout == "rcr" else [8, 6], "float32"),
             "bias": dml.TensorSpec([6], "float32"),
             "d0": dml.TensorSpec([2, 3, 6], "float32"),
         },
@@ -1273,18 +1277,26 @@ def test_cuda_lowering_flattens_gemm_rcr_single_residual_folded_m(op_name):
     symbol = manifest["required_kernels"][0]["kernel_symbol"]
     output_name = lowered["nodes"][0]["outputs"][0]
     output_ptr = f"ptr_{output_name}"
+    n_expr = "shape_b_0" if layout == "rcr" else "shape_b_1"
     expected_call = (
         f"{symbol}(ptr_a, ptr_b, ptr_bias, ptr_d0, {output_ptr}, "
-        "static_cast<int>(shape_a_0 * shape_a_1), static_cast<int>(shape_b_0), "
+        f"static_cast<int>(shape_a_0 * shape_a_1), static_cast<int>({n_expr}), "
         "static_cast<int>(shape_a_2), session->stream)"
     )
     assert expected_call in generated
-    assert f"shape_{output_name}_0 != shape_a_0 || shape_{output_name}_1 != shape_a_1 || shape_{output_name}_2 != shape_b_0" in generated
-    assert "shape_d0_0 != shape_a_0 || shape_d0_1 != shape_a_1 || shape_d0_2 != shape_b_0" in generated
+    assert f"shape_{output_name}_0 != shape_a_0 || shape_{output_name}_1 != shape_a_1 || shape_{output_name}_2 != {n_expr}" in generated
+    assert f"shape_d0_0 != shape_a_0 || shape_d0_1 != shape_a_1 || shape_d0_2 != {n_expr}" in generated
 
 
-@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add_add", "gemm_rcr_bias_mul_add", "gemm_rcr_bias_add_add_relu"])
-def test_cuda_lowering_flattens_gemm_rcr_dual_residual_folded_m(op_name):
+@pytest.mark.parametrize(
+    ("op_name", "layout"),
+    [
+        (f"gemm_{layout}_bias_{suffix}", layout)
+        for layout in ("rcr", "rrr")
+        for suffix in ("add_add", "mul_add", "add_add_relu")
+    ],
+)
+def test_cuda_lowering_flattens_gemm_dual_residual_folded_m(op_name, layout):
     import dinoml as dml
 
     class GemmResidualModel(dml.Module):
@@ -1296,7 +1308,7 @@ def test_cuda_lowering_flattens_gemm_rcr_dual_residual_folded_m(op_name):
         GemmResidualModel(),
         inputs={
             "a": dml.TensorSpec([2, 3, 8], "float32"),
-            "b": dml.TensorSpec([6, 8], "float32"),
+            "b": dml.TensorSpec([6, 8] if layout == "rcr" else [8, 6], "float32"),
             "bias": dml.TensorSpec([6], "float32"),
             "d0": dml.TensorSpec([2, 3, 6], "float32"),
             "d1": dml.TensorSpec([2, 3, 6], "float32"),
@@ -1311,15 +1323,16 @@ def test_cuda_lowering_flattens_gemm_rcr_dual_residual_folded_m(op_name):
     symbol = manifest["required_kernels"][0]["kernel_symbol"]
     output_name = lowered["nodes"][0]["outputs"][0]
     output_ptr = f"ptr_{output_name}"
+    n_expr = "shape_b_0" if layout == "rcr" else "shape_b_1"
     expected_call = (
         f"{symbol}(ptr_a, ptr_b, ptr_bias, ptr_d0, ptr_d1, {output_ptr}, "
-        "static_cast<int>(shape_a_0 * shape_a_1), static_cast<int>(shape_b_0), "
+        f"static_cast<int>(shape_a_0 * shape_a_1), static_cast<int>({n_expr}), "
         "static_cast<int>(shape_a_2), session->stream)"
     )
     assert expected_call in generated
-    assert f"shape_{output_name}_0 != shape_a_0 || shape_{output_name}_1 != shape_a_1 || shape_{output_name}_2 != shape_b_0" in generated
-    assert "shape_d0_0 != shape_a_0 || shape_d0_1 != shape_a_1 || shape_d0_2 != shape_b_0" in generated
-    assert "shape_d1_0 != shape_a_0 || shape_d1_1 != shape_a_1 || shape_d1_2 != shape_b_0" in generated
+    assert f"shape_{output_name}_0 != shape_a_0 || shape_{output_name}_1 != shape_a_1 || shape_{output_name}_2 != {n_expr}" in generated
+    assert f"shape_d0_0 != shape_a_0 || shape_d0_1 != shape_a_1 || shape_d0_2 != {n_expr}" in generated
+    assert f"shape_d1_0 != shape_a_0 || shape_d1_1 != shape_a_1 || shape_d1_2 != {n_expr}" in generated
 
 
 def test_gemm_kernel_manifest_keeps_distinct_dtype_variants():

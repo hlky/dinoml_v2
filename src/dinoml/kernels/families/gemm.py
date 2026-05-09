@@ -284,12 +284,14 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
         for layout in ("rcr", "rrr")
     },
     **{
-        f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
+        f"gemm_{layout}_bias_{name}": _gemm_op_spec(f"gemm_{layout}_bias_{name}", layout, epilogue)
         for name, epilogue in BIAS_RESIDUAL_RELU_EPILOGUES.items()
+        for layout in ("rcr", "rrr")
     },
     **{
-        f"gemm_rcr_bias_{name}": _gemm_op_spec(f"gemm_rcr_bias_{name}", "rcr", epilogue)
+        f"gemm_{layout}_bias_{name}": _gemm_op_spec(f"gemm_{layout}_bias_{name}", layout, epilogue)
         for name, epilogue in BIAS_RESIDUAL_COMPOUND_EPILOGUES.items()
+        for layout in ("rcr", "rrr")
     },
 }
 GEMM_OPS = tuple(GEMM_OP_SPECS)

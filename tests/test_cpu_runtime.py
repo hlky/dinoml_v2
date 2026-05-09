@@ -135,19 +135,27 @@ GEMM_BIAS_RESIDUAL_CASES = tuple(
         ("mul_add", "bias_mul_add", ("bias", "d0", "d1")),
     )
 )
-GEMM_RCR_BIAS_RESIDUAL_RELU_CASES = (
-    ("gemm_rcr_bias_add_relu", "rcr", "bias_add_relu", ("bias", "d0")),
-    ("gemm_rcr_bias_add_add_relu", "rcr", "bias_add_add_relu", ("bias", "d0", "d1")),
+GEMM_BIAS_RESIDUAL_RELU_CASES = tuple(
+    (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
+    for layout in ("rcr", "rrr")
+    for suffix, epilogue, inputs in (
+        ("add_relu", "bias_add_relu", ("bias", "d0")),
+        ("add_add_relu", "bias_add_add_relu", ("bias", "d0", "d1")),
+    )
 )
-GEMM_RCR_BIAS_RESIDUAL_COMPOUND_CASES = (
-    ("gemm_rcr_bias_mul_tanh", "rcr", "bias_mul_tanh", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul", "rcr", "bias_sigmoid_mul", ("bias", "d0")),
-    ("gemm_rcr_bias_sigmoid_mul_tanh", "rcr", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+GEMM_BIAS_RESIDUAL_COMPOUND_CASES = tuple(
+    (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
+    for layout in ("rcr", "rrr")
+    for suffix, epilogue, inputs in (
+        ("mul_tanh", "bias_mul_tanh", ("bias", "d0")),
+        ("sigmoid_mul", "bias_sigmoid_mul", ("bias", "d0")),
+        ("sigmoid_mul_tanh", "bias_sigmoid_mul_tanh", ("bias", "d0")),
+    )
 )
 GEMM_BIAS_RESIDUAL_CASES = (
     *GEMM_BIAS_RESIDUAL_CASES,
-    *GEMM_RCR_BIAS_RESIDUAL_RELU_CASES,
-    *GEMM_RCR_BIAS_RESIDUAL_COMPOUND_CASES,
+    *GEMM_BIAS_RESIDUAL_RELU_CASES,
+    *GEMM_BIAS_RESIDUAL_COMPOUND_CASES,
 )
 
 
@@ -998,21 +1006,19 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
 
 
 @pytest.mark.parametrize(
-    "op_name",
+    ("op_name", "layout"),
     [
-        "gemm_rcr_bias_add",
-        "gemm_rcr_bias_mul",
-        "gemm_rcr_bias_mul_tanh",
-        "gemm_rcr_bias_sigmoid_mul",
-        "gemm_rcr_bias_sigmoid_mul_tanh",
+        (f"gemm_{layout}_bias_{suffix}", layout)
+        for layout in ("rcr", "rrr")
+        for suffix in ("add", "add_relu", "mul", "mul_tanh", "sigmoid_mul", "sigmoid_mul_tanh")
     ],
 )
-def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
+def test_cpu_reference_gemm_single_residual_folded_m_matches_numpy(op_name, layout):
     spec = dml.trace(
         GemmResidualModule(op_name),
         inputs={
             "a": dml.TensorSpec([2, 3, 8], "float32"),
-            "b": dml.TensorSpec([6, 8], "float32"),
+            "b": dml.TensorSpec([6, 8] if layout == "rcr" else [8, 6], "float32"),
             "bias": dml.TensorSpec([6], "float32"),
             "d0": dml.TensorSpec([2, 3, 6], "float32"),
         },
@@ -1021,13 +1027,15 @@ def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
     rng = np.random.default_rng(992)
     inputs = {
         "a": rng.standard_normal((2, 3, 8)).astype(np.float32),
-        "b": rng.standard_normal((6, 8)).astype(np.float32),
+        "b": rng.standard_normal((6, 8) if layout == "rcr" else (8, 6)).astype(np.float32),
         "bias": rng.standard_normal((6,)).astype(np.float32),
         "d0": rng.standard_normal((2, 3, 6)).astype(np.float32),
     }
-    result = inputs["a"] @ inputs["b"].T + inputs["bias"]
+    result = inputs["a"] @ (inputs["b"].T if layout == "rcr" else inputs["b"]) + inputs["bias"]
     if op_name.endswith("_bias_add"):
         result = result + inputs["d0"]
+    elif op_name.endswith("_bias_add_relu"):
+        result = np.maximum(result + inputs["d0"], 0.0)
     elif op_name.endswith("_bias_mul"):
         result = result * inputs["d0"]
     elif op_name.endswith("_bias_mul_tanh"):
@@ -1042,13 +1050,20 @@ def test_cpu_reference_gemm_rcr_single_residual_folded_m_matches_numpy(op_name):
     np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
-@pytest.mark.parametrize("op_name", ["gemm_rcr_bias_add_add", "gemm_rcr_bias_mul_add", "gemm_rcr_bias_add_add_relu"])
-def test_cpu_reference_gemm_rcr_dual_residual_folded_m_matches_numpy(op_name):
+@pytest.mark.parametrize(
+    ("op_name", "layout"),
+    [
+        (f"gemm_{layout}_bias_{suffix}", layout)
+        for layout in ("rcr", "rrr")
+        for suffix in ("add_add", "mul_add", "add_add_relu")
+    ],
+)
+def test_cpu_reference_gemm_dual_residual_folded_m_matches_numpy(op_name, layout):
     spec = dml.trace(
         GemmResidualModule(op_name),
         inputs={
             "a": dml.TensorSpec([2, 3, 8], "float32"),
-            "b": dml.TensorSpec([6, 8], "float32"),
+            "b": dml.TensorSpec([6, 8] if layout == "rcr" else [8, 6], "float32"),
             "bias": dml.TensorSpec([6], "float32"),
             "d0": dml.TensorSpec([2, 3, 6], "float32"),
             "d1": dml.TensorSpec([2, 3, 6], "float32"),
@@ -1058,12 +1073,12 @@ def test_cpu_reference_gemm_rcr_dual_residual_folded_m_matches_numpy(op_name):
     rng = np.random.default_rng(993)
     inputs = {
         "a": rng.standard_normal((2, 3, 8)).astype(np.float32),
-        "b": rng.standard_normal((6, 8)).astype(np.float32),
+        "b": rng.standard_normal((6, 8) if layout == "rcr" else (8, 6)).astype(np.float32),
         "bias": rng.standard_normal((6,)).astype(np.float32),
         "d0": rng.standard_normal((2, 3, 6)).astype(np.float32),
         "d1": rng.standard_normal((2, 3, 6)).astype(np.float32),
     }
-    result = inputs["a"] @ inputs["b"].T + inputs["bias"]
+    result = inputs["a"] @ (inputs["b"].T if layout == "rcr" else inputs["b"]) + inputs["bias"]
     if op_name.endswith("_bias_add_add"):
         result = result + inputs["d0"] + inputs["d1"]
     elif op_name.endswith("_bias_mul_add"):

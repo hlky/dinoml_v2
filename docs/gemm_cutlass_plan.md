@@ -65,8 +65,8 @@ The runtime GEMM port now wires model lowering into that support library:
    `gemm_rcr_bias`/`gemm_rrr_bias`, ReLU epilogue ops
    `gemm_rcr_bias_relu`/`gemm_rrr_bias_relu`, v1-style activation epilogue ops
    `*_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish,elup1}`, and the first
-   residual epilogues `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add}` plus
-   `gemm_rcr_bias_{add_relu,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}` are
+   residual epilogues
+   `gemm_{rcr,rrr}_bias_{add,add_add,mul,mul_add,add_relu,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}` are
    explicit frontend ops for `float32`, `float16`, and `bfloat16`, not a generic
    `matmul`; they preserve dynamic `M/N` shape metadata while requiring rank-2
    matrix tensors and compatible max-shape `K`.
@@ -160,8 +160,8 @@ keys. `Target(no_tf32=True)` selects the SIMT f32 fallback launchers/profilers
 and changes those keys too. The logical GEMM shape contract now accepts
 `A[..., K]` with rank-2 `B`, preserves `C[..., N]`, and flattens the leading
 `A` dimensions into the CUTLASS `m` argument. The first folded residual coverage
-is wired for RCR epilogues
-`gemm_rcr_bias_{add,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`,
+is wired for RCR and RRR epilogues
+`gemm_{rcr,rrr}_bias_{add,add_relu,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`,
 including frontend shape metadata, CPU reference execution, CUDA lowering checks,
 support-library runtime smoke coverage, and profiler workload shapes.
 
@@ -182,7 +182,7 @@ available as a bias-activation GEMM epilogue, and additive residual epilogues no
 have partition-aware serial split-K launch/profiling coverage. Non-additive
 residual/broadcast split-K remains a targeted follow-up. The permuted
 `gemm_rcr_permute_elup1` form remains part of the later layout-fused family.
-Broader broadcast/folded-M arithmetic epilogues, v1 `dual_gemm`/dual-output
+Broader broadcast arithmetic epilogues, v1 `dual_gemm`/dual-output
 GEMM families, beyond-v1 CUTLASS epilogues where CUTLASS gives useful fused
 functionality, BMM and grouped GEMM parity should wait behind that profiling
 loop so v2 does not accumulate more declared surface area without v1-grade

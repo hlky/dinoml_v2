@@ -368,11 +368,15 @@ def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     }
     residual_ops.update(
         {
-            "gemm_rcr_bias_add_relu": (["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
-            "gemm_rcr_bias_add_add_relu": (["bias", "d0", "d1"], "dinoml_cutlass_gemm_bias_residual2_v1"),
-            "gemm_rcr_bias_mul_tanh": (["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
-            "gemm_rcr_bias_sigmoid_mul": (["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
-            "gemm_rcr_bias_sigmoid_mul_tanh": (["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+            f"gemm_{layout}_bias_{suffix}": (inputs, launch_abi)
+            for layout in ("rcr", "rrr")
+            for suffix, inputs, launch_abi in (
+                ("add_relu", ["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+                ("add_add_relu", ["bias", "d0", "d1"], "dinoml_cutlass_gemm_bias_residual2_v1"),
+                ("mul_tanh", ["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+                ("sigmoid_mul", ["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+                ("sigmoid_mul_tanh", ["bias", "d0"], "dinoml_cutlass_gemm_bias_residual_v1"),
+            )
         }
     )
     residual_candidates = {
@@ -593,87 +597,86 @@ def test_cutlass_gemm_support_library_runs_rrr_and_rcr(tmp_path, monkeypatch):
             torch.cuda.synchronize()
             torch.testing.assert_close(c_bias_add_add, base + d0 + d1, atol=atol, rtol=rtol)
 
-            if layout == "rcr":
-                c_bias_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
-                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_relu_{suffix}")(
-                    ctypes.c_void_p(a.data_ptr()),
-                    ctypes.c_void_p(b_residual.data_ptr()),
-                    ctypes.c_void_p(bias.data_ptr()),
-                    ctypes.c_void_p(d0.data_ptr()),
-                    ctypes.c_void_p(c_bias_add_relu.data_ptr()),
-                    ctypes.c_int(16),
-                    ctypes.c_int(24),
-                    ctypes.c_int(32),
-                    ctypes.c_void_p(0),
-                )
-                assert err == 0
-                torch.cuda.synchronize()
-                torch.testing.assert_close(c_bias_add_relu, torch.relu(base + d0), atol=atol, rtol=rtol)
+            c_bias_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+            err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_add_relu_{suffix}")(
+                ctypes.c_void_p(a.data_ptr()),
+                ctypes.c_void_p(b_residual.data_ptr()),
+                ctypes.c_void_p(bias.data_ptr()),
+                ctypes.c_void_p(d0.data_ptr()),
+                ctypes.c_void_p(c_bias_add_relu.data_ptr()),
+                ctypes.c_int(16),
+                ctypes.c_int(24),
+                ctypes.c_int(32),
+                ctypes.c_void_p(0),
+            )
+            assert err == 0
+            torch.cuda.synchronize()
+            torch.testing.assert_close(c_bias_add_relu, torch.relu(base + d0), atol=atol, rtol=rtol)
 
-                c_bias_add_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
-                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_add_add_relu_{suffix}")(
-                    ctypes.c_void_p(a.data_ptr()),
-                    ctypes.c_void_p(b_residual.data_ptr()),
-                    ctypes.c_void_p(bias.data_ptr()),
-                    ctypes.c_void_p(d0.data_ptr()),
-                    ctypes.c_void_p(d1.data_ptr()),
-                    ctypes.c_void_p(c_bias_add_add_relu.data_ptr()),
-                    ctypes.c_int(16),
-                    ctypes.c_int(24),
-                    ctypes.c_int(32),
-                    ctypes.c_void_p(0),
-                )
-                assert err == 0
-                torch.cuda.synchronize()
-                torch.testing.assert_close(c_bias_add_add_relu, torch.relu(base + d0 + d1), atol=atol, rtol=rtol)
+            c_bias_add_add_relu = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+            err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_add_add_relu_{suffix}")(
+                ctypes.c_void_p(a.data_ptr()),
+                ctypes.c_void_p(b_residual.data_ptr()),
+                ctypes.c_void_p(bias.data_ptr()),
+                ctypes.c_void_p(d0.data_ptr()),
+                ctypes.c_void_p(d1.data_ptr()),
+                ctypes.c_void_p(c_bias_add_add_relu.data_ptr()),
+                ctypes.c_int(16),
+                ctypes.c_int(24),
+                ctypes.c_int(32),
+                ctypes.c_void_p(0),
+            )
+            assert err == 0
+            torch.cuda.synchronize()
+            torch.testing.assert_close(c_bias_add_add_relu, torch.relu(base + d0 + d1), atol=atol, rtol=rtol)
 
-                c_bias_mul_tanh = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
-                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_mul_tanh_{suffix}")(
-                    ctypes.c_void_p(a.data_ptr()),
-                    ctypes.c_void_p(b_residual.data_ptr()),
-                    ctypes.c_void_p(bias.data_ptr()),
-                    ctypes.c_void_p(d0.data_ptr()),
-                    ctypes.c_void_p(c_bias_mul_tanh.data_ptr()),
-                    ctypes.c_int(16),
-                    ctypes.c_int(24),
-                    ctypes.c_int(32),
-                    ctypes.c_void_p(0),
-                )
-                assert err == 0
-                torch.cuda.synchronize()
-                torch.testing.assert_close(c_bias_mul_tanh, torch.tanh(base * d0), atol=atol, rtol=rtol)
+            c_bias_mul_tanh = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+            err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_mul_tanh_{suffix}")(
+                ctypes.c_void_p(a.data_ptr()),
+                ctypes.c_void_p(b_residual.data_ptr()),
+                ctypes.c_void_p(bias.data_ptr()),
+                ctypes.c_void_p(d0.data_ptr()),
+                ctypes.c_void_p(c_bias_mul_tanh.data_ptr()),
+                ctypes.c_int(16),
+                ctypes.c_int(24),
+                ctypes.c_int(32),
+                ctypes.c_void_p(0),
+            )
+            assert err == 0
+            torch.cuda.synchronize()
+            torch.testing.assert_close(c_bias_mul_tanh, torch.tanh(base * d0), atol=atol, rtol=rtol)
 
-                c_bias_sigmoid_mul = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
-                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_sigmoid_mul_{suffix}")(
-                    ctypes.c_void_p(a.data_ptr()),
-                    ctypes.c_void_p(b_residual.data_ptr()),
-                    ctypes.c_void_p(bias.data_ptr()),
-                    ctypes.c_void_p(d0.data_ptr()),
-                    ctypes.c_void_p(c_bias_sigmoid_mul.data_ptr()),
-                    ctypes.c_int(16),
-                    ctypes.c_int(24),
-                    ctypes.c_int(32),
-                    ctypes.c_void_p(0),
-                )
-                assert err == 0
-                torch.cuda.synchronize()
-                torch.testing.assert_close(c_bias_sigmoid_mul, torch.sigmoid(base) * d0, atol=atol, rtol=rtol)
+            c_bias_sigmoid_mul = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+            err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_sigmoid_mul_{suffix}")(
+                ctypes.c_void_p(a.data_ptr()),
+                ctypes.c_void_p(b_residual.data_ptr()),
+                ctypes.c_void_p(bias.data_ptr()),
+                ctypes.c_void_p(d0.data_ptr()),
+                ctypes.c_void_p(c_bias_sigmoid_mul.data_ptr()),
+                ctypes.c_int(16),
+                ctypes.c_int(24),
+                ctypes.c_int(32),
+                ctypes.c_void_p(0),
+            )
+            assert err == 0
+            torch.cuda.synchronize()
+            torch.testing.assert_close(c_bias_sigmoid_mul, torch.sigmoid(base) * d0, atol=atol, rtol=rtol)
 
-                c_bias_sigmoid_mul_tanh = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
-                err = getattr(dll, f"dinoml_cutlass_gemm_rcr_bias_sigmoid_mul_tanh_{suffix}")(
-                    ctypes.c_void_p(a.data_ptr()),
-                    ctypes.c_void_p(b_residual.data_ptr()),
-                    ctypes.c_void_p(bias.data_ptr()),
-                    ctypes.c_void_p(d0.data_ptr()),
-                    ctypes.c_void_p(c_bias_sigmoid_mul_tanh.data_ptr()),
-                    ctypes.c_int(16),
-                    ctypes.c_int(24),
-                    ctypes.c_int(32),
-                    ctypes.c_void_p(0),
-                )
-                assert err == 0
-                torch.cuda.synchronize()
-                torch.testing.assert_close(c_bias_sigmoid_mul_tanh, torch.tanh(torch.sigmoid(base) * d0), atol=atol, rtol=rtol)
+            c_bias_sigmoid_mul_tanh = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
+            err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_sigmoid_mul_tanh_{suffix}")(
+                ctypes.c_void_p(a.data_ptr()),
+                ctypes.c_void_p(b_residual.data_ptr()),
+                ctypes.c_void_p(bias.data_ptr()),
+                ctypes.c_void_p(d0.data_ptr()),
+                ctypes.c_void_p(c_bias_sigmoid_mul_tanh.data_ptr()),
+                ctypes.c_int(16),
+                ctypes.c_int(24),
+                ctypes.c_int(32),
+                ctypes.c_void_p(0),
+            )
+            assert err == 0
+            torch.cuda.synchronize()
+            torch.testing.assert_close(c_bias_sigmoid_mul_tanh, torch.tanh(torch.sigmoid(base) * d0), atol=atol, rtol=rtol)
 
             c_bias_mul = torch.empty((16, 24), device="cuda", dtype=torch_dtype)
             err = getattr(dll, f"dinoml_cutlass_gemm_{layout}_bias_mul_{suffix}")(

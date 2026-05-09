@@ -248,8 +248,14 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [ ] Extend split-K coverage to non-additive residual/broadcast CUTLASS
   epilogues after their `GemmUniversalWithBroadcast` workspace behavior is
   proven and their fused epilogues implement correct partition behavior.
-- [ ] Base BMM layout family: `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` plus
-  `_add` variants.
+- [x] Base BMM frontend/CPU contracts:
+  `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` now exist as explicit frontend ops
+  with v1-compatible A/B/C layout shape semantics, batch broadcasting, dynamic
+  shape metadata, and CPU reference execution.
+- [ ] CUTLASS BMM launch/profiling family:
+  add a real batched CUTLASS ABI with batch strides, C row/column output layout,
+  candidate metadata, profiling workloads, and execution-plan selections.
+- [ ] Base BMM `_add` variants.
 - [ ] Remaining bias/broadcast epilogues: broader broadcast forms beyond rank-2
   output-shaped residual tensors.
 - [x] Remaining activation epilogue: `elup1` is available as

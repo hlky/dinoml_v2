@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+from dinoml.frontend import Tensor, as_tensor
+from dinoml.kernels.bmm import BMM_OPS, BMM_SUPPORTED_DTYPES, bmm_op_spec
+from dinoml.ops.registry import FrontendBinding, OpDef, OpRegistry, OpSchema
+
+
+def register_bmm_ops(registry: OpRegistry) -> None:
+    for op_name in BMM_OPS:
+        spec = bmm_op_spec(op_name)
+        registry.register(
+            OpDef(
+                name=op_name,
+                schema=OpSchema(inputs=("a", "b")),
+                infer_shape=_infer_shape_fn(op_name),
+                frontend=FrontendBinding(op_name),
+                allowed_dtypes=BMM_SUPPORTED_DTYPES,
+                description=_description(op_name),
+            )
+        )
+
+
+def _bmm(op_name: str, a: object, b: object) -> Tensor:
+    a_tensor = as_tensor(a, dtype_hint=b.dtype if isinstance(b, Tensor) else "float32")
+    b_tensor = as_tensor(b, dtype_hint=a_tensor.dtype)
+    if a_tensor.builder is not b_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if a_tensor.dtype != b_tensor.dtype:
+        raise ValueError(f"{op_name} dtype mismatch: {a_tensor.dtype} vs {b_tensor.dtype}")
+    if a_tensor.dtype not in BMM_SUPPORTED_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {a_tensor.dtype}")
+    spec = bmm_op_spec(op_name)
+    out_shape = spec.validate_shapes([a_tensor.shape, b_tensor.shape])
+    out_shape_spec = spec.output_shape_spec([a_tensor.shape_spec, b_tensor.shape_spec])
+    return a_tensor.builder.emit(op_name, [a_tensor, b_tensor], out_shape, a_tensor.dtype, {}, shape_spec=out_shape_spec)
+
+
+def _make_bmm_frontend(op_name: str):
+    def _frontend(a: object, b: object) -> Tensor:
+        return _bmm(op_name, a, b)
+
+    _frontend.__name__ = op_name
+    _frontend.__qualname__ = op_name
+    return _frontend
+
+
+BMM_FRONTEND_OPS = {op_name: _make_bmm_frontend(op_name) for op_name in BMM_OPS}
+globals().update(BMM_FRONTEND_OPS)
+
+
+def _infer_shape_fn(op_name: str):
+    return lambda shapes: bmm_op_spec(op_name).validate_shapes(shapes)
+
+
+def _description(op_name: str) -> str:
+    spec = bmm_op_spec(op_name)
+    output = "C[B,N,M]" if spec.c_layout == "c" else "C[B,M,N]"
+    return (
+        "Batched matrix multiply frontend op: "
+        f"A {spec.layouts['a']}-major, B {spec.layouts['b']}-major, {spec.layouts['c']}-major {output}."
+    )

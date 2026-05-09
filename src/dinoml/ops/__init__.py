@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
+from dinoml.ops.bmm import BMM_FRONTEND_OPS
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
@@ -96,6 +97,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
 globals().update(GEMM_FRONTEND_OPS)
+globals().update(BMM_FRONTEND_OPS)
 
 
 __all__ = list(dict.fromkeys([

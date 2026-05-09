@@ -10,6 +10,7 @@ from typing import Dict, Mapping, Sequence
 import numpy as np
 
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, dtype_numpy, write_json
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
@@ -57,6 +58,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_gemm(node["op"], [values[name] for name in node["inputs"]]),
+                output_dtype,
+            )
+        elif node["op"] in BMM_OPS:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_bmm(node["op"], [values[name] for name in node["inputs"]]),
                 output_dtype,
             )
         else:
@@ -224,6 +232,32 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     if spec.epilogue.activation is not None:
         result = _execute_gemm_activation(spec.epilogue.activation, result)
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_bmm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
+    spec = bmm_op_spec(op)
+    a = _logical_bmm_a(inputs[0], spec.a_layout)
+    b = _logical_bmm_b(inputs[1], spec.b_layout)
+    result = np.matmul(a, b)
+    if spec.c_layout == "c":
+        result = np.swapaxes(result, -1, -2)
+    return np.asarray(result, dtype=np.float32)
+
+
+def _logical_bmm_a(value: np.ndarray, layout: str) -> np.ndarray:
+    if layout == "r":
+        return value
+    if layout == "c":
+        return np.swapaxes(value, -1, -2)
+    raise ValueError(f"Unsupported BMM A layout: {layout}")
+
+
+def _logical_bmm_b(value: np.ndarray, layout: str) -> np.ndarray:
+    if layout == "r":
+        return value
+    if layout == "c":
+        return np.swapaxes(value, -1, -2)
+    raise ValueError(f"Unsupported BMM B layout: {layout}")
 
 
 def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:

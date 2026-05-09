@@ -395,6 +395,15 @@ class GemmResidualOpModule(dml.Module):
         return dml.ops.output(op(a, b, bias, d0, d1), "y")
 
 
+class BmmOpModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b), "y")
+
+
 class DynamicRelu(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.relu(x), "y")
@@ -526,6 +535,108 @@ def test_gemm_frontend_emits_explicit_layout_ops():
     assert rcr.ir["nodes"][0]["op"] == "gemm_rcr"
     assert rcr.ir["outputs"][0]["shape"] == [4, 6]
     assert all(node["op"] != "matmul" for node in [*rrr.ir["nodes"], *rcr.ir["nodes"]])
+
+
+BMM_LAYOUT_CASES = tuple(
+    (
+        f"bmm_{layout}",
+        [2, 4, 3] if layout[0] == "c" else [2, 3, 4],
+        [2, 5, 4] if layout[1] == "c" else [2, 4, 5],
+        [2, 5, 3] if layout[2] == "c" else [2, 3, 5],
+    )
+    for layout in ("ccc", "ccr", "crc", "crr", "rcc", "rcr", "rrc", "rrr")
+)
+
+
+@pytest.mark.parametrize(("op_name", "a_shape", "b_shape", "out_shape"), BMM_LAYOUT_CASES)
+def test_bmm_frontend_emits_explicit_layout_ops(op_name, a_shape, b_shape, out_shape):
+    spec = dml.trace(
+        BmmOpModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape), "b": dml.TensorSpec(b_shape)},
+        name=f"{op_name}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == op_name
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+    assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+
+
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_bmm_frontend_accepts_reduced_precision_dtype(dtype):
+    spec = dml.trace(
+        BmmOpModule("bmm_rrr"),
+        inputs={"a": dml.TensorSpec([2, 3, 4], dtype), "b": dml.TensorSpec([2, 4, 5], dtype)},
+        name=f"bmm_rrr_{dtype}_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == "bmm_rrr"
+    assert spec.ir["outputs"][0]["dtype"] == dtype
+
+
+def test_bmm_frontend_preserves_dynamic_shape_spec_for_column_output():
+    batch = dml.Dim("batch", min=1, max=4)
+    m = dml.Dim("m", min=1, max=3)
+    n = dml.Dim("n", min=1, max=6)
+    spec = dml.trace(
+        BmmOpModule("bmm_crc"),
+        inputs={"a": dml.TensorSpec([batch, 8, m]), "b": dml.TensorSpec([batch, 8, n])},
+        name="dynamic_bmm_frontend",
+    )
+
+    output = spec.ir["outputs"][0]
+    assert output["shape"] == [4, 6, 3]
+    assert output["shape_spec"][0]["name"] == "batch"
+    assert output["shape_spec"][1]["name"] == "n"
+    assert output["shape_spec"][2]["name"] == "m"
+
+
+def test_bmm_runtime_shape_inference_uses_dynamic_bmn_shape_spec():
+    batch = dml.Dim("batch", min=1, max=8)
+    m = dml.Dim("m", min=1, max=5)
+    n = dml.Dim("n", min=1, max=7)
+    spec = dml.trace(
+        BmmOpModule("bmm_rrc"),
+        inputs={"a": dml.TensorSpec([batch, m, 4]), "b": dml.TensorSpec([batch, 4, n])},
+        name="dynamic_bmm_shape_infer",
+    )
+
+    assert infer_output_shape(spec.ir["outputs"][0], spec.ir["inputs"], {"a": [3, 2, 4], "b": [3, 4, 6]}) == (
+        3,
+        6,
+        2,
+    )
+
+
+def test_bmm_frontend_accepts_batch_broadcast():
+    spec = dml.trace(
+        BmmOpModule("bmm_rcr"),
+        inputs={"a": dml.TensorSpec([1, 3, 4]), "b": dml.TensorSpec([2, 5, 4])},
+        name="bmm_batch_broadcast_frontend",
+    )
+
+    assert spec.ir["outputs"][0]["shape"] == [2, 3, 5]
+
+
+def test_bmm_frontend_rejects_incompatible_batch():
+    with pytest.raises(ValueError, match="bmm_rrr expected matching or broadcastable batch"):
+        dml.trace(
+            BmmOpModule("bmm_rrr"),
+            inputs={"a": dml.TensorSpec([2, 3, 4]), "b": dml.TensorSpec([3, 4, 5])},
+        )
+
+
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape"),
+    [
+        ("bmm_rrr", [2, 3, 4], [2, 5, 6]),
+        ("bmm_rcr", [2, 3, 4], [2, 5, 6]),
+        ("bmm_crr", [2, 4, 3], [2, 5, 6]),
+        ("bmm_ccr", [2, 4, 3], [2, 5, 6]),
+    ],
+)
+def test_bmm_frontend_rejects_incompatible_k(op_name, a_shape, b_shape):
+    with pytest.raises(ValueError, match=f"{op_name} expected compatible K"):
+        dml.trace(BmmOpModule(op_name), inputs={"a": dml.TensorSpec(a_shape), "b": dml.TensorSpec(b_shape)})
 
 
 @pytest.mark.parametrize(

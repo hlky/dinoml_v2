@@ -105,6 +105,15 @@ class GemmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class BmmModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, a, b):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(a, b), "y")
+
+
 class GemmBiasModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -890,6 +899,61 @@ def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape, dtype, atol
     expected = array_from_storage(array_to_storage(a_reference @ (b_reference if op_name == "gemm_rrr" else b_reference.T), dtype), dtype)
     actual = execute_cpu(spec, {"a": a, "b": b})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+
+
+BMM_LAYOUT_CASES = tuple(
+    (
+        f"bmm_{layout}",
+        (2, 4, 3) if layout[0] == "c" else (2, 3, 4),
+        (2, 5, 4) if layout[1] == "c" else (2, 4, 5),
+        layout,
+    )
+    for layout in ("ccc", "ccr", "crc", "crr", "rcc", "rcr", "rrc", "rrr")
+)
+
+
+@pytest.mark.parametrize(("op_name", "a_shape", "b_shape", "layout"), BMM_LAYOUT_CASES)
+@pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [("float32", 1e-5, 1e-5), ("float16", 2e-3, 2e-3), ("bfloat16", 2e-2, 2e-2)],
+)
+def test_cpu_reference_bmm_base_layouts_match_numpy(op_name, a_shape, b_shape, layout, dtype, atol, rtol):
+    spec = dml.trace(
+        BmmModule(op_name),
+        inputs={"a": dml.TensorSpec(a_shape, dtype), "b": dml.TensorSpec(b_shape, dtype)},
+        name=f"{op_name}_{dtype}_reference",
+    )
+    rng = np.random.default_rng(994)
+    a = rng.standard_normal(a_shape).astype(np.float32)
+    b = rng.standard_normal(b_shape).astype(np.float32)
+    a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+    b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+    logical_a = np.swapaxes(a_reference, -1, -2) if layout[0] == "c" else a_reference
+    logical_b = np.swapaxes(b_reference, -1, -2) if layout[1] == "c" else b_reference
+    result = np.matmul(logical_a, logical_b)
+    if layout[2] == "c":
+        result = np.swapaxes(result, -1, -2)
+    expected = array_from_storage(array_to_storage(result, dtype), dtype)
+
+    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+
+    np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+
+
+def test_cpu_reference_bmm_batch_broadcast_matches_numpy():
+    spec = dml.trace(
+        BmmModule("bmm_rcr"),
+        inputs={"a": dml.TensorSpec([1, 3, 4], "float32"), "b": dml.TensorSpec([2, 5, 4], "float32")},
+        name="bmm_rcr_broadcast_reference",
+    )
+    rng = np.random.default_rng(995)
+    a = rng.standard_normal((1, 3, 4)).astype(np.float32)
+    b = rng.standard_normal((2, 5, 4)).astype(np.float32)
+    expected = np.matmul(a, np.swapaxes(b, -1, -2)).astype(np.float32)
+
+    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 @pytest.mark.parametrize(

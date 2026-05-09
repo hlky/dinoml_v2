@@ -9,6 +9,7 @@ from dinoml import Target, compile
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.bmm import BMM_OPS
 from dinoml.kernels.gemm import GEMM_OPS, render_cutlass_gemm_source
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
@@ -400,6 +401,7 @@ def test_external_cuda_kernel_plan_lists_cutlass_gemm_families():
     plan = build_external_kernel_plan({"name": "cuda", "arch": "sm_86"})
     families = {family["op_name"]: family for family in plan["families"]}
     assert set(GEMM_OPS).issubset(families)
+    assert set(BMM_OPS).isdisjoint(families)
     assert set(families) >= {
         "gemm_rcr",
         "gemm_rcr_bias",

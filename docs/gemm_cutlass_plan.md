@@ -78,6 +78,14 @@ The runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
+Base BMM layout contracts are staged separately from CUTLASS launch support.
+The public frontend and CPU reference now cover
+`bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` with the same v1 layout semantics: A and
+B `c` layouts transpose the last two logical dimensions, and C `c` layouts return
+`[B, N, M]` output. They are not listed in the CUTLASS external-kernel plan yet;
+that waits on a real batched GEMM ABI with batch strides, C-layout-aware output
+handling, candidate metadata, profiling workloads, and execution-plan feedback.
+
 `dinoml profile <artifact>` now executes exported profiler symbols for every
 manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
 profile-selected `debug/execution_plan.json`, and caches results under the

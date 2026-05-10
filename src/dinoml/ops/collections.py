@@ -40,6 +40,13 @@ def infer_dynamic_slice_shape(input_shapes: Sequence[Sequence[int]]) -> list[int
     )
 
 
+def infer_slice_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("slice_scatter expects two tensor inputs")
+    rank = len(input_shapes[0])
+    return infer_slice_scatter_shape_with_attrs(input_shapes, {"start_indices": (0,) * rank})
+
+
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -78,6 +85,12 @@ def infer_dynamic_slice_shape_with_attrs(input_shapes: Sequence[Sequence[int]], 
     if len(input_shapes) != 1:
         raise ValueError("dynamic_slice expects one tensor input")
     return resolve_dynamic_slice_shape(input_shapes[0], attrs.get("start_indices"), attrs.get("slice_sizes"))
+
+
+def infer_slice_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("slice_scatter expects two tensor inputs")
+    return resolve_slice_scatter_shape(input_shapes[0], input_shapes[1], attrs.get("start_indices"))
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -221,6 +234,25 @@ def normalize_dynamic_slice_attrs(
     return starts, sizes
 
 
+def normalize_slice_scatter_attrs(
+    start_indices: Any,
+    input_shape: Sequence[int],
+    update_shape: Sequence[int],
+) -> list[int]:
+    rank = len(input_shape)
+    starts = _normalize_slice_scatter_int_sequence(start_indices, rank, "start_indices")
+    if len(update_shape) != rank:
+        raise ValueError(f"slice_scatter update rank {len(update_shape)} must match input rank {rank}")
+    for axis, (start, size, extent) in enumerate(zip(starts, update_shape, input_shape)):
+        if start < 0:
+            raise ValueError(f"slice_scatter start_indices[{axis}] must be non-negative, got {start}")
+        if start + int(size) > int(extent):
+            raise ValueError(
+                f"slice_scatter axis {axis} start {start} plus update dim {int(size)} exceeds input dim {int(extent)}"
+            )
+    return starts
+
+
 def normalize_split_dim(dim: Any, rank: int) -> int:
     if not isinstance(dim, int) or isinstance(dim, bool):
         raise ValueError(f"split dim must be an integer, got {dim!r}")
@@ -297,6 +329,19 @@ def _normalize_dynamic_slice_int_sequence(values: Any, rank: int, name: str) -> 
     return normalized
 
 
+def _normalize_slice_scatter_int_sequence(values: Any, rank: int, name: str) -> list[int]:
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+        raise ValueError(f"slice_scatter {name} must be a sequence of integers, got {values!r}")
+    normalized: list[int] = []
+    for value in values:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"slice_scatter {name} must contain only integers, got {values!r}")
+        normalized.append(int(value))
+    if len(normalized) != rank:
+        raise ValueError(f"slice_scatter {name} length {len(normalized)} must match rank {rank}")
+    return normalized
+
+
 def resolve_concatenate_shape(input_shapes: Sequence[Sequence[int]], dim: int) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -358,6 +403,15 @@ def resolve_permute_shape(input_shape: Sequence[int], dims: Any) -> list[int]:
 def resolve_dynamic_slice_shape(input_shape: Sequence[int], start_indices: Any, slice_sizes: Any) -> list[int]:
     _, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, input_shape)
     return normalized_sizes
+
+
+def resolve_slice_scatter_shape(
+    input_shape: Sequence[int],
+    update_shape: Sequence[int],
+    start_indices: Any,
+) -> list[int]:
+    normalize_slice_scatter_attrs(start_indices, input_shape, update_shape)
+    return [int(axis) for axis in input_shape]
 
 
 def register_collection_ops(registry: OpRegistry) -> None:
@@ -474,6 +528,24 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense bounded slice copy with static starts and sizes.",
         )
     )
+    registry.register(
+        OpDef(
+            name="slice_scatter",
+            schema=OpSchema(
+                inputs=("x", "update"),
+                attrs=(AttrDef("start_indices", "ints", required=True),),
+            ),
+            infer_shape=infer_slice_scatter_shape,
+            infer_shape_with_attrs=infer_slice_scatter_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("slice_scatter"),
+            description="Materialize a dense bounded scatter-update copy with static starts.",
+        )
+    )
 
 
 __all__ = [
@@ -486,6 +558,8 @@ __all__ = [
     "infer_flip_shape_with_attrs",
     "infer_repeat_interleave_shape",
     "infer_repeat_interleave_shape_with_attrs",
+    "infer_slice_scatter_shape",
+    "infer_slice_scatter_shape_with_attrs",
     "infer_permute_shape",
     "infer_permute_shape_with_attrs",
     "infer_stack_shape",
@@ -497,6 +571,7 @@ __all__ = [
     "normalize_flip_dims",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
+    "normalize_slice_scatter_attrs",
     "normalize_permute_dims",
     "normalize_split_dim",
     "normalize_split_sections",
@@ -507,6 +582,7 @@ __all__ = [
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",
     "resolve_repeat_interleave_shape",
+    "resolve_slice_scatter_shape",
     "resolve_permute_shape",
     "resolve_stack_shape",
 ]

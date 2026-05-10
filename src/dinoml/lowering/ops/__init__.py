@@ -19,6 +19,7 @@ from dinoml.lowering.ops.permute import PERMUTE_LOWERING
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
+from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
 from dinoml.lowering.ops.stack import STACK_LOWERING
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
@@ -35,6 +36,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     PERMUTE_LOWERING.op_name: PERMUTE_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
+    SLICE_SCATTER_LOWERING.op_name: SLICE_SCATTER_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,
     STACK_LOWERING.op_name: STACK_LOWERING,
 }

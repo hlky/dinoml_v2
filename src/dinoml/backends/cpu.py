@@ -141,6 +141,18 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 values[node["inputs"][0]][slices].copy(),
                 output_dtype,
             )
+        elif node["op"] == "slice_scatter":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            update = values[node["inputs"][1]]
+            slices = tuple(
+                slice(int(start), int(start) + int(size))
+                for start, size in zip(attrs.get("start_indices", ()), update.shape)
+            )
+            result = values[node["inputs"][0]].copy()
+            result[slices] = update
+            values[output_name] = _store_reference(result, output_dtype)
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

@@ -110,13 +110,16 @@ epilogues where possible.
   arange/randn dtypes remain out of scope for this bounded port. `cast` is
   available for dense tensor casts across the current generated
   float/reduced-precision/bool storage surface.
-- [ ] Selection/scatter: `slice_scatter`, `slice_reshape_scatter`, `gather`,
+- [ ] Selection/scatter: `slice_reshape_scatter`, `gather`,
   `batch_gather`, `index_select`, `masked_select`, `topk`, `argmax`.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
-  across the generated float/reduced-precision/bool storage surface. `where` is
-  partially done for dense bool-condition plus matching float `x`/`y` through
-  fused elementwise CPU/CUDA generation.
+  across the generated float/reduced-precision/bool storage surface.
+  `slice_scatter` is available as the bounded write-side companion with static
+  integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
+  the same generated storage surface. `where` is partially done for dense
+  bool-condition plus matching float `x`/`y` through fused elementwise CPU/CUDA
+  generation.
 - [ ] Collections/broadcasting: no remaining named v1 collection gaps in this
   bounded subset. `expand` is available as a materialized dense broadcast copy
   for static shapes across the generated float/reduced-precision and bool

@@ -13,6 +13,7 @@ from dinoml.ops.collections import (
     infer_dynamic_slice_shape_with_attrs,
     infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
+    infer_slice_scatter_shape_with_attrs,
     infer_stack_shape_with_attrs,
     normalize_chunk_count,
     normalize_concatenate_dim,
@@ -21,6 +22,7 @@ from dinoml.ops.collections import (
     normalize_permute_dims,
     normalize_repeat_interleave_dim,
     normalize_repeat_interleave_repeats,
+    normalize_slice_scatter_attrs,
     normalize_split_dim,
     normalize_split_sections,
     normalize_stack_dim,
@@ -351,6 +353,30 @@ def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Ten
     )
 
 
+def _slice_scatter_frontend(x: Any, update: Any, start_indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
+    builder, dtype = _resolve_builder_and_dtype(get_op_def("slice_scatter"), [tensor, update_tensor])
+    del builder
+    if dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"slice_scatter does not support dtype {dtype}")
+    if tensor.dynamic or update_tensor.dynamic:
+        raise ValueError("slice_scatter currently supports only static input shapes")
+    normalized_starts = normalize_slice_scatter_attrs(start_indices, tensor.shape, update_tensor.shape)
+    out_shape = infer_slice_scatter_shape_with_attrs(
+        [tensor.shape, update_tensor.shape],
+        {"start_indices": normalized_starts},
+    )
+    return tensor.builder.emit(
+        "slice_scatter",
+        [tensor, update_tensor],
+        out_shape,
+        dtype,
+        {"start_indices": normalized_starts},
+        shape_spec=tensor.shape_spec,
+    )
+
+
 def _split_frontend(x: Any, split_size_or_sections: Any, dim: Any = 0) -> tuple[Tensor, ...]:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -470,6 +496,7 @@ globals()["expand"] = _expand_frontend
 globals()["meshgrid"] = _meshgrid_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
+globals()["slice_scatter"] = _slice_scatter_frontend
 globals()["split"] = _split_frontend
 globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
@@ -514,6 +541,7 @@ __all__ = list(dict.fromkeys([
     "concatenate",
     "dynamic_slice",
     "full",
+    "slice_scatter",
     "split",
     "where",
 ]))

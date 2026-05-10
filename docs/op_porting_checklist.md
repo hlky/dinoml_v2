@@ -156,9 +156,15 @@ epilogues where possible.
   they lower to existing `dynamic_slice` nodes and do not introduce separate
   kernels.
 - [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
-- [ ] Tensor helpers that should not become separate kernel families unless
+- [x] Tensor helpers that should not become separate kernel families unless
   profiling proves it: `concatenate_tanh`, `concatenate_fast`,
-  `expand_static_shape`.
+  `expand_static_shape`. These are resolved as bounded public frontend helpers
+  only: `concatenate_fast` delegates to existing `concatenate`,
+  `concatenate_tanh` composes existing `concatenate` with elementwise `tanh`
+  so local passes emit the concatenate node plus fused elementwise tanh, and
+  `expand_static_shape` delegates to existing `expand`. They inherit the
+  existing static-shape, dtype, storage, and validation limits and introduce no
+  new op/kernel families.
 
 Library hints: most are metadata-only or simple copies. `topk`/sort-like paths
 can use CUB on CUDA; CPU paths can start with standard library algorithms and

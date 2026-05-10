@@ -196,6 +196,10 @@ def _expand_frontend(x: Any, shape: Any) -> Tensor:
     )
 
 
+def _expand_static_shape_frontend(x: Any, shape: Any) -> Tensor:
+    return _expand_frontend(x, shape)
+
+
 def _meshgrid_frontend(inputs: Any, indexing: str = "ij") -> tuple[Tensor, ...]:
     if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
         raise ValueError("meshgrid expects a non-empty sequence of tensors")
@@ -272,6 +276,14 @@ def _concatenate_frontend(inputs: Any, dim: int = 0) -> Tensor:
         {"dim": normalized_dim},
         shape_spec=out_shape,
     )
+
+
+def _concatenate_fast_frontend(inputs: Any, dim: int = 0) -> Tensor:
+    return _concatenate_frontend(inputs, dim=dim)
+
+
+def _concatenate_tanh_frontend(inputs: Any, dim: int = 0) -> Tensor:
+    return tanh(_concatenate_frontend(inputs, dim=dim))
 
 
 def _stack_frontend(inputs: Any, dim: int = 0) -> Tensor:
@@ -617,8 +629,11 @@ globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
+globals()["expand_static_shape"] = _expand_static_shape_frontend
 globals()["meshgrid"] = _meshgrid_frontend
 globals()["concatenate"] = _concatenate_frontend
+globals()["concatenate_fast"] = _concatenate_fast_frontend
+globals()["concatenate_tanh"] = _concatenate_tanh_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
 globals()["slice_scatter"] = _slice_scatter_frontend
 globals()["slice_reshape_scatter"] = _slice_reshape_scatter_frontend
@@ -645,6 +660,7 @@ __all__ = list(dict.fromkeys([
     *BMM_HELPER_OPS,
     "emit_registered_op",
     "expand",
+    "expand_static_shape",
     "flip",
     "flatten",
     "identity",
@@ -680,6 +696,8 @@ __all__ = list(dict.fromkeys([
     "cast",
     "chunk",
     "concatenate",
+    "concatenate_fast",
+    "concatenate_tanh",
     "dynamic_slice",
     "full",
     "slice_reshape_scatter",

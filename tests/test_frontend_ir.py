@@ -487,6 +487,21 @@ def test_symbolic_expression_metadata_exposes_dim_leaves_only():
     assert all("op" not in constraint for constraint in constraints)
 
 
+def test_compile_rejects_symbolic_int_expression_shape_specs_for_generated_shape_buffers(tmp_path):
+    batch = dml.Dim("batch", min=1, max=8)
+    dim = dml.TensorSpec([batch]).shape_spec[0]
+    expr = dml.ops.int_add(dim, 1)
+
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([expr, 16])}, name="symbolic_expr_compile_guard")
+
+    assert spec.ir["inputs"][0]["shape_spec"][0]["kind"] == "int_expr"
+    message = "Symbolic integer shape expressions.*generated shape buffers"
+    with pytest.raises(NotImplementedError, match=message):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "symbolic_expr_cpu.dinoml")
+    with pytest.raises(NotImplementedError, match=message):
+        dml.compile(spec, dml.Target("cuda"), tmp_path / "symbolic_expr_cuda.dinoml")
+
+
 class SoftmaxModule(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.softmax(x, dim=-1), "y")

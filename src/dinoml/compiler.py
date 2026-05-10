@@ -452,6 +452,8 @@ def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
 
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
+    if target.name in {"cpu", "cuda"}:
+        _validate_generated_shape_buffer_contract(ir, target)
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     gather_index_tensors = {
         node["inputs"][1]
@@ -577,3 +579,37 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             "View alias tensors cannot be written by kernels; metadata.views must describe "
             f"shape-only aliases of an owning tensor. Kernel outputs using view storage: {node_view_outputs}"
         )
+
+
+def _validate_generated_shape_buffer_contract(ir: Mapping[str, Any], target: Target) -> None:
+    for section in ("inputs", "outputs", "constants", "tensors"):
+        _validate_generated_shape_buffer_shape_specs(ir.get(section, []), target, section)
+    for view in ir.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", []):
+        shape_spec = view.get("shape_spec", view.get("shape", []))
+        for axis, dim in enumerate(shape_spec):
+            if _contains_symbolic_int_expr(dim):
+                raise NotImplementedError(
+                    "Symbolic integer shape expressions in shape_spec are not supported by "
+                    f"generated shape buffers for {target.name} artifacts yet "
+                    f"(view tensor {view.get('tensor')!r}, axis {axis})."
+                )
+
+
+def _validate_generated_shape_buffer_shape_specs(items: Any, target: Target, section: str) -> None:
+    for item in items:
+        shape_spec = item.get("shape_spec", item.get("shape", []))
+        for axis, dim in enumerate(shape_spec):
+            if _contains_symbolic_int_expr(dim):
+                raise NotImplementedError(
+                    "Symbolic integer shape expressions in shape_spec are not supported by "
+                    f"generated shape buffers for {target.name} artifacts yet "
+                    f"({section} entry {item.get('name', item.get('tensor'))!r}, axis {axis})."
+                )
+
+
+def _contains_symbolic_int_expr(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if value.get("kind") == "int_expr":
+        return True
+    return any(_contains_symbolic_int_expr(child) for child in value.values())

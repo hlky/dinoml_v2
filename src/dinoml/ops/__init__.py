@@ -6,6 +6,7 @@ from typing import Any, Callable, Mapping
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
+from dinoml.ops.collections import COLLECTION_DTYPES, infer_concatenate_shape_with_attrs, normalize_concatenate_dim
 from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
@@ -173,6 +174,31 @@ def _expand_frontend(x: Any, shape: Any) -> Tensor:
     )
 
 
+def _concatenate_frontend(inputs: Any, dim: int = 0) -> Tensor:
+    if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
+        raise ValueError("concatenate expects a non-empty sequence of tensors")
+    if not inputs:
+        raise ValueError("concatenate expects a non-empty sequence of tensors")
+    first = as_tensor(inputs[0])
+    tensors = [first, *(as_tensor(value, dtype_hint=first.dtype) for value in inputs[1:])]
+    builder, dtype = _resolve_builder_and_dtype(get_op_def("concatenate"), tensors)
+    del builder
+    if dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"concatenate does not support dtype {dtype}")
+    if any(tensor.dynamic for tensor in tensors):
+        raise ValueError("concatenate currently supports only static input shapes")
+    normalized_dim = normalize_concatenate_dim(dim, first.rank)
+    out_shape = infer_concatenate_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
+    return first.builder.emit(
+        "concatenate",
+        tensors,
+        out_shape,
+        dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -241,6 +267,7 @@ globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
+globals()["concatenate"] = _concatenate_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -268,6 +295,7 @@ __all__ = list(dict.fromkeys([
     "vector_norm",
     "arange",
     "cast",
+    "concatenate",
     "full",
     "where",
 ]))

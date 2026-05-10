@@ -106,10 +106,13 @@ epilogues where possible.
   `masked_select`, `topk`, `argmax`. `where` is partially done for dense
   bool-condition plus matching float `x`/`y` through fused elementwise CPU/CUDA
   generation.
-- [ ] Collections/broadcasting: `chunk`, `split`, `stack`, `concatenate`,
+- [ ] Collections/broadcasting: `chunk`, `split`, `stack`,
   `repeat_interleave`, `flip`. `expand` is available as a materialized dense
   broadcast copy for static shapes across the generated float/reduced-precision
-  and bool storage surface.
+  and bool storage surface. `concatenate` is available as a bounded materialized
+  dense copy for non-empty static-shape tensor sequences with matching
+  rank/non-concat dims, normalized negative `dim`, and the same generated
+  float/reduced-precision/bool storage surface.
 - [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
 - [ ] Tensor helpers that should not become separate kernel families unless
   profiling proves it: `concatenate_tanh`, `concatenate_fast`,

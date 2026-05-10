@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dinoml.ops.bmm import register_bmm_ops
 from dinoml.ops.broadcasting import register_broadcasting_ops
+from dinoml.ops.collections import register_collection_ops
 from dinoml.ops.creation import register_creation_ops
 from dinoml.ops.elementwise import register_elementwise_ops
 from dinoml.ops.gemm import register_gemm_ops
@@ -18,6 +19,7 @@ register_softmax_op(OP_REGISTRY)
 register_reduction_ops(OP_REGISTRY)
 register_creation_ops(OP_REGISTRY)
 register_broadcasting_ops(OP_REGISTRY)
+register_collection_ops(OP_REGISTRY)
 OP_DEFINITIONS = OP_REGISTRY.definitions
 
 

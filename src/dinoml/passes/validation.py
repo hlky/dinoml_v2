@@ -8,7 +8,7 @@ from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.passes.utils import tensor_map
-from dinoml.shapes import validate_shape_spec
+from dinoml.shapes import is_dynamic_shape, validate_shape_spec
 
 
 class ValidationError(ValueError):
@@ -126,6 +126,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "where":
         _validate_where_node(node, inputs, tensors)
         return
+    if node["op"] == "concatenate":
+        _validate_concatenate_node(node, inputs, tensors)
+        return
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
     if not op_def.accepts_input_count(len(inputs)):
@@ -241,6 +244,45 @@ def _validate_where_node(
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
             f"expected {inputs[1]['dtype']}"
+        )
+
+
+def _validate_concatenate_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("concatenate")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if not op_def.accepts_input_count(len(inputs)):
+        raise ValidationError("concatenate expects a non-empty sequence of tensors")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    dynamic_tensors = [
+        str(tensor["name"])
+        for tensor in [*inputs, output]
+        if is_dynamic_shape(tensor.get("shape_spec", tensor["shape"]))
+    ]
+    if dynamic_tensors:
+        raise ValidationError(f"concatenate currently supports only static shapes: {dynamic_tensors}")
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+            f"expected {expected_shape}"
+        )
+    if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
+        raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
+    if inputs[0]["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"concatenate does not support dtype {inputs[0]['dtype']}")
+    if str(output["dtype"]) != str(inputs[0]["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+            f"expected {inputs[0]['dtype']}"
         )
 
 

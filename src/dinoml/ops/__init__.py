@@ -5,6 +5,7 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
+from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
@@ -155,6 +156,23 @@ def _randn_frontend(shape: Any, dtype: str = "float32", seed: int = 0) -> Tensor
     )
 
 
+def _expand_frontend(x: Any, shape: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in BROADCAST_DTYPES:
+        raise ValueError(f"expand does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("expand currently supports only static input shapes")
+    out_shape = resolve_expand_shape(tensor.shape, shape)
+    return tensor.builder.emit(
+        "expand",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"shape": list(shape)},
+        shape_spec=out_shape,
+    )
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -222,6 +240,7 @@ globals()["cast"] = _cast_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
+globals()["expand"] = _expand_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -231,6 +250,7 @@ __all__ = list(dict.fromkeys([
     *OP_REGISTRY.frontend_names(),
     *BMM_HELPER_OPS,
     "emit_registered_op",
+    "expand",
     "flatten",
     "identity",
     "make_frontend_op",

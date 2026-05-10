@@ -81,6 +81,14 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_randn(output_shape, int(attrs.get("seed", 0))),
                 output_dtype,
             )
+        elif node["op"] == "expand":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            output_shape = _tensor_shape(ir, output_name)
+            values[output_name] = _store_reference(
+                np.broadcast_to(values[node["inputs"][0]], output_shape).copy(),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

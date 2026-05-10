@@ -107,7 +107,9 @@ epilogues where possible.
   bool-condition plus matching float `x`/`y` through fused elementwise CPU/CUDA
   generation.
 - [ ] Collections/broadcasting: `chunk`, `split`, `stack`, `concatenate`,
-  `expand`, `repeat_interleave`, `flip`.
+  `repeat_interleave`, `flip`. `expand` is available as a materialized dense
+  broadcast copy for static shapes across the generated float/reduced-precision
+  and bool storage surface.
 - [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
 - [ ] Tensor helpers that should not become separate kernel families unless
   profiling proves it: `concatenate_tanh`, `concatenate_fast`,

@@ -333,6 +333,22 @@ def _permute_frontend(x: Any, dims: Any) -> Tensor:
     )
 
 
+def _permute021_frontend(x: Any) -> Tensor:
+    return _permute_frontend(x, (0, 2, 1))
+
+
+def _permute0213_frontend(x: Any) -> Tensor:
+    return _permute_frontend(x, (0, 2, 1, 3))
+
+
+def _permute102_frontend(x: Any) -> Tensor:
+    return _permute_frontend(x, (1, 0, 2))
+
+
+def _permute210_frontend(x: Any) -> Tensor:
+    return _permute_frontend(x, (2, 1, 0))
+
+
 def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -531,6 +547,10 @@ globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
+globals()["permute021"] = _permute021_frontend
+globals()["permute0213"] = _permute0213_frontend
+globals()["permute102"] = _permute102_frontend
+globals()["permute210"] = _permute210_frontend
 globals()["repeat_interleave"] = _repeat_interleave_frontend
 globals()["transpose"] = _transpose_frontend
 globals().update(GEMM_FRONTEND_OPS)
@@ -550,6 +570,10 @@ __all__ = list(dict.fromkeys([
     "meshgrid",
     "output",
     "permute",
+    "permute021",
+    "permute0213",
+    "permute102",
+    "permute210",
     "reshape",
     "reduce_max",
     "reduce_mean",

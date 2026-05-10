@@ -28,8 +28,25 @@ class TransposeModule(dml.Module):
         return dml.ops.output(dml.ops.transpose(x, self.dim0, self.dim1), "out")
 
 
+class SpecializedPermuteModule(dml.Module):
+    def __init__(self, op_name):
+        self.op_name = op_name
+
+    def forward(self, x):
+        op = getattr(dml.ops, self.op_name)
+        return dml.ops.output(op(x), "out")
+
+
 def _trace_permute(dtype="float32", dims=(2, 0, 1), shape=(2, 3, 4)):
     return dml.trace(PermuteModule(dims), inputs={"x": dml.TensorSpec(shape, dtype)}, name=f"permute_{dtype}")
+
+
+def _trace_specialized_permute(op_name, dtype="float32", shape=(2, 3, 4)):
+    return dml.trace(
+        SpecializedPermuteModule(op_name),
+        inputs={"x": dml.TensorSpec(shape, dtype)},
+        name=f"{op_name}_{dtype}",
+    )
 
 
 def _trace_transpose(dtype="float32", dim0=-1, dim1=0, shape=(2, 3, 4)):
@@ -75,6 +92,60 @@ def test_transpose_frontend_emits_normalized_permute():
     node = spec.ir["nodes"][0]
     assert node["op"] == "permute"
     assert node["attrs"] == {"dims": [2, 1, 0]}
+
+
+@pytest.mark.parametrize(
+    ("op_name", "shape", "dims", "out_shape"),
+    [
+        ("permute021", (2, 3, 4), (0, 2, 1), [2, 4, 3]),
+        ("permute102", (2, 3, 4), (1, 0, 2), [3, 2, 4]),
+        ("permute210", (2, 3, 4), (2, 1, 0), [4, 3, 2]),
+        ("permute0213", (2, 3, 4, 5), (0, 2, 1, 3), [2, 4, 3, 5]),
+    ],
+)
+def test_specialized_permute_frontends_emit_permute_ir(op_name, shape, dims, out_shape):
+    spec = _trace_specialized_permute(op_name, shape=shape)
+
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+    assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+    node = spec.ir["nodes"][0]
+    assert node["op"] == "permute"
+    assert node["inputs"] == ["x"]
+    assert node["attrs"] == {"dims": list(dims)}
+
+
+@pytest.mark.parametrize(
+    ("op_name", "shape", "dims"),
+    [
+        ("permute021", (2, 3, 4), (0, 2, 1)),
+        ("permute102", (2, 3, 4), (1, 0, 2)),
+        ("permute210", (2, 3, 4), (2, 1, 0)),
+        ("permute0213", (2, 3, 4, 5), (0, 2, 1, 3)),
+    ],
+)
+def test_cpu_reference_specialized_permute_float32(op_name, shape, dims):
+    spec = _trace_specialized_permute(op_name, shape=shape)
+    x = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+
+    actual = execute_cpu(spec, {"x": x})["out"]
+
+    expected = np.transpose(x, axes=dims).copy()
+    assert actual.dtype == np.float32
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "bad_shape"),
+    [
+        ("permute021", (2, 3)),
+        ("permute102", (2, 3)),
+        ("permute210", (2, 3)),
+        ("permute0213", (2, 3, 4)),
+    ],
+)
+def test_specialized_permute_frontends_reject_bad_rank_via_permute_validation(op_name, bad_shape):
+    with pytest.raises(ValueError, match="length"):
+        _trace_specialized_permute(op_name, shape=bad_shape)
 
 
 @pytest.mark.parametrize(

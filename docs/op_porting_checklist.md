@@ -84,12 +84,14 @@ epilogues where possible.
   accepts static input shapes, flatten only accepts static dimensions in the
   flattened range, and scalar view tensors are not exposed yet. Layout-changing
   `permute`/`transpose` are available as bounded materialized dense copies
-  rather than metadata-only views.
+  rather than metadata-only views. Specialized frontend layout helpers
+  `permute021`, `permute0213`, `permute102`, and `permute210` are public wrappers
+  over `permute`, sharing the same static-shape, dtype, validation, and generated
+  kernel limits without adding separate kernels.
 - [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct`. These should remain frontend/IR helpers unless they produce
   tensors with explicit runtime storage.
-- [ ] Layout: `permute021`, `permute0213`, `permute102`, `permute210`,
-  `pixel_shuffle`, `pixel_unshuffle`. General `permute` and frontend
+- [ ] Layout: `pixel_shuffle`, `pixel_unshuffle`. General `permute` and frontend
   `transpose` are available for one static-shape tensor, full normalized
   permutations without duplicates, and the generated float/reduced-precision/bool
   storage surface.

@@ -8,7 +8,7 @@ from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.layout import dense_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS, elementwise_output_dtype
-from dinoml.ops.reductions import REDUCTION_OPS, infer_reduction_with_attrs
+from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError, validate_view_metadata
 
@@ -39,6 +39,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] == "argmax":
+            expected_dtype = "int64"
+        elif node["op"] == "topk_indices":
             expected_dtype = "int64"
         elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
             expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]), node.get("attrs", {}))
@@ -79,6 +81,10 @@ def _infer_node_shape_spec(
     if node["op"] == "argmax":
         keepdim = bool(node.get("attrs", {}).get("keepdim", False))
         return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
+    if node["op"] in TOPK_INTERNAL_OPS:
+        shape_spec = _copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]))
+        shape_spec[-1] = int(node.get("attrs", {})["k"])
+        return shape_spec
     return None
 
 

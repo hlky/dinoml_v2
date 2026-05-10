@@ -463,6 +463,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "argmax" and len(node.get("outputs", [])) == 1
     }
+    topk_index_output_tensors = {
+        node["outputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
+    }
     for node in ir["nodes"]:
         op_def = get_op_def(str(node["op"]))
         if target.name not in op_def.backend_kernels:
@@ -495,6 +500,20 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             if output_dtype != data_dtype:
                 raise NotImplementedError(f"Op gather output dtype {output_dtype} must match input dtype {data_dtype}")
             continue
+        if node.get("op") in {"topk_values", "topk_indices"}:
+            input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports input dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[input_dtype]}"
+                )
+            expected_output_dtype = input_dtype if node.get("op") == "topk_values" else "int64"
+            if output_dtype != expected_output_dtype:
+                raise NotImplementedError(
+                    f"Op {op_def.name} output dtype {output_dtype} must be {expected_output_dtype}"
+                )
+            continue
         node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
         node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
         unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]
@@ -511,6 +530,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             if str(tensor["dtype"]) not in supported
             and str(tensor["name"]) not in gather_index_tensors
             and str(tensor["name"]) not in argmax_output_tensors
+            and str(tensor["name"]) not in topk_index_output_tensors
         }
     )
     if unsupported:

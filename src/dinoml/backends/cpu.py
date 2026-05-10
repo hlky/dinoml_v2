@@ -62,6 +62,15 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_argmax(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] in {"topk_values", "topk_indices"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            topk_indices = _execute_topk_indices(values[node["inputs"][0]], node.get("attrs", {}))
+            if node["op"] == "topk_indices":
+                result = topk_indices
+            else:
+                result = np.take_along_axis(values[node["inputs"][0]], topk_indices, axis=-1)
+            values[output_name] = _store_reference(result, output_dtype)
         elif node["op"] == "full":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -460,6 +469,43 @@ def _execute_argmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarra
     if result.shape == ():
         result = np.reshape(result, [1])
     return np.asarray(result, dtype=np.int64)
+
+
+def _execute_topk_indices(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    dim = int(attrs.get("dim", -1))
+    if dim < 0:
+        dim += value.ndim
+    if dim != value.ndim - 1:
+        raise NotImplementedError("CPU reference topk currently supports only the last dimension")
+    if not bool(attrs.get("largest", True)):
+        raise NotImplementedError("CPU reference topk currently supports only largest=True")
+    if not bool(attrs.get("sorted", True)):
+        raise NotImplementedError("CPU reference topk currently supports only sorted=True")
+    k = int(attrs["k"])
+    rows = int(np.prod(value.shape[:-1], dtype=np.int64)) if value.ndim > 1 else 1
+    cols = int(value.shape[-1])
+    source = np.reshape(value, (rows, cols))
+    result = np.empty((rows, k), dtype=np.int64)
+    for row in range(rows):
+        used = np.zeros((cols,), dtype=np.bool_)
+        for out_col in range(k):
+            best_index = -1
+            for col in range(cols):
+                if used[col]:
+                    continue
+                if best_index < 0 or _topk_is_better(source[row, col], source[row, best_index]):
+                    best_index = col
+            used[best_index] = True
+            result[row, out_col] = best_index
+    return np.reshape(result, (*value.shape[:-1], k))
+
+
+def _topk_is_better(candidate: object, current: object) -> bool:
+    if isinstance(candidate, (bool, np.bool_)) or isinstance(current, (bool, np.bool_)):
+        return bool(candidate) > bool(current)
+    candidate_float = float(candidate)
+    current_float = float(current)
+    return candidate_float > current_float or (math.isnan(candidate_float) and not math.isnan(current_float))
 
 
 def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:

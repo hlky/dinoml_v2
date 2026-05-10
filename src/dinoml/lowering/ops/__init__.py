@@ -29,6 +29,7 @@ from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
 from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
 from dinoml.lowering.ops.stack import STACK_LOWERING
+from dinoml.lowering.ops.topk import TOPK_LOWERINGS
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 
@@ -57,6 +58,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)
 OP_LOWERINGS.update(BMM_LOWERINGS)
+OP_LOWERINGS.update(TOPK_LOWERINGS)
 
 
 def render_generated_kernels(

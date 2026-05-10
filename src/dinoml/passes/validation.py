@@ -136,6 +136,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "argmax":
         _validate_argmax_node(node, inputs, tensors)
         return
+    if node["op"] in {"topk_values", "topk_indices"}:
+        _validate_topk_node(node, inputs, tensors)
+        return
     if node["op"] in {
         "avg_pool1d",
         "avg_pool2d",
@@ -305,6 +308,45 @@ def _validate_argmax_node(
     if str(output["dtype"]) != "int64":
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected int64"
+        )
+
+
+def _validate_topk_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if not op_def.accepts_input_count(len(inputs)):
+        raise ValidationError(f"{op_name} expects exactly one input")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    dynamic_tensors = [
+        str(tensor["name"])
+        for tensor in [*inputs, output]
+        if is_dynamic_shape(tensor.get("shape_spec", tensor["shape"]))
+    ]
+    if dynamic_tensors:
+        raise ValidationError(f"topk currently supports only static shapes: {dynamic_tensors}")
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+            f"expected {expected_shape}"
+        )
+    input_dtype = str(inputs[0]["dtype"])
+    if input_dtype not in op_def.allowed_dtypes:
+        raise ValidationError(f"topk does not support dtype {input_dtype}")
+    expected_dtype = input_dtype if op_name == "topk_values" else "int64"
+    if str(output["dtype"]) != expected_dtype:
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {expected_dtype}"
         )
 
 

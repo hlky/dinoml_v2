@@ -143,8 +143,14 @@ epilogues where possible.
   `float32`/`float16`/`bfloat16`/`bool` inputs, compares reduced-precision
   inputs in fp32, returns first max indices on ties, and materializes `int64`
   output tensors through an op-specific compiler/runtime contract exception.
-  Sparse grad, dynamic shapes, bool/float gather indices, non-last-dimension
-  argmax, values+indices outputs, and top-k operators remain out of scope.
+  Public `topk(x, k, dim=-1, largest=True, sorted=True)` is available as two
+  internal single-output ops (`topk_values`, `topk_indices`) for one
+  static-shape ranked dense tensor over a positive static last dimension only,
+  with positive non-bool static integer `k <= last_dim`, `float32`/`float16`/
+  `bfloat16`/`bool` inputs, value dtype preserved, `int64` indices, stable
+  first-index tie ordering, and sorted descending largest results. Sparse grad,
+  dynamic shapes, bool/float gather indices, non-last-dimension argmax/topk,
+  smallest/unsorted topk, and true multi-output IR nodes remain out of scope.
   `slice_scatter` is available as the bounded write-side companion with static
   integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
   the same generated storage surface. `slice_reshape_scatter` is available as a

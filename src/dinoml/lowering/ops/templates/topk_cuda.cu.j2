@@ -1,0 +1,72 @@
+__global__ void {{ kernel }}(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int64_t k = {{ k }};
+  const int64_t runtime_rows = runtime_numel / k;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < runtime_rows; row += stride) {
+    const int64_t base = row * cols;
+    int64_t selected[k];
+    for (int64_t out_col = 0; out_col < k; ++out_col) {
+      selected[out_col] = -1;
+    }
+    for (int64_t out_col = 0; out_col < k; ++out_col) {
+      int64_t best_index = -1;
+      for (int64_t col = 0; col < cols; ++col) {
+        bool already_selected = false;
+        for (int64_t prev = 0; prev < out_col; ++prev) {
+          if (selected[prev] == col) {
+            already_selected = true;
+          }
+        }
+        if (already_selected) {
+          continue;
+        }
+        if (best_index < 0) {
+          best_index = col;
+          continue;
+        }
+{% if input_dtype == "bool" %}
+        const bool value = x[base + col];
+        const bool best_value = x[base + best_index];
+        if (value > best_value) {
+          best_index = col;
+        }
+{% else %}
+        const float value = dinoml::math::cast<float>(x[base + col]);
+        const float best_value = dinoml::math::cast<float>(x[base + best_index]);
+        if ((value > best_value) || (isnan(value) && !isnan(best_value))) {
+          best_index = col;
+        }
+{% endif %}
+      }
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+      selected[out_col] = best_index;
+    }
+  }
+}
+
+static int {{ func }}(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    cudaStream_t stream) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  const int64_t runtime_rows = runtime_numel / {{ k }};
+  const int64_t grid64 = (runtime_rows + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
+    DINO_CUDA_CHECK(cudaGetLastError());
+  }
+  return 0;
+}

@@ -2137,24 +2137,45 @@ def test_shape_type_infer_propagates_dynamic_shape_spec_through_reductions():
 
 
 def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
+    tokens_expr = {
+        "kind": "int_expr",
+        "op": "div",
+        "lhs": {
+            "kind": "int_expr",
+            "op": "add",
+            "lhs": {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+            "rhs": 1,
+        },
+        "rhs": 2,
+    }
     tensor_map = {
         "x": {
             "name": "x",
-            "shape": [4, 16],
-            "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 4}, 16],
+            "shape": [4, 16, 8],
+            "shape_spec": [
+                {"kind": "dim", "name": "batch", "min": 1, "max": 4},
+                {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+                tokens_expr,
+            ],
         },
         "tmp": {
             "name": "tmp",
-            "shape": [4, 16],
-            "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 4}, 16],
+            "shape": [4, 8],
+            "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 4}, tokens_expr],
+        },
+        "expr_only": {
+            "name": "expr_only",
+            "shape": [8],
+            "shape_spec": [tokens_expr],
         },
     }
     sources = dynamic_dim_sources(input_map={"x": 0}, output_map={}, tensor_map=tensor_map)
-    assert sources == {"batch": "inputs[0].shape[0]"}
+    assert sources == {"batch": "inputs[0].shape[0]", "tokens": "inputs[0].shape[1]"}
+    assert dynamic_dim_sources(input_map={}, output_map={"expr_only": 0}, tensor_map=tensor_map) == {}
     assert shape_dim_expr(tensor_map["tmp"], 0, sources) == "inputs[0].shape[0]"
-    assert shape_dim_expr(tensor_map["tmp"], 1, sources) == "16"
+    assert shape_dim_expr(tensor_map["tmp"], 1, sources) == "dinoml::module::floor_div((inputs[0].shape[1] + 1), 2)"
     assert numel_expr("tmp", 2) == "shape_tmp_0 * shape_tmp_1"
-    assert shape_buffer_context(tensor_map["tmp"]) == {"ident": "tmp", "rank": 2, "shape_literal": "4, 16"}
+    assert shape_buffer_context(tensor_map["tmp"]) == {"ident": "tmp", "rank": 2, "shape_literal": "4, 8"}
 
 
 def test_fused_elementwise_function_names_are_stable_and_clean():

@@ -96,6 +96,15 @@ inline int64_t shape_numel(const std::vector<int64_t>& shape) {
   return total;
 }
 
+inline int64_t floor_div(int64_t lhs, int64_t rhs) {
+  const int64_t quotient = lhs / rhs;
+  const int64_t remainder = lhs % rhs;
+  if (remainder != 0 && ((remainder < 0) != (rhs < 0))) {
+    return quotient - 1;
+  }
+  return quotient;
+}
+
 inline const void* tensor_data(const DinoTensor& tensor) {
   const auto* base = static_cast<const uint8_t*>(tensor.data);
   return base + tensor.byte_offset;

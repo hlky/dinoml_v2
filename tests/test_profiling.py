@@ -1894,6 +1894,74 @@ def test_compile_profile_rejects_ambiguous_or_non_cuda_requests(tmp_path):
         compiler_mod.compile("spec", dml.Target("cpu"), tmp_path / "profiled_cpu.dinoml", profile=True)
 
 
+def test_compile_profile_rejects_symbolic_shape_expressions(tmp_path, monkeypatch):
+    expr = {
+        "kind": "int_expr",
+        "op": "div",
+        "lhs": {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+        "rhs": 2,
+    }
+
+    def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
+        del spec, target, artifact_dir, pass_manager
+        return (
+            {
+                "name": "profile_expr",
+                "inputs": [{"name": "x", "tensor": "x", "shape": [16, 8], "shape_spec": [{"kind": "dim", "name": "tokens", "min": 4, "max": 16}, 8], "dtype": "float32"}],
+                "outputs": [{"name": "y", "tensor": "y", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"}],
+                "constants": [],
+                "tensors": [
+                    {"name": "x", "shape": [16, 8], "shape_spec": [{"kind": "dim", "name": "tokens", "min": 4, "max": 16}, 8], "dtype": "float32"},
+                    {"name": "y", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"},
+                ],
+                "nodes": [],
+                "metadata": {},
+            },
+            [],
+        )
+
+    monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+
+    with pytest.raises(NotImplementedError, match="shape expressions.*profiling"):
+        compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
+
+
+def test_profile_artifact_rejects_symbolic_shape_expressions(tmp_path):
+    expr = {
+        "kind": "int_expr",
+        "op": "div",
+        "lhs": {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+        "rhs": 2,
+    }
+    artifact = tmp_path / "expr_profile.dinoml"
+    artifact.mkdir()
+    write_json(
+        artifact / "manifest.json",
+        {
+            "target": {"name": "cuda", "arch": "sm_86"},
+            "files": {
+                "graph": "graph.dinoir.json",
+                "kernel_manifest": "kernel_manifest.json",
+                "kernel_codegen_plan": "kernel_codegen_plan.json",
+            },
+        },
+    )
+    write_json(
+        artifact / "graph.dinoir.json",
+        {
+            "inputs": [],
+            "outputs": [{"name": "y", "tensor": "y", "shape": [8], "shape_spec": [expr], "dtype": "float32"}],
+            "constants": [],
+            "tensors": [{"name": "y", "shape": [8], "shape_spec": [expr], "dtype": "float32"}],
+            "nodes": [],
+            "metadata": {},
+        },
+    )
+
+    with pytest.raises(NotImplementedError, match="shape expressions.*profiling"):
+        profile_artifact(artifact)
+
+
 def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
     model_path = tmp_path / "model.py"
     model_path.write_text("def build_spec():\n    return 'spec'\n", encoding="utf-8")

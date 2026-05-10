@@ -12,10 +12,14 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
+    constant_expression_axis_checks,
     dynamic_dim_sources,
+    expression_axis_checks,
+    named_dim_leaves,
     numel_expr,
     shape_buffer_context,
     shape_dim_expr,
+    shape_dim_range,
     shape_literal,
     shape_vars_literal,
 )
@@ -499,19 +503,7 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:
-    dims = []
-    for dim in shape_spec:
-        if isinstance(dim, int):
-            dims.append({"min": int(dim), "max": int(dim), "divisible_by": 1})
-        else:
-            dims.append(
-                {
-                    "min": int(dim["min"]),
-                    "max": int(dim["max"]),
-                    "divisible_by": int(dim.get("divisible_by", 1)),
-                }
-            )
-    return dims
+    return [shape_dim_range(dim) for dim in shape_spec]
 
 
 def _shape_equal_checks(
@@ -526,32 +518,57 @@ def _shape_equal_checks(
     for array_name, indexed in (("inputs", indexed_inputs), ("outputs", indexed_outputs)):
         for tensor_idx, item in indexed:
             for axis, dim in enumerate(item.get("shape_spec", item["shape"])):
-                if isinstance(dim, int):
-                    continue
-                name = str(dim["name"])
-                expr = f"{array_name}[{tensor_idx}].shape[{axis}]"
-                if name not in dim_sources:
-                    dim_sources[name] = (expr, tensor_idx, item["name"])
-                else:
-                    source_expr, _source_idx, source_name = dim_sources[name]
-                    checks.append(
-                        f'  if ({expr} != {source_expr}) return dinoml::module::fail("Dynamic dimension {name} mismatch between {source_name} and {item["name"]}");'
+                if isinstance(dim, Mapping) and dim.get("kind") == "dim":
+                    _append_named_dim_check(
+                        dim_sources,
+                        checks,
+                        name=str(dim["name"]),
+                        expr=f"{array_name}[{tensor_idx}].shape[{axis}]",
+                        item_name=str(item["name"]),
                     )
+                elif isinstance(dim, Mapping) and dim.get("kind") == "int_expr":
+                    for leaf in named_dim_leaves(dim):
+                        if str(leaf["name"]) in dim_sources:
+                            continue
     for item in constants:
         ident = _c_ident(str(item["tensor"]))
         for axis, dim in enumerate(item.get("shape_spec", item["shape"])):
-            if isinstance(dim, int):
-                continue
-            name = str(dim["name"])
-            expr = f"session->module->const_shape_{ident}[{axis}]"
-            if name not in dim_sources:
-                dim_sources[name] = (expr, -1, item["name"])
-            else:
-                source_expr, _source_idx, source_name = dim_sources[name]
-                checks.append(
-                    f'  if ({expr} != {source_expr}) return dinoml::module::fail("Dynamic dimension {name} mismatch between {source_name} and {item["name"]}");'
+            if isinstance(dim, Mapping) and dim.get("kind") == "dim":
+                _append_named_dim_check(
+                    dim_sources,
+                    checks,
+                    name=str(dim["name"]),
+                    expr=f"session->module->const_shape_{ident}[{axis}]",
+                    item_name=str(item["name"]),
                 )
+            elif isinstance(dim, Mapping) and dim.get("kind") == "int_expr":
+                for leaf in named_dim_leaves(dim):
+                    if str(leaf["name"]) in dim_sources:
+                        continue
+    dynamic_dims = {name: source[0] for name, source in dim_sources.items()}
+    checks.extend(expression_axis_checks(items=inputs, array_name="inputs", dynamic_dims=dynamic_dims))
+    checks.extend(expression_axis_checks(items=outputs, array_name="outputs", dynamic_dims=dynamic_dims))
+    checks.extend(
+        constant_expression_axis_checks(constants=constants, dynamic_dims=dynamic_dims, c_ident_fn=_c_ident)
+    )
     return checks
+
+
+def _append_named_dim_check(
+    dim_sources: dict[str, tuple[str, int, str]],
+    checks: list[str],
+    *,
+    name: str,
+    expr: str,
+    item_name: str,
+) -> None:
+    if name not in dim_sources:
+        dim_sources[name] = (expr, -1, item_name)
+        return
+    source_expr, _source_idx, source_name = dim_sources[name]
+    checks.append(
+        f'  if ({expr} != {source_expr}) return dinoml::module::fail("Dynamic dimension {name} mismatch between {source_name} and {item_name}");'
+    )
 
 
 def _numel(shape: Iterable[int]) -> int:

@@ -20,6 +20,7 @@ from dinoml.ir import (
     write_json,
 )
 from dinoml.ops.definitions import get_op_def
+from dinoml.passes import PassManager
 
 
 class DynamicChannelBias(dml.Module):
@@ -101,6 +102,11 @@ class MaterializingConstant:
 class DirectIdentityModel(dml.Module):
     def forward(self, x):
         return dml.ops.output(x, "y")
+
+
+class AddZeroUnusedShapeSource(dml.Module):
+    def forward(self, x, z):
+        return dml.ops.output(x + 0.0, "y")
 
 
 class DTypeFusedElementwise(dml.Module):
@@ -1840,6 +1846,56 @@ def test_cpu_artifact_runs_generated_var_and_vector_norm(tmp_path, op_name, attr
 
     assert actual.shape == (4, 8, 1)
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cpu_artifact_runs_with_expression_output_shape(tmp_path):
+    batch = {"kind": "dim", "name": "batch", "min": 1, "max": 4}
+    half = {"kind": "dim", "name": "half", "min": 2, "max": 8}
+    length = {"kind": "dim", "name": "length", "min": 4, "max": 16}
+    pooled_length = {"kind": "int_expr", "op": "div", "lhs": length, "rhs": 2}
+    spec = dml.trace(
+        AddZeroUnusedShapeSource(),
+        inputs={"x": dml.TensorSpec([4, 8], "float32"), "z": dml.TensorSpec([16], "float32")},
+        name="add_zero_expr_shape_cpu",
+    )
+    spec = spec.clone()
+    for item in spec.ir["inputs"]:
+        if item["name"] == "x":
+            item["shape_spec"] = [batch, half]
+        elif item["name"] == "z":
+            item["shape_spec"] = [length]
+    for item in spec.ir["outputs"]:
+        if item["name"] == "y":
+            item["shape_spec"] = [batch, pooled_length]
+    for tensor in spec.ir["tensors"]:
+        if tensor["name"] == "x":
+            tensor["shape_spec"] = [batch, half]
+        elif tensor["name"] == "z":
+            tensor["shape_spec"] = [length]
+        elif tensor["name"] == "t0":
+            tensor["shape_spec"] = [batch, pooled_length]
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("cpu"),
+        tmp_path / "add_zero_expr_shape_cpu.dinoml",
+        pass_manager=PassManager(
+            pipeline=("canonicalize", "constant_bind", "dead_code_eliminate", "elementwise_fusion", "memory_plan", "backend_lower")
+        ),
+    )
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "dinoml::module::floor_div(inputs[1].shape[0], 2)" in generated
+    assert "Shape expression mismatch for y axis 1" in generated
+
+    x = np.arange(2 * 8, dtype=np.float32).reshape(2, 8)
+    z = np.zeros((16,), dtype=np.float32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x, "z": z})["y"]
+    session.close()
+    module.close()
+    assert actual.shape == (2, 8)
+    np.testing.assert_allclose(actual, x, atol=1e-6, rtol=1e-6)
 
 
 def test_reduction_rejects_non_last_dim():

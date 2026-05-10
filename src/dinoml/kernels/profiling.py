@@ -537,6 +537,7 @@ def profile_artifact(
     if manifest.get("target", {}).get("name") != "cuda":
         raise ValueError("Profiler runner currently supports CUDA artifacts only")
     graph = read_json(artifact_dir / manifest["files"]["graph"])
+    _reject_symbolic_int_expr_profile_graph(graph)
     kernel_manifest = read_json(artifact_dir / manifest["files"]["kernel_manifest"])
     codegen_plan = read_json(artifact_dir / manifest["files"]["kernel_codegen_plan"])
     workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
@@ -621,6 +622,32 @@ def profile_artifact(
 
 def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
     return Path(str(codegen_plan["support_cache_dir"])) / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.json"
+
+
+def _reject_symbolic_int_expr_profile_graph(graph: Mapping[str, Any]) -> None:
+    for section in ("inputs", "outputs", "constants", "tensors"):
+        for item in graph.get(section, []):
+            for axis, dim in enumerate(item.get("shape_spec", item.get("shape", []))):
+                if _contains_symbolic_int_expr(dim):
+                    raise NotImplementedError(
+                        "Symbolic integer shape expressions in shape_spec are not supported by profiling yet "
+                        f"({section} entry {item.get('name', item.get('tensor'))!r}, axis {axis})."
+                    )
+    for view in graph.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", []):
+        for axis, dim in enumerate(view.get("shape_spec", view.get("shape", []))):
+            if _contains_symbolic_int_expr(dim):
+                raise NotImplementedError(
+                    "Symbolic integer shape expressions in shape_spec are not supported by profiling yet "
+                    f"(view tensor {view.get('tensor')!r}, axis {axis})."
+                )
+
+
+def _contains_symbolic_int_expr(value: Any) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    if value.get("kind") == "int_expr":
+        return True
+    return any(_contains_symbolic_int_expr(child) for child in value.values())
 
 
 def _positive_int(value: int, name: str) -> int:

@@ -592,7 +592,6 @@ def test_compile_accepts_reduced_precision_cpu_runtime_dtype(tmp_path, dtype):
 @pytest.mark.parametrize(
     ("module", "message"),
     [
-        (SoftmaxModule(), "softmax does not support dtype bfloat16"),
         (VarModule(), "var does not support dtype bfloat16"),
         (VectorNormModule(), "vector_norm does not support dtype bfloat16"),
     ],
@@ -600,6 +599,14 @@ def test_compile_accepts_reduced_precision_cpu_runtime_dtype(tmp_path, dtype):
 def test_non_elementwise_ops_reject_reduced_precision_frontend(module, message):
     with pytest.raises(ValueError, match=message):
         dml.trace(module, inputs={"x": dml.TensorSpec([2, 16], "bfloat16")})
+
+
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_softmax_accepts_reduced_precision_frontend(dtype):
+    spec = dml.trace(SoftmaxModule(), inputs={"x": dml.TensorSpec([2, 16], dtype)}, name=f"softmax_{dtype}")
+    output = spec.ir["outputs"][0]
+    assert output["shape"] == [2, 16]
+    assert output["dtype"] == dtype
 
 
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])

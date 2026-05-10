@@ -8,6 +8,10 @@ from typing import Any, Mapping
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+
+
+SOFTMAX_DTYPES = {"float16", "float32", "bfloat16"}
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -55,7 +59,8 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     output_tensor = tensor_map[output_name]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
-    pack_width = _cuda_pack_width(cols)
+    dtype = str(input_tensor["dtype"])
+    pack_width = _cuda_pack_width(cols) if dtype == "float32" else 1
     use_packed_kernel = pack_width > 1
     use_warp_kernel = not use_packed_kernel and cols <= 2048
     return {
@@ -63,6 +68,8 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
         "packed_kernel": f"{_function_name(node, tensor_map)}_packed_kernel",
         "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
+        "cpu_storage_type": cpu_storage_type(dtype),
+        "cuda_storage_type": cuda_storage_type(dtype),
         "cols": cols,
         "num_packs": cols // pack_width,
         "pack_type": "float4" if pack_width == 4 else "float2",
@@ -82,8 +89,12 @@ def _validate_node_contract(
     input_tensor: Mapping[str, Any],
     output_tensor: Mapping[str, Any],
 ) -> None:
-    if str(input_tensor["dtype"]) != "float32" or str(output_tensor["dtype"]) != "float32":
-        raise NotImplementedError("softmax lowering currently supports float32 tensors only")
+    input_dtype = str(input_tensor["dtype"])
+    output_dtype = str(output_tensor["dtype"])
+    if input_dtype != output_dtype:
+        raise NotImplementedError("softmax lowering currently requires matching input/output dtypes")
+    if input_dtype not in SOFTMAX_DTYPES:
+        raise NotImplementedError("softmax lowering supports float16, float32, and bfloat16 tensors only")
     if list(input_tensor["shape"]) != list(output_tensor["shape"]):
         raise ValueError("softmax input and output shapes must match")
     if not input_tensor["shape"]:

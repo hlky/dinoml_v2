@@ -1,6 +1,6 @@
 static int {{ func }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    {{ cpu_storage_type }}* DINO_RESTRICT y,
     int64_t runtime_total) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
@@ -15,20 +15,22 @@ static int {{ func }}(
 #endif
   for (int64_t row = 0; row < rows; ++row) {
     const int64_t base = row * cols;
-    float row_max = x[base];
+    float row_max = dinoml::math::cast<float>(x[base]);
     for (int64_t col = 1; col < cols; ++col) {
-      row_max = std::max(row_max, x[base + col]);
+      row_max = std::max(row_max, dinoml::math::cast<float>(x[base + col]));
     }
     float row_sum = 0.0f;
+    std::vector<float> row_values(static_cast<size_t>(cols));
     for (int64_t col = 0; col < cols; ++col) {
-      const float shifted = x[base + col] - row_max;
+      const float shifted = dinoml::math::cast<float>(x[base + col]) - row_max;
       const float value = std::exp(shifted);
-      y[base + col] = value;
+      row_values[static_cast<size_t>(col)] = value;
       row_sum += value;
     }
     const float inv_sum = 1.0f / row_sum;
     for (int64_t col = 0; col < cols; ++col) {
-      y[base + col] *= inv_sum;
+      const float value = row_values[static_cast<size_t>(col)] * inv_sum;
+      y[base + col] = dinoml::math::cast<{{ cpu_storage_type }}>(value);
     }
   }
   return 0;

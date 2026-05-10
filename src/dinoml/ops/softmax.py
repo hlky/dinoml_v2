@@ -24,10 +24,11 @@ def register_softmax_op(registry: OpRegistry) -> None:
                 "cuda": KernelBinding("generated_softmax", "model", source_template="softmax_cuda"),
                 "cpu": KernelBinding("generated_softmax", "model", source_template="softmax_cpu"),
             },
-            allowed_dtypes=("float32",),
+            allowed_dtypes=("float16", "float32", "bfloat16"),
             description=(
-                "Dense float32 softmax over the last dimension. Initial v2 port "
-                "requires a static last-axis reduction extent."
+                "Dense float16, float32, and bfloat16 softmax over the last dimension. "
+                "Initial v2 port requires a static last-axis reduction extent and uses "
+                "fp32 computation for reduced-precision storage."
             ),
         )
     )
@@ -35,7 +36,7 @@ def register_softmax_op(registry: OpRegistry) -> None:
 
 def softmax(x: object, dim: int = -1) -> Tensor:
     tensor = as_tensor(x, dtype_hint="float32")
-    if tensor.dtype != "float32":
+    if tensor.dtype not in {"float16", "float32", "bfloat16"}:
         raise ValueError(f"softmax does not support dtype {tensor.dtype}")
     rank = len(tensor.shape)
     if rank < 2:

@@ -93,8 +93,8 @@ __global__ void {{ packed_kernel }}(
 {% endif %}
 {% if use_warp_kernel %}
 __global__ void {{ warp_kernel }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   constexpr int cols_per_thread = {{ cols_per_thread }};
@@ -112,7 +112,7 @@ __global__ void {{ warp_kernel }}(
     const int col = i * 32 + lane;
     float value = -3.4028234663852886e38f;
     if (col < cols) {
-      value = x[base + col];
+      value = dinoml::math::cast<float>(x[base + col]);
     }
     values[i] = value;
     thread_max = fmaxf(thread_max, value);
@@ -144,15 +144,15 @@ __global__ void {{ warp_kernel }}(
   for (int i = 0; i < cols_per_thread; ++i) {
     const int col = i * 32 + lane;
     if (col < cols) {
-      y[base + col] = values[i] * inv_sum;
+      y[base + col] = dinoml::math::cast<{{ cuda_storage_type }}>(values[i] * inv_sum);
     }
   }
 }
 
 {% endif %}
 __global__ void {{ kernel }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   extern __shared__ float shared[];
@@ -165,7 +165,7 @@ __global__ void {{ kernel }}(
 
   float thread_max = -3.4028234663852886e38f;
   for (int64_t col = tid; col < cols; col += blockDim.x) {
-    thread_max = fmaxf(thread_max, x[base + col]);
+    thread_max = fmaxf(thread_max, dinoml::math::cast<float>(x[base + col]));
   }
   shared[tid] = thread_max;
   __syncthreads();
@@ -180,8 +180,7 @@ __global__ void {{ kernel }}(
 
   float thread_sum = 0.0f;
   for (int64_t col = tid; col < cols; col += blockDim.x) {
-    const float value = expf(x[base + col] - row_max);
-    y[base + col] = value;
+    const float value = expf(dinoml::math::cast<float>(x[base + col]) - row_max);
     thread_sum += value;
   }
   shared[tid] = thread_sum;
@@ -196,13 +195,14 @@ __global__ void {{ kernel }}(
   const float inv_sum = 1.0f / shared[0];
 
   for (int64_t col = tid; col < cols; col += blockDim.x) {
-    y[base + col] *= inv_sum;
+    const float value = expf(dinoml::math::cast<float>(x[base + col]) - row_max) * inv_sum;
+    y[base + col] = dinoml::math::cast<{{ cuda_storage_type }}>(value);
   }
 }
 
 static int {{ func }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t runtime_total,
     cudaStream_t stream) {
   if (x == nullptr || y == nullptr) {

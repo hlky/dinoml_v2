@@ -564,6 +564,26 @@ def test_cuda_generated_softmax_matches_numpy_for_attention_rows(tmp_path):
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_cuda_generated_reduced_precision_softmax_source_avoids_packed_float_reinterpret(tmp_path, dtype):
+    spec = dml.trace(
+        SoftmaxLastDim(),
+        inputs={"x": dml.TensorSpec([8, 1024], dtype)},
+        name=f"softmax_{dtype}_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"softmax_{dtype}_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    storage_type = "half" if dtype == "float16" else "__nv_bfloat16"
+    assert f"const {storage_type}* DINO_RESTRICT x" in generated
+    assert f"{storage_type}* DINO_RESTRICT y" in generated
+    assert "_warp_kernel" in generated
+    assert "_packed_kernel" not in generated
+    assert "float4" not in generated
+    assert "float2" not in generated
+    assert "dinoml::math::cast<float>(x[base + col])" in generated
+    assert f"dinoml::math::cast<{storage_type}>" in generated
+
+
 @pytest.mark.parametrize(
     ("op_name", "numpy_op"),
     [

@@ -195,16 +195,19 @@ add xsimd or `std::simd` only where measurable.
   normalization and `keepdim`. `var` defaults to population variance and
   exposes an `unbiased` flag; `vector_norm` currently supports L2 norm only.
 - [x] `softmax`: initial public `dml.ops.softmax(x, dim=-1)` port for dense
-  contiguous float32 tensors on CPU and CUDA. Current implementation supports
-  only the last dimension with a positive static reduction extent, uses stable
-  max-subtract/exp/sum normalization, and targets attention-row shapes such as
-  `[batch_heads * queries, keys]`. CUDA now has a warp-per-row register-cached
-  specialization for odd/tail `K <= 2048`, a float2/float4 packed local-register
-  path for divisible reductions up to the initial v1-style thresholds, and a
-  shared-memory fallback for larger reductions. Non-last dimensions, generic
-  dynamic reduction extents, reduced-precision storage contracts,
-  strided/layout-aware tensors, full v1 K1/K2/K4/K8 small/middle/block policy
-  parity, and profiler-selected variants remain unported.
+  contiguous `float32`, `float16`, and `bfloat16` tensors on CPU and CUDA.
+  Current implementation supports only the last dimension with a positive static
+  reduction extent, uses stable max-subtract/exp/sum normalization, and targets
+  attention-row shapes such as `[batch_heads * queries, keys]`. Reduced-precision
+  storage uses fp32 computation/accumulation and stores output back to the input
+  dtype. CUDA now has a warp-per-row register-cached specialization for odd/tail
+  `K <= 2048`, a float2/float4 packed local-register path for divisible float32
+  reductions up to the initial v1-style thresholds, and a shared-memory fallback
+  for larger reductions. Reduced-precision CUDA kernels conservatively avoid the
+  packed float vector reinterpret path. Non-last dimensions, generic dynamic
+  reduction extents, strided/layout-aware tensors, full v1 K1/K2/K4/K8
+  small/middle/block policy parity, and profiler-selected variants remain
+  unported.
 
 Library hints: CUB is a good CUDA baseline for generic reductions and scans;
 oneDNN has CPU softmax/reduction coverage; CK/MIOpen may cover selected GPU

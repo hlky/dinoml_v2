@@ -1234,6 +1234,43 @@ def test_cpu_artifact_runs_generated_softmax_for_attention_rows(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [
+        ("float16", 2e-3, 2e-3),
+        ("bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_artifact_runs_generated_reduced_precision_softmax(tmp_path, dtype, atol, rtol):
+    spec = dml.trace(
+        SoftmaxLastDim(),
+        inputs={"x": dml.TensorSpec([8, 33], dtype)},
+        name=f"softmax_{dtype}_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"softmax_{dtype}_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    storage_type = "dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16"
+    assert f"const {storage_type}* DINO_RESTRICT x" in generated
+    assert "std::vector<float> row_values" in generated
+    assert "dinoml::math::cast<float>(x[base + col])" in generated
+    assert f"dinoml::math::cast<{storage_type}>" in generated
+
+    x = np.random.default_rng(1234).standard_normal((8, 33)).astype(np.float32) * 2.0
+    x_reference = array_from_storage(array_to_storage(x, dtype), dtype).astype(np.float32)
+    shifted = x_reference - np.max(x_reference, axis=-1, keepdims=True)
+    expected_float = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
+    expected = array_from_storage(array_to_storage(expected_float, dtype), dtype)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    assert actual.dtype == expected.dtype
+    np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=atol, rtol=rtol)
+
+
+@pytest.mark.parametrize(
     ("op_name", "numpy_op"),
     [
         ("reduce_sum", np.sum),

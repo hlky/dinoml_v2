@@ -20,11 +20,34 @@ class SliceScatterModule(dml.Module):
         return dml.ops.output(dml.ops.slice_scatter(x, update, self.start_indices), "out")
 
 
+class SliceReshapeScatterModule(dml.Module):
+    def __init__(self, start_indices=(0, 1, 0), slice_shape=(2, 2, 2)):
+        self.start_indices = start_indices
+        self.slice_shape = slice_shape
+
+    def forward(self, x, update):
+        return dml.ops.output(dml.ops.slice_reshape_scatter(x, update, self.start_indices, self.slice_shape), "out")
+
+
 def _trace(dtype="float32", start_indices=(0, 1, 0), x_shape=(3, 4, 2), update_shape=(2, 2, 2)):
     return dml.trace(
         SliceScatterModule(start_indices),
         inputs={"x": dml.TensorSpec(x_shape, dtype), "update": dml.TensorSpec(update_shape, dtype)},
         name=f"slice_scatter_{dtype}",
+    )
+
+
+def _trace_slice_reshape_scatter(
+    dtype="float32",
+    start_indices=(0, 1, 0),
+    x_shape=(3, 4, 2),
+    update_shape=(8,),
+    slice_shape=(2, 2, 2),
+):
+    return dml.trace(
+        SliceReshapeScatterModule(start_indices, slice_shape),
+        inputs={"x": dml.TensorSpec(x_shape, dtype), "update": dml.TensorSpec(update_shape, dtype)},
+        name=f"slice_reshape_scatter_{dtype}",
     )
 
 
@@ -44,6 +67,10 @@ def _update(dtype):
     if dtype == "bool":
         return (np.arange(8).reshape(2, 2, 2) % 2) == 0
     return (100 + np.arange(8, dtype=np.float32)).reshape(2, 2, 2)
+
+
+def _flat_update(dtype):
+    return _update(dtype).reshape(8)
 
 
 def _expected_scatter(x, update, dtype, start_indices=(0, 1, 0)):
@@ -139,6 +166,84 @@ def test_slice_scatter_generated_cuda_source_supports_reduced_precision_and_bool
         assert "in_slice = in_slice && coord >= 0 && coord < 2" in cuda_source
         assert "in_slice = in_slice && coord >= 1 && coord < 3" in cuda_source
         assert "y[idx] = in_slice ? update[update_idx] : x[idx]" in cuda_source
+
+
+def test_slice_reshape_scatter_frontend_ir_emits_reshape_view_and_slice_scatter():
+    spec = _trace_slice_reshape_scatter("float32", start_indices=(1, 0, 0), update_shape=(6,), slice_shape=(2, 3, 1))
+
+    assert spec.ir["outputs"][0]["shape"] == [3, 4, 2]
+    assert spec.ir["outputs"][0]["shape_spec"] == [3, 4, 2]
+    assert spec.ir["outputs"][0]["dtype"] == "float32"
+    views = spec.ir["metadata"]["views"]["views"]
+    assert len(views) == 1
+    assert views[0]["source"] == "update"
+    assert views[0]["transform"] == "reshape"
+    assert views[0]["shape"] == [2, 3, 1]
+    node = spec.ir["nodes"][0]
+    assert node["op"] == "slice_scatter"
+    assert node["inputs"] == ["x", views[0]["tensor"]]
+    assert node["attrs"] == {"start_indices": [1, 0, 0]}
+
+
+@pytest.mark.parametrize("dtype", ["float32", "bool"])
+def test_slice_reshape_scatter_generated_cpu_runtime(tmp_path, dtype):
+    spec = _trace_slice_reshape_scatter(dtype)
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    assert [node["op"] for node in lowered["nodes"]] == ["slice_scatter"]
+    assert lowered["metadata"]["memory_plan"]["views"]["views"][0]["transform"] == "reshape"
+
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"slice_reshape_scatter_{dtype}_cpu.dinoml")
+    session = load(artifact.path).create_session()
+    x = _input(dtype)
+    update = _flat_update(dtype)
+    try:
+        actual = session.run_numpy({"x": x, "update": update})["out"]
+    finally:
+        session.close()
+
+    expected = _expected_scatter(x, update.reshape(2, 2, 2), dtype)
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_slice_reshape_scatter_frontend_rejects_bad_slice_shape_dynamic_dtype_and_bounds():
+    class DynamicInputShapeScatter(dml.Module):
+        def forward(self, x, update):
+            return dml.ops.slice_reshape_scatter(x, update, start_indices=(0, 0), slice_shape=(1, 3))
+
+    class DynamicUpdateShapeScatter(dml.Module):
+        def forward(self, x, update):
+            return dml.ops.slice_reshape_scatter(x, update, start_indices=(0, 0), slice_shape=(1, 3))
+
+    with pytest.raises(ValueError, match="slice_shape rank"):
+        _trace_slice_reshape_scatter("float32", slice_shape=(2, 4))
+    with pytest.raises(ValueError, match="preserve update element count"):
+        _trace_slice_reshape_scatter("float32", slice_shape=(2, 2, 3))
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        _trace_slice_reshape_scatter("float32", slice_shape=(2, 0, 4))
+    with pytest.raises(ValueError, match="dimensions must be positive"):
+        _trace_slice_reshape_scatter("float32", slice_shape=(2, -1, 4))
+    with pytest.raises(ValueError, match="contain only integers"):
+        _trace_slice_reshape_scatter("float32", slice_shape=(2, True, 4))
+    with pytest.raises(ValueError, match="must be a sequence"):
+        _trace_slice_reshape_scatter("float32", slice_shape=8)
+    with pytest.raises(ValueError, match="only static input shapes"):
+        dml.trace(
+            DynamicInputShapeScatter(),
+            inputs={"x": dml.TensorSpec([Dim("n", 1, 4), 3]), "update": dml.TensorSpec([3])},
+        )
+    with pytest.raises(NotImplementedError, match="reshape currently supports only static input shapes"):
+        dml.trace(
+            DynamicUpdateShapeScatter(),
+            inputs={"x": dml.TensorSpec([2, 3]), "update": dml.TensorSpec([Dim("n", 1, 3)])},
+        )
+    with pytest.raises(ValueError, match="dtype mismatch"):
+        dml.trace(
+            SliceReshapeScatterModule(),
+            inputs={"x": dml.TensorSpec((3, 4, 2), "float32"), "update": dml.TensorSpec((8,), "bool")},
+        )
+    with pytest.raises(ValueError, match="exceeds input dim"):
+        _trace_slice_reshape_scatter("float32", start_indices=(1, 3, 0))
 
 
 def test_slice_scatter_frontend_rejects_dynamic_bad_attrs_shape_dtype_and_rank():

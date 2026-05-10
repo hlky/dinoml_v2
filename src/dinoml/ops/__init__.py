@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from math import prod
 from typing import Any, Callable, Mapping, Sequence
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
@@ -377,6 +378,33 @@ def _slice_scatter_frontend(x: Any, update: Any, start_indices: Any) -> Tensor:
     )
 
 
+def _slice_reshape_scatter_frontend(x: Any, update: Any, start_indices: Any, slice_shape: Any) -> Tensor:
+    tensor = as_tensor(x)
+    update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
+    normalized_shape = _normalize_slice_reshape_scatter_shape(slice_shape, tensor.rank, update_tensor.numel)
+    reshaped_update = reshape(update_tensor, normalized_shape)
+    return _slice_scatter_frontend(tensor, reshaped_update, start_indices)
+
+
+def _normalize_slice_reshape_scatter_shape(slice_shape: Any, rank: int, update_numel: int) -> list[int]:
+    if not isinstance(slice_shape, (list, tuple)):
+        raise ValueError(f"slice_reshape_scatter slice_shape must be a sequence of integers, got {slice_shape!r}")
+    normalized: list[int] = []
+    for dim in slice_shape:
+        if not isinstance(dim, int) or isinstance(dim, bool):
+            raise ValueError(f"slice_reshape_scatter slice_shape must contain only integers, got {slice_shape!r}")
+        if dim <= 0:
+            raise ValueError(f"slice_reshape_scatter slice_shape dimensions must be positive, got {dim}")
+        normalized.append(int(dim))
+    if len(normalized) != rank:
+        raise ValueError(f"slice_reshape_scatter slice_shape rank {len(normalized)} must match input rank {rank}")
+    if int(prod(normalized)) != int(update_numel):
+        raise ValueError(
+            f"slice_reshape_scatter slice_shape {normalized} must preserve update element count {int(update_numel)}"
+        )
+    return normalized
+
+
 def _split_frontend(x: Any, split_size_or_sections: Any, dim: Any = 0) -> tuple[Tensor, ...]:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -497,6 +525,7 @@ globals()["meshgrid"] = _meshgrid_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
 globals()["slice_scatter"] = _slice_scatter_frontend
+globals()["slice_reshape_scatter"] = _slice_reshape_scatter_frontend
 globals()["split"] = _split_frontend
 globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
@@ -541,6 +570,7 @@ __all__ = list(dict.fromkeys([
     "concatenate",
     "dynamic_slice",
     "full",
+    "slice_reshape_scatter",
     "slice_scatter",
     "split",
     "where",

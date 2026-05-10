@@ -1080,6 +1080,31 @@ def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
     module.close()
 
 
+def test_cpu_runtime_materializes_reported_smaller_output_shape(tmp_path, monkeypatch):
+    spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 4], "float32")}, name="materialize_output_shape_cpu")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "materialize_output_shape_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (1, 4))
+        x = np.arange(8, dtype=np.float32).reshape(2, 4)
+        actual = session.run_numpy({"x": x})["y"]
+        assert actual.shape == (1, 4)
+        np.testing.assert_allclose(actual, x[:1].astype(np.float32), atol=0, rtol=0)
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (4, 2))
+        actual = session.run_numpy({"x": x})["y"]
+        assert actual.shape == (4, 2)
+        np.testing.assert_allclose(actual, x.astype(np.float32).reshape(4, 2), atol=0, rtol=0)
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
+        with pytest.raises(ValueError, match="has more elements than allocated"):
+            session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+
 def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(

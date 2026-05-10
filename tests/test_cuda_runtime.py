@@ -160,6 +160,11 @@ class BmmAddModule(dml.Module):
         return dml.ops.output(dml.ops.bmm_rrr_add(a, b, d0), "y")
 
 
+class IdentityModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(x, "y")
+
+
 @pytest.mark.parametrize(
     ("dtype", "torch_dtype", "atol", "rtol"),
     [
@@ -281,6 +286,35 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     assert actual_torch.dtype == torch_dtype_obj
     torch.testing.assert_close(actual_torch, expected, atol=atol, rtol=rtol)
     np.testing.assert_allclose(actual_numpy.astype(np.float32), expected.float().cpu().numpy(), atol=atol, rtol=rtol)
+
+
+def test_cuda_runtime_materializes_reported_smaller_output_shape(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    x = torch.arange(8, device="cuda", dtype=torch.float32).reshape(2, 4)
+    spec = dml.trace(IdentityModule(), inputs={"x": dml.TensorSpec([2, 4], "float32")}, name="materialize_output_shape_cuda")
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "materialize_output_shape_cuda.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (1, 4))
+        actual = session.run_torch({"x": x})["y"]
+        assert actual.shape == (1, 4)
+        torch.testing.assert_close(actual, x[:1], rtol=0, atol=0)
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (4, 2))
+        actual = session.run_torch({"x": x})["y"]
+        assert actual.shape == (4, 2)
+        torch.testing.assert_close(actual, x.reshape(4, 2), rtol=0, atol=0)
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
+        with pytest.raises(ValueError, match="has more elements than allocated"):
+            session.run_torch({"x": x})
+    finally:
+        session.close()
+        module.close()
 
 
 @pytest.mark.parametrize(

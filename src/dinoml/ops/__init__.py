@@ -9,13 +9,16 @@ from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
     infer_concatenate_shape_with_attrs,
+    infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
     infer_stack_shape_with_attrs,
     normalize_concatenate_dim,
     normalize_flip_dims,
+    normalize_permute_dims,
     normalize_repeat_interleave_dim,
     normalize_repeat_interleave_repeats,
     normalize_stack_dim,
+    normalize_transpose_dims,
 )
 from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
@@ -273,6 +276,36 @@ def _repeat_interleave_frontend(x: Any, repeats: Any, dim: Any) -> Tensor:
     )
 
 
+def _permute_frontend(x: Any, dims: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"permute does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("permute currently supports only static input shapes")
+    normalized_dims = normalize_permute_dims(dims, tensor.rank)
+    out_shape = infer_permute_shape_with_attrs([tensor.shape], {"dims": normalized_dims})
+    return tensor.builder.emit(
+        "permute",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=out_shape,
+    )
+
+
+def _transpose_frontend(x: Any, dim0: Any, dim1: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"transpose does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("transpose currently supports only static input shapes")
+    normalized_dim0, normalized_dim1 = normalize_transpose_dims(dim0, dim1, tensor.rank)
+    dims = list(range(tensor.rank))
+    dims[normalized_dim0], dims[normalized_dim1] = dims[normalized_dim1], dims[normalized_dim0]
+    return _permute_frontend(tensor, dims)
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -344,7 +377,9 @@ globals()["expand"] = _expand_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["stack"] = _stack_frontend
 globals()["flip"] = _flip_frontend
+globals()["permute"] = _permute_frontend
 globals()["repeat_interleave"] = _repeat_interleave_frontend
+globals()["transpose"] = _transpose_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -360,6 +395,7 @@ __all__ = list(dict.fromkeys([
     "identity",
     "make_frontend_op",
     "output",
+    "permute",
     "reshape",
     "reduce_max",
     "reduce_mean",
@@ -369,6 +405,7 @@ __all__ = list(dict.fromkeys([
     "repeat_interleave",
     "softmax",
     "stack",
+    "transpose",
     "squeeze",
     "unsqueeze",
     "var",

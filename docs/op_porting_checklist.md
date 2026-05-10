@@ -82,13 +82,17 @@ epilogues where possible.
   `metadata.memory_plan.views` form and materialize public alias outputs into ABI
   output buffers. Current limits: view-of-view aliases are rejected, reshape only
   accepts static input shapes, flatten only accepts static dimensions in the
-  flattened range, scalar view tensors are not exposed yet, and layout-changing
-  `permute`/`transpose` remain unported.
+  flattened range, and scalar view tensors are not exposed yet. Layout-changing
+  `permute`/`transpose` are available as bounded materialized dense copies
+  rather than metadata-only views.
 - [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct`. These should remain frontend/IR helpers unless they produce
   tensors with explicit runtime storage.
-- [ ] Layout: `permute`, `transpose`, `permute021`, `permute0213`,
-  `permute102`, `permute210`, `pixel_shuffle`, `pixel_unshuffle`.
+- [ ] Layout: `permute021`, `permute0213`, `permute102`, `permute210`,
+  `pixel_shuffle`, `pixel_unshuffle`. General `permute` and frontend
+  `transpose` are available for one static-shape tensor, full normalized
+  permutations without duplicates, and the generated float/reduced-precision/bool
+  storage surface.
 - [ ] Creation/shape values: `meshgrid`. `full` is now available for non-empty
   positive static dense shapes with `float32`, `float16`, `bfloat16`, and `bool`
   storage, using CPU reference execution plus generated CPU/CUDA fill kernels.

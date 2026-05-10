@@ -24,6 +24,12 @@ def infer_repeat_interleave_shape(input_shapes: Sequence[Sequence[int]]) -> list
     return infer_repeat_interleave_shape_with_attrs(input_shapes, {"repeats": 1, "dim": 0})
 
 
+def infer_permute_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("permute expects one tensor input")
+    return infer_permute_shape_with_attrs(input_shapes, {"dims": tuple(range(len(input_shapes[0])))})
+
+
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -50,6 +56,12 @@ def infer_repeat_interleave_shape_with_attrs(input_shapes: Sequence[Sequence[int
     dim = normalize_repeat_interleave_dim(attrs.get("dim"), len(input_shapes[0]))
     repeats = normalize_repeat_interleave_repeats(attrs.get("repeats"))
     return resolve_repeat_interleave_shape(input_shapes[0], repeats, dim)
+
+
+def infer_permute_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("permute expects one tensor input")
+    return resolve_permute_shape(input_shapes[0], attrs.get("dims"))
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -128,6 +140,51 @@ def normalize_repeat_interleave_repeats(repeats: Any) -> int:
     return normalized
 
 
+def normalize_permute_dims(dims: Any, rank: int) -> list[int]:
+    if not isinstance(dims, Sequence) or isinstance(dims, (str, bytes, bytearray)):
+        raise ValueError(f"permute dims must be a sequence of integers, got {dims!r}")
+    requested: list[int] = []
+    for dim in dims:
+        if not isinstance(dim, int) or isinstance(dim, bool):
+            raise ValueError(f"permute dims must be integers, got {dims!r}")
+        requested.append(int(dim))
+    if rank <= 0:
+        raise ValueError("permute input must have rank >= 1")
+    if len(requested) != rank:
+        raise ValueError(f"permute dims length {len(requested)} must match rank {rank}")
+    normalized_dims: list[int] = []
+    seen: set[int] = set()
+    for dim in requested:
+        normalized = dim + rank if dim < 0 else dim
+        if normalized < 0 or normalized >= rank:
+            raise ValueError(f"permute dim {dim} is out of range for rank {rank}")
+        if normalized in seen:
+            raise ValueError(f"permute dims must not contain duplicates: {requested!r}")
+        seen.add(normalized)
+        normalized_dims.append(normalized)
+    return normalized_dims
+
+
+def normalize_transpose_dims(dim0: Any, dim1: Any, rank: int) -> tuple[int, int]:
+    if not isinstance(dim0, int) or isinstance(dim0, bool):
+        raise ValueError(f"transpose dim0 must be an integer, got {dim0!r}")
+    if not isinstance(dim1, int) or isinstance(dim1, bool):
+        raise ValueError(f"transpose dim1 must be an integer, got {dim1!r}")
+    if rank <= 0:
+        raise ValueError("transpose input must have rank >= 1")
+    normalized0 = int(dim0)
+    normalized1 = int(dim1)
+    if normalized0 < 0:
+        normalized0 += rank
+    if normalized1 < 0:
+        normalized1 += rank
+    if normalized0 < 0 or normalized0 >= rank:
+        raise ValueError(f"transpose dim0 {dim0} is out of range for rank {rank}")
+    if normalized1 < 0 or normalized1 >= rank:
+        raise ValueError(f"transpose dim1 {dim1} is out of range for rank {rank}")
+    return normalized0, normalized1
+
+
 def resolve_concatenate_shape(input_shapes: Sequence[Sequence[int]], dim: int) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -178,6 +235,12 @@ def resolve_repeat_interleave_shape(input_shape: Sequence[int], repeats: Any, di
     repeats = normalize_repeat_interleave_repeats(repeats)
     output_shape[dim] *= repeats
     return output_shape
+
+
+def resolve_permute_shape(input_shape: Sequence[int], dims: Any) -> list[int]:
+    normalized_dims = normalize_permute_dims(dims, len(input_shape))
+    shape = [int(axis) for axis in input_shape]
+    return [shape[dim] for dim in normalized_dims]
 
 
 def register_collection_ops(registry: OpRegistry) -> None:
@@ -255,6 +318,24 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense bounded repeat-interleave copy along a static dimension.",
         )
     )
+    registry.register(
+        OpDef(
+            name="permute",
+            schema=OpSchema(
+                inputs=("x",),
+                attrs=(AttrDef("dims", "ints", required=True),),
+            ),
+            infer_shape=infer_permute_shape,
+            infer_shape_with_attrs=infer_permute_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("permute"),
+            description="Materialize a dense bounded copy with permuted static dimensions.",
+        )
+    )
 
 
 __all__ = [
@@ -265,16 +346,21 @@ __all__ = [
     "infer_flip_shape_with_attrs",
     "infer_repeat_interleave_shape",
     "infer_repeat_interleave_shape_with_attrs",
+    "infer_permute_shape",
+    "infer_permute_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
     "normalize_concatenate_dim",
     "normalize_flip_dims",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
+    "normalize_permute_dims",
     "normalize_stack_dim",
+    "normalize_transpose_dims",
     "register_collection_ops",
     "resolve_concatenate_shape",
     "resolve_flip_shape",
     "resolve_repeat_interleave_shape",
+    "resolve_permute_shape",
     "resolve_stack_shape",
 ]

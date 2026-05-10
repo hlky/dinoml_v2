@@ -459,6 +459,34 @@ class Session:
         )
         return tuple(int(shape[i]) for i in range(ndim.value))
 
+    def _materialize_output_array(self, output: np.ndarray, actual_shape: tuple[int, ...]) -> np.ndarray:
+        actual_numel = 1
+        for dim in actual_shape:
+            actual_numel *= int(dim)
+        if actual_numel > output.size:
+            raise ValueError(
+                f"Output shape {actual_shape} has more elements than allocated output buffer "
+                f"{tuple(output.shape)}"
+            )
+        if actual_numel == output.size and tuple(actual_shape) == tuple(output.shape):
+            return output
+        return output.reshape(-1)[:actual_numel].reshape(actual_shape)
+
+    def _materialize_output_torch(self, output: object, actual_shape: tuple[int, ...]) -> object:
+        if actual_shape == tuple(output.shape):
+            return output
+        actual_numel = 1
+        for dim in actual_shape:
+            actual_numel *= int(dim)
+        if actual_numel > output.numel():
+            raise ValueError(
+                f"Output shape {actual_shape} has more elements than allocated output buffer "
+                f"{tuple(output.shape)}"
+            )
+        if actual_numel == output.numel():
+            return output
+        return output.reshape(-1)[:actual_numel].reshape(actual_shape)
+
     def run_device_pointers(
         self,
         inputs: Mapping[str, int],
@@ -551,7 +579,13 @@ class Session:
             {str(spec["name"]): tuple(int(dim) for dim in inputs[str(spec["name"])].shape) for spec in input_specs},
             {name: tuple(int(dim) for dim in tensor.shape) for name, tensor in outputs.items()},
         )
-        return outputs
+        return {
+            str(spec["name"]): self._materialize_output_torch(
+                outputs[str(spec["name"])],
+                self.get_output_shape(str(spec["name"])),
+            )
+            for spec in output_specs
+        }
 
     def _run_numpy_cpu(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         input_specs = self.module.metadata["inputs"]
@@ -594,7 +628,16 @@ class Session:
                 ctypes.c_size_t(len(output_arrays)),
             )
         )
-        return {spec["name"]: array_from_storage(array, str(spec["dtype"])) for spec, array in zip(output_specs, output_arrays)}
+        return {
+            spec["name"]: array_from_storage(
+                self._materialize_output_array(
+                    array,
+                    self.get_output_shape(spec["name"]),
+                ),
+                str(spec["dtype"]),
+            )
+            for spec, array in zip(output_specs, output_arrays)
+        }
 
     def _run_numpy_cuda(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         input_specs = self.module.metadata["inputs"]
@@ -645,7 +688,16 @@ class Session:
         )
         for tensor, array in zip(output_tensors, output_arrays):
             self._copy_d2h(array, tensor.data)
-        return {spec["name"]: array_from_storage(array, str(spec["dtype"])) for spec, array in zip(output_specs, output_arrays)}
+        return {
+            spec["name"]: array_from_storage(
+                self._materialize_output_array(
+                    array,
+                    self.get_output_shape(spec["name"]),
+                ),
+                str(spec["dtype"]),
+            )
+            for spec, array in zip(output_specs, output_arrays)
+        }
 
     def _device_malloc(self, nbytes: int) -> ctypes.c_void_p:
         ptr = ctypes.c_void_p()

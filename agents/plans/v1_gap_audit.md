@@ -12,7 +12,10 @@ porting. It intentionally excludes the op inventory, which lives in
   outputs from inputs in Python runtime helpers, and materializes CPU/CUDA
   shape buffers for generated kernels. Generated runtime sessions now also
   expose minimal post-run C ABI output-shape queries via
-  `dino_session_get_output_shape`. V2 also has a bounded frontend-only
+  `dino_session_get_output_shape`. Runtime Python frontends now additionally
+  materialize returned NumPy/torch tensors to each output’s reported post-run
+  shape, which allows variable-size outputs without changing the frontend ABI.
+  V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into
   Python `Shape`/`TensorSpec` specs with interval-derived max-shapes plus Python

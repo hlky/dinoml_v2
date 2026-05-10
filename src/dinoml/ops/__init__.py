@@ -193,6 +193,36 @@ def _expand_frontend(x: Any, shape: Any) -> Tensor:
     )
 
 
+def _meshgrid_frontend(inputs: Any, indexing: str = "ij") -> tuple[Tensor, ...]:
+    if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
+        raise ValueError("meshgrid expects a non-empty sequence of tensors")
+    if not inputs:
+        raise ValueError("meshgrid expects a non-empty sequence of tensors")
+    if indexing != "ij":
+        raise NotImplementedError('meshgrid currently supports indexing="ij" only')
+    first = as_tensor(inputs[0])
+    tensors = [first, *(as_tensor(value, dtype_hint=first.dtype) for value in inputs[1:])]
+    for tensor in tensors[1:]:
+        if tensor.builder is not first.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if tensor.dtype != first.dtype:
+            raise ValueError(f"meshgrid dtype mismatch: {first.dtype} vs {tensor.dtype}")
+    if first.dtype not in BROADCAST_DTYPES:
+        raise ValueError(f"meshgrid does not support dtype {first.dtype}")
+    for tensor in tensors:
+        if tensor.rank != 1:
+            raise ValueError(f"meshgrid expects rank-1 inputs, got rank {tensor.rank}")
+        if tensor.dynamic:
+            raise ValueError("meshgrid currently supports only static input shapes")
+    grid_shape = [tensor.shape[0] for tensor in tensors]
+    outputs = []
+    for axis, tensor in enumerate(tensors):
+        view_shape = [1] * len(tensors)
+        view_shape[axis] = tensor.shape[0]
+        outputs.append(_expand_frontend(reshape(tensor, view_shape), grid_shape))
+    return tuple(outputs)
+
+
 def _concatenate_frontend(inputs: Any, dim: int = 0) -> Tensor:
     if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -437,6 +467,7 @@ globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
+globals()["meshgrid"] = _meshgrid_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
 globals()["split"] = _split_frontend
@@ -460,6 +491,7 @@ __all__ = list(dict.fromkeys([
     "flatten",
     "identity",
     "make_frontend_op",
+    "meshgrid",
     "output",
     "permute",
     "reshape",

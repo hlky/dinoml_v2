@@ -93,9 +93,14 @@ epilogues where possible.
   `transpose` are available for one static-shape tensor, full normalized
   permutations without duplicates, and the generated float/reduced-precision/bool
   storage surface.
-- [ ] Creation/shape values: `meshgrid`. `full` is now available for non-empty
-  positive static dense shapes with `float32`, `float16`, `bfloat16`, and `bool`
-  storage, using CPU reference execution plus generated CPU/CUDA fill kernels.
+- [ ] Creation/shape values: `meshgrid` is available as a bounded frontend helper
+  for a non-empty list/tuple of rank-1 static tensors with matching
+  `float32`/`float16`/`bfloat16`/`bool` dtype and `indexing="ij"` only; it
+  composes reshape view metadata with generated `expand` copy nodes, so dynamic
+  lengths, `xy` indexing, mixed dtypes, and non-rank-1 inputs remain out of
+  scope. `full` is now available for non-empty positive static dense shapes with
+  `float32`, `float16`, `bfloat16`, and `bool` storage, using CPU reference
+  execution plus generated CPU/CUDA fill kernels.
   `arange` is available for non-empty static ranges with positive and negative
   steps across `float32`, `float16`, and `bfloat16` storage, using CPU reference
   execution plus generated CPU/CUDA kernels. `randn` is available for non-empty

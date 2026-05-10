@@ -458,10 +458,26 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "gather" and len(node.get("inputs", [])) == 2
     }
+    argmax_output_tensors = {
+        node["outputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "argmax" and len(node.get("outputs", [])) == 1
+    }
     for node in ir["nodes"]:
         op_def = get_op_def(str(node["op"]))
         if target.name not in op_def.backend_kernels:
             raise NotImplementedError(f"{target.name} backend does not support op {op_def.name}")
+        if node.get("op") == "argmax":
+            input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports input dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[input_dtype]}"
+                )
+            if output_dtype != "int64":
+                raise NotImplementedError(f"Op argmax output dtype {output_dtype} must be int64")
+            continue
         if node.get("op") == "gather":
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
             index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
@@ -492,7 +508,9 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         {
             str(tensor["dtype"])
             for tensor in ir["tensors"]
-            if str(tensor["dtype"]) not in supported and str(tensor["name"]) not in gather_index_tensors
+            if str(tensor["dtype"]) not in supported
+            and str(tensor["name"]) not in gather_index_tensors
+            and str(tensor["name"]) not in argmax_output_tensors
         }
     )
     if unsupported:

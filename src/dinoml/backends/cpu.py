@@ -55,6 +55,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "argmax":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_argmax(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         elif node["op"] == "full":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -439,6 +446,20 @@ def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) 
     if result.shape == ():
         result = np.reshape(result, [1])
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_argmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    dim = int(attrs.get("dim", -1))
+    if dim < 0:
+        dim += value.ndim
+    if dim != value.ndim - 1:
+        raise NotImplementedError("CPU reference argmax currently supports only the last dimension")
+    result = np.argmax(value, axis=dim)
+    if bool(attrs.get("keepdim", False)):
+        result = np.expand_dims(result, axis=dim)
+    if result.shape == ():
+        result = np.reshape(result, [1])
+    return np.asarray(result, dtype=np.int64)
 
 
 def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:

@@ -137,8 +137,14 @@ epilogues where possible.
   index shape, and output dtype equal to the input dtype. CPU reference and
   generated CPU kernels read runtime index storage and fail on out-of-bounds
   gather indices; generated CUDA kernels include a device-side bounds assert.
-  Sparse grad, dynamic shapes, bool/float indices, and selection/top-k
-  operators remain out of scope.
+  `argmax` is available for one static-shape ranked dense tensor over a
+  positive static last dimension after negative `dim` normalization, with
+  `keepdim` and scalar fallback shape `[1]`. It supports
+  `float32`/`float16`/`bfloat16`/`bool` inputs, compares reduced-precision
+  inputs in fp32, returns first max indices on ties, and materializes `int64`
+  output tensors through an op-specific compiler/runtime contract exception.
+  Sparse grad, dynamic shapes, bool/float gather indices, non-last-dimension
+  argmax, values+indices outputs, and top-k operators remain out of scope.
   `slice_scatter` is available as the bounded write-side companion with static
   integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
   the same generated storage surface. `slice_reshape_scatter` is available as a

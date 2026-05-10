@@ -51,7 +51,7 @@ from dinoml.ops.pooling import (
     resolve_avg_pool2d_shape,
     resolve_max_pool2d_shape,
 )
-from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
+from dinoml.ops.reductions import argmax as _argmax_frontend, reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
 
@@ -790,6 +790,7 @@ globals()["cast"] = _cast_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
+globals()["argmax"] = _argmax_frontend
 globals()["expand"] = _expand_frontend
 globals()["expand_static_shape"] = _expand_static_shape_frontend
 globals()["meshgrid"] = _meshgrid_frontend
@@ -864,6 +865,7 @@ __all__ = list(dict.fromkeys([
     "var",
     "vector_norm",
     "arange",
+    "argmax",
     "avg_pool1d",
     "avg_pool2d",
     "cast",

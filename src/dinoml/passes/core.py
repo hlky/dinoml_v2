@@ -38,6 +38,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         expected_dtype = inputs[0]["dtype"] if inputs else str(node.get("attrs", {}).get("dtype", tensors[node["outputs"][0]]["dtype"]))
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
+        elif node["op"] == "argmax":
+            expected_dtype = "int64"
         elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
             expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]), node.get("attrs", {}))
         elif node["op"] == "fused_elementwise":
@@ -72,6 +74,9 @@ def _infer_node_shape_spec(
             expected_shape,
         )
     if node["op"] in REDUCTION_OPS:
+        keepdim = bool(node.get("attrs", {}).get("keepdim", False))
+        return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
+    if node["op"] == "argmax":
         keepdim = bool(node.get("attrs", {}).get("keepdim", False))
         return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
     return None

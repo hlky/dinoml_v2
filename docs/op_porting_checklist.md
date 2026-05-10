@@ -88,9 +88,14 @@ epilogues where possible.
   `permute021`, `permute0213`, `permute102`, and `permute210` are public wrappers
   over `permute`, sharing the same static-shape, dtype, validation, and generated
   kernel limits without adding separate kernels.
-- [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
-  `list_construct`. These should remain frontend/IR helpers unless they produce
-  tensors with explicit runtime storage.
+- [x] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
+  `list_construct` are available as bounded public Python helpers for
+  model-building. They do not emit IR nodes or metadata: `size` reads tensor
+  `shape_spec` entries, including dynamic `Dim` JSON metadata, while
+  `getitem`, `tuple_construct`, and `list_construct` preserve normal Python
+  container behavior. Current limits: `size` accepts only integer non-bool
+  dimensions with normalized negative axes, and `getitem` rejects bool indexes
+  before delegating to Python indexing.
 - [x] Layout: `pixel_shuffle`, `pixel_unshuffle` are available as bounded
   frontend helpers for rank-4 static-shape tensors with positive integer
   factors and required channel/spatial divisibility. They compose reshape view

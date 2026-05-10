@@ -226,6 +226,29 @@ def _meshgrid_frontend(inputs: Any, indexing: str = "ij") -> tuple[Tensor, ...]:
     return tuple(outputs)
 
 
+def size(x: Any, dim: int | None = None) -> tuple[Any, ...] | Any:
+    tensor = as_tensor(x)
+    shape_spec = [dict(shape_dim) if isinstance(shape_dim, Mapping) else shape_dim for shape_dim in tensor.shape_spec]
+    if dim is None:
+        return tuple(shape_spec)
+    axis = _normalize_symbolic_index(dim, len(shape_spec), "size dim")
+    return shape_spec[axis]
+
+
+def getitem(value: Any, index: Any) -> Any:
+    if isinstance(index, bool):
+        raise TypeError("getitem index must not be bool")
+    return value[index]
+
+
+def tuple_construct(*values: Any) -> tuple[Any, ...]:
+    return tuple(values)
+
+
+def list_construct(*values: Any) -> list[Any]:
+    return list(values)
+
+
 def _concatenate_frontend(inputs: Any, dim: int = 0) -> Tensor:
     if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -573,6 +596,17 @@ def _dim_is_one(dim: Any) -> bool:
     return isinstance(dim, int) and int(dim) == 1
 
 
+def _normalize_symbolic_index(index: Any, length: int, name: str) -> int:
+    if not isinstance(index, int) or isinstance(index, bool):
+        raise TypeError(f"{name} must be an integer, got {type(index).__name__}")
+    axis = int(index)
+    if axis < 0:
+        axis += length
+    if axis < 0 or axis >= length:
+        raise IndexError(f"{name} {index} is out of range for rank {length}")
+    return axis
+
+
 for _frontend_name in OP_REGISTRY.frontend_names():
     _op_def = OP_REGISTRY.get_frontend(_frontend_name)
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
@@ -617,6 +651,10 @@ __all__ = list(dict.fromkeys([
     "make_frontend_op",
     "meshgrid",
     "output",
+    "size",
+    "getitem",
+    "tuple_construct",
+    "list_construct",
     "permute",
     "permute021",
     "permute0213",

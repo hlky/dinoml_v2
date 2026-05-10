@@ -304,6 +304,17 @@ def test_cuda_runtime_materializes_reported_smaller_output_shape(tmp_path, monke
         assert actual.shape == (1, 4)
         torch.testing.assert_close(actual, x[:1], rtol=0, atol=0)
 
+        device_out = torch.empty((2, 4), device="cuda", dtype=torch.float32)
+        session.run_device_pointers(
+            {"x": x.data_ptr()},
+            {"y": device_out.data_ptr()},
+            {"x": tuple(int(dim) for dim in x.shape)},
+            {"y": (2, 4)},
+        )
+        reported_shape = session.get_output_shape("y")
+        assert reported_shape == (1, 4)
+        torch.testing.assert_close(device_out[:1], x[:1], rtol=0, atol=0)
+
         monkeypatch.setattr(session, "get_output_shape", lambda _name: (4, 2))
         actual = session.run_torch({"x": x})["y"]
         assert actual.shape == (4, 2)

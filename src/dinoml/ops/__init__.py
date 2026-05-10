@@ -12,6 +12,7 @@ from dinoml.ops.collections import (
     chunk_sections,
     infer_concatenate_shape_with_attrs,
     infer_dynamic_slice_shape_with_attrs,
+    infer_index_select_shape_with_attrs,
     infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
     infer_slice_scatter_shape_with_attrs,
@@ -20,6 +21,7 @@ from dinoml.ops.collections import (
     normalize_concatenate_dim,
     normalize_dynamic_slice_attrs,
     normalize_flip_dims,
+    normalize_index_select_attrs,
     normalize_permute_dims,
     normalize_repeat_interleave_dim,
     normalize_repeat_interleave_repeats,
@@ -451,6 +453,27 @@ def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Ten
     )
 
 
+def _index_select_frontend(x: Any, dim: Any, indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"index_select does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("index_select currently supports only static input shapes")
+    normalized_dim, normalized_indices = normalize_index_select_attrs(dim, indices, tensor.shape)
+    out_shape = infer_index_select_shape_with_attrs(
+        [tensor.shape],
+        {"dim": normalized_dim, "indices": normalized_indices},
+    )
+    return tensor.builder.emit(
+        "index_select",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim, "indices": normalized_indices},
+        shape_spec=out_shape,
+    )
+
+
 def _slice_scatter_frontend(x: Any, update: Any, start_indices: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
@@ -635,6 +658,7 @@ globals()["concatenate"] = _concatenate_frontend
 globals()["concatenate_fast"] = _concatenate_fast_frontend
 globals()["concatenate_tanh"] = _concatenate_tanh_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
+globals()["index_select"] = _index_select_frontend
 globals()["slice_scatter"] = _slice_scatter_frontend
 globals()["slice_reshape_scatter"] = _slice_reshape_scatter_frontend
 globals()["split"] = _split_frontend
@@ -700,6 +724,7 @@ __all__ = list(dict.fromkeys([
     "concatenate_tanh",
     "dynamic_slice",
     "full",
+    "index_select",
     "slice_reshape_scatter",
     "slice_scatter",
     "split",

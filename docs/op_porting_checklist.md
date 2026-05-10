@@ -122,11 +122,17 @@ epilogues where possible.
   arange/randn dtypes remain out of scope for this bounded port. `cast` is
   available for dense tensor casts across the current generated
   float/reduced-precision/bool storage surface.
-- [ ] Selection/scatter: `gather`, `batch_gather`, `index_select`,
-  `masked_select`, `topk`, `argmax`.
+- [ ] Selection/scatter: `gather`, `batch_gather`, `masked_select`, `topk`,
+  `argmax`.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.
+  `index_select` is available as a bounded dense materialized copy for one
+  static-shape tensor with a normalized static `dim` and non-empty Python
+  sequence of in-bounds non-bool integer `indices`, replacing the selected
+  output dimension with `len(indices)` and preserving input dtype across the
+  same generated storage surface. True tensor-index gather, dynamic index
+  tensors, and selection/top-k operators remain out of scope.
   `slice_scatter` is available as the bounded write-side companion with static
   integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
   the same generated storage surface. `slice_reshape_scatter` is available as a

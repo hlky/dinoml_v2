@@ -15,6 +15,7 @@ from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
+from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.permute import PERMUTE_LOWERING
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
@@ -33,6 +34,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
+    INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
     PERMUTE_LOWERING.op_name: PERMUTE_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,

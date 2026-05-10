@@ -40,6 +40,12 @@ def infer_dynamic_slice_shape(input_shapes: Sequence[Sequence[int]]) -> list[int
     )
 
 
+def infer_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("index_select expects one tensor input")
+    return infer_index_select_shape_with_attrs(input_shapes, {"dim": 0, "indices": (0,)})
+
+
 def infer_slice_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(input_shapes) != 2:
         raise ValueError("slice_scatter expects two tensor inputs")
@@ -85,6 +91,12 @@ def infer_dynamic_slice_shape_with_attrs(input_shapes: Sequence[Sequence[int]], 
     if len(input_shapes) != 1:
         raise ValueError("dynamic_slice expects one tensor input")
     return resolve_dynamic_slice_shape(input_shapes[0], attrs.get("start_indices"), attrs.get("slice_sizes"))
+
+
+def infer_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("index_select expects one tensor input")
+    return resolve_index_select_shape(input_shapes[0], attrs.get("dim", 0), attrs.get("indices"))
 
 
 def infer_slice_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -232,6 +244,41 @@ def normalize_dynamic_slice_attrs(
                 f"dynamic_slice axis {axis} start {start} plus size {size} exceeds input dim {int(extent)}"
             )
     return starts, sizes
+
+
+def normalize_index_select_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"index_select dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("index_select input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"index_select dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_index_select_indices(indices: Any, dim_extent: int) -> list[int]:
+    if not isinstance(indices, Sequence) or isinstance(indices, (str, bytes, bytearray)):
+        raise ValueError(f"index_select indices must be a non-empty sequence of integers, got {indices!r}")
+    normalized: list[int] = []
+    for index in indices:
+        if not isinstance(index, int) or isinstance(index, bool):
+            raise ValueError(f"index_select indices must contain only non-bool integers, got {indices!r}")
+        value = int(index)
+        if value < 0 or value >= int(dim_extent):
+            raise ValueError(f"index_select index {value} is out of bounds for dim size {int(dim_extent)}")
+        normalized.append(value)
+    if not normalized:
+        raise ValueError("index_select indices must be a non-empty sequence of integers")
+    return normalized
+
+
+def normalize_index_select_attrs(dim: Any, indices: Any, input_shape: Sequence[int]) -> tuple[int, list[int]]:
+    normalized_dim = normalize_index_select_dim(dim, len(input_shape))
+    normalized_indices = normalize_index_select_indices(indices, int(input_shape[normalized_dim]))
+    return normalized_dim, normalized_indices
 
 
 def normalize_slice_scatter_attrs(
@@ -405,6 +452,13 @@ def resolve_dynamic_slice_shape(input_shape: Sequence[int], start_indices: Any, 
     return normalized_sizes
 
 
+def resolve_index_select_shape(input_shape: Sequence[int], dim: Any, indices: Any) -> list[int]:
+    normalized_dim, normalized_indices = normalize_index_select_attrs(dim, indices, input_shape)
+    output_shape = [int(axis) for axis in input_shape]
+    output_shape[normalized_dim] = len(normalized_indices)
+    return output_shape
+
+
 def resolve_slice_scatter_shape(
     input_shape: Sequence[int],
     update_shape: Sequence[int],
@@ -530,6 +584,27 @@ def register_collection_ops(registry: OpRegistry) -> None:
     )
     registry.register(
         OpDef(
+            name="index_select",
+            schema=OpSchema(
+                inputs=("x",),
+                attrs=(
+                    AttrDef("dim", "int", required=True),
+                    AttrDef("indices", "ints", required=True),
+                ),
+            ),
+            infer_shape=infer_index_select_shape,
+            infer_shape_with_attrs=infer_index_select_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("index_select"),
+            description="Materialize a dense bounded select copy along one static dimension using static integer indices.",
+        )
+    )
+    registry.register(
+        OpDef(
             name="slice_scatter",
             schema=OpSchema(
                 inputs=("x", "update"),
@@ -556,6 +631,8 @@ __all__ = [
     "infer_dynamic_slice_shape_with_attrs",
     "infer_flip_shape",
     "infer_flip_shape_with_attrs",
+    "infer_index_select_shape",
+    "infer_index_select_shape_with_attrs",
     "infer_repeat_interleave_shape",
     "infer_repeat_interleave_shape_with_attrs",
     "infer_slice_scatter_shape",
@@ -569,6 +646,9 @@ __all__ = [
     "normalize_concatenate_dim",
     "normalize_dynamic_slice_attrs",
     "normalize_flip_dims",
+    "normalize_index_select_attrs",
+    "normalize_index_select_dim",
+    "normalize_index_select_indices",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
     "normalize_slice_scatter_attrs",
@@ -581,6 +661,7 @@ __all__ = [
     "resolve_concatenate_shape",
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",
+    "resolve_index_select_shape",
     "resolve_repeat_interleave_shape",
     "resolve_slice_scatter_shape",
     "resolve_permute_shape",

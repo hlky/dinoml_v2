@@ -142,6 +142,18 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 values[node["inputs"][0]][slices].copy(),
                 output_dtype,
             )
+        elif node["op"] == "index_select":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                np.take(
+                    values[node["inputs"][0]],
+                    [int(index) for index in attrs.get("indices", ())],
+                    axis=int(attrs.get("dim", 0)),
+                ).copy(),
+                output_dtype,
+            )
         elif node["op"] == "slice_scatter":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

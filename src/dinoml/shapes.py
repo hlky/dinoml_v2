@@ -50,6 +50,10 @@ class Dim:
 ShapeDim = int | Dim | Mapping[str, Any]
 ShapeSpecDim = int | dict[str, Any]
 ShapeLike = Sequence[ShapeDim]
+SymbolicInt = int | dict[str, Any]
+
+_INT_EXPR_KIND = "int_expr"
+_INT_EXPR_OPS = frozenset({"add", "sub", "mul", "div"})
 
 
 @dataclass(frozen=True)
@@ -146,6 +150,58 @@ def normalize_dim(dim: ShapeDim) -> int | dict[str, Any]:
             buckets=tuple(int(bucket) for bucket in dim.get("buckets", ())),
         ).to_json()
     raise ValueError(f"Unsupported shape dimension type: {type(dim).__name__}")
+
+
+def symbolic_int_expr(op: str, lhs: Any, rhs: Any) -> SymbolicInt:
+    """Build a serializable symbolic integer expression.
+
+    The ``div`` op uses Python floor-division semantics. This helper is only a
+    frontend representation scaffold; expression dicts are intentionally not
+    valid shape dimensions yet.
+    """
+
+    if op not in _INT_EXPR_OPS:
+        raise ValueError(f"Unsupported symbolic integer op: {op}")
+    left = normalize_symbolic_int(lhs, "lhs")
+    right = normalize_symbolic_int(rhs, "rhs")
+    if op == "div" and right == 0:
+        raise ZeroDivisionError("symbolic integer div by zero")
+    if isinstance(left, int) and isinstance(right, int):
+        if op == "add":
+            return left + right
+        if op == "sub":
+            return left - right
+        if op == "mul":
+            return left * right
+        return left // right
+    return {"kind": _INT_EXPR_KIND, "op": op, "lhs": left, "rhs": right}
+
+
+def normalize_symbolic_int(value: Any, name: str = "symbolic integer") -> SymbolicInt:
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer or symbolic dimension, got bool")
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, Mapping):
+        kind = value.get("kind")
+        if kind == "dim":
+            return normalize_dim(value)
+        if kind == _INT_EXPR_KIND:
+            op = value.get("op")
+            if op not in _INT_EXPR_OPS:
+                raise ValueError(f"Unsupported symbolic integer op: {op}")
+            lhs = normalize_symbolic_int(value.get("lhs"), "lhs")
+            rhs = normalize_symbolic_int(value.get("rhs"), "rhs")
+            if op == "div" and rhs == 0:
+                raise ZeroDivisionError("symbolic integer div by zero")
+            return {
+                "kind": _INT_EXPR_KIND,
+                "op": op,
+                "lhs": lhs,
+                "rhs": rhs,
+            }
+        raise ValueError(f"Unsupported symbolic integer mapping: {value!r}")
+    raise TypeError(f"{name} must be an integer or symbolic dimension, got {type(value).__name__}")
 
 
 def max_shape(shape_spec: Sequence[int | Mapping[str, Any]]) -> list[int]:

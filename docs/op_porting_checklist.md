@@ -62,7 +62,12 @@ These should be reusable building blocks. They generally map to `torch` or
   support exists for those dtypes.
   Multi-output same-shape metadata is represented; broader tests and v1-style
   jagged codegen remain.
-- [ ] `int_elementwise`: `ADD`, `SUB`, `MUL`, `DIV` for symbolic integer math.
+- [x] `int_elementwise`: frontend-only symbolic integer expression scaffold for
+  `ADD`, `SUB`, `MUL`, and `DIV` via `dml.ops.int_add`, `int_sub`, `int_mul`,
+  and `int_div`. Pure static expressions constant-fold, dynamic expressions
+  serialize as JSON-compatible dicts, and `DIV` uses floor/integer division
+  semantics. Runtime shape-spec evaluation, IR lowering, and shape-buffer
+  integration remain future work.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,

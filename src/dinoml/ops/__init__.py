@@ -38,7 +38,7 @@ from dinoml.ops.collections import (
     normalize_stack_dim,
     normalize_transpose_dims,
 )
-from dinoml.shapes import Shape
+from dinoml.shapes import Shape, symbolic_int_expr
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
@@ -269,6 +269,22 @@ def tuple_construct(*values: Any) -> tuple[Any, ...]:
 
 def list_construct(*values: Any) -> list[Any]:
     return list(values)
+
+
+def int_add(lhs: Any, rhs: Any) -> Any:
+    return symbolic_int_expr("add", lhs, rhs)
+
+
+def int_sub(lhs: Any, rhs: Any) -> Any:
+    return symbolic_int_expr("sub", lhs, rhs)
+
+
+def int_mul(lhs: Any, rhs: Any) -> Any:
+    return symbolic_int_expr("mul", lhs, rhs)
+
+
+def int_div(lhs: Any, rhs: Any) -> Any:
+    return symbolic_int_expr("div", lhs, rhs)
 
 
 def _concatenate_frontend(inputs: Any, dim: int = 0) -> Tensor:
@@ -867,6 +883,10 @@ __all__ = list(dict.fromkeys([
     "pad",
     "pad_last_dim",
     "size",
+    "int_add",
+    "int_sub",
+    "int_mul",
+    "int_div",
     "getitem",
     "tuple_construct",
     "list_construct",

@@ -12,8 +12,11 @@ porting. It intentionally excludes the op inventory, which lives in
   outputs from inputs in Python runtime helpers, and materializes CPU/CUDA
   shape buffers for generated kernels. Generated runtime sessions now also
   expose minimal post-run C ABI output-shape queries via
-  `dino_session_get_output_shape`. Missing pieces: symbolic arithmetic, jagged
-  dimensions, and bucketed execution plans.
+  `dino_session_get_output_shape`. V2 also has a bounded frontend-only
+  symbolic integer expression scaffold for add/sub/mul/floor-div over static
+  integers and dynamic `Dim` metadata. Missing pieces: runtime evaluation of
+  symbolic shape expressions, admitting those expressions into shape specs,
+  jagged dimensions, and bucketed execution plans.
 - Shared dtype ABI: v1 has dtype aliases, byte sizes, torch mappings, and C ABI
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for

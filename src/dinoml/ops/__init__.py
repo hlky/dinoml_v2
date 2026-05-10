@@ -9,9 +9,11 @@ from dinoml.ir import normalize_dtype
 from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
+    GATHER_INDEX_DTYPES,
     chunk_sections,
     infer_concatenate_shape_with_attrs,
     infer_dynamic_slice_shape_with_attrs,
+    infer_gather_shape_with_attrs,
     infer_index_select_shape_with_attrs,
     infer_pad_shape_with_attrs,
     infer_permute_shape_with_attrs,
@@ -22,6 +24,7 @@ from dinoml.ops.collections import (
     normalize_concatenate_dim,
     normalize_dynamic_slice_attrs,
     normalize_flip_dims,
+    normalize_gather_attrs,
     normalize_index_select_attrs,
     normalize_pad_widths,
     normalize_permute_dims,
@@ -485,6 +488,32 @@ def _index_select_frontend(x: Any, dim: Any, indices: Any) -> Tensor:
     )
 
 
+def _gather_frontend(x: Any, dim: Any, index: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    if tensor.builder is not index_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"gather does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"gather index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic:
+        raise ValueError("gather currently supports only static input and index shapes")
+    normalized_dim = normalize_gather_attrs(dim, tensor.shape, index_tensor.shape)
+    out_shape = infer_gather_shape_with_attrs(
+        [tensor.shape, index_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "gather",
+        [tensor, index_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
 def _slice_scatter_frontend(x: Any, update: Any, start_indices: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
@@ -768,6 +797,7 @@ globals()["concatenate"] = _concatenate_frontend
 globals()["concatenate_fast"] = _concatenate_fast_frontend
 globals()["concatenate_tanh"] = _concatenate_tanh_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
+globals()["gather"] = _gather_frontend
 globals()["index_select"] = _index_select_frontend
 globals()["slice_scatter"] = _slice_scatter_frontend
 globals()["slice_reshape_scatter"] = _slice_reshape_scatter_frontend
@@ -843,6 +873,7 @@ __all__ = list(dict.fromkeys([
     "concatenate_tanh",
     "dynamic_slice",
     "full",
+    "gather",
     "index_select",
     "max_pool2d",
     "slice_reshape_scatter",

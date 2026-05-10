@@ -6,6 +6,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
+GATHER_INDEX_DTYPES = ("int64", "int32")
 
 
 def infer_concatenate_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -44,6 +45,12 @@ def infer_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]
     if len(input_shapes) != 1:
         raise ValueError("index_select expects one tensor input")
     return infer_index_select_shape_with_attrs(input_shapes, {"dim": 0, "indices": (0,)})
+
+
+def infer_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("gather expects two tensor inputs")
+    return infer_gather_shape_with_attrs(input_shapes, {"dim": 0})
 
 
 def infer_slice_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -103,6 +110,12 @@ def infer_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], a
     if len(input_shapes) != 1:
         raise ValueError("index_select expects one tensor input")
     return resolve_index_select_shape(input_shapes[0], attrs.get("dim", 0), attrs.get("indices"))
+
+
+def infer_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("gather expects two tensor inputs")
+    return resolve_gather_shape(input_shapes[0], input_shapes[1], attrs.get("dim", 0))
 
 
 def infer_slice_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -291,6 +304,34 @@ def normalize_index_select_attrs(dim: Any, indices: Any, input_shape: Sequence[i
     normalized_dim = normalize_index_select_dim(dim, len(input_shape))
     normalized_indices = normalize_index_select_indices(indices, int(input_shape[normalized_dim]))
     return normalized_dim, normalized_indices
+
+
+def normalize_gather_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"gather dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("gather input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"gather dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_gather_attrs(dim: Any, input_shape: Sequence[int], index_shape: Sequence[int]) -> int:
+    rank = len(input_shape)
+    normalized_dim = normalize_gather_dim(dim, rank)
+    if len(index_shape) != rank:
+        raise ValueError(f"gather index rank {len(index_shape)} must match input rank {rank}")
+    for axis, (index_extent, input_extent) in enumerate(zip(index_shape, input_shape)):
+        if axis == normalized_dim:
+            continue
+        if int(index_extent) > int(input_extent):
+            raise ValueError(
+                f"gather index dim {axis} size {int(index_extent)} exceeds input dim {int(input_extent)}"
+            )
+    return normalized_dim
 
 
 def normalize_slice_scatter_attrs(
@@ -498,6 +539,11 @@ def resolve_index_select_shape(input_shape: Sequence[int], dim: Any, indices: An
     return output_shape
 
 
+def resolve_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int], dim: Any) -> list[int]:
+    normalize_gather_attrs(dim, input_shape, index_shape)
+    return [int(axis) for axis in index_shape]
+
+
 def resolve_slice_scatter_shape(
     input_shape: Sequence[int],
     update_shape: Sequence[int],
@@ -650,6 +696,24 @@ def register_collection_ops(registry: OpRegistry) -> None:
     )
     registry.register(
         OpDef(
+            name="gather",
+            schema=OpSchema(
+                inputs=("x", "index"),
+                attrs=(AttrDef("dim", "int", required=True),),
+            ),
+            infer_shape=infer_gather_shape,
+            infer_shape_with_attrs=infer_gather_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("gather"),
+            description="Materialize a dense bounded gather copy using a static-shape integer index tensor.",
+        )
+    )
+    registry.register(
+        OpDef(
             name="slice_scatter",
             schema=OpSchema(
                 inputs=("x", "update"),
@@ -691,12 +755,15 @@ def register_collection_ops(registry: OpRegistry) -> None:
 
 __all__ = [
     "COLLECTION_DTYPES",
+    "GATHER_INDEX_DTYPES",
     "infer_concatenate_shape",
     "infer_concatenate_shape_with_attrs",
     "infer_dynamic_slice_shape",
     "infer_dynamic_slice_shape_with_attrs",
     "infer_flip_shape",
     "infer_flip_shape_with_attrs",
+    "infer_gather_shape",
+    "infer_gather_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
     "infer_pad_shape",
@@ -714,6 +781,8 @@ __all__ = [
     "normalize_concatenate_dim",
     "normalize_dynamic_slice_attrs",
     "normalize_flip_dims",
+    "normalize_gather_attrs",
+    "normalize_gather_dim",
     "normalize_index_select_attrs",
     "normalize_index_select_dim",
     "normalize_index_select_indices",
@@ -730,6 +799,7 @@ __all__ = [
     "resolve_concatenate_shape",
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",
+    "resolve_gather_shape",
     "resolve_index_select_shape",
     "resolve_pad_shape",
     "resolve_repeat_interleave_shape",

@@ -154,6 +154,18 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] == "gather":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_gather(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    int(attrs.get("dim", 0)),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "slice_scatter":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -240,6 +252,20 @@ def _materialize_available_views(ir: Mapping[str, object], values: Dict[str, np.
             progressed = True
         if not progressed:
             return
+
+
+def _execute_gather(x: np.ndarray, index: np.ndarray, dim: int) -> np.ndarray:
+    index_values = np.asarray(index, dtype=np.int64)
+    result = np.empty(index_values.shape, dtype=x.dtype)
+    dim_extent = int(x.shape[dim])
+    for output_coord in np.ndindex(index_values.shape):
+        selected = int(index_values[output_coord])
+        if selected < 0 or selected >= dim_extent:
+            raise ValueError(f"gather index {selected} is out of bounds for dim size {dim_extent}")
+        input_coord = list(output_coord)
+        input_coord[dim] = selected
+        result[output_coord] = x[tuple(input_coord)]
+    return result
 
 
 def _execute_fused_elementwise(node: Mapping[str, object], values: Dict[str, np.ndarray], ir: Mapping[str, object]) -> None:

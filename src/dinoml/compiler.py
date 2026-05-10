@@ -453,10 +453,32 @@ def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    gather_index_tensors = {
+        node["inputs"][1]
+        for node in ir["nodes"]
+        if node.get("op") == "gather" and len(node.get("inputs", [])) == 2
+    }
     for node in ir["nodes"]:
         op_def = get_op_def(str(node["op"]))
         if target.name not in op_def.backend_kernels:
             raise NotImplementedError(f"{target.name} backend does not support op {op_def.name}")
+        if node.get("op") == "gather":
+            data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if data_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[data_dtype]}"
+                )
+            if index_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op gather index supports dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[index_dtype]}"
+                )
+            if output_dtype != data_dtype:
+                raise NotImplementedError(f"Op gather output dtype {output_dtype} must match input dtype {data_dtype}")
+            continue
         node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
         node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
         unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]
@@ -465,9 +487,14 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                 f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
                 f"unsupported compiled dtypes: {unsupported_node_dtypes}"
             )
-    dtypes = {tensor["dtype"] for tensor in ir["tensors"]}
     supported = get_backend_spec(target.name).supported_dtypes
-    unsupported = sorted(dtype for dtype in dtypes if dtype not in supported)
+    unsupported = sorted(
+        {
+            str(tensor["dtype"])
+            for tensor in ir["tensors"]
+            if str(tensor["dtype"]) not in supported and str(tensor["name"]) not in gather_index_tensors
+        }
+    )
     if unsupported:
         raise NotImplementedError(
             f"The current {target.name} runtime supports dtypes {sorted(supported)}; "

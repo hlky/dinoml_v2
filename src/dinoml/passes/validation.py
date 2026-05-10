@@ -144,6 +144,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "permute",
         "dynamic_slice",
         "index_select",
+        "gather",
         "slice_scatter",
         "pad",
     }:
@@ -308,6 +309,17 @@ def _validate_collection_node(
             raise ValidationError(f"pad value must be a constant numeric scalar, got {value!r}")
         if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(float(value)):
             raise ValidationError("pad value must be finite")
+    if op_name == "gather":
+        if str(inputs[0]["dtype"]) not in op_def.allowed_dtypes:
+            raise ValidationError(f"gather does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"gather index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        return
     if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
         raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
     if inputs[0]["dtype"] not in op_def.allowed_dtypes:

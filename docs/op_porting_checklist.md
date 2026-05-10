@@ -131,8 +131,14 @@ epilogues where possible.
   static-shape tensor with a normalized static `dim` and non-empty Python
   sequence of in-bounds non-bool integer `indices`, replacing the selected
   output dimension with `len(indices)` and preserving input dtype across the
-  same generated storage surface. True tensor-index gather, dynamic index
-  tensors, and selection/top-k operators remain out of scope.
+  same generated storage surface. `gather` is available for one static-shape
+  dense input tensor plus one static-shape `int64`/`int32` index tensor with
+  matching rank, normalized `dim`, no broadcasting, output shape equal to the
+  index shape, and output dtype equal to the input dtype. CPU reference and
+  generated CPU kernels read runtime index storage and fail on out-of-bounds
+  gather indices; generated CUDA kernels include a device-side bounds assert.
+  Sparse grad, dynamic shapes, bool/float indices, and selection/top-k
+  operators remain out of scope.
   `slice_scatter` is available as the bounded write-side companion with static
   integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
   the same generated storage surface. `slice_reshape_scatter` is available as a

@@ -15,6 +15,7 @@ from dinoml.lowering.ops.dynamic_slice import DYNAMIC_SLICE_LOWERING
 from dinoml.lowering.ops.expand import EXPAND_LOWERING
 from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
+from dinoml.lowering.ops.gather import GATHER_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
@@ -39,6 +40,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
+    GATHER_LOWERING.op_name: GATHER_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,

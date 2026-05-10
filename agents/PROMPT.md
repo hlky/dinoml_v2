@@ -48,7 +48,7 @@ After implementing a task:
 1. Review the diff.
 2. Run targeted tests or explain why they could not be run.
 3. Update relevant docs/checklists.
-4. Commit the completed work with a clear commit message.
+4. Commit and push the completed work with a clear commit message.
 5. Summarize what changed, what was validated, and what remains.
 6. Update Codex Progress.
 7. Continue the loop unless blocked by quota, missing dependencies, unclear user direction, or failing tests that require human decision.

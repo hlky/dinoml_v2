@@ -6,7 +6,7 @@ from typing import Any, Mapping, Sequence
 from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
 from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
-from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
+from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import validate_shape_spec
 
@@ -139,11 +139,14 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
             raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
         if inputs[0]["dtype"] not in op_def.allowed_dtypes:
             raise ValidationError(f"{op_def.name} does not support dtype {inputs[0]['dtype']}")
-        expected_output_dtype = (
-            elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]))
-            if str(node["op"]) in ELEMENTWISE_BY_NAME
-            else str(inputs[0]["dtype"])
-        )
+        try:
+            expected_output_dtype = (
+                elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]), node.get("attrs", {}))
+                if str(node["op"]) in ELEMENTWISE_BY_NAME
+                else str(inputs[0]["dtype"])
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         for output_name in node["outputs"]:
             if str(tensors[output_name]["dtype"]) != expected_output_dtype:
                 raise ValidationError(
@@ -222,6 +225,15 @@ def _validate_where_node(
 
 def _fused_elementwise_output_dtype(sub_op: Mapping[str, Any], input_dtypes: Sequence[str]) -> str:
     op = str(sub_op.get("op"))
+    if op == "cast":
+        if len(input_dtypes) != 1:
+            raise ValidationError(f"Fused sub-op cast expects 1 inputs, got {len(input_dtypes)}")
+        if input_dtypes[0] not in CAST_ELEMENTWISE_DTYPES:
+            raise ValidationError(f"Fused sub-op cast does not support input dtype {input_dtypes[0]}")
+        output_dtype = str(sub_op.get("attrs", {}).get("dtype", ""))
+        if output_dtype not in CAST_ELEMENTWISE_DTYPES:
+            raise ValidationError(f"Fused sub-op cast does not support dtype {output_dtype}")
+        return output_dtype
     if op == "where":
         if len(input_dtypes) != 3:
             raise ValidationError(f"Fused sub-op where expects 3 inputs, got {len(input_dtypes)}")

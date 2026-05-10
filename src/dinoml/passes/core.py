@@ -39,7 +39,7 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
-            expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]))
+            expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]), node.get("attrs", {}))
         elif node["op"] == "fused_elementwise":
             expected_dtype = _fused_output_dtype(node, tensors)
         for output_name in node["outputs"]:
@@ -87,7 +87,7 @@ def _fused_output_dtype(node: Mapping[str, Any], tensors: Mapping[str, Mapping[s
             input_dtype = dtype_env[input_names[0]]
         else:
             input_dtype = str(tensors[node["outputs"][0]]["dtype"])
-        dtype_env[sub_op["outputs"][0]] = elementwise_output_dtype(str(sub_op["op"]), input_dtype)
+        dtype_env[sub_op["outputs"][0]] = elementwise_output_dtype(str(sub_op["op"]), input_dtype, sub_op.get("attrs", {}))
     return dtype_env.get(node["outputs"][0], str(tensors[node["outputs"][0]]["dtype"]))
 
 

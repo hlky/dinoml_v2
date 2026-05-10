@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
 
@@ -13,6 +13,7 @@ class ElementwiseSpec:
     math_func: str
     attr_defaults: tuple[tuple[str, Any], ...] = ()
     output_dtype: str | None = None
+    allowed_dtypes: tuple[str, ...] | None = None
 
 
 ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
@@ -64,16 +65,23 @@ ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
     ElementwiseSpec("lt", 2, "lt", output_dtype="bool"),
     ElementwiseSpec("ne", 2, "ne", output_dtype="bool"),
     ElementwiseSpec("where", 3, "where"),
+    ElementwiseSpec("cast", 1, "cast", (("dtype", "float32"),)),
 )
 
 ELEMENTWISE_BY_NAME = {spec.name: spec for spec in ELEMENTWISE_SPECS}
 FUSABLE_ELEMENTWISE_OPS = frozenset(ELEMENTWISE_BY_NAME)
 FLOAT_ELEMENTWISE_DTYPES = ("float16", "float32", "bfloat16")
 ELEMENTWISE_OUTPUT_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "bool")
+CAST_ELEMENTWISE_DTYPES = ELEMENTWISE_OUTPUT_DTYPES
 
 
-def elementwise_output_dtype(op_name: str, input_dtype: str) -> str:
+def elementwise_output_dtype(op_name: str, input_dtype: str, attrs: Mapping[str, Any] | None = None) -> str:
     spec = ELEMENTWISE_BY_NAME[op_name]
+    if op_name == "cast":
+        dtype = str((attrs or {}).get("dtype", spec.attr_defaults[0][1]))
+        if dtype not in CAST_ELEMENTWISE_DTYPES:
+            raise ValueError(f"cast does not support dtype {dtype}")
+        return dtype
     return spec.output_dtype or input_dtype
 
 
@@ -116,7 +124,7 @@ def register_elementwise_ops(registry: OpRegistry) -> None:
                     spec.name,
                     default_attrs={name: default for name, default in spec.attr_defaults},
                 ),
-                allowed_dtypes=FLOAT_ELEMENTWISE_DTYPES,
+                allowed_dtypes=spec.allowed_dtypes or (CAST_ELEMENTWISE_DTYPES if spec.name == "cast" else FLOAT_ELEMENTWISE_DTYPES),
                 description=f"Elementwise {spec.name}. Lowered through fused_elementwise.",
             )
         )

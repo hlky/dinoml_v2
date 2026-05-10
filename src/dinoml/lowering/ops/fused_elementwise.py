@@ -278,11 +278,14 @@ def _scalar_body(
         if elementwise_spec is None:
             raise ValueError(f"Unsupported fused elementwise sub-op: {op}")
         args = [exprs[name] for name in sub_op["inputs"]]
-        args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
         output = sub_op["outputs"][0]
         ident = f"v_{_c_ident(output)}"
-        result_type = "bool" if elementwise_spec.output_dtype == "bool" else compute_type
-        lines.append(f"    {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
+        result_type = _sub_op_result_type(sub_op, elementwise_spec.output_dtype, compute_type)
+        if op == "cast":
+            lines.append(f"    {result_type} {ident} = dinoml::math::cast<{result_type}>({args[0]});")
+        else:
+            args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
+            lines.append(f"    {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
         exprs[output] = ident
 
     for output in outputs:
@@ -341,11 +344,14 @@ def _vector_body(
             if elementwise_spec is None:
                 raise ValueError(f"Unsupported fused elementwise sub-op: {op}")
             args = [exprs[name] for name in sub_op["inputs"]]
-            args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
             output_name = sub_op["outputs"][0]
             ident = f"v_{_c_ident(output_name)}_{lane}"
-            result_type = "bool" if elementwise_spec.output_dtype == "bool" else compute_type
-            lines.append(f"  {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
+            result_type = _sub_op_result_type(sub_op, elementwise_spec.output_dtype, compute_type)
+            if op == "cast":
+                lines.append(f"  {result_type} {ident} = dinoml::math::cast<{result_type}>({args[0]});")
+            else:
+                args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
+                lines.append(f"  {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
             exprs[output_name] = ident
         for output in outputs:
             output_name = output["name"]
@@ -555,6 +561,14 @@ def _fused_compute_dtype(
         if dtype != "bool":
             return dtype
     return output_dtype
+
+
+def _sub_op_result_type(sub_op: Mapping[str, Any], static_output_dtype: str | None, compute_type: str) -> str:
+    if static_output_dtype == "bool":
+        return "bool"
+    if str(sub_op.get("op")) == "cast" and str(sub_op.get("attrs", {}).get("dtype")) == "bool":
+        return "bool"
+    return compute_type
 
 
 def _storage_type(dtype: str, *, target: str) -> str:

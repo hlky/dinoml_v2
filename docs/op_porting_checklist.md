@@ -55,6 +55,11 @@ These should be reusable building blocks. They generally map to `torch` or
   paths, while CPU reduced precision always computes in fp32 for now. Runtime
   shape buffers support generic broadcasting, and standalone relational fused
   outputs use bool storage while keeping float inputs typed as float pointers.
+  Public `cast(x, dtype)` is also covered for dense one-input casts between
+  `float32`, `float16`, `bfloat16`, and `bool`, preserving shape/spec and
+  lowering through fused elementwise with mixed input/output pointer types.
+  `int32`/`int64` casts remain out of scope until generated storage/lowering
+  support exists for those dtypes.
   Multi-output same-shape metadata is represented; broader tests and v1-style
   jagged codegen remain.
 - [ ] `int_elementwise`: `ADD`, `SUB`, `MUL`, `DIV` for symbolic integer math.
@@ -84,7 +89,9 @@ epilogues where possible.
   tensors with explicit runtime storage.
 - [ ] Layout: `permute`, `transpose`, `permute021`, `permute0213`,
   `permute102`, `permute210`, `pixel_shuffle`, `pixel_unshuffle`.
-- [ ] Creation/shape values: `arange`, `full`, `randn`, `meshgrid`, `cast`.
+- [ ] Creation/shape values: `arange`, `full`, `randn`, `meshgrid`. `cast` is
+  available for dense tensor casts across the current generated
+  float/reduced-precision/bool storage surface.
 - [ ] Selection/scatter: `dynamic_slice`, `slice_scatter`,
   `slice_reshape_scatter`, `gather`, `batch_gather`, `index_select`,
   `masked_select`, `topk`, `argmax`. `where` is partially done for dense

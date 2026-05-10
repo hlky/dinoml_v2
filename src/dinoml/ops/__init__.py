@@ -4,9 +4,10 @@ import builtins
 from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
+from dinoml.ir import normalize_dtype
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
-from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
+from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
@@ -25,7 +26,7 @@ def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None
         op_attrs.update(attrs)
     out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
-    out_dtype = elementwise_output_dtype(op_name, dtype) if op_name in ELEMENTWISE_BY_NAME else dtype
+    out_dtype = elementwise_output_dtype(op_name, dtype, op_attrs) if op_name in ELEMENTWISE_BY_NAME else dtype
     return builder.emit(op_name, tensors, out_shape, out_dtype, op_attrs, shape_spec=out_shape_spec)
 
 
@@ -61,6 +62,23 @@ def _where_frontend(condition: Any, x: Any, y: Any) -> Tensor:
     out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
     return builder.emit("where", tensors, out_shape, x_tensor.dtype, {}, shape_spec=out_shape_spec)
+
+
+def _cast_frontend(x: Any, dtype: str) -> Tensor:
+    dtype = normalize_dtype(dtype)
+    if dtype not in CAST_ELEMENTWISE_DTYPES:
+        raise ValueError(f"cast does not support dtype {dtype}")
+    input_tensor = as_tensor(x)
+    if input_tensor.dtype not in CAST_ELEMENTWISE_DTYPES:
+        raise ValueError(f"cast does not support input dtype {input_tensor.dtype}")
+    return input_tensor.builder.emit(
+        "cast",
+        [input_tensor],
+        input_tensor.shape,
+        dtype,
+        {"dtype": dtype},
+        shape_spec=input_tensor.shape_spec,
+    )
 
 
 def output(x: Any, name: str = "output_0") -> Tensor:
@@ -120,6 +138,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
 globals()["where"] = _where_frontend
+globals()["cast"] = _cast_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -143,5 +162,6 @@ __all__ = list(dict.fromkeys([
     "unsqueeze",
     "var",
     "vector_norm",
+    "cast",
     "where",
 ]))

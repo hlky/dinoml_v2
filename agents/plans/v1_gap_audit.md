@@ -18,8 +18,10 @@ porting. It intentionally excludes the op inventory, which lives in
   Python `Shape`/`TensorSpec` specs with interval-derived max-shapes plus Python
   runtime validation/output-shape inference from named input dims. Missing
   pieces: generated CPU/CUDA shape-buffer expression lowering, profiling
-  integration for symbolic expression outputs, jagged dimensions, and bucketed
-  execution plans.
+  integration for symbolic expression outputs, and jagged dimensions. Bucketed
+  execution plans are now implemented for CUTLASS paths: runtime shape buckets
+  expand into `dim_buckets` profile workloads, build execution plans, and feed
+  guarded/static selections into the kernel manifest.
 - Shared dtype ABI: v1 has dtype aliases, byte sizes, torch mappings, and C ABI
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for

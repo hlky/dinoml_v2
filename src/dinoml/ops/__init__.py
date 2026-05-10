@@ -9,10 +9,12 @@ from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
     infer_concatenate_shape_with_attrs,
+    infer_dynamic_slice_shape_with_attrs,
     infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
     infer_stack_shape_with_attrs,
     normalize_concatenate_dim,
+    normalize_dynamic_slice_attrs,
     normalize_flip_dims,
     normalize_permute_dims,
     normalize_repeat_interleave_dim,
@@ -294,6 +296,27 @@ def _permute_frontend(x: Any, dims: Any) -> Tensor:
     )
 
 
+def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"dynamic_slice does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("dynamic_slice currently supports only static input shapes")
+    normalized_starts, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, tensor.shape)
+    out_shape = infer_dynamic_slice_shape_with_attrs(
+        [tensor.shape],
+        {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
+    )
+    return tensor.builder.emit(
+        "dynamic_slice",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
+        shape_spec=out_shape,
+    )
+
+
 def _transpose_frontend(x: Any, dim0: Any, dim1: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -375,6 +398,7 @@ globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
 globals()["concatenate"] = _concatenate_frontend
+globals()["dynamic_slice"] = _dynamic_slice_frontend
 globals()["stack"] = _stack_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
@@ -413,6 +437,7 @@ __all__ = list(dict.fromkeys([
     "arange",
     "cast",
     "concatenate",
+    "dynamic_slice",
     "full",
     "where",
 ]))

@@ -1,0 +1,15 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+{{ copy_body }}
+  }
+  return 0;
+}

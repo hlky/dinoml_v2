@@ -151,6 +151,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "dynamic_slice",
         "index_select",
         "gather",
+        "batch_gather",
         "slice_scatter",
         "pad",
     }:
@@ -396,6 +397,17 @@ def _validate_collection_node(
             raise ValidationError(f"gather does not support dtype {inputs[0]['dtype']}")
         if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
             raise ValidationError(f"gather index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        return
+    if op_name == "batch_gather":
+        if str(inputs[0]["dtype"]) not in op_def.allowed_dtypes:
+            raise ValidationError(f"batch_gather does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"batch_gather indices must have dtype int64 or int32, got {inputs[1]['dtype']}")
         if str(output["dtype"]) != str(inputs[0]["dtype"]):
             raise ValidationError(
                 f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "

@@ -122,8 +122,7 @@ epilogues where possible.
   arange/randn dtypes remain out of scope for this bounded port. `cast` is
   available for dense tensor casts across the current generated
   float/reduced-precision/bool storage surface.
-- [ ] Selection/scatter: `gather`, `batch_gather`, `masked_select`, `topk`,
-  `argmax`.
+- [ ] Selection/scatter: remaining bounded gap is `masked_select`.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.
@@ -137,6 +136,12 @@ epilogues where possible.
   index shape, and output dtype equal to the input dtype. CPU reference and
   generated CPU kernels read runtime index storage and fail on out-of-bounds
   gather indices; generated CUDA kernels include a device-side bounds assert.
+  `batch_gather(x, indices)` is available for one static-shape dense rank >= 2
+  input shaped `[B, N, ...]` plus one static-shape rank-2 `int64`/`int32`
+  indices tensor shaped `[B, K]`, producing `[B, K, ...]` with input dtype
+  preserved. CPU reference and generated CPU kernels read runtime indices and
+  fail on out-of-bounds axis-1 selections; generated CUDA kernels include a
+  device-side bounds assert.
   `argmax` is available for one static-shape ranked dense tensor over a
   positive static last dimension after negative `dim` normalization, with
   `keepdim` and scalar fallback shape `[1]`. It supports
@@ -149,8 +154,9 @@ epilogues where possible.
   with positive non-bool static integer `k <= last_dim`, `float32`/`float16`/
   `bfloat16`/`bool` inputs, value dtype preserved, `int64` indices, stable
   first-index tie ordering, and sorted descending largest results. Sparse grad,
-  dynamic shapes, bool/float gather indices, non-last-dimension argmax/topk,
-  smallest/unsorted topk, and true multi-output IR nodes remain out of scope.
+  dynamic shapes, bool/float gather or batch_gather indices,
+  non-last-dimension argmax/topk, smallest/unsorted topk, `masked_select`, and
+  true multi-output IR nodes remain out of scope.
   `slice_scatter` is available as the bounded write-side companion with static
   integer `start_indices`, static-shape `x`/`update`, matching rank/dtype, and
   the same generated storage surface. `slice_reshape_scatter` is available as a

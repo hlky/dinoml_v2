@@ -53,6 +53,12 @@ def infer_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     return infer_gather_shape_with_attrs(input_shapes, {"dim": 0})
 
 
+def infer_batch_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("batch_gather expects two tensor inputs")
+    return infer_batch_gather_shape_with_attrs(input_shapes, {})
+
+
 def infer_slice_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(input_shapes) != 2:
         raise ValueError("slice_scatter expects two tensor inputs")
@@ -116,6 +122,13 @@ def infer_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: 
     if len(input_shapes) != 2:
         raise ValueError("gather expects two tensor inputs")
     return resolve_gather_shape(input_shapes[0], input_shapes[1], attrs.get("dim", 0))
+
+
+def infer_batch_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    del attrs
+    if len(input_shapes) != 2:
+        raise ValueError("batch_gather expects two tensor inputs")
+    return resolve_batch_gather_shape(input_shapes[0], input_shapes[1])
 
 
 def infer_slice_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -334,6 +347,18 @@ def normalize_gather_attrs(dim: Any, input_shape: Sequence[int], index_shape: Se
     return normalized_dim
 
 
+def normalize_batch_gather_attrs(input_shape: Sequence[int], index_shape: Sequence[int]) -> None:
+    if len(input_shape) < 2:
+        raise ValueError(f"batch_gather input rank {len(input_shape)} must be at least 2")
+    if len(index_shape) != 2:
+        raise ValueError(f"batch_gather indices rank {len(index_shape)} must be 2")
+    if int(input_shape[0]) != int(index_shape[0]):
+        raise ValueError(
+            f"batch_gather batch size mismatch: input batch {int(input_shape[0])}, "
+            f"indices batch {int(index_shape[0])}"
+        )
+
+
 def normalize_slice_scatter_attrs(
     start_indices: Any,
     input_shape: Sequence[int],
@@ -544,6 +569,11 @@ def resolve_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int],
     return [int(axis) for axis in index_shape]
 
 
+def resolve_batch_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int]) -> list[int]:
+    normalize_batch_gather_attrs(input_shape, index_shape)
+    return [int(index_shape[0]), int(index_shape[1]), *[int(axis) for axis in input_shape[2:]]]
+
+
 def resolve_slice_scatter_shape(
     input_shape: Sequence[int],
     update_shape: Sequence[int],
@@ -714,6 +744,21 @@ def register_collection_ops(registry: OpRegistry) -> None:
     )
     registry.register(
         OpDef(
+            name="batch_gather",
+            schema=OpSchema(inputs=("x", "indices")),
+            infer_shape=infer_batch_gather_shape,
+            infer_shape_with_attrs=infer_batch_gather_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("batch_gather"),
+            description="Materialize a dense bounded batch gather from axis 1 using static-shape integer indices.",
+        )
+    )
+    registry.register(
+        OpDef(
             name="slice_scatter",
             schema=OpSchema(
                 inputs=("x", "update"),
@@ -756,6 +801,8 @@ def register_collection_ops(registry: OpRegistry) -> None:
 __all__ = [
     "COLLECTION_DTYPES",
     "GATHER_INDEX_DTYPES",
+    "infer_batch_gather_shape",
+    "infer_batch_gather_shape_with_attrs",
     "infer_concatenate_shape",
     "infer_concatenate_shape_with_attrs",
     "infer_dynamic_slice_shape",
@@ -777,6 +824,7 @@ __all__ = [
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
     "chunk_sections",
+    "normalize_batch_gather_attrs",
     "normalize_chunk_count",
     "normalize_concatenate_dim",
     "normalize_dynamic_slice_attrs",
@@ -796,6 +844,7 @@ __all__ = [
     "normalize_stack_dim",
     "normalize_transpose_dims",
     "register_collection_ops",
+    "resolve_batch_gather_shape",
     "resolve_concatenate_shape",
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",

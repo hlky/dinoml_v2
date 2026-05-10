@@ -182,6 +182,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ),
                 output_dtype,
             )
+        elif node["op"] == "batch_gather":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_batch_gather(values[node["inputs"][0]], values[node["inputs"][1]]),
+                output_dtype,
+            )
         elif node["op"] == "slice_scatter":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -281,6 +288,19 @@ def _execute_gather(x: np.ndarray, index: np.ndarray, dim: int) -> np.ndarray:
         input_coord = list(output_coord)
         input_coord[dim] = selected
         result[output_coord] = x[tuple(input_coord)]
+    return result
+
+
+def _execute_batch_gather(x: np.ndarray, indices: np.ndarray) -> np.ndarray:
+    index_values = np.asarray(indices, dtype=np.int64)
+    result = np.empty((index_values.shape[0], index_values.shape[1], *x.shape[2:]), dtype=x.dtype)
+    dim_extent = int(x.shape[1])
+    for batch in range(index_values.shape[0]):
+        for k in range(index_values.shape[1]):
+            selected = int(index_values[batch, k])
+            if selected < 0 or selected >= dim_extent:
+                raise ValueError(f"batch_gather index {selected} is out of bounds for dim size {dim_extent}")
+            result[(batch, k)] = x[(batch, selected)]
     return result
 
 

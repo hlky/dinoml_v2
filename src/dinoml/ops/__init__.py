@@ -33,7 +33,7 @@ from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
-from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
+from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, ELEMENTWISE_OUTPUT_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
@@ -83,7 +83,7 @@ def _where_frontend(condition: Any, x: Any, y: Any) -> Tensor:
         raise ValueError(f"where condition must have dtype bool, got {condition_tensor.dtype}")
     if x_tensor.dtype != y_tensor.dtype:
         raise ValueError(f"where x/y dtype mismatch: {x_tensor.dtype} vs {y_tensor.dtype}")
-    if x_tensor.dtype not in FLOAT_ELEMENTWISE_DTYPES:
+    if x_tensor.dtype not in ELEMENTWISE_OUTPUT_DTYPES:
         raise ValueError(f"where does not support dtype {x_tensor.dtype}")
     out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)

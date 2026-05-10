@@ -134,8 +134,8 @@ epilogues where possible.
   static `slice_shape`, then reuses `slice_scatter`; dynamic shapes and
   view-of-view reshape inputs remain limited by existing shape-view lowering.
   `where` is available for dense bool-condition plus matching
-  float/reduced-precision `x`/`y` through fused elementwise CPU/CUDA
-  generation; bool output/value `where` remains out of scope.
+  float/reduced-precision/bool `x`/`y` through fused elementwise CPU/CUDA
+  generation.
 - [ ] Collections/broadcasting: no remaining named v1 collection gaps in this
   bounded subset. `expand` is available as a materialized dense broadcast copy
   for static shapes across the generated float/reduced-precision and bool

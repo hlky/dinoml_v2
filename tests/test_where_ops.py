@@ -36,11 +36,17 @@ def _trace_where(dtype: str = "float32"):
 def _storage_roundtrip(value, dtype):
     if dtype in {"float16", "bfloat16"}:
         return array_from_storage(array_to_storage(value, dtype), dtype)
+    if dtype == "bool":
+        return np.asarray(value, dtype=np.bool_)
     return np.asarray(value, dtype=np.float32)
 
 
 def _where_inputs(dtype):
     condition = np.array([[True], [False]], dtype=np.bool_)
+    if dtype == "bool":
+        x = np.array([[True, False, True]], dtype=np.bool_)
+        y = np.array([[False, True, False], [True, True, False]], dtype=np.bool_)
+        return condition, x, y
     x = np.array([[1.0, -2.5, 3.25]], dtype=np.float32)
     y = np.array([[10.0, 20.5, -30.25], [40.75, -50.0, 60.125]], dtype=np.float32)
     if dtype == "float16":
@@ -58,6 +64,16 @@ def test_where_frontend_ir_dtype_shape_and_broadcast():
     assert where_node["inputs"] == ["condition", "x", "y"]
 
 
+def test_where_frontend_allows_bool_values_with_broadcast_shape():
+    spec = _trace_where("bool")
+
+    assert spec.ir["outputs"][0]["shape"] == [2, 3]
+    assert spec.ir["outputs"][0]["dtype"] == "bool"
+    where_node = spec.ir["nodes"][0]
+    assert where_node["op"] == "where"
+    assert where_node["inputs"] == ["condition", "x", "y"]
+
+
 def test_cpu_reference_where_executes_broadcast():
     spec = _trace_where()
     condition = np.array([[True], [False]], dtype=np.bool_)
@@ -70,12 +86,23 @@ def test_cpu_reference_where_executes_broadcast():
     np.testing.assert_array_equal(actual, np.where(condition, x, y))
 
 
+def test_cpu_reference_where_executes_bool_values_with_broadcast():
+    spec = _trace_where("bool")
+    condition, x, y = _where_inputs("bool")
+
+    actual = execute_cpu(spec, {"condition": condition, "x": x, "y": y})["out"]
+
+    assert actual.dtype == np.bool_
+    np.testing.assert_array_equal(actual, np.where(condition, x, y))
+
+
 @pytest.mark.parametrize(
     ("dtype", "input_pointer", "output_pointer"),
     [
         ("float32", "const float* DINO_RESTRICT ptr_x", "float* DINO_RESTRICT ptr_"),
         ("float16", "const dinoml::math::float16* DINO_RESTRICT ptr_x", "dinoml::math::float16* DINO_RESTRICT ptr_"),
         ("bfloat16", "const dinoml::math::bfloat16* DINO_RESTRICT ptr_x", "dinoml::math::bfloat16* DINO_RESTRICT ptr_"),
+        ("bool", "const bool* DINO_RESTRICT ptr_x", "bool* DINO_RESTRICT ptr_"),
     ],
 )
 def test_where_fused_generated_cpu_source_and_runtime(tmp_path, dtype, input_pointer, output_pointer):
@@ -113,6 +140,7 @@ def test_where_fused_generated_cpu_source_and_runtime(tmp_path, dtype, input_poi
     [
         ("float16", "const half* DINO_RESTRICT ptr_x", "half* DINO_RESTRICT ptr_"),
         ("bfloat16", "const __nv_bfloat16* DINO_RESTRICT ptr_x", "__nv_bfloat16* DINO_RESTRICT ptr_"),
+        ("bool", "const bool* DINO_RESTRICT ptr_x", "bool* DINO_RESTRICT ptr_"),
     ],
 )
 def test_where_generated_cuda_source_uses_mixed_pointer_types(dtype, input_pointer, output_pointer):

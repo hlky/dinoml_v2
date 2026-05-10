@@ -6,7 +6,13 @@ from typing import Any, Mapping, Sequence
 from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
 from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
-from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
+from dinoml.ops.elementwise import (
+    CAST_ELEMENTWISE_DTYPES,
+    ELEMENTWISE_BY_NAME,
+    ELEMENTWISE_OUTPUT_DTYPES,
+    FLOAT_ELEMENTWISE_DTYPES,
+    elementwise_output_dtype,
+)
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import is_dynamic_shape, validate_shape_spec
 
@@ -237,7 +243,7 @@ def _validate_where_node(
         raise ValidationError(f"where condition must have dtype bool, got {inputs[0]['dtype']}")
     if str(inputs[1]["dtype"]) != str(inputs[2]["dtype"]):
         raise ValidationError(f"where x/y dtype mismatch: {inputs[1]['dtype']} vs {inputs[2]['dtype']}")
-    if str(inputs[1]["dtype"]) not in FLOAT_ELEMENTWISE_DTYPES:
+    if str(inputs[1]["dtype"]) not in ELEMENTWISE_OUTPUT_DTYPES:
         raise ValidationError(f"where does not support dtype {inputs[1]['dtype']}")
     output_name = node["outputs"][0]
     if str(tensors[output_name]["dtype"]) != str(inputs[1]["dtype"]):
@@ -305,7 +311,7 @@ def _fused_elementwise_output_dtype(sub_op: Mapping[str, Any], input_dtypes: Seq
             raise ValidationError(f"Fused sub-op where condition must have dtype bool, got {input_dtypes[0]}")
         if input_dtypes[1] != input_dtypes[2]:
             raise ValidationError(f"Fused sub-op where x/y dtype mismatch: {input_dtypes[1]} vs {input_dtypes[2]}")
-        if input_dtypes[1] not in FLOAT_ELEMENTWISE_DTYPES:
+        if input_dtypes[1] not in ELEMENTWISE_OUTPUT_DTYPES:
             raise ValidationError(f"Fused sub-op where does not support dtype {input_dtypes[1]}")
         return input_dtypes[1]
     if input_dtypes and any(dtype != input_dtypes[0] for dtype in input_dtypes):

@@ -131,9 +131,16 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if not op_def.accepts_input_count(len(inputs)):
         raise ValidationError(f"{op_def.name} expects {op_def.input_count} inputs")
     try:
-        op_def.infer_shape([input_info["shape"] for input_info in inputs])
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc
+    if node["outputs"]:
+        output_name = node["outputs"][0]
+        if list(tensors[output_name]["shape"]) != list(expected_shape):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has shape {tensors[output_name]['shape']}, "
+                f"expected {expected_shape}"
+            )
     if inputs:
         if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
             raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
@@ -152,6 +159,20 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
                 raise ValidationError(
                     f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
                     f"expected {expected_output_dtype}"
+                )
+    else:
+        expected_dtype = str(node.get("attrs", {}).get("dtype", tensors[node["outputs"][0]]["dtype"]))
+        try:
+            expected_dtype = normalize_dtype(expected_dtype)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        if expected_dtype not in op_def.allowed_dtypes:
+            raise ValidationError(f"{op_def.name} does not support dtype {expected_dtype}")
+        for output_name in node["outputs"]:
+            if str(tensors[output_name]["dtype"]) != expected_dtype:
+                raise ValidationError(
+                    f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
+                    f"expected {expected_dtype}"
                 )
 
 

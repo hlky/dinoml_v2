@@ -53,6 +53,14 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "full":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            output_shape = _tensor_shape(ir, output_name)
+            values[output_name] = _store_reference(
+                np.full(output_shape, node.get("attrs", {}).get("fill_value"), dtype=np.float32 if output_dtype != "bool" else np.bool_),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -326,6 +334,13 @@ def _tensor_dtype(ir: Mapping[str, object], tensor_name: str) -> str:
     for tensor in ir["tensors"]:
         if tensor["name"] == tensor_name:
             return str(tensor["dtype"])
+    raise KeyError(tensor_name)
+
+
+def _tensor_shape(ir: Mapping[str, object], tensor_name: str) -> list[int]:
+    for tensor in ir["tensors"]:
+        if tensor["name"] == tensor_name:
+            return [int(dim) for dim in tensor["shape"]]
     raise KeyError(tensor_name)
 
 

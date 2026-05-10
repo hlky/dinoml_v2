@@ -33,9 +33,9 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
                 bool(node.get("attrs", {}).get("keepdim", False)),
             )
         else:
-            expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
+            expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
         expected_shape_spec = _infer_node_shape_spec(node, inputs, expected_shape)
-        expected_dtype = inputs[0]["dtype"] if inputs else tensors[node["outputs"][0]]["dtype"]
+        expected_dtype = inputs[0]["dtype"] if inputs else str(node.get("attrs", {}).get("dtype", tensors[node["outputs"][0]]["dtype"]))
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:

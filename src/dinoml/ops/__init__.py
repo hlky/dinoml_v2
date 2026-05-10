@@ -5,7 +5,9 @@ from typing import Any, Callable, Mapping
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
+from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
+from dinoml.ops.creation import CREATION_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
@@ -24,7 +26,7 @@ def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None
     op_attrs = dict(op_def.frontend.default_attrs if op_def.frontend is not None else {})
     if attrs is not None:
         op_attrs.update(attrs)
-    out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
+    out_shape = op_def.infer_shape_for([tensor.shape for tensor in tensors], op_attrs)
     out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
     out_dtype = elementwise_output_dtype(op_name, dtype, op_attrs) if op_name in ELEMENTWISE_BY_NAME else dtype
     return builder.emit(op_name, tensors, out_shape, out_dtype, op_attrs, shape_spec=out_shape_spec)
@@ -78,6 +80,30 @@ def _cast_frontend(x: Any, dtype: str) -> Tensor:
         dtype,
         {"dtype": dtype},
         shape_spec=input_tensor.shape_spec,
+    )
+
+
+def _full_frontend(shape: Any, fill_value: Any, dtype: str = "float32") -> Tensor:
+    dtype = normalize_dtype(dtype)
+    if dtype not in CREATION_DTYPES:
+        raise ValueError(f"full does not support dtype {dtype}")
+    shape_obj = Shape(shape)
+    if len(shape_obj) == 0:
+        raise ValueError("full shape must not be empty")
+    if shape_obj.dynamic:
+        raise ValueError("full currently supports only static shapes")
+    if dtype == "bool":
+        normalized_fill: bool | float = bool(fill_value)
+    else:
+        normalized_fill = float(fill_value)
+    attrs = {"shape": shape_obj.max_shape, "fill_value": normalized_fill, "dtype": dtype}
+    return GraphBuilder.current().emit(
+        "full",
+        [],
+        shape_obj.max_shape,
+        dtype,
+        attrs,
+        shape_spec=shape_obj.to_json(),
     )
 
 
@@ -139,6 +165,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
 
 globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
+globals()["full"] = _full_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -163,5 +190,6 @@ __all__ = list(dict.fromkeys([
     "var",
     "vector_norm",
     "cast",
+    "full",
     "where",
 ]))

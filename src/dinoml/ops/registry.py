@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Sequence
 
 
 ShapeFn = Callable[[Sequence[Sequence[int]]], list[int]]
+AttrShapeFn = Callable[[Sequence[Sequence[int]], Mapping[str, Any]], list[int]]
 
 
 @dataclass(frozen=True)
@@ -74,6 +75,7 @@ class OpDef:
     profiler: bool = False
     variadic_inputs: bool = False
     description: str = ""
+    infer_shape_with_attrs: AttrShapeFn | None = None
 
     @property
     def input_count(self) -> int:
@@ -83,6 +85,11 @@ class OpDef:
         if self.variadic_inputs:
             return input_count >= self.input_count
         return input_count == self.input_count
+
+    def infer_shape_for(self, input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any] | None = None) -> list[int]:
+        if self.infer_shape_with_attrs is not None:
+            return self.infer_shape_with_attrs(input_shapes, attrs or {})
+        return self.infer_shape(input_shapes)
 
 
 class OpRegistry:

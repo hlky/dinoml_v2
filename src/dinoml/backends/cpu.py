@@ -103,6 +103,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 np.stack([values[name] for name in node["inputs"]], axis=int(node.get("attrs", {}).get("dim", 0))).copy(),
                 output_dtype,
             )
+        elif node["op"] == "flip":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                np.flip(values[node["inputs"][0]], axis=tuple(node.get("attrs", {}).get("dims", ()))).copy(),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

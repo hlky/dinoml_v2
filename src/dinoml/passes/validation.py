@@ -126,10 +126,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "where":
         _validate_where_node(node, inputs, tensors)
         return
-    if node["op"] == "concatenate":
-        _validate_collection_node(node, inputs, tensors)
-        return
-    if node["op"] == "stack":
+    if node["op"] in {"concatenate", "stack", "flip"}:
         _validate_collection_node(node, inputs, tensors)
         return
     if len(node["outputs"]) != 1:

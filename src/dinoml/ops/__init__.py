@@ -11,6 +11,7 @@ from dinoml.ops.collections import (
     infer_concatenate_shape_with_attrs,
     infer_stack_shape_with_attrs,
     normalize_concatenate_dim,
+    normalize_flip_dims,
     normalize_stack_dim,
 )
 from dinoml.shapes import Shape
@@ -230,6 +231,23 @@ def _stack_frontend(inputs: Any, dim: int = 0) -> Tensor:
     )
 
 
+def _flip_frontend(x: Any, dims: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"flip does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("flip currently supports only static input shapes")
+    normalized_dims = normalize_flip_dims(dims, tensor.rank)
+    return tensor.builder.emit(
+        "flip",
+        [tensor],
+        tensor.shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=tensor.shape_spec,
+    )
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -300,6 +318,7 @@ globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["stack"] = _stack_frontend
+globals()["flip"] = _flip_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -310,6 +329,7 @@ __all__ = list(dict.fromkeys([
     *BMM_HELPER_OPS,
     "emit_registered_op",
     "expand",
+    "flip",
     "flatten",
     "identity",
     "make_frontend_op",

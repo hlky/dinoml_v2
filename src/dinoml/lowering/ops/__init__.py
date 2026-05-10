@@ -10,6 +10,7 @@ from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.concatenate import CONCATENATE_LOWERING
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.expand import EXPAND_LOWERING
+from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
@@ -24,6 +25,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     ARANGE_LOWERING.op_name: ARANGE_LOWERING,
     CONCATENATE_LOWERING.op_name: CONCATENATE_LOWERING,
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,
+    FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,

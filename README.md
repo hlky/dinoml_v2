@@ -94,6 +94,6 @@ profile data are ignored by git. Use `tmp/` for scratch generated modules when
 reviewing codegen.
 
 See [docs/architecture.md](docs/architecture.md) for the op/backend/kernel split,
-[docs/op_porting_checklist.md](docs/op_porting_checklist.md) for the porting map,
-and [docs/v1_gap_audit.md](docs/v1_gap_audit.md) for foundations still missing
+[agents/plans/op_porting_checklist.md](agents/plans/op_porting_checklist.md) for the porting map,
+and [agents/plans/v1_gap_audit.md](agents/plans/v1_gap_audit.md) for foundations still missing
 from v1.

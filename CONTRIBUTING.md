@@ -24,7 +24,7 @@ committed.
    models. Keep model-specific generated code in the artifact wrapper.
 5. Add CPU reference tests and backend runtime tests. CUDA kernels should also
    be benchmarked against an appropriate PyTorch or NumPy reference.
-6. Update `docs/op_porting_checklist.md` with the new support level and known
+6. Update `agents/plans/op_porting_checklist.md` with the new support level and known
    gaps.
 
 Prefer one semantic public op with backend variants over many public names that

@@ -2,7 +2,7 @@
 
 This is the short list of v1 foundations that should be settled before broad op
 porting. It intentionally excludes the op inventory, which lives in
-`docs/op_porting_checklist.md`.
+`agents/plans/op_porting_checklist.md`.
 
 ## Highest Priority
 

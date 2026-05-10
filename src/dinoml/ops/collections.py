@@ -12,11 +12,22 @@ def infer_concatenate_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     return infer_concatenate_shape_with_attrs(input_shapes, {"dim": 0})
 
 
+def infer_stack_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_stack_shape_with_attrs(input_shapes, {"dim": 0})
+
+
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
     dim = normalize_concatenate_dim(attrs.get("dim", 0), len(input_shapes[0]))
     return resolve_concatenate_shape(input_shapes, dim)
+
+
+def infer_stack_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if not input_shapes:
+        raise ValueError("stack expects a non-empty sequence of tensors")
+    dim = normalize_stack_dim(attrs.get("dim", 0), len(input_shapes[0]))
+    return resolve_stack_shape(input_shapes, dim)
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -29,6 +40,19 @@ def normalize_concatenate_dim(dim: Any, rank: int) -> int:
         normalized += rank
     if normalized < 0 or normalized >= rank:
         raise ValueError(f"concatenate dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_stack_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"stack dim must be an integer, got {dim!r}")
+    if rank < 0:
+        raise ValueError("stack rank must be non-negative")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank + 1
+    if normalized < 0 or normalized > rank:
+        raise ValueError(f"stack dim {dim} is out of range for rank {rank}")
     return normalized
 
 
@@ -56,6 +80,20 @@ def resolve_concatenate_shape(input_shapes: Sequence[Sequence[int]], dim: int) -
     return output_shape
 
 
+def resolve_stack_shape(input_shapes: Sequence[Sequence[int]], dim: int) -> list[int]:
+    if not input_shapes:
+        raise ValueError("stack expects a non-empty sequence of tensors")
+    base_shape = [int(axis) for axis in input_shapes[0]]
+    dim = normalize_stack_dim(dim, len(base_shape))
+    for index, shape in enumerate(input_shapes):
+        current = [int(axis) for axis in shape]
+        if current != base_shape:
+            raise ValueError(f"stack input {index} shape {current} does not match {base_shape}")
+    output_shape = list(base_shape)
+    output_shape.insert(dim, len(input_shapes))
+    return output_shape
+
+
 def register_collection_ops(registry: OpRegistry) -> None:
     registry.register(
         OpDef(
@@ -76,13 +114,36 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense concatenation copy along a static dimension.",
         )
     )
+    registry.register(
+        OpDef(
+            name="stack",
+            schema=OpSchema(
+                inputs=("x0",),
+                attrs=(AttrDef("dim", "int", default=0),),
+            ),
+            infer_shape=infer_stack_shape,
+            infer_shape_with_attrs=infer_stack_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("stack"),
+            variadic_inputs=True,
+            description="Materialize a dense stack copy by inserting a static dimension.",
+        )
+    )
 
 
 __all__ = [
     "COLLECTION_DTYPES",
     "infer_concatenate_shape",
     "infer_concatenate_shape_with_attrs",
+    "infer_stack_shape",
+    "infer_stack_shape_with_attrs",
     "normalize_concatenate_dim",
+    "normalize_stack_dim",
     "register_collection_ops",
     "resolve_concatenate_shape",
+    "resolve_stack_shape",
 ]

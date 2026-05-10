@@ -127,7 +127,10 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         _validate_where_node(node, inputs, tensors)
         return
     if node["op"] == "concatenate":
-        _validate_concatenate_node(node, inputs, tensors)
+        _validate_collection_node(node, inputs, tensors)
+        return
+    if node["op"] == "stack":
+        _validate_collection_node(node, inputs, tensors)
         return
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
@@ -247,16 +250,17 @@ def _validate_where_node(
         )
 
 
-def _validate_concatenate_node(
+def _validate_collection_node(
     node: Mapping[str, Any],
     inputs: Sequence[Mapping[str, Any]],
     tensors: Mapping[str, Mapping[str, Any]],
 ) -> None:
-    op_def = get_op_def("concatenate")
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
     if not op_def.accepts_input_count(len(inputs)):
-        raise ValidationError("concatenate expects a non-empty sequence of tensors")
+        raise ValidationError(f"{op_name} expects a non-empty sequence of tensors")
     output_name = node["outputs"][0]
     output = tensors[output_name]
     dynamic_tensors = [
@@ -265,7 +269,7 @@ def _validate_concatenate_node(
         if is_dynamic_shape(tensor.get("shape_spec", tensor["shape"]))
     ]
     if dynamic_tensors:
-        raise ValidationError(f"concatenate currently supports only static shapes: {dynamic_tensors}")
+        raise ValidationError(f"{op_name} currently supports only static shapes: {dynamic_tensors}")
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
     except ValueError as exc:
@@ -278,7 +282,7 @@ def _validate_concatenate_node(
     if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
         raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
     if inputs[0]["dtype"] not in op_def.allowed_dtypes:
-        raise ValidationError(f"concatenate does not support dtype {inputs[0]['dtype']}")
+        raise ValidationError(f"{op_name} does not support dtype {inputs[0]['dtype']}")
     if str(output["dtype"]) != str(inputs[0]["dtype"]):
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "

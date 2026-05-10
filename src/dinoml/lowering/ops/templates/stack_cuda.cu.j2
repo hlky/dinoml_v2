@@ -1,0 +1,31 @@
+__global__ void {{ kernel }}(
+{% for input in input_params %}
+    const {{ input.storage_type }}* DINO_RESTRICT x{{ loop.index0 }},
+{% endfor %}
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+{{ copy_body }}
+  }
+}
+
+static int {{ func }}(
+{% for input in input_params %}
+    const {{ input.storage_type }}* DINO_RESTRICT x{{ loop.index0 }},
+{% endfor %}
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    cudaStream_t stream) {
+  if ({{ null_checks }}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>({{ input_args }}, y, runtime_numel);
+    DINO_CUDA_CHECK(cudaGetLastError());
+  }
+  return 0;
+}

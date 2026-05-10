@@ -16,6 +16,7 @@ from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
+from dinoml.lowering.ops.stack import STACK_LOWERING
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 
@@ -27,6 +28,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FULL_LOWERING.op_name: FULL_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,
+    STACK_LOWERING.op_name: STACK_LOWERING,
 }
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)

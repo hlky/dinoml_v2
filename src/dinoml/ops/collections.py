@@ -221,6 +221,69 @@ def normalize_dynamic_slice_attrs(
     return starts, sizes
 
 
+def normalize_split_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"split dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("split input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"split dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_split_sections(split_size_or_sections: Any, dim_extent: int) -> list[int]:
+    if isinstance(split_size_or_sections, int) and not isinstance(split_size_or_sections, bool):
+        split_size = int(split_size_or_sections)
+        if split_size <= 0:
+            raise ValueError(f"split size must be positive, got {split_size_or_sections!r}")
+        sections = []
+        remaining = int(dim_extent)
+        while remaining > 0:
+            size = min(split_size, remaining)
+            sections.append(size)
+            remaining -= size
+        return sections
+    if isinstance(split_size_or_sections, Sequence) and not isinstance(
+        split_size_or_sections,
+        (str, bytes, bytearray),
+    ):
+        sections = []
+        for section in split_size_or_sections:
+            if not isinstance(section, int) or isinstance(section, bool):
+                raise ValueError(f"split sections must contain only positive integers, got {split_size_or_sections!r}")
+            if int(section) <= 0:
+                raise ValueError(f"split sections must be positive, got {split_size_or_sections!r}")
+            sections.append(int(section))
+        if not sections:
+            raise ValueError("split sections must be non-empty")
+        if sum(sections) != int(dim_extent):
+            raise ValueError(f"split sections must sum to dim size {int(dim_extent)}, got {sum(sections)}")
+        return sections
+    raise ValueError(
+        "split_size_or_sections must be a positive integer or non-empty sequence of positive integers, "
+        f"got {split_size_or_sections!r}"
+    )
+
+
+def normalize_chunk_count(chunks: Any) -> int:
+    if not isinstance(chunks, int) or isinstance(chunks, bool):
+        raise ValueError(f"chunk chunks must be a positive integer, got {chunks!r}")
+    normalized = int(chunks)
+    if normalized <= 0:
+        raise ValueError(f"chunk chunks must be positive, got {chunks!r}")
+    return normalized
+
+
+def chunk_sections(dim_extent: int, chunks: Any) -> list[int]:
+    normalized_chunks = normalize_chunk_count(chunks)
+    extent = int(dim_extent)
+    chunk_size = (extent + normalized_chunks - 1) // normalized_chunks
+    return normalize_split_sections(chunk_size, extent)
+
+
 def _normalize_dynamic_slice_int_sequence(values: Any, rank: int, name: str) -> list[int]:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
         raise ValueError(f"dynamic_slice {name} must be a sequence of integers, got {values!r}")
@@ -427,12 +490,16 @@ __all__ = [
     "infer_permute_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
+    "chunk_sections",
+    "normalize_chunk_count",
     "normalize_concatenate_dim",
     "normalize_dynamic_slice_attrs",
     "normalize_flip_dims",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
     "normalize_permute_dims",
+    "normalize_split_dim",
+    "normalize_split_sections",
     "normalize_stack_dim",
     "normalize_transpose_dims",
     "register_collection_ops",

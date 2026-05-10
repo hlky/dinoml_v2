@@ -1,24 +1,28 @@
 from __future__ import annotations
 
 import builtins
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
+    chunk_sections,
     infer_concatenate_shape_with_attrs,
     infer_dynamic_slice_shape_with_attrs,
     infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
     infer_stack_shape_with_attrs,
+    normalize_chunk_count,
     normalize_concatenate_dim,
     normalize_dynamic_slice_attrs,
     normalize_flip_dims,
     normalize_permute_dims,
     normalize_repeat_interleave_dim,
     normalize_repeat_interleave_repeats,
+    normalize_split_dim,
+    normalize_split_sections,
     normalize_stack_dim,
     normalize_transpose_dims,
 )
@@ -317,6 +321,42 @@ def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Ten
     )
 
 
+def _split_frontend(x: Any, split_size_or_sections: Any, dim: Any = 0) -> tuple[Tensor, ...]:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"split does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("split currently supports only static input shapes")
+    normalized_dim = normalize_split_dim(dim, tensor.rank)
+    sections = normalize_split_sections(split_size_or_sections, tensor.shape[normalized_dim])
+    return _slice_sections(tensor, sections, normalized_dim)
+
+
+def _chunk_frontend(x: Any, chunks: Any, dim: Any = 0) -> tuple[Tensor, ...]:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"chunk does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("chunk currently supports only static input shapes")
+    normalized_dim = normalize_split_dim(dim, tensor.rank)
+    normalized_chunks = normalize_chunk_count(chunks)
+    sections = chunk_sections(tensor.shape[normalized_dim], normalized_chunks)
+    return _slice_sections(tensor, sections, normalized_dim)
+
+
+def _slice_sections(tensor: Tensor, sections: Sequence[int], dim: int) -> tuple[Tensor, ...]:
+    outputs = []
+    start = 0
+    for section in sections:
+        starts = [0] * tensor.rank
+        sizes = list(tensor.shape)
+        starts[dim] = start
+        sizes[dim] = section
+        outputs.append(_dynamic_slice_frontend(tensor, starts, sizes))
+        start += section
+    return tuple(outputs)
+
+
 def _transpose_frontend(x: Any, dim0: Any, dim1: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -399,6 +439,8 @@ globals()["randn"] = _randn_frontend
 globals()["expand"] = _expand_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["dynamic_slice"] = _dynamic_slice_frontend
+globals()["split"] = _split_frontend
+globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
@@ -436,8 +478,10 @@ __all__ = list(dict.fromkeys([
     "vector_norm",
     "arange",
     "cast",
+    "chunk",
     "concatenate",
     "dynamic_slice",
     "full",
+    "split",
     "where",
 ]))

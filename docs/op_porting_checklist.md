@@ -133,8 +133,9 @@ epilogues where possible.
   bounded frontend helper that reshapes a static-shape `update` to a positive
   static `slice_shape`, then reuses `slice_scatter`; dynamic shapes and
   view-of-view reshape inputs remain limited by existing shape-view lowering.
-  `where` is partially done for dense bool-condition plus matching float `x`/`y`
-  through fused elementwise CPU/CUDA generation.
+  `where` is available for dense bool-condition plus matching
+  float/reduced-precision `x`/`y` through fused elementwise CPU/CUDA
+  generation; bool output/value `where` remains out of scope.
 - [ ] Collections/broadcasting: no remaining named v1 collection gaps in this
   bounded subset. `expand` is available as a materialized dense broadcast copy
   for static shapes across the generated float/reduced-precision and bool

@@ -3,6 +3,7 @@ import pytest
 
 import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
+from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
@@ -32,6 +33,21 @@ def _trace_where(dtype: str = "float32"):
     )
 
 
+def _storage_roundtrip(value, dtype):
+    if dtype in {"float16", "bfloat16"}:
+        return array_from_storage(array_to_storage(value, dtype), dtype)
+    return np.asarray(value, dtype=np.float32)
+
+
+def _where_inputs(dtype):
+    condition = np.array([[True], [False]], dtype=np.bool_)
+    x = np.array([[1.0, -2.5, 3.25]], dtype=np.float32)
+    y = np.array([[10.0, 20.5, -30.25], [40.75, -50.0, 60.125]], dtype=np.float32)
+    if dtype == "float16":
+        return condition, x.astype(np.float16), y.astype(np.float16)
+    return condition, x, y
+
+
 def test_where_frontend_ir_dtype_shape_and_broadcast():
     spec = _trace_where()
 
@@ -54,8 +70,16 @@ def test_cpu_reference_where_executes_broadcast():
     np.testing.assert_array_equal(actual, np.where(condition, x, y))
 
 
-def test_where_fused_generated_cpu_source_and_runtime(tmp_path):
-    spec = _trace_where()
+@pytest.mark.parametrize(
+    ("dtype", "input_pointer", "output_pointer"),
+    [
+        ("float32", "const float* DINO_RESTRICT ptr_x", "float* DINO_RESTRICT ptr_"),
+        ("float16", "const dinoml::math::float16* DINO_RESTRICT ptr_x", "dinoml::math::float16* DINO_RESTRICT ptr_"),
+        ("bfloat16", "const dinoml::math::bfloat16* DINO_RESTRICT ptr_x", "dinoml::math::bfloat16* DINO_RESTRICT ptr_"),
+    ],
+)
+def test_where_fused_generated_cpu_source_and_runtime(tmp_path, dtype, input_pointer, output_pointer):
+    spec = _trace_where(dtype)
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     fused = next(node for node in lowered["nodes"] if node["op"] == "fused_elementwise")
@@ -64,24 +88,35 @@ def test_where_fused_generated_cpu_source_and_runtime(tmp_path):
     cpu_source = render_generated_kernels("cpu", [fused], tensor_map)[0]
 
     assert "const bool* DINO_RESTRICT ptr_condition" in cpu_source
-    assert "const float* DINO_RESTRICT ptr_x" in cpu_source
-    assert "const float* DINO_RESTRICT ptr_y" in cpu_source
-    assert "float* DINO_RESTRICT ptr_" in cpu_source
+    assert input_pointer in cpu_source
+    assert input_pointer.replace("ptr_x", "ptr_y") in cpu_source
+    assert output_pointer in cpu_source
     assert "dinoml::math::where" in cpu_source
 
-    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "where_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"where_{dtype}_cpu.dinoml")
     session = load(artifact.path).create_session()
-    condition = np.array([[True], [False]], dtype=np.bool_)
-    x = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
-    y = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]], dtype=np.float32)
-    actual = session.run_numpy({"condition": condition, "x": x, "y": y})["out"]
-    session.close()
+    condition, x, y = _where_inputs(dtype)
+    try:
+        actual = session.run_numpy({"condition": condition, "x": x, "y": y})["out"]
+    finally:
+        session.close()
 
-    np.testing.assert_array_equal(actual, np.where(condition, x, y))
+    expected = _storage_roundtrip(
+        np.where(condition, _storage_roundtrip(x, dtype), _storage_roundtrip(y, dtype)),
+        dtype,
+    )
+    np.testing.assert_array_equal(actual, expected)
 
 
-def test_where_generated_cuda_source_uses_mixed_pointer_types():
-    spec = _trace_where("float16")
+@pytest.mark.parametrize(
+    ("dtype", "input_pointer", "output_pointer"),
+    [
+        ("float16", "const half* DINO_RESTRICT ptr_x", "half* DINO_RESTRICT ptr_"),
+        ("bfloat16", "const __nv_bfloat16* DINO_RESTRICT ptr_x", "__nv_bfloat16* DINO_RESTRICT ptr_"),
+    ],
+)
+def test_where_generated_cuda_source_uses_mixed_pointer_types(dtype, input_pointer, output_pointer):
+    spec = _trace_where(dtype)
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     fused = next(node for node in lowered["nodes"] if node["op"] == "fused_elementwise")
@@ -90,9 +125,9 @@ def test_where_generated_cuda_source_uses_mixed_pointer_types():
     cuda_source = render_generated_kernels("cuda", [fused], tensor_map)[0]
 
     assert "const bool* DINO_RESTRICT ptr_condition" in cuda_source
-    assert "const half* DINO_RESTRICT ptr_x" in cuda_source
-    assert "const half* DINO_RESTRICT ptr_y" in cuda_source
-    assert "half* DINO_RESTRICT ptr_" in cuda_source
+    assert input_pointer in cuda_source
+    assert input_pointer.replace("ptr_x", "ptr_y") in cuda_source
+    assert output_pointer in cuda_source
     assert "dinoml::math::where" in cuda_source
 
 

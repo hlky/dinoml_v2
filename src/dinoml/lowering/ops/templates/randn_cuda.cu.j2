@@ -1,0 +1,43 @@
+__device__ unsigned long long {{ func }}_splitmix64(unsigned long long value) {
+  value += 0x9E3779B97F4A7C15ull;
+  value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
+  value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
+  return value ^ (value >> 31);
+}
+
+__device__ float {{ func }}_uniform24(unsigned long long value) {
+  const unsigned int bits = static_cast<unsigned int>(({{ func }}_splitmix64(value) >> 8) & 0xFFFFFFull);
+  return (static_cast<float>(bits) + 0.5f) * 0.000000059604644775390625f;
+}
+
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const unsigned long long seed = {{ seed_literal }};
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+    const unsigned long long counter = seed + static_cast<unsigned long long>(idx);
+    const float u1 = {{ func }}_uniform24(counter);
+    const float u2 = {{ func }}_uniform24(counter + 0x9E3779B97F4A7C15ull);
+    const float radius = sqrtf(-2.0f * logf(u1));
+    const float theta = 6.2831853071795864769f * u2;
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(radius * cosf(theta));
+  }
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    cudaStream_t stream) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(y, runtime_numel);
+    DINO_CUDA_CHECK(cudaGetLastError());
+  }
+  return 0;
+}

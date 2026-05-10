@@ -89,15 +89,18 @@ epilogues where possible.
   tensors with explicit runtime storage.
 - [ ] Layout: `permute`, `transpose`, `permute021`, `permute0213`,
   `permute102`, `permute210`, `pixel_shuffle`, `pixel_unshuffle`.
-- [ ] Creation/shape values: `randn`, `meshgrid`. `full` is now available for
-  non-empty positive static dense shapes with `float32`, `float16`, `bfloat16`,
-  and `bool` storage, using CPU reference execution plus generated CPU/CUDA fill
-  kernels. `arange` is available for non-empty static ranges with positive and
-  negative steps across `float32`, `float16`, and `bfloat16` storage, using CPU
-  reference execution plus generated CPU/CUDA kernels. Dynamic shapes, zero-sized
-  creation outputs, and integer arange dtypes remain out of scope for this
-  bounded port. `cast` is available for dense tensor casts across the current
-  generated float/reduced-precision/bool storage surface.
+- [ ] Creation/shape values: `meshgrid`. `full` is now available for non-empty
+  positive static dense shapes with `float32`, `float16`, `bfloat16`, and `bool`
+  storage, using CPU reference execution plus generated CPU/CUDA fill kernels.
+  `arange` is available for non-empty static ranges with positive and negative
+  steps across `float32`, `float16`, and `bfloat16` storage, using CPU reference
+  execution plus generated CPU/CUDA kernels. `randn` is available for non-empty
+  positive static dense shapes across `float32`, `float16`, and `bfloat16`
+  storage, using an explicit integer `seed` attr and stateless generated
+  CPU/CUDA kernels. Dynamic shapes, zero-sized creation outputs, and integer
+  arange/randn dtypes remain out of scope for this bounded port. `cast` is
+  available for dense tensor casts across the current generated
+  float/reduced-precision/bool storage surface.
 - [ ] Selection/scatter: `dynamic_slice`, `slice_scatter`,
   `slice_reshape_scatter`, `gather`, `batch_gather`, `index_select`,
   `masked_select`, `topk`, `argmax`. `where` is partially done for dense

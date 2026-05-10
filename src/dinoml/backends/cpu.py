@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import subprocess
@@ -69,6 +70,15 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
             idx = np.arange(output_shape[0], dtype=np.float32)
             values[output_name] = _store_reference(
                 float(attrs["start"]) + idx * float(attrs.get("step", 1.0)),
+                output_dtype,
+            )
+        elif node["op"] == "randn":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            output_shape = _tensor_shape(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_randn(output_shape, int(attrs.get("seed", 0))),
                 output_dtype,
             )
         elif node["op"] in GEMM_OPS:
@@ -201,6 +211,26 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
     else:
         raise ValueError(f"Unsupported elementwise op: {op}")
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_randn(shape: Sequence[int], seed: int) -> np.ndarray:
+    numel = math.prod(int(dim) for dim in shape)
+    idx = np.arange(numel, dtype=np.uint64)
+    seed_value = np.uint64(seed)
+    u1_bits = _splitmix64(idx + seed_value)
+    u2_bits = _splitmix64(idx + seed_value + np.uint64(0x9E3779B97F4A7C15))
+    u1 = (((u1_bits >> np.uint64(8)) & np.uint64(0xFFFFFF)).astype(np.float32) + np.float32(0.5)) * np.float32(1.0 / 16777216.0)
+    u2 = (((u2_bits >> np.uint64(8)) & np.uint64(0xFFFFFF)).astype(np.float32) + np.float32(0.5)) * np.float32(1.0 / 16777216.0)
+    radius = np.sqrt(np.float32(-2.0) * np.log(u1, dtype=np.float32), dtype=np.float32)
+    theta = np.float32(6.2831853071795864769) * u2
+    return (radius * np.cos(theta, dtype=np.float32)).astype(np.float32, copy=False).reshape(shape)
+
+
+def _splitmix64(value: np.ndarray) -> np.ndarray:
+    value = value + np.uint64(0x9E3779B97F4A7C15)
+    value = (value ^ (value >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+    value = (value ^ (value >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+    return value ^ (value >> np.uint64(31))
 
 
 def _execute_softmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

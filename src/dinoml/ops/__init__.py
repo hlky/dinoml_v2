@@ -7,7 +7,7 @@ from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
-from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES
+from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
@@ -131,6 +131,30 @@ def _arange_frontend(start: Any, end: Any | None = None, step: Any = 1, dtype: s
     )
 
 
+def _randn_frontend(shape: Any, dtype: str = "float32", seed: int = 0) -> Tensor:
+    dtype = normalize_dtype(dtype)
+    if dtype not in RANDN_DTYPES:
+        raise ValueError(f"randn does not support dtype {dtype}")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        raise ValueError("randn requires integer seed")
+    if seed < 0 or seed > 0xFFFFFFFFFFFFFFFF:
+        raise ValueError("randn seed must fit in uint64")
+    shape_obj = Shape(shape)
+    if len(shape_obj) == 0:
+        raise ValueError("randn shape must not be empty")
+    if shape_obj.dynamic:
+        raise ValueError("randn currently supports only static shapes")
+    attrs = {"shape": shape_obj.max_shape, "dtype": dtype, "seed": int(seed)}
+    return GraphBuilder.current().emit(
+        "randn",
+        [],
+        shape_obj.max_shape,
+        dtype,
+        attrs,
+        shape_spec=shape_obj.to_json(),
+    )
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -197,6 +221,7 @@ globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
+globals()["randn"] = _randn_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -215,6 +240,7 @@ __all__ = list(dict.fromkeys([
     "reduce_mean",
     "reduce_min",
     "reduce_sum",
+    "randn",
     "softmax",
     "squeeze",
     "unsqueeze",

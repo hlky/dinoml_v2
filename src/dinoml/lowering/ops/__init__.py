@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
 from dinoml.lowering.ops.arange import ARANGE_LOWERING
+from dinoml.lowering.ops.avg_pool2d import AVG_POOL2D_LOWERING
 from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.concatenate import CONCATENATE_LOWERING
 from dinoml.lowering.ops.base import OpLowering
@@ -29,6 +30,7 @@ from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 OP_LOWERINGS: dict[str, OpLowering] = {
     ARANGE_LOWERING.op_name: ARANGE_LOWERING,
+    AVG_POOL2D_LOWERING.op_name: AVG_POOL2D_LOWERING,
     CONCATENATE_LOWERING.op_name: CONCATENATE_LOWERING,
     DYNAMIC_SLICE_LOWERING.op_name: DYNAMIC_SLICE_LOWERING,
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,

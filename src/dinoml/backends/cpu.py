@@ -185,6 +185,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] == "avg_pool2d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_avg_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -472,6 +479,37 @@ def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
     if activation == "elup1":
         return np.where(value >= 0.0, value + 1.0, np.exp(value))
     raise ValueError(f"Unsupported GEMM activation: {activation}")
+
+
+def _execute_avg_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    kernel_h, kernel_w = [int(item) for item in attrs["kernel_size"]]
+    stride_values = attrs.get("stride", attrs["kernel_size"])
+    stride_h, stride_w = [int(item) for item in stride_values]
+    pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0))]
+    batch, channels, height, width = value.shape
+    out_height = (height + 2 * pad_h - kernel_h) // stride_h + 1
+    out_width = (width + 2 * pad_w - kernel_w) // stride_w + 1
+    result = np.empty((batch, channels, out_height, out_width), dtype=np.float32)
+    divisor = float(kernel_h * kernel_w)
+    source = np.asarray(value, dtype=np.float32)
+    for n in range(batch):
+        for c in range(channels):
+            for oh in range(out_height):
+                h_start = oh * stride_h - pad_h
+                for ow in range(out_width):
+                    w_start = ow * stride_w - pad_w
+                    total = 0.0
+                    for kh in range(kernel_h):
+                        ih = h_start + kh
+                        if ih < 0 or ih >= height:
+                            continue
+                        for kw in range(kernel_w):
+                            iw = w_start + kw
+                            if iw < 0 or iw >= width:
+                                continue
+                            total += float(source[n, c, ih, iw])
+                    result[n, c, oh, ow] = total / divisor
+    return result
 
 
 def _reference_array(value: object, dtype: str) -> np.ndarray:

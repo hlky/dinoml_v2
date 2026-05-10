@@ -425,8 +425,15 @@ behavior.
 
 - [ ] Convolution: `conv2d`, `conv3d`, `conv3d_bias`, `depthwise_conv3d`,
   `depthwise_conv3d_bias`, `transposed_conv2d`.
-- [ ] Pooling: `avg_pool1d`, `avg_pool1d_compress_time`, `avg_pool2d`,
-  `max_pool2d`.
+- [ ] Pooling: `avg_pool1d`, `avg_pool1d_compress_time`, `max_pool2d`.
+- [x] `avg_pool2d`: bounded public `dml.ops.avg_pool2d(x, kernel_size,
+  stride=None, padding=0)` for rank-4 NCHW static-shape `float32`,
+  `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA
+  kernels use fp32 accumulation and store back to the input dtype. Semantics are
+  fixed to PyTorch floor output shape with zero padding included in the
+  `kernel_h * kernel_w` divisor; `ceil_mode`, `count_include_pad=False`,
+  `divisor_override`, dynamic shapes, bool/integer tensors, and `max_pool2d`
+  remain out of scope.
 - [x] `pad`, `pad_last_dim`: initial bounded static constant-padding port for
   ranked static tensors. `pad` uses PyTorch/F.pad trailing-pair order and accepts
   non-empty even-length non-negative non-bool integer pad widths, with output

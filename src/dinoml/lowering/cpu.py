@@ -114,7 +114,7 @@ def _temporary_context(item: Mapping[str, Any], tensor_map: Mapping[str, Mapping
         "ident": _c_ident(item["tensor"]),
         "nbytes": nbytes,
         "numel": nbytes // dtype_nbytes(dtype),
-        "storage_type": cpu_storage_type(dtype),
+        "storage_type": _temporary_storage_type(dtype),
     }
 
 
@@ -157,7 +157,10 @@ def _pointer_decls(
         yield f"session->shape_{ident} = std::vector<int64_t>{{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"{cpp_type}* ptr_{ident} = session->tmp_{ident}.data();"
+        if str(tensor_map[tensor_name]["dtype"]) == "bool":
+            yield f"{cpp_type}* ptr_{ident} = reinterpret_cast<{cpp_type}*>(session->tmp_{ident}.data());"
+        else:
+            yield f"{cpp_type}* ptr_{ident} = session->tmp_{ident}.data();"
     for tensor_name, idx in output_map.items():
         if tensor_name in view_by_tensor:
             continue
@@ -239,6 +242,12 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
             f"std::memcpy(dinoml::module::tensor_data(outputs[{int(output_idx)}]), ptr_{view['ident']}, {view['nbytes_expr']});"
         )
     return materializations
+
+
+def _temporary_storage_type(dtype: str) -> str:
+    if dtype == "bool":
+        return "uint8_t"
+    return cpu_storage_type(dtype)
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

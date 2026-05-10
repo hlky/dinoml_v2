@@ -91,10 +91,15 @@ epilogues where possible.
 - [ ] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct`. These should remain frontend/IR helpers unless they produce
   tensors with explicit runtime storage.
-- [ ] Layout: `pixel_shuffle`, `pixel_unshuffle`. General `permute` and frontend
-  `transpose` are available for one static-shape tensor, full normalized
-  permutations without duplicates, and the generated float/reduced-precision/bool
-  storage surface.
+- [x] Layout: `pixel_shuffle`, `pixel_unshuffle` are available as bounded
+  frontend helpers for rank-4 static-shape tensors with positive integer
+  factors and required channel/spatial divisibility. They compose reshape view
+  metadata with the existing generated `permute` materialized copy, so they
+  share the generated float/reduced-precision/bool storage surface and do not
+  add separate kernels. General `permute` and frontend `transpose` are available
+  for one static-shape tensor, full normalized permutations without duplicates,
+  and that same generated storage surface. Dynamic shapes and non-rank-4 pixel
+  shuffle variants remain out of scope.
 - [ ] Creation/shape values: `meshgrid` is available as a bounded frontend helper
   for a non-empty list/tuple of rank-1 static tensors with matching
   `float32`/`float16`/`bfloat16`/`bool` dtype and `indexing="ij"` only; it

@@ -34,6 +34,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
         values[constant_info["tensor"]] = _reference_array(spec.constants[name], str(constant_info["dtype"]))
 
     for node in ir["nodes"]:
+        _materialize_available_views(ir, values)
         if node["op"] in FUSABLE_ELEMENTWISE_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -170,7 +171,23 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
         else:
             raise ValueError(f"Unsupported op: {node['op']}")
 
+    _materialize_available_views(ir, values)
     return {output["name"]: values[output["tensor"]] for output in ir["outputs"]}
+
+
+def _materialize_available_views(ir: Mapping[str, object], values: Dict[str, np.ndarray]) -> None:
+    views = ir.get("metadata", {}).get("views", {}).get("views", [])
+    while True:
+        progressed = False
+        for view in views:
+            tensor = str(view["tensor"])
+            source = str(view["source"])
+            if tensor in values or source not in values:
+                continue
+            values[tensor] = np.reshape(values[source], tuple(int(dim) for dim in view["shape"])).copy()
+            progressed = True
+        if not progressed:
+            return
 
 
 def _execute_fused_elementwise(node: Mapping[str, object], values: Dict[str, np.ndarray], ir: Mapping[str, object]) -> None:

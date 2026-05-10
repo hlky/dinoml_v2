@@ -349,6 +349,52 @@ def _permute210_frontend(x: Any) -> Tensor:
     return _permute_frontend(x, (2, 1, 0))
 
 
+def _pixel_shuffle_frontend(x: Any, upscale_factor: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.rank != 4:
+        raise ValueError(f"pixel_shuffle expects rank-4 input [N, C, H, W], got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("pixel_shuffle currently supports only static input shapes")
+    factor = _normalize_pixel_factor(upscale_factor, "pixel_shuffle upscale_factor")
+    batch, channels_in, height, width = tensor.shape
+    channel_factor = factor * factor
+    if channels_in % channel_factor != 0:
+        raise ValueError(
+            f"pixel_shuffle input channels {channels_in} must be divisible by upscale_factor^2 ({channel_factor})"
+        )
+    channels_out = channels_in // channel_factor
+    reshaped = reshape(tensor, [batch, channels_out, factor, factor, height, width])
+    shuffled = _permute_frontend(reshaped, (0, 1, 4, 2, 5, 3))
+    return reshape(shuffled, [batch, channels_out, height * factor, width * factor])
+
+
+def _pixel_unshuffle_frontend(x: Any, downscale_factor: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.rank != 4:
+        raise ValueError(f"pixel_unshuffle expects rank-4 input [N, C, H, W], got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("pixel_unshuffle currently supports only static input shapes")
+    factor = _normalize_pixel_factor(downscale_factor, "pixel_unshuffle downscale_factor")
+    batch, channels, height_in, width_in = tensor.shape
+    if height_in % factor != 0:
+        raise ValueError(f"pixel_unshuffle input height {height_in} must be divisible by downscale_factor {factor}")
+    if width_in % factor != 0:
+        raise ValueError(f"pixel_unshuffle input width {width_in} must be divisible by downscale_factor {factor}")
+    height_out = height_in // factor
+    width_out = width_in // factor
+    reshaped = reshape(tensor, [batch, channels, height_out, factor, width_out, factor])
+    unshuffled = _permute_frontend(reshaped, (0, 1, 3, 5, 2, 4))
+    return reshape(unshuffled, [batch, channels * factor * factor, height_out, width_out])
+
+
+def _normalize_pixel_factor(factor: Any, name: str) -> int:
+    if not isinstance(factor, int) or isinstance(factor, bool):
+        raise ValueError(f"{name} must be a positive integer")
+    if factor <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(factor)
+
+
 def _dynamic_slice_frontend(x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -551,6 +597,8 @@ globals()["permute021"] = _permute021_frontend
 globals()["permute0213"] = _permute0213_frontend
 globals()["permute102"] = _permute102_frontend
 globals()["permute210"] = _permute210_frontend
+globals()["pixel_shuffle"] = _pixel_shuffle_frontend
+globals()["pixel_unshuffle"] = _pixel_unshuffle_frontend
 globals()["repeat_interleave"] = _repeat_interleave_frontend
 globals()["transpose"] = _transpose_frontend
 globals().update(GEMM_FRONTEND_OPS)
@@ -574,6 +622,8 @@ __all__ = list(dict.fromkeys([
     "permute0213",
     "permute102",
     "permute210",
+    "pixel_shuffle",
+    "pixel_unshuffle",
     "reshape",
     "reduce_max",
     "reduce_mean",

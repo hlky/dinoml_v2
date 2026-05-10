@@ -106,7 +106,7 @@ epilogues where possible.
   `masked_select`, `topk`, `argmax`. `where` is partially done for dense
   bool-condition plus matching float `x`/`y` through fused elementwise CPU/CUDA
   generation.
-- [ ] Collections/broadcasting: `chunk`, `split`, `repeat_interleave`.
+- [ ] Collections/broadcasting: `chunk`, `split`.
   `expand` is available as a materialized dense
   broadcast copy for static shapes across the generated float/reduced-precision
   and bool storage surface. `concatenate` is available as a bounded materialized
@@ -117,7 +117,11 @@ epilogues where possible.
   with exactly matching shapes, normalized insertion `dim`, and that same
   generated storage surface. `flip` is available as a bounded materialized dense
   copy for one static-shape tensor, non-empty normalized `dims` without
-  duplicates, and the same generated storage surface.
+  duplicates, and the same generated storage surface. `repeat_interleave` is
+  available as a bounded materialized dense copy for one static-shape tensor
+  with positive integer scalar `repeats`, required normalized `dim`, and the
+  same generated storage surface; per-element repeat tensors remain out of
+  scope.
 - [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
 - [ ] Tensor helpers that should not become separate kernel families unless
   profiling proves it: `concatenate_tanh`, `concatenate_fast`,

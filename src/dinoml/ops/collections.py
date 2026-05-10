@@ -20,6 +20,10 @@ def infer_flip_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     return infer_flip_shape_with_attrs(input_shapes, {"dims": (0,)})
 
 
+def infer_repeat_interleave_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_repeat_interleave_shape_with_attrs(input_shapes, {"repeats": 1, "dim": 0})
+
+
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -38,6 +42,14 @@ def infer_flip_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Ma
     if len(input_shapes) != 1:
         raise ValueError("flip expects one tensor input")
     return resolve_flip_shape(input_shapes[0], attrs.get("dims"))
+
+
+def infer_repeat_interleave_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("repeat_interleave expects one tensor input")
+    dim = normalize_repeat_interleave_dim(attrs.get("dim"), len(input_shapes[0]))
+    repeats = normalize_repeat_interleave_repeats(attrs.get("repeats"))
+    return resolve_repeat_interleave_shape(input_shapes[0], repeats, dim)
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -94,6 +106,28 @@ def normalize_flip_dims(dims: Any, rank: int) -> list[int]:
     return normalized_dims
 
 
+def normalize_repeat_interleave_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"repeat_interleave dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("repeat_interleave input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"repeat_interleave dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_repeat_interleave_repeats(repeats: Any) -> int:
+    if not isinstance(repeats, int) or isinstance(repeats, bool):
+        raise ValueError(f"repeat_interleave repeats must be a positive integer scalar, got {repeats!r}")
+    normalized = int(repeats)
+    if normalized <= 0:
+        raise ValueError(f"repeat_interleave repeats must be positive, got {repeats!r}")
+    return normalized
+
+
 def resolve_concatenate_shape(input_shapes: Sequence[Sequence[int]], dim: int) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -135,6 +169,14 @@ def resolve_stack_shape(input_shapes: Sequence[Sequence[int]], dim: int) -> list
 def resolve_flip_shape(input_shape: Sequence[int], dims: Any) -> list[int]:
     output_shape = [int(axis) for axis in input_shape]
     normalize_flip_dims(dims, len(output_shape))
+    return output_shape
+
+
+def resolve_repeat_interleave_shape(input_shape: Sequence[int], repeats: Any, dim: Any) -> list[int]:
+    output_shape = [int(axis) for axis in input_shape]
+    dim = normalize_repeat_interleave_dim(dim, len(output_shape))
+    repeats = normalize_repeat_interleave_repeats(repeats)
+    output_shape[dim] *= repeats
     return output_shape
 
 
@@ -195,6 +237,24 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense copy that reverses one or more static dimensions.",
         )
     )
+    registry.register(
+        OpDef(
+            name="repeat_interleave",
+            schema=OpSchema(
+                inputs=("x",),
+                attrs=(AttrDef("repeats", "int", required=True), AttrDef("dim", "int", required=True)),
+            ),
+            infer_shape=infer_repeat_interleave_shape,
+            infer_shape_with_attrs=infer_repeat_interleave_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("repeat_interleave"),
+            description="Materialize a dense bounded repeat-interleave copy along a static dimension.",
+        )
+    )
 
 
 __all__ = [
@@ -203,13 +263,18 @@ __all__ = [
     "infer_concatenate_shape_with_attrs",
     "infer_flip_shape",
     "infer_flip_shape_with_attrs",
+    "infer_repeat_interleave_shape",
+    "infer_repeat_interleave_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
     "normalize_concatenate_dim",
     "normalize_flip_dims",
+    "normalize_repeat_interleave_dim",
+    "normalize_repeat_interleave_repeats",
     "normalize_stack_dim",
     "register_collection_ops",
     "resolve_concatenate_shape",
     "resolve_flip_shape",
+    "resolve_repeat_interleave_shape",
     "resolve_stack_shape",
 ]

@@ -9,9 +9,12 @@ from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
     infer_concatenate_shape_with_attrs,
+    infer_repeat_interleave_shape_with_attrs,
     infer_stack_shape_with_attrs,
     normalize_concatenate_dim,
     normalize_flip_dims,
+    normalize_repeat_interleave_dim,
+    normalize_repeat_interleave_repeats,
     normalize_stack_dim,
 )
 from dinoml.shapes import Shape
@@ -248,6 +251,28 @@ def _flip_frontend(x: Any, dims: Any) -> Tensor:
     )
 
 
+def _repeat_interleave_frontend(x: Any, repeats: Any, dim: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"repeat_interleave does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("repeat_interleave currently supports only static input shapes")
+    normalized_dim = normalize_repeat_interleave_dim(dim, tensor.rank)
+    normalized_repeats = normalize_repeat_interleave_repeats(repeats)
+    out_shape = infer_repeat_interleave_shape_with_attrs(
+        [tensor.shape],
+        {"repeats": normalized_repeats, "dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "repeat_interleave",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"repeats": normalized_repeats, "dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -319,6 +344,7 @@ globals()["expand"] = _expand_frontend
 globals()["concatenate"] = _concatenate_frontend
 globals()["stack"] = _stack_frontend
 globals()["flip"] = _flip_frontend
+globals()["repeat_interleave"] = _repeat_interleave_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -340,6 +366,7 @@ __all__ = list(dict.fromkeys([
     "reduce_min",
     "reduce_sum",
     "randn",
+    "repeat_interleave",
     "softmax",
     "stack",
     "squeeze",

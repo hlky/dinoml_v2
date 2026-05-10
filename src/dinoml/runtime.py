@@ -483,7 +483,7 @@ class Session:
                 f"Output shape {actual_shape} has more elements than allocated output buffer "
                 f"{tuple(output.shape)}"
             )
-        if actual_numel == output.numel():
+        if actual_numel == output.numel() and tuple(actual_shape) == tuple(output.shape):
             return output
         return output.reshape(-1)[:actual_numel].reshape(actual_shape)
 

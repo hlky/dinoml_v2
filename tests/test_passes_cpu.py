@@ -1944,6 +1944,33 @@ def test_reduction_manifest_and_keepdim_shape_inference():
     assert "acc / 4.00000000f" in sources["kernels"][0]
 
 
+@pytest.mark.parametrize("op_name", ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"))
+def test_reduction_registry_shape_inference_respects_keepdim(op_name):
+    op_def = get_op_def(op_name)
+
+    assert op_def.infer_shape_for([[4, 8, 16]], {"keepdim": True}) == [4, 8, 1]
+    assert op_def.infer_shape_for([[4, 8, 16]], {"keepdim": False}) == [4, 8]
+    assert op_def.infer_shape_for([[4, 8, 16]], {}) == [4, 8]
+
+
+@pytest.mark.parametrize("op_name", ("reduce_mean", "var", "vector_norm"))
+def test_validate_ir_accepts_keepdim_reduction_shape(op_name):
+    import dinoml as dml
+
+    class ReduceModel(dml.Module):
+        def forward(self, x):
+            op = getattr(dml.ops, op_name)
+            return dml.ops.output(op(x, keepdim=True), "y")
+
+    spec = dml.trace(
+        ReduceModel(),
+        inputs={"x": dml.TensorSpec([4, 8, 16], "float32")},
+        name=f"{op_name}_keepdim_validation",
+    )
+
+    validate_ir(spec.ir)
+
+
 @pytest.mark.parametrize(
     ("op_name", "source_snippet"),
     [

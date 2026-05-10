@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.ops.registry import AttrDef, KernelBinding, OpDef, OpRegistry, OpSchema
@@ -27,6 +27,12 @@ def infer_reduction_with_attrs(shape: Sequence[int], keepdim: bool) -> list[int]
     return list(shape[:-1]) or [1]
 
 
+def infer_reduction_for_attrs(shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(shapes) != 1:
+        raise ValueError("reduction expects exactly one input")
+    return infer_reduction_with_attrs(shapes[0], bool(attrs.get("keepdim", False)))
+
+
 def register_reduction_ops(registry: OpRegistry) -> None:
     for op_name in REDUCTION_OPS:
         attrs = [AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)]
@@ -39,6 +45,7 @@ def register_reduction_ops(registry: OpRegistry) -> None:
                 name=op_name,
                 schema=OpSchema(inputs=("x",), attrs=tuple(attrs)),
                 infer_shape=infer_reduction,
+                infer_shape_with_attrs=infer_reduction_for_attrs,
                 backend_kernels={
                     "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
                     "cpu": KernelBinding("generated_reduction", "model", source_template="reduction_cpu"),

@@ -383,6 +383,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   existing dense `set_constant_numpy` path. This is the initial
   dequant-then-kernel hook before CUDA/offload-specific materialization, with
   optional real-libgguf fixture coverage for quantized row materialization.
+- [x] Encoded constant runtime load planning:
+  `RuntimeModule.encoded_constant_load_plan()` reports encoded constant names,
+  logical dtype/shape/size, storage provenance, policy support status, and
+  whether the current runtime can load each constant now.
+  `RuntimeModule.load_encoded_constants(names=...)` can selectively rehydrate
+  supported encoded constants and rejects declared future policies before trying
+  to materialize storage.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`
@@ -392,7 +399,8 @@ normalization or softmax patterns, otherwise use custom block reductions.
   bytes, fully dequantize into a dense weight buffer before GEMM, and leave
   fused quantized-RHS CUTLASS candidate families for a later step. The current
   foundation includes artifact-level eager/deferred constant-load policy plus
-  runtime reload/unload primitives; remaining work is policy execution for
+  runtime reload/unload primitives, encoded-constant load planning, and
+  selective dense-path rehydration; remaining work is policy execution for
   selective GPU residency, prefetch, eviction, and CUDA/GGUF dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,

@@ -555,6 +555,213 @@ def test_compile_writes_encoded_constants_manifest(tmp_path):
     assert encoded_constants["constants"][0]["policy"]["residency_status"] == "runtime_supported"
 
 
+def test_runtime_encoded_constant_load_plan_reads_encoded_constants_manifest(tmp_path):
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [3, 2],
+                    "logical_nbytes": 24,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "blk.0.ffn.weight",
+                        "logical_dtype": "float32",
+                        "shape": [3, 2],
+                        "qtype": "F32",
+                        "encoded_nbytes": 24,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "eager_dense_device",
+                    },
+                    "policy": {
+                        "materialization": "dequantize_full_before_launch",
+                        "materialization_status": "runtime_supported",
+                        "residency": "eager_dense_device",
+                        "residency_status": "runtime_supported",
+                    },
+                }
+            ],
+        },
+    )
+
+    plan = module.encoded_constant_load_plan()
+
+    assert plan == [
+        {
+            "name": "weight",
+            "dtype": "float32",
+            "shape": [3, 2],
+            "logical_nbytes": 24,
+            "storage_kind": "gguf",
+            "storage_path": "weights.gguf",
+            "storage_tensor": "blk.0.ffn.weight",
+            "storage": {
+                "kind": "gguf",
+                "path": "weights.gguf",
+                "tensor": "blk.0.ffn.weight",
+                "logical_dtype": "float32",
+                "shape": [3, 2],
+                "qtype": "F32",
+                "encoded_nbytes": 24,
+                "materialization": "dequantize_full_before_launch",
+                "residency": "eager_dense_device",
+            },
+            "policy": {
+                "materialization": "dequantize_full_before_launch",
+                "materialization_status": "runtime_supported",
+                "residency": "eager_dense_device",
+                "residency_status": "runtime_supported",
+            },
+            "runtime_supported": True,
+            "loadable_now": True,
+        }
+    ]
+
+
+def test_runtime_encoded_constant_load_plan_falls_back_to_metadata_constants(tmp_path):
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {}}
+    module.metadata = {
+        "constants": [
+            {
+                "name": "weight",
+                "dtype": "float32",
+                "shape": [2, 2],
+                "nbytes": 16,
+                "storage": {
+                    "kind": "gguf",
+                    "path": "weights.gguf",
+                    "tensor": "blk.0.ffn.weight",
+                    "logical_dtype": "float32",
+                    "shape": [2, 2],
+                },
+            }
+        ]
+    }
+
+    plan = module.encoded_constant_load_plan()
+
+    assert plan[0]["name"] == "weight"
+    assert plan[0]["logical_nbytes"] == 16
+    assert plan[0]["storage_path"] == "weights.gguf"
+    assert plan[0]["storage_tensor"] == "blk.0.ffn.weight"
+    assert plan[0]["policy"] == {
+        "materialization": "dequantize_full_before_launch",
+        "materialization_status": "runtime_supported",
+        "residency": "eager_dense_device",
+        "residency_status": "runtime_supported",
+    }
+    assert plan[0]["loadable_now"] is True
+
+
+def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkeypatch, tmp_path):
+    values = {
+        "weight": np.array([1.0, 2.0], dtype=np.float32),
+        "bias": np.array([3.0, 4.0], dtype=np.float32),
+    }
+
+    def get_tensor(name):
+        return SimpleNamespace(name=name, qtype="F32", qtype_value=0, shape=(2,), data_offset=128)
+
+    fake_file = SimpleNamespace(
+        get_tensor=get_tensor,
+        read_tensor_bytes=lambda tensor: values[tensor.name].tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": name,
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": value.nbytes,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": name,
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": value.nbytes,
+                    },
+                }
+                for name, value in values.items()
+            ],
+        },
+    )
+    captured = {}
+    module.set_constant_numpy = lambda name, value: captured.setdefault(name, np.array(value, copy=True))
+
+    module.load_encoded_constants(names=["bias"])
+
+    assert list(captured) == ["bias"]
+    np.testing.assert_array_equal(captured["bias"], values["bias"])
+    with pytest.raises(ValueError, match="Unknown encoded constant"):
+        module.encoded_constant_load_plan(names=["missing"])
+    with pytest.raises(ValueError, match="Unknown encoded constant"):
+        module.load_encoded_constants(names=["missing"])
+
+
+def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize(monkeypatch, tmp_path):
+    def fail_open_gguf(path):
+        raise AssertionError("future policy should fail before opening GGUF storage")
+
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=fail_open_gguf))
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "weight",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "materialization": "dequantize_on_gpu_before_launch",
+                        "residency": "eager_dense_device",
+                    },
+                }
+            ],
+        },
+    )
+
+    plan = module.encoded_constant_load_plan()
+    assert plan[0]["policy"]["materialization_status"] == "future"
+    assert plan[0]["loadable_now"] is False
+    with pytest.raises(NotImplementedError, match="Encoded constant policy is not runtime-supported"):
+        module.load_encoded_constants()
+
+
 def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, tmp_path):
     values = np.arange(6, dtype=np.float32).reshape(3, 2)
     tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)

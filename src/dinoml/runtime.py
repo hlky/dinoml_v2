@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Dict, Mapping
 
@@ -17,7 +18,7 @@ from dinoml.ir import (
     normalize_dtype,
     read_json,
 )
-from dinoml.constant_sources import constant_source_from_storage
+from dinoml.constant_sources import constant_source_from_storage, gguf_constant_policy_status
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
@@ -128,8 +129,39 @@ class RuntimeModule:
             raise ValueError(f"Unknown constant: {name}")
         return self._constant_loaded[name]
 
-    def load_encoded_constants(self) -> None:
+    def encoded_constant_load_plan(
+        self,
+        names: Sequence[str] | str | None = None,
+    ) -> list[dict[str, object]]:
+        specs = self._encoded_constant_specs()
+        selected_names = _normalize_constant_names(names)
+        if selected_names is not None:
+            available = {str(constant_spec["name"]) for constant_spec in specs}
+            unknown = sorted(selected_names - available)
+            if unknown:
+                raise ValueError(f"Unknown encoded constant(s): {', '.join(unknown)}")
+            specs = [constant_spec for constant_spec in specs if str(constant_spec["name"]) in selected_names]
+        return [self._encoded_constant_plan_entry(constant_spec) for constant_spec in specs]
+
+    def load_encoded_constants(
+        self,
+        names: Sequence[str] | str | None = None,
+    ) -> None:
+        plan = self.encoded_constant_load_plan(names)
+        unsupported = [entry for entry in plan if not bool(entry["loadable_now"])]
+        if unsupported:
+            details = ", ".join(
+                f"{entry['name']} "
+                f"(materialization={entry['policy']['materialization']}:{entry['policy']['materialization_status']}, "
+                f"residency={entry['policy']['residency']}:{entry['policy']['residency_status']})"
+                for entry in unsupported
+            )
+            raise NotImplementedError(f"Encoded constant policy is not runtime-supported: {details}")
+
+        plan_names = {str(entry["name"]) for entry in plan}
         for constant_spec in self._encoded_constant_specs():
+            if str(constant_spec["name"]) not in plan_names:
+                continue
             storage = constant_spec.get("storage")
             if not isinstance(storage, Mapping):
                 continue
@@ -138,6 +170,54 @@ class RuntimeModule:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
             self.set_constant_numpy(str(constant_spec["name"]), materialized.array)
+
+    def _encoded_constant_plan_entry(self, constant_spec: Mapping[str, object]) -> dict[str, object]:
+        storage = constant_spec.get("storage")
+        storage_kind = storage.get("kind") if isinstance(storage, Mapping) else None
+        storage_path = storage.get("path") if isinstance(storage, Mapping) else None
+        storage_tensor = storage.get("tensor") if isinstance(storage, Mapping) else None
+        dtype = str(constant_spec["dtype"])
+        shape = list(constant_spec.get("shape", []))
+        logical_nbytes = int(constant_spec.get("logical_nbytes", constant_spec.get("nbytes", 0)) or 0)
+        if logical_nbytes == 0:
+            logical_nbytes = _shape_nbytes(shape, dtype)
+
+        default_materialization = (
+            str(storage.get("materialization", "dequantize_full_before_launch")) if isinstance(storage, Mapping) else ""
+        )
+        default_residency = str(storage.get("residency", "eager_dense_device")) if isinstance(storage, Mapping) else ""
+        policy_spec = constant_spec.get("policy")
+        if isinstance(policy_spec, Mapping):
+            materialization = str(policy_spec.get("materialization", default_materialization))
+            residency = str(policy_spec.get("residency", default_residency))
+        else:
+            materialization = default_materialization
+            residency = default_residency
+        policy_status = gguf_constant_policy_status(materialization, residency)
+        loadable_now = (
+            storage_kind == "gguf"
+            and policy_status["materialization"] == "runtime_supported"
+            and policy_status["residency"] == "runtime_supported"
+        )
+
+        return {
+            "name": str(constant_spec["name"]),
+            "dtype": dtype,
+            "shape": shape,
+            "logical_nbytes": logical_nbytes,
+            "storage_kind": storage_kind,
+            "storage_path": storage_path,
+            "storage_tensor": storage_tensor,
+            "storage": dict(storage) if isinstance(storage, Mapping) else None,
+            "policy": {
+                "materialization": materialization,
+                "materialization_status": policy_status["materialization"],
+                "residency": residency,
+                "residency_status": policy_status["residency"],
+            },
+            "runtime_supported": loadable_now,
+            "loadable_now": loadable_now,
+        }
 
     def _encoded_constant_specs(self) -> list[Mapping[str, object]]:
         files = self.manifest.get("files", {}) if isinstance(getattr(self, "manifest", None), Mapping) else {}
@@ -649,6 +729,14 @@ def _shape_nbytes(shape: object, dtype: str) -> int:
     for dim in shape:
         nbytes *= int(dim)
     return int(nbytes)
+
+
+def _normalize_constant_names(names: Sequence[str] | str | None) -> set[str] | None:
+    if names is None:
+        return None
+    if isinstance(names, str):
+        return {names}
+    return {str(name) for name in names}
 
 
 def _make_dino_tensor(

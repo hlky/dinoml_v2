@@ -135,6 +135,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] in {
         "avg_pool2d",
+        "max_pool2d",
         "concatenate",
         "stack",
         "flip",
@@ -294,9 +295,9 @@ def _validate_collection_node(
             f"Node {node['id']} output {output_name} has shape {output['shape']}, "
             f"expected {expected_shape}"
         )
-    if op_name == "avg_pool2d" and len(inputs) == 1:
+    if op_name in {"avg_pool2d", "max_pool2d"} and len(inputs) == 1:
         if str(inputs[0]["dtype"]) not in {"float16", "float32", "bfloat16"}:
-            raise ValidationError(f"avg_pool2d does not support dtype {inputs[0]['dtype']}")
+            raise ValidationError(f"{op_name} does not support dtype {inputs[0]['dtype']}")
     if op_name == "pad":
         value = node.get("attrs", {}).get("value", 0.0)
         if inputs[0]["dtype"] == "bool":

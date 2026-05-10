@@ -192,6 +192,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_avg_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "max_pool2d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -509,6 +516,36 @@ def _execute_avg_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.nd
                                 continue
                             total += float(source[n, c, ih, iw])
                     result[n, c, oh, ow] = total / divisor
+    return result
+
+
+def _execute_max_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    kernel_h, kernel_w = [int(item) for item in attrs["kernel_size"]]
+    stride_values = attrs.get("stride", attrs["kernel_size"])
+    stride_h, stride_w = [int(item) for item in stride_values]
+    pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0))]
+    batch, channels, height, width = value.shape
+    out_height = (height + 2 * pad_h - kernel_h) // stride_h + 1
+    out_width = (width + 2 * pad_w - kernel_w) // stride_w + 1
+    result = np.empty((batch, channels, out_height, out_width), dtype=np.float32)
+    source = np.asarray(value, dtype=np.float32)
+    for n in range(batch):
+        for c in range(channels):
+            for oh in range(out_height):
+                h_start = oh * stride_h - pad_h
+                for ow in range(out_width):
+                    w_start = ow * stride_w - pad_w
+                    max_value = -np.inf
+                    for kh in range(kernel_h):
+                        ih = h_start + kh
+                        if ih < 0 or ih >= height:
+                            continue
+                        for kw in range(kernel_w):
+                            iw = w_start + kw
+                            if iw < 0 or iw >= width:
+                                continue
+                            max_value = max(max_value, float(source[n, c, ih, iw]))
+                    result[n, c, oh, ow] = max_value
     return result
 
 

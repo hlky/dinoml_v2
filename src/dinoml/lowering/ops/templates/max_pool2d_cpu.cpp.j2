@@ -1,0 +1,41 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    int64_t remaining = idx;
+    const int64_t ow = remaining % {{ out_width }};
+    remaining = remaining / {{ out_width }};
+    const int64_t oh = remaining % {{ out_height }};
+    remaining = remaining / {{ out_height }};
+    const int64_t oc = remaining % {{ out_c }};
+    remaining = remaining / {{ out_c }};
+    const int64_t on = remaining;
+    float max_value = -INFINITY;
+    for (int64_t kh = 0; kh < {{ kernel_h }}; ++kh) {
+      const int64_t ih = oh * {{ stride_h }} + kh - {{ pad_h }};
+      if (ih < 0 || ih >= {{ height }}) {
+        continue;
+      }
+      for (int64_t kw = 0; kw < {{ kernel_w }}; ++kw) {
+        const int64_t iw = ow * {{ stride_w }} + kw - {{ pad_w }};
+        if (iw < 0 || iw >= {{ width }}) {
+          continue;
+        }
+        const int64_t input_idx = ((on * {{ c }} + oc) * {{ height }} + ih) * {{ width }} + iw;
+        const float value = dinoml::math::cast<float>(x[input_idx]);
+        if (value > max_value) {
+          max_value = value;
+        }
+      }
+    }
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(max_value);
+  }
+  return 0;
+}

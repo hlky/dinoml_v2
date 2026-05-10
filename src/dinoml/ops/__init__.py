@@ -39,7 +39,13 @@ from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES, RANDN_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, ELEMENTWISE_OUTPUT_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
-from dinoml.ops.pooling import POOLING_DTYPES, normalize_avg_pool2d_attrs, resolve_avg_pool2d_shape
+from dinoml.ops.pooling import (
+    POOLING_DTYPES,
+    normalize_avg_pool2d_attrs,
+    normalize_max_pool2d_attrs,
+    resolve_avg_pool2d_shape,
+    resolve_max_pool2d_shape,
+)
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
@@ -560,6 +566,26 @@ def _avg_pool2d_frontend(x: Any, kernel_size: Any, stride: Any | None = None, pa
     )
 
 
+def _max_pool2d_frontend(x: Any, kernel_size: Any, stride: Any | None = None, padding: Any = 0) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in POOLING_DTYPES:
+        raise ValueError(f"max_pool2d does not support dtype {tensor.dtype}")
+    if tensor.rank != 4:
+        raise ValueError(f"max_pool2d expects rank-4 NCHW input, got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("max_pool2d currently supports only static input shapes")
+    kernel, normalized_stride, normalized_padding = normalize_max_pool2d_attrs(kernel_size, stride, padding)
+    out_shape = resolve_max_pool2d_shape(tensor.shape, kernel, normalized_stride, normalized_padding)
+    return tensor.builder.emit(
+        "max_pool2d",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"kernel_size": kernel, "stride": normalized_stride, "padding": normalized_padding},
+        shape_spec=out_shape,
+    )
+
+
 def _slice_reshape_scatter_frontend(x: Any, update: Any, start_indices: Any, slice_shape: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
@@ -729,6 +755,7 @@ globals()["stack"] = _stack_frontend
 globals()["pad"] = _pad_frontend
 globals()["pad_last_dim"] = _pad_last_dim_frontend
 globals()["avg_pool2d"] = _avg_pool2d_frontend
+globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
 globals()["permute021"] = _permute021_frontend
@@ -793,6 +820,7 @@ __all__ = list(dict.fromkeys([
     "dynamic_slice",
     "full",
     "index_select",
+    "max_pool2d",
     "slice_reshape_scatter",
     "slice_scatter",
     "split",

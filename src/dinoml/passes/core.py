@@ -36,7 +36,9 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             expected_shape = op_def.infer_shape([input_info["shape"] for input_info in inputs])
         expected_shape_spec = _infer_node_shape_spec(node, inputs, expected_shape)
         expected_dtype = inputs[0]["dtype"] if inputs else tensors[node["outputs"][0]]["dtype"]
-        if node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
+        if node["op"] == "where" and len(inputs) == 3:
+            expected_dtype = str(inputs[1]["dtype"])
+        elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
             expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]))
         elif node["op"] == "fused_elementwise":
             expected_dtype = _fused_output_dtype(node, tensors)
@@ -79,7 +81,9 @@ def _fused_output_dtype(node: Mapping[str, Any], tensors: Mapping[str, Mapping[s
     dtype_env = {name: str(tensor["dtype"]) for name, tensor in tensors.items()}
     for sub_op in node.get("attrs", {}).get("sub_ops", []):
         input_names = list(sub_op.get("inputs", []))
-        if input_names:
+        if str(sub_op["op"]) == "where" and len(input_names) == 3:
+            input_dtype = dtype_env[input_names[1]]
+        elif input_names:
             input_dtype = dtype_env[input_names[0]]
         else:
             input_dtype = str(tensors[node["outputs"][0]]["dtype"])

@@ -123,6 +123,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "fused_elementwise":
         _validate_fused_elementwise_node(node, inputs, tensors)
         return
+    if node["op"] == "where":
+        _validate_where_node(node, inputs, tensors)
+        return
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
     if not op_def.accepts_input_count(len(inputs)):
@@ -164,11 +167,6 @@ def _validate_fused_elementwise_node(
     output_shapes = {tuple(tensors[name]["shape"]) for name in node["outputs"]}
     if len(output_shapes) != 1:
         raise ValidationError(f"Node {node['id']} fused outputs must have the same shape")
-    if inputs:
-        if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
-            raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
-        if inputs[0]["dtype"] not in FLOAT_ELEMENTWISE_DTYPES:
-            raise ValidationError(f"fused_elementwise does not support dtype {inputs[0]['dtype']}")
     dtype_env = {name: str(tensor["dtype"]) for name, tensor in tensors.items()}
     for sub_op in sub_ops:
         elementwise_spec = ELEMENTWISE_BY_NAME.get(sub_op.get("op"))
@@ -185,15 +183,57 @@ def _validate_fused_elementwise_node(
             input_dtypes = [dtype_env[name] for name in sub_inputs]
         except KeyError as exc:
             raise ValidationError(f"Fused sub-op {sub_op.get('op')} references missing input {exc.args[0]}") from exc
-        if input_dtypes and any(dtype != input_dtypes[0] for dtype in input_dtypes):
-            raise ValidationError(f"Fused sub-op {sub_op.get('op')} has mismatched input dtypes")
-        if input_dtypes and input_dtypes[0] not in FLOAT_ELEMENTWISE_DTYPES:
-            raise ValidationError(f"Fused sub-op {sub_op.get('op')} does not support dtype {input_dtypes[0]}")
         output_name = sub_op["outputs"][0]
-        output_dtype = elementwise_output_dtype(str(sub_op["op"]), input_dtypes[0])
+        output_dtype = _fused_elementwise_output_dtype(sub_op, input_dtypes)
         dtype_env[output_name] = output_dtype
         if output_name in tensors and str(tensors[output_name]["dtype"]) != output_dtype:
             raise ValidationError(
                 f"Fused sub-op {sub_op.get('op')} output {output_name} has dtype {tensors[output_name]['dtype']}, "
                 f"expected {output_dtype}"
             )
+
+
+def _validate_where_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 3:
+        raise ValidationError("where expects 3 inputs")
+    try:
+        get_op_def("where").infer_shape([input_info["shape"] for input_info in inputs])
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    if str(inputs[0]["dtype"]) != "bool":
+        raise ValidationError(f"where condition must have dtype bool, got {inputs[0]['dtype']}")
+    if str(inputs[1]["dtype"]) != str(inputs[2]["dtype"]):
+        raise ValidationError(f"where x/y dtype mismatch: {inputs[1]['dtype']} vs {inputs[2]['dtype']}")
+    if str(inputs[1]["dtype"]) not in FLOAT_ELEMENTWISE_DTYPES:
+        raise ValidationError(f"where does not support dtype {inputs[1]['dtype']}")
+    output_name = node["outputs"][0]
+    if str(tensors[output_name]["dtype"]) != str(inputs[1]["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
+            f"expected {inputs[1]['dtype']}"
+        )
+
+
+def _fused_elementwise_output_dtype(sub_op: Mapping[str, Any], input_dtypes: Sequence[str]) -> str:
+    op = str(sub_op.get("op"))
+    if op == "where":
+        if len(input_dtypes) != 3:
+            raise ValidationError(f"Fused sub-op where expects 3 inputs, got {len(input_dtypes)}")
+        if input_dtypes[0] != "bool":
+            raise ValidationError(f"Fused sub-op where condition must have dtype bool, got {input_dtypes[0]}")
+        if input_dtypes[1] != input_dtypes[2]:
+            raise ValidationError(f"Fused sub-op where x/y dtype mismatch: {input_dtypes[1]} vs {input_dtypes[2]}")
+        if input_dtypes[1] not in FLOAT_ELEMENTWISE_DTYPES:
+            raise ValidationError(f"Fused sub-op where does not support dtype {input_dtypes[1]}")
+        return input_dtypes[1]
+    if input_dtypes and any(dtype != input_dtypes[0] for dtype in input_dtypes):
+        raise ValidationError(f"Fused sub-op {op} has mismatched input dtypes")
+    if input_dtypes and input_dtypes[0] not in FLOAT_ELEMENTWISE_DTYPES:
+        raise ValidationError(f"Fused sub-op {op} does not support dtype {input_dtypes[0]}")
+    return elementwise_output_dtype(op, input_dtypes[0])

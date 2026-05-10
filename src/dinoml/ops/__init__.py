@@ -6,7 +6,7 @@ from typing import Any, Callable, Mapping
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
-from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, elementwise_output_dtype
+from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.reductions import reduce_max, reduce_mean, reduce_min, reduce_sum, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
@@ -40,6 +40,27 @@ def make_frontend_op(op_name: str) -> Callable[..., Tensor]:
     _frontend.__qualname__ = frontend_name
     _frontend.__doc__ = op_def.description
     return _frontend
+
+
+def _where_frontend(condition: Any, x: Any, y: Any) -> Tensor:
+    op_def = get_op_def("where")
+    condition_tensor = as_tensor(condition)
+    x_tensor = as_tensor(x)
+    y_tensor = as_tensor(y, dtype_hint=x_tensor.dtype)
+    tensors = [condition_tensor, x_tensor, y_tensor]
+    builder = condition_tensor.builder
+    for tensor in tensors[1:]:
+        if tensor.builder is not builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+    if condition_tensor.dtype != "bool":
+        raise ValueError(f"where condition must have dtype bool, got {condition_tensor.dtype}")
+    if x_tensor.dtype != y_tensor.dtype:
+        raise ValueError(f"where x/y dtype mismatch: {x_tensor.dtype} vs {y_tensor.dtype}")
+    if x_tensor.dtype not in FLOAT_ELEMENTWISE_DTYPES:
+        raise ValueError(f"where does not support dtype {x_tensor.dtype}")
+    out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
+    out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
+    return builder.emit("where", tensors, out_shape, x_tensor.dtype, {}, shape_spec=out_shape_spec)
 
 
 def output(x: Any, name: str = "output_0") -> Tensor:
@@ -98,6 +119,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     _op_def = OP_REGISTRY.get_frontend(_frontend_name)
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
+globals()["where"] = _where_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -121,4 +143,5 @@ __all__ = list(dict.fromkeys([
     "unsqueeze",
     "var",
     "vector_norm",
+    "where",
 ]))

@@ -87,7 +87,9 @@ epilogues where possible.
 - [ ] Creation/shape values: `arange`, `full`, `randn`, `meshgrid`, `cast`.
 - [ ] Selection/scatter: `dynamic_slice`, `slice_scatter`,
   `slice_reshape_scatter`, `gather`, `batch_gather`, `index_select`,
-  `masked_select`, `where`, `topk`, `argmax`.
+  `masked_select`, `topk`, `argmax`. `where` is partially done for dense
+  bool-condition plus matching float `x`/`y` through fused elementwise CPU/CUDA
+  generation.
 - [ ] Collections/broadcasting: `chunk`, `split`, `stack`, `concatenate`,
   `expand`, `repeat_interleave`, `flip`.
 - [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.

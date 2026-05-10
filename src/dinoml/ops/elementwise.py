@@ -63,6 +63,7 @@ ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
     ElementwiseSpec("le", 2, "le", output_dtype="bool"),
     ElementwiseSpec("lt", 2, "lt", output_dtype="bool"),
     ElementwiseSpec("ne", 2, "ne", output_dtype="bool"),
+    ElementwiseSpec("where", 3, "where"),
 )
 
 ELEMENTWISE_BY_NAME = {spec.name: spec for spec in ELEMENTWISE_SPECS}

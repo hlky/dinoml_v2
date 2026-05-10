@@ -395,6 +395,9 @@ DINO_HD DINO_FORCEINLINE bool lt(T a, T b) { return to_float(a) < to_float(b); }
 template <typename T>
 DINO_HD DINO_FORCEINLINE bool ne(T a, T b) { return to_float(a) != to_float(b); }
 
+template <typename T>
+DINO_HD DINO_FORCEINLINE T where(bool condition, T x, T y) { return condition ? x : y; }
+
 }  // namespace dinoml::math
 
 #undef DINO_HD

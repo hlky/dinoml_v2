@@ -268,7 +268,8 @@ def _scalar_body(
             suffix_extent=suffix_extent,
         )
         value = f"v_{input_info['ident']}"
-        lines.append(f"    {compute_type} {value} = dinoml::math::cast<{compute_type}>(ptr_{input_info['ident']}[{index_expr}]);")
+        value_type = "bool" if input_info["dtype"] == "bool" else compute_type
+        lines.append(f"    {value_type} {value} = dinoml::math::cast<{value_type}>(ptr_{input_info['ident']}[{index_expr}]);")
         exprs[input_info["name"]] = value
 
     for sub_op in sub_ops:
@@ -311,10 +312,13 @@ def _vector_body(
         if input_info["index_kind"] == "full":
             lines.append(
                 f"  const {vector_type}* vec_ptr_{input_info['ident']} = "
-                f"dinoml::access::strided_address<const {storage_type}, const {vector_type}, true>(ptr_{input_info['ident']}, vec_idx, 0, 0, 0);"
+                f"dinoml::access::strided_address<const {input_info['storage_type']}, const {vector_type}, true>(ptr_{input_info['ident']}, vec_idx, 0, 0, 0);"
             )
             lines.append(f"  {vector_type} raw_{input_info['ident']} = *vec_ptr_{input_info['ident']};")
-            lines.append(f"  const {storage_type}* lane_{input_info['ident']} = reinterpret_cast<const {storage_type}*>(&raw_{input_info['ident']});")
+            lines.append(
+                f"  const {input_info['storage_type']}* lane_{input_info['ident']} = "
+                f"reinterpret_cast<const {input_info['storage_type']}*>(&raw_{input_info['ident']});"
+            )
     for output in outputs:
         lines.append(f"  {vector_type} raw_{output['ident']};")
         lines.append(f"  {storage_type}* lane_{output['ident']} = reinterpret_cast<{storage_type}*>(&raw_{output['ident']});")
@@ -328,7 +332,8 @@ def _vector_body(
                 source = f"ptr_{input_info['ident']}[acc_{input_info['ident']}.index(vec_idx * {vector_width} + {lane})]"
             else:
                 raise ValueError(f"Input {input_info['name']} is not vectorizable")
-            lines.append(f"  {compute_type} {value} = dinoml::math::cast<{compute_type}>({source});")
+            value_type = "bool" if input_info["dtype"] == "bool" else compute_type
+            lines.append(f"  {value_type} {value} = dinoml::math::cast<{value_type}>({source});")
             exprs[input_info["name"]] = value
         for sub_op in sub_ops:
             op = sub_op["op"]
@@ -339,7 +344,8 @@ def _vector_body(
             args.extend(_attr_args(sub_op, elementwise_spec.attr_defaults))
             output_name = sub_op["outputs"][0]
             ident = f"v_{_c_ident(output_name)}_{lane}"
-            lines.append(f"  {compute_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
+            result_type = "bool" if elementwise_spec.output_dtype == "bool" else compute_type
+            lines.append(f"  {result_type} {ident} = dinoml::math::{elementwise_spec.math_func}({', '.join(args)});")
             exprs[output_name] = ident
         for output in outputs:
             output_name = output["name"]
@@ -478,7 +484,11 @@ def _cuda_vector_plan(
     if width_override in {"0", "1", "off", "false", "none"}:
         return _VectorPlan()
     supported_dtype = output_dtype in {"float16", "float32", "bfloat16"}
-    can_vectorize_graph = supported_dtype and all(item["index_kind"] in {"full", "scalar", "suffix"} for item in inputs)
+    can_vectorize_graph = (
+        supported_dtype
+        and all(item["dtype"] == output_dtype for item in inputs)
+        and all(item["index_kind"] in {"full", "scalar", "suffix"} for item in inputs)
+    )
     if not can_vectorize_graph:
         if width_override == "auto":
             return _VectorPlan()

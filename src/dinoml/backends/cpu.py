@@ -176,6 +176,8 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
         return np.less(inputs[0], inputs[1])
     elif op == "ne":
         return np.not_equal(inputs[0], inputs[1])
+    elif op == "where":
+        result = np.where(inputs[0], inputs[1], inputs[2])
     else:
         raise ValueError(f"Unsupported elementwise op: {op}")
     return np.asarray(result, dtype=np.float32)

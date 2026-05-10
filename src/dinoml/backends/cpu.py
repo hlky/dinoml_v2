@@ -61,6 +61,16 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 np.full(output_shape, node.get("attrs", {}).get("fill_value"), dtype=np.float32 if output_dtype != "bool" else np.bool_),
                 output_dtype,
             )
+        elif node["op"] == "arange":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            output_shape = _tensor_shape(ir, output_name)
+            attrs = node.get("attrs", {})
+            idx = np.arange(output_shape[0], dtype=np.float32)
+            values[output_name] = _store_reference(
+                float(attrs["start"]) + idx * float(attrs.get("step", 1.0)),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

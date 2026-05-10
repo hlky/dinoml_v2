@@ -1,0 +1,27 @@
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const float start = {{ start_literal }};
+  const float step = {{ step_literal }};
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(start + static_cast<float>(idx) * step);
+  }
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    cudaStream_t stream) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(y, runtime_numel);
+    DINO_CUDA_CHECK(cudaGetLastError());
+  }
+  return 0;
+}

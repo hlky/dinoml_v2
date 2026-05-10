@@ -7,7 +7,7 @@ from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from dinoml.shapes import Shape
 from dinoml.ops.definitions import OP_REGISTRY, OpDef, get_op_def
-from dinoml.ops.creation import CREATION_DTYPES
+from dinoml.ops.creation import ARANGE_DTYPES, CREATION_DTYPES
 from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, FLOAT_ELEMENTWISE_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
@@ -107,6 +107,36 @@ def _full_frontend(shape: Any, fill_value: Any, dtype: str = "float32") -> Tenso
     )
 
 
+def _arange_frontend(start: Any, end: Any | None = None, step: Any = 1, dtype: str = "float32") -> Tensor:
+    dtype = normalize_dtype(dtype)
+    if dtype not in ARANGE_DTYPES:
+        raise ValueError(f"arange does not support dtype {dtype}")
+    if end is None:
+        normalized_start = 0.0
+        normalized_end = _creation_number(start, "end")
+    else:
+        normalized_start = _creation_number(start, "start")
+        normalized_end = _creation_number(end, "end")
+    normalized_step = _creation_number(step, "step")
+    attrs = {"start": normalized_start, "end": normalized_end, "step": normalized_step, "dtype": dtype}
+    op_def = get_op_def("arange")
+    out_shape = op_def.infer_shape_for([], attrs)
+    return GraphBuilder.current().emit(
+        "arange",
+        [],
+        out_shape,
+        dtype,
+        attrs,
+        shape_spec=out_shape,
+    )
+
+
+def _creation_number(value: Any, name: str) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"arange requires numeric {name}")
+    return float(value)
+
+
 def output(x: Any, name: str = "output_0") -> Tensor:
     tensor = as_tensor(x)
     tensor.output_name = name
@@ -166,6 +196,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
 globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
 globals()["full"] = _full_frontend
+globals()["arange"] = _arange_frontend
 globals().update(GEMM_FRONTEND_OPS)
 globals().update(BMM_FRONTEND_OPS)
 globals().update(BMM_HELPER_OPS)
@@ -189,6 +220,7 @@ __all__ = list(dict.fromkeys([
     "unsqueeze",
     "var",
     "vector_norm",
+    "arange",
     "cast",
     "full",
     "where",

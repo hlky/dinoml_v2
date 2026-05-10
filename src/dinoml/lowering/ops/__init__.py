@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
+from dinoml.lowering.ops.arange import ARANGE_LOWERING
 from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
@@ -16,6 +17,7 @@ from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 
 OP_LOWERINGS: dict[str, OpLowering] = {
+    ARANGE_LOWERING.op_name: ARANGE_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,

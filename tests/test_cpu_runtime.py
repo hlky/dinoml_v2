@@ -702,6 +702,8 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
                         "shape": [2],
                         "qtype": "F32",
                         "encoded_nbytes": value.nbytes,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load" if name == "bias" else "eager_dense_device",
                     },
                 }
                 for name, value in values.items()
@@ -710,6 +712,11 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
     )
     captured = {}
     module.set_constant_numpy = lambda name, value: captured.setdefault(name, np.array(value, copy=True))
+
+    plan = module.encoded_constant_load_plan(names=["bias"])
+    assert plan[0]["policy"]["residency"] == "manual_runtime_load"
+    assert plan[0]["policy"]["residency_status"] == "runtime_supported"
+    assert plan[0]["loadable_now"] is True
 
     module.load_encoded_constants(names=["bias"])
 
@@ -750,6 +757,21 @@ def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize
                         "materialization": "dequantize_on_gpu_before_launch",
                         "residency": "eager_dense_device",
                     },
+                },
+                {
+                    "name": "offload_weight",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "offload_weight",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "cpu_until_first_use",
+                    },
                 }
             ],
         },
@@ -758,6 +780,8 @@ def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize
     plan = module.encoded_constant_load_plan()
     assert plan[0]["policy"]["materialization_status"] == "future"
     assert plan[0]["loadable_now"] is False
+    assert plan[1]["policy"]["residency_status"] == "future"
+    assert plan[1]["loadable_now"] is False
     with pytest.raises(NotImplementedError, match="Encoded constant policy is not runtime-supported"):
         module.load_encoded_constants()
 

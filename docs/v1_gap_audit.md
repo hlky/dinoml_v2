@@ -143,12 +143,14 @@ porting. It intentionally excludes the op inventory, which lives in
   or offload execution yet.
   Artifacts with GGUF-backed constants now also write `encoded_constants.json`,
   which normalizes source metadata, logical dense shape/size, and the declared
-  materialization/residency policy. The only runtime-supported policy remains
-  dense dequantization before launch with eager dense device residency; GPU
-  dequant, direct fused dequant-in-kernel, and CPU/offload residency modes are
-  declared as future policies so the artifact contract can grow without changing
-  the dense ABI again. Next GGUF work is true load-time CUDA dequantization,
-  CPU/GPU offload, prefetch, and eviction policy execution.
+  materialization/residency policy. Runtime-supported policy now covers dense
+  dequantization before launch with eager dense device residency and manual
+  runtime encoded-constant loading through
+  `RuntimeModule.load_encoded_constants(names=...)`; GPU dequant, direct fused
+  dequant-in-kernel, and CPU/offload prefetch/eviction residency modes remain
+  future policies so the artifact contract can grow without changing the dense
+  ABI again. Next GGUF work is true load-time CUDA dequantization, CPU/GPU
+  offload, prefetch, and eviction policy execution.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

@@ -207,10 +207,12 @@ def validate_gguf_constant_policy(
             f"GGUF materialization policy {materialization!r} is declared for future runtime support; "
             f"current runtime supports {GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH!r}"
         )
-    if require_runtime_supported and residency_status != "runtime_supported":
+    effective_residency_status = _gguf_residency_policy_status(materialization, residency)
+    if require_runtime_supported and effective_residency_status != "runtime_supported":
         raise NotImplementedError(
             f"GGUF residency policy {residency!r} is declared for future runtime support; "
-            f"current runtime supports {GGUF_RESIDENCY_EAGER_DENSE_DEVICE!r}"
+            f"current dense dequantization supports {GGUF_RESIDENCY_EAGER_DENSE_DEVICE!r} "
+            f"and {GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD!r}"
         )
 
 
@@ -218,8 +220,17 @@ def gguf_constant_policy_status(materialization: str, residency: str) -> dict[st
     validate_gguf_constant_policy(materialization, residency)
     return {
         "materialization": GGUF_MATERIALIZATION_POLICIES[materialization],
-        "residency": GGUF_RESIDENCY_POLICIES[residency],
+        "residency": _gguf_residency_policy_status(materialization, residency),
     }
+
+
+def _gguf_residency_policy_status(materialization: str, residency: str) -> str:
+    if (
+        materialization == GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH
+        and residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+    ):
+        return "runtime_supported"
+    return GGUF_RESIDENCY_POLICIES[residency]
 
 
 def _materialize_gguf_constant(

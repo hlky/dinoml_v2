@@ -420,6 +420,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `RuntimeModule.load_encoded_constants(names=...)` can selectively rehydrate
   supported encoded constants and rejects declared future policies before trying
   to materialize storage.
+- [x] Manual runtime GGUF encoded constant loading:
+  GGUF constants declared with `residency="manual_runtime_load"` are now
+  runtime-supported for the existing dense
+  `dequantize_full_before_launch` materialization path. This still rehydrates
+  through the dense setter path rather than adding CPU/GPU prefetch, eviction,
+  CUDA dequantization, or direct in-kernel quantized RHS execution.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`
@@ -430,8 +436,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   fused quantized-RHS CUTLASS candidate families for a later step. The current
   foundation includes artifact-level eager/deferred constant-load policy plus
   runtime reload/unload primitives, encoded-constant load planning, and
-  selective dense-path rehydration; remaining work is policy execution for
-  selective GPU residency, prefetch, eviction, and CUDA/GGUF dequantization.
+  selective dense-path rehydration, including manual runtime loading of GGUF
+  encoded constants; remaining work is policy execution for selective CPU/GPU
+  residency, prefetch, eviction, and CUDA/GGUF dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

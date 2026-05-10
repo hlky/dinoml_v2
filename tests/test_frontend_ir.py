@@ -173,6 +173,35 @@ def test_encoded_constants_manifest_summarizes_gguf_policy(tmp_path):
     }
 
 
+def test_encoded_constants_manifest_marks_manual_runtime_load_supported(tmp_path):
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "qtype": "Q4_K_M",
+        "encoded_nbytes": 4096,
+        "logical_dtype": "float32",
+        "materialization": "dequantize_full_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    lowered = _write_constants(
+        tmp_path,
+        _gguf_constant_ir(),
+        {"weight": MaterializingConstant([[1.0, 2.0], [3.0, 4.0]], storage=storage)},
+    )
+
+    manifest = _encoded_constants_manifest(lowered)
+
+    assert manifest["summary"]["runtime_supported_count"] == 1
+    assert manifest["constants"][0]["storage"] == storage
+    assert manifest["constants"][0]["policy"] == {
+        "materialization": "dequantize_full_before_launch",
+        "materialization_status": "runtime_supported",
+        "residency": "manual_runtime_load",
+        "residency_status": "runtime_supported",
+    }
+
+
 def test_write_constants_clears_source_metadata_for_dense_rebinding(tmp_path):
     lowered = _write_constants(
         tmp_path,
@@ -257,12 +286,17 @@ def test_gguf_constant_materializes_rows_with_explicit_shape_mapping(monkeypatch
     fake_libgguf = SimpleNamespace(open_gguf=lambda path: fake_file)
     monkeypatch.setitem(sys.modules, "libgguf", fake_libgguf)
 
-    materialized = GGUFConstant("weights.gguf", "blk.0.ffn.weight").materialize("float32", [3, 2])
+    materialized = GGUFConstant(
+        "weights.gguf",
+        "blk.0.ffn.weight",
+        residency="manual_runtime_load",
+    ).materialize("float32", [3, 2])
 
     np.testing.assert_array_equal(materialized.array, values)
     assert materialized.storage["gguf_shape"] == [2, 3]
     assert materialized.storage["n_per_row"] == 2
     assert materialized.storage["encoded_nbytes"] == values.nbytes
+    assert materialized.storage["residency"] == "manual_runtime_load"
 
     fake_file.tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(4, 3), data_offset=128)
     with pytest.raises(

@@ -192,12 +192,40 @@ def test_symbolic_int_div_rejects_static_zero_rhs():
         dml.ops.int_add({"kind": "int_expr", "op": "div", "lhs": dim, "rhs": 0}, 1)
 
 
-def test_symbolic_int_expressions_are_not_shape_dims_yet():
+def test_symbolic_int_expressions_are_supported_shape_dims():
     dim = dml.TensorSpec([dml.Dim("batch", 1, 4)]).shape_spec[0]
     expr = dml.ops.int_add(dim, 1)
 
-    with pytest.raises(ValueError, match="Unsupported shape dimension mapping"):
-        dml.TensorSpec([expr])
+    spec = dml.TensorSpec([expr])
+
+    assert spec.max_shape == [5]
+    assert spec.shape_spec == [
+        {
+            "kind": "int_expr",
+            "op": "add",
+            "lhs": {"kind": "dim", "name": "batch", "min": 1, "max": 4, "divisible_by": 1},
+            "rhs": 1,
+        }
+    ]
+
+
+def test_symbolic_shape_dim_interval_handles_nested_add_mul_div():
+    dim = dml.TensorSpec([dml.Dim("batch", 1, 8)]).shape_spec[0]
+    expr = dml.ops.int_div(dml.ops.int_mul(dml.ops.int_add(dim, 3), 2), 5)
+    spec = dml.TensorSpec([expr])
+
+    assert spec.max_shape == [4]
+    assert spec.shape_spec[0]["kind"] == "int_expr"
+
+
+def test_symbolic_shape_dim_rejects_invalid_bounds_and_divisor_interval():
+    dim = dml.TensorSpec([dml.Dim("batch", 1, 4)]).shape_spec[0]
+
+    with pytest.raises(ValueError, match="minimum must be positive"):
+        dml.TensorSpec([dml.ops.int_sub(dim, 5)])
+
+    with pytest.raises(ZeroDivisionError, match="denominator interval contains zero"):
+        dml.TensorSpec([dml.ops.int_div(dim, dml.ops.int_sub(dim, 2))])
 
 
 def test_symbolic_int_helpers_emit_no_nodes_inside_trace():

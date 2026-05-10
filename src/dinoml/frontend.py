@@ -445,7 +445,10 @@ def _looks_like_value(value: Any) -> bool:
     if isinstance(value, np.ndarray):
         return True
     if isinstance(value, (list, tuple)):
-        return not all(isinstance(dim, (int, Dim)) or (isinstance(dim, Mapping) and dim.get("kind") == "dim") for dim in value)
+        return not all(
+            isinstance(dim, (int, Dim)) or (isinstance(dim, Mapping) and dim.get("kind") in {"dim", "int_expr"})
+            for dim in value
+        )
     return not isinstance(value, Sequence)
 
 

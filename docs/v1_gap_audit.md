@@ -14,9 +14,12 @@ porting. It intentionally excludes the op inventory, which lives in
   expose minimal post-run C ABI output-shape queries via
   `dino_session_get_output_shape`. V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
-  integers and dynamic `Dim` metadata. Missing pieces: runtime evaluation of
-  symbolic shape expressions, admitting those expressions into shape specs,
-  jagged dimensions, and bucketed execution plans.
+  integers and dynamic `Dim` metadata, and now admits those expressions into
+  Python `Shape`/`TensorSpec` specs with interval-derived max-shapes plus Python
+  runtime validation/output-shape inference from named input dims. Missing
+  pieces: generated CPU/CUDA shape-buffer expression lowering, profiling
+  integration for symbolic expression outputs, jagged dimensions, and bucketed
+  execution plans.
 - Shared dtype ABI: v1 has dtype aliases, byte sizes, torch mappings, and C ABI
   enum values for fp16, fp32, int32, int64, bool, bf16, and fp8. V2 now has the
   same enum slots plus CPU/CUDA fused-elementwise fp16/bf16 storage support for
@@ -114,8 +117,9 @@ porting. It intentionally excludes the op inventory, which lives in
   profiling, multistream paths, and debug metadata. V2 templates now cover
   runtime dynamic shape buffers, constants, minimal externally supplied CUDA
   streams, generated fused elementwise, per-op debug source files, and source
-  manifests. Remaining gaps: bucket guards, profiler integration, richer debug
-  metadata, and source dedup by normalized codegen signature.
+  manifests. Remaining gaps: lowering symbolic integer expressions into
+  generated CPU/CUDA shape buffers, bucket guards, profiler integration, richer
+  debug metadata, and source dedup by normalized codegen signature.
 
 ## Future Large-Model Runtime Work
 

@@ -397,6 +397,21 @@ def test_shape_object_canonicalizes_dynamic_metadata():
     assert shape.validate_runtime("x", [2, 16]) == (2, 16)
 
 
+def test_shape_object_accepts_symbolic_int_expression_dims():
+    batch = dml.Dim("batch", min=1, max=8, typical=4)
+    dim = dml.TensorSpec([batch]).shape_spec[0]
+    expr = dml.ops.int_div(dml.ops.int_mul(dml.ops.int_add(dim, 3), 2), 5)
+    shape = dml.Shape([dim, expr])
+
+    assert shape.max_shape == [8, 4]
+    assert shape.dynamic
+    assert shape.constraints[0]["name"] == "batch"
+    assert shape.constraints[1]["name"] == "batch"
+    assert shape.validate_runtime("x", [7, 4]) == (7, 4)
+    with pytest.raises(ValueError, match="expected symbolic dim 4"):
+        shape.validate_runtime("x", [7, 3])
+
+
 def test_shape_object_is_accepted_by_specs_and_parameters():
     batch = dml.Dim("batch", min=1, max=4)
     shape = dml.Shape([batch, 16])
@@ -430,9 +445,46 @@ def test_runtime_shape_helpers_infer_outputs_and_check_named_dims():
         infer_output_shape(y_spec, [x_spec, z_spec], {"x": [3, 16], "z": [2, 1]})
 
 
+def test_runtime_shape_helpers_infer_symbolic_expression_outputs():
+    batch = dml.Dim("batch", min=1, max=8)
+    dim = dml.TensorSpec([batch]).shape_spec[0]
+    expr = dml.ops.int_div(dml.ops.int_mul(dml.ops.int_add(dim, 3), 2), 5)
+    x_spec = {"name": "x", "shape": [8, 16], "shape_spec": dml.TensorSpec([batch, 16]).shape_spec}
+    y_spec = {"name": "y", "shape": [4, 16], "shape_spec": dml.TensorSpec([expr, 16]).shape_spec}
+
+    assert infer_output_shape(y_spec, [x_spec], {"x": [7, 16]}) == (4, 16)
+
+    missing = {"name": "missing", "shape": [4], "shape_spec": [expr]}
+    with pytest.raises(ValueError, match="Missing runtime value for dynamic dimension batch"):
+        infer_output_shape(missing, [], {})
+
+    invalid = {
+        "name": "invalid",
+        "shape": [4],
+        "shape_spec": [{"kind": "int_expr", "op": "sub", "lhs": dim, "rhs": 3}],
+    }
+    with pytest.raises(ValueError, match="non-positive dim -1"):
+        infer_output_shape(invalid, [x_spec], {"x": [2, 16]})
+
+
 class Identity(dml.Module):
     def forward(self, x):
         return dml.ops.output(x, "y")
+
+
+def test_symbolic_expression_metadata_exposes_dim_leaves_only():
+    batch = dml.Dim("batch", min=1, max=8)
+    dim = dml.TensorSpec([batch]).shape_spec[0]
+    expr = dml.ops.int_add(dim, 1)
+
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([dim, expr])}, name="symbolic_expr_metadata")
+
+    constraints = spec.ir["metadata"]["shape_constraints"]
+    assert spec.ir["metadata"]["dynamic_shapes"]
+    assert {constraint["axis"] for constraint in constraints} == {0, 1}
+    assert {constraint["name"] for constraint in constraints} == {"batch"}
+    assert all(constraint["kind"] == "dim" for constraint in constraints)
+    assert all("op" not in constraint for constraint in constraints)
 
 
 class SoftmaxModule(dml.Module):

@@ -65,9 +65,13 @@ These should be reusable building blocks. They generally map to `torch` or
 - [x] `int_elementwise`: frontend-only symbolic integer expression scaffold for
   `ADD`, `SUB`, `MUL`, and `DIV` via `dml.ops.int_add`, `int_sub`, `int_mul`,
   and `int_div`. Pure static expressions constant-fold, dynamic expressions
-  serialize as JSON-compatible dicts, and `DIV` uses floor/integer division
-  semantics. Runtime shape-spec evaluation, IR lowering, and shape-buffer
-  integration remain future work.
+  serialize as JSON-compatible dicts, and `DIV` uses Python floor-division
+  semantics. Bounded shape-spec support now admits `kind: int_expr` dimensions
+  into `Shape`/`TensorSpec`, computes max-shapes from recursive intervals,
+  validates runtime expression values in Python helpers, and infers output
+  expression dimensions from named input `Dim` values. Generated CPU/CUDA
+  shape-buffer expression lowering and profiling integration remain future
+  work.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,

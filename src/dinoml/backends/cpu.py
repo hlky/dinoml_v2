@@ -166,6 +166,25 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
             result = values[node["inputs"][0]].copy()
             result[slices] = update
             values[output_name] = _store_reference(result, output_dtype)
+        elif node["op"] == "pad":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            pad = [int(value) for value in attrs.get("pad", ())]
+            rank = values[node["inputs"][0]].ndim
+            pad_width = [(0, 0)] * rank
+            for pair_index in range(len(pad) // 2):
+                axis = rank - 1 - pair_index
+                pad_width[axis] = (pad[2 * pair_index], pad[2 * pair_index + 1])
+            values[output_name] = _store_reference(
+                np.pad(
+                    values[node["inputs"][0]],
+                    tuple(pad_width),
+                    mode="constant",
+                    constant_values=attrs.get("value", 0.0),
+                ).copy(),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)

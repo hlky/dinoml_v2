@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import builtins
-from math import prod
+from math import isfinite, prod
 from typing import Any, Callable, Mapping, Sequence
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
@@ -13,6 +13,7 @@ from dinoml.ops.collections import (
     infer_concatenate_shape_with_attrs,
     infer_dynamic_slice_shape_with_attrs,
     infer_index_select_shape_with_attrs,
+    infer_pad_shape_with_attrs,
     infer_permute_shape_with_attrs,
     infer_repeat_interleave_shape_with_attrs,
     infer_slice_scatter_shape_with_attrs,
@@ -22,6 +23,7 @@ from dinoml.ops.collections import (
     normalize_dynamic_slice_attrs,
     normalize_flip_dims,
     normalize_index_select_attrs,
+    normalize_pad_widths,
     normalize_permute_dims,
     normalize_repeat_interleave_dim,
     normalize_repeat_interleave_repeats,
@@ -498,6 +500,45 @@ def _slice_scatter_frontend(x: Any, update: Any, start_indices: Any) -> Tensor:
     )
 
 
+def _pad_frontend(x: Any, pad: Any, value: Any = 0.0) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"pad does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("pad currently supports only static input shapes")
+    normalize_pad_widths(pad, tensor.rank)
+    normalized_pad = [int(value) for value in pad]
+    out_shape = infer_pad_shape_with_attrs([tensor.shape], {"pad": normalized_pad})
+    if tensor.dtype == "bool":
+        if not isinstance(value, (bool, int, float)):
+            raise ValueError(f"pad value must be a constant scalar, got {value!r}")
+        if isinstance(value, float) and not isfinite(float(value)):
+            raise ValueError("pad value must be finite")
+        normalized_value: bool | float = bool(value)
+    else:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(f"pad value must be a constant numeric scalar, got {value!r}")
+        if not isfinite(float(value)):
+            raise ValueError("pad value must be finite")
+        normalized_value = float(value)
+    return tensor.builder.emit(
+        "pad",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"pad": normalized_pad, "value": normalized_value},
+        shape_spec=out_shape,
+    )
+
+
+def _pad_last_dim_frontend(x: Any, left: Any, right: Any, value: Any = 0.0) -> Tensor:
+    if not isinstance(left, int) or isinstance(left, bool):
+        raise ValueError(f"pad_last_dim left must be a non-negative integer, got {left!r}")
+    if not isinstance(right, int) or isinstance(right, bool):
+        raise ValueError(f"pad_last_dim right must be a non-negative integer, got {right!r}")
+    return _pad_frontend(x, [int(left), int(right)], value=value)
+
+
 def _slice_reshape_scatter_frontend(x: Any, update: Any, start_indices: Any, slice_shape: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
@@ -664,6 +705,8 @@ globals()["slice_reshape_scatter"] = _slice_reshape_scatter_frontend
 globals()["split"] = _split_frontend
 globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
+globals()["pad"] = _pad_frontend
+globals()["pad_last_dim"] = _pad_last_dim_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
 globals()["permute021"] = _permute021_frontend
@@ -691,6 +734,8 @@ __all__ = list(dict.fromkeys([
     "make_frontend_op",
     "meshgrid",
     "output",
+    "pad",
+    "pad_last_dim",
     "size",
     "getitem",
     "tuple_construct",

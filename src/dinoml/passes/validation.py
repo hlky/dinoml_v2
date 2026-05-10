@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from math import prod
 from typing import Any, Mapping, Sequence
 
@@ -141,6 +142,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "dynamic_slice",
         "index_select",
         "slice_scatter",
+        "pad",
     }:
         _validate_collection_node(node, inputs, tensors)
         return
@@ -291,6 +293,15 @@ def _validate_collection_node(
             f"Node {node['id']} output {output_name} has shape {output['shape']}, "
             f"expected {expected_shape}"
         )
+    if op_name == "pad":
+        value = node.get("attrs", {}).get("value", 0.0)
+        if inputs[0]["dtype"] == "bool":
+            if not isinstance(value, (bool, int, float)):
+                raise ValidationError(f"pad value must be a constant scalar, got {value!r}")
+        elif not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValidationError(f"pad value must be a constant numeric scalar, got {value!r}")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(float(value)):
+            raise ValidationError("pad value must be finite")
     if any(input_info["dtype"] != inputs[0]["dtype"] for input_info in inputs):
         raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
     if inputs[0]["dtype"] not in op_def.allowed_dtypes:

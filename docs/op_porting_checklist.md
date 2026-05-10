@@ -427,8 +427,15 @@ behavior.
   `depthwise_conv3d_bias`, `transposed_conv2d`.
 - [ ] Pooling: `avg_pool1d`, `avg_pool1d_compress_time`, `avg_pool2d`,
   `max_pool2d`.
-- [ ] Padding/layout packing: `pad`, `pad_last_dim`, `nhwc3to4`, `nhwc3to8`,
-  `ndhwc3to8`, `prepare_for_transposed_conv2d`.
+- [x] `pad`, `pad_last_dim`: initial bounded static constant-padding port for
+  ranked static tensors. `pad` uses PyTorch/F.pad trailing-pair order and accepts
+  non-empty even-length non-negative non-bool integer pad widths, with output
+  shape statically expanded and dtype preserved across float32/float16/bfloat16/
+  bool storage. CPU reference plus generated CPU/CUDA copy/fill kernels are in
+  place. Out of scope for this port: dynamic shapes, non-constant modes,
+  negative pads/cropping, integer dtypes, and layout packing helpers.
+- [ ] Padding/layout packing: `nhwc3to4`, `nhwc3to8`, `ndhwc3to8`,
+  `prepare_for_transposed_conv2d`.
 - [ ] Upsampling: `upsampling{1d,2d,3d}`, `_add` variants, and
   `upsampling3d_compress_time`.
 

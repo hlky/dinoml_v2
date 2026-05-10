@@ -53,6 +53,12 @@ def infer_slice_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int
     return infer_slice_scatter_shape_with_attrs(input_shapes, {"start_indices": (0,) * rank})
 
 
+def infer_pad_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("pad expects one tensor input")
+    return infer_pad_shape_with_attrs(input_shapes, {"pad": (0, 0)})
+
+
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     if not input_shapes:
         raise ValueError("concatenate expects a non-empty sequence of tensors")
@@ -103,6 +109,12 @@ def infer_slice_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], 
     if len(input_shapes) != 2:
         raise ValueError("slice_scatter expects two tensor inputs")
     return resolve_slice_scatter_shape(input_shapes[0], input_shapes[1], attrs.get("start_indices"))
+
+
+def infer_pad_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("pad expects one tensor input")
+    return resolve_pad_shape(input_shapes[0], attrs.get("pad"))
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -300,6 +312,33 @@ def normalize_slice_scatter_attrs(
     return starts
 
 
+def normalize_pad_widths(pad: Any, rank: int) -> tuple[list[int], list[int]]:
+    if rank <= 0:
+        raise ValueError("pad input must have rank >= 1")
+    if not isinstance(pad, Sequence) or isinstance(pad, (str, bytes, bytearray)):
+        raise ValueError(f"pad must be a non-empty even-length sequence of non-negative integers, got {pad!r}")
+    values: list[int] = []
+    for value in pad:
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"pad must contain only non-bool integers, got {pad!r}")
+        if int(value) < 0:
+            raise ValueError(f"pad values must be non-negative, got {pad!r}")
+        values.append(int(value))
+    if not values:
+        raise ValueError("pad must be non-empty")
+    if len(values) % 2 != 0:
+        raise ValueError(f"pad length must be even, got {len(values)}")
+    if len(values) // 2 > rank:
+        raise ValueError(f"pad length {len(values)} cannot describe more dimensions than input rank {rank}")
+    left = [0] * rank
+    right = [0] * rank
+    for pair_index in range(len(values) // 2):
+        axis = rank - 1 - pair_index
+        left[axis] = values[2 * pair_index]
+        right[axis] = values[2 * pair_index + 1]
+    return left, right
+
+
 def normalize_split_dim(dim: Any, rank: int) -> int:
     if not isinstance(dim, int) or isinstance(dim, bool):
         raise ValueError(f"split dim must be an integer, got {dim!r}")
@@ -468,6 +507,12 @@ def resolve_slice_scatter_shape(
     return [int(axis) for axis in input_shape]
 
 
+def resolve_pad_shape(input_shape: Sequence[int], pad: Any) -> list[int]:
+    output_shape = [int(axis) for axis in input_shape]
+    left, right = normalize_pad_widths(pad, len(output_shape))
+    return [dim + left[axis] + right[axis] for axis, dim in enumerate(output_shape)]
+
+
 def register_collection_ops(registry: OpRegistry) -> None:
     registry.register(
         OpDef(
@@ -621,6 +666,27 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense bounded scatter-update copy with static starts.",
         )
     )
+    registry.register(
+        OpDef(
+            name="pad",
+            schema=OpSchema(
+                inputs=("x",),
+                attrs=(
+                    AttrDef("pad", "ints", required=True),
+                    AttrDef("value", "float", default=0.0),
+                ),
+            ),
+            infer_shape=infer_pad_shape,
+            infer_shape_with_attrs=infer_pad_shape_with_attrs,
+            allowed_dtypes=COLLECTION_DTYPES,
+            backend_kernels={
+                "cpu": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cpu.cpp.j2"),
+                "cuda": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cuda.cu.j2"),
+            },
+            frontend=FrontendBinding("pad"),
+            description="Materialize a dense static constant-padding copy using PyTorch F.pad pair order.",
+        )
+    )
 
 
 __all__ = [
@@ -633,6 +699,8 @@ __all__ = [
     "infer_flip_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
+    "infer_pad_shape",
+    "infer_pad_shape_with_attrs",
     "infer_repeat_interleave_shape",
     "infer_repeat_interleave_shape_with_attrs",
     "infer_slice_scatter_shape",
@@ -649,6 +717,7 @@ __all__ = [
     "normalize_index_select_attrs",
     "normalize_index_select_dim",
     "normalize_index_select_indices",
+    "normalize_pad_widths",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
     "normalize_slice_scatter_attrs",
@@ -662,6 +731,7 @@ __all__ = [
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",
     "resolve_index_select_shape",
+    "resolve_pad_shape",
     "resolve_repeat_interleave_shape",
     "resolve_slice_scatter_shape",
     "resolve_permute_shape",

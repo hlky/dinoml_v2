@@ -90,7 +90,7 @@ epilogues where possible.
   `masked_select`, `where`, `topk`, `argmax`.
 - [ ] Collections/broadcasting: `chunk`, `split`, `stack`, `concatenate`,
   `expand`, `repeat_interleave`, `flip`.
-- [ ] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
+- [x] Relational ops: `eq`, `ge`, `gt`, `le`, `lt`, `ne`.
 - [ ] Tensor helpers that should not become separate kernel families unless
   profiling proves it: `concatenate_tanh`, `concatenate_fast`,
   `expand_static_shape`.

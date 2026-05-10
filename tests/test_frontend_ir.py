@@ -17,6 +17,21 @@ class BadBroadcast(dml.Module):
         return dml.ops.add(x, dml.Parameter([5], dtype="float32", name="bias"))
 
 
+class BasicReduceModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.reduce_sum(x, dim=-1), "y")
+
+
+class VarModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.var(x, dim=-1), "y")
+
+
+class VectorNormModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.vector_norm(x, dim=-1), "y")
+
+
 def test_ir_serialization_is_stable():
     from tests.models.fused_elementwise import build_spec
 
@@ -578,12 +593,21 @@ def test_compile_accepts_reduced_precision_cpu_runtime_dtype(tmp_path, dtype):
     ("module", "message"),
     [
         (SoftmaxModule(), "softmax does not support dtype bfloat16"),
-        (ReduceSumModule(), "reduce_sum does not support dtype bfloat16"),
+        (VarModule(), "var does not support dtype bfloat16"),
+        (VectorNormModule(), "vector_norm does not support dtype bfloat16"),
     ],
 )
 def test_non_elementwise_ops_reject_reduced_precision_frontend(module, message):
     with pytest.raises(ValueError, match=message):
         dml.trace(module, inputs={"x": dml.TensorSpec([2, 16], "bfloat16")})
+
+
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_basic_reductions_accept_reduced_precision_frontend(dtype):
+    spec = dml.trace(BasicReduceModule(), inputs={"x": dml.TensorSpec([2, 16], dtype)}, name=f"reduce_sum_{dtype}")
+    output = spec.ir["outputs"][0]
+    assert output["shape"] == [2]
+    assert output["dtype"] == dtype
 
 
 def test_gemm_frontend_emits_explicit_layout_ops():

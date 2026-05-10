@@ -596,6 +596,24 @@ def test_cuda_generated_reductions_match_numpy(tmp_path, op_name, numpy_op):
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+@pytest.mark.parametrize("op_name", ["reduce_sum", "reduce_max", "reduce_min", "reduce_mean"])
+def test_cuda_generated_reduced_precision_reduction_source(tmp_path, dtype, op_name):
+    spec = dml.trace(
+        ReductionLastDim(op_name),
+        inputs={"x": dml.TensorSpec([8, 33], dtype)},
+        name=f"{op_name}_{dtype}_cuda",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_{dtype}_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    storage_type = "half" if dtype == "float16" else "__nv_bfloat16"
+    assert f"const {storage_type}* DINO_RESTRICT x" in generated
+    assert f"{storage_type}* DINO_RESTRICT y" in generated
+    assert "float acc" in generated
+    assert "dinoml::math::cast<float>(x[base + col])" in generated
+    assert f"dinoml::math::cast<{storage_type}>" in generated
+
+
 def test_cuda_generated_reduction_keepdim_shape(tmp_path):
     spec = dml.trace(
         ReductionLastDim("reduce_sum", keepdim=True),

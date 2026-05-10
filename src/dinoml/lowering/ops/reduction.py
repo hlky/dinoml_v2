@@ -8,7 +8,8 @@ from typing import Any, Mapping
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.lowering.ops.base import OpLowering
-from dinoml.ops.reductions import REDUCTION_OPS
+from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.ops.reductions import BASIC_REDUCTION_OPS, REDUCTION_DTYPES, REDUCTION_OPS
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -54,11 +55,14 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     output_tensor = tensor_map[node["outputs"][0]]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
+    dtype = str(input_tensor["dtype"])
     context = {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
         "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
         "op": node["op"],
+        "cpu_storage_type": cpu_storage_type(dtype),
+        "cuda_storage_type": cuda_storage_type(dtype),
         "cols": cols,
         "block_size": _cuda_block_size(cols),
         "cols_per_thread": (cols + 31) // 32,
@@ -80,8 +84,15 @@ def _validate_node_contract(
 ) -> None:
     if node["op"] not in REDUCTION_OPS:
         raise ValueError(f"Unsupported reduction op: {node['op']}")
-    if str(input_tensor["dtype"]) != "float32" or str(output_tensor["dtype"]) != "float32":
-        raise NotImplementedError("reduction lowering currently supports float32 tensors only")
+    input_dtype = str(input_tensor["dtype"])
+    output_dtype = str(output_tensor["dtype"])
+    if input_dtype != output_dtype:
+        raise NotImplementedError("reduction lowering currently requires matching input/output dtypes")
+    if node["op"] in BASIC_REDUCTION_OPS:
+        if input_dtype not in REDUCTION_DTYPES:
+            raise NotImplementedError("basic reduction lowering supports float16, float32, and bfloat16 tensors only")
+    elif input_dtype != "float32":
+        raise NotImplementedError(f"{node['op']} lowering currently supports float32 tensors only")
     if not input_tensor["shape"]:
         raise ValueError("reduction requires a ranked tensor")
     dim = int(node.get("attrs", {}).get("dim", -1))

@@ -1,6 +1,6 @@
 static int {{ func }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    {{ cpu_storage_type }}* DINO_RESTRICT y,
     int64_t runtime_rows) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
@@ -16,13 +16,13 @@ static int {{ func }}(
     float sum_sq_acc = 0.0f;
 {% endif %}
     for (int64_t col = 0; col < cols; ++col) {
-      const float value = x[base + col];
+      const float value = dinoml::math::cast<float>(x[base + col]);
       acc = {{ combine_expr }};
 {% if two_accumulators %}
       sum_sq_acc += value * value;
 {% endif %}
     }
-    y[row] = {{ final_expr }};
+    y[row] = dinoml::math::cast<{{ cpu_storage_type }}>({{ final_expr }});
   }
   return 0;
 }

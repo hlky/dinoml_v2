@@ -180,13 +180,15 @@ add xsimd or `std::simd` only where measurable.
 ### Reductions and Softmax
 
 - [x] Basic reductions: `reduce_max`, `reduce_mean`, `reduce_min`,
-  `reduce_sum` for dense contiguous float32 tensors over a positive static last
-  dimension, with negative dim normalization and `keepdim`. CPU and CUDA use
-  generated row reductions and validate against NumPy/Torch-style semantics.
-  CUDA includes a warp-per-row path for static reductions up to `K=1024` and a
-  shared-memory fallback for larger reductions. Remaining parity work: non-last
-  dimensions, multi-axis rejection that mirrors v1 more closely, optional output
-  dtype, fp16/bf16 accumulation policy, v1 CUTLASS/`reduce_3d` strategy,
+  `reduce_sum` for dense contiguous `float32`, `float16`, and `bfloat16`
+  tensors over a positive static last dimension, with negative dim
+  normalization and `keepdim`. Reduced-precision storage uses fp32 accumulation
+  and stores output back to the input dtype. CPU and CUDA use generated row
+  reductions and validate against NumPy/Torch-style semantics. CUDA includes a
+  warp-per-row path for static reductions up to `K=1024` and a shared-memory
+  fallback for larger reductions. Remaining parity work: non-last dimensions,
+  multi-axis rejection that mirrors v1 more closely, optional output dtype,
+  configurable fp16/bf16 accumulation policy, v1 CUTLASS/`reduce_3d` strategy,
   and profiler selection.
 - [x] `var`, `vector_norm`: initial public ports for dense contiguous float32
   tensors over a positive static last dimension, with negative dim

@@ -1714,6 +1714,42 @@ def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+@pytest.mark.parametrize(
+    ("op_name", "numpy_op", "atol", "rtol"),
+    [
+        ("reduce_sum", np.sum, 2e-2, 2e-2),
+        ("reduce_max", np.max, 0.0, 0.0),
+        ("reduce_min", np.min, 0.0, 0.0),
+        ("reduce_mean", np.mean, 2e-3, 2e-2),
+    ],
+)
+def test_cpu_artifact_runs_generated_reduced_precision_reductions(tmp_path, dtype, op_name, numpy_op, atol, rtol):
+    spec = dml.trace(
+        ReductionLastDim(op_name),
+        inputs={"x": dml.TensorSpec([4, 8, 16], dtype)},
+        name=f"{op_name}_{dtype}_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{op_name}_{dtype}_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    storage_type = "dinoml::math::float16" if dtype == "float16" else "dinoml::math::bfloat16"
+    assert f"const {storage_type}* DINO_RESTRICT x" in generated
+    assert "float acc" in generated
+    assert f"dinoml::math::cast<{storage_type}>" in generated
+
+    x = (np.random.default_rng(44).standard_normal((4, 8, 16)).astype(np.float32) * 0.5)
+    x_reference = array_from_storage(array_to_storage(x, dtype), dtype).astype(np.float32)
+    expected = array_from_storage(array_to_storage(numpy_op(x_reference, axis=-1), dtype), dtype)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x})["y"]
+    session.close()
+    module.close()
+
+    assert actual.dtype == expected.dtype
+    np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=atol, rtol=rtol)
+
+
 @pytest.mark.parametrize(
     ("op_name", "attrs", "expected_fn", "source_snippet"),
     [

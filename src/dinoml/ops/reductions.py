@@ -7,6 +7,8 @@ from dinoml.ops.registry import AttrDef, KernelBinding, OpDef, OpRegistry, OpSch
 
 
 REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm")
+BASIC_REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean")
+REDUCTION_DTYPES = ("float16", "float32", "bfloat16")
 
 
 def infer_reduction(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -36,10 +38,16 @@ def infer_reduction_for_attrs(shapes: Sequence[Sequence[int]], attrs: Mapping[st
 def register_reduction_ops(registry: OpRegistry) -> None:
     for op_name in REDUCTION_OPS:
         attrs = [AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)]
+        allowed_dtypes = REDUCTION_DTYPES
+        description = "Dense reduction over a static last dimension with fp32 accumulation."
         if op_name == "var":
             attrs.append(AttrDef("unbiased", "bool", False))
+            allowed_dtypes = ("float32",)
+            description = "Dense float32 variance reduction over a static last dimension."
         elif op_name == "vector_norm":
             attrs.append(AttrDef("ord", "float", 2.0))
+            allowed_dtypes = ("float32",)
+            description = "Dense float32 vector norm reduction over a static last dimension."
         registry.register(
             OpDef(
                 name=op_name,
@@ -50,8 +58,8 @@ def register_reduction_ops(registry: OpRegistry) -> None:
                     "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
                     "cpu": KernelBinding("generated_reduction", "model", source_template="reduction_cpu"),
                 },
-                allowed_dtypes=("float32",),
-                description="Dense float32 reduction over a static last dimension.",
+                allowed_dtypes=allowed_dtypes,
+                description=description,
             )
         )
 
@@ -84,7 +92,8 @@ def vector_norm(x: object, dim: int = -1, keepdim: bool = False, ord: float = 2.
 
 def _reduction(op_name: str, x: object, dim: int, keepdim: bool, extra_attrs: dict[str, object] | None = None) -> Tensor:
     tensor = as_tensor(x, dtype_hint="float32")
-    if tensor.dtype != "float32":
+    allowed_dtypes = REDUCTION_DTYPES if op_name in BASIC_REDUCTION_OPS else ("float32",)
+    if tensor.dtype not in allowed_dtypes:
         raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
     rank = len(tensor.shape)
     if rank == 0:

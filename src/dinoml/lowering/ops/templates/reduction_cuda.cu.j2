@@ -1,7 +1,7 @@
 {% if use_warp_kernel %}
 __global__ void {{ warp_kernel }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   constexpr int cols_per_thread = {{ cols_per_thread }};
@@ -20,7 +20,7 @@ __global__ void {{ warp_kernel }}(
   for (int i = 0; i < cols_per_thread; ++i) {
     const int col = i * 32 + lane;
     if (col < cols) {
-      const float value = x[base + col];
+      const float value = dinoml::math::cast<float>(x[base + col]);
       acc = {{ combine_expr }};
 {% if two_accumulators %}
       sum_sq_acc += value * value;
@@ -38,14 +38,14 @@ __global__ void {{ warp_kernel }}(
   }
 
   if (lane == 0) {
-    y[row] = {{ final_expr }};
+    y[row] = dinoml::math::cast<{{ cuda_storage_type }}>({{ final_expr }});
   }
 }
 
 {% endif %}
 __global__ void {{ kernel }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   extern __shared__ float shared[];
@@ -61,7 +61,7 @@ __global__ void {{ kernel }}(
   float sum_sq_acc = 0.0f;
 {% endif %}
   for (int64_t col = tid; col < cols; col += blockDim.x) {
-    const float value = x[base + col];
+    const float value = dinoml::math::cast<float>(x[base + col]);
     acc = {{ combine_expr }};
 {% if two_accumulators %}
     sum_sq_acc += value * value;
@@ -89,13 +89,13 @@ __global__ void {{ kernel }}(
 {% if two_accumulators %}
     sum_sq_acc = shared[blockDim.x];
 {% endif %}
-    y[row] = {{ final_expr }};
+    y[row] = dinoml::math::cast<{{ cuda_storage_type }}>({{ final_expr }});
   }
 }
 
 static int {{ func }}(
-    const float* DINO_RESTRICT x,
-    float* DINO_RESTRICT y,
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
     int64_t runtime_rows,
     cudaStream_t stream) {
   if (x == nullptr || y == nullptr) {

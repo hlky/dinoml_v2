@@ -114,7 +114,7 @@ epilogues where possible.
   for one static-shape tensor, full normalized permutations without duplicates,
   and that same generated storage surface. Dynamic shapes and non-rank-4 pixel
   shuffle variants remain out of scope.
-- [ ] Creation/shape values: `meshgrid` is available as a bounded frontend helper
+- [x] Creation/shape values: `meshgrid` is available as a bounded frontend helper
   for a non-empty list/tuple of rank-1 static tensors with matching
   `float32`/`float16`/`bfloat16`/`bool` dtype and `indexing="ij"` only; it
   composes reshape view metadata with generated `expand` copy nodes, so dynamic
@@ -175,7 +175,7 @@ epilogues where possible.
   `where` is available for dense bool-condition plus matching
   float/reduced-precision/bool `x`/`y` through fused elementwise CPU/CUDA
   generation.
-- [ ] Collections/broadcasting: no remaining named v1 collection gaps in this
+- [x] Collections/broadcasting: no remaining named v1 collection gaps in this
   bounded subset. `expand` is available as a materialized dense broadcast copy
   for static shapes across the generated float/reduced-precision and bool
   storage surface. `concatenate` is available as a bounded materialized

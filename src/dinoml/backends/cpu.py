@@ -185,6 +185,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] == "avg_pool1d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_avg_pool1d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         elif node["op"] == "avg_pool2d":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -486,6 +493,30 @@ def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
     if activation == "elup1":
         return np.where(value >= 0.0, value + 1.0, np.exp(value))
     raise ValueError(f"Unsupported GEMM activation: {activation}")
+
+
+def _execute_avg_pool1d(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    kernel = int(attrs["kernel_size"][0])
+    stride_values = attrs.get("stride", attrs["kernel_size"])
+    stride = int(stride_values[0])
+    padding = int(attrs.get("padding", (0,))[0])
+    batch, channels, length = value.shape
+    out_length = (length + 2 * padding - kernel) // stride + 1
+    result = np.empty((batch, channels, out_length), dtype=np.float32)
+    divisor = float(kernel)
+    source = np.asarray(value, dtype=np.float32)
+    for n in range(batch):
+        for c in range(channels):
+            for ol in range(out_length):
+                l_start = ol * stride - padding
+                total = 0.0
+                for kl in range(kernel):
+                    il = l_start + kl
+                    if il < 0 or il >= length:
+                        continue
+                    total += float(source[n, c, il])
+                result[n, c, ol] = total / divisor
+    return result
 
 
 def _execute_avg_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

@@ -41,8 +41,10 @@ from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME,
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.pooling import (
     POOLING_DTYPES,
+    normalize_avg_pool1d_attrs,
     normalize_avg_pool2d_attrs,
     normalize_max_pool2d_attrs,
+    resolve_avg_pool1d_shape,
     resolve_avg_pool2d_shape,
     resolve_max_pool2d_shape,
 )
@@ -546,6 +548,26 @@ def _pad_last_dim_frontend(x: Any, left: Any, right: Any, value: Any = 0.0) -> T
     return _pad_frontend(x, [int(left), int(right)], value=value)
 
 
+def _avg_pool1d_frontend(x: Any, kernel_size: Any, stride: Any | None = None, padding: Any = 0) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in POOLING_DTYPES:
+        raise ValueError(f"avg_pool1d does not support dtype {tensor.dtype}")
+    if tensor.rank != 3:
+        raise ValueError(f"avg_pool1d expects rank-3 NCL input, got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("avg_pool1d currently supports only static input shapes")
+    kernel, normalized_stride, normalized_padding = normalize_avg_pool1d_attrs(kernel_size, stride, padding)
+    out_shape = resolve_avg_pool1d_shape(tensor.shape, kernel, normalized_stride, normalized_padding)
+    return tensor.builder.emit(
+        "avg_pool1d",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"kernel_size": kernel, "stride": normalized_stride, "padding": normalized_padding},
+        shape_spec=out_shape,
+    )
+
+
 def _avg_pool2d_frontend(x: Any, kernel_size: Any, stride: Any | None = None, padding: Any = 0) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in POOLING_DTYPES:
@@ -754,6 +776,7 @@ globals()["chunk"] = _chunk_frontend
 globals()["stack"] = _stack_frontend
 globals()["pad"] = _pad_frontend
 globals()["pad_last_dim"] = _pad_last_dim_frontend
+globals()["avg_pool1d"] = _avg_pool1d_frontend
 globals()["avg_pool2d"] = _avg_pool2d_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
@@ -811,6 +834,7 @@ __all__ = list(dict.fromkeys([
     "var",
     "vector_norm",
     "arange",
+    "avg_pool1d",
     "avg_pool2d",
     "cast",
     "chunk",

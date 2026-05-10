@@ -425,7 +425,15 @@ behavior.
 
 - [ ] Convolution: `conv2d`, `conv3d`, `conv3d_bias`, `depthwise_conv3d`,
   `depthwise_conv3d_bias`, `transposed_conv2d`.
-- [ ] Pooling: `avg_pool1d`, `avg_pool1d_compress_time`.
+- [ ] Pooling: `avg_pool1d_compress_time`.
+- [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,
+  stride=None, padding=0)` for rank-3 NCL static-shape `float32`, `float16`,
+  and `bfloat16` tensors. CPU reference and generated CPU/CUDA kernels use
+  fp32 accumulation and store back to the input dtype. Semantics are fixed to
+  PyTorch floor output shape with zero padding included in the `kernel_size`
+  divisor; `ceil_mode`, `count_include_pad=False`, `divisor_override`, dynamic
+  shapes, bool/integer tensors, and `avg_pool1d_compress_time` remain out of
+  scope.
 - [x] `avg_pool2d`: bounded public `dml.ops.avg_pool2d(x, kernel_size,
   stride=None, padding=0)` for rank-4 NCHW static-shape `float32`,
   `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA

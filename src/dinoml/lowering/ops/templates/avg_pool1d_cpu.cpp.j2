@@ -1,0 +1,30 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    int64_t remaining = idx;
+    const int64_t ol = remaining % {{ out_length }};
+    remaining = remaining / {{ out_length }};
+    const int64_t oc = remaining % {{ out_c }};
+    remaining = remaining / {{ out_c }};
+    const int64_t on = remaining;
+    float sum = 0.0f;
+    for (int64_t kl = 0; kl < {{ kernel_size }}; ++kl) {
+      const int64_t il = ol * {{ stride }} + kl - {{ padding }};
+      if (il < 0 || il >= {{ length }}) {
+        continue;
+      }
+      const int64_t input_idx = (on * {{ c }} + oc) * {{ length }} + il;
+      sum += dinoml::math::cast<float>(x[input_idx]);
+    }
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(sum / {{ divisor }}.0f);
+  }
+  return 0;
+}

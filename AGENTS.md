@@ -55,3 +55,14 @@ Read these before planning work:
 - Provider decisions should flow through manifests, profile reports, execution plans, and generated lowering.
 - Do not expand public surface area without satisfying the op/provider admission guidance.
 - Prefer stabilizing recent work before adding more features.
+
+## Documentation friction rule
+
+Docs are project memory, not the product. Minor documentation friction should not become the main task unless it blocks implementation, validation, or user-requested work.
+
+When documentation friction is found:
+
+1. Fix it opportunistically if the change is small and directly related to the current task.
+2. Otherwise record it briefly in `agents/NEXT_CANDIDATE_WORK.md` only if it is likely to confuse future work.
+3. Continue with the selected bounded implementation, test, or review task.
+4. Do not spend a work loop only cleaning stale links, wording, empty optional sections, or minor reference drift unless explicitly requested.

@@ -1468,6 +1468,60 @@ def test_build_execution_plan_preserves_bucket_shape_metadata(tmp_path):
     assert plan["static_selections"][0]["shape"]["profiled_shapes"][1]["dims"] == {"batch": 4}
 
 
+def test_symbolic_expr_profile_shapes_feed_cache_keys_and_execution_plan(tmp_path):
+    tokens = dml.Dim("tokens", min=4, max=8, buckets=(4, 8))
+    token_dim = dml.TensorSpec([tokens]).shape_spec[0]
+    tokens_plus_one = dml.ops.int_add(token_dim, 1)
+    spec = dml.trace(
+        GemmModule("gemm_rcr"),
+        inputs={
+            "a": dml.TensorSpec([token_dim, 32], "float16"),
+            "b": dml.TensorSpec([tokens_plus_one, 32], "float16"),
+        },
+        name="profile_symbolic_expr_plan_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    case_4 = next(workload for workload in workloads if workload.shape_case_id == "bucket_tokens=4" and workload.split_k == 1)
+    case_8 = next(workload for workload in workloads if workload.shape_case_id == "bucket_tokens=8" and workload.split_k == 1)
+    manifest = {"target": {"name": "cuda", "arch": "sm_86"}}
+    context = {"fingerprint": {"hardware_key": "hardware-key", "support_libraries_key": "support-key"}}
+
+    payload_4 = _profile_key_payload(case_4, manifest, kernel_manifest, codegen_plan, context=context)
+    payload_8 = _profile_key_payload(case_8, manifest, kernel_manifest, codegen_plan, context=context)
+
+    assert payload_4["shape"] == {"m": 4, "n": 5, "k": 32}
+    assert payload_8["shape"] == {"m": 8, "n": 9, "k": 32}
+    assert _profile_key(payload_4) != _profile_key(payload_8)
+
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_86"},
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": codegen_plan["cache_key"],
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": [
+            _profile_result(case_4, 0.25, 5, profile_key="symbolic-bucket-4", status="ok"),
+            _profile_result(case_8, 0.30, 5, profile_key="symbolic-bucket-8", status="ok"),
+        ],
+        "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+    }
+
+    plan = build_execution_plan(report)
+
+    assert [selection["shape"]["case_id"] for selection in plan["selections"]] == [
+        "bucket_tokens=4",
+        "bucket_tokens=8",
+    ]
+    assert plan["static_selections"][0]["shape"]["profiled_shapes"][0]["dims"] == {"tokens": 4}
+    assert plan["static_selections"][0]["shape"]["profiled_shapes"][1]["dims"] == {"tokens": 8}
+
+
 def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     monkeypatch.setattr(
         profiling_mod,

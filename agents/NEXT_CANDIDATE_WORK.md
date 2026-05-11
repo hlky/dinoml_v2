@@ -10,5 +10,6 @@ This file should be updated after each major loop.
    getter-bound malformed negative reported-shape rejection.
 2. Add profile/report cache regression coverage for sourceable symbolic
    expression shapes once a real CUDA profiling fixture is cheap enough for CI.
-3. Improve runtime/container contracts for allocator, graph, pool, and profiling
-   behavior before op-specific assumptions spread.
+3. Continue improving runtime/container contracts for allocator, graph, pool,
+   profiling, and constant-state failure behavior before op-specific
+   assumptions spread.

@@ -511,6 +511,24 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
     np.testing.assert_allclose(eager_actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
 
+def test_set_constant_torch_rejects_unknown_constant_before_tensor_checks():
+    module = object.__new__(runtime.RuntimeModule)
+    module.metadata = {
+        "constants": [
+            {
+                "name": "scale",
+                "shape": [4],
+                "shape_spec": [4],
+                "dtype": "float32",
+            }
+        ]
+    }
+
+    tensor = SimpleNamespace(is_cuda=False, is_contiguous=lambda: False, shape=(4,))
+    with pytest.raises(ValueError, match="Unknown constant: missing"):
+        module.set_constant_torch("missing", tensor)
+
+
 def test_compile_rejects_unknown_constant_load_policy(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

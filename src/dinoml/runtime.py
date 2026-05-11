@@ -309,11 +309,14 @@ class RuntimeModule:
         self._mark_constant_loaded(name, True)
 
     def set_constant_torch(self, name: str, value: object) -> None:
+        constants = {constant["name"]: constant for constant in self.metadata["constants"]}
+        if name not in constants:
+            raise ValueError(f"Unknown constant: {name}")
         if not getattr(value, "is_cuda", False):
             raise ValueError(f"Constant {name} must be a CUDA tensor")
         if not value.is_contiguous():
             raise ValueError(f"Constant {name} must be contiguous")
-        spec = {constant["name"]: constant for constant in self.metadata["constants"]}[name]
+        spec = constants[name]
         actual_shape = validate_runtime_shape(name, tuple(int(dim) for dim in value.shape), spec)
         self.set_constant_device_pointer(
             name,

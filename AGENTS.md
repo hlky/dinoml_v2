@@ -2,6 +2,20 @@
 
 This repository is developed with autonomous agents. Treat the files under `agents/` as project memory and steering state.
 
+## Steering hierarchy
+
+Use the agent docs in this order:
+
+```text
+AGENTS.md                  boot protocol
+CURRENT_FOCUS.md           optional human override / active direction
+NEXT_CANDIDATE_WORK.md     default ranked queue when no override exists
+BLOCKED_OR_DEFERRED.md     hard fences / design-sensitive traps
+plans/*.md                 long-form project memory
+```
+
+`agents/CURRENT_FOCUS.md` may be empty. If it is empty, do not treat that as stale documentation; fall back to `agents/NEXT_CANDIDATE_WORK.md` and the active plans.
+
 ## Required loop
 
 At the beginning of each work loop:
@@ -12,7 +26,7 @@ At the beginning of each work loop:
 4. Pick one bounded, high-value task.
 5. Use subagents for investigation, implementation, and review when useful.
 6. Validate the work with targeted tests or explain why validation could not be run.
-7. Update relevant docs/checklists.
+7. Update relevant docs/checklists, including `agents/NEXT_CANDIDATE_WORK.md` when the ranked queue changes.
 8. Commit completed work with a clear summary.
 9. Update Codex Progress.
 10. Continue the loop unless blocked.

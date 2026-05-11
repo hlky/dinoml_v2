@@ -1105,6 +1105,68 @@ def test_cpu_runtime_materializes_reported_smaller_output_shape(tmp_path, monkey
         module.close()
 
 
+def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monkeypatch):
+    calls = []
+
+    def fake_run(*_args):
+        calls.append("run")
+        return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [
+                {
+                    "name": "x",
+                    "shape": [2, 4],
+                    "shape_spec": [2, 4],
+                    "dtype": "float32",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "y",
+                    "shape": [4, 4],
+                    "shape_spec": [{"kind": "dim", "name": "rows", "min": 1, "max": 4}, 4],
+                    "dtype": "float32",
+                }
+            ],
+        },
+        _dll=SimpleNamespace(dino_session_run=fake_run),
+        _check=lambda code: code,
+    )
+
+    monkeypatch.setattr(session, "get_output_shape", lambda _name: (1, 4))
+    session.run_device_pointers(
+        {"x": 0x1000},
+        {"y": 0x2000},
+        {"x": (2, 4)},
+        {"y": (2, 4)},
+    )
+    assert calls == ["run"]
+
+    monkeypatch.setattr(session, "get_output_shape", lambda _name: (4, 2))
+    session.run_device_pointers(
+        {"x": 0x1000},
+        {"y": 0x2000},
+        {"x": (2, 4)},
+        {"y": (2, 4)},
+    )
+    assert calls == ["run", "run"]
+
+    monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
+    with pytest.raises(ValueError, match="has more elements than allocated"):
+        session.run_device_pointers(
+            {"x": 0x1000},
+            {"y": 0x2000},
+            {"x": (2, 4)},
+            {"y": (2, 4)},
+        )
+    assert calls == ["run", "run", "run"]
+
+
 def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(

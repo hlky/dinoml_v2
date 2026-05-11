@@ -460,9 +460,7 @@ class Session:
         return tuple(int(shape[i]) for i in range(ndim.value))
 
     def _materialize_output_array(self, output: np.ndarray, actual_shape: tuple[int, ...]) -> np.ndarray:
-        actual_numel = 1
-        for dim in actual_shape:
-            actual_numel *= int(dim)
+        actual_numel = _shape_numel(actual_shape)
         if actual_numel > output.size:
             raise ValueError(
                 f"Output shape {actual_shape} has more elements than allocated output buffer "
@@ -475,9 +473,7 @@ class Session:
     def _materialize_output_torch(self, output: object, actual_shape: tuple[int, ...]) -> object:
         if actual_shape == tuple(output.shape):
             return output
-        actual_numel = 1
-        for dim in actual_shape:
-            actual_numel *= int(dim)
+        actual_numel = _shape_numel(actual_shape)
         if actual_numel > output.numel():
             raise ValueError(
                 f"Output shape {actual_shape} has more elements than allocated output buffer "
@@ -500,6 +496,7 @@ class Session:
         output_specs = self.module.metadata["outputs"]
         shape_buffers = []
         resolved_input_shapes: dict[str, tuple[int, ...]] = {}
+        resolved_output_shapes: dict[str, tuple[int, ...]] = {}
         input_tensors = (_DinoTensor * len(input_specs))()
         for idx, spec in enumerate(input_specs):
             name = str(spec["name"])
@@ -527,6 +524,7 @@ class Session:
             else:
                 actual_shape = infer_output_shape(spec, input_specs, resolved_input_shapes)
             validate_runtime_shape(name, actual_shape, spec)
+            resolved_output_shapes[name] = actual_shape
             tensor, keepalive = _make_dino_tensor(
                 ctypes.c_void_p(int(outputs[name])),
                 actual_shape,
@@ -545,6 +543,15 @@ class Session:
                 ctypes.c_size_t(len(output_specs)),
             )
         )
+        for spec in output_specs:
+            name = str(spec["name"])
+            reported_shape = self.get_output_shape(name)
+            allocated_shape = resolved_output_shapes[name]
+            if _shape_numel(reported_shape) > _shape_numel(allocated_shape):
+                raise ValueError(
+                    f"Output shape {reported_shape} has more elements than allocated output buffer "
+                    f"{allocated_shape}"
+                )
 
     def run_torch(self, inputs: Mapping[str, object]) -> Dict[str, object]:
         import torch
@@ -781,6 +788,13 @@ def _shape_nbytes(shape: object, dtype: str) -> int:
     for dim in shape:
         nbytes *= int(dim)
     return int(nbytes)
+
+
+def _shape_numel(shape: object) -> int:
+    numel = 1
+    for dim in shape:
+        numel *= int(dim)
+    return int(numel)
 
 
 def _normalize_constant_names(names: Sequence[str] | str | None) -> set[str] | None:

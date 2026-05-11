@@ -529,6 +529,24 @@ def test_set_constant_torch_rejects_unknown_constant_before_tensor_checks():
         module.set_constant_torch("missing", tensor)
 
 
+def test_set_constant_device_pointer_rejects_unknown_constant_before_backend_checks():
+    module = object.__new__(runtime.RuntimeModule)
+    module.target_name = "cpu"
+    module.metadata = {
+        "constants": [
+            {
+                "name": "scale",
+                "shape": [4],
+                "shape_spec": [4],
+                "dtype": "float32",
+            }
+        ]
+    }
+
+    with pytest.raises(ValueError, match="Unknown constant: missing"):
+        module.set_constant_device_pointer("missing", 0x1000, (4,), "float32")
+
+
 def test_compile_rejects_unknown_constant_load_policy(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

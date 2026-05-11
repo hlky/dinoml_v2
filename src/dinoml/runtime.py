@@ -286,11 +286,11 @@ class RuntimeModule:
             self._check(self._cuda_runtime_dll.dino_device_free(ptr))
 
     def set_constant_device_pointer(self, name: str, ptr: int, shape: tuple[int, ...] | list[int], dtype: str) -> None:
-        if self.target_name != "cuda":
-            raise RuntimeError("set_constant_device_pointer is only available for CUDA artifacts")
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
+        if self.target_name != "cuda":
+            raise RuntimeError("set_constant_device_pointer is only available for CUDA artifacts")
         constant_spec = constants[name]
         actual_shape = validate_runtime_shape(name, shape, constant_spec)
         normalized_dtype = normalize_dtype(str(dtype))

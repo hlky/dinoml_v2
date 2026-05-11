@@ -126,8 +126,8 @@ porting. It intentionally excludes the op inventory, which lives in
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now
-  consistently reject unknown constant names before backend-specific tensor
-  checks, but V2 still has no constant-folding lifecycle.
+  consistently reject unknown constant names before backend availability or
+  tensor-specific checks, but V2 still has no constant-folding lifecycle.
 - Build/cache system: v1 has build-cache hashing, backend-specific builders,
   profiler builds, constants object embedding, standalone mode, and environment
   knobs. V2 has CMake support-library caching, CUTLASS support-build

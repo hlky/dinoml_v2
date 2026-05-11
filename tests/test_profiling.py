@@ -1962,6 +1962,84 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 0
 
 
+def test_compile_profile_accepts_sourceable_symbolic_shape_expressions(tmp_path, monkeypatch):
+    build_calls = []
+    profile_calls = []
+    tokens = {"kind": "dim", "name": "tokens", "min": 4, "max": 16, "buckets": [4, 8, 16]}
+    pooled_tokens = {"kind": "int_expr", "op": "div", "lhs": tokens, "rhs": 2}
+    lowered_ir = {
+        "name": "profile_sourceable_expr",
+        "inputs": [
+            {"name": "x", "tensor": "x", "shape": [16, 8], "shape_spec": [tokens, 8], "dtype": "float32"}
+        ],
+        "outputs": [
+            {"name": "y", "tensor": "y", "shape": [8, 8], "shape_spec": [pooled_tokens, 8], "dtype": "float32"}
+        ],
+        "constants": [],
+        "tensors": [
+            {"name": "x", "shape": [16, 8], "shape_spec": [tokens, 8], "dtype": "float32"},
+            {"name": "y", "shape": [8, 8], "shape_spec": [pooled_tokens, 8], "dtype": "float32"},
+        ],
+        "nodes": [],
+        "metadata": {},
+    }
+
+    def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
+        del spec, target, artifact_dir, pass_manager
+        return lowered_ir, []
+
+    def fake_build_artifact(
+        spec,
+        target,
+        *,
+        artifact_dir,
+        generated_src_dir,
+        lowered_ir,
+        reports,
+        backend,
+        execution_plan_payload,
+        constant_load_policy,
+    ):
+        del spec, target, generated_src_dir, lowered_ir, reports, backend
+        assert constant_load_policy == "eager"
+        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
+        build_calls.append(execution_plan_payload)
+        return compiler_mod.Artifact(artifact_dir)
+
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
+        del input_shapes, iterations, repeats, refresh
+        artifact = Path(artifact)
+        profile_calls.append(str(artifact))
+        plan_path = artifact / "debug" / "execution_plan.json"
+        write_json(
+            plan_path,
+            {
+                "schema_version": 1,
+                "kind": "dinoml.execution_plan",
+                "selections": [],
+                "static_selections": [],
+                "summary": {"selection_count": 0},
+            },
+        )
+        return {
+            "artifact": str(artifact),
+            "execution_plan": {"path": str(plan_path), "selection_count": 0},
+            "summary": {"cached": 0, "failed": 0, "profiled": 0, "skipped": 0},
+            "problems": [],
+        }
+
+    monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
+    monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
+
+    artifact = compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
+
+    assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
+    assert build_calls == [None]
+    assert profile_calls == [str(artifact.path)]
+    assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 0
+
+
 def test_compile_profile_rejects_ambiguous_or_non_cuda_requests(tmp_path):
     with pytest.raises(ValueError, match="cannot also consume"):
         compiler_mod.compile(

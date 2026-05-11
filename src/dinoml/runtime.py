@@ -110,6 +110,7 @@ class RuntimeModule:
             pass
 
     def create_session(self) -> "Session":
+        self._require_open()
         return Session(self)
 
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
@@ -388,6 +389,10 @@ class RuntimeModule:
         if err:
             message = self._last_error_message()
             raise RuntimeError(message.decode("utf-8") if message else "Unknown DinoML runtime error")
+
+    def _require_open(self) -> None:
+        if not getattr(self, "_handle", None):
+            raise RuntimeError("RuntimeModule is closed")
 
     def _last_error_message(self) -> bytes | None:
         getters = []

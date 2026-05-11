@@ -511,6 +511,17 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
     np.testing.assert_allclose(eager_actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
 
+def test_create_session_rejects_closed_runtime_module(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    artifact = dml.compile(build_spec(), dml.Target("cpu"), tmp_path / "closed_module_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    module.close()
+
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.create_session()
+
+
 def test_set_constant_torch_rejects_unknown_constant_before_tensor_checks():
     module = object.__new__(runtime.RuntimeModule)
     module.metadata = {

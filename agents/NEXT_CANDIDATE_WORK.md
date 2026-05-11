@@ -11,5 +11,5 @@ This file should be updated after each major loop.
 2. Add profile/report cache regression coverage for sourceable symbolic
    expression shapes once a real CUDA profiling fixture is cheap enough for CI.
 3. Continue improving runtime/container contracts for allocator, graph, pool,
-   profiling, and constant-state failure behavior before op-specific
-   assumptions spread.
+   profiling, lifecycle, and constant-state failure behavior before
+   op-specific assumptions spread.

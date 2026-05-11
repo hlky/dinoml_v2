@@ -1962,6 +1962,55 @@ def test_profile_artifact_rejects_symbolic_shape_expressions(tmp_path):
         profile_artifact(artifact)
 
 
+def test_profile_artifact_rejects_symbolic_shape_expressions_in_views(tmp_path):
+    expr = {
+        "kind": "int_expr",
+        "op": "div",
+        "lhs": {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+        "rhs": 2,
+    }
+    artifact = tmp_path / "expr_view_profile.dinoml"
+    artifact.mkdir()
+    write_json(
+        artifact / "manifest.json",
+        {
+            "target": {"name": "cuda", "arch": "sm_86"},
+            "files": {
+                "graph": "graph.dinoir.json",
+                "kernel_manifest": "kernel_manifest.json",
+                "kernel_codegen_plan": "kernel_codegen_plan.json",
+            },
+        },
+    )
+    write_json(
+        artifact / "graph.dinoir.json",
+        {
+            "inputs": [],
+            "outputs": [{"name": "y", "tensor": "y", "shape": [8], "shape_spec": [8], "dtype": "float32"}],
+            "constants": [],
+            "tensors": [{"name": "y", "shape": [8], "shape_spec": [8], "dtype": "float32"}],
+            "nodes": [],
+            "metadata": {
+                "memory_plan": {
+                    "views": {
+                        "views": [
+                            {
+                                "tensor": "y_view",
+                                "source": "y",
+                                "shape": [8],
+                                "shape_spec": [expr],
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    )
+
+    with pytest.raises(NotImplementedError, match="view tensor 'y_view'"):
+        profile_artifact(artifact)
+
+
 def test_cli_compile_forwards_profile_options(tmp_path, monkeypatch, capsys):
     model_path = tmp_path / "model.py"
     model_path.write_text("def build_spec():\n    return 'spec'\n", encoding="utf-8")

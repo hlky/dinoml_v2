@@ -69,9 +69,11 @@ These should be reusable building blocks. They generally map to `torch` or
   semantics. Bounded shape-spec support now admits `kind: int_expr` dimensions
   into `Shape`/`TensorSpec`, computes max-shapes from recursive intervals,
   validates runtime expression values in Python helpers, and infers output
-  expression dimensions from named input `Dim` values. Generated CPU/CUDA
-  shape-buffer expression lowering and profiling integration remain future
-  work.
+  expression dimensions from named input `Dim` values. Sourceable expressions
+  lower into generated CPU/CUDA shape-buffer math with runtime expression
+  checks; lowering now rejects expressions whose named leaves lack direct
+  runtime sources instead of falling back to max bounds. Profiling integration
+  and expression-only source recovery remain future work.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,

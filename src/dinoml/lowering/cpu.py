@@ -21,6 +21,7 @@ from dinoml.lowering.shape_buffers import (
     shape_dim_range,
     shape_literal,
     shape_vars_literal,
+    validate_symbolic_int_sources,
 )
 
 
@@ -31,6 +32,11 @@ def render_cpu_module(ir: Mapping[str, Any], *, generated_kernels: Iterable[str]
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
     temporaries = ir.get("metadata", {}).get("memory_plan", {}).get("temporaries", [])
     views = _view_contexts(ir, output_map=output_map, tensor_map=tensor_map)
+    dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    validate_symbolic_int_sources(items=ir["inputs"], dynamic_dims=dynamic_dims, context="input")
+    validate_symbolic_int_sources(items=ir["outputs"], dynamic_dims=dynamic_dims, context="output")
+    validate_symbolic_int_sources(items=ir["constants"], dynamic_dims=dynamic_dims, context="constant")
+    validate_symbolic_int_sources(items=tensor_map.values(), dynamic_dims=dynamic_dims, context="tensor")
     return render_template(
         "cpu_module.cpp.j2",
         {

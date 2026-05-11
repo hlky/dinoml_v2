@@ -57,6 +57,27 @@ def shape_spec_dim_expr(dim: Any, dynamic_dims: Mapping[str, str]) -> str:
     raise ValueError(f"Unsupported shape expression op: {op!r}")
 
 
+def validate_symbolic_int_sources(
+    *,
+    items: Iterable[Mapping[str, Any]],
+    dynamic_dims: Mapping[str, str],
+    context: str,
+) -> None:
+    for item in items:
+        item_name = str(item.get("name", item.get("tensor", "<unknown>")))
+        for axis, dim in enumerate(item.get("shape_spec", item["shape"])):
+            if not isinstance(dim, Mapping) or dim.get("kind") != "int_expr":
+                continue
+            missing = sorted(
+                {str(leaf["name"]) for leaf in named_dim_leaves(dim) if str(leaf["name"]) not in dynamic_dims}
+            )
+            if missing:
+                raise NotImplementedError(
+                    "Symbolic integer shape expressions require direct runtime sources for all named dimensions "
+                    f"({context} entry {item_name!r}, axis {axis}, missing {missing})."
+                )
+
+
 def shape_dim_range(dim: Any) -> dict[str, int]:
     if isinstance(dim, int):
         return {"min": int(dim), "max": int(dim), "divisible_by": 1}

@@ -2178,6 +2178,30 @@ def test_shape_buffer_helpers_materialize_dynamic_runtime_dims():
     assert shape_buffer_context(tensor_map["tmp"]) == {"ident": "tmp", "rank": 2, "shape_literal": "4, 8"}
 
 
+def test_cuda_lowering_renders_sourceable_symbolic_int_expression_shape_checks():
+    batch = {"kind": "dim", "name": "batch", "min": 1, "max": 8}
+    expr = {"kind": "int_expr", "op": "add", "lhs": batch, "rhs": 1}
+    ir = {
+        "name": "cuda_symbolic_expr_shape",
+        "inputs": [{"name": "x", "tensor": "x", "shape": [8, 9], "shape_spec": [batch, expr], "dtype": "float32"}],
+        "outputs": [{"name": "y", "tensor": "y", "shape": [8, 9], "shape_spec": [batch, expr], "dtype": "float32"}],
+        "constants": [],
+        "tensors": [
+            {"name": "x", "shape": [8, 9], "shape_spec": [batch, expr], "dtype": "float32"},
+            {"name": "y", "shape": [8, 9], "shape_spec": [batch, expr], "dtype": "float32"},
+        ],
+        "nodes": [],
+        "metadata": {},
+    }
+
+    generated = render_cuda_module(ir, generated_kernels=[])
+
+    assert "Shape expression mismatch for x axis 1" in generated
+    assert "Shape expression mismatch for y axis 1" in generated
+    assert "(inputs[0].shape[0] + 1)" in generated
+    assert "(8 + 1)" not in generated
+
+
 def test_fused_elementwise_function_names_are_stable_and_clean():
     node = {
         "id": "n0_n1_n2_fused",

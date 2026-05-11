@@ -19,9 +19,12 @@ porting. It intentionally excludes the op inventory, which lives in
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into
   Python `Shape`/`TensorSpec` specs with interval-derived max-shapes plus Python
-  runtime validation/output-shape inference from named input dims. Missing
-  pieces: generated CPU/CUDA shape-buffer expression lowering, profiling
-  integration for symbolic expression outputs, and jagged dimensions. Bucketed
+  runtime validation/output-shape inference from named input dims. Sourceable
+  symbolic expressions now lower into generated CPU/CUDA shape-buffer math and
+  runtime expression checks; expression leaves must have direct runtime
+  `Dim` sources so lowering does not silently substitute max bounds. Missing
+  pieces: profiling integration for symbolic expression outputs, recovering
+  runtime values from expression-only dimensions, and jagged dimensions. Bucketed
   execution plans are now implemented for CUTLASS paths: runtime shape buckets
   expand into `dim_buckets` profile workloads, build execution plans, and feed
   guarded/static selections into the kernel manifest.
@@ -120,11 +123,11 @@ porting. It intentionally excludes the op inventory, which lives in
   cache keys covering ABI, dtype, layout, target, and toolchain.
 - Codegen templates: v1 templates cover dynamic dims, bucket guards, constants,
   profiling, multistream paths, and debug metadata. V2 templates now cover
-  runtime dynamic shape buffers, constants, minimal externally supplied CUDA
-  streams, generated fused elementwise, per-op debug source files, and source
-  manifests. Remaining gaps: lowering symbolic integer expressions into
-  generated CPU/CUDA shape buffers, bucket guards, profiler integration, richer
-  debug metadata, and source dedup by normalized codegen signature.
+  runtime dynamic shape buffers, sourceable symbolic integer expression shape
+  math, constants, minimal externally supplied CUDA streams, generated fused
+  elementwise, per-op debug source files, and source manifests. Remaining gaps:
+  bucket guards, symbolic-expression profiler integration, richer debug
+  metadata, and source dedup by normalized codegen signature.
 
 ## Future Large-Model Runtime Work
 

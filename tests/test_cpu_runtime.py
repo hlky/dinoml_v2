@@ -1917,6 +1917,7 @@ def test_cpu_artifact_runs_with_expression_output_shape(tmp_path):
     module = runtime.load(artifact.path)
     session = module.create_session()
     actual = session.run_numpy({"x": x, "z": z})["y"]
+    assert session.get_output_shape("y") == (2, 8)
     session.close()
     module.close()
     assert actual.shape == (2, 8)

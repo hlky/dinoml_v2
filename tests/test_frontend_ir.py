@@ -487,18 +487,30 @@ def test_symbolic_expression_metadata_exposes_dim_leaves_only():
     assert all("op" not in constraint for constraint in constraints)
 
 
-def test_compile_allows_symbolic_int_expression_shape_specs_for_generated_shape_buffers(tmp_path):
+def test_compile_allows_sourceable_symbolic_int_expression_shape_specs_for_generated_shape_buffers(tmp_path):
     batch = dml.Dim("batch", min=1, max=8)
     dim = dml.TensorSpec([batch]).shape_spec[0]
     expr = dml.ops.int_add(dim, 1)
 
-    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([expr, 16])}, name="symbolic_expr_compile_guard")
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([dim, expr])}, name="symbolic_expr_compile_guard")
 
-    assert spec.ir["inputs"][0]["shape_spec"][0]["kind"] == "int_expr"
+    assert spec.ir["inputs"][0]["shape_spec"][1]["kind"] == "int_expr"
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "symbolic_expr_cpu.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
-    assert "Shape expression mismatch for x axis 0" in generated
-    assert "(8 + 1)" in generated
+    assert "Shape expression mismatch for x axis 1" in generated
+    assert "(inputs[0].shape[0] + 1)" in generated
+    assert "(8 + 1)" not in generated
+
+
+def test_compile_rejects_unsourced_symbolic_int_expression_shape_specs(tmp_path):
+    batch = dml.Dim("batch", min=1, max=8)
+    dim = dml.TensorSpec([batch]).shape_spec[0]
+    expr = dml.ops.int_add(dim, 1)
+
+    spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([expr, 16])}, name="symbolic_expr_unsourced")
+
+    with pytest.raises(NotImplementedError, match="direct runtime sources.*batch"):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "symbolic_expr_unsourced_cpu.dinoml")
 
 
 class SoftmaxModule(dml.Module):

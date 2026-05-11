@@ -18,7 +18,9 @@ porting. It intentionally excludes the op inventory, which lives in
   The CUDA device-pointer frontend now also validates after each run that the
   reported output shape fits inside the caller-bound output buffer shape, so
   direct pointer callers get the same capacity error contract as materializing
-  NumPy/torch paths.
+  NumPy/torch paths. Python runtime materialization and caller-bound capacity
+  checks reject malformed negative reported dimensions before slicing or
+  reshaping output buffers.
   V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into
@@ -48,9 +50,10 @@ porting. It intentionally excludes the op inventory, which lives in
   pools, and profiling. V2 now has minimal per-session CUDA stream binding via
   `dino_session_set_stream` plus post-run output-shape reporting via
   `dino_session_get_output_shape` and Python-side capacity checks for
-  materialized and caller-bound output buffers, while the remaining allocator,
-  graph, pool, and profiling contracts should grow before op-specific runtime
-  assumptions spread.
+  materialized and caller-bound output buffers, including rejection of negative
+  reported dimensions, while the remaining allocator, graph, pool, and
+  profiling contracts should grow before op-specific runtime assumptions
+  spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry for target defaults, dtype validation, support

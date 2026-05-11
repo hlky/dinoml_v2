@@ -791,9 +791,12 @@ def _shape_nbytes(shape: object, dtype: str) -> int:
 
 
 def _shape_numel(shape: object) -> int:
+    dims = tuple(int(dim) for dim in shape)
     numel = 1
-    for dim in shape:
-        numel *= int(dim)
+    for dim in dims:
+        if dim < 0:
+            raise ValueError(f"Output shape {dims} has negative dimension {dim}")
+        numel *= dim
     return int(numel)
 
 

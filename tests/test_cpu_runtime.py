@@ -1100,6 +1100,10 @@ def test_cpu_runtime_materializes_reported_smaller_output_shape(tmp_path, monkey
         monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
         with pytest.raises(ValueError, match="has more elements than allocated"):
             session.run_numpy({"x": x})
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (-1, 4))
+        with pytest.raises(ValueError, match="negative dimension"):
+            session.run_numpy({"x": x})
     finally:
         session.close()
         module.close()
@@ -1165,6 +1169,16 @@ def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monk
             {"y": (2, 4)},
         )
     assert calls == ["run", "run", "run"]
+
+    monkeypatch.setattr(session, "get_output_shape", lambda _name: (-1, 4))
+    with pytest.raises(ValueError, match="negative dimension"):
+        session.run_device_pointers(
+            {"x": 0x1000},
+            {"y": 0x2000},
+            {"x": (2, 4)},
+            {"y": (2, 4)},
+        )
+    assert calls == ["run", "run", "run", "run"]
 
 
 def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):

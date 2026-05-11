@@ -5,13 +5,13 @@ Your job is to repeatedly improve the project while preserving architectural coh
 At the beginning of each loop:
 1. Review the current repository state.
 2. Read the agent steering docs under `agents/`, especially:
-- `agents/agent_operating_loop.md`
-- `agents/invariants.md`
-- `agents/current_focus.md`
-- `agents/blocked_or_deferred.md`
-- `agents/provider_contract.md`
-- `agents/op_admission.md`
-- `agents/next_candidate_work.md`
+- `agents/OPERATING_LOOP.md`
+- `agents/INVARIANTS.md`
+- `agents/CURRENT_FOCUS.md`
+- `agents/BLOCKED_OR_DEFERRED.md`
+- `agents/PROVIDER_CONTRACT.md`
+- `agents/OP_ADMISSION.md`
+- `agents/NEXT_CANDIDATE_WORK.md`
 Also read active plans under `agents/plans/`, especially:
 - `agents/plans/gemm_cutlass_plan.md`
 - `agents/plans/op_porting_checklist.md`
@@ -48,7 +48,7 @@ After implementing a task:
 1. Review the diff.
 2. Run targeted tests or explain why they could not be run.
 3. Update relevant docs/checklists.
-4. Commit and push the completed work with a clear commit message.
+4. Commit the completed work with a clear commit message, push to `main`.
 5. Summarize what changed, what was validated, and what remains.
 6. Update Codex Progress.
 7. Continue the loop unless blocked by quota, missing dependencies, unclear user direction, or failing tests that require human decision.

@@ -21,7 +21,7 @@ At the beginning of each work loop:
 
 Read these before planning work:
 
-- `agents/AGENT_OPERATING_LOOP.md`
+- `agents/OPERATING_LOOP.md`
 - `agents/INVARIANTS.md`
 - `agents/CURRENT_FOCUS.md`
 - `agents/BLOCKED_OR_DEFERRED.md`

@@ -4,7 +4,7 @@ This directory contains operating instructions, invariants, and active plans for
 
 ## Required reading at loop start
 
-- `AGENT_OPERATING_LOOP.md`
+- `OPERATING_LOOP.md`
 - `INVARIANTS.md`
 - `CURRENT_FOCUS.md`
 - `BLOCKED_OR_DEFERRED.md`

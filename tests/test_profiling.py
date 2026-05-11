@@ -490,6 +490,34 @@ def test_build_profile_workloads_expands_dim_buckets():
     }
 
 
+def test_build_profile_workloads_evaluates_sourceable_symbolic_expr_buckets():
+    tokens = dml.Dim("tokens", min=4, max=8, buckets=(4, 8))
+    token_dim = dml.TensorSpec([tokens]).shape_spec[0]
+    tokens_plus_one = dml.ops.int_add(token_dim, 1)
+    spec = dml.trace(
+        GemmModule("gemm_rcr"),
+        inputs={
+            "a": dml.TensorSpec([token_dim, 32], "float16"),
+            "b": dml.TensorSpec([tokens_plus_one, 32], "float16"),
+        },
+        name="profile_symbolic_expr_bucket_gemm",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+
+    workloads = build_profile_workloads(lowered, manifest)
+
+    assert len(workloads) == _cutlass_candidate_count("float16", op_name="gemm_rcr") * 5
+    assert {
+        (workload.m, workload.n, workload.output_shape, workload.shape_case_id, tuple(sorted(workload.dim_values.items())))
+        for workload in workloads
+    } == {
+        (4, 5, (4, 5), "bucket_tokens=4", (("tokens", 4),)),
+        (8, 9, (8, 9), "bucket_tokens=8", (("tokens", 8),)),
+    }
+    assert {tuple(sorted(workload.dim_sources.items())) for workload in workloads} == {(("tokens", "bucket"),)}
+
+
 def test_build_profile_workloads_overrides_disable_bucket_expansion():
     batch = dml.Dim("batch", min=1, max=4, buckets=(2, 4))
     tokens = dml.Dim("tokens", min=8, max=16, divisible_by=8, buckets=(8, 16))
@@ -1894,7 +1922,7 @@ def test_compile_profile_rejects_ambiguous_or_non_cuda_requests(tmp_path):
         compiler_mod.compile("spec", dml.Target("cpu"), tmp_path / "profiled_cpu.dinoml", profile=True)
 
 
-def test_compile_profile_rejects_symbolic_shape_expressions(tmp_path, monkeypatch):
+def test_compile_profile_rejects_unsourced_symbolic_shape_expressions(tmp_path, monkeypatch):
     expr = {
         "kind": "int_expr",
         "op": "div",
@@ -1907,12 +1935,12 @@ def test_compile_profile_rejects_symbolic_shape_expressions(tmp_path, monkeypatc
         return (
             {
                 "name": "profile_expr",
-                "inputs": [{"name": "x", "tensor": "x", "shape": [16, 8], "shape_spec": [{"kind": "dim", "name": "tokens", "min": 4, "max": 16}, 8], "dtype": "float32"}],
-                "outputs": [{"name": "y", "tensor": "y", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"}],
+                "inputs": [{"name": "x", "tensor": "x", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"}],
+                "outputs": [{"name": "y", "tensor": "y", "shape": [8, 8], "shape_spec": [8, 8], "dtype": "float32"}],
                 "constants": [],
                 "tensors": [
-                    {"name": "x", "shape": [16, 8], "shape_spec": [{"kind": "dim", "name": "tokens", "min": 4, "max": 16}, 8], "dtype": "float32"},
-                    {"name": "y", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"},
+                    {"name": "x", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"},
+                    {"name": "y", "shape": [8, 8], "shape_spec": [8, 8], "dtype": "float32"},
                 ],
                 "nodes": [],
                 "metadata": {},
@@ -1922,11 +1950,11 @@ def test_compile_profile_rejects_symbolic_shape_expressions(tmp_path, monkeypatc
 
     monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
 
-    with pytest.raises(NotImplementedError, match="shape expressions.*profiling"):
+    with pytest.raises(NotImplementedError, match="direct runtime sources.*tokens"):
         compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
 
 
-def test_profile_artifact_rejects_symbolic_shape_expressions(tmp_path):
+def test_profile_artifact_rejects_unsourced_symbolic_shape_expressions(tmp_path):
     expr = {
         "kind": "int_expr",
         "op": "div",
@@ -1958,7 +1986,7 @@ def test_profile_artifact_rejects_symbolic_shape_expressions(tmp_path):
         },
     )
 
-    with pytest.raises(NotImplementedError, match="shape expressions.*profiling"):
+    with pytest.raises(NotImplementedError, match="direct runtime sources.*tokens"):
         profile_artifact(artifact)
 
 
@@ -2007,7 +2035,7 @@ def test_profile_artifact_rejects_symbolic_shape_expressions_in_views(tmp_path):
         },
     )
 
-    with pytest.raises(NotImplementedError, match="view tensor 'y_view'"):
+    with pytest.raises(NotImplementedError, match="direct runtime sources.*view tensor 'y_view'.*tokens"):
         profile_artifact(artifact)
 
 

@@ -29,7 +29,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
-from dinoml.shapes import validate_runtime_shape
+from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
 
 
 PROFILE_REPORT_SCHEMA_VERSION = 7
@@ -207,12 +207,17 @@ def build_profile_workloads(
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
         for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
-            a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
-            b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
+            a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides, scenario.dim_values)
+            b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides, scenario.dim_values)
             bias_shape = (
-                _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides) if bias_name is not None else None
+                _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
+                if bias_name is not None
+                else None
             )
-            residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
+            residual_shapes = tuple(
+                _runtime_tensor_shape(name, tensor_map[name], scenario.overrides, scenario.dim_values)
+                for name in residual_names
+            )
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
             alignment_context = cutlass_gemm_profile_alignment_context(
@@ -295,9 +300,12 @@ def _append_bmm_profile_workloads(
     a_name, b_name = (str(name) for name in node["inputs"][:2])
     residual_names = tuple(str(node["inputs"][input_offset]) for input_offset, _name in enumerate(spec.inputs, start=2))
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
-        a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides)
-        b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides)
-        residual_shapes = tuple(_runtime_tensor_shape(name, tensor_map[name], scenario.overrides) for name in residual_names)
+        a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides, scenario.dim_values)
+        b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides, scenario.dim_values)
+        residual_shapes = tuple(
+            _runtime_tensor_shape(name, tensor_map[name], scenario.overrides, scenario.dim_values)
+            for name in residual_names
+        )
         batch_count, m, n, k, output_shape = bmm_problem(op_name, [a_shape, b_shape, *residual_shapes])
         alignment_context = cutlass_bmm_profile_alignment_context(
             op_name,
@@ -537,7 +545,7 @@ def profile_artifact(
     if manifest.get("target", {}).get("name") != "cuda":
         raise ValueError("Profiler runner currently supports CUDA artifacts only")
     graph = read_json(artifact_dir / manifest["files"]["graph"])
-    _reject_symbolic_int_expr_profile_graph(graph)
+    _validate_symbolic_int_expr_profile_graph(graph)
     kernel_manifest = read_json(artifact_dir / manifest["files"]["kernel_manifest"])
     codegen_plan = read_json(artifact_dir / manifest["files"]["kernel_codegen_plan"])
     workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
@@ -624,30 +632,41 @@ def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
     return Path(str(codegen_plan["support_cache_dir"])) / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.json"
 
 
-def _reject_symbolic_int_expr_profile_graph(graph: Mapping[str, Any]) -> None:
+def _validate_symbolic_int_expr_profile_graph(graph: Mapping[str, Any]) -> None:
+    sources = _profile_graph_direct_dim_sources(graph)
     for section in ("inputs", "outputs", "constants", "tensors"):
         for item in graph.get(section, []):
             for axis, dim in enumerate(item.get("shape_spec", item.get("shape", []))):
-                if _contains_symbolic_int_expr(dim):
+                missing = _missing_symbolic_int_sources(dim, sources)
+                if missing:
                     raise NotImplementedError(
-                        "Symbolic integer shape expressions in shape_spec are not supported by profiling yet "
-                        f"({section} entry {item.get('name', item.get('tensor'))!r}, axis {axis})."
+                        "Symbolic integer shape expressions in shape_spec require direct runtime sources for profiling "
+                        f"({section} entry {item.get('name', item.get('tensor'))!r}, axis {axis}, missing {missing})."
                     )
     for view in graph.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", []):
         for axis, dim in enumerate(view.get("shape_spec", view.get("shape", []))):
-            if _contains_symbolic_int_expr(dim):
+            missing = _missing_symbolic_int_sources(dim, sources)
+            if missing:
                 raise NotImplementedError(
-                    "Symbolic integer shape expressions in shape_spec are not supported by profiling yet "
-                    f"(view tensor {view.get('tensor')!r}, axis {axis})."
+                    "Symbolic integer shape expressions in shape_spec require direct runtime sources for profiling "
+                    f"(view tensor {view.get('tensor')!r}, axis {axis}, missing {missing})."
                 )
 
 
-def _contains_symbolic_int_expr(value: Any) -> bool:
-    if not isinstance(value, Mapping):
-        return False
-    if value.get("kind") == "int_expr":
-        return True
-    return any(_contains_symbolic_int_expr(child) for child in value.values())
+def _profile_graph_direct_dim_sources(graph: Mapping[str, Any]) -> set[str]:
+    sources: set[str] = set()
+    for section in ("inputs", "constants"):
+        for item in graph.get(section, []):
+            for dim in item.get("shape_spec", item.get("shape", [])):
+                if isinstance(dim, Mapping) and dim.get("kind") == "dim":
+                    sources.add(str(dim["name"]))
+    return sources
+
+
+def _missing_symbolic_int_sources(value: Any, sources: set[str]) -> list[str]:
+    if not isinstance(value, Mapping) or value.get("kind") != "int_expr":
+        return []
+    return sorted({str(leaf["name"]) for leaf in _named_dim_leaves(value) if str(leaf["name"]) not in sources})
 
 
 def _positive_int(value: int, name: str) -> int:
@@ -664,8 +683,11 @@ def _runtime_tensor_shape(
     name: str,
     tensor: Mapping[str, Any],
     overrides: Mapping[str, Sequence[int]],
+    dim_values: Mapping[str, int] | None = None,
 ) -> tuple[int, ...]:
     if name in overrides:
+        if dim_values:
+            return _validate_profile_runtime_shape(tensor, overrides[name], dim_values)
         return tuple(validate_runtime_shape(name, overrides[name], tensor))
     return tuple(int(dim) for dim in tensor["shape"])
 
@@ -725,29 +747,30 @@ def _profile_dim_values(
     for tensor_name in node.get("inputs", []):
         tensor = tensor_map[str(tensor_name)]
         for dim in tensor.get("shape_spec", tensor["shape"]):
-            if not isinstance(dim, Mapping):
-                continue
-            name = str(dim["name"])
-            buckets = tuple(int(bucket) for bucket in dim.get("buckets", ()))
-            signature = (
-                int(dim["min"]),
-                int(dim["max"]),
-                int(dim.get("divisible_by", 1)),
-                buckets,
-            )
-            info = by_name.setdefault(
-                name,
-                {
-                    "signature": signature,
-                    "values": buckets or (int(dim["max"]),),
-                    "source": "bucket" if buckets else "max",
-                },
-            )
-            if info["signature"] != signature:
-                raise ValueError(
-                    f"Inconsistent profiling bucket metadata for dynamic dimension {name!r}"
-                )
+            for leaf in _named_dim_leaves(dim):
+                _record_profile_dim_value(by_name, leaf)
     return {name: dict(info) for name, info in sorted(by_name.items())}
+
+
+def _record_profile_dim_value(by_name: dict[str, dict[str, Any]], dim: Mapping[str, Any]) -> None:
+    name = str(dim["name"])
+    buckets = tuple(int(bucket) for bucket in dim.get("buckets", ()))
+    signature = (
+        int(dim["min"]),
+        int(dim["max"]),
+        int(dim.get("divisible_by", 1)),
+        buckets,
+    )
+    info = by_name.setdefault(
+        name,
+        {
+            "signature": signature,
+            "values": buckets or (int(dim["max"]),),
+            "source": "bucket" if buckets else "max",
+        },
+    )
+    if info["signature"] != signature:
+        raise ValueError(f"Inconsistent profiling bucket metadata for dynamic dimension {name!r}")
 
 
 def _shape_from_dim_assignments(
@@ -756,11 +779,61 @@ def _shape_from_dim_assignments(
 ) -> tuple[int, ...]:
     shape = []
     for dim in tensor.get("shape_spec", tensor["shape"]):
-        if isinstance(dim, Mapping):
+        if isinstance(dim, Mapping) and dim.get("kind") == "dim":
             shape.append(int(assignments.get(str(dim["name"]), int(dim["max"]))))
+        elif isinstance(dim, Mapping) and dim.get("kind") == "int_expr":
+            shape.append(evaluate_symbolic_int(dim, assignments))
+        elif isinstance(dim, Mapping):
+            raise ValueError(f"Unsupported profiling shape dimension kind: {dim.get('kind')!r}")
         else:
             shape.append(int(dim))
-    return tuple(validate_runtime_shape(str(tensor["name"]), shape, tensor))
+    return _validate_profile_runtime_shape(tensor, shape, assignments)
+
+
+def _validate_profile_runtime_shape(
+    tensor: Mapping[str, Any],
+    shape: Sequence[int],
+    assignments: Mapping[str, int],
+) -> tuple[int, ...]:
+    actual_shape = tuple(int(dim) for dim in shape)
+    shape_spec = tensor.get("shape_spec", tensor["shape"])
+    if len(actual_shape) != len(shape_spec):
+        raise ValueError(f"{tensor['name']} rank mismatch: got {len(actual_shape)}, expected {len(shape_spec)}")
+    for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
+        if isinstance(dim_spec, int):
+            if actual != int(dim_spec):
+                raise ValueError(f"{tensor['name']} axis {axis} has dim {actual}, expected static dim {dim_spec}")
+            continue
+        if dim_spec.get("kind") == "int_expr":
+            expected = evaluate_symbolic_int(dim_spec, assignments)
+            if expected <= 0:
+                raise ValueError(f"{tensor['name']} axis {axis} symbolic expression evaluated to non-positive dim {expected}")
+            if actual != expected:
+                raise ValueError(f"{tensor['name']} axis {axis} has dim {actual}, expected symbolic dim {expected}")
+            continue
+        dim_name = str(dim_spec["name"])
+        expected = assignments.get(dim_name)
+        if expected is not None and actual != int(expected):
+            raise ValueError(f"{tensor['name']} axis {axis} ({dim_name}) has dim {actual}, expected assigned dim {expected}")
+        min_dim = int(dim_spec["min"])
+        max_dim = int(dim_spec["max"])
+        divisible_by = int(dim_spec.get("divisible_by", 1))
+        if actual < min_dim or actual > max_dim:
+            raise ValueError(f"{tensor['name']} axis {axis} ({dim_name}) has dim {actual}, expected [{min_dim}, {max_dim}]")
+        if actual % divisible_by != 0:
+            raise ValueError(f"{tensor['name']} axis {axis} ({dim_name}) has dim {actual}, expected divisible by {divisible_by}")
+    return actual_shape
+
+
+def _named_dim_leaves(dim: Any) -> list[Mapping[str, Any]]:
+    if not isinstance(dim, Mapping):
+        return []
+    kind = dim.get("kind")
+    if kind == "dim":
+        return [dim]
+    if kind == "int_expr":
+        return [*_named_dim_leaves(dim["lhs"]), *_named_dim_leaves(dim["rhs"])]
+    raise ValueError(f"Unsupported profiling shape dimension kind: {kind!r}")
 
 
 def _profile_result(

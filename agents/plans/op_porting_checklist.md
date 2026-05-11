@@ -72,8 +72,10 @@ These should be reusable building blocks. They generally map to `torch` or
   expression dimensions from named input `Dim` values. Sourceable expressions
   lower into generated CPU/CUDA shape-buffer math with runtime expression
   checks; lowering now rejects expressions whose named leaves lack direct
-  runtime sources instead of falling back to max bounds. Profiling integration
-  and expression-only source recovery remain future work.
+  runtime sources instead of falling back to max bounds. Profiling workload
+  expansion now evaluates sourceable expression dimensions from bucket/max
+  assignments and rejects unsourced expressions; expression-only source recovery
+  remains future work.
 - [x] Public math helpers: `tanh`, `cos`, `sin`, `sign`, `abs`, `log`, `log1p`,
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,

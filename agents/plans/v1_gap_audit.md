@@ -22,9 +22,11 @@ porting. It intentionally excludes the op inventory, which lives in
   runtime validation/output-shape inference from named input dims. Sourceable
   symbolic expressions now lower into generated CPU/CUDA shape-buffer math and
   runtime expression checks; expression leaves must have direct runtime
-  `Dim` sources so lowering does not silently substitute max bounds. Missing
-  pieces: profiling integration for symbolic expression outputs, recovering
-  runtime values from expression-only dimensions, and jagged dimensions. Bucketed
+  `Dim` sources so lowering does not silently substitute max bounds. Profiling
+  workload expansion now evaluates sourceable symbolic expressions from bucket
+  or max-shape assignments and rejects expression-only dimensions with a clear
+  source error. Missing pieces: recovering runtime values from expression-only
+  dimensions, full symbolic-expression execution-plan policy, and jagged dimensions. Bucketed
   execution plans are now implemented for CUTLASS paths: runtime shape buckets
   expand into `dim_buckets` profile workloads, build execution plans, and feed
   guarded/static selections into the kernel manifest.
@@ -126,8 +128,9 @@ porting. It intentionally excludes the op inventory, which lives in
   runtime dynamic shape buffers, sourceable symbolic integer expression shape
   math, constants, minimal externally supplied CUDA streams, generated fused
   elementwise, per-op debug source files, and source manifests. Remaining gaps:
-  bucket guards, symbolic-expression profiler integration, richer debug
-  metadata, and source dedup by normalized codegen signature.
+  bucket guards beyond current CUTLASS plan dispatch, expression-only profiling
+  source recovery, richer debug metadata, and source dedup by normalized codegen
+  signature.
 
 ## Future Large-Model Runtime Work
 

@@ -26,6 +26,7 @@ from dinoml.constant_sources import (
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
+from dinoml.lowering.shape_buffers import dynamic_dim_sources, validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
 
@@ -103,7 +104,7 @@ def _compile_with_profile(
         artifact_dir=artifact_dir,
         pass_manager=pass_manager,
     )
-    _validate_no_profile_shape_expressions(lowered_ir, target)
+    _validate_profile_shape_expressions(lowered_ir, target)
     initial_artifact = _build_artifact_from_lowered_ir(
         spec,
         target,
@@ -580,38 +581,26 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         )
 
 
-def _validate_no_profile_shape_expressions(ir: Mapping[str, Any], target: Target) -> None:
+def _validate_profile_shape_expressions(ir: Mapping[str, Any], target: Target) -> None:
     if target.name != "cuda":
         return
-    for section in ("inputs", "outputs", "constants", "tensors"):
-        _validate_no_profile_shape_expr_shape_specs(ir.get(section, []), target, section)
+    tensor_map = {str(tensor["name"]): tensor for tensor in ir.get("tensors", [])}
+    input_map = {str(item["tensor"]): idx for idx, item in enumerate(ir.get("inputs", []))}
+    output_map = {str(item["tensor"]): idx for idx, item in enumerate(ir.get("outputs", []))}
+    dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    validate_symbolic_int_sources(items=ir.get("inputs", []), dynamic_dims=dynamic_dims, context="input")
+    validate_symbolic_int_sources(items=ir.get("outputs", []), dynamic_dims=dynamic_dims, context="output")
+    validate_symbolic_int_sources(items=ir.get("constants", []), dynamic_dims=dynamic_dims, context="constant")
+    validate_symbolic_int_sources(items=tensor_map.values(), dynamic_dims=dynamic_dims, context="tensor")
     for view in ir.get("metadata", {}).get("memory_plan", {}).get("views", {}).get("views", []):
-        shape_spec = view.get("shape_spec", view.get("shape", []))
-        for axis, dim in enumerate(shape_spec):
-            if _contains_symbolic_int_expr(dim):
-                raise NotImplementedError(
-                    "Symbolic integer shape expressions in shape_spec are not supported by "
-                    "profiling yet "
-                    f"(view tensor {view.get('tensor')!r}, axis {axis})."
-                )
-
-
-def _validate_no_profile_shape_expr_shape_specs(items: Any, target: Target, section: str) -> None:
-    del target
-    for item in items:
-        shape_spec = item.get("shape_spec", item.get("shape", []))
-        for axis, dim in enumerate(shape_spec):
-            if _contains_symbolic_int_expr(dim):
-                raise NotImplementedError(
-                    "Symbolic integer shape expressions in shape_spec are not supported by "
-                    "profiling yet "
-                    f"({section} entry {item.get('name', item.get('tensor'))!r}, axis {axis})."
-                )
-
-
-def _contains_symbolic_int_expr(value: Any) -> bool:
-    if not isinstance(value, Mapping):
-        return False
-    if value.get("kind") == "int_expr":
-        return True
-    return any(_contains_symbolic_int_expr(child) for child in value.values())
+        validate_symbolic_int_sources(
+            items=[
+                {
+                    "name": str(view.get("tensor", "<unknown>")),
+                    "shape": view.get("shape", []),
+                    "shape_spec": view.get("shape_spec", view.get("shape", [])),
+                }
+            ],
+            dynamic_dims=dynamic_dims,
+            context="view",
+        )

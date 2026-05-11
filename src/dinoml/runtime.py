@@ -457,7 +457,9 @@ class Session:
                 ctypes.byref(ndim),
             )
         )
-        return tuple(int(shape[i]) for i in range(ndim.value))
+        reported_shape = tuple(int(shape[i]) for i in range(ndim.value))
+        _shape_numel(reported_shape)
+        return reported_shape
 
     def _materialize_output_array(self, output: np.ndarray, actual_shape: tuple[int, ...]) -> np.ndarray:
         actual_numel = _shape_numel(actual_shape)

@@ -2086,6 +2086,48 @@ def test_compile_profile_rejects_unsourced_symbolic_shape_expressions(tmp_path, 
         compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
 
 
+def test_compile_profile_rejects_output_only_symbolic_shape_sources(tmp_path, monkeypatch):
+    expr = {
+        "kind": "int_expr",
+        "op": "div",
+        "lhs": {"kind": "dim", "name": "tokens", "min": 4, "max": 16},
+        "rhs": 2,
+    }
+    output_tokens = {"kind": "dim", "name": "tokens", "min": 4, "max": 16}
+    build_calls = []
+
+    def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
+        del spec, target, artifact_dir, pass_manager
+        return (
+            {
+                "name": "profile_expr_output_only_source",
+                "inputs": [{"name": "x", "tensor": "x", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"}],
+                "outputs": [
+                    {"name": "y", "tensor": "y", "shape": [16, 8], "shape_spec": [output_tokens, 8], "dtype": "float32"}
+                ],
+                "constants": [],
+                "tensors": [
+                    {"name": "x", "shape": [8, 8], "shape_spec": [expr, 8], "dtype": "float32"},
+                    {"name": "y", "shape": [16, 8], "shape_spec": [output_tokens, 8], "dtype": "float32"},
+                ],
+                "nodes": [],
+                "metadata": {},
+            },
+            [],
+        )
+
+    def fake_build_artifact(*args, **kwargs):
+        build_calls.append((args, kwargs))
+        return compiler_mod.Artifact(tmp_path / "profiled.dinoml")
+
+    monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
+
+    with pytest.raises(NotImplementedError, match="direct runtime sources.*tokens"):
+        compiler_mod.compile("spec", dml.Target("cuda", arch="sm_86"), tmp_path / "profiled.dinoml", profile=True)
+    assert build_calls == []
+
+
 def test_profile_artifact_rejects_unsourced_symbolic_shape_expressions(tmp_path):
     expr = {
         "kind": "int_expr",

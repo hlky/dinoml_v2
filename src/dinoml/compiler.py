@@ -26,7 +26,7 @@ from dinoml.constant_sources import (
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
-from dinoml.lowering.shape_buffers import dynamic_dim_sources, validate_symbolic_int_sources
+from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
 
@@ -585,9 +585,7 @@ def _validate_profile_shape_expressions(ir: Mapping[str, Any], target: Target) -
     if target.name != "cuda":
         return
     tensor_map = {str(tensor["name"]): tensor for tensor in ir.get("tensors", [])}
-    input_map = {str(item["tensor"]): idx for idx, item in enumerate(ir.get("inputs", []))}
-    output_map = {str(item["tensor"]): idx for idx, item in enumerate(ir.get("outputs", []))}
-    dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    dynamic_dims = _profile_direct_dim_sources(ir)
     validate_symbolic_int_sources(items=ir.get("inputs", []), dynamic_dims=dynamic_dims, context="input")
     validate_symbolic_int_sources(items=ir.get("outputs", []), dynamic_dims=dynamic_dims, context="output")
     validate_symbolic_int_sources(items=ir.get("constants", []), dynamic_dims=dynamic_dims, context="constant")
@@ -604,3 +602,13 @@ def _validate_profile_shape_expressions(ir: Mapping[str, Any], target: Target) -
             dynamic_dims=dynamic_dims,
             context="view",
         )
+
+
+def _profile_direct_dim_sources(ir: Mapping[str, Any]) -> dict[str, str]:
+    sources: dict[str, str] = {}
+    for section in ("inputs", "constants"):
+        for item in ir.get(section, []):
+            for axis, dim in enumerate(item.get("shape_spec", item.get("shape", []))):
+                if isinstance(dim, Mapping) and dim.get("kind") == "dim":
+                    sources.setdefault(str(dim["name"]), f"{section}.{item.get('name', item.get('tensor'))}[{axis}]")
+    return sources

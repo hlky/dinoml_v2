@@ -634,6 +634,84 @@ def test_runtime_module_close_attempts_all_sessions_before_reporting_failure():
     assert not module._handle
 
 
+def test_runtime_module_init_frees_native_module_when_metadata_load_fails(tmp_path, monkeypatch):
+    artifact_dir = tmp_path / "metadata_load_failure.dinoml"
+    (artifact_dir / "lib").mkdir(parents=True)
+    write_json(
+        artifact_dir / "manifest.json",
+        {
+            "runtime_abi_version": RUNTIME_ABI_VERSION,
+            "target": {"name": "cpu"},
+            "constant_load_policy": "eager",
+            "files": {
+                "runtime_library": "lib/libdinoml_runtime.so",
+                "kernel_library": "lib/libdinoml_cuda_kernels.so",
+            },
+        },
+    )
+    (artifact_dir / "module.so").write_bytes(b"")
+    (artifact_dir / "lib" / "libdinoml_runtime.so").write_bytes(b"")
+    (artifact_dir / "lib" / "libdinoml_cuda_kernels.so").write_bytes(b"")
+
+    freed = []
+
+    class FakeSymbol:
+        def __init__(self, func):
+            self.func = func
+
+        def __call__(self, *args):
+            return self.func(*args)
+
+    class FakeRuntimeDll:
+        def __init__(self):
+            self.dino_abi_version = FakeSymbol(lambda: RUNTIME_ABI_VERSION)
+            self.dino_get_last_error = FakeSymbol(lambda: b"")
+
+    class FakeModuleDll:
+        def __init__(self):
+            self.dino_module_load = FakeSymbol(self._load)
+            self.dino_module_load_deferred = FakeSymbol(self._load)
+            self.dino_module_free = FakeSymbol(self._free)
+            self.dino_module_get_metadata_json = FakeSymbol(lambda handle: b"{not-json")
+            self.dino_module_load_constants = FakeSymbol(lambda *args: 0)
+            self.dino_module_unload_constants = FakeSymbol(lambda *args: 0)
+            self.dino_module_set_constant = FakeSymbol(lambda *args: 0)
+            self.dino_session_create = FakeSymbol(lambda *args: 0)
+            self.dino_session_destroy = FakeSymbol(lambda *args: 0)
+            self.dino_session_set_stream = FakeSymbol(lambda *args: 0)
+            self.dino_session_get_output_shape = FakeSymbol(lambda *args: 0)
+            self.dino_session_run = FakeSymbol(lambda *args: 0)
+
+        def _load(self, artifact_path, out_handle):
+            out_handle._obj.value = 0x1234
+            return 0
+
+        def _free(self, handle):
+            freed.append(handle.value)
+            return 0
+
+    runtime_dll = FakeRuntimeDll()
+    kernels_dll = SimpleNamespace()
+    module_dll = FakeModuleDll()
+
+    def fake_cdll(path, mode=0):
+        path = str(path)
+        if path.endswith("libdinoml_runtime.so"):
+            return runtime_dll
+        if path.endswith("libdinoml_cuda_kernels.so"):
+            return kernels_dll
+        if path.endswith("module.so"):
+            return module_dll
+        raise AssertionError(f"Unexpected library load: {path}")
+
+    monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
+
+    with pytest.raises(ValueError, match="Expecting property name"):
+        runtime.load(artifact_dir)
+
+    assert freed == [0x1234]
+
+
 def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
     session = object.__new__(runtime.Session)
     session._handle = ctypes.c_void_p()

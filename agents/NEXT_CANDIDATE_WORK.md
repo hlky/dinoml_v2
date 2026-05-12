@@ -23,4 +23,5 @@ This file should be updated after each major loop.
    stale-writer preservation, scoped CUDA helper/profiler error reporting, and
    generated CUDA session-create cleanup for partially allocated session-owned
    buffers, and Python session-close retry behavior when staging-buffer cleanup
-   or native session destruction fails.
+   or native session destruction fails, plus Python runtime-module construction
+   cleanup when metadata initialization fails after native load succeeds.

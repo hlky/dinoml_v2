@@ -92,13 +92,23 @@ class RuntimeModule:
         self._handle = ctypes.c_void_p()
         self._sessions: weakref.WeakSet[Session] = weakref.WeakSet()
         load_fn = self._dll.dino_module_load if load_constants else self._dll.dino_module_load_deferred
-        self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
-        metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
-        self.metadata = json.loads(metadata_raw.decode("utf-8"))
-        self._constant_loaded = {
-            str(constant["name"]): bool(load_constants)
-            for constant in self.metadata.get("constants", [])
-        }
+        try:
+            self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
+            metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
+            self.metadata = json.loads(metadata_raw.decode("utf-8"))
+            self._constant_loaded = {
+                str(constant["name"]): bool(load_constants)
+                for constant in self.metadata.get("constants", [])
+            }
+        except Exception as exc:
+            try:
+                self._close_partially_loaded_module()
+            except Exception as cleanup_exc:
+                if hasattr(exc, "add_note"):
+                    exc.add_note(
+                        f"Additionally failed to free partially loaded runtime module: {cleanup_exc}"
+                    )
+            raise
 
     def close(self) -> None:
         first_error = None
@@ -113,6 +123,12 @@ class RuntimeModule:
         if getattr(self, "_handle", None):
             self._check(self._dll.dino_module_free(self._handle))
             self._handle = ctypes.c_void_p()
+
+    def _close_partially_loaded_module(self) -> None:
+        if not getattr(self, "_handle", None):
+            return
+        self._check(self._dll.dino_module_free(self._handle))
+        self._handle = ctypes.c_void_p()
 
     def __del__(self) -> None:
         try:

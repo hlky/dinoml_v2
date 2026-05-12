@@ -775,6 +775,7 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
     module.metadata = {"constants": []}
+    module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",
         {
@@ -820,6 +821,49 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
         module.load_encoded_constants(names=["missing"])
 
 
+def test_runtime_load_encoded_constants_rejects_closed_module_before_materialize(monkeypatch, tmp_path):
+    def fail_open_gguf(path):
+        raise AssertionError("closed modules should fail before opening GGUF storage")
+
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=fail_open_gguf))
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    module._handle = ctypes.c_void_p()
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "weight",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": 8,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Unknown encoded constant"):
+        module.load_encoded_constants(names=["missing"])
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.load_encoded_constants(names=["weight"])
+
+
 def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize(monkeypatch, tmp_path):
     def fail_open_gguf(path):
         raise AssertionError("future policy should fail before opening GGUF storage")
@@ -829,6 +873,7 @@ def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
     module.metadata = {"constants": []}
+    module._handle = ctypes.c_void_p()
     write_json(
         tmp_path / "encoded_constants.json",
         {
@@ -891,6 +936,7 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
     module.metadata = {"constants": []}
+    module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",
         {

@@ -161,6 +161,7 @@ class RuntimeModule:
             )
             raise NotImplementedError(f"Encoded constant policy is not runtime-supported: {details}")
 
+        self._require_open()
         plan_names = {str(entry["name"]) for entry in plan}
         for constant_spec in self._encoded_constant_specs():
             if str(constant_spec["name"]) not in plan_names:

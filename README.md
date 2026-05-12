@@ -146,7 +146,11 @@ epilogues call the cached CUTLASS support library.
 Broader GEMM/BMM coverage should extend that library-backed path.
 
 Constants are loaded from `constants.bin` when a module is opened and can also be
-updated at runtime with `RuntimeModule.set_constant_numpy(...)`.
+updated at runtime with `RuntimeModule.set_constant_numpy(...)`. GGUF-backed
+encoded constants can be loaded explicitly with
+`RuntimeModule.load_encoded_constants(...)`; CUDA artifacts use libgguf CUDA
+dequantization when its optional Torch op is registered, then enter the same
+dense constant ABI.
 
 CPU kernels do not require OpenMP. CMake uses it when available on supported
 platforms, and it can be disabled with `-DDINOML_ENABLE_OPENMP=OFF`.

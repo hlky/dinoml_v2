@@ -1,4 +1,5 @@
 import shutil
+import struct
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -30,6 +31,24 @@ def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=No
 
 
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+
+
+def _gguf_string(value: str) -> bytes:
+    raw = value.encode("utf-8")
+    return struct.pack("<Q", len(raw)) + raw
+
+
+def _write_minimal_gguf_tensor(path, *, name, gguf_shape, qtype_value, payload):
+    data = bytearray()
+    data += b"GGUF"
+    data += struct.pack("<IQQ", 3, 1, 0)
+    data += _gguf_string(name)
+    data += struct.pack("<I", len(gguf_shape))
+    data += struct.pack("<" + "Q" * len(gguf_shape), *gguf_shape)
+    data += struct.pack("<IQ", int(qtype_value), 0)
+    data += b"\0" * ((32 - len(data) % 32) % 32)
+    data += payload
+    path.write_bytes(data)
 
 
 def test_cuda_artifact_runs_without_torch(tmp_path):
@@ -199,6 +218,94 @@ def test_cuda_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_ex
 
     np.testing.assert_allclose(loaded["y"], expected, atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(reloaded["y"], expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cuda_runtime_load_encoded_constants_from_real_libgguf_q4_0_uses_device_dequant(
+    monkeypatch, tmp_path
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    libgguf = pytest.importorskip("libgguf")
+    pytest.importorskip("libgguf.libgguf_cuda")
+    if not hasattr(torch.ops, "_C_gguf") or not hasattr(torch.ops._C_gguf, "dequantize"):
+        pytest.skip("libgguf CUDA dequantize op is not registered")
+
+    class EncodedRowsWeightModel(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([2, 32], dtype="float32")
+
+        def forward(self, x):
+            return dml.ops.output(x + self.weight, "y")
+
+    rows = np.linspace(-1.0, 1.0, 64, dtype=np.float32).reshape(2, 32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    expected_weight = libgguf.dequantize_rows(encoded, qtype, n_per_row=32).reshape(2, 32)
+    gguf_path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        gguf_path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 2),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+
+    source = dml.gguf_constant(
+        gguf_path,
+        "blk.0.ffn.weight",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        EncodedRowsWeightModel(),
+        inputs={"x": dml.TensorSpec([2, 32], "float32")},
+        constants={"weight": source},
+        name="encoded_weight_real_libgguf_cuda",
+    )
+    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "encoded_weight_real_libgguf_cuda.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    def fail_cpu_dequantize_rows(*args, **kwargs):
+        raise AssertionError("runtime load should use libgguf CUDA dequantize")
+
+    monkeypatch.setattr(libgguf, "dequantize_rows", fail_cpu_dequantize_rows)
+
+    x = np.linspace(-0.25, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        assert module.constant_load_state() == {"weight": False}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x})
+
+        module.load_encoded_constants(names=["weight"])
+        assert module.constant_load_state() == {"weight": True}
+        loaded = session.run_numpy({"x": x})
+
+        module.unload_constants()
+        assert module.constant_load_state() == {"weight": False}
+        module.load_constants_from_file()
+        assert module.constant_load_state() == {"weight": False}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x})
+
+        module.load_encoded_constants()
+        assert module.constant_load_state() == {"weight": True}
+        reloaded = session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(loaded["y"], x + expected_weight, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(reloaded["y"], x + expected_weight, atol=0.0, rtol=0.0)
 
 
 class DTypeFusedElementwise(dml.Module):

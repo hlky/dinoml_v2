@@ -281,17 +281,18 @@ porting. It intentionally excludes the op inventory, which lives in
   compile-time paths to absolute source paths, and runtime encoded loads
   resolve relative manifest paths against the artifact directory before opening
   GGUF storage.
-  The current environment does not yet have a runnable libgguf CUDA dequant
-  extension: `libgguf` imports from `/workspace/libgguf`, CUDA and Torch are
-  available, and `libgguf.libgguf_cuda` imports, but
-  `torch.ops._C_gguf.dequantize` is not registered, causing the upstream
-  libgguf CUDA dequant tests to skip. Do not wire a CUDA encoded-constant load
-  branch until `/workspace/libgguf` is built with the optional CUDA Torch
-  extension and a small real `libgguf.libgguf_cuda.dequantize(...)` call passes.
-  GPU dequant, direct fused dequant-in-kernel, and CPU/offload prefetch/eviction
-  residency modes remain future policies so the artifact contract can grow
-  without changing the dense ABI again. Next GGUF work is true load-time CUDA
-  dequantization, CPU/GPU offload, prefetch, and eviction policy execution.
+  CUDA artifacts now have a bounded load-time GGUF dequant branch: if
+  `libgguf.libgguf_cuda` is importable, Torch CUDA is available, and
+  `torch.ops._C_gguf.dequantize` is registered, selected supported packed rows
+  are dequantized into a CUDA tensor and copied into the generated module's
+  dense constant storage through `set_constant_device_pointer`. Missing CUDA
+  dequant support, CPU artifacts, and dense GGUF `F32`/`F16` storage preserve
+  the existing host materialization path. The current tested CUDA runtime slice
+  uses real libgguf `Q4_0` storage with manual runtime loading, unload/reload
+  state checks, and output correctness. The CUDA load is synchronous with
+  respect to the produced torch tensor and still uses the dense runtime ABI;
+  direct fused dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency
+  policies remain future work.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

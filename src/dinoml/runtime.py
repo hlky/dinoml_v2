@@ -41,6 +41,35 @@ class _DinoTensor(ctypes.Structure):
 DINO_DEVICE_CPU = 0
 DINO_DEVICE_CUDA = 1
 DINO_TENSOR_FLAG_CONTIGUOUS = 1
+CUDA_GGUF_DEQUANT_QTYPES = frozenset(
+    {
+        "Q1_0",
+        "Q4_0",
+        "Q4_1",
+        "Q5_0",
+        "Q5_1",
+        "Q8_0",
+        "Q2_K",
+        "Q3_K",
+        "Q4_K",
+        "Q5_K",
+        "Q6_K",
+        "IQ2_XXS",
+        "IQ2_XS",
+        "IQ2_S",
+        "IQ3_XXS",
+        "IQ3_S",
+        "IQ1_S",
+        "IQ1_M",
+        "IQ4_NL",
+        "IQ4_XS",
+        "TQ1_0",
+        "TQ2_0",
+        "MXFP4",
+        "NVFP4",
+        "BF16",
+    }
+)
 
 
 def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
@@ -210,12 +239,16 @@ class RuntimeModule:
             )
 
         self._require_open()
-        materialized_constants: list[tuple[str, np.ndarray]] = []
+        materialized_constants: list[tuple[str, object]] = []
         for constant_spec in self._encoded_constant_specs():
             if str(constant_spec["name"]) not in plan_names:
                 continue
             storage = constant_spec.get("storage")
             if not isinstance(storage, Mapping):
+                continue
+            materialized_cuda = self._materialize_encoded_constant_cuda_if_available(constant_spec, storage)
+            if materialized_cuda is not None:
+                materialized_constants.append((str(constant_spec["name"]), materialized_cuda))
                 continue
             source = constant_source_from_storage(storage, base_dir=self.artifact_dir)
             if source is None:
@@ -224,11 +257,94 @@ class RuntimeModule:
             materialized_constants.append((str(constant_spec["name"]), materialized.array))
         loaded_state_before_setters = dict(self._constant_loaded)
         try:
-            for name, array in materialized_constants:
-                self.set_constant_numpy(name, array)
+            for name, value in materialized_constants:
+                if _is_torch_cuda_tensor(value):
+                    self.set_constant_device_pointer(
+                        name,
+                        _torch_data_ptr(value),
+                        tuple(int(dim) for dim in value.shape),
+                        _torch_dtype_name(value),
+                    )
+                else:
+                    self.set_constant_numpy(name, value)
         except Exception:
             self._constant_loaded = loaded_state_before_setters
             raise
+
+    def _materialize_encoded_constant_cuda_if_available(
+        self,
+        constant_spec: Mapping[str, object],
+        storage: Mapping[str, object],
+    ) -> object | None:
+        if self.target_name != "cuda" or storage.get("kind") != "gguf":
+            return None
+        cuda_api = _libgguf_cuda_dequant_api()
+        if cuda_api is None:
+            return None
+        torch, libgguf, libgguf_cuda = cuda_api
+        dtype = normalize_dtype(str(constant_spec["dtype"]))
+        try:
+            torch_dtype = _torch_dtype(dtype, torch)
+        except ValueError:
+            return None
+        source = constant_source_from_storage(storage, base_dir=self.artifact_dir)
+        if source is None:
+            return None
+        expected_shape = tuple(int(dim) for dim in constant_spec.get("shape", []))
+        if source.logical_dtype is not None and normalize_dtype(source.logical_dtype) != dtype:
+            raise ValueError(
+                f"GGUF constant {source.tensor!r} has logical dtype {normalize_dtype(source.logical_dtype)}, "
+                f"expected {dtype}"
+            )
+        if source.shape is not None:
+            source_shape = tuple(int(dim) for dim in source.shape)
+            if source_shape != expected_shape:
+                raise ValueError(f"GGUF constant {source.tensor!r} has shape {source_shape}, expected {expected_shape}")
+
+        gguf = libgguf.open_gguf(source.path)
+        tensor_info = gguf.get_tensor(source.tensor)
+        if tensor_info is None:
+            raise ValueError(f"GGUF tensor not found: {source.tensor!r}")
+        gguf_shape = tuple(int(dim) for dim in getattr(tensor_info, "shape"))
+        logical_shape = tuple(reversed(gguf_shape)) if gguf_shape else ()
+        if logical_shape != expected_shape:
+            raise ValueError(
+                f"GGUF tensor {source.tensor!r} has logical shape {logical_shape}, expected {expected_shape} "
+                f"(stored GGUF shape {gguf_shape})"
+            )
+        qtype = int(getattr(tensor_info, "qtype_value"))
+        qtype_name = _gguf_qtype_name(libgguf, qtype, tensor_info)
+        if source.qtype is not None and source.qtype != qtype_name:
+            raise ValueError(f"GGUF constant {source.tensor!r} expected qtype {source.qtype}, observed {qtype_name}")
+        if qtype_name not in CUDA_GGUF_DEQUANT_QTYPES:
+            return None
+        raw = gguf.read_tensor_bytes(tensor_info)
+        if source.encoded_nbytes is not None and source.encoded_nbytes != len(raw):
+            raise ValueError(
+                f"GGUF constant {source.tensor!r} expected {source.encoded_nbytes} encoded bytes, "
+                f"observed {len(raw)}"
+            )
+        n_per_row = int(gguf_shape[0]) if gguf_shape else 1
+        if source.n_per_row is not None and source.n_per_row != n_per_row:
+            raise ValueError(
+                f"GGUF constant {source.tensor!r} expected n_per_row {source.n_per_row}, observed {n_per_row}"
+            )
+        n_rows = int(np.prod(expected_shape[:-1], dtype=np.int64)) if len(expected_shape) > 1 else 1
+        bytes_per_row = int(libgguf.row_size(qtype, n_per_row))
+        if bytes_per_row <= 0:
+            return None
+        expected_nbytes = n_rows * bytes_per_row
+        if len(raw) != expected_nbytes:
+            raise ValueError(
+                f"GGUF tensor encoded byte length {len(raw)} does not match expected "
+                f"{expected_nbytes} for shape {expected_shape}"
+            )
+        encoded_rows = np.frombuffer(raw, dtype=np.uint8).copy().reshape((n_rows, bytes_per_row))
+        encoded_cuda = torch.from_numpy(encoded_rows).to("cuda")
+        decoded = libgguf_cuda.dequantize(encoded_cuda, qtype, n_rows, n_per_row, torch_dtype)
+        decoded = decoded.reshape(expected_shape).contiguous()
+        torch.cuda.synchronize(decoded.device)
+        return decoded
 
     def _encoded_constant_plan_entry(self, constant_spec: Mapping[str, object]) -> dict[str, object]:
         storage = constant_spec.get("storage")
@@ -1124,6 +1240,31 @@ def _as_c_void_p(value: object | None) -> ctypes.c_void_p:
         return ctypes.c_void_p(int(value))
     except (TypeError, ValueError):
         return ctypes.cast(value, ctypes.c_void_p)
+
+
+def _libgguf_cuda_dequant_api() -> tuple[object, object, object] | None:
+    try:
+        import torch
+        import libgguf
+        import libgguf.libgguf_cuda as libgguf_cuda
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    if not hasattr(torch.ops, "_C_gguf") or not hasattr(torch.ops._C_gguf, "dequantize"):
+        return None
+    return torch, libgguf, libgguf_cuda
+
+
+def _gguf_qtype_name(libgguf: object, qtype: int, tensor_info: object) -> str:
+    try:
+        return libgguf.GGMLQuantizationType(qtype).name
+    except (AttributeError, ValueError):
+        return str(getattr(tensor_info, "qtype"))
+
+
+def _is_torch_cuda_tensor(value: object) -> bool:
+    return bool(hasattr(value, "data_ptr") and getattr(value, "is_cuda", False))
 
 
 def _torch_data_ptr(tensor: object) -> int:

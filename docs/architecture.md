@@ -106,6 +106,15 @@ Current dtype support matrix:
 | CUDA softmax/reductions | yes | no | no |
 | CUTLASS GEMM runtime | yes | yes | yes |
 
+GGUF-backed constants are artifact-visible encoded storage with dense logical
+dtypes. `RuntimeModule.load_encoded_constants()` keeps the dense runtime ABI:
+CPU artifacts and CUDA artifacts without a registered libgguf CUDA dequant op
+materialize through the existing host path, while CUDA artifacts with
+`torch.ops._C_gguf.dequantize` available can dequantize supported packed rows
+into a CUDA tensor and install the result via `set_constant_device_pointer`.
+This is load-time full dequantization, not a new residency mode or fused
+quantized-kernel contract.
+
 CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
 default for fp16/bf16; the op may opt into native storage accumulation through
 its lowering attributes or the development override used by benchmarks. CPU

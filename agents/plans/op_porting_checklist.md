@@ -467,9 +467,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] First runtime encoded constant materializer:
   `RuntimeModule.load_encoded_constants()` rehydrates GGUF storage metadata,
   dequantizes through the source layer, and updates constants through the
-  existing dense `set_constant_numpy` path. This is the initial
-  dequant-then-kernel hook before CUDA/offload-specific materialization, with
-  optional real-libgguf fixture coverage for quantized row materialization.
+  existing dense `set_constant_numpy` path for CPU artifacts and CUDA fallback
+  cases. CUDA artifacts now have a bounded load-time libgguf CUDA path: when
+  `libgguf.libgguf_cuda` is importable and
+  `torch.ops._C_gguf.dequantize` is registered, supported packed GGUF rows are
+  dequantized into a CUDA tensor and installed with
+  `set_constant_device_pointer`. The dense runtime ABI is unchanged, and
+  missing CUDA dequant support still falls back to host materialization.
 - [x] Encoded constant runtime load planning:
   `RuntimeModule.encoded_constant_load_plan()` reports encoded constant names,
   logical dtype/shape/size, storage provenance, policy support status, and
@@ -482,9 +486,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
 - [x] Manual runtime GGUF encoded constant loading:
   GGUF constants declared with `residency="manual_runtime_load"` are now
   runtime-supported for the existing dense
-  `dequantize_full_before_launch` materialization path. This still rehydrates
-  through the dense setter path rather than adding CPU/GPU prefetch, eviction,
-  CUDA dequantization, or direct in-kernel quantized RHS execution.
+  `dequantize_full_before_launch` materialization path. On CUDA, real libgguf
+  `Q4_0` storage has focused integration coverage for runtime load,
+  `constant_load_state()`, unload/reload, and output correctness through the
+  dense device-pointer setter. This still does not add CPU/GPU prefetch,
+  eviction, or direct in-kernel quantized RHS execution.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`
@@ -496,13 +502,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   foundation includes artifact-level eager/deferred constant-load policy plus
   runtime reload/unload primitives with malformed-file reload preflight,
   encoded-constant load planning, and selective dense-path rehydration,
-  including manual runtime loading of GGUF encoded constants. A dependency
-  probe found that `/workspace/libgguf` currently imports and CUDA/Torch are
-  available, but the optional CUDA Torch extension is not registered
-  (`torch.ops._C_gguf.dequantize` is absent), so v2 should not claim load-time
-  CUDA dequant support until that extension is built and a small real CUDA
-  dequant call passes. Remaining work is policy execution for selective CPU/GPU
-  residency, prefetch, eviction, and CUDA/GGUF dequantization.
+  including manual runtime loading of GGUF encoded constants and bounded
+  load-time CUDA dequantization through libgguf when the optional Torch CUDA
+  extension is registered. Remaining work is policy execution for selective
+  CPU/GPU residency, prefetch, eviction, and direct/fused CUDA GGUF
+  dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

@@ -16,11 +16,13 @@ This file should be updated after each major loop.
    constants for the correctness run; `examples/image_pooling.py` covers a small
    CPU pad/avg-pool/max-pool workflow; and
    `examples/candidate_selection.py` now covers a CPU `topk` plus
-   `batch_gather` selection workflow through CLI compile/inspect/validate.
-   Prefer the next small non-CUDA example or workflow around a different
-   recently ported primitive family, such as layout (`permute`/pixel shuffle) or
-   creation helpers (`arange`/`full`/`meshgrid`/`randn`), before returning to
-   provider internals.
+   `batch_gather` selection workflow through CLI compile/inspect/validate;
+   `examples/subpixel_upsample.py` now covers a CPU `pixel_shuffle` layout
+   workflow through the same CLI path. Prefer the next small non-CUDA example or
+   workflow around creation helpers (`arange`/`full`/`meshgrid`/`randn`) before
+   returning to provider internals, and avoid adding another layout example
+   unless it demonstrates a distinct user workflow such as layout round-tripping
+   or channel packing.
 3. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
    bounded in one loop: frontend contract, static shape/type limits, CPU
    reference behavior, generated lowering or an explicit bounded helper,

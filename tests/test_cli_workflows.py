@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = "examples/fused_elementwise.py"
 IMAGE_POOLING_EXAMPLE = "examples/image_pooling.py"
 CANDIDATE_SELECTION_EXAMPLE = "examples/candidate_selection.py"
+SUBPIXEL_UPSAMPLE_EXAMPLE = "examples/subpixel_upsample.py"
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -138,4 +139,33 @@ def test_cpu_cli_candidate_selection_example_compile_inspect_validate(tmp_path):
     )
     assert "top_scores: max_abs_diff=" in validate_result.stdout
     assert "selected_features: max_abs_diff=" in validate_result.stdout
+    assert "validation ok" in validate_result.stdout
+
+
+def test_cpu_cli_subpixel_upsample_example_compile_inspect_validate(tmp_path):
+    artifact = tmp_path / "subpixel_upsample_cpu.dinoml"
+
+    compile_result = _run_cli(
+        "compile", SUBPIXEL_UPSAMPLE_EXAMPLE, "--target", "cpu", "--out", str(artifact)
+    )
+    assert f"Wrote {artifact}" in compile_result.stdout
+    assert (artifact / "module.so").exists()
+
+    inspect_result = _run_cli("inspect", str(artifact))
+    summary = json.loads(inspect_result.stdout)
+    assert summary["name"] == "subpixel_upsample"
+    assert summary["target"]["name"] == "cpu"
+    assert summary["inputs"][0]["name"] == "x"
+    assert summary["outputs"][0]["name"] == "image"
+    assert [summary["outputs"][0]["shape"], summary["outputs"][0]["dtype"]] == [
+        [1, 2, 4, 6],
+        "float32",
+    ]
+    assert summary["nodes"] == 1
+    assert summary["constants"] == 0
+
+    validate_result = _run_cli(
+        "validate", str(artifact), "--against", SUBPIXEL_UPSAMPLE_EXAMPLE
+    )
+    assert "image: max_abs_diff=" in validate_result.stdout
     assert "validation ok" in validate_result.stdout

@@ -30,6 +30,13 @@ python -m dinoml.cli compile examples/candidate_selection.py --target cpu --out 
 python -m dinoml.cli validate build/candidate_selection_cpu.dinoml --against examples/candidate_selection.py
 ```
 
+For a compact layout workflow using existing sub-pixel rearrangement helpers:
+
+```sh
+python -m dinoml.cli compile examples/subpixel_upsample.py --target cpu --out build/subpixel_upsample_cpu.dinoml
+python -m dinoml.cli validate build/subpixel_upsample_cpu.dinoml --against examples/subpixel_upsample.py
+```
+
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
 `python -m dinoml.cli validate` explicitly loads artifact constants for the

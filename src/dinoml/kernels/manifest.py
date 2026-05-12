@@ -290,6 +290,14 @@ def _execution_plan_selection_supported(
     *,
     strict: bool,
 ) -> bool:
+    confidence = selection.get("confidence")
+    if isinstance(confidence, Mapping) and confidence.get("confident") is False:
+        if strict:
+            raise ValueError(
+                "Execution plan selected low-confidence CUTLASS candidate "
+                f"for {key[0]} {key[1]}; low-confidence selections are audit-only"
+            )
+        return False
     if kernel_library != "cutlass_bmm":
         return True
     split_k = int(selection.get("split_k", 1) or 1)

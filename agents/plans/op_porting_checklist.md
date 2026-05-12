@@ -382,7 +382,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   execution plans now require repeat-count, absolute/relative margin, and
   confidence-interval thresholds before emitting consumable static or guarded
   candidate selections; close/noisy winners stay in `low_confidence_selections`
-  for audit and fall back to manifest defaults at compile/run time.
+  for audit, execution-plan application rejects or skips explicit
+  low-confidence static/guarded payloads, and such cases fall back to manifest
+  defaults at compile/run time.
 - [x] Additive residual split-K coverage:
   `bias_add`, `bias_add_add`, `bias_add_relu`, and `bias_add_add_relu` CUTLASS
   residual epilogues now advertise v1-style split-K search metadata, use

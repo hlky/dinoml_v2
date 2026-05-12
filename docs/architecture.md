@@ -125,7 +125,9 @@ median-time candidate per profiled node/shape and exposes a static candidate
 overlay when all profiled shapes for an op/dtype/candidate-set agree and the
 winner clears repeat-count, absolute/relative margin, and confidence-interval
 thresholds over the runner-up. Low-confidence winners are retained in the report
-for audit but are not emitted as consumable execution-plan selections. GEMM profiling expands
+for audit but are not emitted as consumable execution-plan selections; applying
+an execution plan also rejects or skips explicit low-confidence selection
+payloads before they can change a CUTLASS manifest. GEMM profiling expands
 explicit `Dim.buckets` into concrete workload cases when no runtime override is
 supplied, and carries case IDs plus dynamic dim values through the report and
 execution plan. Manifest/profile candidate filters now carry a CUTLASS

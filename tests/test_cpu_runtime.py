@@ -1509,6 +1509,27 @@ def test_get_output_shape_rejects_negative_reported_dimensions():
         session.get_output_shape("y")
 
 
+def test_get_output_shape_rejects_rank_growth_between_abi_calls():
+    def fake_get_output_shape(_handle, _index, shape, ndim_ptr):
+        if shape is None:
+            ndim_ptr._obj.value = 1
+        else:
+            shape[0] = 4
+            ndim_ptr._obj.value = 2
+        return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        metadata={"outputs": [{"name": "y"}]},
+        _dll=SimpleNamespace(dino_session_get_output_shape=fake_get_output_shape),
+        _check=lambda code: code,
+    )
+
+    with pytest.raises(RuntimeError, match="exceeds shape buffer capacity"):
+        session.get_output_shape("y")
+
+
 def test_cpu_runtime_materializes_reported_smaller_output_shape(tmp_path, monkeypatch):
     spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 4], "float32")}, name="materialize_output_shape_cpu")
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "materialize_output_shape_cpu.dinoml")

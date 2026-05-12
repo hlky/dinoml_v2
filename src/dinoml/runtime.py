@@ -490,7 +490,9 @@ class Session:
                 ctypes.byref(ndim),
             )
         )
-        shape = (ctypes.c_int64 * ndim.value)()
+        shape_capacity = int(ndim.value)
+        shape = (ctypes.c_int64 * shape_capacity)()
+        ndim = ctypes.c_size_t(shape_capacity)
         self.module._check(
             self.module._dll.dino_session_get_output_shape(
                 self._handle,
@@ -499,6 +501,10 @@ class Session:
                 ctypes.byref(ndim),
             )
         )
+        if ndim.value > shape_capacity:
+            raise RuntimeError(
+                f"Reported output rank {ndim.value} exceeds shape buffer capacity {shape_capacity}"
+            )
         reported_shape = tuple(int(shape[i]) for i in range(ndim.value))
         _shape_numel(reported_shape)
         return reported_shape

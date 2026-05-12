@@ -20,7 +20,9 @@ porting. It intentionally excludes the op inventory, which lives in
   direct pointer callers get the same capacity error contract as materializing
   NumPy/torch paths. Python runtime output-shape queries, materialization, and
   caller-bound capacity checks reject malformed negative reported dimensions
-  before callers can use them for slicing or reshaping output buffers.
+  before callers can use them for slicing or reshaping output buffers, and the
+  Python getter now rejects ABI results whose second output-shape query reports a
+  larger rank than the shape buffer allocated from the first query.
   V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into

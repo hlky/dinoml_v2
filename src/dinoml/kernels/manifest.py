@@ -4,7 +4,11 @@ import hashlib
 from copy import deepcopy
 from typing import Any, Mapping, Sequence
 
-from dinoml.ir import canonical_json
+from dinoml.constant_sources import (
+    GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH,
+    GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD,
+)
+from dinoml.ir import canonical_json, dtype_nbytes
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.bmm import bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
@@ -32,6 +36,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     required = []
     seen = set()
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    constant_map = {constant["tensor"]: constant for constant in ir.get("constants", [])}
     cutlass_alignment_contexts = _cutlass_gemm_alignment_contexts(ir, target_name, tensor_map)
     cutlass_bmm_alignment_contexts = _cutlass_bmm_alignment_contexts(ir, target_name, tensor_map)
     for node in ir["nodes"]:
@@ -58,6 +63,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             kernel_symbol = str(selected_candidate["kernel_symbol"])
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
+            gguf_runtime_dequant = _gguf_runtime_dequant_gemm_rhs_plan(
+                node,
+                tensor_map=tensor_map,
+                constant_map=constant_map,
+                dtype=dtype,
+            )
         elif resolved.library == "cutlass_bmm":
             candidates = [dict(candidate) for candidate in cutlass_bmm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_bmm_candidate_set(str(node["op"]), dtype, target=target)
@@ -71,7 +82,14 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             kernel_symbol = str(selected_candidate["kernel_symbol"])
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
-        key = (node["op"], kernel_symbol)
+            gguf_runtime_dequant = None
+        else:
+            gguf_runtime_dequant = None
+        key = (
+            node["op"],
+            kernel_symbol,
+            canonical_json(gguf_runtime_dequant) if gguf_runtime_dequant is not None else "",
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -89,6 +107,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
+        if gguf_runtime_dequant is not None:
+            item["gguf_runtime_dequant"] = gguf_runtime_dequant
         if resolved.library in {"cutlass_gemm", "cutlass_bmm"}:
             alignment_context = (
                 cutlass_alignment_contexts.get((str(node["op"]), dtype))
@@ -112,6 +132,56 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         "profiler_strategy": "manifest_declared_not_yet_generated",
     }
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _gguf_runtime_dequant_gemm_rhs_plan(
+    node: Mapping[str, Any],
+    *,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    constant_map: Mapping[str, Mapping[str, Any]],
+    dtype: str,
+) -> dict[str, Any] | None:
+    inputs = list(node.get("inputs", ()))
+    if len(inputs) < 2:
+        return None
+    b_name = str(inputs[1])
+    constant = constant_map.get(b_name)
+    if constant is None:
+        return None
+    storage = constant.get("storage")
+    if not isinstance(storage, Mapping) or storage.get("kind") != "gguf":
+        return None
+    materialization = str(storage.get("materialization", "dequantize_full_before_launch"))
+    if materialization != GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH:
+        return None
+    residency = str(storage.get("residency", "eager_dense_device"))
+    shape = [int(dim) for dim in tensor_map[b_name].get("shape", constant.get("shape", []))]
+    logical_numel = 1
+    for dim in shape:
+        logical_numel *= int(dim)
+    return {
+        "schema_version": 1,
+        "kind": "gguf_runtime_dequant_before_cutlass_gemm",
+        "status": "planned_not_lowered",
+        "blocked_reason": "missing_native_libgguf_cuda_dequant_launcher_abi",
+        "node_id": str(node.get("id", "")),
+        "op": str(node.get("op", "")),
+        "operand": "b",
+        "constant": b_name,
+        "storage_kind": "gguf",
+        "materialization": materialization,
+        "residency": residency,
+        "supported_residency": GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD,
+        "qtype": storage.get("qtype"),
+        "qtype_value": storage.get("qtype_value"),
+        "encoded_nbytes": int(storage.get("encoded_nbytes", 0) or 0),
+        "n_per_row": storage.get("n_per_row"),
+        "logical_dtype": dtype,
+        "logical_shape": shape,
+        "scratch_nbytes": logical_numel * dtype_nbytes(dtype),
+        "dequant_scratch": "session_temporary_dense_rhs",
+        "dense_launcher": "existing_cutlass_gemm",
+    }
 
 
 def _cutlass_gemm_alignment_contexts(

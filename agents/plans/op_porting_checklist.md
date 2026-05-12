@@ -491,6 +491,15 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `constant_load_state()`, unload/reload, and output correctness through the
   dense device-pointer setter. This still does not add CPU/GPU prefetch,
   eviction, or direct in-kernel quantized RHS execution.
+- [x] GGUF dequantize-before-GEMM admission metadata:
+  CUTLASS GEMM manifests now mark a GGUF RHS constant declared with
+  `materialization="dequantize_on_gpu_before_launch"` using a
+  `gguf_runtime_dequant` planning record. The record carries the qtype,
+  encoded byte size, logical dense shape, session scratch byte size, and
+  intended handoff to the existing dense CUTLASS launcher. Generated CUDA GEMM
+  lowering rejects this plan with a native libgguf CUDA dequant launcher ABI
+  message, so the future policy cannot be confused with the existing load-time
+  dense dequant path.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`

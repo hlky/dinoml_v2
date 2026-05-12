@@ -114,6 +114,13 @@ materialize through the existing host path, while CUDA artifacts with
 into a CUDA tensor and install the result via `set_constant_device_pointer`.
 This is load-time full dequantization, not a new residency mode or fused
 quantized-kernel contract.
+For the future `dequantize_on_gpu_before_launch` GEMM path, CUTLASS kernel
+manifests now mark a GGUF-encoded constant used as the GEMM RHS with a
+`gguf_runtime_dequant` planning record, including the encoded qtype/size,
+logical dense shape, scratch-buffer size, and the fact that generated CUDA
+lowering is blocked until libgguf exposes a native CUDA dequant launcher ABI.
+Generated GEMM lowering rejects that planned policy explicitly instead of
+silently treating it as load-time dense materialization.
 
 CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
 default for fp16/bf16; the op may opt into native storage accumulation through

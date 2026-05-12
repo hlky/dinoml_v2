@@ -34,7 +34,15 @@ def render_launch(
     a_rank = len(tensor_map[a_name]["shape"])
     c_rank = len(tensor_map[c_name]["shape"])
     dtype = str(tensor_map[c_name]["dtype"])
-    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
+    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]))
+    runtime_dequant_plan = _gguf_runtime_dequant_plan(manifest_item, node_id=str(node["id"]))
+    if runtime_dequant_plan is not None:
+        raise NotImplementedError(
+            f"{op_name} CUDA lowering saw GGUF {runtime_dequant_plan['materialization']!r} "
+            f"for constant RHS {runtime_dequant_plan['constant']!r}, but generated GEMM lowering "
+            "does not yet have a native libgguf CUDA dequant launcher ABI for pre-GEMM scratch "
+            "materialization"
+        )
     symbol = (
         str(manifest_item["kernel_symbol"])
         if manifest_item is not None
@@ -438,24 +446,60 @@ def _cutlass_split_k_kernel_symbol(symbol: str) -> str:
     return f"dinoml_cutlass_splitk_{symbol[len(prefix):]}"
 
 
-def _manifest_kernel_item(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> Mapping[str, Any] | None:
+def _manifest_kernel_item(
+    kernel_manifest: Mapping[str, Any] | None,
+    op_name: str,
+    dtype: str,
+    *,
+    node_id: str | None = None,
+) -> Mapping[str, Any] | None:
     if kernel_manifest is None:
         return None
+    matches: list[Mapping[str, Any]] = []
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("op") != op_name or item.get("kernel_library") != "cutlass_gemm":
             continue
         selected_id = item.get("selected_candidate_id")
         for candidate in item.get("candidates", []):
             if candidate.get("candidate_id") == selected_id and candidate.get("dtype") == dtype:
-                return {
-                    **item,
-                    "kernel_symbol": str(item.get("kernel_symbol") or candidate.get("kernel_symbol")),
-                    "selected_candidate": candidate,
-                }
-        candidate_set = item.get("candidate_set", {})
-        if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
-            return item
-    return None
+                matches.append(
+                    {
+                        **item,
+                        "kernel_symbol": str(item.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                        "selected_candidate": candidate,
+                    }
+                )
+                break
+        else:
+            candidate_set = item.get("candidate_set", {})
+            if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
+                matches.append(item)
+    if not matches:
+        return None
+    if node_id is not None:
+        for item in matches:
+            runtime_dequant = item.get("gguf_runtime_dequant")
+            if isinstance(runtime_dequant, Mapping) and str(runtime_dequant.get("node_id", "")) == node_id:
+                return item
+        for item in matches:
+            if not isinstance(item.get("gguf_runtime_dequant"), Mapping):
+                return item
+    return matches[0]
+
+
+def _gguf_runtime_dequant_plan(
+    item: Mapping[str, Any] | None,
+    *,
+    node_id: str,
+) -> Mapping[str, Any] | None:
+    if not isinstance(item, Mapping):
+        return None
+    runtime_dequant = item.get("gguf_runtime_dequant")
+    if not isinstance(runtime_dequant, Mapping):
+        return None
+    if str(runtime_dequant.get("node_id", "")) != node_id:
+        return None
+    return runtime_dequant
 
 
 def _validate_static_contract(

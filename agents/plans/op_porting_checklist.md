@@ -148,9 +148,12 @@ epilogues where possible.
   rejecting negative reported dimensions. Generated modules still report output
   shapes from the caller-provided output descriptor by default, but now have a
   validated internal `metadata.output_shape_reports` hook that can make selected
-  CPU/CUDA outputs report from their generated shape buffers instead. Revisit
-  only after an op-local generated CPU/CUDA shape-buffer override/counting
-  fixture proves a value-dependent post-run count can update that report path.
+  CPU/CUDA outputs report from their generated shape buffers instead. CUDA
+  shape-buffer reports intentionally avoid host copies and synchronization when
+  an external stream is installed, leaving those reports unavailable for that
+  run rather than blocking the caller-provided stream. Revisit only after an
+  op-local generated CPU/CUDA shape-buffer override/counting fixture proves a
+  value-dependent post-run count can update that report path.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.

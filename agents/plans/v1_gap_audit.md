@@ -30,9 +30,12 @@ porting. It intentionally excludes the op inventory, which lives in
   CPU/CUDA modules can now opt selected outputs into internal
   `metadata.output_shape_reports` kind `shape_buffer`, causing post-run shape
   reports to come from the generated output shape buffer rather than the
-  caller-provided output descriptor. Missing pieces for value-dependent outputs
-  are op-local generated shape-buffer count updates and admission of a concrete
-  static-rank op contract.
+  caller-provided output descriptor. CUDA shape-buffer-backed reports preserve
+  the external-stream contract by copying device shape buffers to host and
+  synchronizing only on the internal stream path; externally streamed runs leave
+  those reports invalid instead of blocking the caller-provided stream. Missing
+  pieces for value-dependent outputs are op-local generated shape-buffer count
+  updates and admission of a concrete static-rank op contract.
   V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into

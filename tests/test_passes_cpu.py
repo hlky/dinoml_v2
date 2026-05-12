@@ -378,8 +378,31 @@ def test_generated_output_shape_reports_can_read_shape_buffers():
 
     assert "session->last_output_shapes[0] = session->shape_y;" in cpu_generated
     assert "session->last_output_shapes[0].resize(2);" in cuda_generated
-    assert "session->last_output_shapes[0].data(),\n      session->shape_y," in cuda_generated
+    assert "session->last_output_shapes[0].data(),\n        session->shape_y," in cuda_generated
     assert "cudaStreamSynchronize(session->stream)" in cuda_generated
+    assert "if (!session->external_stream) {\n    session->last_output_shapes[0].resize(2);" in cuda_generated
+    assert "session->last_output_shapes_valid[0] = true;\n  }" in cuda_generated
+
+
+def test_cuda_shape_buffer_output_reports_do_not_block_external_streams():
+    ir = _shape_view_ir()
+    ir["metadata"]["output_shape_reports"] = {
+        "version": 1,
+        "reports": [{"output": "y", "kind": "shape_buffer"}],
+    }
+    lowered, _ = PassManager().run(ir)
+
+    generated = render_cuda_module(lowered, generated_kernels=[])
+    run_body = generated.split("DINO_EXPORT int dino_session_run", 1)[1]
+    report_guard = "if (!session->external_stream) {\n    session->last_output_shapes[0].resize(2);"
+    report_guard_index = run_body.index(report_guard)
+    report_block = run_body[report_guard_index : run_body.index("  return 0;", report_guard_index)]
+
+    assert "cudaMemcpyAsync(\n        session->last_output_shapes[0].data()," in report_block
+    assert "cudaStreamSynchronize(session->stream)" in report_block
+    assert "session->last_output_shapes_valid[0] = true;" in report_block
+    assert "else" not in report_block
+    assert "cudaStreamSynchronize(session->stream);\n  }\n  session->last_output_shapes_valid[0] = true;" not in run_body
 
 
 def test_cuda_session_create_cleans_up_partial_session_on_allocation_failure():

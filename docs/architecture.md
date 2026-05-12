@@ -64,7 +64,12 @@ Artifacts can also mark selected public outputs with internal
 CPU/CUDA modules report the post-run shape from the output tensor's generated
 shape buffer instead of echoing the caller-provided output descriptor, giving
 future value-dependent kernels a visible place to publish their final runtime
-shape without adding public op surface.
+shape without adding public op surface. CUDA shape-buffer output reports are
+host-visible only for internally synchronized runs; when callers install an
+external stream, generated modules preserve the queued external-stream contract
+by not copying shape buffers back to the host or synchronizing that stream, so
+`dino_session_get_output_shape` remains unavailable for those shape-buffer
+reports after that run.
 
 `DinoTensor` ABI v7 also carries optional contiguous-layout metadata: host
 element strides, byte capacity, byte offset, device type, flags, and pointer
@@ -465,6 +470,9 @@ The next foundations to settle before broad op porting are:
   default `run_numpy` behavior when no external stream is set. Generated CPU and
   CUDA sessions also expose minimal post-run output-shape reporting through
   `dino_session_get_output_shape(DinoSession*, size_t, int64_t*, size_t*)`.
+  CUDA shape-buffer-backed output reports copy device shape buffers to host and
+  synchronize only on the internal stream path; externally supplied streams keep
+  queued/asynchronous semantics and leave those reports invalid for the run.
   Public Python session entry points reject closed sessions before C ABI calls.
   Runtime input/output maps reject unexpected tensor names before staging or
   direct pointer packing so stale caller bindings cannot be silently ignored,

@@ -1434,6 +1434,76 @@ def test_runtime_load_encoded_constants_materializes_all_before_setting(monkeypa
     assert captured == {}
 
 
+def test_runtime_load_encoded_constants_restores_loaded_state_when_setter_fails(monkeypatch, tmp_path):
+    values = {
+        "first": np.array([1.0, 2.0], dtype=np.float32),
+        "second": np.array([3.0, 4.0], dtype=np.float32),
+    }
+
+    def get_tensor(name):
+        return SimpleNamespace(name=name, qtype="F32", qtype_value=0, shape=(2,), data_offset=128)
+
+    fake_file = SimpleNamespace(
+        get_tensor=get_tensor,
+        read_tensor_bytes=lambda tensor: values[tensor.name].tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {
+        "constants": [
+            {"name": name, "shape": [2], "shape_spec": [2], "dtype": "float32"}
+            for name in values
+        ]
+    }
+    module._constant_loaded = {"first": False, "second": True}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": name,
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": value.nbytes,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": name,
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": value.nbytes,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                }
+                for name, value in values.items()
+            ],
+        },
+    )
+    captured = {}
+
+    def set_constant_numpy(name, value):
+        captured[name] = np.array(value, copy=True)
+        if name == "second":
+            raise RuntimeError("second setter failed")
+        module._mark_constant_loaded(name, True)
+
+    module.set_constant_numpy = set_constant_numpy
+
+    with pytest.raises(RuntimeError, match="second setter failed"):
+        module.load_encoded_constants()
+
+    assert list(captured) == ["first", "second"]
+    assert module.constant_load_state() == {"first": False, "second": True}
+
+
 def test_runtime_load_encoded_constants_rejects_closed_module_before_materialize(monkeypatch, tmp_path):
     def fail_open_gguf(path):
         raise AssertionError("closed modules should fail before opening GGUF storage")
@@ -1554,6 +1624,7 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
     module.metadata = {"constants": [{"name": "weight", "shape": [3, 2], "shape_spec": [3, 2], "dtype": "float32"}]}
+    module._constant_loaded = {"weight": False}
     module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",

@@ -214,8 +214,13 @@ class RuntimeModule:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
             materialized_constants.append((str(constant_spec["name"]), materialized.array))
-        for name, array in materialized_constants:
-            self.set_constant_numpy(name, array)
+        loaded_state_before_setters = dict(self._constant_loaded)
+        try:
+            for name, array in materialized_constants:
+                self.set_constant_numpy(name, array)
+        except Exception:
+            self._constant_loaded = loaded_state_before_setters
+            raise
 
     def _encoded_constant_plan_entry(self, constant_spec: Mapping[str, object]) -> dict[str, object]:
         storage = constant_spec.get("storage")

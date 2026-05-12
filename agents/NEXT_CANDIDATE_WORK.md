@@ -33,7 +33,8 @@ This file should be updated after each major loop.
    validated without CUDA CI. Recent hardening has already covered
    closed-session/module guards, output-shape ABI validation, dense constant
    reload preflight, encoded-constant pre-materialization before setter
-   application, encoded-constant runtime-metadata membership preflight, CUDA
+   application, encoded-constant runtime-metadata membership preflight,
+   encoded-constant loaded-state rollback when a setter fails, CUDA
    staging cleanup retries, CUDA constant setter error precedence, profile-cache
    malformed-entry rejection plus same-target stale-writer preservation, scoped
    CUDA helper/profiler error reporting, generated CUDA session-create cleanup

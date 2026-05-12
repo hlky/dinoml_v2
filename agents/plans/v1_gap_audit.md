@@ -67,8 +67,10 @@ porting. It intentionally excludes the op inventory, which lives in
   files cannot partially overwrite resident dense constants. Runtime
   encoded-constant loads now materialize all selected supported storage before
   calling constant setters, so a later GGUF read or validation failure does not
-  partially apply earlier selected constants. The
-  Python CUDA staging allocator now preserves the currently cached session
+  partially apply earlier selected constants. Encoded loads now also restore the
+  public per-constant loaded-state snapshot if a materialized constant setter
+  fails, so a failed selected load does not partially advance `_constant_loaded`.
+  The Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes
   each successfully freed cached pointer before continuing, so a later free

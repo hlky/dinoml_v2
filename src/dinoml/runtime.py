@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import weakref
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Dict, Mapping
@@ -89,6 +90,7 @@ class RuntimeModule:
         if self._runtime_dll.dino_abi_version() != RUNTIME_ABI_VERSION:
             raise RuntimeError("module.so ABI version does not match Python runtime")
         self._handle = ctypes.c_void_p()
+        self._sessions: weakref.WeakSet[Session] = weakref.WeakSet()
         load_fn = self._dll.dino_module_load if load_constants else self._dll.dino_module_load_deferred
         self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
         metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
@@ -99,6 +101,8 @@ class RuntimeModule:
         }
 
     def close(self) -> None:
+        for session in list(getattr(self, "_sessions", ())):
+            session.close()
         if getattr(self, "_handle", None):
             self._check(self._dll.dino_module_free(self._handle))
             self._handle = ctypes.c_void_p()
@@ -430,12 +434,18 @@ class Session:
         self._handle = ctypes.c_void_p()
         self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
         self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
+        sessions = getattr(self.module, "_sessions", None)
+        if sessions is not None:
+            sessions.add(self)
 
     def close(self) -> None:
         self._free_cuda_buffers()
         if getattr(self, "_handle", None):
             self.module._check(self.module._dll.dino_session_destroy(self._handle))
             self._handle = ctypes.c_void_p()
+        sessions = getattr(self.module, "_sessions", None)
+        if sessions is not None:
+            sessions.discard(self)
 
     def __del__(self) -> None:
         try:

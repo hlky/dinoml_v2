@@ -541,6 +541,22 @@ def test_session_methods_reject_closed_session(tmp_path):
     module.close()
 
 
+def test_closing_runtime_module_closes_live_sessions(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    artifact = dml.compile(build_spec(), dml.Target("cpu"), tmp_path / "module_closes_sessions_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+
+    module.close()
+
+    assert not session._handle
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.run_numpy({"x": np.zeros((2, 3, 4), dtype=np.float32)})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.set_stream(None)
+
+
 def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
     session = object.__new__(runtime.Session)
     session._handle = ctypes.c_void_p()

@@ -11,5 +11,6 @@ This file should be updated after each major loop.
 2. Add profile/report cache regression coverage for sourceable symbolic
    expression shapes once a real CUDA profiling fixture is cheap enough for CI.
 3. Continue improving runtime/container contracts for allocator, graph, pool,
-   profiling, lifecycle, and constant-state failure behavior before
-   op-specific assumptions spread.
+   profiling, and constant-state failure behavior before op-specific
+   assumptions spread; module-close now invalidates live Python sessions before
+   freeing the native module handle.

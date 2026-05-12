@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from dinoml import runtime
 
@@ -114,6 +115,42 @@ def test_cpu_quick_start_python_runtime_loop(tmp_path):
         module.close()
 
     np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-6, rtol=1e-6)
+    assert not session._handle
+    assert not module._handle
+
+
+def test_cpu_runtime_lifecycle_smoke_with_deferred_constants(tmp_path):
+    artifact = tmp_path / "runtime_smoke_cpu.dinoml"
+
+    compile_result = _run_cli(
+        "compile",
+        EXAMPLE,
+        "--target",
+        "cpu",
+        "--constant-load-policy",
+        "deferred",
+        "--out",
+        str(artifact),
+    )
+    assert f"Wrote {artifact}" in compile_result.stdout
+
+    example = _load_example_namespace(EXAMPLE)
+    inputs = example["build_validation_inputs"]()
+    expected = _fused_elementwise_numpy_reference(example, inputs)["y"]
+
+    module = runtime.load(artifact, load_constants=False)
+    session = module.create_session()
+    try:
+        with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
+            session.run_numpy(inputs)
+
+        module.load_constants_from_file()
+        actual = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual["y"], expected, atol=1e-6, rtol=1e-6)
     assert not session._handle
     assert not module._handle
 

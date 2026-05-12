@@ -157,6 +157,7 @@ platforms, and it can be disabled with `-DDINOML_ENABLE_OPENMP=OFF`.
 git submodule update --init --recursive
 pip install -e ".[dev]"
 python -m pytest -q
+python -m pytest -q tests/test_cli_workflows.py::test_cpu_runtime_lifecycle_smoke_with_deferred_constants
 python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda
 python tools/benchmark_softmax.py --suite quick --targets cpu,cuda
 python tools/benchmark_reductions.py --suite quick --targets cpu,cuda

@@ -32,7 +32,8 @@ This file should be updated after each major loop.
    and remaining allocator or constant-state failure behavior that can be
    validated without CUDA CI. Recent hardening has already covered
    closed-session/module guards, output-shape ABI validation, dense constant
-   reload preflight, encoded-constant pre-materialization before setter
+   reload preflight, dense constant setter loaded-state preservation when
+   native CPU/CUDA setters fail, encoded-constant pre-materialization before setter
    application, encoded-constant runtime-metadata membership preflight,
    encoded-constant loaded-state rollback when a setter fails, CUDA
    staging cleanup retries, CUDA constant setter error precedence, profile-cache

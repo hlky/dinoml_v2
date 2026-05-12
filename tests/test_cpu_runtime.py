@@ -1095,6 +1095,95 @@ def test_cuda_set_constant_numpy_preserves_setter_failure_when_temp_free_fails()
     assert module.constant_load_state() == {"scale": False}
 
 
+@pytest.mark.parametrize("previously_loaded", [False, True])
+def test_cpu_set_constant_numpy_failure_preserves_loaded_state(previously_loaded):
+    events = []
+
+    class FakeModuleDll:
+        def dino_module_set_constant(self, handle, name, tensor):
+            tensor_value = ctypes.cast(tensor, ctypes.POINTER(runtime._DinoTensor)).contents
+            events.append(("set", handle.value, name.decode("utf-8"), tensor_value.data))
+            return 19
+
+    def check(err):
+        if err == 19:
+            raise RuntimeError("set constant failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    module = object.__new__(runtime.RuntimeModule)
+    module.target_name = "cpu"
+    module._handle = ctypes.c_void_p(0x1234)
+    module._dll = FakeModuleDll()
+    module._check = check
+    module.metadata = {
+        "constants": [
+            {
+                "name": "scale",
+                "shape": [2],
+                "shape_spec": [2],
+                "dtype": "float32",
+            }
+        ]
+    }
+    module._constant_loaded = {"scale": previously_loaded}
+
+    with pytest.raises(RuntimeError, match="set constant failed"):
+        module.set_constant_numpy("scale", np.array([1.0, 2.0], dtype=np.float32))
+
+    assert len(events) == 1
+    assert events[0][0:2] == ("set", 0x1234)
+    assert module.constant_load_state() == {"scale": previously_loaded}
+
+
+@pytest.mark.parametrize("previously_loaded", [False, True])
+def test_cuda_set_constant_device_pointer_failure_preserves_loaded_state(previously_loaded):
+    events = []
+
+    class FakeModuleDll:
+        def dino_module_set_constant(self, handle, name, tensor):
+            tensor_value = ctypes.cast(tensor, ctypes.POINTER(runtime._DinoTensor)).contents
+            events.append(
+                (
+                    "set",
+                    handle.value,
+                    name.decode("utf-8"),
+                    tensor_value.data,
+                    tensor_value.device_type,
+                )
+            )
+            return 23
+
+    def check(err):
+        if err == 23:
+            raise RuntimeError("set constant failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    module = object.__new__(runtime.RuntimeModule)
+    module.target_name = "cuda"
+    module._handle = ctypes.c_void_p(0x5678)
+    module._dll = FakeModuleDll()
+    module._check = check
+    module.metadata = {
+        "constants": [
+            {
+                "name": "scale",
+                "shape": [2],
+                "shape_spec": [2],
+                "dtype": "float32",
+            }
+        ]
+    }
+    module._constant_loaded = {"scale": previously_loaded}
+
+    with pytest.raises(RuntimeError, match="set constant failed"):
+        module.set_constant_device_pointer("scale", 0x4000, (2,), "float32")
+
+    assert events == [("set", 0x5678, "scale", 0x4000, runtime.DINO_DEVICE_CUDA)]
+    assert module.constant_load_state() == {"scale": previously_loaded}
+
+
 def test_compile_rejects_unknown_constant_load_policy(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

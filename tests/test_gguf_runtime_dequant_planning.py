@@ -95,7 +95,7 @@ class MultiGemmRuntimeDequantEncodedRhs(dml.Module):
         return small_y, large_y
 
 
-def _encoded_rhs_spec(*, materialization):
+def _encoded_rhs_spec(*, materialization, residency="manual_runtime_load"):
     storage = {
         "kind": "gguf",
         "path": "weights.gguf",
@@ -108,7 +108,7 @@ def _encoded_rhs_spec(*, materialization):
         "gguf_shape": [32, 32],
         "n_per_row": 32,
         "materialization": materialization,
-        "residency": "manual_runtime_load",
+        "residency": residency,
     }
     return dml.trace(
         GemmRrrEncodedRhs(),
@@ -371,6 +371,21 @@ def test_cutlass_manifest_does_not_mark_existing_load_time_gguf_policy():
     assert "gguf_runtime_dequant" not in manifest["required_kernels"][0]
 
 
+def test_cutlass_manifest_skips_native_eager_load_for_runtime_dequant_constants():
+    spec = _mixed_dense_and_gguf_spec()
+    ir = _renderable_ir(spec)
+    manifest = build_kernel_manifest(ir, CUDA_TARGET)
+
+    source = render_cuda_module(ir, kernel_manifest=manifest)
+
+    assert source.count("module->const_dense_weight_loaded = true;") == 2
+    assert source.count("module->const_gguf_weight_loaded = true;") == 1
+    assert (
+        "// Constant gguf_weight uses explicit encoded runtime load; skip eager constants.bin materialization."
+        in source
+    )
+
+
 def test_cuda_gemm_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm():
     spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
     ir = _renderable_ir(spec)
@@ -487,6 +502,28 @@ def test_gguf_runtime_dequant_admission_accepts_bias_rhs_uses(spec_builder):
     manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
 
     _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cuda", arch="sm_86"), manifest)
+
+
+def test_gguf_runtime_dequant_requires_manual_runtime_load_residency():
+    spec = _encoded_rhs_spec(
+        materialization="dequantize_on_gpu_before_launch",
+        residency="eager_dense_device",
+    )
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    plan = manifest["required_kernels"][0]["gguf_runtime_dequant"]
+    assert plan["status"] == "planned_not_lowered"
+    assert plan["blocked_reason"] == "unsupported_gguf_runtime_dequant_residency:eager_dense_device"
+    assert plan["supported_residency"] == "manual_runtime_load"
+
+    with pytest.raises(
+        NotImplementedError,
+        match=(
+            r"with residency='manual_runtime_load'; unsupported uses: "
+            r"weight: unsupported_residency:eager_dense_device, gemm_rrr\[input 1\], no_supported_lowered_use"
+        ),
+    ):
+        _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cuda", arch="sm_86"), manifest)
 
 
 def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mixed_graph():

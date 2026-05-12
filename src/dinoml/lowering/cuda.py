@@ -393,6 +393,7 @@ def _constant_context(item: Mapping[str, Any], lowered_runtime_dequant_constants
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
         "encoded_runtime_dequant": encoded_runtime_dequant,
+        "autoload_from_constants_bin": not encoded_runtime_dequant,
     }
 
 

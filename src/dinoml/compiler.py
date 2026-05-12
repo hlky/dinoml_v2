@@ -515,7 +515,10 @@ def _validate_gguf_runtime_dequant_admission(
 ) -> None:
     tensor_map = {str(tensor["name"]): tensor for tensor in ir.get("tensors", [])}
     runtime_dequant_tensors = {
-        str(constant["tensor"]): str(constant["name"])
+        str(constant["tensor"]): {
+            "name": str(constant["name"]),
+            "residency": str(constant["storage"].get("residency", GGUF_RESIDENCY_EAGER_DENSE_DEVICE)),
+        }
         for constant in ir.get("constants", [])
         if isinstance(constant.get("storage"), Mapping)
         and str(constant["storage"].get("kind", "")) == "gguf"
@@ -543,18 +546,24 @@ def _validate_gguf_runtime_dequant_admission(
         output_name = str(node.get("outputs", [""])[0])
         output_dtype = str(tensor_map.get(output_name, {}).get("dtype", ""))
         for input_index, tensor_name in enumerate(inputs):
-            constant_name = runtime_dequant_tensors.get(tensor_name)
-            if constant_name is None:
+            constant_info = runtime_dequant_tensors.get(tensor_name)
+            if constant_info is None:
                 continue
+            constant_name = str(constant_info["name"])
+            residency = str(constant_info["residency"])
+            if residency != GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD:
+                unsupported_uses.setdefault(constant_name, []).append(f"unsupported_residency:{residency}")
             supported_use = (
                 input_index == 1
                 and str(node.get("op", "")) in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias"}
                 and output_dtype in {"float32", "float16"}
+                and residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
                 and constant_name in lowered_constants
             )
             if not supported_use:
                 unsupported_uses.setdefault(constant_name, []).append(f"{node.get('op')}[input {input_index}]")
-    for constant_name in sorted(runtime_dequant_tensors.values()):
+    for constant_info in runtime_dequant_tensors.values():
+        constant_name = str(constant_info["name"])
         if constant_name not in lowered_constants:
             unsupported_uses.setdefault(constant_name, []).append("no_supported_lowered_use")
     if not unsupported_uses:
@@ -565,7 +574,8 @@ def _validate_gguf_runtime_dequant_admission(
     )
     raise NotImplementedError(
         "GGUF materialization='dequantize_on_gpu_before_launch' is only supported as the CUDA "
-        "gemm_rrr/gemm_rcr or gemm_rrr_bias/gemm_rcr_bias RHS for float32/float16 output; unsupported uses: "
+        "gemm_rrr/gemm_rcr or gemm_rrr_bias/gemm_rcr_bias RHS for float32/float16 output "
+        "with residency='manual_runtime_load'; unsupported uses: "
         f"{details}"
     )
 

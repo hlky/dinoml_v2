@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened the bounded GGUF runtime-dequant -> CUTLASS GEMM contract so only
+  `residency="manual_runtime_load"` produces
+  `lowered_runtime_dequant_scratch`: manifest planning now marks non-manual
+  residency as `planned_not_lowered` with a clear residency-specific blocked
+  reason, compile admission now fails with an explicit manual-residency
+  requirement, and generated CUDA native load paths no longer eagerly materialize
+  lowered encoded runtime-dequant constants from `constants.bin`. Added focused
+  planning/generated-code coverage for the native eager-load skip plus a
+  non-manual-residency planning/admission regression. Follow-up to keep in view:
+  audit whether the non-Python native `dino_module_load_constants()` path should
+  also honor `manual_runtime_load` for older dense GGUF policies, since this
+  loop intentionally fixed the encoded runtime-dequant slice only.
 - Closed the shared-scratch coverage gap for bounded GGUF runtime-dequant
   CUTLASS GEMMs: added a focused planning/codegen regression proving that
   multiple lowered runtime-dequant GEMM nodes in one CUDA artifact share a

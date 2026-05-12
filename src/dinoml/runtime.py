@@ -237,6 +237,7 @@ class RuntimeModule:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
+        self._require_open()
         constant_spec = constants[name]
         array = array_to_storage(value, str(constant_spec["dtype"]))
         actual_shape = validate_runtime_shape(name, array.shape, constant_spec)
@@ -292,6 +293,7 @@ class RuntimeModule:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
+        self._require_open()
         if self.target_name != "cuda":
             raise RuntimeError("set_constant_device_pointer is only available for CUDA artifacts")
         constant_spec = constants[name]
@@ -315,6 +317,7 @@ class RuntimeModule:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
+        self._require_open()
         if not getattr(value, "is_cuda", False):
             raise ValueError(f"Constant {name} must be a CUDA tensor")
         if not value.is_contiguous():

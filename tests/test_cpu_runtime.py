@@ -535,6 +535,32 @@ def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
         module.unload_constants()
 
 
+def test_constant_setters_reject_closed_runtime_module_after_name_validation(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    spec = build_spec()
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "closed_module_constant_setters_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    module.close()
+
+    value = np.zeros_like(spec.constants["scale"])
+    tensor = SimpleNamespace(is_cuda=False, is_contiguous=lambda: False, shape=value.shape)
+
+    with pytest.raises(ValueError, match="Unknown constant: missing"):
+        module.set_constant_numpy("missing", value)
+    with pytest.raises(ValueError, match="Unknown constant: missing"):
+        module.set_constant_device_pointer("missing", 0x1000, value.shape, "float32")
+    with pytest.raises(ValueError, match="Unknown constant: missing"):
+        module.set_constant_torch("missing", tensor)
+
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.set_constant_numpy("scale", value)
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.set_constant_device_pointer("scale", 0x1000, value.shape, "float32")
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.set_constant_torch("scale", tensor)
+
+
 def test_set_constant_torch_rejects_unknown_constant_before_tensor_checks():
     module = object.__new__(runtime.RuntimeModule)
     module.metadata = {

@@ -4,6 +4,12 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the shared-scratch coverage gap for bounded GGUF runtime-dequant
+  CUTLASS GEMMs: added a focused planning/codegen regression proving that
+  multiple lowered runtime-dequant GEMM nodes in one CUDA artifact share a
+  single session-owned scratch allocation sized to the maximum dense RHS while
+  each launch still checks its own required scratch bytes before native
+  libgguf dequant.
 - Closed the reviewer follow-up gap in the bounded GGUF runtime-dequant CUDA
   coverage: added a focused `gemm_rcr_bias` float16 integration regression
   that uses real libgguf `Q4_0` RHS storage, dense bias, same-stream native
@@ -104,8 +110,8 @@ This file should be updated after each major loop.
 
 1. Stabilize the bounded GGUF RHS runtime-dequant slice around the new
    base-plus-bias GEMM coverage before adding more fused surface: likely next
-   work is float16 bias runtime/lifecycle regression depth or another bounded
-   robustness slice, not a broad epilogue expansion.
+   work is float16 bias/runtime lifecycle depth or another bounded robustness
+   slice, not a broad epilogue expansion.
 2. If the base-plus-bias slice stays stable, consider one additional narrow
    GGUF RHS GEMM epilogue with the same explicit encoded storage,
    same-stream native dequant, and session-owned scratch constraints. Keep

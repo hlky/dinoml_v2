@@ -188,8 +188,20 @@ class RuntimeModule:
             )
             raise NotImplementedError(f"Encoded constant policy is not runtime-supported: {details}")
 
-        self._require_open()
         plan_names = {str(entry["name"]) for entry in plan}
+        runtime_constant_names = {
+            str(constant["name"])
+            for constant in self.metadata.get("constants", [])
+            if isinstance(constant, Mapping) and "name" in constant
+        }
+        missing_runtime_constants = sorted(plan_names - runtime_constant_names)
+        if missing_runtime_constants:
+            raise ValueError(
+                "Encoded constant(s) are not runtime constants: "
+                + ", ".join(missing_runtime_constants)
+            )
+
+        self._require_open()
         materialized_constants: list[tuple[str, np.ndarray]] = []
         for constant_spec in self._encoded_constant_specs():
             if str(constant_spec["name"]) not in plan_names:

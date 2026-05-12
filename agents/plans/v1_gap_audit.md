@@ -61,11 +61,13 @@ porting. It intentionally excludes the op inventory, which lives in
   closes live Python sessions before freeing the native module, preventing stale
   session handles from retaining dangling module pointers. Dense constant
   operations still validate constant names and encoded-load policy before
-  enforcing open-module state, and generated modules preflight constant-file
-  extents before reload so truncated files cannot partially overwrite resident
-  dense constants. Runtime encoded-constant loads now materialize all selected
-  supported storage before calling constant setters, so a later GGUF read or
-  validation failure does not partially apply earlier selected constants. The
+  enforcing open-module state, and encoded loads now reject manifest entries
+  that are not present in runtime metadata before opening encoded storage.
+  Generated modules preflight constant-file extents before reload so truncated
+  files cannot partially overwrite resident dense constants. Runtime
+  encoded-constant loads now materialize all selected supported storage before
+  calling constant setters, so a later GGUF read or validation failure does not
+  partially apply earlier selected constants. The
   Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes
@@ -224,8 +226,9 @@ porting. It intentionally excludes the op inventory, which lives in
   dequantization before launch with eager dense device residency and manual
   runtime encoded-constant loading through
   `RuntimeModule.load_encoded_constants(names=...)`. Encoded loads validate the
-  selected names and declared policies before enforcing open-module lifecycle,
-  then reject closed modules before opening or materializing encoded storage.
+  selected names, declared policies, and runtime metadata membership before
+  enforcing open-module lifecycle, then reject closed modules before opening or
+  materializing encoded storage.
   GPU dequant, direct fused dequant-in-kernel, and CPU/offload prefetch/eviction
   residency modes remain future policies so the artifact contract can grow
   without changing the dense ABI again. Next GGUF work is true load-time CUDA

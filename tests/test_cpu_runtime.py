@@ -1272,7 +1272,13 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {"constants": []}
+    module.metadata = {
+        "constants": [
+            {"name": name, "shape": [2], "shape_spec": [2], "dtype": "float32"}
+            for name in values
+        ]
+    }
+    module._constant_loaded = {name: False for name in values}
     module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",
@@ -1302,7 +1308,11 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
         },
     )
     captured = {}
-    module.set_constant_numpy = lambda name, value: captured.setdefault(name, np.array(value, copy=True))
+    def set_constant_numpy(name, value):
+        captured.setdefault(name, np.array(value, copy=True))
+        module._mark_constant_loaded(name, True)
+
+    module.set_constant_numpy = set_constant_numpy
 
     plan = module.encoded_constant_load_plan(names=["bias"])
     assert plan[0]["policy"]["residency"] == "manual_runtime_load"
@@ -1313,10 +1323,52 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
 
     assert list(captured) == ["bias"]
     np.testing.assert_array_equal(captured["bias"], values["bias"])
+    assert module.constant_load_state() == {"weight": False, "bias": True}
     with pytest.raises(ValueError, match="Unknown encoded constant"):
         module.encoded_constant_load_plan(names=["missing"])
     with pytest.raises(ValueError, match="Unknown encoded constant"):
         module.load_encoded_constants(names=["missing"])
+
+
+def test_runtime_load_encoded_constants_rejects_missing_runtime_constant_before_materialize(monkeypatch, tmp_path):
+    def fail_open_gguf(path):
+        raise AssertionError("malformed encoded constants should fail before opening GGUF storage")
+
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=fail_open_gguf))
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": [{"name": "weight", "shape": [2], "shape_spec": [2], "dtype": "float32"}]}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "missing_runtime",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "missing_runtime",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": 8,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Encoded constant\\(s\\) are not runtime constants: missing_runtime"):
+        module.load_encoded_constants()
 
 
 def test_runtime_load_encoded_constants_materializes_all_before_setting(monkeypatch, tmp_path):
@@ -1339,7 +1391,12 @@ def test_runtime_load_encoded_constants_materializes_all_before_setting(monkeypa
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {"constants": []}
+    module.metadata = {
+        "constants": [
+            {"name": name, "shape": [2], "shape_spec": [2], "dtype": "float32"}
+            for name in values
+        ]
+    }
     module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",
@@ -1385,7 +1442,7 @@ def test_runtime_load_encoded_constants_rejects_closed_module_before_materialize
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {"constants": []}
+    module.metadata = {"constants": [{"name": "weight", "shape": [2], "shape_spec": [2], "dtype": "float32"}]}
     module._handle = ctypes.c_void_p()
     write_json(
         tmp_path / "encoded_constants.json",
@@ -1428,7 +1485,12 @@ def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {"constants": []}
+    module.metadata = {
+        "constants": [
+            {"name": "offload_weight", "shape": [2], "shape_spec": [2], "dtype": "float32"},
+            {"name": "weight", "shape": [2], "shape_spec": [2], "dtype": "float32"},
+        ]
+    }
     module._handle = ctypes.c_void_p()
     write_json(
         tmp_path / "encoded_constants.json",
@@ -1491,7 +1553,7 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
     module.artifact_dir = tmp_path
     module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {"constants": []}
+    module.metadata = {"constants": [{"name": "weight", "shape": [3, 2], "shape_spec": [3, 2], "dtype": "float32"}]}
     module._handle = ctypes.c_void_p(1)
     write_json(
         tmp_path / "encoded_constants.json",

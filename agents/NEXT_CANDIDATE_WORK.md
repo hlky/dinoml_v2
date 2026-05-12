@@ -33,15 +33,16 @@ This file should be updated after each major loop.
    validated without CUDA CI. Recent hardening has already covered
    closed-session/module guards, output-shape ABI validation, dense constant
    reload preflight, encoded-constant pre-materialization before setter
-   application, CUDA staging cleanup retries, CUDA constant setter error
-   precedence, profile-cache malformed-entry rejection plus same-target
-   stale-writer preservation, scoped CUDA helper/profiler error reporting,
-   generated CUDA session-create cleanup for partially allocated session-owned
-   buffers, Python session-close retry behavior when staging-buffer cleanup or
-   native session destruction fails, Python runtime-module construction cleanup
-   when metadata initialization fails after native load succeeds, the non-CUDA
-   CLI quick-start workflow, and CUDA-backed direct device-pointer reported
-   output-shape capacity rejection through a cheap identity artifact.
+   application, encoded-constant runtime-metadata membership preflight, CUDA
+   staging cleanup retries, CUDA constant setter error precedence, profile-cache
+   malformed-entry rejection plus same-target stale-writer preservation, scoped
+   CUDA helper/profiler error reporting, generated CUDA session-create cleanup
+   for partially allocated session-owned buffers, Python session-close retry
+   behavior when staging-buffer cleanup or native session destruction fails,
+   Python runtime-module construction cleanup when metadata initialization fails
+   after native load succeeds, the non-CUDA CLI quick-start workflow, and
+   CUDA-backed direct device-pointer reported output-shape capacity rejection
+   through a cheap identity artifact.
 4. Continue provider/profile artifact hardening only for concrete,
    project-visible failures or for CUDA-backed profile/report cache coverage
    that becomes cheap enough for CI. Recent coverage rejects or skips stale

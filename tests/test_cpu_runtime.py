@@ -688,6 +688,31 @@ def test_session_init_destroys_partial_native_handle_when_create_fails():
     assert module._sessions == set()
 
 
+def test_session_init_rejects_success_with_null_native_handle():
+    destroys = []
+
+    class FakeDll:
+        def dino_session_create(self, module_handle, out_handle):
+            return 0
+
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 0
+
+    module = SimpleNamespace(
+        _handle=ctypes.c_void_p(0x9999),
+        _dll=FakeDll(),
+        _sessions=set(),
+        _check=lambda err: None,
+    )
+
+    with pytest.raises(RuntimeError, match="Native session create returned a null session handle"):
+        runtime.Session(module)
+
+    assert destroys == []
+    assert module._sessions == set()
+
+
 def test_session_init_notes_cleanup_failure_when_tracking_fails():
     destroys = []
 
@@ -801,6 +826,86 @@ def test_runtime_module_init_frees_native_module_when_metadata_load_fails(tmp_pa
         runtime.load(artifact_dir)
 
     assert freed == [0x1234]
+
+
+def test_runtime_module_init_rejects_success_with_null_native_handle(tmp_path, monkeypatch):
+    artifact_dir = tmp_path / "null_module_handle.dinoml"
+    (artifact_dir / "lib").mkdir(parents=True)
+    write_json(
+        artifact_dir / "manifest.json",
+        {
+            "runtime_abi_version": RUNTIME_ABI_VERSION,
+            "target": {"name": "cpu"},
+            "constant_load_policy": "eager",
+            "files": {
+                "runtime_library": "lib/libdinoml_runtime.so",
+                "kernel_library": "lib/libdinoml_cuda_kernels.so",
+            },
+        },
+    )
+    (artifact_dir / "module.so").write_bytes(b"")
+    (artifact_dir / "lib" / "libdinoml_runtime.so").write_bytes(b"")
+    (artifact_dir / "lib" / "libdinoml_cuda_kernels.so").write_bytes(b"")
+
+    freed = []
+    metadata_reads = []
+
+    class FakeSymbol:
+        def __init__(self, func):
+            self.func = func
+
+        def __call__(self, *args):
+            return self.func(*args)
+
+    class FakeRuntimeDll:
+        def __init__(self):
+            self.dino_abi_version = FakeSymbol(lambda: RUNTIME_ABI_VERSION)
+            self.dino_get_last_error = FakeSymbol(lambda: b"")
+
+    class FakeModuleDll:
+        def __init__(self):
+            self.dino_module_load = FakeSymbol(lambda artifact_path, out_handle: 0)
+            self.dino_module_load_deferred = FakeSymbol(lambda artifact_path, out_handle: 0)
+            self.dino_module_free = FakeSymbol(self._free)
+            self.dino_module_get_metadata_json = FakeSymbol(self._metadata)
+            self.dino_module_load_constants = FakeSymbol(lambda *args: 0)
+            self.dino_module_unload_constants = FakeSymbol(lambda *args: 0)
+            self.dino_module_set_constant = FakeSymbol(lambda *args: 0)
+            self.dino_session_create = FakeSymbol(lambda *args: 0)
+            self.dino_session_destroy = FakeSymbol(lambda *args: 0)
+            self.dino_session_set_stream = FakeSymbol(lambda *args: 0)
+            self.dino_session_get_output_shape = FakeSymbol(lambda *args: 0)
+            self.dino_session_run = FakeSymbol(lambda *args: 0)
+
+        def _free(self, handle):
+            freed.append(handle.value)
+            return 0
+
+        def _metadata(self, handle):
+            metadata_reads.append(handle.value)
+            return b"{}"
+
+    runtime_dll = FakeRuntimeDll()
+    kernels_dll = SimpleNamespace()
+    module_dll = FakeModuleDll()
+
+    def fake_cdll(path, mode=0):
+        path = str(path)
+        if path.endswith("libdinoml_runtime.so"):
+            return runtime_dll
+        if path.endswith("libdinoml_cuda_kernels.so"):
+            return kernels_dll
+        if path.endswith("module.so"):
+            return module_dll
+        raise AssertionError(f"Unexpected library load: {path}")
+
+    monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
+
+    with pytest.raises(RuntimeError, match="Native module load returned a null module handle"):
+        runtime.load(artifact_dir)
+
+    assert freed == []
+    assert metadata_reads == []
 
 
 def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():

@@ -461,7 +461,9 @@ The next foundations to settle before broad op porting are:
   and closing a Python runtime module closes its live sessions before releasing
   the native module handle. Python runtime module construction also releases a
   native module handle if metadata initialization fails after native load
-  succeeds. Generated sessions invalidate their previous post-run output-shape
+  succeeds, and rejects null native module/session handles returned from
+  otherwise successful load/create calls. Generated sessions invalidate their
+  previous post-run output-shape
   report immediately after rejecting a null session and before input/output
   pointer, count, tensor-validation, or constant-readiness failures, so an
   attempted native run cannot leave stale shape metadata visible through

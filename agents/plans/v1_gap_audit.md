@@ -92,7 +92,9 @@ porting. It intentionally excludes the op inventory, which lives in
   creation now destroys partially initialized sessions when session-owned
   workspace, temporary, or shape-buffer allocation/copy fails before returning a
   handle to Python. Python runtime module construction now also frees a native
-  module handle when metadata initialization fails after native load succeeds.
+  module handle when metadata initialization fails after native load succeeds,
+  and rejects successful native module/session creation calls that return null
+  handles before metadata reads or session tracking can proceed.
   Generated CPU/CUDA sessions now clear the previous output-shape report
   immediately after rejecting a null session and before each native run's
   input/output pointer, count, validation, and constant-readiness checks, so

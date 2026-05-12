@@ -94,6 +94,8 @@ class RuntimeModule:
         load_fn = self._dll.dino_module_load if load_constants else self._dll.dino_module_load_deferred
         try:
             self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
+            if not self._handle:
+                raise RuntimeError("Native module load returned a null module handle")
             metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
             self.metadata = json.loads(metadata_raw.decode("utf-8"))
             self._constant_loaded = {
@@ -500,6 +502,8 @@ class Session:
         self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
         try:
             self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
+            if not self._handle:
+                raise RuntimeError("Native session create returned a null session handle")
             sessions = getattr(self.module, "_sessions", None)
             if sessions is not None:
                 sessions.add(self)

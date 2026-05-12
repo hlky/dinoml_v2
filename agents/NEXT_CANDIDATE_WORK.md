@@ -74,7 +74,9 @@ This file should be updated after each major loop.
    `run_torch`, and direct CUDA pointer execution before staging or pointer
    packing. Python session construction now also destroys a partially created
    native session handle if native creation or session tracking fails before
-   returning a usable `Session`.
+   returning a usable `Session`, and Python module/session construction rejects
+   successful native load/create calls that return null handles before metadata
+   reads or session tracking can proceed.
 5. Continue provider/profile artifact hardening only for concrete,
    project-visible failures or for CUDA-backed profile/report cache coverage
    that becomes cheap enough for CI. Recent coverage rejects or skips stale

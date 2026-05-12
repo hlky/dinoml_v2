@@ -93,7 +93,10 @@ porting. It intentionally excludes the op inventory, which lives in
   CUDA pointer packing, so stale caller bindings cannot be silently ignored.
   `run_torch` also rejects mixed CUDA-device inputs before allocating outputs
   or packing raw pointers, keeping the Python device contract explicit instead
-  of relying on generated CUDA failure modes.
+  of relying on generated CUDA failure modes. Zero-input CUDA artifacts now
+  fail through an explicit `run_torch` contract error before output allocation
+  because the torch frontend infers output placement from caller-provided CUDA
+  inputs.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

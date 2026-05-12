@@ -706,6 +706,8 @@ class Session:
         _require_mapping(inputs, "run_torch inputs")
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
+        if not input_specs:
+            raise ValueError("run_torch requires at least one CUDA input tensor to infer the output device")
         input_names = [str(spec["name"]) for spec in input_specs]
         _reject_unexpected_keys(inputs, input_names, "input")
         input_shapes = {}

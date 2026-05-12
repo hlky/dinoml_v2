@@ -82,6 +82,9 @@ This file should be updated after each major loop.
    before staging, tensor validation, or pointer packing. `run_torch` now also
    rejects mixed CUDA-device inputs before output allocation or raw pointer
    packing, making the single-device execution assumption project-visible.
+   Zero-input CUDA artifacts now fail through an explicit `run_torch` contract
+   error before output allocation, because the torch frontend infers output
+   placement from caller-provided CUDA inputs.
    Python session
    construction now also destroys a partially created native session handle if
    native creation or session tracking fails before returning a usable

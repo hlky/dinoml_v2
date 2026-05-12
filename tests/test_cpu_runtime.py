@@ -2535,6 +2535,22 @@ def test_run_torch_rejects_non_mapping_inputs_before_tensor_checks():
         session.run_torch([("x", object())])
 
 
+def test_run_torch_rejects_zero_input_artifacts_before_output_allocation():
+    pytest.importorskip("torch")
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [],
+            "outputs": [{"name": "y", "shape": [2, 4], "shape_spec": [2, 4], "dtype": "float32"}],
+        },
+    )
+
+    with pytest.raises(ValueError, match="run_torch requires at least one CUDA input tensor to infer the output device"):
+        session.run_torch({})
+
+
 def test_run_torch_rejects_mixed_cuda_devices_before_output_allocation():
     torch = pytest.importorskip("torch")
     session = object.__new__(runtime.Session)

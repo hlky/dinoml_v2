@@ -22,6 +22,14 @@ python -m dinoml.cli compile examples/image_pooling.py --target cpu --out build/
 python -m dinoml.cli validate build/image_pooling_cpu.dinoml --against examples/image_pooling.py
 ```
 
+For a small CPU selection workflow using existing `topk` and `batch_gather`
+helpers:
+
+```sh
+python -m dinoml.cli compile examples/candidate_selection.py --target cpu --out build/candidate_selection_cpu.dinoml
+python -m dinoml.cli validate build/candidate_selection_cpu.dinoml --against examples/candidate_selection.py
+```
+
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
 `python -m dinoml.cli validate` explicitly loads artifact constants for the

@@ -13,11 +13,14 @@ This file should be updated after each major loop.
    provider/profile hardening. The CPU CLI quick-start path has regression
    coverage for `compile`, `inspect`, runtime loading, and `validate`; deferred
    constants have CLI compile plus validation coverage that explicitly loads
-   constants for the correctness run; and `examples/image_pooling.py` now
-   covers a small CPU pad/avg-pool/max-pool workflow through CLI
-   compile/inspect/validate. Prefer the next small non-CUDA example or workflow
-   around a different recently ported primitive family, such as selection,
-   layout, or creation helpers, before returning to provider internals.
+   constants for the correctness run; `examples/image_pooling.py` covers a small
+   CPU pad/avg-pool/max-pool workflow; and
+   `examples/candidate_selection.py` now covers a CPU `topk` plus
+   `batch_gather` selection workflow through CLI compile/inspect/validate.
+   Prefer the next small non-CUDA example or workflow around a different
+   recently ported primitive family, such as layout (`permute`/pixel shuffle) or
+   creation helpers (`arange`/`full`/`meshgrid`/`randn`), before returning to
+   provider internals.
 3. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
    bounded in one loop: frontend contract, static shape/type limits, CPU
    reference behavior, generated lowering or an explicit bounded helper,

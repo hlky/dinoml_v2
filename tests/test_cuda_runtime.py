@@ -1492,6 +1492,81 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_fails_when_launcher_cleared_after
         module.close()
 
 
+def test_cuda_cutlass_gemm_rcr_runtime_dequant_fails_when_launcher_cleared_after_load_float16(
+    tmp_path, monkeypatch
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    libgguf = pytest.importorskip("libgguf")
+    pytest.importorskip("libgguf.libgguf_cuda")
+    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
+        pytest.skip("libgguf CUDA native dequantize ABI is not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class EncodedRhsGemm(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([24, 32], dtype="float16")
+
+        def forward(self, x):
+            return dml.ops.output(dml.ops.gemm_rcr(x, self.weight), "y")
+
+    rows = np.linspace(-1.5, 1.5, 24 * 32, dtype=np.float32).reshape(24, 32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    gguf_path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        gguf_path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 24),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+    source = dml.gguf_constant(
+        gguf_path,
+        "blk.0.ffn.weight",
+        logical_dtype="float16",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+        materialization="dequantize_on_gpu_before_launch",
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        EncodedRhsGemm(),
+        inputs={"x": dml.TensorSpec([2, 32], "float16")},
+        constants={"weight": source},
+        name="gguf_q4_0_runtime_dequant_gemm_rcr_launcher_missing_float16",
+    )
+    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "gguf_q4_0_runtime_dequant_gemm_rcr_launcher_missing_float16.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    x = np.linspace(-0.5, 0.75, 64, dtype=np.float16).reshape(2, 32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        module.load_encoded_constants(["weight"])
+        assert module.constant_load_state() == {"weight": True}
+        module.set_libgguf_cuda_dequantize_rows_on_stream(ctypes.c_void_p(0))
+        with pytest.raises(
+            RuntimeError,
+            match="gemm_rcr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher",
+        ):
+            session.run_numpy({"x": x})
+        assert module.constant_load_state() == {"weight": True}
+    finally:
+        session.close()
+        module.close()
+
+
 class VectorizableScalarChain(dml.Module):
     def forward(self, x):
         y = dml.ops.mul(x, 1.125)

@@ -39,8 +39,8 @@ This file should be updated after each major loop.
   unloaded, and closing a deferred artifact with a live session restores the
   initial deferred residency state on reopen instead of leaking prior runtime
   loads across module instances.
-- Added focused CUDA runtime-dequant coverage for the remaining native-launcher
-  failure mode on the bounded GGUF `gemm_rrr` path: `load_encoded_constants(["weight"])`
+- Added focused CUDA runtime-dequant coverage for remaining native-launcher failure modes on
+  bounded GGUF `gemm_rrr`/`gemm_rcr` paths: `load_encoded_constants(["weight"])`
   now has a regression test proving that a missing
   `libgguf_cuda_dequantize_rows_on_stream` symbol fails before encoded bytes are
   installed and leaves `constant_load_state()` untouched, and `session.run_*`
@@ -90,10 +90,8 @@ This file should be updated after each major loop.
 1. Consider the next narrow GGUF RHS GEMM extension only after the base
    `gemm_rrr`/`gemm_rcr` path remains stable: likely one base GEMM epilogue,
    still using explicit encoded storage, same-stream native dequant, and
-   session-owned scratch. If the next parity slice is tiny, mirror the
-   `gemm_rcr` missing-launcher failure regression in float16; otherwise keep
-   `bfloat16`, scheduler/offload/prefetch/eviction, and in-kernel quantized
-   GEMM out of scope until separately admitted.
+   session-owned scratch. Keep `bfloat16`, scheduler/offload/prefetch/eviction,
+   and in-kernel quantized GEMM out of scope until separately admitted.
 2. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

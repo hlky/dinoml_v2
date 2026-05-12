@@ -2,6 +2,17 @@
 
 ## Primary Focus
 
+- Human-directed feature target: make a bounded dequantize-to-GEMM runtime path
+  work for GGUF-backed CUDA weights. The useful product shape is: keep the
+  runtime-loaded weight in quantized/encoded form, dequantize on GPU just before
+  the GEMM that consumes it, use either a session-owned max-size dequantized
+  scratch buffer or a clearly scoped temporary allocation, then launch the
+  existing dense GEMM path from that dequantized buffer.
+- Keep this artifact-visible and narrow. Prefer a single CUDA GEMM family/weight
+  operand slice with an explicit GGUF materialization/residency policy over a
+  hidden general offload scheduler. Do not add prefetch/eviction/grouped
+  offload policy until the scratch/dequant/GEMM contract is proven.
+
 ## Near-Term Priorities
 
 - GGUF constant storage, runtime materialization, CUDA dequant, and future offload policy.

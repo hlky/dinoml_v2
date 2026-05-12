@@ -135,7 +135,16 @@ epilogues where possible.
   arange/randn dtypes remain out of scope for this bounded port. `cast` is
   available for dense tensor casts across the current generated
   float/reduced-precision/bool storage surface.
-- [ ] Selection/scatter: remaining bounded gap is `masked_select`.
+- [ ] Selection/scatter: remaining bounded gap is `masked_select`; a bounded
+  admission pass deferred it rather than adding public surface. PyTorch/v1
+  behavior returns a rank-1 tensor whose runtime length is the count of true
+  mask elements after input/mask broadcasting, including a valid zero-length
+  result for all-false masks. V2 currently cannot honestly express that
+  contract because `Shape`/`Dim` and runtime shape validation require positive
+  dimensions, and generated modules report output shapes from the
+  caller-provided output descriptor rather than a value-dependent op-updated
+  count. Revisit only after zero-length/value-dependent output-shape metadata
+  and generated CPU/CUDA shape-report overrides have a focused test fixture.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.

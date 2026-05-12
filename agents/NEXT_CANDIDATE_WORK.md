@@ -15,11 +15,17 @@ This file should be updated after each major loop.
    `meshgrid`) feeding fused elementwise math through the same CPU
    compile/inspect/validate path. Prefer the next non-example project priority
    rather than adding more showcase files by default.
-2. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
-   bounded in one loop: frontend contract, static shape/type limits, CPU
-   reference behavior, generated lowering or an explicit bounded helper,
-   targeted tests, and checklist updates. If any part is unclear, leave it
-   deferred instead of adding frontend-only surface.
+2. Leave `masked_select` queued, not admitted. A bounded admission pass found
+   that the op's PyTorch/v1 contract has a value-dependent 1D output length in
+   `[0, broadcast_numel]`, including all-false masks that produce shape `[0]`.
+   V2 `Shape`/`Dim` and runtime shape validation currently require every shape
+   dimension to be positive, and generated modules report output shapes from the
+   caller-provided output descriptor rather than an op-updated runtime count.
+   Do not add frontend-only `masked_select` or a contract that lies with
+   `min=1`. The smallest admissible next slice is a design/test fixture for
+   zero-length, value-dependent output dims plus generated CPU/CUDA output-shape
+   override reporting; after that, re-run OP_ADMISSION for a static-rank,
+   dense, broadcastable bool-mask `masked_select` helper.
 3. Continue runtime/container stabilization, but rotate to a fresh concrete
    contract rather than repeatedly polishing the same CUDA helper paths. Useful
    bounded targets include graph-mode lifecycle, runtime pool/session ownership,

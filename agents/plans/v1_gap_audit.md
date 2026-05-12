@@ -90,7 +90,8 @@ porting. It intentionally excludes the op inventory, which lives in
   only dense constants plus GGUF constants that still declare eager dense
   residency; `manual_runtime_load` GGUF constants stay explicitly unloaded
   across open/unload/reload until `load_encoded_constants(...)` materializes
-  them.
+  them. CUDA runtime coverage now exercises that mixed dense/manual encoded
+  reload contract in addition to the existing CPU regression coverage.
   The Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes

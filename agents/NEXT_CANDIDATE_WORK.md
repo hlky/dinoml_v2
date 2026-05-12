@@ -4,11 +4,11 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Tightened mixed constant residency transitions so module open and
-  `load_constants_from_file()` now reload dense constants without implicitly
-  re-binding `manual_runtime_load` GGUF weights from `constants.bin`; those
-  encoded constants stay explicitly unloaded until
-  `load_encoded_constants(...)`.
+- Added CUDA regression coverage for mixed dense plus
+  `manual_runtime_load` GGUF constant residency so module open,
+  `unload_constants()`, and `load_constants_from_file()` still require an
+  explicit `load_encoded_constants(...)` step before manual encoded weights are
+  runnable again.
 
 ## Ranked Backlog
 

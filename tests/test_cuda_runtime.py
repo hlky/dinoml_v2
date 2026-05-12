@@ -1,6 +1,7 @@
 import shutil
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -9,7 +10,7 @@ import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import read_json
+from dinoml.ir import ModelSpec, read_json
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
 
@@ -122,6 +123,82 @@ def test_runtime_constant_update_changes_output(tmp_path):
         session.close()
         module.close()
     np.testing.assert_allclose(deferred["y"], execute_cpu(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
+
+
+def test_cuda_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_explicit_encoded_load(
+    monkeypatch, tmp_path
+):
+    class MixedConstantModel(dml.Module):
+        def __init__(self):
+            self.dense_bias = dml.Parameter([2], dtype="float32")
+            self.manual_bias = dml.Parameter([2], dtype="float32")
+
+        def forward(self, x):
+            return dml.ops.output(x + self.dense_bias + self.manual_bias, "y")
+
+    dense_bias = np.array([0.5, -0.25], dtype=np.float32)
+    manual_bias = np.array([1.5, 2.0], dtype=np.float32)
+    x = np.array([3.0, -1.0], dtype=np.float32)
+
+    tensor_info = SimpleNamespace(
+        name="blk.0.ffn.manual_bias",
+        qtype="F32",
+        qtype_value=0,
+        shape=(2,),
+        data_offset=64,
+    )
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: manual_bias.tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    source = dml.gguf_constant(
+        tmp_path / "weights.gguf",
+        "blk.0.ffn.manual_bias",
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        MixedConstantModel(),
+        inputs={"x": dml.TensorSpec([2], "float32")},
+        constants={"dense_bias": dense_bias, "manual_bias": source},
+        name="mixed_dense_manual_encoded_constants_cuda",
+    )
+    spec = ModelSpec(
+        name=traced.name,
+        ir=traced.ir,
+        constants={"dense_bias": dense_bias, "manual_bias": source},
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "mixed_dense_manual_encoded_constants_cuda.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    expected = x + dense_bias + manual_bias
+    try:
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": False}
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            session.run_numpy({"x": x})
+
+        module.load_encoded_constants(names=["manual_bias"])
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+        loaded = session.run_numpy({"x": x})
+
+        module.unload_constants()
+        assert module.constant_load_state() == {"dense_bias": False, "manual_bias": False}
+        module.load_constants_from_file()
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": False}
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            session.run_numpy({"x": x})
+
+        module.load_encoded_constants(names=["manual_bias"])
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+        reloaded = session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(loaded["y"], expected, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(reloaded["y"], expected, atol=1e-5, rtol=1e-5)
 
 
 class DTypeFusedElementwise(dml.Module):

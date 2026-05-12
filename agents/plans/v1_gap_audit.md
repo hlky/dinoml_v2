@@ -61,11 +61,14 @@ porting. It intentionally excludes the op inventory, which lives in
   operations still validate constant names and encoded-load policy before
   enforcing open-module state, and generated modules preflight constant-file
   extents before reload so truncated files cannot partially overwrite resident
-  dense constants. The Python CUDA staging allocator now preserves the currently
-  cached session buffer when a grow allocation fails, so allocator failures do
-  not leave the session tracking a freed pointer. CUDA staging-buffer cleanup
-  also removes each successfully freed cached pointer before continuing, so a
-  later free failure does not leave retry paths tracking already-freed buffers.
+  dense constants. Runtime encoded-constant loads now materialize all selected
+  supported storage before calling constant setters, so a later GGUF read or
+  validation failure does not partially apply earlier selected constants. The
+  Python CUDA staging allocator now preserves the currently cached session
+  buffer when a grow allocation fails, so allocator failures do not leave the
+  session tracking a freed pointer. CUDA staging-buffer cleanup also removes
+  each successfully freed cached pointer before continuing, so a later free
+  failure does not leave retry paths tracking already-freed buffers.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

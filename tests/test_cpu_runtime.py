@@ -1136,6 +1136,64 @@ def test_runtime_load_encoded_constants_filters_names_and_rejects_unknown(monkey
         module.load_encoded_constants(names=["missing"])
 
 
+def test_runtime_load_encoded_constants_materializes_all_before_setting(monkeypatch, tmp_path):
+    values = {
+        "first": np.array([1.0, 2.0], dtype=np.float32),
+        "second": np.array([3.0, 4.0], dtype=np.float32),
+    }
+
+    def get_tensor(name):
+        return SimpleNamespace(name=name, qtype="F32", qtype_value=0, shape=(2,), data_offset=128)
+
+    def read_tensor_bytes(tensor):
+        if tensor.name == "second":
+            raise ValueError("second tensor read failed")
+        return values[tensor.name].tobytes(order="C")
+
+    fake_file = SimpleNamespace(get_tensor=get_tensor, read_tensor_bytes=read_tensor_bytes)
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": []}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": name,
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": value.nbytes,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": name,
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": value.nbytes,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                }
+                for name, value in values.items()
+            ],
+        },
+    )
+    captured = {}
+    module.set_constant_numpy = lambda name, value: captured.setdefault(name, np.array(value, copy=True))
+
+    with pytest.raises(ValueError, match="second tensor read failed"):
+        module.load_encoded_constants()
+
+    assert captured == {}
+
+
 def test_runtime_load_encoded_constants_rejects_closed_module_before_materialize(monkeypatch, tmp_path):
     def fail_open_gguf(path):
         raise AssertionError("closed modules should fail before opening GGUF storage")

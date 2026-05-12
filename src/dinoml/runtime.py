@@ -174,6 +174,7 @@ class RuntimeModule:
 
         self._require_open()
         plan_names = {str(entry["name"]) for entry in plan}
+        materialized_constants: list[tuple[str, np.ndarray]] = []
         for constant_spec in self._encoded_constant_specs():
             if str(constant_spec["name"]) not in plan_names:
                 continue
@@ -184,7 +185,9 @@ class RuntimeModule:
             if source is None:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
-            self.set_constant_numpy(str(constant_spec["name"]), materialized.array)
+            materialized_constants.append((str(constant_spec["name"]), materialized.array))
+        for name, array in materialized_constants:
+            self.set_constant_numpy(name, array)
 
     def _encoded_constant_plan_entry(self, constant_spec: Mapping[str, object]) -> dict[str, object]:
         storage = constant_spec.get("storage")

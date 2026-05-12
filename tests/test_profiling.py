@@ -1200,6 +1200,42 @@ def test_profile_cache_rejects_malformed_entries_payload(tmp_path):
     }
 
 
+def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
+    cache_path = tmp_path / "profile_cache.json"
+    target = {"name": "cuda", "arch": "sm_86"}
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                "existing": {"profile_key": "existing", "elapsed_ms": 2.0},
+                "shared": {"profile_key": "old-shared", "elapsed_ms": 3.0},
+            },
+        },
+    )
+
+    profiling_mod._write_profile_cache(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                "fresh": {"profile_key": "fresh", "elapsed_ms": 1.0},
+                "shared": {"profile_key": "new-shared", "elapsed_ms": 0.5},
+            },
+        },
+    )
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache["entries"] == {
+        "existing": {"profile_key": "existing", "elapsed_ms": 2.0},
+        "fresh": {"profile_key": "fresh", "elapsed_ms": 1.0},
+        "shared": {"profile_key": "new-shared", "elapsed_ms": 0.5},
+    }
+
+
 def test_profile_cache_hit_requires_enough_timing_samples(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

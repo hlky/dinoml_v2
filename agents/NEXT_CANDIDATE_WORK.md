@@ -14,9 +14,9 @@ This file should be updated after each major loop.
 3. Continue runtime/container stabilization, but rotate to a fresh concrete
    contract rather than repeatedly polishing the same CUDA helper paths. Useful
    bounded targets include graph-mode lifecycle, runtime pool/session ownership,
-   profiler cache persistence/sharing, and remaining allocator or constant-state
-   failure behavior that can be validated without CUDA CI. Recent hardening has
-   already covered closed-session/module guards, output-shape ABI validation,
-   dense constant reload preflight, CUDA staging cleanup retries, CUDA constant
-   setter error precedence, profile-cache malformed-entry rejection, and scoped
-   CUDA helper/profiler error reporting.
+   and remaining allocator or constant-state failure behavior that can be
+   validated without CUDA CI. Recent hardening has already covered
+   closed-session/module guards, output-shape ABI validation, dense constant
+   reload preflight, CUDA staging cleanup retries, CUDA constant setter error
+   precedence, profile-cache malformed-entry rejection plus same-target
+   stale-writer preservation, and scoped CUDA helper/profiler error reporting.

@@ -1314,7 +1314,27 @@ def _read_profile_cache(path: Path, target: Mapping[str, Any]) -> dict[str, Any]
 
 def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(path, dict(cache))
+    target = cache.get("target")
+    payload = {
+        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": dict(target) if isinstance(target, Mapping) else {},
+        "entries": {},
+    }
+    merged_entries: dict[str, Any] = {}
+    if isinstance(target, Mapping):
+        existing = _read_profile_cache(path, target)
+        merged_entries.update(existing.get("entries", {}))
+    entries = cache.get("entries", {})
+    if isinstance(entries, Mapping):
+        merged_entries.update(
+            {
+                str(key): dict(value)
+                for key, value in entries.items()
+                if isinstance(value, Mapping)
+            }
+        )
+    payload["entries"] = merged_entries
+    write_json(path, payload)
 
 
 def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:

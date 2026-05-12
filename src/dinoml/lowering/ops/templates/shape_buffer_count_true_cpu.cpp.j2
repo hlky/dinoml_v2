@@ -1,0 +1,18 @@
+static int {{ func }}(
+    const bool* DINO_RESTRICT x,
+    bool* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t* DINO_RESTRICT output_shape) {
+  if (x == nullptr || y == nullptr || output_shape == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  int64_t count = 0;
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    if (x[idx]) {
+      y[count] = true;
+      ++count;
+    }
+  }
+  output_shape[0] = count;
+  return 0;
+}

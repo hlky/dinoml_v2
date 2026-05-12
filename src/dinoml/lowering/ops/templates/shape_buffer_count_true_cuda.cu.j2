@@ -1,0 +1,33 @@
+__global__ void {{ kernel }}(
+    const bool* DINO_RESTRICT x,
+    bool* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t* DINO_RESTRICT output_shape) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+    if (x[idx]) {
+      const int64_t out_idx = atomicAdd(reinterpret_cast<unsigned long long*>(output_shape), 1ull);
+      y[out_idx] = true;
+    }
+  }
+}
+
+static int {{ func }}(
+    const bool* DINO_RESTRICT x,
+    bool* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t* DINO_RESTRICT output_shape,
+    cudaStream_t stream) {
+  if (x == nullptr || y == nullptr || output_shape == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  DINO_CUDA_CHECK(cudaMemsetAsync(output_shape, 0, sizeof(int64_t), stream));
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel, output_shape);
+    DINO_CUDA_CHECK(cudaGetLastError());
+  }
+  return 0;
+}

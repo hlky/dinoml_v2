@@ -405,6 +405,24 @@ def test_cuda_shape_buffer_output_reports_do_not_block_external_streams():
     assert "cudaStreamSynchronize(session->stream);\n  }\n  session->last_output_shapes_valid[0] = true;" not in run_body
 
 
+def test_internal_counting_fixture_updates_generated_shape_buffers():
+    lowered, _ = PassManager().run(_shape_buffer_count_true_ir())
+
+    cpu_generated = render_cpu_module(lowered)
+    cuda_generated = render_cuda_module(lowered)
+
+    assert "static int shape_buffer_count_true_" in cpu_generated
+    assert "output_shape[0] = count;" in cpu_generated
+    assert "session->shape_y.data()" in cpu_generated
+    assert "session->last_output_shapes[0] = session->shape_y;" in cpu_generated
+
+    assert "__global__ void shape_buffer_count_true_" in cuda_generated
+    assert "cudaMemsetAsync(output_shape, 0, sizeof(int64_t), stream)" in cuda_generated
+    assert "atomicAdd(reinterpret_cast<unsigned long long*>(output_shape), 1ull)" in cuda_generated
+    assert "session->shape_y, session->stream" in cuda_generated
+    assert "session->last_output_shapes[0].data(),\n        session->shape_y," in cuda_generated
+
+
 def test_cuda_session_create_cleans_up_partial_session_on_allocation_failure():
     lowered, _ = PassManager().run(_shape_view_ir())
 
@@ -487,6 +505,27 @@ def _shape_view_ir(output_shape=None):
                         "shape_spec": output_shape,
                     }
                 ],
+            }
+        },
+    }
+
+
+def _shape_buffer_count_true_ir():
+    return {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": "shape_buffer_count_true_fixture",
+        "inputs": [{"name": "x", "tensor": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "bool"}],
+        "constants": [],
+        "outputs": [{"name": "y", "tensor": "y", "shape": [6], "shape_spec": [6], "dtype": "bool"}],
+        "nodes": [{"id": "n0", "op": "_shape_buffer_count_true", "inputs": ["x"], "outputs": ["y"], "attrs": {}}],
+        "tensors": [
+            {"name": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "bool", "kind": "input", "nbytes": 6},
+            {"name": "y", "shape": [6], "shape_spec": [6], "dtype": "bool", "kind": "output", "nbytes": 6},
+        ],
+        "metadata": {
+            "output_shape_reports": {
+                "version": 1,
+                "reports": [{"output": "y", "kind": "shape_buffer"}],
             }
         },
     }

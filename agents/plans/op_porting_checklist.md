@@ -151,9 +151,14 @@ epilogues where possible.
   CPU/CUDA outputs report from their generated shape buffers instead. CUDA
   shape-buffer reports intentionally avoid host copies and synchronization when
   an external stream is installed, leaving those reports unavailable for that
-  run rather than blocking the caller-provided stream. Revisit only after an
-  op-local generated CPU/CUDA shape-buffer override/counting fixture proves a
-  value-dependent post-run count can update that report path.
+  run rather than blocking the caller-provided stream. An internal, non-frontend
+  `_shape_buffer_count_true` fixture now proves generated CPU/CUDA lowering can
+  update a rank-1 output shape buffer with a value-dependent count, and CPU
+  runtime materialization returns zero-length and nonzero post-run shapes from
+  that report path. Revisit `masked_select` only by re-running OP_ADMISSION for
+  a static-rank, dense, broadcastable bool-mask helper; do not add public
+  surface until the caller allocation and broadcast/counting limits are
+  explicitly bounded.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.

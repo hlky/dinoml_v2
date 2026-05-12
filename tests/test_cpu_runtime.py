@@ -2053,6 +2053,37 @@ def test_cpu_runtime_materializes_output_view_of_input_on_repeated_runs(tmp_path
     np.testing.assert_array_equal(second, x1.reshape(3, 2))
 
 
+def test_cpu_runtime_materializes_internal_shape_buffer_count_fixture(tmp_path):
+    spec = ModelSpec("shape_buffer_count_true_fixture", _shape_buffer_count_true_ir(), constants={})
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "shape_buffer_count_true_fixture.dinoml")
+    metadata = read_json(artifact.path / "metadata.json")
+    assert metadata["output_shape_reports"] == {
+        "version": 1,
+        "reports": [{"output": "y", "kind": "shape_buffer"}],
+    }
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        mixed = session.run_numpy({"x": np.array([[True, False, True], [False, True, False]], dtype=np.bool_)})["y"]
+        assert mixed.shape == (3,)
+        assert session.get_output_shape("y") == (3,)
+        np.testing.assert_array_equal(mixed, np.ones((3,), dtype=np.bool_))
+
+        empty = session.run_numpy({"x": np.zeros((2, 3), dtype=np.bool_)})["y"]
+        assert empty.shape == (0,)
+        assert session.get_output_shape("y") == (0,)
+        np.testing.assert_array_equal(empty, np.empty((0,), dtype=np.bool_))
+
+        full = session.run_numpy({"x": np.ones((2, 3), dtype=np.bool_)})["y"]
+        assert full.shape == (6,)
+        assert session.get_output_shape("y") == (6,)
+        np.testing.assert_array_equal(full, np.ones((6,), dtype=np.bool_))
+    finally:
+        session.close()
+        module.close()
+
+
 def test_cpu_runtime_materializes_public_shape_view_ops_on_repeated_runs(tmp_path):
     spec = dml.trace(
         PublicShapeViewOutputs(),
@@ -2682,6 +2713,27 @@ def _shape_view_ir(source_kind: str = "input", dtype: str = "float32"):
                         "shape_spec": output_shape,
                     }
                 ],
+            }
+        },
+    }
+
+
+def _shape_buffer_count_true_ir():
+    return {
+        "schema_version": IR_SCHEMA_VERSION,
+        "name": "shape_buffer_count_true_fixture",
+        "inputs": [{"name": "x", "tensor": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "bool"}],
+        "constants": [],
+        "outputs": [{"name": "y", "tensor": "y", "shape": [6], "shape_spec": [6], "dtype": "bool"}],
+        "nodes": [{"id": "n0", "op": "_shape_buffer_count_true", "inputs": ["x"], "outputs": ["y"], "attrs": {}}],
+        "tensors": [
+            {"name": "x", "shape": [2, 3], "shape_spec": [2, 3], "dtype": "bool", "kind": "input", "nbytes": 6},
+            {"name": "y", "shape": [6], "shape_spec": [6], "dtype": "bool", "kind": "output", "nbytes": 6},
+        ],
+        "metadata": {
+            "output_shape_reports": {
+                "version": 1,
+                "reports": [{"output": "y", "kind": "shape_buffer"}],
             }
         },
     }

@@ -52,10 +52,15 @@ This file should be updated after each major loop.
    now preserve the external-stream contract: internally synchronized runs copy
    device shape buffers back to host and make reports available, while
    externally streamed runs avoid the host copy/synchronization and leave those
-   reports unavailable. The next admissible slice is an op-local generated
-   CPU/CUDA shape-buffer override/counting fixture for a static-rank
-   value-dependent output; after that, re-run OP_ADMISSION for a static-rank,
-   dense, broadcastable bool-mask `masked_select` helper.
+   reports unavailable. An internal, non-frontend
+   `_shape_buffer_count_true` generated fixture now proves CPU runtime
+   materialization and CPU/CUDA generated lowering can update a static-rank
+   output shape buffer with a value-dependent count, including zero-length
+   post-run reports. The next admissible slice is to re-run OP_ADMISSION for a
+   static-rank, dense, broadcastable bool-mask `masked_select` helper and decide
+   whether the remaining caller allocation and broadcast/counting limits are
+   honest enough for a bounded internal helper before any public surface is
+   added.
 4. Continue runtime/container stabilization, but rotate to a fresh concrete
    contract rather than repeatedly polishing the same CUDA helper paths. Useful
    bounded targets include graph-mode lifecycle, runtime pool/session ownership,

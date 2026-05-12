@@ -944,6 +944,67 @@ def test_apply_execution_plan_uses_guarded_cutlass_bmm_dispatch():
         assert f"dinoml::module::is_tensor_pointer_aligned(abi_b, ptr_b, {dispatch_byte_alignment})" in launch
 
 
+@pytest.mark.parametrize(("field", "value"), [("m", 4.5), ("batch_count", "2")])
+def test_apply_execution_plan_rejects_malformed_guarded_shape_integer_payloads(field, value):
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 4, 8], "float32"), "b": dml.TensorSpec([2, 8, 6], "float32")},
+        name="bmm_guarded_malformed_integer_payload_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] != required["selected_candidate_id"]
+    )
+    shape = {"m": 4, "n": 6, "k": 8, "batch_count": 2}
+    shape[field] = value
+    guarded_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [
+            {
+                "selection_key": "bmm-malformed-integer-guarded-selection",
+                "node_id": lowered["nodes"][0]["id"],
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": shape,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+        "conflicts": [
+            {
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match=rf"malformed integer field '{field}'"):
+        apply_execution_plan(manifest, guarded_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, guarded_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_dispatch" not in relaxed["required_kernels"][0]
+
+
 def test_apply_execution_plan_rejects_low_confidence_guarded_dispatch():
     import dinoml as dml
 
@@ -1329,6 +1390,53 @@ def test_apply_execution_plan_rejects_low_confidence_static_selection():
     }
 
     with pytest.raises(ValueError, match="low-confidence CUTLASS candidate"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_selection" not in relaxed["required_kernels"][0]
+
+
+@pytest.mark.parametrize(("field", "value"), [("split_k", 1.5), ("workspace_nbytes", "0")])
+def test_apply_execution_plan_rejects_malformed_selection_integer_payloads(field, value):
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="gemm_profile_malformed_integer_selection_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][1]
+    selection = {
+        "selection_key": "malformed-integer-static-selection",
+        "op": "gemm_rrr",
+        "dtype": "float32",
+        "candidate_set_key": required["candidate_set_key"],
+        "selected_candidate_id": selected_candidate["candidate_id"],
+        "candidate_config_key": selected_candidate["candidate_config_key"],
+        "kernel_symbol": selected_candidate["kernel_symbol"],
+        "profiler_symbol": selected_candidate["profiler_symbol"],
+        "shape": {"m": 4, "n": 6, "k": 8},
+        "confidence": {"confident": True, "level": "high"},
+        "split_k": 1,
+        "workspace_nbytes": 0,
+    }
+    selection[field] = value
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [selection],
+    }
+
+    with pytest.raises(ValueError, match=rf"malformed integer field '{field}'"):
         apply_execution_plan(manifest, execution_plan, strict=True)
 
     relaxed = apply_execution_plan(manifest, execution_plan, strict=False)

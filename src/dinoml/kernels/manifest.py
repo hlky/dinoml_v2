@@ -397,20 +397,13 @@ def _execution_plan_int_field(
         if strict:
             raise ValueError(f"Execution plan {context} for {key[0]} {key[1]} is missing integer field {field!r}")
         return None
-    if isinstance(raw_value, bool):
+    if type(raw_value) is not int:
         if strict:
             raise ValueError(
                 f"Execution plan {context} for {key[0]} {key[1]} has malformed integer field {field!r}: {raw_value!r}"
             )
         return None
-    try:
-        value = int(raw_value)
-    except (TypeError, ValueError):
-        if strict:
-            raise ValueError(
-                f"Execution plan {context} for {key[0]} {key[1]} has malformed integer field {field!r}: {raw_value!r}"
-            )
-        return None
+    value = raw_value
     if value < minimum:
         if strict:
             raise ValueError(

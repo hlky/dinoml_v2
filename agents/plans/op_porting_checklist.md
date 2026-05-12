@@ -335,8 +335,8 @@ normalization or softmax patterns, otherwise use custom block reductions.
   supports split-K dispatch workspace sizing, and falls back to the safe manifest
   default when no guard matches. Execution-plan application now also rejects or
   skips guarded payloads with stale CUTLASS launcher/profiler symbols or
-  malformed positive-integer shape guards before generated lowering can trust
-  them.
+  malformed positive JSON-integer shape guards before generated lowering can
+  trust them.
 - [x] First static alignment-aware profiling filter:
   when dense layout element alignment is present on both GEMM A and B, profiling
   prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller

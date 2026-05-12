@@ -737,6 +737,25 @@ def test_cuda_staging_allocator_forget_successful_frees_when_close_free_fails():
     assert session._cuda_buffers == {}
 
 
+def test_runtime_check_reads_cuda_runtime_last_error():
+    class FakeGetter:
+        restype = None
+
+        def __call__(self):
+            return b"cuda helper failed"
+
+    class FakeCudaRuntime:
+        dino_get_last_error = FakeGetter()
+
+    module = object.__new__(runtime.RuntimeModule)
+    module._dll = SimpleNamespace()
+    module._runtime_dll = SimpleNamespace()
+    module._cuda_runtime_dll = FakeCudaRuntime()
+
+    with pytest.raises(RuntimeError, match="cuda helper failed"):
+        module._check(1)
+
+
 def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

@@ -421,7 +421,11 @@ class RuntimeModule:
 
     def _last_error_message(self) -> bytes | None:
         getters = []
-        for dll in (getattr(self, "_dll", None), getattr(self, "_runtime_dll", None)):
+        for dll in (
+            getattr(self, "_dll", None),
+            getattr(self, "_runtime_dll", None),
+            getattr(self, "_cuda_runtime_dll", None),
+        ):
             if dll is None:
                 continue
             try:

@@ -25,4 +25,6 @@ This file should be updated after each major loop.
    every live session close before reporting the first failure, while preserving
    the module handle if any session cleanup failed. CUDA constant updates now
    preserve the primary setter/copy failure when temporary device-buffer cleanup
-   also fails.
+   also fails. CUDA helper-library allocator/copy/free errors now surface their
+   own last-error messages through the Python runtime instead of falling back to
+   an unknown runtime error.

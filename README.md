@@ -10,10 +10,13 @@ without requiring PyTorch at runtime.
 
 ```sh
 pip install -e .
-python -m dinoml.cli compile examples/fused_elementwise.py --target cuda --arch sm_86 --out build/fused_elementwise.dinoml
-python -m dinoml.cli inspect build/fused_elementwise.dinoml
-python -m dinoml.cli validate build/fused_elementwise.dinoml --against examples/fused_elementwise.py
+python -m dinoml.cli compile examples/fused_elementwise.py --target cpu --out build/fused_elementwise_cpu.dinoml
+python -m dinoml.cli inspect build/fused_elementwise_cpu.dinoml
+python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examples/fused_elementwise.py
 ```
+
+For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
+artifact path.
 
 The first milestone intentionally keeps the executable surface small:
 registered elementwise graphs are fused into generated kernels, with CPU

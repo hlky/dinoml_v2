@@ -737,6 +737,111 @@ def test_cuda_staging_allocator_forget_successful_frees_when_close_free_fails():
     assert session._cuda_buffers == {}
 
 
+def test_session_close_still_destroys_native_session_when_staging_free_fails():
+    frees = []
+    destroys = []
+    fail_ptr = 0x1000
+
+    class FakeCudaRuntime:
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 9 if ptr.value == fail_ptr else 0
+
+    class FakeModuleDll:
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 0
+
+    def check(err):
+        if err:
+            raise RuntimeError("device free failed")
+
+    sessions = set()
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._cuda_buffers = {
+        "input:x": (ctypes.c_void_p(0x1000), 16),
+        "output:y": (ctypes.c_void_p(0x2000), 32),
+    }
+    session.module = SimpleNamespace(
+        _cuda_runtime_dll=FakeCudaRuntime(),
+        _dll=FakeModuleDll(),
+        _sessions=sessions,
+        _check=check,
+        _check_cuda_runtime=check,
+    )
+    sessions.add(session)
+
+    with pytest.raises(RuntimeError, match="device free failed"):
+        session.close()
+
+    assert frees == [0x2000, 0x1000]
+    assert destroys == [0x1234]
+    assert not session._handle
+    assert session in sessions
+    assert list(session._cuda_buffers) == ["input:x"]
+
+    fail_ptr = 0
+    session.close()
+
+    assert frees == [0x2000, 0x1000, 0x1000]
+    assert destroys == [0x1234]
+    assert session._cuda_buffers == {}
+    assert session not in sessions
+
+
+def test_session_close_keeps_native_handle_retryable_when_destroy_fails_after_buffer_cleanup():
+    frees = []
+    destroys = []
+    destroy_fails = True
+
+    class FakeCudaRuntime:
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 0
+
+    class FakeModuleDll:
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 11 if destroy_fails else 0
+
+    def check(err):
+        if err == 11:
+            raise RuntimeError("destroy failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    sessions = set()
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
+    session.module = SimpleNamespace(
+        _cuda_runtime_dll=FakeCudaRuntime(),
+        _dll=FakeModuleDll(),
+        _sessions=sessions,
+        _check=check,
+        _check_cuda_runtime=check,
+    )
+    sessions.add(session)
+
+    with pytest.raises(RuntimeError, match="destroy failed"):
+        session.close()
+
+    assert frees == [0x1000]
+    assert destroys == [0x1234]
+    assert session._handle.value == 0x1234
+    assert session._cuda_buffers == {}
+    assert session in sessions
+
+    destroy_fails = False
+    session.close()
+
+    assert frees == [0x1000]
+    assert destroys == [0x1234, 0x1234]
+    assert not session._handle
+    assert session not in sessions
+
+
 def test_runtime_check_reads_cuda_runtime_last_error():
     class FakeGetter:
         restype = None

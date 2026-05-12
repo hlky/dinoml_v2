@@ -471,10 +471,20 @@ class Session:
             sessions.add(self)
 
     def close(self) -> None:
-        self._free_cuda_buffers()
+        first_error = None
+        try:
+            self._free_cuda_buffers()
+        except Exception as exc:
+            first_error = exc
         if getattr(self, "_handle", None):
-            self.module._check(self.module._dll.dino_session_destroy(self._handle))
-            self._handle = ctypes.c_void_p()
+            try:
+                self.module._check(self.module._dll.dino_session_destroy(self._handle))
+                self._handle = ctypes.c_void_p()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
         sessions = getattr(self.module, "_sessions", None)
         if sessions is not None:
             sessions.discard(self)

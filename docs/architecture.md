@@ -455,7 +455,9 @@ The next foundations to settle before broad op porting are:
   and closing a Python runtime module closes its live sessions before releasing
   the native module handle. The Python CUDA staging allocator now grows cached
   session buffers transactionally: failed grow allocations leave the previous
-  buffer tracked for later reuse or cleanup.
+  buffer tracked for later reuse or cleanup. Python session close also keeps
+  native-session destruction and staging-buffer cleanup retryable separately, so
+  a staging free failure does not prevent best-effort native session teardown.
 - profiler source generation and multi-candidate cache selection
 - liveness-based memory planning with alias/view support
 - layout/accessor metadata for strides, alignment, and channel-last conventions

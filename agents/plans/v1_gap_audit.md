@@ -68,7 +68,10 @@ porting. It intentionally excludes the op inventory, which lives in
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes
   each successfully freed cached pointer before continuing, so a later free
-  failure does not leave retry paths tracking already-freed buffers.
+  failure does not leave retry paths tracking already-freed buffers. Python
+  session close now still attempts native session destruction after staging
+  buffer cleanup fails, while leaving failed cleanup or failed destruction state
+  retryable on the session.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

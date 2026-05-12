@@ -568,6 +568,63 @@ def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
         session.run_torch({})
 
 
+def test_cuda_staging_allocator_keeps_cached_buffer_when_grow_allocation_fails():
+    frees = []
+
+    class FakeCudaRuntime:
+        def dino_device_malloc(self, out_ptr, nbytes):
+            assert nbytes.value == 32
+            return 7
+
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 0
+
+    def check(err):
+        if err:
+            raise RuntimeError("device allocation failed")
+
+    session = object.__new__(runtime.Session)
+    session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+
+    with pytest.raises(RuntimeError, match="device allocation failed"):
+        session._device_buffer("input:x", 32)
+
+    assert session._cuda_buffers["input:x"][0].value == 0x1000
+    assert session._cuda_buffers["input:x"][1] == 16
+    assert frees == []
+
+
+def test_cuda_staging_allocator_grow_swaps_cache_after_freeing_old_buffer():
+    frees = []
+
+    class FakeCudaRuntime:
+        def dino_device_malloc(self, out_ptr, nbytes):
+            assert nbytes.value == 32
+            out_ptr._obj.value = 0x2000
+            return 0
+
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 0
+
+    def check(err):
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    session = object.__new__(runtime.Session)
+    session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+
+    ptr = session._device_buffer("input:x", 32)
+
+    assert ptr.value == 0x2000
+    assert session._cuda_buffers["input:x"][0].value == 0x2000
+    assert session._cuda_buffers["input:x"][1] == 32
+    assert frees == [0x1000]
+
+
 def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

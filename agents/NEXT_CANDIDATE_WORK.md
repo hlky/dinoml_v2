@@ -13,4 +13,5 @@ This file should be updated after each major loop.
 3. Continue improving runtime/container contracts for allocator, graph, pool,
    profiling, and constant-state failure behavior before op-specific
    assumptions spread; module-close now invalidates live Python sessions before
-   freeing the native module handle.
+   freeing the native module handle, and CUDA staging-buffer grow failures now
+   preserve the previously cached session buffer.

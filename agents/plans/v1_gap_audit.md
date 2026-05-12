@@ -57,8 +57,11 @@ porting. It intentionally excludes the op inventory, which lives in
   closes live Python sessions before freeing the native module, preventing stale
   session handles from retaining dangling module pointers. Dense constant
   operations still validate constant names and encoded-load policy before
-  enforcing open-module state. The remaining allocator, graph, pool, and
-  profiling contracts should grow before op-specific runtime assumptions spread.
+  enforcing open-module state. The Python CUDA staging allocator now preserves
+  the currently cached session buffer when a grow allocation fails, so allocator
+  failures do not leave the session tracking a freed pointer. The remaining
+  graph, pool, profiling, and broader allocator contracts should grow before
+  op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry for target defaults, dtype validation, support

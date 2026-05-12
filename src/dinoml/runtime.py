@@ -746,9 +746,16 @@ class Session:
         cached = self._cuda_buffers.get(key)
         if cached is not None and cached[1] >= nbytes:
             return cached[0]
-        if cached is not None:
-            self.module._check(self.module._cuda_runtime_dll.dino_device_free(cached[0]))
         ptr = self._device_malloc(nbytes)
+        if cached is not None:
+            try:
+                self.module._check(self.module._cuda_runtime_dll.dino_device_free(cached[0]))
+            except Exception:
+                try:
+                    self.module._check(self.module._cuda_runtime_dll.dino_device_free(ptr))
+                except Exception:
+                    pass
+                raise
         self._cuda_buffers[key] = (ptr, nbytes)
         return ptr
 

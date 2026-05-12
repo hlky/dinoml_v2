@@ -449,7 +449,9 @@ The next foundations to settle before broad op porting are:
   `dino_session_get_output_shape(DinoSession*, size_t, int64_t*, size_t*)`.
   Public Python session entry points reject closed sessions before C ABI calls,
   and closing a Python runtime module closes its live sessions before releasing
-  the native module handle.
+  the native module handle. The Python CUDA staging allocator now grows cached
+  session buffers transactionally: failed grow allocations leave the previous
+  buffer tracked for later reuse or cleanup.
 - profiler source generation and multi-candidate cache selection
 - liveness-based memory planning with alias/view support
 - layout/accessor metadata for strides, alignment, and channel-last conventions

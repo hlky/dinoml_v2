@@ -1284,6 +1284,10 @@ def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
     module.close()
 
     with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.constant_load_state()
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.is_constant_loaded("scale")
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
         module.load_constants_from_file()
     with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
         module.unload_constants()

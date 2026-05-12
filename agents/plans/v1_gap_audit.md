@@ -102,7 +102,8 @@ porting. It intentionally excludes the op inventory, which lives in
   of relying on generated CUDA failure modes. Zero-input CUDA artifacts now
   fail through an explicit `run_torch` contract error before output allocation
   because the torch frontend infers output placement from caller-provided CUDA
-  inputs.
+  inputs. Constant loaded-state introspection now also rejects closed modules
+  instead of returning stale residency snapshots after `module.close()`.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

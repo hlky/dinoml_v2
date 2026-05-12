@@ -4,10 +4,10 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Hardened CUTLASS support-cache reuse by rejecting cache hits whose
-  `src/source_manifest.json` is malformed or stale against the current used
-  candidate plan, forcing a rebuild instead of carrying forward ambiguous
-  support provenance metadata.
+- Hardened runtime lifecycle bookkeeping so closed modules no longer expose
+  stale constant residency snapshots through `constant_load_state()` or
+  `is_constant_loaded()`, keeping constant-state introspection aligned with the
+  rest of the closed-module error contract.
 
 ## Ranked Backlog
 

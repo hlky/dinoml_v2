@@ -154,9 +154,11 @@ class RuntimeModule:
         self._mark_all_constants_loaded(False)
 
     def constant_load_state(self) -> dict[str, bool]:
+        self._require_open()
         return dict(self._constant_loaded)
 
     def is_constant_loaded(self, name: str) -> bool:
+        self._require_open()
         if name not in self._constant_loaded:
             raise ValueError(f"Unknown constant: {name}")
         return self._constant_loaded[name]

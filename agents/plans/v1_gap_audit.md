@@ -22,7 +22,9 @@ porting. It intentionally excludes the op inventory, which lives in
   caller-bound capacity checks reject malformed negative reported dimensions
   before callers can use them for slicing or reshaping output buffers, and the
   Python getter now rejects ABI results whose second output-shape query reports a
-  larger rank than the shape buffer allocated from the first query.
+  larger rank than the shape buffer allocated from the first query. The
+  caller-bound CUDA device-pointer capacity check now has CUDA-backed
+  integration coverage through a cheap generated identity artifact.
   V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into

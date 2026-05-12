@@ -321,6 +321,14 @@ def test_cuda_runtime_materializes_reported_smaller_output_shape(tmp_path, monke
         torch.testing.assert_close(actual, x.reshape(4, 2), rtol=0, atol=0)
 
         monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
+        direct_out = torch.empty((2, 4), device="cuda", dtype=torch.float32)
+        with pytest.raises(ValueError, match="has more elements than allocated"):
+            session.run_device_pointers(
+                {"x": x.data_ptr()},
+                {"y": direct_out.data_ptr()},
+                {"x": tuple(int(dim) for dim in x.shape)},
+                {"y": (2, 4)},
+            )
         with pytest.raises(ValueError, match="has more elements than allocated"):
             session.run_torch({"x": x})
     finally:

@@ -9,12 +9,12 @@ This file should be updated after each major loop.
    device-pointer contract now has non-CUDA regression coverage, including
    getter-bound malformed negative reported-shape rejection and rank-growth
    rejection between the two output-shape ABI calls.
-2. Rotate to a bounded user-visible workflow or op-parity slice before more
-   provider/profile hardening. The CPU CLI quick-start path now has regression
-   coverage for `compile`, `inspect`, runtime loading, and `validate`, so the
-   next workflow slice should prove a different real path such as deferred
-   constants through the CLI or a small non-CUDA example that exercises a
-   recently ported primitive.
+2. Continue the visible workflow/op-parity rotation before more
+   provider/profile hardening. The CPU CLI quick-start path has regression
+   coverage for `compile`, `inspect`, runtime loading, and `validate`, and the
+   deferred constant policy now has CLI compile plus validation coverage that
+   explicitly loads constants for the correctness run. Prefer a small non-CUDA
+   example or test around a recently ported primitive next.
 3. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
    bounded in one loop: frontend contract, static shape/type limits, CPU
    reference behavior, generated lowering or an explicit bounded helper,

@@ -119,22 +119,26 @@ def _validate(args: argparse.Namespace) -> int:
     if not isinstance(expected, dict):
         expected = {"output_0": expected}
 
-    rt_module = runtime.load(args.artifact)
-    session = rt_module.create_session()
-    actual = session.run_numpy(inputs)
-    failures = []
-    for name, expected_array in expected.items():
-        if name not in actual:
-            failures.append(f"missing output {name}")
-            continue
-        expected_np = np.asarray(expected_array, dtype=np.float32)
-        actual_np = np.asarray(actual[name], dtype=np.float32)
-        max_abs = float(np.max(np.abs(actual_np - expected_np)))
-        print(f"{name}: max_abs_diff={max_abs:.6g}")
-        if not np.allclose(actual_np, expected_np, atol=args.atol, rtol=args.rtol):
-            failures.append(f"{name} mismatch")
-    session.close()
-    rt_module.close()
+    rt_module = runtime.load(args.artifact, load_constants=True)
+    session = None
+    try:
+        session = rt_module.create_session()
+        actual = session.run_numpy(inputs)
+        failures = []
+        for name, expected_array in expected.items():
+            if name not in actual:
+                failures.append(f"missing output {name}")
+                continue
+            expected_np = np.asarray(expected_array, dtype=np.float32)
+            actual_np = np.asarray(actual[name], dtype=np.float32)
+            max_abs = float(np.max(np.abs(actual_np - expected_np)))
+            print(f"{name}: max_abs_diff={max_abs:.6g}")
+            if not np.allclose(actual_np, expected_np, atol=args.atol, rtol=args.rtol):
+                failures.append(f"{name} mismatch")
+    finally:
+        if session is not None:
+            session.close()
+        rt_module.close()
     if failures:
         raise RuntimeError("; ".join(failures))
     print("validation ok")

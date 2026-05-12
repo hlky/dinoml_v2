@@ -17,6 +17,9 @@ python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examp
 
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
+`python -m dinoml.cli validate` explicitly loads artifact constants for the
+validation run, so artifacts compiled with
+`--constant-load-policy deferred` can still use the same correctness check.
 
 The first milestone intentionally keeps the executable surface small:
 registered elementwise graphs are fused into generated kernels, with CPU

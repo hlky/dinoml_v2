@@ -245,15 +245,18 @@ DINO_EXPORT int dino_session_run(
     size_t num_inputs,
     DinoTensor* outputs,
     size_t num_outputs) {
-  if (session == nullptr || inputs == nullptr || outputs == nullptr) {
+  if (session == nullptr) {
     return dinoml::module::fail("dino_session_run received null argument");
-  }
-  if (num_inputs != {{ input_count }} || num_outputs != {{ output_count }}) {
-    return dinoml::module::fail("dino_session_run received wrong input/output count");
   }
   for (size_t i = 0; i < session->last_output_shapes_valid.size(); ++i) {
     session->last_output_shapes_valid[i] = false;
     session->last_output_shapes[i].clear();
+  }
+  if (inputs == nullptr || outputs == nullptr) {
+    return dinoml::module::fail("dino_session_run received null argument");
+  }
+  if (num_inputs != {{ input_count }} || num_outputs != {{ output_count }}) {
+    return dinoml::module::fail("dino_session_run received wrong input/output count");
   }
 {% for input in inputs %}
   if (int err = dinoml::module::check_tensor_dynamic(

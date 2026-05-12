@@ -2000,6 +2000,38 @@ def test_cpu_runtime_supports_dynamic_shapes(tmp_path):
     assert ndim.value == 3
     assert b"too small" in module._last_error_message()
 
+    x = np.zeros((2, 8, 4), dtype=np.float32)
+    y = np.empty_like(x)
+    input_tensor, input_keepalive = runtime._make_dino_tensor(
+        ctypes.c_void_p(x.ctypes.data),
+        x.shape,
+        dtype_runtime_enum("float32"),
+        nbytes=x.nbytes,
+        device_type=runtime.DINO_DEVICE_CPU,
+    )
+    output_tensor, output_keepalive = runtime._make_dino_tensor(
+        ctypes.c_void_p(y.ctypes.data),
+        y.shape,
+        dtype_runtime_enum("float32"),
+        nbytes=y.nbytes,
+        device_type=runtime.DINO_DEVICE_CPU,
+    )
+    inputs = (runtime._DinoTensor * 1)(input_tensor)
+    outputs = (runtime._DinoTensor * 1)(output_tensor)
+    with pytest.raises(RuntimeError, match="wrong input/output count"):
+        module._check(
+            module._dll.dino_session_run(
+                session._handle,
+                inputs,
+                ctypes.c_size_t(1),
+                outputs,
+                ctypes.c_size_t(0),
+            )
+        )
+    assert input_keepalive and output_keepalive
+    with pytest.raises(RuntimeError, match="Output shape is unavailable before dino_session_run"):
+        session.get_output_shape("y")
+
     bad = np.zeros((2, 10, 4), dtype=np.float32)
     try:
         session.run_numpy({"x": bad})

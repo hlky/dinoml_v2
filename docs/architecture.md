@@ -460,8 +460,10 @@ The next foundations to settle before broad op porting are:
   the native module handle. Python runtime module construction also releases a
   native module handle if metadata initialization fails after native load
   succeeds. Generated sessions invalidate their previous post-run output-shape
-  report at the start of every native run, so a failed run cannot leave stale
-  shape metadata visible through `dino_session_get_output_shape`. The Python
+  report immediately after rejecting a null session and before input/output
+  pointer, count, tensor-validation, or constant-readiness failures, so an
+  attempted native run cannot leave stale shape metadata visible through
+  `dino_session_get_output_shape`. The Python
   CUDA staging allocator now grows cached session buffers
   transactionally: failed grow allocations leave the previous buffer tracked
   for later reuse or cleanup. Python session close also keeps native-session

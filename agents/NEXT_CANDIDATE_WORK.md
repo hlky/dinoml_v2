@@ -53,8 +53,9 @@ This file should be updated after each major loop.
    behavior when staging-buffer cleanup or native session destruction fails,
    Python runtime-module construction cleanup when metadata initialization fails
    after native load succeeds, generated CPU/CUDA run-start invalidation of
-   stale post-run output-shape reports on failed native runs, the non-CUDA CLI
-   quick-start workflow, and CUDA-backed direct device-pointer reported
+   stale post-run output-shape reports on failed attempted native runs,
+   including null input/output arrays and wrong input/output counts, the non-CUDA
+   CLI quick-start workflow, and CUDA-backed direct device-pointer reported
    output-shape capacity rejection through a cheap identity artifact. The latest
    input/output map pass also rejects unexpected tensor names for `run_numpy`,
    `run_torch`, and direct CUDA pointer execution before staging or pointer

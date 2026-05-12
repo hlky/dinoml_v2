@@ -343,9 +343,18 @@ def test_generated_session_run_invalidates_previous_output_shapes():
     cuda_generated = render_cuda_module(lowered, generated_kernels=[])
 
     for generated in (cpu_generated, cuda_generated):
-        invalidate_index = generated.index("session->last_output_shapes_valid[i] = false;")
-        clear_index = generated.index("session->last_output_shapes[i].clear();")
-        check_index = generated.index("dinoml::module::check_tensor_dynamic")
+        run_body = generated.split("DINO_EXPORT int dino_session_run", 1)[1]
+        session_null_index = run_body.index("if (session == nullptr)")
+        invalidate_index = run_body.index("session->last_output_shapes_valid[i] = false;")
+        clear_index = run_body.index("session->last_output_shapes[i].clear();")
+        null_arrays_index = run_body.index("if (inputs == nullptr || outputs == nullptr)")
+        count_index = run_body.index("dino_session_run received wrong input/output count")
+        check_index = run_body.index("dinoml::module::check_tensor_dynamic")
+        assert session_null_index < invalidate_index
+        assert invalidate_index < null_arrays_index
+        assert clear_index < null_arrays_index
+        assert invalidate_index < count_index
+        assert clear_index < count_index
         assert invalidate_index < check_index
         assert clear_index < check_index
 

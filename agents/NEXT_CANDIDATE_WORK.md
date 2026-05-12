@@ -45,10 +45,13 @@ This file should be updated after each major loop.
    prerequisite test fixture now proves the Python post-run reported-shape path
    accepts zero-length output reports for `get_output_shape`, NumPy
    materialization, and direct CUDA device-pointer capacity checks while still
-   rejecting negative reports. The next admissible slice is value-dependent
-   output-shape metadata plus generated CPU/CUDA output-shape override
-   reporting; after that, re-run OP_ADMISSION for a static-rank, dense,
-   broadcastable bool-mask `masked_select` helper.
+   rejecting negative reports. The first internal metadata/codegen slice also
+   validates `metadata.output_shape_reports` entries and lets generated CPU/CUDA
+   modules report selected output shapes from their generated shape buffers
+   rather than the caller-provided output descriptors. The next admissible slice
+   is an op-local generated CPU/CUDA shape-buffer override/counting fixture for
+   a static-rank value-dependent output; after that, re-run OP_ADMISSION for a
+   static-rank, dense, broadcastable bool-mask `masked_select` helper.
 4. Continue runtime/container stabilization, but rotate to a fresh concrete
    contract rather than repeatedly polishing the same CUDA helper paths. Useful
    bounded targets include graph-mode lifecycle, runtime pool/session ownership,

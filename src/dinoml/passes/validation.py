@@ -4,7 +4,13 @@ import math
 from math import prod
 from typing import Any, Mapping, Sequence
 
-from dinoml.ir import IR_SCHEMA_VERSION, VIEW_METADATA_VERSION, VIEW_ONLY_TRANSFORMS, normalize_dtype
+from dinoml.ir import (
+    IR_SCHEMA_VERSION,
+    OUTPUT_SHAPE_REPORT_METADATA_VERSION,
+    VIEW_METADATA_VERSION,
+    VIEW_ONLY_TRANSFORMS,
+    normalize_dtype,
+)
 from dinoml.layout import validate_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import (
@@ -56,6 +62,7 @@ def validate_ir(ir: Mapping[str, Any]) -> None:
             raise ValidationError(f"Output {output['name']} references missing tensor {output['tensor']}")
     validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
     validate_view_metadata(ir.get("metadata", {}).get("memory_plan", {}).get("views"), tensors)
+    validate_output_shape_report_metadata(ir.get("metadata", {}).get("output_shape_reports"), ir["outputs"], tensors)
 
 
 def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -121,6 +128,46 @@ def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str
                 "shape_spec": list(view.get("shape_spec", tensor.get("shape_spec", tensor["shape"]))),
             }
         )
+    return normalized
+
+
+def validate_output_shape_report_metadata(
+    report_metadata: Any,
+    outputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, str]]:
+    if report_metadata is None:
+        return []
+    if not isinstance(report_metadata, Mapping):
+        raise ValidationError("Output shape report metadata must be a mapping")
+    if report_metadata.get("version") != OUTPUT_SHAPE_REPORT_METADATA_VERSION:
+        raise ValidationError(f"Unsupported output shape report metadata version: {report_metadata.get('version')}")
+    reports = report_metadata.get("reports", [])
+    if not isinstance(reports, list):
+        raise ValidationError("Output shape report metadata reports must be a list")
+
+    output_by_name = {str(output["name"]): output for output in outputs}
+    normalized = []
+    seen_outputs: set[str] = set()
+    for idx, report in enumerate(reports):
+        if not isinstance(report, Mapping):
+            raise ValidationError(f"Output shape report entry {idx} must be a mapping")
+        output_name = report.get("output")
+        if not isinstance(output_name, str) or not output_name:
+            raise ValidationError(f"Output shape report entry {idx} must name an output")
+        if output_name in seen_outputs:
+            raise ValidationError(f"Output {output_name} has duplicate shape report metadata")
+        seen_outputs.add(output_name)
+        output = output_by_name.get(output_name)
+        if output is None:
+            raise ValidationError(f"Output shape report references unknown output {output_name}")
+        tensor_name = str(output["tensor"])
+        if tensor_name not in tensors:
+            raise ValidationError(f"Output shape report tensor {tensor_name} is not present in tensor table")
+        kind = report.get("kind")
+        if kind != "shape_buffer":
+            raise ValidationError(f"Output shape report {output_name} has unsupported kind {kind}")
+        normalized.append({"output": output_name, "kind": "shape_buffer"})
     return normalized
 
 

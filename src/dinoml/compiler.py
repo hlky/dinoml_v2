@@ -385,6 +385,7 @@ def _runtime_metadata(ir: Dict) -> Dict:
         "outputs": ir["outputs"],
         "constants": ir["constants"],
         "memory_plan": ir.get("metadata", {}).get("memory_plan", {}),
+        "output_shape_reports": ir.get("metadata", {}).get("output_shape_reports", {}),
     }
 
 

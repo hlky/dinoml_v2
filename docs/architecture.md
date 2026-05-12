@@ -59,6 +59,12 @@ values, each run validates those values against `shape_spec`, and output shapes
 are inferred by matching named dynamic dimensions from the inputs. The reusable
 helpers in `dinoml.shapes` are the Python source of truth for runtime validation
 and output-shape inference.
+Artifacts can also mark selected public outputs with internal
+`metadata.output_shape_reports` entries of kind `shape_buffer`. Those generated
+CPU/CUDA modules report the post-run shape from the output tensor's generated
+shape buffer instead of echoing the caller-provided output descriptor, giving
+future value-dependent kernels a visible place to publish their final runtime
+shape without adding public op surface.
 
 `DinoTensor` ABI v7 also carries optional contiguous-layout metadata: host
 element strides, byte capacity, byte offset, device type, flags, and pointer

@@ -291,6 +291,48 @@ def test_view_alias_validation_requires_shape_only_element_count():
         PassManager(pipeline=("memory_plan",)).run(ir)
 
 
+def test_output_shape_report_metadata_accepts_shape_buffer_reports():
+    ir = _shape_view_ir()
+    ir["metadata"]["output_shape_reports"] = {
+        "version": 1,
+        "reports": [{"output": "y", "kind": "shape_buffer"}],
+    }
+
+    validate_ir(ir)
+    lowered, _ = PassManager(pipeline=("memory_plan",)).run(ir)
+
+    assert lowered["metadata"]["output_shape_reports"] == {
+        "version": 1,
+        "reports": [{"output": "y", "kind": "shape_buffer"}],
+    }
+
+
+@pytest.mark.parametrize(
+    ("report_metadata", "message"),
+    [
+        ({"version": 2, "reports": []}, "Unsupported output shape report metadata version"),
+        ({"version": 1, "reports": [{"output": "missing", "kind": "shape_buffer"}]}, "unknown output missing"),
+        ({"version": 1, "reports": [{"output": "y", "kind": "caller"}]}, "unsupported kind caller"),
+        (
+            {
+                "version": 1,
+                "reports": [
+                    {"output": "y", "kind": "shape_buffer"},
+                    {"output": "y", "kind": "shape_buffer"},
+                ],
+            },
+            "duplicate shape report metadata",
+        ),
+    ],
+)
+def test_output_shape_report_metadata_rejects_malformed_entries(report_metadata, message):
+    ir = _shape_view_ir()
+    ir["metadata"]["output_shape_reports"] = report_metadata
+
+    with pytest.raises(ValidationError, match=message):
+        validate_ir(ir)
+
+
 def test_compile_rejects_view_of_view_aliases(tmp_path):
     ir = _shape_view_ir()
     ir["outputs"] = [{"name": "z", "tensor": "z", "shape": [6], "shape_spec": [6], "dtype": "float32"}]
@@ -321,6 +363,23 @@ def test_cuda_lowering_binds_and_materializes_shape_view_output_alias():
         "cudaMemcpyAsync(dinoml::module::tensor_data(outputs[0]), ptr_y, runtime_numel_y * sizeof(float), "
         "cudaMemcpyDeviceToDevice, session->stream)"
     ) in generated
+
+
+def test_generated_output_shape_reports_can_read_shape_buffers():
+    ir = _shape_view_ir()
+    ir["metadata"]["output_shape_reports"] = {
+        "version": 1,
+        "reports": [{"output": "y", "kind": "shape_buffer"}],
+    }
+    lowered, _ = PassManager().run(ir)
+
+    cpu_generated = render_cpu_module(lowered, generated_kernels=[])
+    cuda_generated = render_cuda_module(lowered, generated_kernels=[])
+
+    assert "session->last_output_shapes[0] = session->shape_y;" in cpu_generated
+    assert "session->last_output_shapes[0].resize(2);" in cuda_generated
+    assert "session->last_output_shapes[0].data(),\n      session->shape_y," in cuda_generated
+    assert "cudaStreamSynchronize(session->stream)" in cuda_generated
 
 
 def test_cuda_session_create_cleans_up_partial_session_on_allocation_failure():

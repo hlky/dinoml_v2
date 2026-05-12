@@ -146,10 +146,11 @@ epilogues where possible.
   `get_output_shape`, NumPy output materialization, and direct CUDA
   device-pointer capacity checks accept a reported shape like `[0]` while still
   rejecting negative reported dimensions. Generated modules still report output
-  shapes from the caller-provided output descriptor rather than a
-  value-dependent op-updated count. Revisit only after value-dependent
-  output-shape metadata and generated CPU/CUDA shape-report overrides have a
-  focused test fixture.
+  shapes from the caller-provided output descriptor by default, but now have a
+  validated internal `metadata.output_shape_reports` hook that can make selected
+  CPU/CUDA outputs report from their generated shape buffers instead. Revisit
+  only after an op-local generated CPU/CUDA shape-buffer override/counting
+  fixture proves a value-dependent post-run count can update that report path.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.

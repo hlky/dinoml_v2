@@ -26,7 +26,13 @@ porting. It intentionally excludes the op inventory, which lives in
   output-shape query reports a larger rank than the shape buffer allocated from
   the first query. The
   caller-bound CUDA device-pointer capacity check now has CUDA-backed
-  integration coverage through a cheap generated identity artifact.
+  integration coverage through a cheap generated identity artifact. Generated
+  CPU/CUDA modules can now opt selected outputs into internal
+  `metadata.output_shape_reports` kind `shape_buffer`, causing post-run shape
+  reports to come from the generated output shape buffer rather than the
+  caller-provided output descriptor. Missing pieces for value-dependent outputs
+  are op-local generated shape-buffer count updates and admission of a concrete
+  static-rank op contract.
   V2 also has a bounded frontend-only
   symbolic integer expression scaffold for add/sub/mul/floor-div over static
   integers and dynamic `Dim` metadata, and now admits those expressions into

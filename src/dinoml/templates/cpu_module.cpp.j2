@@ -300,11 +300,15 @@ DINO_EXPORT int dino_session_run(
 {% for materialization in output_materializations %}
   {{ materialization }}
 {% endfor %}
-{% for output in outputs %}
-  session->last_output_shapes[{{ output.index }}].assign(
-      outputs[{{ output.index }}].shape,
-      outputs[{{ output.index }}].shape + outputs[{{ output.index }}].ndim);
-  session->last_output_shapes_valid[{{ output.index }}] = true;
+{% for report in output_shape_reports %}
+{% if report.source == "shape_buffer" %}
+  session->last_output_shapes[{{ report.index }}] = session->shape_{{ report.ident }};
+{% else %}
+  session->last_output_shapes[{{ report.index }}].assign(
+      outputs[{{ report.index }}].shape,
+      outputs[{{ report.index }}].shape + outputs[{{ report.index }}].ndim);
+{% endif %}
+  session->last_output_shapes_valid[{{ report.index }}] = true;
 {% endfor %}
   return 0;
 }

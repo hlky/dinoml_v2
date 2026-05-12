@@ -77,6 +77,7 @@ def render_cuda_module(
             ),
             "launches": [render_launch("cuda", node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]],
             "output_materializations": _output_materializations(views),
+            "output_shape_reports": _output_shape_report_contexts(ir, tensor_map=tensor_map),
         },
     )
 
@@ -506,6 +507,31 @@ def _output_materializations(views: Iterable[Mapping[str, Any]]) -> list[str]:
             "cudaMemcpyDeviceToDevice, session->stream));"
         )
     return materializations
+
+
+def _output_shape_report_contexts(
+    ir: Mapping[str, Any],
+    *,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    shape_buffer_outputs = {
+        str(report["output"])
+        for report in ir.get("metadata", {}).get("output_shape_reports", {}).get("reports", [])
+        if isinstance(report, Mapping) and report.get("kind") == "shape_buffer"
+    }
+    reports = []
+    for idx, output in enumerate(ir["outputs"]):
+        tensor_name = str(output["tensor"])
+        reports.append(
+            {
+                "index": idx,
+                "name": str(output["name"]),
+                "ident": _c_ident(tensor_name),
+                "rank": len(tensor_map[tensor_name]["shape"]),
+                "source": "shape_buffer" if str(output["name"]) in shape_buffer_outputs else "caller",
+            }
+        )
+    return reports
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

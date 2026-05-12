@@ -527,7 +527,7 @@ def _validate_gguf_runtime_dequant_admission(
     if not runtime_dequant_tensors:
         return
     if target.name != "cuda":
-        names = ", ".join(sorted(runtime_dequant_tensors.values()))
+        names = ", ".join(sorted(str(info["name"]) for info in runtime_dequant_tensors.values()))
         raise NotImplementedError(
             "GGUF materialization='dequantize_on_gpu_before_launch' is only supported for CUDA gemm_rrr/gemm_rcr "
             "or gemm_rrr_bias/gemm_rcr_bias RHS constants; "

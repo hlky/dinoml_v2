@@ -526,6 +526,17 @@ def test_gguf_runtime_dequant_requires_manual_runtime_load_residency():
         _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cuda", arch="sm_86"), manifest)
 
 
+def test_gguf_runtime_dequant_admission_reports_names_for_non_cuda_target():
+    spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    with pytest.raises(
+        NotImplementedError,
+        match=r"unsupported target 'cpu' for constant\(s\): weight",
+    ):
+        _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cpu"), manifest)
+
+
 def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mixed_graph():
     spec = _mixed_dense_and_gguf_spec()
     manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)

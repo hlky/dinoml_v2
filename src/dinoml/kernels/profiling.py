@@ -1320,13 +1320,15 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
 def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:
     if not isinstance(entry, Mapping):
         return False
-    entry_iterations = int(entry.get("iterations", 0) or 0)
-    entry_repeats = int(entry.get("repeats", 1) or 1)
+    entry_iterations = _cache_positive_int(entry.get("iterations"), default=0)
+    entry_repeats = _cache_positive_int(entry.get("repeats"), default=1)
     timing = entry.get("timing")
     if not isinstance(timing, Mapping):
         return False
-    timing_repeats = int(timing.get("repeats", timing.get("sample_count", 0)) or 0)
-    sample_count = int(timing.get("sample_count", timing_repeats) or 0)
+    timing_repeats = _cache_positive_int(timing.get("repeats", timing.get("sample_count")), default=0)
+    sample_count = _cache_positive_int(timing.get("sample_count", timing_repeats), default=0)
+    if entry_iterations < 0 or entry_repeats < 0 or timing_repeats < 0 or sample_count < 0:
+        return False
     return (
         entry.get("statistics_schema_version") == PROFILE_STATISTICS_SCHEMA_VERSION
         and timing.get("statistics_schema_version") == PROFILE_STATISTICS_SCHEMA_VERSION
@@ -1335,6 +1337,15 @@ def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats
         and timing_repeats >= int(repeats)
         and sample_count >= int(repeats)
     )
+
+
+def _cache_positive_int(value: Any, *, default: int) -> int:
+    if value is None:
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return -1
 
 
 def _cache_entry(

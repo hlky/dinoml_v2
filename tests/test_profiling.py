@@ -1232,6 +1232,43 @@ def test_profile_cache_hit_requires_enough_timing_samples(tmp_path):
     assert profiling_mod._cache_entry_satisfies({**cache_entry, "timing": {}}, iterations=5, repeats=3) is False
 
 
+def test_profile_cache_hit_rejects_malformed_timing_fields(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_cache_malformed_timing_fields",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workload = build_profile_workloads(lowered, kernel_manifest)[0]
+    timing = _profile_timing([0.20, 0.20, 0.20], iterations=5)
+    result = _profile_result(workload, timing["median_ms"], 5, profile_key="timed-profile", status="ok", timing=timing)
+    cache_entry = _cache_entry(
+        workload,
+        result,
+        _profile_key_payload(
+            workload,
+            {"target": {"name": "cuda", "arch": "sm_86"}},
+            kernel_manifest,
+            codegen_plan,
+            context={"fingerprint": {"hardware_key": "hardware", "support_libraries_key": "support"}},
+        ),
+    )
+
+    malformed_cases = (
+        {**cache_entry, "iterations": "five"},
+        {**cache_entry, "repeats": object()},
+        {**cache_entry, "timing": {**cache_entry["timing"], "repeats": "three"}},
+        {**cache_entry, "timing": {**cache_entry["timing"], "sample_count": []}},
+        {**cache_entry, "iterations": -1},
+        {**cache_entry, "timing": {**cache_entry["timing"], "sample_count": -1}},
+    )
+
+    for malformed_entry in malformed_cases:
+        assert profiling_mod._cache_entry_satisfies(malformed_entry, iterations=5, repeats=3) is False
+
+
 def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

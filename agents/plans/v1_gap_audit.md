@@ -110,10 +110,10 @@ porting. It intentionally excludes the op inventory, which lives in
   confidence-interval thresholds clear the runner-up; close/noisy winners are
   recorded as non-consumable low-confidence selections. Profile cache loading
   now discards malformed entry maps and refuses cache hits whose stored timing
-  statistics do not contain enough samples for the requested repeat-count
-  confidence policy. Non-additive residual and broader broadcast split-K remain
-  intentionally disabled until their fused epilogues have correct partition
-  behavior.
+  statistics have malformed count fields or do not contain enough samples for
+  the requested repeat-count confidence policy. Non-additive residual and
+  broader broadcast split-K remain intentionally disabled until their fused
+  epilogues have correct partition behavior.
   Remaining gaps are non-additive residual/broadcast split-K coverage and
   persistent SQLite/shared cache workflows.
 

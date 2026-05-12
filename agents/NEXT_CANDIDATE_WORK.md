@@ -16,5 +16,6 @@ This file should be updated after each major loop.
    freeing the native module handle, and CUDA staging-buffer grow failures now
    preserve the previously cached session buffer. Dense constant reload now
    rejects truncated constant files before mutating resident constants. Profile
-   cache reuse now rejects malformed entry maps and insufficient timing samples
-   before treating a cached result as confidence-policy eligible.
+   cache reuse now rejects malformed entry maps, malformed timing/count fields,
+   and insufficient timing samples before treating a cached result as
+   confidence-policy eligible.

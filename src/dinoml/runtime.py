@@ -765,8 +765,9 @@ class Session:
         if self.module._cuda_runtime_dll is None:
             self._cuda_buffers.clear()
             return
-        for ptr, _nbytes in reversed(list(self._cuda_buffers.values())):
+        for key, (ptr, _nbytes) in reversed(list(self._cuda_buffers.items())):
             self.module._check(self.module._cuda_runtime_dll.dino_device_free(ptr))
+            del self._cuda_buffers[key]
         self._cuda_buffers.clear()
 
     def _copy_h2d(self, dst_device: ctypes.c_void_p, src: np.ndarray) -> None:

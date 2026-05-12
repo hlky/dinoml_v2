@@ -18,4 +18,6 @@ This file should be updated after each major loop.
    rejects truncated constant files before mutating resident constants. Profile
    cache reuse now rejects malformed entry maps, malformed timing/count fields,
    and insufficient timing samples before treating a cached result as
-   confidence-policy eligible.
+   confidence-policy eligible. CUDA session staging-buffer cleanup now forgets
+   successfully freed cached buffers even if a later free fails, so retrying
+   close/cleanup does not retain stale freed pointers.

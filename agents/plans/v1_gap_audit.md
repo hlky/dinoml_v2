@@ -61,9 +61,11 @@ porting. It intentionally excludes the op inventory, which lives in
   extents before reload so truncated files cannot partially overwrite resident
   dense constants. The Python CUDA staging allocator now preserves the currently
   cached session buffer when a grow allocation fails, so allocator failures do
-  not leave the session tracking a freed pointer. The remaining graph, pool,
-  profiling, and broader allocator contracts should grow before op-specific
-  runtime assumptions spread.
+  not leave the session tracking a freed pointer. CUDA staging-buffer cleanup
+  also removes each successfully freed cached pointer before continuing, so a
+  later free failure does not leave retry paths tracking already-freed buffers.
+  The remaining graph, pool, profiling, and broader allocator contracts should
+  grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry for target defaults, dtype validation, support

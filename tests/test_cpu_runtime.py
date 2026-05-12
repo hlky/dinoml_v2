@@ -657,6 +657,41 @@ def test_cuda_staging_allocator_grow_swaps_cache_after_freeing_old_buffer():
     assert frees == [0x1000]
 
 
+def test_cuda_staging_allocator_forget_successful_frees_when_close_free_fails():
+    frees = []
+    fail_ptr = 0x1000
+
+    class FakeCudaRuntime:
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 9 if ptr.value == fail_ptr else 0
+
+    def check(err):
+        if err:
+            raise RuntimeError("device free failed")
+
+    session = object.__new__(runtime.Session)
+    session._cuda_buffers = {
+        "input:x": (ctypes.c_void_p(0x1000), 16),
+        "output:y": (ctypes.c_void_p(0x2000), 32),
+    }
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+
+    with pytest.raises(RuntimeError, match="device free failed"):
+        session._free_cuda_buffers()
+
+    assert frees == [0x2000, 0x1000]
+    assert list(session._cuda_buffers) == ["input:x"]
+    assert session._cuda_buffers["input:x"][0].value == 0x1000
+    assert session._cuda_buffers["input:x"][1] == 16
+
+    fail_ptr = 0
+    session._free_cuda_buffers()
+
+    assert frees == [0x2000, 0x1000, 0x1000]
+    assert session._cuda_buffers == {}
+
+
 def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

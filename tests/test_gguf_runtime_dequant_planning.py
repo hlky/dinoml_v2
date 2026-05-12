@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml.compiler import _validate_gguf_runtime_dequant_admission
 from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
@@ -40,6 +41,22 @@ class MixedGemmRrrEncodedRhs(dml.Module):
         return dense_y, gguf_y
 
 
+class AddEncodedWeight(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([32, 32], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(x + self.weight, "y")
+
+
+class GemmRcrEncodedRhs(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([24, 32], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.gemm_rcr(x, self.weight), "y")
+
+
 def _encoded_rhs_spec(*, materialization):
     storage = {
         "kind": "gguf",
@@ -60,6 +77,29 @@ def _encoded_rhs_spec(*, materialization):
         inputs={"x": dml.TensorSpec([4, 32], "float32")},
         constants={"weight": MaterializingConstant(np.zeros((32, 32), dtype=np.float32), storage)},
         name=f"gemm_rrr_{materialization}",
+    )
+
+
+def _unsupported_encoded_spec(module, *, weight_shape, input_shape, name):
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": list(weight_shape),
+        "qtype": "Q4_0",
+        "qtype_value": 2,
+        "encoded_nbytes": 576,
+        "gguf_shape": list(reversed(weight_shape)),
+        "n_per_row": int(weight_shape[-1]),
+        "materialization": "dequantize_on_gpu_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    return dml.trace(
+        module,
+        inputs={"x": dml.TensorSpec(list(input_shape), "float32")},
+        constants={"weight": MaterializingConstant(np.zeros(weight_shape, dtype=np.float32), storage)},
+        name=name,
     )
 
 
@@ -155,3 +195,37 @@ def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mix
     workloads = build_profile_workloads(spec.ir, manifest)
 
     assert {workload.node_id for workload in workloads} == {"n0", "n1"}
+
+
+@pytest.mark.parametrize(
+    ("spec", "manifest_builder", "match"),
+    [
+        pytest.param(
+            _unsupported_encoded_spec(
+                AddEncodedWeight(),
+                weight_shape=(32, 32),
+                input_shape=(32, 32),
+                name="add_runtime_dequant",
+            ),
+            lambda spec: {"required_kernels": []},
+            r"unsupported uses: weight: add\[input 1\], no_supported_lowered_use",
+            id="add",
+        ),
+        pytest.param(
+            _unsupported_encoded_spec(
+                GemmRcrEncodedRhs(),
+                weight_shape=(24, 32),
+                input_shape=(4, 32),
+                name="gemm_rcr_runtime_dequant",
+            ),
+            lambda spec: build_kernel_manifest(spec.ir, CUDA_TARGET),
+            r"unsupported uses: weight: gemm_rcr\[input 1\], no_supported_lowered_use",
+            id="gemm_rcr",
+        ),
+    ],
+)
+def test_gguf_runtime_dequant_admission_rejects_unsupported_uses(spec, manifest_builder, match):
+    manifest = manifest_builder(spec)
+
+    with pytest.raises(NotImplementedError, match=match):
+        _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cuda", arch="sm_86"), manifest)

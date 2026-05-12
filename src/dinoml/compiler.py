@@ -259,6 +259,7 @@ def _build_artifact_from_lowered_ir(
     else:
         (artifact_dir / "encoded_constants.json").unlink(missing_ok=True)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    _validate_gguf_runtime_dequant_admission(lowered_ir, target, kernel_manifest)
     if execution_plan_payload is not None:
         _validate_execution_plan_overlay(execution_plan_payload, target.to_json(), kernel_manifest)
         kernel_manifest = apply_execution_plan(kernel_manifest, execution_plan_payload, strict=True)
@@ -505,6 +506,67 @@ def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
             ),
         },
     }
+
+
+def _validate_gguf_runtime_dequant_admission(
+    ir: Mapping[str, Any],
+    target: Target,
+    kernel_manifest: Mapping[str, Any],
+) -> None:
+    tensor_map = {str(tensor["name"]): tensor for tensor in ir.get("tensors", [])}
+    runtime_dequant_tensors = {
+        str(constant["tensor"]): str(constant["name"])
+        for constant in ir.get("constants", [])
+        if isinstance(constant.get("storage"), Mapping)
+        and str(constant["storage"].get("kind", "")) == "gguf"
+        and str(constant["storage"].get("materialization", "")) == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+    }
+    if not runtime_dequant_tensors:
+        return
+    if target.name != "cuda":
+        names = ", ".join(sorted(runtime_dequant_tensors.values()))
+        raise NotImplementedError(
+            "GGUF materialization='dequantize_on_gpu_before_launch' is only supported for CUDA gemm_rrr RHS constants; "
+            f"unsupported target {target.name!r} for constant(s): {names}"
+        )
+    lowered_constants = {
+        str(plan.get("constant"))
+        for item in kernel_manifest.get("required_kernels", [])
+        if isinstance(item, Mapping)
+        for plan in [item.get("gguf_runtime_dequant")]
+        if isinstance(plan, Mapping) and str(plan.get("status", "")) == "lowered_runtime_dequant_scratch"
+    }
+    unsupported_uses: dict[str, list[str]] = {}
+    for node in ir.get("nodes", []):
+        inputs = [str(name) for name in node.get("inputs", [])]
+        output_name = str(node.get("outputs", [""])[0])
+        output_dtype = str(tensor_map.get(output_name, {}).get("dtype", ""))
+        for input_index, tensor_name in enumerate(inputs):
+            constant_name = runtime_dequant_tensors.get(tensor_name)
+            if constant_name is None:
+                continue
+            supported_use = (
+                input_index == 1
+                and str(node.get("op", "")) == "gemm_rrr"
+                and output_dtype in {"float32", "float16"}
+                and constant_name in lowered_constants
+            )
+            if not supported_use:
+                unsupported_uses.setdefault(constant_name, []).append(f"{node.get('op')}[input {input_index}]")
+    for constant_name in sorted(runtime_dequant_tensors.values()):
+        if constant_name not in lowered_constants:
+            unsupported_uses.setdefault(constant_name, []).append("no_supported_lowered_use")
+    if not unsupported_uses:
+        return
+    details = "; ".join(
+        f"{name}: {', '.join(uses)}"
+        for name, uses in sorted(unsupported_uses.items())
+    )
+    raise NotImplementedError(
+        "GGUF materialization='dequantize_on_gpu_before_launch' is only supported as the CUDA "
+        "gemm_rrr RHS for float32/float16 output; unsupported uses: "
+        f"{details}"
+    )
 
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:

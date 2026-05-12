@@ -43,6 +43,7 @@ def render_cuda_module(
     validate_symbolic_int_sources(items=ir["outputs"], dynamic_dims=dynamic_dims, context="output")
     validate_symbolic_int_sources(items=ir["constants"], dynamic_dims=dynamic_dims, context="constant")
     validate_symbolic_int_sources(items=tensor_map.values(), dynamic_dims=dynamic_dims, context="tensor")
+    lowered_runtime_dequant_constants = _lowered_gguf_runtime_dequant_constant_names(kernel_manifest)
     return render_template(
         "cuda_module.cu.j2",
         {
@@ -56,7 +57,7 @@ def render_cuda_module(
                 _io_context(idx, item["name"], item["shape"], item["dtype"], item.get("shape_spec", item["shape"]))
                 for idx, item in enumerate(ir["outputs"])
             ],
-            "constants": [_constant_context(item) for item in ir["constants"]],
+            "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
             "temporaries": [_temporary_context(item) for item in temporaries],
             "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
@@ -369,12 +370,16 @@ def _io_context(index: int, name: str, shape: Iterable[int], dtype: str, shape_s
     }
 
 
-def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
+def _constant_context(item: Mapping[str, Any], lowered_runtime_dequant_constants: set[str]) -> dict[str, Any]:
     dims = _dim_ranges(item.get("shape_spec", item["shape"]))
     storage = item.get("storage")
     storage_kind = storage.get("kind") if isinstance(storage, Mapping) else None
     materialization = storage.get("materialization") if isinstance(storage, Mapping) else None
-    encoded_runtime_dequant = storage_kind == "gguf" and materialization == "dequantize_on_gpu_before_launch"
+    encoded_runtime_dequant = (
+        storage_kind == "gguf"
+        and materialization == "dequantize_on_gpu_before_launch"
+        and str(item["name"]) in lowered_runtime_dequant_constants
+    )
     return {
         "name": item["name"],
         "ident": _c_ident(item["tensor"]),
@@ -388,6 +393,18 @@ def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
         "encoded_runtime_dequant": encoded_runtime_dequant,
+    }
+
+
+def _lowered_gguf_runtime_dequant_constant_names(kernel_manifest: Mapping[str, Any] | None) -> set[str]:
+    if kernel_manifest is None:
+        return set()
+    return {
+        str(plan.get("constant"))
+        for item in kernel_manifest.get("required_kernels", [])
+        if isinstance(item, Mapping)
+        for plan in [item.get("gguf_runtime_dequant")]
+        if isinstance(plan, Mapping) and str(plan.get("status", "")) == "lowered_runtime_dequant_scratch"
     }
 
 

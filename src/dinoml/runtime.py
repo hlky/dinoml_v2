@@ -77,6 +77,7 @@ CUDA_GGUF_DEQUANT_QTYPES = frozenset(
     }
 )
 _LIBGGUF_CUDA_NATIVE_LIBRARIES: list[ctypes.CDLL] = []
+_LIBGGUF_CUDA_NATIVE_CACHE: dict[str, tuple[ctypes.CDLL | None, int | None]] = {}
 
 
 def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
@@ -106,11 +107,17 @@ class RuntimeModule:
         self.manifest = read_json(manifest_path)
         load_constants = _resolve_load_constants(load_constants, self.manifest)
         self.target_name = self.manifest.get("target", {}).get("name")
+        files = self.manifest.get("files", {})
+        kernel_manifest_file = files.get("kernel_manifest") if isinstance(files, MappingABC) else None
+        self._kernel_manifest = (
+            read_json(artifact_dir / str(kernel_manifest_file))
+            if isinstance(kernel_manifest_file, str) and (artifact_dir / kernel_manifest_file).exists()
+            else None
+        )
         if self.manifest.get("runtime_abi_version") != RUNTIME_ABI_VERSION:
             raise RuntimeError(
                 f"Unsupported runtime ABI {self.manifest.get('runtime_abi_version')}, expected {RUNTIME_ABI_VERSION}"
             )
-        files = self.manifest.get("files", {})
         runtime_lib = artifact_dir / files.get("runtime_library", "lib/libdinoml_runtime.so")
         kernels_lib = artifact_dir / files.get("kernel_library", "lib/libdinoml_cuda_kernels.so")
         global_load_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(os, "RTLD_NOW", 0)
@@ -227,7 +234,8 @@ class RuntimeModule:
             details = ", ".join(
                 f"{entry['name']} "
                 f"(materialization={entry['policy']['materialization']}:{entry['policy']['materialization_status']}, "
-                f"residency={entry['policy']['residency']}:{entry['policy']['residency_status']})"
+                f"residency={entry['policy']['residency']}:{entry['policy']['residency_status']}, "
+                f"reason={entry['loadable_reason']})"
                 for entry in unsupported
             )
             raise NotImplementedError(f"Encoded constant policy is not runtime-supported: {details}")
@@ -403,12 +411,30 @@ class RuntimeModule:
             materialization != GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
             or getattr(self, "target_name", None) == "cuda"
         )
-        loadable_now = (
-            storage_kind == "gguf"
-            and target_supports_materialization
-            and policy_status["materialization"] == "runtime_supported"
-            and policy_status["residency"] == "runtime_supported"
-        )
+        loadable_now = False
+        loadable_reason = "unsupported_storage_kind"
+        if storage_kind == "gguf":
+            if not target_supports_materialization:
+                loadable_reason = "gguf_runtime_dequant_requires_cuda_artifact"
+            elif policy_status["materialization"] != "runtime_supported":
+                loadable_reason = f"unsupported_materialization_policy:{materialization}"
+            elif policy_status["residency"] != "runtime_supported":
+                loadable_reason = f"unsupported_residency_policy:{residency}"
+            else:
+                loadable_now = True
+                loadable_reason = "runtime_supported"
+                if isinstance(storage, Mapping) and _is_gguf_runtime_dequant_policy(storage):
+                    runtime_dequant_plan = self._gguf_runtime_dequant_plan_for_constant(str(constant_spec["name"]))
+                    if runtime_dequant_plan is None:
+                        loadable_now = False
+                        loadable_reason = "missing_lowered_gguf_runtime_dequant_plan"
+                    elif str(runtime_dequant_plan.get("status")) != "lowered_runtime_dequant_scratch":
+                        loadable_now = False
+                        blocked_reason = str(runtime_dequant_plan.get("blocked_reason", "") or "").strip()
+                        loadable_reason = (
+                            blocked_reason
+                            or f"gguf_runtime_dequant_plan_status:{runtime_dequant_plan.get('status')}"
+                        )
 
         return {
             "name": str(constant_spec["name"]),
@@ -425,9 +451,24 @@ class RuntimeModule:
                 "residency": residency,
                 "residency_status": policy_status["residency"],
             },
+            "loadable_reason": loadable_reason,
             "runtime_supported": loadable_now,
             "loadable_now": loadable_now,
         }
+
+    def _gguf_runtime_dequant_plan_for_constant(self, constant_name: str) -> Mapping[str, object] | None:
+        kernel_manifest = getattr(self, "_kernel_manifest", None)
+        if not isinstance(kernel_manifest, MappingABC):
+            return None
+        for item in kernel_manifest.get("required_kernels", []):
+            if not isinstance(item, MappingABC):
+                continue
+            plan = item.get("gguf_runtime_dequant")
+            if not isinstance(plan, MappingABC):
+                continue
+            if str(plan.get("constant", "")) == constant_name:
+                return plan
+        return None
 
     def _materialize_constants_from_file(self, path: Path) -> list[tuple[str, np.ndarray]]:
         constants = path.read_bytes()
@@ -1388,9 +1429,14 @@ def _libgguf_cuda_native_dequantize_rows_on_stream() -> int | None:
             if extension is None:
                 return None
             extension_path = str(Path(extension.__file__))
+        cached = _LIBGGUF_CUDA_NATIVE_CACHE.get(extension_path)
+        if cached is not None:
+            return cached[1]
         library = ctypes.CDLL(extension_path)
         launcher = library.libgguf_cuda_dequantize_rows_on_stream
     except (ImportError, AttributeError, OSError):
+        if extension_path is not None:
+            _LIBGGUF_CUDA_NATIVE_CACHE[extension_path] = (None, None)
         return None
     launcher.argtypes = (
         ctypes.c_void_p,
@@ -1403,7 +1449,9 @@ def _libgguf_cuda_native_dequantize_rows_on_stream() -> int | None:
     )
     launcher.restype = ctypes.c_int
     _LIBGGUF_CUDA_NATIVE_LIBRARIES.append(library)
-    return int(ctypes.cast(launcher, ctypes.c_void_p).value or 0) or None
+    ptr = int(ctypes.cast(launcher, ctypes.c_void_p).value or 0) or None
+    _LIBGGUF_CUDA_NATIVE_CACHE[extension_path] = (library, ptr)
+    return ptr
 
 
 def _is_gguf_runtime_dequant_policy(storage: Mapping[str, object]) -> bool:

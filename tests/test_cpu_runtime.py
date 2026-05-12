@@ -1622,6 +1622,7 @@ def test_runtime_encoded_constant_load_plan_reads_encoded_constants_manifest(tmp
                 "residency": "eager_dense_device",
                 "residency_status": "runtime_supported",
             },
+            "loadable_reason": "runtime_supported",
             "runtime_supported": True,
             "loadable_now": True,
         }
@@ -1662,6 +1663,7 @@ def test_runtime_encoded_constant_load_plan_falls_back_to_metadata_constants(tmp
         "residency": "eager_dense_device",
         "residency_status": "runtime_supported",
     }
+    assert plan[0]["loadable_reason"] == "runtime_supported"
     assert plan[0]["loadable_now"] is True
 
 
@@ -2082,6 +2084,97 @@ def test_runtime_load_encoded_constants_rejects_future_policy_before_materialize
         module.load_encoded_constants()
 
 
+def test_runtime_encoded_constant_load_plan_marks_unsupported_gguf_runtime_dequant_without_lowered_plan(tmp_path):
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.target_name = "cuda"
+    module.manifest = {"files": {}}
+    module.metadata = {
+        "constants": [
+            {
+                "name": "weight",
+                "dtype": "float32",
+                "shape": [32, 32],
+                "nbytes": 32 * 32 * 4,
+                "storage": {
+                    "kind": "gguf",
+                    "path": "weights.gguf",
+                    "tensor": "blk.0.ffn.weight",
+                    "logical_dtype": "float32",
+                    "shape": [32, 32],
+                    "qtype": "Q4_0",
+                    "qtype_value": 2,
+                    "encoded_nbytes": 576,
+                    "n_per_row": 32,
+                    "materialization": "dequantize_on_gpu_before_launch",
+                    "residency": "manual_runtime_load",
+                },
+            }
+        ]
+    }
+    module._kernel_manifest = {"required_kernels": []}
+    module._constant_loaded = {"weight": False}
+    module._handle = ctypes.c_void_p(1)
+
+    plan = module.encoded_constant_load_plan()
+
+    assert plan[0]["policy"]["materialization_status"] == "runtime_supported"
+    assert plan[0]["loadable_now"] is False
+    assert plan[0]["loadable_reason"] == "missing_lowered_gguf_runtime_dequant_plan"
+    with pytest.raises(NotImplementedError, match="reason=missing_lowered_gguf_runtime_dequant_plan"):
+        module.load_encoded_constants()
+
+
+def test_runtime_encoded_constant_load_plan_marks_blocked_gguf_runtime_dequant_plan(tmp_path):
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.target_name = "cuda"
+    module.manifest = {"files": {}}
+    module.metadata = {
+        "constants": [
+            {
+                "name": "weight",
+                "dtype": "float32",
+                "shape": [32, 32],
+                "nbytes": 32 * 32 * 4,
+                "storage": {
+                    "kind": "gguf",
+                    "path": "weights.gguf",
+                    "tensor": "blk.0.ffn.weight",
+                    "logical_dtype": "float32",
+                    "shape": [32, 32],
+                    "qtype": "Q4_0",
+                    "qtype_value": 2,
+                    "encoded_nbytes": 576,
+                    "n_per_row": 32,
+                    "materialization": "dequantize_on_gpu_before_launch",
+                    "residency": "manual_runtime_load",
+                },
+            }
+        ]
+    }
+    module._kernel_manifest = {
+        "required_kernels": [
+            {
+                "gguf_runtime_dequant": {
+                    "constant": "weight",
+                    "status": "planned_not_lowered",
+                    "blocked_reason": "unsupported_gguf_runtime_dequant_gemm_slice",
+                }
+            }
+        ]
+    }
+    module._constant_loaded = {"weight": False}
+    module._handle = ctypes.c_void_p(1)
+
+    plan = module.encoded_constant_load_plan()
+
+    assert plan[0]["loadable_now"] is False
+    assert plan[0]["loadable_reason"] == "unsupported_gguf_runtime_dequant_gemm_slice"
+    with pytest.raises(NotImplementedError, match="reason=unsupported_gguf_runtime_dequant_gemm_slice"):
+        module.load_encoded_constants()
+
+
 def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, tmp_path):
     values = np.arange(6, dtype=np.float32).reshape(3, 2)
     tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
@@ -2133,6 +2226,46 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     module.load_encoded_constants()
 
     np.testing.assert_array_equal(captured["weight"], values)
+
+
+def test_libgguf_cuda_native_dequantize_rows_on_stream_caches_cdll(monkeypatch):
+    cache_key = "/tmp/fake_libgguf_cuda_extension.so"
+    call_count = 0
+    callback_type = ctypes.CFUNCTYPE(
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    )
+
+    @callback_type
+    def launcher(_device_input, _qtype, _rows, _n_per_row, _output_dtype, _device_output, _stream):
+        return 0
+
+    class FakeLibrary:
+        libgguf_cuda_dequantize_rows_on_stream = launcher
+
+    def fake_cdll(path):
+        nonlocal call_count
+        assert path == cache_key
+        call_count += 1
+        return FakeLibrary()
+
+    monkeypatch.setenv("LIBGGUF_CUDA_EXTENSION", cache_key)
+    monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
+    monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_CACHE", {})
+    monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_LIBRARIES", [])
+
+    first = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
+    second = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
+
+    assert first is not None
+    assert second == first
+    assert call_count == 1
 
 
 def test_runtime_load_encoded_constants_resolves_artifact_relative_gguf_path(monkeypatch, tmp_path):
@@ -2271,6 +2404,7 @@ def test_cpu_runtime_load_encoded_constants_from_real_libgguf_artifact(tmp_path)
         "residency": "manual_runtime_load",
         "residency_status": "runtime_supported",
     }
+    assert plan[0]["loadable_reason"] == "runtime_supported"
     assert plan[0]["runtime_supported"] is True
     assert plan[0]["loadable_now"] is True
 

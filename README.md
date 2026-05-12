@@ -148,9 +148,13 @@ Broader GEMM/BMM coverage should extend that library-backed path.
 Constants are loaded from `constants.bin` when a module is opened and can also be
 updated at runtime with `RuntimeModule.set_constant_numpy(...)`. GGUF-backed
 encoded constants can be loaded explicitly with
-`RuntimeModule.load_encoded_constants(...)`; CUDA artifacts use libgguf CUDA
-dequantization when its optional Torch op is registered, then enter the same
-dense constant ABI.
+`RuntimeModule.load_encoded_constants(...)`; CPU and the default CUDA GGUF path
+still dequantize at load time into the dense constant ABI. The newer
+`materialization="dequantize_on_gpu_before_launch"` path is narrower: today it
+only supports CUDA `gemm_rrr` with a GGUF RHS constant,
+`residency="manual_runtime_load"`, and `float32`/`float16` output. Unsupported
+uses such as `gemm_rcr`, GEMM epilogues, or elementwise consumers are rejected
+instead of being treated as runtime-loadable encoded constants.
 
 CPU kernels do not require OpenMP. CMake uses it when available on supported
 platforms, and it can be disabled with `-DDINOML_ENABLE_OPENMP=OFF`.

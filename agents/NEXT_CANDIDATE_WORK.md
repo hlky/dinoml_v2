@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened the bounded GGUF runtime-dequant slice so
+  `materialization="dequantize_on_gpu_before_launch"` is admitted only for the
+  lowered CUDA `gemm_rrr` RHS path. Unsupported uses now fail clearly at
+  compile/runtime admission instead of being reported as runtime-loadable
+  encoded constants, and runtime load plans include precise blocked reasons.
+- Cached native libgguf CUDA dequant launcher lookup by extension path so
+  repeated encoded-constant loads do not reopen a new `ctypes.CDLL` handle.
+- Updated README and architecture docs to describe the current narrow CUDA
+  runtime-dequant contract and the still-unsupported surface.
 - Landed the first bounded runnable GGUF dequantize-before-GEMM path for
   CUTLASS `gemm_rrr` with a GGUF RHS constant declared as
   `materialization="dequantize_on_gpu_before_launch"` and
@@ -24,9 +33,9 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Stabilize the new bounded `gemm_rrr` GGUF runtime-dequant path with lifecycle
-   and failure-mode coverage, especially encoded constant unload/reload,
-   missing native launcher behavior at runtime, and malformed encoded byte-size
-   handling.
+   and remaining runtime failure-mode coverage, especially encoded constant
+   unload/reload, missing native launcher behavior at runtime, and malformed
+   encoded byte-size handling.
 2. Improve runtime/container lifecycle coverage for session/module close,
    allocator cleanup, and constant residency transitions before adding larger
    offload scheduling.

@@ -114,13 +114,20 @@ materialize through the existing host path, while CUDA artifacts with
 into a CUDA tensor and install the result via `set_constant_device_pointer`.
 This is load-time full dequantization, not a new residency mode or fused
 quantized-kernel contract.
-For the future `dequantize_on_gpu_before_launch` GEMM path, CUTLASS kernel
-manifests now mark a GGUF-encoded constant used as the GEMM RHS with a
-`gguf_runtime_dequant` planning record, including the encoded qtype/size,
-logical dense shape, scratch-buffer size, and the fact that generated CUDA
-lowering is blocked until libgguf exposes a native CUDA dequant launcher ABI.
-Generated GEMM lowering rejects that planned policy explicitly instead of
-silently treating it as load-time dense materialization.
+`materialization="dequantize_on_gpu_before_launch"` now has one bounded runtime
+path: a CUDA `gemm_rrr` node consuming a GGUF RHS constant with
+`residency="manual_runtime_load"` and `float32` or `float16` output. CUTLASS
+kernel manifests record that case with a lowered `gguf_runtime_dequant` plan,
+including the encoded qtype/size, logical dense shape, and required dense RHS
+scratch size. Generated CUDA stores that constant as encoded bytes, exposes an
+explicit native `libgguf_cuda_dequantize_rows_on_stream` setter, dequantizes on
+the session stream immediately before the GEMM launch, and passes the dense
+scratch buffer to the existing CUTLASS GEMM ABI.
+
+That surface is intentionally narrow. `gemm_rcr`, GEMM epilogues, non-GEMM
+consumers such as elementwise `add`, non-CUDA targets, and any use without a
+lowered `gguf_runtime_dequant` plan are rejected by compile/runtime admission
+instead of being advertised as loadable encoded constants.
 
 CUDA fused-elementwise uses reduced-precision storage with fp32 accumulation by
 default for fp16/bf16; the op may opt into native storage accumulation through

@@ -663,7 +663,7 @@ def test_cuda_staging_allocator_keeps_cached_buffer_when_grow_allocation_fails()
 
     session = object.__new__(runtime.Session)
     session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
-    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check, _check_cuda_runtime=check)
 
     with pytest.raises(RuntimeError, match="device allocation failed"):
         session._device_buffer("input:x", 32)
@@ -692,7 +692,7 @@ def test_cuda_staging_allocator_grow_swaps_cache_after_freeing_old_buffer():
 
     session = object.__new__(runtime.Session)
     session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
-    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check, _check_cuda_runtime=check)
 
     ptr = session._device_buffer("input:x", 32)
 
@@ -720,7 +720,7 @@ def test_cuda_staging_allocator_forget_successful_frees_when_close_free_fails():
         "input:x": (ctypes.c_void_p(0x1000), 16),
         "output:y": (ctypes.c_void_p(0x2000), 32),
     }
-    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check)
+    session.module = SimpleNamespace(_cuda_runtime_dll=FakeCudaRuntime(), _check=check, _check_cuda_runtime=check)
 
     with pytest.raises(RuntimeError, match="device free failed"):
         session._free_cuda_buffers()
@@ -754,6 +754,25 @@ def test_runtime_check_reads_cuda_runtime_last_error():
 
     with pytest.raises(RuntimeError, match="cuda helper failed"):
         module._check(1)
+
+
+def test_cuda_runtime_check_ignores_stale_module_last_error():
+    class FakeGetter:
+        restype = None
+
+        def __init__(self, message):
+            self.message = message
+
+        def __call__(self):
+            return self.message
+
+    module = object.__new__(runtime.RuntimeModule)
+    module._dll = SimpleNamespace(dino_get_last_error=FakeGetter(b"stale module failure"))
+    module._runtime_dll = SimpleNamespace()
+    module._cuda_runtime_dll = SimpleNamespace(dino_get_last_error=FakeGetter(b"fresh cuda helper failure"))
+
+    with pytest.raises(RuntimeError, match="fresh cuda helper failure"):
+        module._check_cuda_runtime(1)
 
 
 def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
@@ -868,6 +887,7 @@ def test_cuda_set_constant_numpy_preserves_setter_failure_when_temp_free_fails()
     module._cuda_runtime_dll = FakeCudaRuntime()
     module._dll = FakeModuleDll()
     module._check = check
+    module._check_cuda_runtime = check
     module.metadata = {
         "constants": [
             {

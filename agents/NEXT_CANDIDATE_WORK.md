@@ -27,4 +27,6 @@ This file should be updated after each major loop.
    preserve the primary setter/copy failure when temporary device-buffer cleanup
    also fails. CUDA helper-library allocator/copy/free errors now surface their
    own last-error messages through the Python runtime instead of falling back to
-   an unknown runtime error.
+   an unknown runtime error, and CUDA helper call sites now scope last-error
+   lookup to that helper library so stale module messages do not mask fresh
+   allocator/copy/free failures.

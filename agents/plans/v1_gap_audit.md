@@ -71,7 +71,8 @@ porting. It intentionally excludes the op inventory, which lives in
   reporting the first cleanup error. CUDA constant updates also preserve the
   primary setter/copy failure when temporary device-buffer cleanup fails, and
   Python runtime error reporting now includes CUDA helper-library last-error
-  messages for allocator/copy/free failures.
+  messages for allocator/copy/free failures without letting stale module
+  last-error messages mask fresh CUDA helper failures.
   The remaining graph, pool, profiling, and broader allocator contracts should
   grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target

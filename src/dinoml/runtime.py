@@ -274,7 +274,9 @@ class RuntimeModule:
         if self._cuda_runtime_dll is None:
             raise RuntimeError("CUDA runtime library is not loaded")
         ptr = ctypes.c_void_p()
-        self._check(self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes)))
+        self._check_cuda_runtime(
+            self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes))
+        )
         tensor, keepalive = _make_dino_tensor(
             ptr,
             actual_shape,
@@ -284,7 +286,7 @@ class RuntimeModule:
         )
         primary_error = False
         try:
-            self._check(
+            self._check_cuda_runtime(
                 self._cuda_runtime_dll.dino_copy_host_to_device(
                     ptr,
                     ctypes.c_void_p(array.ctypes.data),
@@ -304,7 +306,7 @@ class RuntimeModule:
             raise
         finally:
             try:
-                self._check(self._cuda_runtime_dll.dino_device_free(ptr))
+                self._check_cuda_runtime(self._cuda_runtime_dll.dino_device_free(ptr))
             except Exception:
                 if not primary_error:
                     raise
@@ -410,22 +412,29 @@ class RuntimeModule:
         for name in self._constant_loaded:
             self._constant_loaded[name] = loaded
 
-    def _check(self, err: int) -> None:
+    def _check(self, err: int, *, error_dlls: Sequence[object] | None = None) -> None:
         if err:
-            message = self._last_error_message()
+            message = self._last_error_message(error_dlls)
             raise RuntimeError(message.decode("utf-8") if message else "Unknown DinoML runtime error")
+
+    def _check_cuda_runtime(self, err: int) -> None:
+        if err:
+            self._check(err, error_dlls=(self._cuda_runtime_dll,))
 
     def _require_open(self) -> None:
         if not getattr(self, "_handle", None):
             raise RuntimeError("RuntimeModule is closed")
 
-    def _last_error_message(self) -> bytes | None:
+    def _last_error_message(self, dlls: Sequence[object] | None = None) -> bytes | None:
         getters = []
-        for dll in (
-            getattr(self, "_dll", None),
-            getattr(self, "_runtime_dll", None),
-            getattr(self, "_cuda_runtime_dll", None),
-        ):
+        include_global = dlls is None
+        if dlls is None:
+            dlls = (
+                getattr(self, "_dll", None),
+                getattr(self, "_runtime_dll", None),
+                getattr(self, "_cuda_runtime_dll", None),
+            )
+        for dll in dlls:
             if dll is None:
                 continue
             try:
@@ -434,12 +443,13 @@ class RuntimeModule:
                 continue
             getter.restype = ctypes.c_char_p
             getters.append(getter)
-        try:
-            global_getter = ctypes.CDLL(None).dino_get_last_error
-            global_getter.restype = ctypes.c_char_p
-            getters.append(global_getter)
-        except AttributeError:
-            pass
+        if include_global:
+            try:
+                global_getter = ctypes.CDLL(None).dino_get_last_error
+                global_getter.restype = ctypes.c_char_p
+                getters.append(global_getter)
+            except AttributeError:
+                pass
         for getter in getters:
             message = getter()
             if message:
@@ -764,7 +774,9 @@ class Session:
 
     def _device_malloc(self, nbytes: int) -> ctypes.c_void_p:
         ptr = ctypes.c_void_p()
-        self.module._check(self.module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(nbytes)))
+        self.module._check_cuda_runtime(
+            self.module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(nbytes))
+        )
         return ptr
 
     def _device_buffer(self, key: str, nbytes: int) -> ctypes.c_void_p:
@@ -774,10 +786,10 @@ class Session:
         ptr = self._device_malloc(nbytes)
         if cached is not None:
             try:
-                self.module._check(self.module._cuda_runtime_dll.dino_device_free(cached[0]))
+                self.module._check_cuda_runtime(self.module._cuda_runtime_dll.dino_device_free(cached[0]))
             except Exception:
                 try:
-                    self.module._check(self.module._cuda_runtime_dll.dino_device_free(ptr))
+                    self.module._check_cuda_runtime(self.module._cuda_runtime_dll.dino_device_free(ptr))
                 except Exception:
                     pass
                 raise
@@ -791,17 +803,17 @@ class Session:
             self._cuda_buffers.clear()
             return
         for key, (ptr, _nbytes) in reversed(list(self._cuda_buffers.items())):
-            self.module._check(self.module._cuda_runtime_dll.dino_device_free(ptr))
+            self.module._check_cuda_runtime(self.module._cuda_runtime_dll.dino_device_free(ptr))
             del self._cuda_buffers[key]
         self._cuda_buffers.clear()
 
     def _copy_h2d(self, dst_device: ctypes.c_void_p, src: np.ndarray) -> None:
-        self.module._check(
+        self.module._check_cuda_runtime(
             self.module._cuda_runtime_dll.dino_copy_host_to_device(dst_device, ctypes.c_void_p(src.ctypes.data), ctypes.c_size_t(src.nbytes))
         )
 
     def _copy_d2h(self, dst: np.ndarray, src_device: ctypes.c_void_p) -> None:
-        self.module._check(
+        self.module._check_cuda_runtime(
             self.module._cuda_runtime_dll.dino_copy_device_to_host(ctypes.c_void_p(dst.ctypes.data), src_device, ctypes.c_size_t(dst.nbytes))
         )
 

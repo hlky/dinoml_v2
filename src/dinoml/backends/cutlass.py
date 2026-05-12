@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dinoml.backends.build_parallelism import effective_cpu_count
 from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
@@ -292,9 +293,9 @@ def _compile_flags(arch_num: str) -> list[str]:
 
 
 def _nvcc_split_compile_flag() -> str | None:
-    raw_jobs = os.environ.get("DINOML_NVCC_SPLIT_COMPILE", "8")
+    raw_jobs = os.environ.get("DINOML_NVCC_SPLIT_COMPILE")
     try:
-        jobs = int(raw_jobs)
+        jobs = effective_cpu_count() if raw_jobs is None else int(raw_jobs)
     except ValueError:
         return None
     if jobs <= 1 or not _nvcc_supports_option("--split-compile"):

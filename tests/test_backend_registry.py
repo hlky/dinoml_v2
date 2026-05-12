@@ -6,6 +6,7 @@ from collections import Counter
 import pytest
 
 import dinoml as dml
+import dinoml.backends.build_parallelism as build_parallelism
 import dinoml.backends.cutlass as cutlass_backend
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
@@ -227,12 +228,21 @@ def test_cutlass_reduced_precision_candidates_satisfy_sm80_thread_map_divisibili
 
 def test_cutlass_compile_flags_enable_bounded_split_compile(monkeypatch):
     monkeypatch.setattr(cutlass_backend, "_nvcc_supports_option", lambda option: option == "--split-compile")
+    monkeypatch.setattr(cutlass_backend, "effective_cpu_count", lambda: 6)
 
-    assert "--split-compile=8" in cutlass_backend._compile_flags("86")
+    assert "--split-compile=6" in cutlass_backend._compile_flags("86")
     monkeypatch.setenv("DINOML_NVCC_SPLIT_COMPILE", "4")
     assert "--split-compile=4" in cutlass_backend._compile_flags("86")
     monkeypatch.setenv("DINOML_NVCC_SPLIT_COMPILE", "1")
     assert not any(flag.startswith("--split-compile") for flag in cutlass_backend._compile_flags("86"))
+
+
+def test_effective_cpu_count_caps_physical_cores_by_cgroup_quota(monkeypatch):
+    monkeypatch.setattr(build_parallelism, "_logical_cpu_count", lambda: 32)
+    monkeypatch.setattr(build_parallelism, "_linux_physical_cpu_count", lambda: 16)
+    monkeypatch.setattr(build_parallelism, "_linux_cgroup_cpu_quota_count", lambda cpu_count: 8)
+
+    assert build_parallelism.effective_cpu_count() == 8
 
 
 class Identity(dml.Module):

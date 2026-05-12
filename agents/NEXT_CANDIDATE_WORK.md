@@ -17,9 +17,14 @@ This file should be updated after each major loop.
    now exists in `examples/cuda_linear.py`: it uses explicit `gemm_rrr_bias`,
    dense runtime-settable weight/bias constants, a bucketed dynamic batch
    dimension, and a `--no-tf32` CUTLASS manifest/runtime test to keep provider
-   build cost bounded. Prefer the next non-example project priority by default;
-   broader CUDA model workflows should add profile-assisted selection or a
-   genuinely new provider/runtime contract rather than another showcase file.
+   build cost bounded. The same compact model path now has cheap
+   profile-assisted compile coverage: a fake profiler selects a non-default
+   no-TF32 CUTLASS candidate, `dml.compile(profile=True)` rebuilds from the
+   generated execution plan, and the final manifest/codegen plan consume the
+   selected candidate without invoking NVCC or a full profile run. Prefer the
+   next non-example project priority by default; broader CUDA model workflows
+   should add a genuinely new provider/runtime contract rather than another
+   showcase file.
 2. Leave `masked_select` queued, not admitted. A bounded admission pass found
    that the op's PyTorch/v1 contract has a value-dependent 1D output length in
    `[0, broadcast_numel]`, including all-false masks that produce shape `[0]`.
@@ -58,5 +63,9 @@ This file should be updated after each major loop.
    CUTLASS launcher/profiler symbols and malformed guarded dispatch shape
    metadata before attaching execution-plan dispatch to manifests, rejects
    malformed profile cache entries whose embedded `profile_key` is missing or
-   inconsistent with the cache map key, and strongly suggests rotating unless a
-   new failure is visible.
+   inconsistent with the cache map key, and proves profile-assisted rebuild
+   consumption on the compact CUDA linear model path. Rotate unless a new
+   failure is visible; the next provider/profile slice should be a distinct
+   contract such as persistent shared cache behavior, guarded dynamic model
+   dispatch with real bucket conflicts, or a concrete runtime/profile error
+   path.

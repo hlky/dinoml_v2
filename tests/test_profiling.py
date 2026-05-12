@@ -11,6 +11,7 @@ import dinoml as dml
 import dinoml.cli as cli
 import dinoml.compiler as compiler_mod
 import dinoml.kernels.profiling as profiling_mod
+from dinoml.backends.registry import BackendSpec
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.ir import read_json, write_json
 from dinoml.kernels.codegen import create_codegen_plan
@@ -2109,6 +2110,124 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
     assert build_calls[1]["reports"] is reports
     assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, 3, True)]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 1
+
+
+def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, monkeypatch):
+    from examples.cuda_linear import IN_FEATURES, OUT_FEATURES, VALIDATION_BATCH, build_spec
+
+    build_calls = []
+
+    def fake_build(ir, *, target, artifact_dir, generated_src_dir, kernel_manifest):
+        del ir, generated_src_dir
+        build_calls.append(
+            {
+                "target": target.to_json(),
+                "artifact_dir": artifact_dir,
+                "kernel_manifest": kernel_manifest,
+            }
+        )
+
+    def fake_profile_artifact(artifact, *, input_shapes, iterations, repeats, refresh):
+        artifact = Path(artifact)
+        kernel_manifest = read_json(artifact / "kernel_manifest.json")
+        manifest = read_json(artifact / "manifest.json")
+        required = kernel_manifest["required_kernels"][0]
+        selected_candidate = required["candidates"][1]
+        plan_path = artifact / "debug" / "execution_plan.json"
+        plan = {
+            "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+            "kind": "dinoml.execution_plan",
+            "target": manifest["target"],
+            "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+            "execution_plan_key": "cuda-linear-profile-plan",
+            "selection_policy": "test-profile-assisted-linear",
+            "selection_confidence_policy": {"name": "single-sample-smoke"},
+            "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
+            "summary": {
+                "selection_count": 1,
+                "static_selection_count": 1,
+                "conflict_count": 0,
+                "low_confidence_count": 0,
+            },
+            "static_selections": [
+                {
+                    "selection_key": "cuda-linear-profile-selection",
+                    "op": required["op"],
+                    "dtype": "float32",
+                    "candidate_set_key": required["candidate_set_key"],
+                    "selected_candidate_id": selected_candidate["candidate_id"],
+                    "candidate_config_key": selected_candidate["candidate_config_key"],
+                    "kernel_symbol": selected_candidate["kernel_symbol"],
+                    "profiler_symbol": selected_candidate["profiler_symbol"],
+                    "shape": {"m": VALIDATION_BATCH, "n": OUT_FEATURES, "k": IN_FEATURES},
+                    "avg_ms": 0.01,
+                    "confidence": {"confident": True, "level": "high"},
+                    "split_k": 1,
+                    "workspace_nbytes": 0,
+                }
+            ],
+        }
+        write_json(plan_path, plan)
+        return {
+            "artifact": str(artifact),
+            "target": manifest["target"],
+            "iterations": iterations,
+            "repeats": repeats,
+            "execution_plan": {
+                "path": str(plan_path),
+                "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+                "execution_plan_key": "cuda-linear-profile-plan",
+                "selection_count": 1,
+            },
+            "summary": {"cached": 0, "failed": 0, "profiled": 1, "skipped": 0},
+            "problems": [],
+            "input_shapes": {name: list(shape) for name, shape in (input_shapes or {}).items()},
+            "refresh": refresh,
+        }
+
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: fake_build)
+    monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
+
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    artifact = dml.compile(
+        build_spec(),
+        target,
+        tmp_path / "cuda_linear_profiled.dinoml",
+        profile=True,
+        profile_iterations=1,
+        profile_repeats=1,
+        profile_input_shapes={"x": (VALIDATION_BATCH, IN_FEATURES)},
+    )
+
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    compile_config = read_json(artifact.path / "compile_config.json")
+    bootstrap_report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
+    metadata = read_json(artifact.path / "metadata.json")
+    required = kernel_manifest["required_kernels"][0]
+    final_selection = required["execution_plan_selection"]
+    default_selection_id = build_calls[0]["kernel_manifest"]["required_kernels"][0]["selected_candidate_id"]
+
+    assert len(build_calls) == 2
+    assert default_selection_id != final_selection["selected_candidate_id"]
+    assert build_calls[1]["kernel_manifest"] == kernel_manifest
+    assert required["op"] == "gemm_rrr_bias"
+    assert required["candidate_set_id"] == "cutlass_gemm_rrr_bias_float32_bias_v1"
+    assert required["candidate_set"]["target_policy"]["no_tf32"] is True
+    assert required["candidate_set"]["candidate_count"] == 11
+    assert required["selected_candidate_id"] == final_selection["selected_candidate_id"]
+    assert required["kernel_symbol"] == final_selection["kernel_symbol"]
+    assert required["profiler_symbol"] == final_selection["profiler_symbol"]
+    assert final_selection["shape"] == {"m": VALIDATION_BATCH, "n": OUT_FEATURES, "k": IN_FEATURES}
+    assert codegen_plan["kernel_symbols"] == [final_selection["kernel_symbol"]]
+    assert codegen_plan["profiler_symbols"] == [final_selection["profiler_symbol"]]
+    assert compile_config["execution_plan"]["execution_plan_key"] == "cuda-linear-profile-plan"
+    assert bootstrap_report["execution_plan"]["selection_count"] == 1
+    assert bootstrap_report["iterations"] == 1
+    assert bootstrap_report["repeats"] == 1
+    assert bootstrap_report["input_shapes"] == {"x": [VALIDATION_BATCH, IN_FEATURES]}
+    assert [constant["name"] for constant in metadata["constants"]] == ["weight", "bias"]
+    assert metadata["inputs"][0]["shape_spec"][0]["buckets"] == [1, VALIDATION_BATCH, 4]
 
 
 def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, monkeypatch):

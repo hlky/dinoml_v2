@@ -86,6 +86,11 @@ CUTLASS GEMM manifest/candidate metadata, overrides the constants from CUDA
 torch tensors, and runs a smaller runtime batch through the real CUDA module.
 This keeps the visible workflow distinct from CPU examples without forcing the
 full default float32 candidate build or profile-assisted compile loop.
+The same path now has a cheap profile-assisted compile regression test: it uses
+the real `cuda_linear` spec and no-TF32 CUTLASS manifest, stubs only backend
+build/profiler timing, emits a compact static execution plan for the validation
+batch shape, and verifies the final manifest plus codegen plan consume the
+profile-selected candidate.
 
 Base BMM layout contracts have their first CUTLASS runtime slice. The public
 frontend and CPU reference cover

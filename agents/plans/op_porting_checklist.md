@@ -328,7 +328,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `dml.compile(..., profile=True)` and `dinoml compile --profile` build a
   candidate CUDA artifact, run the existing CUTLASS artifact profiler, then
   rebuild with the generated execution plan applied. The bootstrap timing report
-  is retained as `debug/bootstrap_profile_report.json`.
+  is retained as `debug/bootstrap_profile_report.json`. Compact model-level
+  coverage now exercises this path through `examples.cuda_linear` with a
+  no-TF32 `gemm_rrr_bias` manifest, fake profiler timing, and final
+  manifest/codegen-plan consumption of a non-default profile-selected candidate.
 - [x] Pass-once profile-assisted compile:
   profile-assisted compile now runs graph passes and writes constants once, then
   materializes the candidate and final artifacts from the same lowered IR while

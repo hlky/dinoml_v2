@@ -2134,6 +2134,25 @@ def test_get_output_shape_rejects_negative_reported_dimensions():
         session.get_output_shape("y")
 
 
+def test_get_output_shape_accepts_zero_reported_dimensions():
+    def fake_get_output_shape(_handle, _index, shape, ndim_ptr):
+        if shape is None:
+            ndim_ptr._obj.value = 1
+        else:
+            shape[0] = 0
+        return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        metadata={"outputs": [{"name": "y"}]},
+        _dll=SimpleNamespace(dino_session_get_output_shape=fake_get_output_shape),
+        _check=lambda code: code,
+    )
+
+    assert session.get_output_shape("y") == (0,)
+
+
 def test_get_output_shape_rejects_rank_growth_between_abi_calls():
     def fake_get_output_shape(_handle, _index, shape, ndim_ptr):
         if shape is None:
@@ -2171,6 +2190,11 @@ def test_cpu_runtime_materializes_reported_smaller_output_shape(tmp_path, monkey
         actual = session.run_numpy({"x": x})["y"]
         assert actual.shape == (4, 2)
         np.testing.assert_allclose(actual, x.astype(np.float32).reshape(4, 2), atol=0, rtol=0)
+
+        monkeypatch.setattr(session, "get_output_shape", lambda _name: (0,))
+        actual = session.run_numpy({"x": x})["y"]
+        assert actual.shape == (0,)
+        assert actual.size == 0
 
         monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
         with pytest.raises(ValueError, match="has more elements than allocated"):
@@ -2235,6 +2259,15 @@ def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monk
     )
     assert calls == ["run", "run"]
 
+    monkeypatch.setattr(session, "get_output_shape", lambda _name: (0,))
+    session.run_device_pointers(
+        {"x": 0x1000},
+        {"y": 0x2000},
+        {"x": (2, 4)},
+        {"y": (2, 4)},
+    )
+    assert calls == ["run", "run", "run"]
+
     monkeypatch.setattr(session, "get_output_shape", lambda _name: (3, 4))
     with pytest.raises(ValueError, match="has more elements than allocated"):
         session.run_device_pointers(
@@ -2243,7 +2276,7 @@ def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monk
             {"x": (2, 4)},
             {"y": (2, 4)},
         )
-    assert calls == ["run", "run", "run"]
+    assert calls == ["run", "run", "run", "run"]
 
     monkeypatch.setattr(session, "get_output_shape", lambda _name: (-1, 4))
     with pytest.raises(ValueError, match="negative dimension"):
@@ -2253,7 +2286,7 @@ def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monk
             {"x": (2, 4)},
             {"y": (2, 4)},
         )
-    assert calls == ["run", "run", "run", "run"]
+    assert calls == ["run", "run", "run", "run", "run"]
 
 
 @pytest.mark.parametrize(

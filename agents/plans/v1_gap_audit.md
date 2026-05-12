@@ -20,9 +20,11 @@ porting. It intentionally excludes the op inventory, which lives in
   direct pointer callers get the same capacity error contract as materializing
   NumPy/torch paths. Python runtime output-shape queries, materialization, and
   caller-bound capacity checks reject malformed negative reported dimensions
-  before callers can use them for slicing or reshaping output buffers, and the
-  Python getter now rejects ABI results whose second output-shape query reports a
-  larger rank than the shape buffer allocated from the first query. The
+  before callers can use them for slicing or reshaping output buffers, but now
+  explicitly accept zero-length reported dimensions such as `[0]` as a
+  post-run shape. The Python getter also rejects ABI results whose second
+  output-shape query reports a larger rank than the shape buffer allocated from
+  the first query. The
   caller-bound CUDA device-pointer capacity check now has CUDA-backed
   integration coverage through a cheap generated identity artifact.
   V2 also has a bounded frontend-only

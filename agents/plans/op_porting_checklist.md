@@ -140,11 +140,16 @@ epilogues where possible.
   behavior returns a rank-1 tensor whose runtime length is the count of true
   mask elements after input/mask broadcasting, including a valid zero-length
   result for all-false masks. V2 currently cannot honestly express that
-  contract because `Shape`/`Dim` and runtime shape validation require positive
-  dimensions, and generated modules report output shapes from the
-  caller-provided output descriptor rather than a value-dependent op-updated
-  count. Revisit only after zero-length/value-dependent output-shape metadata
-  and generated CPU/CUDA shape-report overrides have a focused test fixture.
+  contract because `Shape`/`Dim`, caller allocation specs, and normal runtime
+  shape validation require positive dimensions. The Python post-run
+  output-shape path now has focused coverage for zero-length reported shapes:
+  `get_output_shape`, NumPy output materialization, and direct CUDA
+  device-pointer capacity checks accept a reported shape like `[0]` while still
+  rejecting negative reported dimensions. Generated modules still report output
+  shapes from the caller-provided output descriptor rather than a
+  value-dependent op-updated count. Revisit only after value-dependent
+  output-shape metadata and generated CPU/CUDA shape-report overrides have a
+  focused test fixture.
   `dynamic_slice` is available as a bounded dense materialized copy for one
   static-shape tensor with static integer `start_indices`/`slice_sizes` attrs
   across the generated float/reduced-precision/bool storage surface.
@@ -347,8 +352,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   supports split-K dispatch workspace sizing, and falls back to the safe manifest
   default when no guard matches. Execution-plan application now also rejects or
   skips guarded payloads with stale CUTLASS launcher/profiler symbols or
-  malformed positive JSON-integer shape guards before generated lowering can
-  trust them.
+  malformed positive JSON-integer shape guards, and rejects guarded selections
+  whose `node_id` is missing or no longer matches the profiled manifest node
+  before generated lowering can trust them.
 - [x] First static alignment-aware profiling filter:
   when dense layout element alignment is present on both GEMM A and B, profiling
   prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller

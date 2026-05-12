@@ -977,6 +977,124 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
 
 
+def test_cuda_cutlass_gemm_rrr_runtime_dequant_lifecycle_cleanup(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    libgguf = pytest.importorskip("libgguf")
+    pytest.importorskip("libgguf.libgguf_cuda")
+    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
+        pytest.skip("libgguf CUDA native dequantize ABI is not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class EncodedRhsGemm(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([32, 32], dtype="float32")
+
+        def forward(self, x):
+            return dml.ops.output(dml.ops.gemm_rrr(x, self.weight), "y")
+
+    rows = np.linspace(-1.25, 1.25, 32 * 32, dtype=np.float32).reshape(32, 32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    expected_weight = libgguf.dequantize_rows(encoded, qtype, n_per_row=32).reshape(32, 32)
+    gguf_path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        gguf_path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 32),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+    source = dml.gguf_constant(
+        gguf_path,
+        "blk.0.ffn.weight",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+        materialization="dequantize_on_gpu_before_launch",
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        EncodedRhsGemm(),
+        inputs={"x": dml.TensorSpec([2, 32], "float32")},
+        constants={"weight": source},
+        name="gguf_q4_0_runtime_dequant_gemm_rrr_lifecycle",
+    )
+    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "gguf_q4_0_runtime_dequant_gemm_rrr_lifecycle.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    x0 = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
+    x1 = np.linspace(0.25, 1.5, 64, dtype=np.float32).reshape(2, 32)
+    expected0 = x0 @ expected_weight
+    expected1 = x1 @ expected_weight
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        assert module.constant_load_state() == {"weight": False}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x0})
+
+        module.load_encoded_constants(["weight"])
+        assert module.constant_load_state() == {"weight": True}
+        first = session.run_numpy({"x": x0})["y"]
+
+        module.unload_constants()
+        assert module.constant_load_state() == {"weight": False}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x1})
+
+        module.load_encoded_constants(["weight"])
+        assert module.constant_load_state() == {"weight": True}
+        second = session.run_numpy({"x": x1})["y"]
+
+        module.close()
+        assert not session._handle
+        with pytest.raises(RuntimeError, match="Session is closed"):
+            session.run_numpy({"x": x0})
+        with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+            module.constant_load_state()
+        session.close()
+        module.close()
+    finally:
+        try:
+            session.close()
+        except RuntimeError:
+            pass
+        module.close()
+
+    reopened = runtime.load(artifact.path)
+    reopened_session = reopened.create_session()
+    try:
+        assert reopened.constant_load_state() == {"weight": False}
+        reopened.load_encoded_constants(["weight"])
+        assert reopened.constant_load_state() == {"weight": True}
+        reloaded = reopened_session.run_numpy({"x": x0})["y"]
+        reopened_session.close()
+        reopened.close()
+        reopened_session.close()
+        reopened.close()
+    finally:
+        try:
+            reopened_session.close()
+        except RuntimeError:
+            pass
+        reopened.close()
+
+    np.testing.assert_allclose(first, expected0, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(second, expected1, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reloaded, expected0, atol=1e-4, rtol=1e-4)
+
+
 class VectorizableScalarChain(dml.Module):
     def forward(self, x):
         y = dml.ops.mul(x, 1.125)

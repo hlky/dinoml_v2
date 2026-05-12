@@ -4,6 +4,13 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added focused CUDA lifecycle coverage for the bounded GGUF runtime-dequant
+  `gemm_rrr` path: unload now explicitly invalidates the encoded RHS residency
+  for the live session, reloading encoded constants restores execution, closing
+  a runtime-dequant module closes the live session before freeing the module,
+  re-opening the artifact starts with unloaded encoded residency again, and
+  repeated session/module close calls stay idempotent without stale loaded
+  state.
 - Added focused CUDA runtime-dequant test coverage for malformed GGUF encoded
   metadata on `load_encoded_constants(...)`: mismatched qtype,
   `encoded_nbytes`, and `n_per_row` now have explicit regression tests proving
@@ -37,13 +44,13 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Stabilize the new bounded `gemm_rrr` GGUF runtime-dequant path with lifecycle
-   and remaining runtime failure-mode coverage, especially precise missing
-   native launcher behavior at runtime and session/module cleanup around the
-   runtime-dequant scratch plus encoded constant residency.
-2. Improve runtime/container lifecycle coverage for session/module close,
-   allocator cleanup, and constant residency transitions before adding larger
-   offload scheduling.
+1. Stabilize the new bounded `gemm_rrr` GGUF runtime-dequant path with the
+   remaining runtime failure-mode coverage, especially precise missing native
+   launcher behavior at runtime for encoded runtime-dequant loads versus run
+   time, while preserving the public loaded-state snapshot.
+2. Improve broader runtime/container lifecycle coverage for session/module
+   close, allocator cleanup, and constant residency transitions beyond the new
+   bounded runtime-dequant regression before adding larger offload scheduling.
 3. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
    path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
    explicit encoded storage, same-stream native dequant, and session-owned

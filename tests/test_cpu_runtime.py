@@ -2424,9 +2424,7 @@ def test_cpu_runtime_load_encoded_constants_from_real_libgguf_artifact(tmp_path)
     np.testing.assert_allclose(actual["y"], x + expected_weight, atol=0.0, rtol=0.0)
 
 
-def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_explicit_encoded_load(
-    monkeypatch, tmp_path
-):
+def _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path, *, constant_load_policy="eager"):
     class MixedConstantModel(dml.Module):
         def __init__(self):
             self.dense_bias = dml.Parameter([2], dtype="float32")
@@ -2461,18 +2459,29 @@ def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_exp
         MixedConstantModel(),
         inputs={"x": dml.TensorSpec([2], "float32")},
         constants={"dense_bias": dense_bias, "manual_bias": source},
-        name="mixed_dense_manual_encoded_constants_cpu",
+        name=f"mixed_dense_manual_encoded_constants_cpu_{constant_load_policy}",
     )
     spec = ModelSpec(
         name=traced.name,
         ir=traced.ir,
         constants={"dense_bias": dense_bias, "manual_bias": source},
     )
-    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "mixed_dense_manual_encoded_constants_cpu.dinoml")
+    artifact = dml.compile(
+        spec,
+        dml.Target("cpu"),
+        tmp_path / f"mixed_dense_manual_encoded_constants_cpu_{constant_load_policy}.dinoml",
+        constant_load_policy=constant_load_policy,
+    )
+    return artifact, x, dense_bias + manual_bias + x
+
+
+def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_explicit_encoded_load(
+    monkeypatch, tmp_path
+):
+    artifact, x, expected = _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
 
     module = runtime.load(artifact.path)
     session = module.create_session()
-    expected = x + dense_bias + manual_bias
     try:
         assert module.constant_load_state() == {"dense_bias": True, "manual_bias": False}
         with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
@@ -2495,6 +2504,78 @@ def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_exp
     finally:
         session.close()
         module.close()
+
+    np.testing.assert_allclose(loaded["y"], expected, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(reloaded["y"], expected, atol=0.0, rtol=0.0)
+
+
+def test_cpu_runtime_module_close_reopen_resets_manual_encoded_constant_residency(monkeypatch, tmp_path):
+    artifact, x, expected = _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": False}
+        module.load_encoded_constants(names=["manual_bias"])
+        assert module.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+        loaded = session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+    reopened = runtime.load(artifact.path)
+    reopened_session = reopened.create_session()
+    try:
+        assert reopened.constant_load_state() == {"dense_bias": True, "manual_bias": False}
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            reopened_session.run_numpy({"x": x})
+        reopened.load_encoded_constants(names=["manual_bias"])
+        assert reopened.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+        reloaded = reopened_session.run_numpy({"x": x})
+    finally:
+        reopened_session.close()
+        reopened.close()
+
+    np.testing.assert_allclose(loaded["y"], expected, atol=0.0, rtol=0.0)
+    np.testing.assert_allclose(reloaded["y"], expected, atol=0.0, rtol=0.0)
+
+
+def test_cpu_runtime_module_close_with_live_session_resets_deferred_mixed_residency(monkeypatch, tmp_path):
+    artifact, x, expected = _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(
+        monkeypatch,
+        tmp_path,
+        constant_load_policy="deferred",
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    assert module.constant_load_state() == {"dense_bias": False, "manual_bias": False}
+
+    module.load_constants_from_file()
+    module.load_encoded_constants(names=["manual_bias"])
+    assert module.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+    loaded = session.run_numpy({"x": x})
+
+    module.close()
+    session.close()
+    assert not session._handle
+
+    reopened = runtime.load(artifact.path)
+    reopened_session = reopened.create_session()
+    try:
+        assert reopened.constant_load_state() == {"dense_bias": False, "manual_bias": False}
+        with pytest.raises(RuntimeError, match="Constant dense_bias has not been loaded"):
+            reopened_session.run_numpy({"x": x})
+        reopened.load_constants_from_file()
+        assert reopened.constant_load_state() == {"dense_bias": True, "manual_bias": False}
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            reopened_session.run_numpy({"x": x})
+        reopened.load_encoded_constants(names=["manual_bias"])
+        assert reopened.constant_load_state() == {"dense_bias": True, "manual_bias": True}
+        reloaded = reopened_session.run_numpy({"x": x})
+    finally:
+        reopened_session.close()
+        reopened.close()
 
     np.testing.assert_allclose(loaded["y"], expected, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(reloaded["y"], expected, atol=0.0, rtol=0.0)

@@ -4,6 +4,13 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added broader CPU runtime/container lifecycle coverage for mixed dense and
+  manual-runtime-load encoded constants: reloading still requires an explicit
+  encoded load after `unload_constants()`/`load_constants_from_file()`, closing
+  and reopening an eager artifact resets the manual residency bit back to
+  unloaded, and closing a deferred artifact with a live session restores the
+  initial deferred residency state on reopen instead of leaking prior runtime
+  loads across module instances.
 - Added focused CUDA runtime-dequant coverage for the remaining native-launcher
   failure mode on the bounded GGUF `gemm_rrr` path: `load_encoded_constants(["weight"])`
   now has a regression test proving that a missing
@@ -53,8 +60,8 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Improve broader runtime/container lifecycle coverage for session/module
-   close, allocator cleanup, and constant residency transitions beyond the new
-   bounded runtime-dequant regression before adding larger offload scheduling.
+   close, allocator cleanup failure/retry paths, and CUDA reopen parity for
+   constant residency transitions before adding larger offload scheduling.
 2. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
    path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
    explicit encoded storage, same-stream native dequant, and session-owned

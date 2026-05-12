@@ -13,7 +13,9 @@ This file should be updated after each major loop.
    preservation or profile report/cache consistency that can be validated
    without CUDA CI. Recent coverage now rejects or skips stale CUTLASS
    launcher/profiler symbols and malformed guarded dispatch shape metadata
-   before attaching execution-plan dispatch to manifests.
+   before attaching execution-plan dispatch to manifests, and profile cache
+   reads/writes now reject entries whose embedded `profile_key` is missing or
+   inconsistent with the cache map key.
 3. Add profile/report cache regression coverage for sourceable symbolic
    expression shapes once a real CUDA profiling fixture is cheap enough for CI.
 4. Continue runtime/container stabilization, but rotate to a fresh concrete

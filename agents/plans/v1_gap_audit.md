@@ -136,8 +136,9 @@ porting. It intentionally excludes the op inventory, which lives in
   symbol payloads and malformed guarded shape metadata before attaching guarded
   dispatch to a manifest. Profile cache loading now discards malformed entry
   maps and refuses cache hits whose stored timing
-  statistics have malformed count fields or do not contain enough samples for
-  the requested repeat-count confidence policy. Profile cache writes now merge
+  statistics have malformed count fields, do not contain enough samples for
+  the requested repeat-count confidence policy, or carry a `profile_key` that is
+  missing or inconsistent with the cache map key. Profile cache writes now merge
   valid same-target on-disk entries before writing so a stale writer preserves
   entries added by another profiling process while still replacing its own
   profile keys. The CUDA artifact profiler now scopes allocator/copy/free helper

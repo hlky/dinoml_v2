@@ -1200,6 +1200,28 @@ def test_profile_cache_rejects_malformed_entries_payload(tmp_path):
     }
 
 
+def test_profile_cache_rejects_mismatched_profile_key_entries(tmp_path):
+    cache_path = tmp_path / "profile_cache.json"
+    target = {"name": "cuda", "arch": "sm_86"}
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                "good": {"profile_key": "good", "elapsed_ms": 1.0},
+                "missing": {"elapsed_ms": 2.0},
+                "mismatch": {"profile_key": "other", "elapsed_ms": 3.0},
+                "nonstr": {"profile_key": 4, "elapsed_ms": 4.0},
+            },
+        },
+    )
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache["entries"] == {"good": {"profile_key": "good", "elapsed_ms": 1.0}}
+
+
 def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
     cache_path = tmp_path / "profile_cache.json"
     target = {"name": "cuda", "arch": "sm_86"}
@@ -1210,7 +1232,7 @@ def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
             "target": target,
             "entries": {
                 "existing": {"profile_key": "existing", "elapsed_ms": 2.0},
-                "shared": {"profile_key": "old-shared", "elapsed_ms": 3.0},
+                "shared": {"profile_key": "shared", "elapsed_ms": 3.0},
             },
         },
     )
@@ -1222,7 +1244,7 @@ def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
             "target": target,
             "entries": {
                 "fresh": {"profile_key": "fresh", "elapsed_ms": 1.0},
-                "shared": {"profile_key": "new-shared", "elapsed_ms": 0.5},
+                "shared": {"profile_key": "shared", "elapsed_ms": 0.5},
             },
         },
     )
@@ -1232,7 +1254,7 @@ def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
     assert cache["entries"] == {
         "existing": {"profile_key": "existing", "elapsed_ms": 2.0},
         "fresh": {"profile_key": "fresh", "elapsed_ms": 1.0},
-        "shared": {"profile_key": "new-shared", "elapsed_ms": 0.5},
+        "shared": {"profile_key": "shared", "elapsed_ms": 0.5},
     }
 
 

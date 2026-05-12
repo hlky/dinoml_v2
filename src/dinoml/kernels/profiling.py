@@ -1304,11 +1304,7 @@ def _read_profile_cache(path: Path, target: Mapping[str, Any]) -> dict[str, Any]
     entries = payload.get("entries", {})
     if not isinstance(entries, Mapping):
         return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    payload["entries"] = {
-        str(key): dict(value)
-        for key, value in entries.items()
-        if isinstance(value, Mapping)
-    }
+    payload["entries"] = _valid_profile_cache_entries(entries)
     return payload
 
 
@@ -1326,15 +1322,23 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
         merged_entries.update(existing.get("entries", {}))
     entries = cache.get("entries", {})
     if isinstance(entries, Mapping):
-        merged_entries.update(
-            {
-                str(key): dict(value)
-                for key, value in entries.items()
-                if isinstance(value, Mapping)
-            }
-        )
+        merged_entries.update(_valid_profile_cache_entries(entries))
     payload["entries"] = merged_entries
     write_json(path, payload)
+
+
+def _valid_profile_cache_entries(entries: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    valid: dict[str, dict[str, Any]] = {}
+    for key, value in entries.items():
+        if not isinstance(value, Mapping):
+            continue
+        entry = dict(value)
+        entry_key = entry.get("profile_key")
+        normalized_key = str(key)
+        if not isinstance(entry_key, str) or entry_key != normalized_key:
+            continue
+        valid[normalized_key] = entry
+    return valid
 
 
 def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:

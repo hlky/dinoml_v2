@@ -498,10 +498,24 @@ class Session:
         self.module = module
         self._handle = ctypes.c_void_p()
         self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
-        self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
-        sessions = getattr(self.module, "_sessions", None)
-        if sessions is not None:
-            sessions.add(self)
+        try:
+            self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
+            sessions = getattr(self.module, "_sessions", None)
+            if sessions is not None:
+                sessions.add(self)
+        except Exception as exc:
+            try:
+                self._destroy_partially_created_session()
+            except Exception as cleanup_exc:
+                if hasattr(exc, "add_note"):
+                    exc.add_note(f"Additionally failed to destroy partially created runtime session: {cleanup_exc}")
+            raise
+
+    def _destroy_partially_created_session(self) -> None:
+        if not getattr(self, "_handle", None):
+            return
+        self.module._check(self.module._dll.dino_session_destroy(self._handle))
+        self._handle = ctypes.c_void_p()
 
     def close(self) -> None:
         first_error = None

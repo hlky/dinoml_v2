@@ -656,6 +656,75 @@ def test_runtime_module_close_attempts_all_sessions_before_reporting_failure():
     assert not module._handle
 
 
+def test_session_init_destroys_partial_native_handle_when_create_fails():
+    destroys = []
+
+    class FakeDll:
+        def dino_session_create(self, module_handle, out_handle):
+            out_handle._obj.value = 0x1234
+            return 13
+
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 0
+
+    def check(err):
+        if err == 13:
+            raise RuntimeError("session create failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    module = SimpleNamespace(
+        _handle=ctypes.c_void_p(0x9999),
+        _dll=FakeDll(),
+        _sessions=set(),
+        _check=check,
+    )
+
+    with pytest.raises(RuntimeError, match="session create failed"):
+        runtime.Session(module)
+
+    assert destroys == [0x1234]
+    assert module._sessions == set()
+
+
+def test_session_init_notes_cleanup_failure_when_tracking_fails():
+    destroys = []
+
+    class FailingSessionSet:
+        def add(self, session):
+            raise RuntimeError("session tracking failed")
+
+    class FakeDll:
+        def dino_session_create(self, module_handle, out_handle):
+            out_handle._obj.value = 0x1234
+            return 0
+
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 17
+
+    def check(err):
+        if err == 17:
+            raise RuntimeError("session destroy failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    module = SimpleNamespace(
+        _handle=ctypes.c_void_p(0x9999),
+        _dll=FakeDll(),
+        _sessions=FailingSessionSet(),
+        _check=check,
+    )
+
+    with pytest.raises(RuntimeError, match="session tracking failed") as excinfo:
+        runtime.Session(module)
+
+    notes = getattr(excinfo.value, "__notes__", [])
+    assert any("Additionally failed to destroy partially created runtime session" in note for note in notes)
+    assert 0x1234 in destroys
+
+
 def test_runtime_module_init_frees_native_module_when_metadata_load_fails(tmp_path, monkeypatch):
     artifact_dir = tmp_path / "metadata_load_failure.dinoml"
     (artifact_dir / "lib").mkdir(parents=True)

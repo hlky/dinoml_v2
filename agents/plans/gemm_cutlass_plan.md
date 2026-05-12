@@ -126,8 +126,9 @@ confidence-interval thresholds over the runner-up. Low-confidence winners are
 recorded as non-consumable audit metadata, and execution-plan application refuses
 explicit low-confidence static or guarded payloads before they can alter the
 kernel manifest. Execution-plan application also refuses stale CUTLASS
-launcher/profiler symbols and malformed guarded positive-integer shape metadata
-before those payloads can attach generated dispatch. Static overlays are emitted
+launcher/profiler symbols, malformed guarded positive-integer shape metadata,
+and missing or stale guarded `node_id` values before those payloads can attach
+generated dispatch. Static overlays are emitted
 only when all profiled shapes for an op/dtype/candidate-set agree on the same
 confident winner. When
 GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override

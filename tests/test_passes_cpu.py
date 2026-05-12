@@ -23,6 +23,7 @@ from dinoml.kernels.manifest import (
     build_external_kernel_plan,
     build_kernel_manifest,
 )
+from dinoml.kernels.profiling import build_execution_plan, build_profile_workloads, _profile_result
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
 from dinoml.lowering.cpu import render_cpu_module
 from dinoml.lowering.cuda import render_cuda_module
@@ -1654,6 +1655,76 @@ def test_cuda_lowering_uses_guarded_execution_plan_dispatch_for_shape_conflicts(
     assert "else {" in generated
 
 
+def test_profile_bucket_conflicts_apply_guarded_dispatch_to_manifest_and_lowering():
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(6, 8))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_bucket_conflict_dispatch",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    align2_candidate = next(candidate for candidate in required["candidates"] if int(candidate["cutlass"]["align"]) == 2)
+    align4_candidate = next(candidate for candidate in required["candidates"] if int(candidate["cutlass"]["align"]) == 4)
+    workloads = build_profile_workloads(lowered, manifest)
+    bucket6 = next(
+        workload
+        for workload in workloads
+        if workload.shape_case_id == "bucket_tokens=6"
+        and workload.candidate_id == align2_candidate["candidate_id"]
+        and workload.split_k == 1
+    )
+    bucket8 = next(
+        workload
+        for workload in workloads
+        if workload.shape_case_id == "bucket_tokens=8"
+        and workload.candidate_id == align4_candidate["candidate_id"]
+        and workload.split_k == 1
+    )
+    plan = build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": DEFAULT_CUDA_TARGET,
+            "kernel_manifest_cache_key": manifest["cache_key"],
+            "codegen_plan_cache_key": "codegen-key",
+            "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+            "hardware_cache_key": "hardware-key",
+            "support_libraries_cache_key": "support-key",
+            "problems": [
+                _profile_result(bucket6, 0.10, 5, profile_key="bucket6-align2", status="ok"),
+                _profile_result(bucket8, 0.09, 5, profile_key="bucket8-align4", status="ok"),
+            ],
+            "summary": {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0},
+        }
+    )
+
+    selected_manifest = apply_execution_plan(manifest, plan, strict=True)
+    dispatch = selected_manifest["required_kernels"][0]["execution_plan_dispatch"]
+    generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
+
+    assert plan["static_selections"] == []
+    assert plan["summary"]["conflict_count"] == 1
+    assert [entry["shape"]["case_id"] for entry in dispatch] == ["bucket_tokens=6", "bucket_tokens=8"]
+    assert [entry["shape"]["dims"] for entry in dispatch] == [{"tokens": 6}, {"tokens": 8}]
+    assert [entry["selected_candidate_id"] for entry in dispatch] == [
+        align2_candidate["candidate_id"],
+        align4_candidate["candidate_id"],
+    ]
+    assert "(shape_b_1) == 6" in generated
+    assert "(shape_b_1) == 8" in generated
+    assert align2_candidate["kernel_symbol"] in generated
+    assert align4_candidate["kernel_symbol"] in generated
+
+
 def test_apply_execution_plan_rejects_stale_guarded_cutlass_symbol():
     import dinoml as dml
 
@@ -1702,6 +1773,66 @@ def test_apply_execution_plan_rejects_stale_guarded_cutlass_symbol():
     }
 
     with pytest.raises(ValueError, match="kernel_symbol mismatch"):
+        apply_execution_plan(manifest, stale_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, stale_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_dispatch" not in relaxed["required_kernels"][0]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [("node_id", "stale-node", "node_id"), ("node_id", None, "missing node_id")],
+)
+def test_apply_execution_plan_rejects_guarded_dispatch_with_unusable_node_id(field, value, message):
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(6, 8))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_guarded_node_id_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][1]
+    selection = {
+        "selection_key": "profile-selection-n8",
+        "node_id": lowered["nodes"][0]["id"],
+        "op": "gemm_rrr",
+        "dtype": "float32",
+        "candidate_set_key": required["candidate_set_key"],
+        "selected_candidate_id": selected_candidate["candidate_id"],
+        "candidate_config_key": selected_candidate["candidate_config_key"],
+        "kernel_symbol": selected_candidate["kernel_symbol"],
+        "profiler_symbol": selected_candidate["profiler_symbol"],
+        "shape": {"m": 4, "n": 8, "k": 32},
+        "split_k": 1,
+        "workspace_nbytes": 0,
+    }
+    selection[field] = value
+    stale_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [selection],
+        "conflicts": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match=message):
         apply_execution_plan(manifest, stale_plan, strict=True)
 
     relaxed = apply_execution_plan(manifest, stale_plan, strict=False)

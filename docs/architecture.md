@@ -127,7 +127,9 @@ winner clears repeat-count, absolute/relative margin, and confidence-interval
 thresholds over the runner-up. Low-confidence winners are retained in the report
 for audit but are not emitted as consumable execution-plan selections; applying
 an execution plan also rejects or skips explicit low-confidence selection
-payloads before they can change a CUTLASS manifest. GEMM profiling expands
+payloads before they can change a CUTLASS manifest. Guarded dispatch selections
+also have to carry a manifest-matching `node_id`, so stale profile plans cannot
+attach branches that generated lowering will ignore. GEMM profiling expands
 explicit `Dim.buckets` into concrete workload cases when no runtime override is
 supplied, and carries case IDs plus dynamic dim values through the report and
 execution plan. Manifest/profile candidate filters now carry a CUTLASS

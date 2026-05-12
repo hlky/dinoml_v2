@@ -146,8 +146,9 @@ porting. It intentionally excludes the op inventory, which lives in
   low-confidence static/guarded execution-plan payloads are rejected or skipped
   during plan application before they can mutate a CUTLASS manifest. CUTLASS
   execution-plan application also rejects or skips stale launcher/profiler
-  symbol payloads and malformed guarded shape metadata before attaching guarded
-  dispatch to a manifest. Profile cache loading now discards malformed entry
+  symbol payloads, malformed guarded shape metadata, and missing or stale
+  guarded `node_id` values before attaching guarded dispatch to a manifest.
+  Profile cache loading now discards malformed entry
   maps and refuses cache hits whose stored timing
   statistics have malformed count fields, do not contain enough samples for
   the requested repeat-count confidence policy, or carry a `profile_key` that is

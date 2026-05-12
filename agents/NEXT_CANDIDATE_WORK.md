@@ -76,6 +76,9 @@ This file should be updated after each major loop.
    that becomes cheap enough for CI. Recent coverage rejects or skips stale
    CUTLASS launcher/profiler symbols and malformed guarded dispatch shape
    metadata before attaching execution-plan dispatch to manifests, rejects
+   guarded dispatch selections whose `node_id` is missing or no longer matches
+   the profiled manifest node, preserves bucket-derived guarded dispatch shape
+   metadata through execution-plan application, rejects
    malformed profile cache entries whose embedded `profile_key` is missing or
    inconsistent with the cache map key, rejects cache hits whose embedded key
    payload no longer matches the current hardware/support/profile key payload,

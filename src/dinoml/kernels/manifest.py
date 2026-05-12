@@ -254,6 +254,8 @@ def apply_execution_plan(
         if dispatch_group and (key in conflict_keys or key not in selections):
             dispatch_entries = []
             for guarded in dispatch_group:
+                if not _execution_plan_guarded_node_supported(item, key, guarded, strict=strict):
+                    continue
                 if not _execution_plan_guarded_shape_supported(str(kernel_library), key, guarded, strict=strict):
                     continue
                 selected_candidate = _execution_plan_candidate(item, key, guarded, strict=strict, check_alignment_cap=False)
@@ -380,6 +382,43 @@ def _execution_plan_guarded_shape_supported(
         if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
             return False
     return True
+
+
+def _execution_plan_guarded_node_supported(
+    item: Mapping[str, Any],
+    key: tuple[str, str, str],
+    selection: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
+    node_id = selection.get("node_id")
+    if not node_id:
+        if strict:
+            raise ValueError(f"Execution plan guarded selection for {key[0]} {key[1]} is missing node_id")
+        return False
+    manifest_node_ids = _cutlass_manifest_node_ids(item)
+    if manifest_node_ids and str(node_id) not in manifest_node_ids:
+        if strict:
+            raise ValueError(
+                "Execution plan guarded selection node_id "
+                f"{str(node_id)!r} does not match the kernel manifest for {key[0]} {key[1]}"
+            )
+        return False
+    return True
+
+
+def _cutlass_manifest_node_ids(item: Mapping[str, Any]) -> set[str]:
+    alignment_context = item.get("cutlass_alignment")
+    if not isinstance(alignment_context, Mapping):
+        return set()
+    nodes = alignment_context.get("nodes")
+    if not isinstance(nodes, Sequence) or isinstance(nodes, (str, bytes)):
+        return set()
+    node_ids = set()
+    for node in nodes:
+        if isinstance(node, Mapping) and node.get("node_id"):
+            node_ids.add(str(node["node_id"]))
+    return node_ids
 
 
 def _execution_plan_int_field(

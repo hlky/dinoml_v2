@@ -812,6 +812,67 @@ def test_set_constant_device_pointer_rejects_unknown_constant_before_backend_che
         module.set_constant_device_pointer("missing", 0x1000, (4,), "float32")
 
 
+def test_cuda_set_constant_numpy_preserves_setter_failure_when_temp_free_fails():
+    events = []
+
+    class FakeCudaRuntime:
+        def dino_device_malloc(self, out_ptr, nbytes):
+            events.append(("malloc", nbytes.value))
+            out_ptr._obj.value = 0x2000
+            return 0
+
+        def dino_copy_host_to_device(self, dst, src, nbytes):
+            events.append(("copy_h2d", dst.value, nbytes.value))
+            return 0
+
+        def dino_device_free(self, ptr):
+            events.append(("free", ptr.value))
+            return 17
+
+    class FakeModuleDll:
+        def dino_module_set_constant(self, handle, name, tensor):
+            tensor_value = ctypes.cast(tensor, ctypes.POINTER(runtime._DinoTensor)).contents
+            events.append(("set", handle.value, name.decode("utf-8"), tensor_value.data))
+            return 13
+
+    def check(err):
+        if err == 13:
+            raise RuntimeError("set constant failed")
+        if err == 17:
+            raise RuntimeError("temporary free failed")
+        if err:
+            raise RuntimeError("unexpected runtime failure")
+
+    module = object.__new__(runtime.RuntimeModule)
+    module.target_name = "cuda"
+    module._handle = ctypes.c_void_p(0x1234)
+    module._cuda_runtime_dll = FakeCudaRuntime()
+    module._dll = FakeModuleDll()
+    module._check = check
+    module.metadata = {
+        "constants": [
+            {
+                "name": "scale",
+                "shape": [2],
+                "shape_spec": [2],
+                "dtype": "float32",
+            }
+        ]
+    }
+    module._constant_loaded = {"scale": False}
+
+    with pytest.raises(RuntimeError, match="set constant failed"):
+        module.set_constant_numpy("scale", np.array([1.0, 2.0], dtype=np.float32))
+
+    assert events == [
+        ("malloc", 8),
+        ("copy_h2d", 0x2000, 8),
+        ("set", 0x1234, "scale", 0x2000),
+        ("free", 0x2000),
+    ]
+    assert module.constant_load_state() == {"scale": False}
+
+
 def test_compile_rejects_unknown_constant_load_policy(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

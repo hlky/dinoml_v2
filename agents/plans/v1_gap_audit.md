@@ -66,7 +66,8 @@ porting. It intentionally excludes the op inventory, which lives in
   later free failure does not leave retry paths tracking already-freed buffers.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
-  reporting the first cleanup error.
+  reporting the first cleanup error. CUDA constant updates also preserve the
+  primary setter/copy failure when temporary device-buffer cleanup fails.
   The remaining graph, pool, profiling, and broader allocator contracts should
   grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target

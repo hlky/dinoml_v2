@@ -22,4 +22,6 @@ This file should be updated after each major loop.
    successfully freed cached buffers even if a later free fails, so retrying
    close/cleanup does not retain stale freed pointers. Module close now attempts
    every live session close before reporting the first failure, while preserving
-   the module handle if any session cleanup failed.
+   the module handle if any session cleanup failed. CUDA constant updates now
+   preserve the primary setter/copy failure when temporary device-buffer cleanup
+   also fails.

@@ -282,6 +282,7 @@ class RuntimeModule:
             nbytes=array.nbytes,
             device_type=DINO_DEVICE_CUDA,
         )
+        primary_error = False
         try:
             self._check(
                 self._cuda_runtime_dll.dino_copy_host_to_device(
@@ -298,8 +299,15 @@ class RuntimeModule:
                 )
             )
             self._mark_constant_loaded(name, True)
+        except Exception:
+            primary_error = True
+            raise
         finally:
-            self._check(self._cuda_runtime_dll.dino_device_free(ptr))
+            try:
+                self._check(self._cuda_runtime_dll.dino_device_free(ptr))
+            except Exception:
+                if not primary_error:
+                    raise
 
     def set_constant_device_pointer(self, name: str, ptr: int, shape: tuple[int, ...] | list[int], dtype: str) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}

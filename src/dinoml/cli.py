@@ -19,9 +19,14 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     compile_parser = subparsers.add_parser("compile")
-    compile_parser.add_argument("model")
-    compile_parser.add_argument("--target", default="cuda")
-    compile_parser.add_argument("--arch", default="sm_86")
+    compile_parser.add_argument("model", help="Python model file defining build_spec()")
+    compile_parser.add_argument(
+        "--target",
+        choices=("cpu", "cuda"),
+        default="cpu",
+        help="Compile target backend (default: cpu)",
+    )
+    compile_parser.add_argument("--arch", default="sm_86", help="CUDA architecture when --target cuda is used")
     compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
     compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")

@@ -9,8 +9,10 @@ This file should be updated after each major loop.
    `examples/fused_elementwise.py` as the canonical minimal artifact, with
    coverage for both CLI compile/inspect/validate and the direct Python runtime
    API loop (`runtime.load`, `create_session`, `run_numpy`, explicit cleanup).
-   Prefer small usability fixes tied to that tested path over broad CLI help
-   rewrites or another showcase example.
+   `dinoml compile` is now intentionally CPU-first by default, and the
+   no-`--target` fused-elementwise CLI path has regression coverage proving the
+   artifact target is CPU. Prefer small usability fixes tied to that tested path
+   over broad CLI help rewrites or another showcase example.
 2. Stop the visible CPU example burst unless a future PM request identifies a
    genuinely distinct workflow. The CLI quick-start path has regression coverage
    for `compile`, `inspect`, runtime loading, and `validate`; deferred constants

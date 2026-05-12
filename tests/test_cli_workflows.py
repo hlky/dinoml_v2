@@ -74,6 +74,29 @@ def test_cpu_cli_compile_inspect_validate_quick_start(tmp_path):
     assert "validation ok" in validate_result.stdout
 
 
+def test_cli_compile_defaults_to_cpu_quick_start_artifact(tmp_path):
+    artifact = tmp_path / "fused_elementwise_default.dinoml"
+
+    compile_result = _run_cli("compile", EXAMPLE, "--out", str(artifact))
+    assert f"Wrote {artifact}" in compile_result.stdout
+    assert (artifact / "module.so").exists()
+
+    manifest = json.loads((artifact / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["target"]["name"] == "cpu"
+
+    inspect_result = _run_cli("inspect", str(artifact))
+    summary = json.loads(inspect_result.stdout)
+    assert summary["target"]["name"] == "cpu"
+
+
+def test_cli_compile_help_describes_cpu_default_and_model_contract():
+    help_result = _run_cli("compile", "--help")
+
+    assert "--target {cpu,cuda}" in help_result.stdout
+    assert "Compile target backend (default: cpu)" in help_result.stdout
+    assert "Python model file defining build_spec()" in help_result.stdout
+
+
 def test_cpu_quick_start_python_runtime_loop(tmp_path):
     artifact = tmp_path / "fused_elementwise_cpu.dinoml"
     _run_cli("compile", EXAMPLE, "--target", "cpu", "--out", str(artifact))

@@ -10,14 +10,16 @@ without requiring PyTorch at runtime.
 
 ```sh
 pip install -e ".[validate]"
-python -m dinoml.cli compile examples/fused_elementwise.py --target cpu --out build/fused_elementwise_cpu.dinoml
+python -m dinoml.cli compile examples/fused_elementwise.py --out build/fused_elementwise_cpu.dinoml
 python -m dinoml.cli inspect build/fused_elementwise_cpu.dinoml
 python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examples/fused_elementwise.py
 ```
 
 The `validate` extra installs the PyTorch dependency used by example reference
-checks. After compiling the artifact, the same CPU module can be loaded and run
-directly through the Python runtime API:
+checks. `compile` defaults to the CPU target; pass `--target cuda --arch sm_86`
+when building a CUDA artifact. The model argument is a Python file that defines
+`build_spec()`. After compiling the artifact, the same CPU module can be loaded
+and run directly through the Python runtime API:
 
 ```sh
 python - <<'PY'

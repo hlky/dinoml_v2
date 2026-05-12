@@ -4,6 +4,11 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the reviewer follow-up gap in the bounded GGUF runtime-dequant CUDA
+  coverage: added a focused `gemm_rcr_bias` float16 integration regression
+  that uses real libgguf `Q4_0` RHS storage, dense bias, same-stream native
+  dequant, and a dense reference comparison. This keeps the support surface
+  unchanged while proving the bias + float16 runtime slice directly on CUDA.
 - Extended the bounded CUDA GGUF runtime-dequant-before-GEMM path from base
   GEMM to the bias-only epilogue slice: manifests now lower RHS GGUF constants
   with `materialization="dequantize_on_gpu_before_launch"` and

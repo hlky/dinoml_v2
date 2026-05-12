@@ -66,8 +66,10 @@ This file should be updated after each major loop.
    CUTLASS launcher/profiler symbols and malformed guarded dispatch shape
    metadata before attaching execution-plan dispatch to manifests, rejects
    malformed profile cache entries whose embedded `profile_key` is missing or
-   inconsistent with the cache map key, and proves profile-assisted rebuild
-   consumption on the compact CUDA linear model path. Rotate unless a new
+   inconsistent with the cache map key, rejects cache hits whose embedded key
+   payload no longer matches the current hardware/support/profile key payload,
+   and proves profile-assisted rebuild consumption on the compact CUDA linear
+   model path. Rotate unless a new
    failure is visible; the next provider/profile slice should be a distinct
    contract such as persistent shared cache behavior, guarded dynamic model
    dispatch with real bucket conflicts, or a concrete runtime/profile error

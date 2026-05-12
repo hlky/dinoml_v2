@@ -151,13 +151,15 @@ porting. It intentionally excludes the op inventory, which lives in
   maps and refuses cache hits whose stored timing
   statistics have malformed count fields, do not contain enough samples for
   the requested repeat-count confidence policy, or carry a `profile_key` that is
-  missing or inconsistent with the cache map key. Profile cache writes now merge
-  valid same-target on-disk entries before writing so a stale writer preserves
-  entries added by another profiling process while still replacing its own
-  profile keys. The CUDA artifact profiler now scopes allocator/copy/free helper
-  errors to the CUDA runtime helper library before falling back to common runtime
-  errors, and profiler cleanup retains failed device pointers for retry instead
-  of dropping them before a successful free. Non-additive residual and
+  missing or inconsistent with the cache map key, or whose embedded key payload
+  no longer matches the current hardware/support/profile key payload. Profile
+  cache writes now merge valid same-target on-disk entries before writing so a
+  stale writer preserves entries added by another profiling process while still
+  replacing its own profile keys. The CUDA artifact profiler now scopes
+  allocator/copy/free helper errors to the CUDA runtime helper library before
+  falling back to common runtime errors, and profiler cleanup retains failed
+  device pointers for retry instead of dropping them before a successful free.
+  Non-additive residual and
   broader broadcast split-K remain intentionally disabled until their fused
   epilogues have correct partition behavior.
   Remaining gaps are non-additive residual/broadcast split-K coverage and

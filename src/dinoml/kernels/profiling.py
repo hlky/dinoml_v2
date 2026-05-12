@@ -579,7 +579,11 @@ def profile_artifact(
             key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
             profile_key = _profile_key(key_payload)
             cached = cache["entries"].get(profile_key)
-            if cached is not None and not refresh and _cache_entry_satisfies(cached, iterations=iterations, repeats=repeats):
+            if (
+                cached is not None
+                and not refresh
+                and _cache_entry_satisfies(cached, key_payload=key_payload, iterations=iterations, repeats=repeats)
+            ):
                 results.append(_profile_result_from_cache(workload, cached))
                 summary["cached"] += 1
             else:
@@ -1341,9 +1345,19 @@ def _valid_profile_cache_entries(entries: Mapping[str, Any]) -> dict[str, dict[s
     return valid
 
 
-def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:
+def _cache_entry_satisfies(
+    entry: Mapping[str, Any],
+    *,
+    iterations: int,
+    repeats: int,
+    key_payload: Mapping[str, Any] | None = None,
+) -> bool:
     if not isinstance(entry, Mapping):
         return False
+    if key_payload is not None:
+        cached_key = entry.get("key")
+        if not isinstance(cached_key, Mapping) or dict(cached_key) != dict(key_payload):
+            return False
     entry_iterations = _cache_positive_int(entry.get("iterations"), default=0)
     entry_repeats = _cache_positive_int(entry.get("repeats"), default=1)
     timing = entry.get("timing")

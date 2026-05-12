@@ -1816,6 +1816,121 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["problems"][0]["profile_key"] in cached_entries
 
 
+def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        profiling_mod,
+        "_cuda_hardware_fingerprint",
+        lambda target: {
+            "backend": "cuda",
+            "target_arch": target["arch"],
+            "cuda_visible_devices": "",
+            "nvidia_smi": "unavailable",
+            "devices": [],
+            "nvcc": {"available": "false"},
+        },
+    )
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="stale_key_profile_gemm",
+    )
+    target = {"name": "cuda", "arch": "sm_86", "no_tf32": True}
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, target)
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    manifest = {
+        "artifact_schema_version": 1,
+        "runtime_abi_version": 7,
+        "name": "stale_key_profile_gemm",
+        "target": target,
+        "files": {
+            "graph": "graph.dinoir.json",
+            "kernel_manifest": "kernel_manifest.json",
+            "kernel_codegen_plan": "kernel_codegen_plan.json",
+            "cutlass_gemm_library": "lib/libdinoml_cutlass_gemm.so",
+        },
+    }
+    artifact = tmp_path / "stale_key_profile_gemm.dinoml"
+    artifact.mkdir()
+    artifact_lib = artifact / "lib" / "libdinoml_cutlass_gemm.so"
+    artifact_lib.parent.mkdir()
+    artifact_lib.write_bytes(b"artifact cutlass gemm")
+    cache_dir = Path(codegen_plan["external_support_libraries"][0]["cache_dir"])
+    cache_lib = cache_dir / "lib" / "libdinoml_cutlass_gemm.so"
+    cache_lib.parent.mkdir(parents=True)
+    cache_lib.write_bytes(b"cached cutlass gemm")
+    write_json(
+        cache_dir / "lib" / "cutlass_gemm_manifest.json",
+        {
+            "schema_version": 1,
+            "target": target,
+            "provider": "cutlass",
+            "source_sha256": "source-hash",
+            "library_sha256": "library-hash",
+            "source_manifest": "../src/source_manifest.json",
+            "provenance_key": "provenance-hash",
+            "build_fingerprint": "provenance-hash",
+            "family_cache_key": "family-hash",
+            "used_candidate_plan_key": "used-plan-hash",
+            "external_kernel_plan_cache_key": "external-plan-hash",
+            "cache_key": "cutlass-cache",
+        },
+    )
+    write_json(artifact / "manifest.json", manifest)
+    write_json(artifact / "graph.dinoir.json", lowered)
+    write_json(artifact / "kernel_manifest.json", kernel_manifest)
+    write_json(artifact / "kernel_codegen_plan.json", codegen_plan)
+
+    context = profiling_mod._profile_context(artifact, manifest, codegen_plan)
+    workloads = build_profile_workloads(lowered, kernel_manifest)
+    workload = workloads[0]
+    key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
+    profile_key = _profile_key(key_payload)
+    timing = _profile_timing([0.10, 0.10, 0.10], iterations=9)
+    cached_result = _profile_result(workload, timing["median_ms"], 9, profile_key=profile_key, status="ok", timing=timing)
+    stale_entry = _cache_entry(workload, cached_result, key_payload)
+    stale_entry["key"] = {**key_payload, "support_libraries_fingerprint_key": "stale-support-key"}
+    cache_path = profile_cache_path(codegen_plan)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {profile_key: stale_entry},
+        },
+    )
+
+    profile_calls = []
+
+    class FakeProfiler:
+        def __init__(self, artifact_dir, manifest):
+            self.artifact_dir = artifact_dir
+            self.manifest = manifest
+
+        def profile(self, workload, *, iterations, rng):
+            profile_calls.append((workload.candidate_id, iterations))
+            return (0.125, workload.workspace_nbytes)
+
+        def close(self):
+            profile_calls.append(("close", 0))
+
+    monkeypatch.setattr(profiling_mod, "_CudaProfiler", FakeProfiler)
+
+    report = profile_artifact(artifact, iterations=3, repeats=3)
+
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": len(workloads), "skipped": 0}
+    assert report["problems"][0]["status"] == "ok"
+    assert report["problems"][0]["selected"]["reason"] == "only_candidate"
+    profiled_calls = profile_calls[:-1]
+    assert len(profiled_calls) == len(workloads) * 3
+    assert {iterations for _, iterations in profiled_calls} == {3}
+    assert [candidate_id for candidate_id, _ in profiled_calls[::3]] == [workload.candidate_id for workload in workloads]
+    assert profile_calls[-1] == ("close", 0)
+    refreshed_cache = profiling_mod._read_profile_cache(cache_path, target)
+    assert refreshed_cache["entries"][profile_key]["key"] == key_payload
+
+
 def test_cuda_profiler_check_reads_cuda_runtime_last_error():
     class FakeGetter:
         restype = None

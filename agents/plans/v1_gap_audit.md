@@ -77,7 +77,9 @@ porting. It intentionally excludes the op inventory, which lives in
   failure does not leave retry paths tracking already-freed buffers. Python
   session close now still attempts native session destruction after staging
   buffer cleanup fails, while leaving failed cleanup or failed destruction state
-  retryable on the session.
+  retryable on the session. Runtime input/output maps now reject unexpected
+  tensor names before NumPy host staging, torch dispatch validation, or direct
+  CUDA pointer packing, so stale caller bindings cannot be silently ignored.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

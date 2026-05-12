@@ -368,6 +368,24 @@ def test_cpu_runtime_materializes_direct_input_output(tmp_path):
     np.testing.assert_array_equal(actual, x)
 
 
+def test_run_numpy_rejects_unexpected_input_names(tmp_path):
+    spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], "float32")}, name="unexpected_input_cpu")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "unexpected_input_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        with pytest.raises(ValueError, match="Unexpected input: z"):
+            session.run_numpy(
+                {
+                    "x": np.zeros((2, 3), dtype=np.float32),
+                    "z": np.zeros((2, 3), dtype=np.float32),
+                }
+            )
+    finally:
+        session.close()
+        module.close()
+
+
 @pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
 def test_cpu_runtime_materializes_reduced_precision_direct_input_output(tmp_path, dtype):
     spec = dml.trace(DirectIdentityModel(), inputs={"x": dml.TensorSpec([2, 3], dtype)}, name=f"direct_identity_{dtype}_cpu")
@@ -2131,6 +2149,84 @@ def test_device_pointer_run_rejects_reported_shape_larger_than_bound_output(monk
             {"y": (2, 4)},
         )
     assert calls == ["run", "run", "run", "run"]
+
+
+@pytest.mark.parametrize(
+    ("inputs", "outputs", "input_shapes", "output_shapes", "expected_message"),
+    [
+        ({"x": 0x1000, "z": 0x3000}, {"y": 0x2000}, {"x": (2, 4)}, {"y": (2, 4)}, "Unexpected input pointer: z"),
+        ({"x": 0x1000}, {"y": 0x2000, "z": 0x3000}, {"x": (2, 4)}, {"y": (2, 4)}, "Unexpected output pointer: z"),
+        ({"x": 0x1000}, {"y": 0x2000}, {"x": (2, 4), "z": (2, 4)}, {"y": (2, 4)}, "Unexpected input shape: z"),
+        ({"x": 0x1000}, {"y": 0x2000}, {"x": (2, 4)}, {"y": (2, 4), "z": (2, 4)}, "Unexpected output shape: z"),
+    ],
+)
+def test_device_pointer_run_rejects_unexpected_names(inputs, outputs, input_shapes, output_shapes, expected_message):
+    calls = []
+
+    def fake_run(*_args):
+        calls.append("run")
+        return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [
+                {
+                    "name": "x",
+                    "shape": [2, 4],
+                    "shape_spec": [2, 4],
+                    "dtype": "float32",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "y",
+                    "shape": [2, 4],
+                    "shape_spec": [2, 4],
+                    "dtype": "float32",
+                }
+            ],
+        },
+        _dll=SimpleNamespace(dino_session_run=fake_run),
+        _check=lambda code: code,
+    )
+
+    with pytest.raises(ValueError, match=expected_message):
+        session.run_device_pointers(inputs, outputs, input_shapes, output_shapes)
+
+    assert calls == []
+
+
+def test_run_torch_rejects_unexpected_input_names_before_tensor_checks():
+    pytest.importorskip("torch")
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [
+                {
+                    "name": "x",
+                    "shape": [2, 4],
+                    "shape_spec": [2, 4],
+                    "dtype": "float32",
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "y",
+                    "shape": [2, 4],
+                    "shape_spec": [2, 4],
+                    "dtype": "float32",
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Unexpected input: z"):
+        session.run_torch({"x": object(), "z": object()})
 
 
 def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):

@@ -453,7 +453,9 @@ The next foundations to settle before broad op porting are:
   default `run_numpy` behavior when no external stream is set. Generated CPU and
   CUDA sessions also expose minimal post-run output-shape reporting through
   `dino_session_get_output_shape(DinoSession*, size_t, int64_t*, size_t*)`.
-  Public Python session entry points reject closed sessions before C ABI calls,
+  Public Python session entry points reject closed sessions before C ABI calls.
+  Runtime input/output maps reject unexpected tensor names before staging or
+  direct pointer packing so stale caller bindings cannot be silently ignored,
   and closing a Python runtime module closes its live sessions before releasing
   the native module handle. Python runtime module construction also releases a
   native module handle if metadata initialization fails after native load

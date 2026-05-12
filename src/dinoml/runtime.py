@@ -605,6 +605,14 @@ class Session:
             raise RuntimeError("run_device_pointers is only available for CUDA artifacts")
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
+        input_names = [str(spec["name"]) for spec in input_specs]
+        output_names = [str(spec["name"]) for spec in output_specs]
+        _reject_unexpected_keys(inputs, input_names, "input pointer")
+        _reject_unexpected_keys(outputs, output_names, "output pointer")
+        if input_shapes is not None:
+            _reject_unexpected_keys(input_shapes, input_names, "input shape")
+        if output_shapes is not None:
+            _reject_unexpected_keys(output_shapes, output_names, "output shape")
         shape_buffers = []
         resolved_input_shapes: dict[str, tuple[int, ...]] = {}
         resolved_output_shapes: dict[str, tuple[int, ...]] = {}
@@ -672,9 +680,14 @@ class Session:
             raise RuntimeError("run_torch is only available for CUDA artifacts")
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
+        input_names = [str(spec["name"]) for spec in input_specs]
+        _reject_unexpected_keys(inputs, input_names, "input")
         input_shapes = {}
         for spec in input_specs:
-            tensor = inputs[str(spec["name"])]
+            name = str(spec["name"])
+            if name not in inputs:
+                raise ValueError(f"Missing input: {name}")
+            tensor = inputs[name]
             if not getattr(tensor, "is_cuda", False):
                 raise ValueError(f"Input {spec['name']} must be a CUDA tensor")
             validate_runtime_shape(str(spec["name"]), tuple(int(dim) for dim in tensor.shape), spec)
@@ -709,6 +722,7 @@ class Session:
     def _run_numpy_cpu(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
+        _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
         input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
         input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
         output_arrays = [
@@ -761,6 +775,7 @@ class Session:
     def _run_numpy_cuda(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
+        _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
         input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
         input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
         output_arrays = [
@@ -887,6 +902,14 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
     array = array_to_storage(inputs[name], str(spec["dtype"]))
     validate_runtime_shape(name, array.shape, spec)
     return array
+
+
+def _reject_unexpected_keys(mapping: Mapping[str, object], expected_names: Sequence[str], label: str) -> None:
+    expected = set(expected_names)
+    unexpected = sorted(str(key) for key in mapping if key not in expected)
+    if unexpected:
+        suffix = "s" if len(unexpected) != 1 else ""
+        raise ValueError(f"Unexpected {label}{suffix}: {', '.join(unexpected)}")
 
 
 def _shape_buffer(shape: object) -> ctypes.Array:

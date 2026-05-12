@@ -44,7 +44,9 @@ This file should be updated after each major loop.
    Python runtime-module construction cleanup when metadata initialization fails
    after native load succeeds, the non-CUDA CLI quick-start workflow, and
    CUDA-backed direct device-pointer reported output-shape capacity rejection
-   through a cheap identity artifact.
+   through a cheap identity artifact. The latest input/output map pass also
+   rejects unexpected tensor names for `run_numpy`, `run_torch`, and direct CUDA
+   pointer execution before staging or pointer packing.
 4. Continue provider/profile artifact hardening only for concrete,
    project-visible failures or for CUDA-backed profile/report cache coverage
    that becomes cheap enough for CI. Recent coverage rejects or skips stale

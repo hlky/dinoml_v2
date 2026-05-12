@@ -78,6 +78,15 @@ The runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
+The first model-level CUDA workflow is intentionally small:
+`examples/cuda_linear.py` builds a single explicit `gemm_rrr_bias` linear layer
+with dense weight/bias constants and a bucketed dynamic batch dimension. Its
+runtime test compiles for CUDA with `no_tf32=True`, verifies the artifact's
+CUTLASS GEMM manifest/candidate metadata, overrides the constants from CUDA
+torch tensors, and runs a smaller runtime batch through the real CUDA module.
+This keeps the visible workflow distinct from CPU examples without forcing the
+full default float32 candidate build or profile-assisted compile loop.
+
 Base BMM layout contracts have their first CUTLASS runtime slice. The public
 frontend and CPU reference cover
 `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}` and matching `_add` variants with the

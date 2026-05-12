@@ -40,6 +40,15 @@ python -m dinoml.cli validate build/subpixel_upsample_cpu.dinoml --against examp
 Additional compact CPU workflows live under `examples/`, including
 `coordinate_ramp.py` for creation helpers feeding fused elementwise math.
 
+For a compact CUDA linear workflow using existing explicit GEMM+bias ops,
+runtime-settable constants, a bucketed dynamic batch dimension, and a visible
+CUTLASS provider manifest:
+
+```sh
+python -m dinoml.cli compile examples/cuda_linear.py --target cuda --arch sm_86 --no-tf32 --out build/cuda_linear.dinoml
+python -m dinoml.cli validate build/cuda_linear.dinoml --against examples/cuda_linear.py --atol 1e-2 --rtol 1e-2
+```
+
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
 `python -m dinoml.cli validate` explicitly loads artifact constants for the

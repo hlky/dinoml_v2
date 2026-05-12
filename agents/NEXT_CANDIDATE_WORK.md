@@ -13,8 +13,13 @@ This file should be updated after each major loop.
    `examples/subpixel_upsample.py` covers `pixel_shuffle`; and
    `examples/coordinate_ramp.py` covers creation helpers (`full`/`arange`/
    `meshgrid`) feeding fused elementwise math through the same CPU
-   compile/inspect/validate path. Prefer the next non-example project priority
-   rather than adding more showcase files by default.
+   compile/inspect/validate path. A first distinct CUDA-facing model workflow
+   now exists in `examples/cuda_linear.py`: it uses explicit `gemm_rrr_bias`,
+   dense runtime-settable weight/bias constants, a bucketed dynamic batch
+   dimension, and a `--no-tf32` CUTLASS manifest/runtime test to keep provider
+   build cost bounded. Prefer the next non-example project priority by default;
+   broader CUDA model workflows should add profile-assisted selection or a
+   genuinely new provider/runtime contract rather than another showcase file.
 2. Leave `masked_select` queued, not admitted. A bounded admission pass found
    that the op's PyTorch/v1 contract has a value-dependent 1D output length in
    `[0, broadcast_numel]`, including all-false masks that produce shape `[0]`.

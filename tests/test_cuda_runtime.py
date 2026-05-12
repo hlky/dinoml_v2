@@ -508,6 +508,60 @@ def test_cuda_cutlass_gemm_supports_dynamic_mn_shapes(tmp_path, monkeypatch, op_
     torch.testing.assert_close(actual, expected, atol=1e-2, rtol=1e-2)
 
 
+def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    from examples.cuda_linear import build_constants, build_spec, build_validation_inputs, numpy_reference
+
+    spec = build_spec()
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    artifact = dml.compile(spec, target, tmp_path / "cuda_linear.dinoml")
+    manifest = read_json(artifact.path / "manifest.json")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    metadata = read_json(artifact.path / "metadata.json")
+
+    required = kernel_manifest["required_kernels"][0]
+    assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
+    assert required["kernel_library"] == "cutlass_gemm"
+    assert required["candidate_set_id"] == "cutlass_gemm_rrr_bias_float32_bias_v1"
+    assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
+    assert required["candidate_set"]["target_policy"]["no_tf32"] is True
+    assert required["candidate_set"]["candidate_count"] == 11
+    assert required["kernel_symbol"] == required["candidates"][0]["kernel_symbol"]
+    assert required["selected_candidate_id"] == required["candidates"][0]["candidate_id"]
+    assert required["cutlass_alignment_cap"] == 2
+    assert required["candidates"][0]["cutlass"]["align"] <= required["cutlass_alignment_cap"]
+    assert [constant["name"] for constant in metadata["constants"]] == ["weight", "bias"]
+    assert metadata["inputs"][0]["shape_spec"][0]["buckets"] == [1, 3, 4]
+
+    runtime_constants = {
+        "weight": build_constants()["weight"] * np.float32(-0.5),
+        "bias": build_constants()["bias"] + np.float32(0.25),
+    }
+    inputs = build_validation_inputs()
+    expected = numpy_reference(inputs, runtime_constants)["y"]
+
+    module = runtime.load(artifact.path)
+    weight = torch.tensor(runtime_constants["weight"], device="cuda", dtype=torch.float32)
+    bias = torch.tensor(runtime_constants["bias"], device="cuda", dtype=torch.float32)
+    x = torch.tensor(inputs["x"], device="cuda", dtype=torch.float32)
+    module.set_constant_torch("weight", weight)
+    module.set_constant_torch("bias", bias)
+    session = module.create_session()
+    actual = session.run_torch({"x": x})["y"]
+    assert tuple(actual.shape) == expected.shape
+    assert session.get_output_shape("y") == expected.shape
+    session.close()
+    module.close()
+
+    torch.testing.assert_close(actual.cpu(), torch.from_numpy(expected), atol=1e-2, rtol=1e-2)
+
+
 def test_cuda_cutlass_gemm_no_tf32_runtime_matches_torch(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

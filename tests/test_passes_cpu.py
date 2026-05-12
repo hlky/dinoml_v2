@@ -1522,6 +1522,120 @@ def test_cuda_lowering_uses_guarded_execution_plan_dispatch_for_shape_conflicts(
     assert "else {" in generated
 
 
+def test_apply_execution_plan_rejects_stale_guarded_cutlass_symbol():
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(6, 8))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_stale_guarded_symbol_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][1]
+    stale_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [
+            {
+                "selection_key": "profile-selection-n8",
+                "node_id": "n0",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": "dinoml_cutlass_stale_launcher",
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 32},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+        "conflicts": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="kernel_symbol mismatch"):
+        apply_execution_plan(manifest, stale_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, stale_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_dispatch" not in relaxed["required_kernels"][0]
+
+
+def test_apply_execution_plan_rejects_malformed_guarded_bmm_shape():
+    import dinoml as dml
+
+    class BmmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.bmm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        BmmModel(),
+        inputs={"a": dml.TensorSpec([2, 4, 8], "float32"), "b": dml.TensorSpec([2, 8, 6], "float32")},
+        name="bmm_guarded_malformed_shape_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] != required["selected_candidate_id"]
+    )
+    malformed_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [
+            {
+                "selection_key": "bmm-malformed-guarded-selection",
+                "node_id": lowered["nodes"][0]["id"],
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+        "conflicts": [
+            {
+                "op": "bmm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="batch_count"):
+        apply_execution_plan(manifest, malformed_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, malformed_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "execution_plan_dispatch" not in relaxed["required_kernels"][0]
+
+
 def test_cuda_lowering_uses_split_k_companion_symbol_and_workspace():
     import dinoml as dml
 

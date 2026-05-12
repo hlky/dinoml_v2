@@ -131,8 +131,11 @@ porting. It intentionally excludes the op inventory, which lives in
   confidence-interval thresholds clear the runner-up; close/noisy winners are
   recorded as non-consumable low-confidence selections, and explicit
   low-confidence static/guarded execution-plan payloads are rejected or skipped
-  during plan application before they can mutate a CUTLASS manifest. Profile cache loading
-  now discards malformed entry maps and refuses cache hits whose stored timing
+  during plan application before they can mutate a CUTLASS manifest. CUTLASS
+  execution-plan application also rejects or skips stale launcher/profiler
+  symbol payloads and malformed guarded shape metadata before attaching guarded
+  dispatch to a manifest. Profile cache loading now discards malformed entry
+  maps and refuses cache hits whose stored timing
   statistics have malformed count fields or do not contain enough samples for
   the requested repeat-count confidence policy. Profile cache writes now merge
   valid same-target on-disk entries before writing so a stale writer preserves

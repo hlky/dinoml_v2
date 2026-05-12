@@ -254,6 +254,8 @@ def apply_execution_plan(
         if dispatch_group and (key in conflict_keys or key not in selections):
             dispatch_entries = []
             for guarded in dispatch_group:
+                if not _execution_plan_guarded_shape_supported(str(kernel_library), key, guarded, strict=strict):
+                    continue
                 selected_candidate = _execution_plan_candidate(item, key, guarded, strict=strict, check_alignment_cap=False)
                 if selected_candidate is None or not _execution_plan_selection_supported(
                     str(kernel_library),
@@ -298,10 +300,12 @@ def _execution_plan_selection_supported(
                 f"for {key[0]} {key[1]}; low-confidence selections are audit-only"
             )
         return False
+    split_k = _execution_plan_int_field(selection, "split_k", 1, minimum=1, key=key, strict=strict)
+    workspace_nbytes = _execution_plan_int_field(selection, "workspace_nbytes", 0, minimum=0, key=key, strict=strict)
+    if split_k is None or workspace_nbytes is None:
+        return False
     if kernel_library != "cutlass_bmm":
         return True
-    split_k = int(selection.get("split_k", 1) or 1)
-    workspace_nbytes = int(selection.get("workspace_nbytes", 0) or 0)
     if split_k == 1 and workspace_nbytes == 0:
         return True
     if strict:
@@ -338,6 +342,16 @@ def _execution_plan_candidate(
                 f"{selected_id!r} on {key[0]} {key[1]}"
             )
         return None
+    for symbol_field in ("kernel_symbol", "profiler_symbol"):
+        plan_symbol = selection.get(symbol_field)
+        candidate_symbol = selected_candidate.get(symbol_field)
+        if plan_symbol is not None and candidate_symbol is not None and str(plan_symbol) != str(candidate_symbol):
+            if strict:
+                raise ValueError(
+                    f"Execution plan {symbol_field} mismatch for CUTLASS candidate "
+                    f"{selected_id!r} on {key[0]} {key[1]}"
+                )
+            return None
     alignment_cap = item.get("cutlass_alignment_cap")
     if check_alignment_cap and alignment_cap is not None and cutlass_candidate_alignment(selected_candidate) > int(alignment_cap):
         if strict:
@@ -347,6 +361,64 @@ def _execution_plan_candidate(
             )
         return None
     return selected_candidate
+
+
+def _execution_plan_guarded_shape_supported(
+    kernel_library: str,
+    key: tuple[str, str, str],
+    selection: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
+    shape = selection.get("shape")
+    if not isinstance(shape, Mapping):
+        if strict:
+            raise ValueError(f"Execution plan guarded selection for {key[0]} {key[1]} is missing shape metadata")
+        return False
+    required_fields = ("m", "n", "k", "batch_count") if kernel_library == "cutlass_bmm" else ("m", "n", "k")
+    for field in required_fields:
+        if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
+            return False
+    return True
+
+
+def _execution_plan_int_field(
+    payload: Mapping[str, Any],
+    field: str,
+    default: int | None,
+    *,
+    minimum: int,
+    key: tuple[str, str, str],
+    strict: bool,
+    context: str = "selection",
+) -> int | None:
+    raw_value = payload.get(field, default)
+    if raw_value is None:
+        if strict:
+            raise ValueError(f"Execution plan {context} for {key[0]} {key[1]} is missing integer field {field!r}")
+        return None
+    if isinstance(raw_value, bool):
+        if strict:
+            raise ValueError(
+                f"Execution plan {context} for {key[0]} {key[1]} has malformed integer field {field!r}: {raw_value!r}"
+            )
+        return None
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        if strict:
+            raise ValueError(
+                f"Execution plan {context} for {key[0]} {key[1]} has malformed integer field {field!r}: {raw_value!r}"
+            )
+        return None
+    if value < minimum:
+        if strict:
+            raise ValueError(
+                f"Execution plan {context} for {key[0]} {key[1]} has invalid integer field "
+                f"{field!r}: {value} < {minimum}"
+            )
+        return None
+    return value
 
 
 def _execution_plan_selection_payload(

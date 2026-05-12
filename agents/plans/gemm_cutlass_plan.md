@@ -111,8 +111,11 @@ selections when the winner clears repeat-count, absolute/relative margin, and
 confidence-interval thresholds over the runner-up. Low-confidence winners are
 recorded as non-consumable audit metadata, and execution-plan application refuses
 explicit low-confidence static or guarded payloads before they can alter the
-kernel manifest. Static overlays are emitted only when all profiled shapes for
-an op/dtype/candidate-set agree on the same confident winner. When
+kernel manifest. Execution-plan application also refuses stale CUTLASS
+launcher/profiler symbols and malformed guarded positive-integer shape metadata
+before those payloads can attach generated dispatch. Static overlays are emitted
+only when all profiled shapes for an op/dtype/candidate-set agree on the same
+confident winner. When
 GEMM input `shape_spec` contains explicit `Dim.buckets` and no runtime override
 is supplied, profiling now expands those buckets into concrete workload cases
 and carries `shape.case_id`, dynamic dim values, and dim sources into the report

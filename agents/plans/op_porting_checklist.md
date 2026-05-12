@@ -333,7 +333,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   execution-plan shape conflicts can attach per-node guarded CUTLASS selections
   to the kernel manifest, generated CUDA branches on profiled `M/N/K` cases,
   supports split-K dispatch workspace sizing, and falls back to the safe manifest
-  default when no guard matches.
+  default when no guard matches. Execution-plan application now also rejects or
+  skips guarded payloads with stale CUTLASS launcher/profiler symbols or
+  malformed positive-integer shape guards before generated lowering can trust
+  them.
 - [x] First static alignment-aware profiling filter:
   when dense layout element alignment is present on both GEMM A and B, profiling
   prunes CUTLASS candidates whose A/B policy alignment exceeds the smaller

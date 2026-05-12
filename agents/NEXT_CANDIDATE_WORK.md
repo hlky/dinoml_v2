@@ -29,4 +29,7 @@ This file should be updated after each major loop.
    own last-error messages through the Python runtime instead of falling back to
    an unknown runtime error, and CUDA helper call sites now scope last-error
    lookup to that helper library so stale module messages do not mask fresh
-   allocator/copy/free failures.
+   allocator/copy/free failures. The CUDA artifact profiler now applies the
+   same helper-error scoping for profiler allocation/copy/free calls and retains
+   failed cleanup pointers for retry instead of dropping them before a successful
+   free.

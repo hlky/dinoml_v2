@@ -122,7 +122,11 @@ porting. It intentionally excludes the op inventory, which lives in
   recorded as non-consumable low-confidence selections. Profile cache loading
   now discards malformed entry maps and refuses cache hits whose stored timing
   statistics have malformed count fields or do not contain enough samples for
-  the requested repeat-count confidence policy. Non-additive residual and
+  the requested repeat-count confidence policy. The CUDA artifact profiler now
+  scopes allocator/copy/free helper errors to the CUDA runtime helper library
+  before falling back to common runtime errors, and profiler cleanup retains
+  failed device pointers for retry instead of dropping them before a successful
+  free. Non-additive residual and
   broader broadcast split-K remain intentionally disabled until their fused
   epilogues have correct partition behavior.
   Remaining gaps are non-additive residual/broadcast split-K coverage and

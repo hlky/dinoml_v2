@@ -1,7 +1,9 @@
+import ctypes
 from dataclasses import replace
 import hashlib
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1753,6 +1755,56 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert report["problems"][0]["selected"]["reason"] == "cache_hit"
     assert report["problems"][0]["candidates"][0]["candidate_config_key"]
     assert report["problems"][0]["profile_key"] in cached_entries
+
+
+def test_cuda_profiler_check_reads_cuda_runtime_last_error():
+    class FakeGetter:
+        restype = None
+
+        def __init__(self, message):
+            self.message = message
+
+        def __call__(self):
+            return self.message
+
+    profiler = object.__new__(profiling_mod._CudaProfiler)
+    profiler._runtime = SimpleNamespace(dino_get_last_error=FakeGetter(b"stale runtime failure"))
+    profiler._cuda_runtime = SimpleNamespace(dino_get_last_error=FakeGetter(b"fresh cuda helper failure"))
+
+    with pytest.raises(RuntimeError, match="fresh cuda helper failure"):
+        profiler._check(7)
+
+
+def test_cuda_profiler_close_retains_failed_free_for_retry():
+    frees = []
+    fail_ptr = 0x1000
+
+    class FakeCudaRuntime:
+        def dino_device_free(self, ptr):
+            frees.append(ptr.value)
+            return 9 if ptr.value == fail_ptr else 0
+
+    def check(code):
+        if code:
+            raise RuntimeError("profiler free failed")
+
+    profiler = object.__new__(profiling_mod._CudaProfiler)
+    profiler._buffers = [ctypes.c_void_p(0x1000), ctypes.c_void_p(0x2000)]
+    profiler._cuda_runtime = FakeCudaRuntime()
+    profiler._check = check
+
+    with pytest.raises(RuntimeError, match="profiler free failed"):
+        profiler.close()
+
+    assert frees == [0x2000, 0x1000]
+    assert len(profiler._buffers) == 1
+    assert profiler._buffers[0].value == 0x1000
+
+    fail_ptr = 0
+    profiler.close()
+
+    assert frees == [0x2000, 0x1000, 0x1000]
+    assert profiler._buffers == []
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

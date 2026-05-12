@@ -1806,6 +1806,8 @@ class _CudaProfiler:
         )
         self._buffers: list[ctypes.c_void_p] = []
         self._runtime.dino_get_last_error.restype = ctypes.c_char_p
+        if hasattr(self._cuda_runtime, "dino_get_last_error"):
+            self._cuda_runtime.dino_get_last_error.restype = ctypes.c_char_p
         self._cuda_runtime.dino_device_malloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
         self._cuda_runtime.dino_device_malloc.restype = ctypes.c_int
         self._cuda_runtime.dino_device_free.argtypes = [ctypes.c_void_p]
@@ -1814,9 +1816,10 @@ class _CudaProfiler:
         self._cuda_runtime.dino_copy_host_to_device.restype = ctypes.c_int
 
     def close(self) -> None:
-        while self._buffers:
-            ptr = self._buffers.pop()
+        for index in range(len(self._buffers) - 1, -1, -1):
+            ptr = self._buffers[index]
             self._check(self._cuda_runtime.dino_device_free(ptr))
+            del self._buffers[index]
 
     def profile(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         if workload.kernel_library == "cutlass_bmm":
@@ -2050,7 +2053,12 @@ class _CudaProfiler:
     def _check(self, code: int) -> None:
         if code == 0:
             return
-        error = self._runtime.dino_get_last_error()
+        error = None
+        getter = getattr(self._cuda_runtime, "dino_get_last_error", None)
+        if getter is not None:
+            error = getter()
+        if not error:
+            error = self._runtime.dino_get_last_error()
         message = error.decode("utf-8") if error else f"CUDA profiler helper failed with code {code}"
         raise RuntimeError(message)
 

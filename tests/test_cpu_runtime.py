@@ -426,6 +426,8 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert "dino_session_set_stream" in generated
     assert "dino_module_unload_constants" in generated
     assert "dino_module_load_deferred" in generated
+    assert "session->last_output_shapes_valid[i] = false;" in generated
+    assert "session->last_output_shapes[i].clear();" in generated
     source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
     sources = source_manifest["sources"]
     assert source_manifest["deduplication"] == "exact_source_key"
@@ -462,6 +464,8 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert module.constant_load_state() == expected_unloaded
     with pytest.raises(RuntimeError, match="Constant scale has not been loaded"):
         session.run_numpy(inputs)
+    with pytest.raises(RuntimeError, match="Output shape is unavailable before dino_session_run"):
+        session.get_output_shape("y")
     module.load_constants_from_file()
     assert module.constant_load_state() == expected_loaded
     reloaded = session.run_numpy(inputs)

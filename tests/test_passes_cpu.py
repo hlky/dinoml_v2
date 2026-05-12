@@ -24,6 +24,7 @@ from dinoml.kernels.manifest import (
     build_kernel_manifest,
 )
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels, render_launch
+from dinoml.lowering.cpu import render_cpu_module
 from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.fused_elementwise import _broadcast_function_name, _function_name
 from dinoml.lowering.shape_buffers import dynamic_dim_sources, numel_expr, shape_buffer_context, shape_dim_expr
@@ -333,6 +334,20 @@ def test_cuda_session_create_cleans_up_partial_session_on_allocation_failure():
     assert "DINO_SESSION_CREATE_CUDA_CHECK(cudaMemcpy(" in generated
     assert "#undef DINO_SESSION_CREATE_CUDA_CHECK" in generated
     assert "DINO_CUDA_CHECK(cudaMalloc(&session->shape_x" not in generated
+
+
+def test_generated_session_run_invalidates_previous_output_shapes():
+    lowered, _ = PassManager().run(_shape_view_ir())
+
+    cpu_generated = render_cpu_module(lowered, generated_kernels=[])
+    cuda_generated = render_cuda_module(lowered, generated_kernels=[])
+
+    for generated in (cpu_generated, cuda_generated):
+        invalidate_index = generated.index("session->last_output_shapes_valid[i] = false;")
+        clear_index = generated.index("session->last_output_shapes[i].clear();")
+        check_index = generated.index("dinoml::module::check_tensor_dynamic")
+        assert invalidate_index < check_index
+        assert clear_index < check_index
 
 
 def test_cpu_reference_matches_numpy_formula():

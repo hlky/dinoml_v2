@@ -91,6 +91,9 @@ porting. It intentionally excludes the op inventory, which lives in
   workspace, temporary, or shape-buffer allocation/copy fails before returning a
   handle to Python. Python runtime module construction now also frees a native
   module handle when metadata initialization fails after native load succeeds.
+  Generated CPU/CUDA sessions now clear the previous output-shape report before
+  each native run's validation and constant-readiness checks, so failed runs do
+  not expose stale post-run shapes from an earlier successful execution.
   The remaining graph, pool, profiling, and broader allocator contracts should
   grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target

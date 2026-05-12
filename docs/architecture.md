@@ -459,7 +459,10 @@ The next foundations to settle before broad op porting are:
   and closing a Python runtime module closes its live sessions before releasing
   the native module handle. Python runtime module construction also releases a
   native module handle if metadata initialization fails after native load
-  succeeds. The Python CUDA staging allocator now grows cached session buffers
+  succeeds. Generated sessions invalidate their previous post-run output-shape
+  report at the start of every native run, so a failed run cannot leave stale
+  shape metadata visible through `dino_session_get_output_shape`. The Python
+  CUDA staging allocator now grows cached session buffers
   transactionally: failed grow allocations leave the previous buffer tracked
   for later reuse or cleanup. Python session close also keeps native-session
   destruction and staging-buffer cleanup retryable separately, so a staging free

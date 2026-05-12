@@ -4,6 +4,11 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added focused CUDA runtime-dequant test coverage for malformed GGUF encoded
+  metadata on `load_encoded_constants(...)`: mismatched qtype,
+  `encoded_nbytes`, and `n_per_row` now have explicit regression tests proving
+  the runtime rejects the load before installing encoded bytes or mutating the
+  per-constant loaded-state snapshot.
 - Tightened the bounded GGUF runtime-dequant slice so
   `materialization="dequantize_on_gpu_before_launch"` is admitted only for the
   lowered CUDA `gemm_rrr` RHS path. Unsupported uses now fail clearly at
@@ -33,9 +38,9 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Stabilize the new bounded `gemm_rrr` GGUF runtime-dequant path with lifecycle
-   and remaining runtime failure-mode coverage, especially encoded constant
-   unload/reload, missing native launcher behavior at runtime, and malformed
-   encoded byte-size handling.
+   and remaining runtime failure-mode coverage, especially precise missing
+   native launcher behavior at runtime and session/module cleanup around the
+   runtime-dequant scratch plus encoded constant residency.
 2. Improve runtime/container lifecycle coverage for session/module close,
    allocator cleanup, and constant residency transitions before adding larger
    offload scheduling.

@@ -1,3 +1,4 @@
+import ctypes
 import shutil
 import struct
 import subprocess
@@ -11,7 +12,7 @@ import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import ModelSpec, read_json
+from dinoml.ir import ModelSpec, read_json, write_json
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
 
@@ -306,6 +307,95 @@ def test_cuda_runtime_load_encoded_constants_from_real_libgguf_q4_0_uses_device_
 
     np.testing.assert_allclose(loaded["y"], x + expected_weight, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(reloaded["y"], x + expected_weight, atol=0.0, rtol=0.0)
+
+
+@pytest.mark.parametrize(
+    ("storage_overrides", "tensor_info", "payload", "match"),
+    [
+        pytest.param(
+            {"qtype": "Q4_0", "encoded_nbytes": 64, "n_per_row": 32},
+            SimpleNamespace(qtype="Q5_0", qtype_value=6, shape=(32, 2), data_offset=64),
+            bytes(range(64)),
+            r"expected qtype Q4_0, observed Q5_0",
+            id="qtype-mismatch",
+        ),
+        pytest.param(
+            {"qtype": "Q4_0", "encoded_nbytes": 80, "n_per_row": 32},
+            SimpleNamespace(qtype="Q4_0", qtype_value=2, shape=(32, 2), data_offset=64),
+            bytes(range(64)),
+            r"expected 80 encoded bytes, observed 64",
+            id="encoded-nbytes-mismatch",
+        ),
+        pytest.param(
+            {"qtype": "Q4_0", "encoded_nbytes": 64, "n_per_row": 16},
+            SimpleNamespace(qtype="Q4_0", qtype_value=2, shape=(32, 2), data_offset=64),
+            bytes(range(64)),
+            r"expected n_per_row 16, observed 32",
+            id="n-per-row-mismatch",
+        ),
+    ],
+)
+def test_cuda_runtime_dequant_load_rejects_malformed_gguf_metadata_before_install(
+    monkeypatch, tmp_path, storage_overrides, tensor_info, payload, match
+):
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: payload,
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.target_name = "cuda"
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {
+        "constants": [{"name": "weight", "shape": [2, 32], "shape_spec": [2, 32], "dtype": "float32"}]
+    }
+    module._kernel_manifest = {
+        "required_kernels": [
+            {
+                "gguf_runtime_dequant": {
+                    "constant": "weight",
+                    "status": "lowered_runtime_dequant_scratch",
+                }
+            }
+        ]
+    }
+    module._constant_loaded = {"weight": False}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2, 32],
+                    "logical_nbytes": 2 * 32 * 4,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "blk.0.ffn.weight",
+                        "logical_dtype": "float32",
+                        "shape": [2, 32],
+                        "materialization": "dequantize_on_gpu_before_launch",
+                        "residency": "manual_runtime_load",
+                        **storage_overrides,
+                    },
+                }
+            ],
+        },
+    )
+    installed = []
+    module._set_encoded_constant_device_bytes = lambda name, value: installed.append((name, value))
+
+    with pytest.raises(ValueError, match=match):
+        module.load_encoded_constants(names=["weight"])
+
+    assert installed == []
+    assert module.constant_load_state() == {"weight": False}
 
 
 class DTypeFusedElementwise(dml.Module):

@@ -473,7 +473,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   whether the current runtime can load each constant now.
   `RuntimeModule.load_encoded_constants(names=...)` can selectively rehydrate
   supported encoded constants and rejects declared future policies before trying
-  to materialize storage.
+  to materialize storage. Encoded-constant manifests now reject malformed
+  non-object entries, missing names, and duplicate names before planning or
+  storage materialization.
 - [x] Manual runtime GGUF encoded constant loading:
   GGUF constants declared with `residency="manual_runtime_load"` are now
   runtime-supported for the existing dense

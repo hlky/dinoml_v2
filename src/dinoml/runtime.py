@@ -280,8 +280,9 @@ class RuntimeModule:
             specs = payload.get("constants", [])
             if not isinstance(specs, list):
                 raise ValueError("encoded_constants.json constants field must be a list")
-            return [item for item in specs if isinstance(item, Mapping)]
-        return [item for item in self.metadata["constants"] if isinstance(item.get("storage"), Mapping)]
+            return _validated_encoded_constant_specs(specs, "encoded_constants.json")
+        specs = [item for item in self.metadata["constants"] if isinstance(item.get("storage"), Mapping)]
+        return _validated_encoded_constant_specs(specs, "runtime metadata")
 
     def set_constant_numpy(self, name: str, value: np.ndarray) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
@@ -1017,6 +1018,22 @@ def _normalize_constant_names(names: Sequence[str] | str | None) -> set[str] | N
     if isinstance(names, str):
         return {names}
     return {str(name) for name in names}
+
+
+def _validated_encoded_constant_specs(specs: Sequence[object], source: str) -> list[Mapping[str, object]]:
+    validated: list[Mapping[str, object]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(specs):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"{source} constants[{index}] must be an object")
+        if "name" not in item:
+            raise ValueError(f"{source} constants[{index}] is missing name")
+        name = str(item["name"])
+        if name in seen:
+            raise ValueError(f"{source} contains duplicate encoded constant name: {name}")
+        seen.add(name)
+        validated.append(item)
+    return validated
 
 
 def _make_dino_tensor(

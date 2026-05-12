@@ -1759,6 +1759,66 @@ def test_runtime_load_encoded_constants_rejects_missing_runtime_constant_before_
         module.load_encoded_constants()
 
 
+def test_runtime_load_encoded_constants_rejects_duplicate_manifest_names_before_materialize(monkeypatch, tmp_path):
+    def fail_open_gguf(path):
+        raise AssertionError("duplicate encoded constants should fail before opening GGUF storage")
+
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=fail_open_gguf))
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = tmp_path
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": [{"name": "weight", "shape": [2], "shape_spec": [2], "dtype": "float32"}]}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        tmp_path / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "weight",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": 8,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                },
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2],
+                    "logical_nbytes": 8,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "weight_duplicate",
+                        "logical_dtype": "float32",
+                        "shape": [2],
+                        "qtype": "F32",
+                        "encoded_nbytes": 8,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                },
+            ],
+        },
+    )
+
+    with pytest.raises(ValueError, match="duplicate encoded constant name: weight"):
+        module.encoded_constant_load_plan()
+    with pytest.raises(ValueError, match="duplicate encoded constant name: weight"):
+        module.load_encoded_constants()
+
+
 def test_runtime_load_encoded_constants_materializes_all_before_setting(monkeypatch, tmp_path):
     values = {
         "first": np.array([1.0, 2.0], dtype=np.float32),

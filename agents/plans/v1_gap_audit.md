@@ -84,6 +84,9 @@ porting. It intentionally excludes the op inventory, which lives in
   partially apply earlier selected constants. Encoded loads now also restore the
   public per-constant loaded-state snapshot if a materialized constant setter
   fails, so a failed selected load does not partially advance `_constant_loaded`.
+  Encoded-constant manifests are validated for object entries, names, and
+  duplicate names before load planning or materialization can open external
+  storage.
   The Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes

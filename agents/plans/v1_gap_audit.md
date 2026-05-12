@@ -75,7 +75,10 @@ porting. It intentionally excludes the op inventory, which lives in
   primary setter/copy failure when temporary device-buffer cleanup fails, and
   Python runtime error reporting now includes CUDA helper-library last-error
   messages for allocator/copy/free failures without letting stale module
-  last-error messages mask fresh CUDA helper failures.
+  last-error messages mask fresh CUDA helper failures. Generated CUDA session
+  creation now destroys partially initialized sessions when session-owned
+  workspace, temporary, or shape-buffer allocation/copy fails before returning a
+  handle to Python.
   The remaining graph, pool, profiling, and broader allocator contracts should
   grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target

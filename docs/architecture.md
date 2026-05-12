@@ -208,6 +208,10 @@ metadata is stored as `metadata.json` in the artifact rather than embedded as a
 large raw string in generated source. Fixed reusable kernels and future
 CUTLASS/CK/CUB profiler libraries stay in shared support libraries and are
 cached by manifest key.
+For CUDA artifacts, session creation now keeps ownership local until all
+session-owned workspace, temporary, and shape buffers are allocated and
+initialized; if an allocation or initialization copy fails, the partially
+initialized native session is destroyed before the error returns to Python.
 
 The first CUTLASS path is concrete but still intentionally compact:
 `dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with

@@ -201,6 +201,8 @@ DINO_EXPORT const char* dino_module_get_metadata_json(DinoModule* module) {
   return module->metadata_json.c_str();
 }
 
+DINO_EXPORT int dino_session_destroy(DinoSession* session);
+
 DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   if (module == nullptr || out == nullptr) {
     return dinoml::module::fail("dino_session_create received null argument");
@@ -209,25 +211,34 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   session->module = module;
   session->last_output_shapes.resize({{ output_count }});
   session->last_output_shapes_valid.resize({{ output_count }}, false);
+#define DINO_SESSION_CREATE_CUDA_CHECK(expr)                          \
+  do {                                                                \
+    int _dino_err = dino_runtime_cuda_check((expr), #expr, __FILE__, __LINE__); \
+    if (_dino_err) {                                                  \
+      dino_session_destroy(session);                                  \
+      return _dino_err;                                               \
+    }                                                                 \
+  } while (0)
 {% if cutlass_workspace %}
-  DINO_CUDA_CHECK(cudaMalloc(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
+  DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
 {% endif %}
 {% for temp in temporaries %}
-  DINO_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
+  DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
 {% for shape in shape_buffers %}
-  DINO_CUDA_CHECK(cudaMalloc(&session->shape_{{ shape.ident }}, sizeof(int64_t) * {{ shape.rank }}));
+  DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->shape_{{ shape.ident }}, sizeof(int64_t) * {{ shape.rank }}));
 {% endfor %}
 {% for shape in shape_buffers %}
   {
     const int64_t initial_shape[] = { {{ shape.shape_literal }} };
-    DINO_CUDA_CHECK(cudaMemcpy(
+    DINO_SESSION_CREATE_CUDA_CHECK(cudaMemcpy(
         session->shape_{{ shape.ident }},
         initial_shape,
         sizeof(int64_t) * {{ shape.rank }},
         cudaMemcpyHostToDevice));
   }
 {% endfor %}
+#undef DINO_SESSION_CREATE_CUDA_CHECK
   *out = session;
   return 0;
 }

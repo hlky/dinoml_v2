@@ -321,6 +321,20 @@ def test_cuda_lowering_binds_and_materializes_shape_view_output_alias():
     ) in generated
 
 
+def test_cuda_session_create_cleans_up_partial_session_on_allocation_failure():
+    lowered, _ = PassManager().run(_shape_view_ir())
+
+    generated = render_cuda_module(lowered, generated_kernels=[])
+
+    assert "DINO_EXPORT int dino_session_destroy(DinoSession* session);" in generated
+    assert "#define DINO_SESSION_CREATE_CUDA_CHECK(expr)" in generated
+    assert "dino_session_destroy(session);" in generated
+    assert "DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->shape_x" in generated
+    assert "DINO_SESSION_CREATE_CUDA_CHECK(cudaMemcpy(" in generated
+    assert "#undef DINO_SESSION_CREATE_CUDA_CHECK" in generated
+    assert "DINO_CUDA_CHECK(cudaMalloc(&session->shape_x" not in generated
+
+
 def test_cpu_reference_matches_numpy_formula():
     from tests.models.fused_elementwise import build_spec, build_validation_inputs, numpy_reference
 

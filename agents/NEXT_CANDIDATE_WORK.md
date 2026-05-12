@@ -20,4 +20,6 @@ This file should be updated after each major loop.
    reload preflight, encoded-constant pre-materialization before setter
    application, CUDA staging cleanup retries, CUDA constant setter error
    precedence, profile-cache malformed-entry rejection plus same-target
-   stale-writer preservation, and scoped CUDA helper/profiler error reporting.
+   stale-writer preservation, scoped CUDA helper/profiler error reporting, and
+   generated CUDA session-create cleanup for partially allocated session-owned
+   buffers.

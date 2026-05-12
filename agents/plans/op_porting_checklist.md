@@ -151,7 +151,10 @@ epilogues where possible.
   CPU/CUDA outputs report from their generated shape buffers instead. CUDA
   shape-buffer reports intentionally avoid host copies and synchronization when
   an external stream is installed, leaving those reports unavailable for that
-  run rather than blocking the caller-provided stream. An internal, non-frontend
+  run rather than blocking the caller-provided stream; the direct CUDA
+  device-pointer frontend skips that unavailable shape-buffer capacity query
+  only in external-stream mode while retaining caller-shape capacity checks. An
+  internal, non-frontend
   `_shape_buffer_count_true` fixture now proves generated CPU/CUDA lowering can
   update a rank-1 output shape buffer with a value-dependent count, and CPU
   runtime materialization returns zero-length and nonzero post-run shapes from

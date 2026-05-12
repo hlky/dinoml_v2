@@ -932,6 +932,96 @@ def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
         session.run_torch({})
 
 
+def test_cuda_session_tracks_external_stream_state():
+    calls = []
+
+    class FakeModuleDll:
+        def dino_session_set_stream(self, handle, stream):
+            calls.append((handle.value, stream.value))
+            return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._external_stream = False
+    session.module = SimpleNamespace(
+        _dll=FakeModuleDll(),
+        _check=lambda err: err,
+    )
+
+    session.set_stream(ctypes.c_void_p(0xBEEF))
+    assert session._external_stream is True
+    session.set_stream(None)
+    assert session._external_stream is False
+    assert calls == [(0x1234, 0xBEEF), (0x1234, None)]
+
+
+def test_cuda_device_pointer_run_skips_external_stream_shape_buffer_capacity_check():
+    runs = []
+
+    class FakeModuleDll:
+        def dino_session_run(self, handle, inputs, input_count, outputs, output_count):
+            runs.append((handle.value, input_count.value, output_count.value))
+            return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._external_stream = True
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [{"name": "x", "shape": [2], "shape_spec": [2], "dtype": "float32"}],
+            "outputs": [{"name": "y", "shape": [2], "shape_spec": [2], "dtype": "float32"}],
+            "output_shape_reports": {
+                "version": 1,
+                "reports": [{"output": "y", "kind": "shape_buffer"}],
+            },
+        },
+        _dll=FakeModuleDll(),
+        _check=lambda err: err,
+    )
+    session.get_output_shape = lambda _name: (_ for _ in ()).throw(
+        AssertionError("shape-buffer reports should be unavailable on external-stream runs")
+    )
+
+    session.run_device_pointers(
+        {"x": 0x1000},
+        {"y": 0x2000},
+        {"x": (2,)},
+        {"y": (2,)},
+    )
+
+    assert runs == [(0x1234, 1, 1)]
+
+
+def test_cuda_device_pointer_run_keeps_caller_shape_capacity_check_on_external_stream():
+    class FakeModuleDll:
+        def dino_session_run(self, handle, inputs, input_count, outputs, output_count):
+            return 0
+
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._external_stream = True
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [{"name": "x", "shape": [2], "shape_spec": [2], "dtype": "float32"}],
+            "outputs": [{"name": "y", "shape": [2], "shape_spec": [2], "dtype": "float32"}],
+            "output_shape_reports": {"version": 1, "reports": []},
+        },
+        _dll=FakeModuleDll(),
+        _check=lambda err: err,
+    )
+    session.get_output_shape = lambda _name: (3,)
+
+    with pytest.raises(ValueError, match="has more elements than allocated"):
+        session.run_device_pointers(
+            {"x": 0x1000},
+            {"y": 0x2000},
+            {"x": (2,)},
+            {"y": (2,)},
+        )
+
+
 def test_cuda_staging_allocator_keeps_cached_buffer_when_grow_allocation_fails():
     frees = []
 

@@ -500,6 +500,7 @@ class Session:
         self.module = module
         self._handle = ctypes.c_void_p()
         self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
+        self._external_stream = False
         try:
             self.module._check(self.module._dll.dino_session_create(self.module._handle, ctypes.byref(self._handle)))
             if not self._handle:
@@ -555,7 +556,9 @@ class Session:
 
     def set_stream(self, stream: object | None) -> None:
         self._require_open()
-        self.module._check(self.module._dll.dino_session_set_stream(self._handle, _as_c_void_p(stream)))
+        stream_ptr = _as_c_void_p(stream)
+        self.module._check(self.module._dll.dino_session_set_stream(self._handle, stream_ptr))
+        self._external_stream = bool(stream_ptr.value)
 
     def get_output_shape(self, index_or_name: int | str) -> tuple[int, ...]:
         self._require_open()
@@ -689,6 +692,8 @@ class Session:
         )
         for spec in output_specs:
             name = str(spec["name"])
+            if self._shape_buffer_report_unavailable_on_external_stream(name):
+                continue
             reported_shape = self.get_output_shape(name)
             allocated_shape = resolved_output_shapes[name]
             if _shape_numel(reported_shape) > _shape_numel(allocated_shape):
@@ -933,6 +938,18 @@ class Session:
         if index < 0 or index >= len(output_specs):
             raise IndexError(f"Output index out of range: {index}")
         return index
+
+    def _shape_buffer_report_unavailable_on_external_stream(self, output_name: str) -> bool:
+        if self.module.target_name != "cuda" or not getattr(self, "_external_stream", False):
+            return False
+        report_metadata = self.module.metadata.get("output_shape_reports", {})
+        reports = report_metadata.get("reports", []) if isinstance(report_metadata, MappingABC) else []
+        return any(
+            isinstance(report, MappingABC)
+            and str(report.get("output")) == output_name
+            and report.get("kind") == "shape_buffer"
+            for report in reports
+        )
 
 
 def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray]) -> np.ndarray:

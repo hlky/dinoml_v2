@@ -70,6 +70,11 @@ external stream, generated modules preserve the queued external-stream contract
 by not copying shape buffers back to the host or synchronizing that stream, so
 `dino_session_get_output_shape` remains unavailable for those shape-buffer
 reports after that run.
+The Python direct device-pointer frontend mirrors that contract: it still checks
+reported output capacity for caller-described output shapes, but it does not
+force a post-run shape query for shape-buffer-backed outputs while an external
+CUDA stream is active, because generated modules intentionally avoid the
+synchronization needed to make those reports host-visible in that mode.
 
 `DinoTensor` ABI v7 also carries optional contiguous-layout metadata: host
 element strides, byte capacity, byte offset, device type, flags, and pointer

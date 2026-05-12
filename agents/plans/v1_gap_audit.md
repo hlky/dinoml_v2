@@ -33,7 +33,10 @@ porting. It intentionally excludes the op inventory, which lives in
   caller-provided output descriptor. CUDA shape-buffer-backed reports preserve
   the external-stream contract by copying device shape buffers to host and
   synchronizing only on the internal stream path; externally streamed runs leave
-  those reports invalid instead of blocking the caller-provided stream. Missing
+  those reports invalid instead of blocking the caller-provided stream. The
+  Python CUDA direct-pointer path now tracks externally supplied streams and
+  skips only those unavailable shape-buffer report capacity checks while keeping
+  caller-shape report checks intact. Missing
   pieces for value-dependent outputs are op-local generated shape-buffer count
   updates and admission of a concrete static-rank op contract.
   V2 also has a bounded frontend-only

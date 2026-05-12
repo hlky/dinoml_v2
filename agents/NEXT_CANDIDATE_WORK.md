@@ -11,10 +11,13 @@ This file should be updated after each major loop.
    rejection between the two output-shape ABI calls.
 2. Continue the visible workflow/op-parity rotation before more
    provider/profile hardening. The CPU CLI quick-start path has regression
-   coverage for `compile`, `inspect`, runtime loading, and `validate`, and the
-   deferred constant policy now has CLI compile plus validation coverage that
-   explicitly loads constants for the correctness run. Prefer a small non-CUDA
-   example or test around a recently ported primitive next.
+   coverage for `compile`, `inspect`, runtime loading, and `validate`; deferred
+   constants have CLI compile plus validation coverage that explicitly loads
+   constants for the correctness run; and `examples/image_pooling.py` now
+   covers a small CPU pad/avg-pool/max-pool workflow through CLI
+   compile/inspect/validate. Prefer the next small non-CUDA example or workflow
+   around a different recently ported primitive family, such as selection,
+   layout, or creation helpers, before returning to provider internals.
 3. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
    bounded in one loop: frontend contract, static shape/type limits, CPU
    reference behavior, generated lowering or an explicit bounded helper,

@@ -9,6 +9,7 @@ from dinoml import runtime
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = "examples/fused_elementwise.py"
+IMAGE_POOLING_EXAMPLE = "examples/image_pooling.py"
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -80,4 +81,26 @@ def test_cpu_cli_deferred_constant_workflow(tmp_path):
 
     validate_result = _run_cli("validate", str(artifact), "--against", EXAMPLE)
     assert "y: max_abs_diff=" in validate_result.stdout
+    assert "validation ok" in validate_result.stdout
+
+
+def test_cpu_cli_image_pooling_example_compile_inspect_validate(tmp_path):
+    artifact = tmp_path / "image_pooling_cpu.dinoml"
+
+    compile_result = _run_cli("compile", IMAGE_POOLING_EXAMPLE, "--target", "cpu", "--out", str(artifact))
+    assert f"Wrote {artifact}" in compile_result.stdout
+    assert (artifact / "module.so").exists()
+
+    inspect_result = _run_cli("inspect", str(artifact))
+    summary = json.loads(inspect_result.stdout)
+    assert summary["name"] == "image_pooling"
+    assert summary["target"]["name"] == "cpu"
+    assert summary["inputs"][0]["name"] == "x"
+    assert summary["outputs"][0]["name"] == "features"
+    assert [summary["outputs"][0]["shape"], summary["outputs"][0]["dtype"]] == [[1, 1, 4, 4], "float32"]
+    assert summary["nodes"] == 3
+    assert summary["constants"] == 0
+
+    validate_result = _run_cli("validate", str(artifact), "--against", IMAGE_POOLING_EXAMPLE)
+    assert "features: max_abs_diff=" in validate_result.stdout
     assert "validation ok" in validate_result.stdout

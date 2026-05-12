@@ -15,6 +15,13 @@ python -m dinoml.cli inspect build/fused_elementwise_cpu.dinoml
 python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examples/fused_elementwise.py
 ```
 
+For a small image-style CPU workflow using existing pad and pooling primitives:
+
+```sh
+python -m dinoml.cli compile examples/image_pooling.py --target cpu --out build/image_pooling_cpu.dinoml
+python -m dinoml.cli validate build/image_pooling_cpu.dinoml --against examples/image_pooling.py
+```
+
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
 `python -m dinoml.cli validate` explicitly loads artifact constants for the

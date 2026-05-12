@@ -522,6 +522,19 @@ def test_create_session_rejects_closed_runtime_module(tmp_path):
         module.create_session()
 
 
+def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    artifact = dml.compile(build_spec(), dml.Target("cpu"), tmp_path / "closed_module_constants_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    module.close()
+
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.load_constants_from_file()
+    with pytest.raises(RuntimeError, match="RuntimeModule is closed"):
+        module.unload_constants()
+
+
 def test_set_constant_torch_rejects_unknown_constant_before_tensor_checks():
     module = object.__new__(runtime.RuntimeModule)
     module.metadata = {

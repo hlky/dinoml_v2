@@ -114,11 +114,13 @@ class RuntimeModule:
         return Session(self)
 
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
+        self._require_open()
         constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
         self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
         self._mark_all_constants_loaded(True)
 
     def unload_constants(self) -> None:
+        self._require_open()
         self._check(self._dll.dino_module_unload_constants(self._handle))
         self._mark_all_constants_loaded(False)
 

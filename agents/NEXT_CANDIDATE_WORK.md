@@ -88,8 +88,11 @@ This file should be updated after each major loop.
    malformed profile cache entries whose embedded `profile_key` is missing or
    inconsistent with the cache map key, rejects cache hits whose embedded key
    payload no longer matches the current hardware/support/profile key payload,
-   and proves profile-assisted rebuild consumption on the compact CUDA linear
-   model path. Rotate unless a new
+   proves profile-assisted rebuild consumption on the compact CUDA linear
+   model path, verifies keyed execution plans against their payload before
+   compile applies provider selections, and records applied execution-plan
+   summaries in both `compile_config.json` and top-level `manifest.json`.
+   Rotate unless a new
    failure is visible; the next provider/profile slice should be a distinct
    contract such as persistent shared cache behavior, guarded dynamic model
    dispatch with real bucket conflicts, or a concrete runtime/profile error

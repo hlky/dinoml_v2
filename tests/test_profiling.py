@@ -13,7 +13,7 @@ import dinoml.compiler as compiler_mod
 import dinoml.kernels.profiling as profiling_mod
 from dinoml.backends.registry import BackendSpec
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
-from dinoml.ir import read_json, write_json
+from dinoml.ir import canonical_json, read_json, write_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidates
@@ -48,6 +48,12 @@ def _cutlass_bmm_candidates(dtype: str, *, op_name: str = "bmm_rrr", target=None
 
 def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> int:
     return len(_cutlass_candidates(dtype, op_name=op_name, target=target))
+
+
+def _execution_plan_key(plan):
+    return hashlib.sha256(
+        canonical_json({key: value for key, value in plan.items() if key != "execution_plan_key"}).encode("utf-8")
+    ).hexdigest()
 
 
 def _assert_folded_residual_workload_alignment(workloads, *, layout: str, op_name: str) -> None:
@@ -2254,7 +2260,6 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
             "kind": "dinoml.execution_plan",
             "target": manifest["target"],
             "kernel_manifest_cache_key": kernel_manifest["cache_key"],
-            "execution_plan_key": "cuda-linear-profile-plan",
             "selection_policy": "test-profile-assisted-linear",
             "selection_confidence_policy": {"name": "single-sample-smoke"},
             "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
@@ -2282,6 +2287,7 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
                 }
             ],
         }
+        plan["execution_plan_key"] = _execution_plan_key(plan)
         write_json(plan_path, plan)
         return {
             "artifact": str(artifact),
@@ -2291,7 +2297,7 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
             "execution_plan": {
                 "path": str(plan_path),
                 "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
-                "execution_plan_key": "cuda-linear-profile-plan",
+                "execution_plan_key": plan["execution_plan_key"],
                 "selection_count": 1,
             },
             "summary": {"cached": 0, "failed": 0, "profiled": 1, "skipped": 0},
@@ -2342,7 +2348,7 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
     assert final_selection["shape"] == {"m": VALIDATION_BATCH, "n": OUT_FEATURES, "k": IN_FEATURES}
     assert codegen_plan["kernel_symbols"] == [final_selection["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [final_selection["profiler_symbol"]]
-    assert compile_config["execution_plan"]["execution_plan_key"] == "cuda-linear-profile-plan"
+    assert compile_config["execution_plan"]["execution_plan_key"] == bootstrap_report["execution_plan"]["execution_plan_key"]
     assert bootstrap_report["execution_plan"]["selection_count"] == 1
     assert bootstrap_report["iterations"] == 1
     assert bootstrap_report["repeats"] == 1

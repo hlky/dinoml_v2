@@ -212,7 +212,10 @@ support-library runtime smoke coverage, and profiler workload shapes.
 `dml.compile(..., execution_plan=...)` and `dinoml compile --execution-plan`
 now consume the static overlay from a profile-selected execution plan before
 writing `kernel_manifest.json`, `kernel_codegen_plan.json`, or generated CUDA
-source. `dml.compile(..., profile=True)` and `dinoml compile --profile` provide
+source. Keyed execution plans are now checked against their payload before
+compile applies provider selections, and artifacts record the applied execution
+plan summary in `compile_config.json` and top-level `manifest.json`.
+`dml.compile(..., profile=True)` and `dinoml compile --profile` provide
 the first opt-in closed loop: build the candidate artifact, profile it, load the
 generated execution plan, and rebuild with the plan applied. The bootstrap timing
 report is preserved as `debug/bootstrap_profile_report.json` on the final

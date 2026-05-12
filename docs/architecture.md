@@ -150,6 +150,10 @@ final activations.
 `dml.compile` and `dinoml compile` can consume the static overlay
 through `execution_plan=...` / `--execution-plan`, applying it before
 manifest/codegen/backend build so CUDA lowering calls the profiled candidate.
+If a supplied execution plan carries an `execution_plan_key`, compile verifies
+that key against the plan payload before mutating the kernel manifest, and
+artifacts that consume a plan record the applied plan summary in both
+`compile_config.json` and top-level `manifest.json`.
 As a first closed-loop compile path, `dml.compile(..., profile=True)` and
 `dinoml compile --profile` now build a candidate artifact, run the CUTLASS
 profiler, load the generated execution plan, and rebuild the artifact with that

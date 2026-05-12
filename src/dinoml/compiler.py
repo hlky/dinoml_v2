@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from dinoml.ir import (
     ARTIFACT_SCHEMA_VERSION,
     RUNTIME_ABI_VERSION,
     ModelSpec,
+    canonical_json,
     dtype_numpy,
     graph_hash,
     read_json,
@@ -223,6 +225,11 @@ def _build_artifact_from_lowered_ir(
     debug_dir = artifact_dir / "debug"
     lowered_ir = dict(lowered_ir)
 
+    execution_plan_config = (
+        _execution_plan_compile_config(execution_plan_payload)
+        if execution_plan_payload is not None
+        else None
+    )
     compile_config = {
         "target": target.to_json(),
         "constant_load_policy": constant_load_policy,
@@ -236,8 +243,8 @@ def _build_artifact_from_lowered_ir(
             for report in reports
         ],
     }
-    if execution_plan_payload is not None:
-        compile_config["execution_plan"] = _execution_plan_compile_config(execution_plan_payload)
+    if execution_plan_config is not None:
+        compile_config["execution_plan"] = execution_plan_config
 
     write_json(artifact_dir / "graph.dinoir.json", lowered_ir)
     write_json(artifact_dir / "metadata.json", _runtime_metadata(lowered_ir))
@@ -285,6 +292,8 @@ def _build_artifact_from_lowered_ir(
         "files": files,
         "graph_hash": graph_hash(lowered_ir),
     }
+    if execution_plan_config is not None:
+        manifest["execution_plan"] = execution_plan_config
     write_json(artifact_dir / "manifest.json", manifest)
 
     backend.resolve_build_function()(
@@ -324,6 +333,7 @@ def _validate_execution_plan_overlay(
     schema_version = execution_plan.get("schema_version")
     if schema_version is not None and int(schema_version) != 1:
         raise ValueError(f"Unsupported execution plan schema version: {schema_version!r}")
+    _validate_execution_plan_key(execution_plan)
     plan_target = execution_plan.get("target")
     if isinstance(plan_target, Mapping) and dict(plan_target) and dict(plan_target) != dict(target):
         raise ValueError(
@@ -337,6 +347,21 @@ def _validate_execution_plan_overlay(
         )
     if not execution_plan.get("static_selections") and not execution_plan.get("selections"):
         raise ValueError("Execution plan does not contain any candidate selections to apply")
+
+
+def _validate_execution_plan_key(execution_plan: Mapping[str, Any]) -> None:
+    plan_key = execution_plan.get("execution_plan_key")
+    if plan_key is None:
+        return
+    if not isinstance(plan_key, str) or not plan_key:
+        raise ValueError("Execution plan key must be a non-empty string")
+    expected = hashlib.sha256(
+        canonical_json({key: value for key, value in execution_plan.items() if key != "execution_plan_key"}).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+    if plan_key != expected:
+        raise ValueError(f"Execution plan key does not match payload ({plan_key} != {expected})")
 
 
 def _execution_plan_compile_config(execution_plan: Mapping[str, Any]) -> dict[str, Any]:

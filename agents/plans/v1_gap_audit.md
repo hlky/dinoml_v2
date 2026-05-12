@@ -126,7 +126,10 @@ porting. It intentionally excludes the op inventory, which lives in
   profiled node/shape and exposing a static overlay when all profiled shapes for
   an op/dtype/candidate-set agree. Compile can consume that static overlay via
   `execution_plan=...` or `--execution-plan` before CUDA lowering/codegen, and
-  the first opt-in `profile=True` / `compile --profile` path now automates the
+  now verifies keyed execution plans against their payload before applying
+  provider selections. Artifacts that consume an execution plan expose the plan
+  summary in both `compile_config.json` and top-level `manifest.json`.
+  The first opt-in `profile=True` / `compile --profile` path now automates the
   build-profile-rebuild loop around the existing artifact profiler. That
   profile-assisted compile path now runs graph passes and constants
   materialization once, then builds candidate and selected artifacts from the

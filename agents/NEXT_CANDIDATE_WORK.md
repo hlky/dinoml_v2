@@ -79,7 +79,10 @@ This file should be updated after each major loop.
    output-shape capacity rejection through a cheap identity artifact. The latest
    input/output map pass also rejects non-mapping caller bindings and unexpected
    tensor names for `run_numpy`, `run_torch`, and direct CUDA pointer execution
-   before staging, tensor validation, or pointer packing. Python session
+   before staging, tensor validation, or pointer packing. `run_torch` now also
+   rejects mixed CUDA-device inputs before output allocation or raw pointer
+   packing, making the single-device execution assumption project-visible.
+   Python session
    construction now also destroys a partially created native session handle if
    native creation or session tracking fails before returning a usable
    `Session`, and Python module/session construction rejects successful native

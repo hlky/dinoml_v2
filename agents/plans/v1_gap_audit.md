@@ -91,6 +91,9 @@ porting. It intentionally excludes the op inventory, which lives in
   retryable on the session. Runtime input/output maps now reject unexpected
   tensor names before NumPy host staging, torch dispatch validation, or direct
   CUDA pointer packing, so stale caller bindings cannot be silently ignored.
+  `run_torch` also rejects mixed CUDA-device inputs before allocating outputs
+  or packing raw pointers, keeping the Python device contract explicit instead
+  of relying on generated CUDA failure modes.
   If module close sees a live-session close failure, it still attempts the
   remaining live sessions and keeps the native module handle open while
   reporting the first cleanup error. CUDA constant updates also preserve the

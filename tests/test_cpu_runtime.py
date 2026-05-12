@@ -2535,6 +2535,39 @@ def test_run_torch_rejects_non_mapping_inputs_before_tensor_checks():
         session.run_torch([("x", object())])
 
 
+def test_run_torch_rejects_mixed_cuda_devices_before_output_allocation():
+    torch = pytest.importorskip("torch")
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(123)
+    session.module = SimpleNamespace(
+        target_name="cuda",
+        metadata={
+            "inputs": [
+                {"name": "x", "shape": [2, 4], "shape_spec": [2, 4], "dtype": "float32"},
+                {"name": "z", "shape": [2, 4], "shape_spec": [2, 4], "dtype": "float32"},
+            ],
+            "outputs": [{"name": "y", "shape": [2, 4], "shape_spec": [2, 4], "dtype": "float32"}],
+        },
+    )
+
+    class FakeCudaTensor:
+        is_cuda = True
+        dtype = torch.float32
+        shape = (2, 4)
+
+        def __init__(self, device):
+            self.device = device
+
+        def is_contiguous(self):
+            return True
+
+    with pytest.raises(
+        ValueError,
+        match=r"All run_torch inputs must be on the same CUDA device; x is on cuda:0, z is on cuda:1",
+    ):
+        session.run_torch({"x": FakeCudaTensor("cuda:0"), "z": FakeCudaTensor("cuda:1")})
+
+
 def test_cpu_runtime_set_constant_accepts_dynamic_shape(tmp_path):
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(

@@ -709,6 +709,9 @@ class Session:
         input_names = [str(spec["name"]) for spec in input_specs]
         _reject_unexpected_keys(inputs, input_names, "input")
         input_shapes = {}
+        unset_device = object()
+        first_device = unset_device
+        first_device_name = None
         for spec in input_specs:
             name = str(spec["name"])
             if name not in inputs:
@@ -716,6 +719,15 @@ class Session:
             tensor = inputs[name]
             if not getattr(tensor, "is_cuda", False):
                 raise ValueError(f"Input {spec['name']} must be a CUDA tensor")
+            device = getattr(tensor, "device", None)
+            if first_device is unset_device:
+                first_device = device
+                first_device_name = name
+            elif device != first_device:
+                raise ValueError(
+                    "All run_torch inputs must be on the same CUDA device; "
+                    f"{first_device_name} is on {first_device}, {name} is on {device}"
+                )
             validate_runtime_shape(str(spec["name"]), tuple(int(dim) for dim in tensor.shape), spec)
             input_shapes[str(spec["name"])] = tuple(int(dim) for dim in tensor.shape)
             if _torch_dtype_name(tensor) != str(spec["dtype"]):

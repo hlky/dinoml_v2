@@ -338,8 +338,10 @@ def _validate_gguf_runtime_dequant_lowering(
     dtype: str,
     plan: Mapping[str, Any],
 ) -> None:
-    if op_name != "gemm_rrr":
-        raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering is not supported; supported op is gemm_rrr")
+    if op_name not in {"gemm_rrr", "gemm_rcr"}:
+        raise NotImplementedError(
+            f"{op_name} GGUF runtime dequant lowering is not supported; supported ops are gemm_rrr and gemm_rcr"
+        )
     if spec.epilogue.inputs:
         raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering currently supports base GEMM only")
     if dtype not in {"float32", "float16"}:

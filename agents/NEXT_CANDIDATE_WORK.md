@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Extended the bounded CUDA GGUF runtime-dequant-before-GEMM path from base
+  `gemm_rrr` to base `gemm_rcr`: manifests now lower RHS GGUF constants with
+  `materialization="dequantize_on_gpu_before_launch"` and
+  `residency="manual_runtime_load"` for `float32`/`float16` outputs, admission
+  accepts only base `gemm_rrr`/`gemm_rcr` RHS uses, and generated CUDA reuses
+  same-stream native libgguf dequant into session-owned dense RHS scratch. The
+  dense CUTLASS RCR launcher consumes that scratch through the existing
+  column-major RHS ABI. Added planning/codegen/admission coverage plus a CUDA
+  integration test using real libgguf `Q4_0` `gemm_rcr` RHS storage compared
+  against a dense dequantized reference.
 - Added focused CUDA allocator/session lifecycle regression for the missing
   `_cuda_runtime_dll` cleanup path: when the CUDA helper handle is absent during
   session cleanup, staged buffers are cleared and the session teardown still
@@ -75,10 +85,11 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
-   path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
-   explicit encoded storage, same-stream native dequant, and session-owned
-   scratch.
+1. Consider the next narrow GGUF RHS GEMM extension only after the base
+   `gemm_rrr`/`gemm_rcr` path remains stable: likely one base GEMM epilogue,
+   still using explicit encoded storage, same-stream native dequant, and
+   session-owned scratch. Keep `bfloat16`, scheduler/offload/prefetch/eviction,
+   and in-kernel quantized GEMM out of scope until separately admitted.
 2. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

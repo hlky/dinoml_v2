@@ -526,7 +526,7 @@ def _validate_gguf_runtime_dequant_admission(
     if target.name != "cuda":
         names = ", ".join(sorted(runtime_dequant_tensors.values()))
         raise NotImplementedError(
-            "GGUF materialization='dequantize_on_gpu_before_launch' is only supported for CUDA gemm_rrr RHS constants; "
+            "GGUF materialization='dequantize_on_gpu_before_launch' is only supported for CUDA base gemm_rrr/gemm_rcr RHS constants; "
             f"unsupported target {target.name!r} for constant(s): {names}"
         )
     lowered_constants = {
@@ -547,7 +547,7 @@ def _validate_gguf_runtime_dequant_admission(
                 continue
             supported_use = (
                 input_index == 1
-                and str(node.get("op", "")) == "gemm_rrr"
+                and str(node.get("op", "")) in {"gemm_rrr", "gemm_rcr"}
                 and output_dtype in {"float32", "float16"}
                 and constant_name in lowered_constants
             )
@@ -564,7 +564,7 @@ def _validate_gguf_runtime_dequant_admission(
     )
     raise NotImplementedError(
         "GGUF materialization='dequantize_on_gpu_before_launch' is only supported as the CUDA "
-        "gemm_rrr RHS for float32/float16 output; unsupported uses: "
+        "base gemm_rrr/gemm_rcr RHS for float32/float16 output; unsupported uses: "
         f"{details}"
     )
 

@@ -57,6 +57,15 @@ class GemmRcrEncodedRhs(dml.Module):
         return dml.ops.output(dml.ops.gemm_rcr(x, self.weight), "y")
 
 
+class GemmRcrBiasEncodedRhs(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([24, 32], dtype="float32")
+        self.bias = dml.Parameter([24], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.gemm_rcr_bias(x, self.weight, self.bias), "y")
+
+
 def _encoded_rhs_spec(*, materialization):
     storage = {
         "kind": "gguf",
@@ -80,6 +89,29 @@ def _encoded_rhs_spec(*, materialization):
     )
 
 
+def _encoded_rcr_rhs_spec():
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": [24, 32],
+        "qtype": "Q4_0",
+        "qtype_value": 2,
+        "encoded_nbytes": 432,
+        "gguf_shape": [32, 24],
+        "n_per_row": 32,
+        "materialization": "dequantize_on_gpu_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    return dml.trace(
+        GemmRcrEncodedRhs(),
+        inputs={"x": dml.TensorSpec([4, 32], "float32")},
+        constants={"weight": MaterializingConstant(np.zeros((24, 32), dtype=np.float32), storage)},
+        name="gemm_rcr_dequantize_on_gpu_before_launch",
+    )
+
+
 def _unsupported_encoded_spec(module, *, weight_shape, input_shape, name):
     storage = {
         "kind": "gguf",
@@ -95,10 +127,13 @@ def _unsupported_encoded_spec(module, *, weight_shape, input_shape, name):
         "materialization": "dequantize_on_gpu_before_launch",
         "residency": "manual_runtime_load",
     }
+    constants = {"weight": MaterializingConstant(np.zeros(weight_shape, dtype=np.float32), storage)}
+    if hasattr(module, "bias"):
+        constants["bias"] = MaterializingConstant(np.zeros((weight_shape[0],), dtype=np.float32), None)
     return dml.trace(
         module,
         inputs={"x": dml.TensorSpec(list(input_shape), "float32")},
-        constants={"weight": MaterializingConstant(np.zeros(weight_shape, dtype=np.float32), storage)},
+        constants=constants,
         name=name,
     )
 
@@ -159,6 +194,23 @@ def test_cutlass_manifest_marks_gguf_runtime_dequant_rhs_plan():
     assert plan["dense_launcher"] == "existing_cutlass_gemm"
 
 
+def test_cutlass_manifest_marks_gguf_runtime_dequant_rcr_rhs_plan():
+    spec = _encoded_rcr_rhs_spec()
+
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    item = manifest["required_kernels"][0]
+    plan = item["gguf_runtime_dequant"]
+    assert plan["status"] == "lowered_runtime_dequant_scratch"
+    assert plan["op"] == "gemm_rcr"
+    assert plan["operand"] == "b"
+    assert plan["constant"] == "weight"
+    assert plan["n_per_row"] == 32
+    assert plan["logical_shape"] == [24, 32]
+    assert plan["scratch_nbytes"] == 24 * 32 * 4
+    assert plan["dense_launcher"] == "existing_cutlass_gemm"
+
+
 def test_cutlass_manifest_does_not_mark_existing_load_time_gguf_policy():
     spec = _encoded_rhs_spec(materialization="dequantize_full_before_launch")
 
@@ -179,6 +231,25 @@ def test_cuda_gemm_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm():
     assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" in source
     assert (
         'return dinoml::module::fail("gemm_rrr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
+        in source
+    )
+    dequant_call = "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
+    gemm_call = "ptr_x, ptr_weight_dequant"
+    assert dequant_call in source
+    assert gemm_call in source
+    assert source.index(dequant_call) < source.index(gemm_call)
+
+
+def test_cuda_gemm_rcr_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm():
+    spec = _encoded_rcr_rhs_spec()
+    ir = _renderable_ir(spec)
+    manifest = build_kernel_manifest(ir, CUDA_TARGET)
+
+    source = render_cuda_module(ir, kernel_manifest=manifest)
+
+    assert "void* gguf_dequant_scratch = nullptr;" in source
+    assert (
+        'return dinoml::module::fail("gemm_rcr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
         in source
     )
     dequant_call = "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
@@ -213,14 +284,14 @@ def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mix
         ),
         pytest.param(
             _unsupported_encoded_spec(
-                GemmRcrEncodedRhs(),
+                GemmRcrBiasEncodedRhs(),
                 weight_shape=(24, 32),
                 input_shape=(4, 32),
-                name="gemm_rcr_runtime_dequant",
+                name="gemm_rcr_bias_runtime_dequant",
             ),
             lambda spec: build_kernel_manifest(spec.ir, CUDA_TARGET),
-            r"unsupported uses: weight: gemm_rcr\[input 1\], no_supported_lowered_use",
-            id="gemm_rcr",
+            r"unsupported uses: weight: gemm_rcr_bias\[input 1\], no_supported_lowered_use",
+            id="gemm_rcr_bias",
         ),
     ],
 )

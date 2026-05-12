@@ -51,11 +51,12 @@ porting. It intentionally excludes the op inventory, which lives in
   `dino_session_set_stream` plus post-run output-shape reporting via
   `dino_session_get_output_shape` and Python-side capacity checks for
   materialized and caller-bound output buffers. The Python getter rejects
-  negative reported dimensions at the ABI boundary, and creating a session,
-  loading/unloading dense constants, or setting dense constants on a closed
-  runtime module now fails with a clear Python lifecycle error after constant
-  names are validated. The remaining allocator, graph, pool, and profiling
-  contracts should grow before op-specific runtime assumptions spread.
+  negative reported dimensions at the ABI boundary, and using closed modules or
+  closed sessions for public lifecycle-sensitive operations now fails with clear
+  Python lifecycle errors before C ABI calls. Dense constant operations still
+  validate constant names and encoded-load policy before enforcing open-module
+  state. The remaining allocator, graph, pool, and profiling contracts should
+  grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry for target defaults, dtype validation, support

@@ -444,14 +444,17 @@ class Session:
             pass
 
     def run_numpy(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
+        self._require_open()
         if self.module.target_name == "cpu":
             return self._run_numpy_cpu(inputs)
         return self._run_numpy_cuda(inputs)
 
     def set_stream(self, stream: object | None) -> None:
+        self._require_open()
         self.module._check(self.module._dll.dino_session_set_stream(self._handle, _as_c_void_p(stream)))
 
     def get_output_shape(self, index_or_name: int | str) -> tuple[int, ...]:
+        self._require_open()
         output_index = self._output_index(index_or_name)
         ndim = ctypes.c_size_t(0)
         self.module._check(
@@ -506,6 +509,7 @@ class Session:
         input_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
         output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
     ) -> None:
+        self._require_open()
         if self.module.target_name != "cuda":
             raise RuntimeError("run_device_pointers is only available for CUDA artifacts")
         input_specs = self.module.metadata["inputs"]
@@ -570,6 +574,7 @@ class Session:
                 )
 
     def run_torch(self, inputs: Mapping[str, object]) -> Dict[str, object]:
+        self._require_open()
         import torch
 
         if self.module.target_name != "cuda":
@@ -756,6 +761,10 @@ class Session:
         self.module._check(
             self.module._cuda_runtime_dll.dino_copy_device_to_host(ctypes.c_void_p(dst.ctypes.data), src_device, ctypes.c_size_t(dst.nbytes))
         )
+
+    def _require_open(self) -> None:
+        if not getattr(self, "_handle", None):
+            raise RuntimeError("Session is closed")
 
     def _output_index(self, index_or_name: int | str) -> int:
         output_specs = self.module.metadata["outputs"]

@@ -522,6 +522,36 @@ def test_create_session_rejects_closed_runtime_module(tmp_path):
         module.create_session()
 
 
+def test_session_methods_reject_closed_session(tmp_path):
+    from tests.models.fused_elementwise import build_spec
+
+    artifact = dml.compile(build_spec(), dml.Target("cpu"), tmp_path / "closed_session_cpu.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    session.close()
+
+    x = np.zeros((2, 3, 4), dtype=np.float32)
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.run_numpy({"x": x})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.get_output_shape("y")
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.set_stream(None)
+
+    module.close()
+
+
+def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p()
+    session.module = SimpleNamespace(target_name="cpu", metadata={"inputs": [], "outputs": []})
+
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.run_device_pointers({}, {})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.run_torch({})
+
+
 def test_constant_load_unload_rejects_closed_runtime_module(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

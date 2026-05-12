@@ -338,12 +338,16 @@ def _validate_gguf_runtime_dequant_lowering(
     dtype: str,
     plan: Mapping[str, Any],
 ) -> None:
-    if op_name not in {"gemm_rrr", "gemm_rcr"}:
+    if op_name not in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias"}:
         raise NotImplementedError(
-            f"{op_name} GGUF runtime dequant lowering is not supported; supported ops are gemm_rrr and gemm_rcr"
+            f"{op_name} GGUF runtime dequant lowering is not supported; supported ops are gemm_rrr, gemm_rcr, "
+            "gemm_rrr_bias, and gemm_rcr_bias"
         )
-    if spec.epilogue.inputs:
-        raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering currently supports base GEMM only")
+    epilogue_inputs = tuple(spec.epilogue.inputs)
+    if epilogue_inputs not in {(), ("bias",)}:
+        raise NotImplementedError(
+            f"{op_name} GGUF runtime dequant lowering currently supports only base GEMM or a bias epilogue"
+        )
     if dtype not in {"float32", "float16"}:
         raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering supports float32 and float16 outputs only")
     if str(plan.get("status")) != "lowered_runtime_dequant_scratch":

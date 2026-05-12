@@ -151,9 +151,10 @@ encoded constants can be loaded explicitly with
 `RuntimeModule.load_encoded_constants(...)`; CPU and the default CUDA GGUF path
 still dequantize at load time into the dense constant ABI. The newer
 `materialization="dequantize_on_gpu_before_launch"` path is narrower: today it
-only supports CUDA base `gemm_rrr` and `gemm_rcr` with a GGUF RHS constant,
-`residency="manual_runtime_load"`, and `float32`/`float16` output. Unsupported
-uses such as GEMM epilogues or elementwise consumers are rejected
+only supports CUDA `gemm_rrr`, `gemm_rcr`, `gemm_rrr_bias`, and
+`gemm_rcr_bias` with a GGUF RHS constant, `residency="manual_runtime_load"`,
+and `float32`/`float16` output. Unsupported uses such as non-bias GEMM
+epilogues or elementwise consumers are rejected
 instead of being treated as runtime-loadable encoded constants.
 
 CPU kernels do not require OpenMP. CMake uses it when available on supported

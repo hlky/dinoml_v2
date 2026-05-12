@@ -57,6 +57,15 @@ class GemmRcrEncodedRhs(dml.Module):
         return dml.ops.output(dml.ops.gemm_rcr(x, self.weight), "y")
 
 
+class GemmRrrBiasEncodedRhs(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([32, 32], dtype="float32")
+        self.bias = dml.Parameter([32], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.gemm_rrr_bias(x, self.weight, self.bias), "y")
+
+
 class GemmRcrBiasEncodedRhs(dml.Module):
     def __init__(self):
         self.weight = dml.Parameter([24, 32], dtype="float32")
@@ -64,6 +73,15 @@ class GemmRcrBiasEncodedRhs(dml.Module):
 
     def forward(self, x):
         return dml.ops.output(dml.ops.gemm_rcr_bias(x, self.weight, self.bias), "y")
+
+
+class GemmRcrBiasReluEncodedRhs(dml.Module):
+    def __init__(self):
+        self.weight = dml.Parameter([24, 32], dtype="float32")
+        self.bias = dml.Parameter([24], dtype="float32")
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.gemm_rcr_bias_relu(x, self.weight, self.bias), "y")
 
 
 def _encoded_rhs_spec(*, materialization):
@@ -109,6 +127,58 @@ def _encoded_rcr_rhs_spec():
         inputs={"x": dml.TensorSpec([4, 32], "float32")},
         constants={"weight": MaterializingConstant(np.zeros((24, 32), dtype=np.float32), storage)},
         name="gemm_rcr_dequantize_on_gpu_before_launch",
+    )
+
+
+def _encoded_rrr_bias_rhs_spec():
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": [32, 32],
+        "qtype": "Q4_0",
+        "qtype_value": 2,
+        "encoded_nbytes": 576,
+        "gguf_shape": [32, 32],
+        "n_per_row": 32,
+        "materialization": "dequantize_on_gpu_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    return dml.trace(
+        GemmRrrBiasEncodedRhs(),
+        inputs={"x": dml.TensorSpec([4, 32], "float32")},
+        constants={
+            "weight": MaterializingConstant(np.zeros((32, 32), dtype=np.float32), storage),
+            "bias": MaterializingConstant(np.zeros((32,), dtype=np.float32), None),
+        },
+        name="gemm_rrr_bias_dequantize_on_gpu_before_launch",
+    )
+
+
+def _encoded_rcr_bias_rhs_spec():
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": [24, 32],
+        "qtype": "Q4_0",
+        "qtype_value": 2,
+        "encoded_nbytes": 432,
+        "gguf_shape": [32, 24],
+        "n_per_row": 32,
+        "materialization": "dequantize_on_gpu_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    return dml.trace(
+        GemmRcrBiasEncodedRhs(),
+        inputs={"x": dml.TensorSpec([4, 32], "float32")},
+        constants={
+            "weight": MaterializingConstant(np.zeros((24, 32), dtype=np.float32), storage),
+            "bias": MaterializingConstant(np.zeros((24,), dtype=np.float32), None),
+        },
+        name="gemm_rcr_bias_dequantize_on_gpu_before_launch",
     )
 
 
@@ -211,6 +281,34 @@ def test_cutlass_manifest_marks_gguf_runtime_dequant_rcr_rhs_plan():
     assert plan["dense_launcher"] == "existing_cutlass_gemm"
 
 
+@pytest.mark.parametrize(
+    ("spec_builder", "op_name", "logical_shape", "scratch_nbytes"),
+    [
+        pytest.param(_encoded_rrr_bias_rhs_spec, "gemm_rrr_bias", [32, 32], 32 * 32 * 4, id="rrr"),
+        pytest.param(_encoded_rcr_bias_rhs_spec, "gemm_rcr_bias", [24, 32], 24 * 32 * 4, id="rcr"),
+    ],
+)
+def test_cutlass_manifest_marks_gguf_runtime_dequant_bias_rhs_plan(
+    spec_builder,
+    op_name,
+    logical_shape,
+    scratch_nbytes,
+):
+    spec = spec_builder()
+
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    item = manifest["required_kernels"][0]
+    plan = item["gguf_runtime_dequant"]
+    assert plan["status"] == "lowered_runtime_dequant_scratch"
+    assert plan["op"] == op_name
+    assert plan["operand"] == "b"
+    assert plan["constant"] == "weight"
+    assert plan["logical_shape"] == logical_shape
+    assert plan["scratch_nbytes"] == scratch_nbytes
+    assert plan["dense_launcher"] == "existing_cutlass_gemm"
+
+
 def test_cutlass_manifest_does_not_mark_existing_load_time_gguf_policy():
     spec = _encoded_rhs_spec(materialization="dequantize_full_before_launch")
 
@@ -259,6 +357,55 @@ def test_cuda_gemm_rcr_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm()
     assert source.index(dequant_call) < source.index(gemm_call)
 
 
+@pytest.mark.parametrize(
+    ("spec_builder", "op_name", "dequant_call", "gemm_call"),
+    [
+        pytest.param(
+            _encoded_rrr_bias_rhs_spec,
+            "gemm_rrr_bias",
+            "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+            "ptr_x, ptr_weight_dequant, ptr_bias, ",
+            id="rrr",
+        ),
+        pytest.param(
+            _encoded_rcr_bias_rhs_spec,
+            "gemm_rcr_bias",
+            "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+            "ptr_x, ptr_weight_dequant, ptr_bias, ",
+            id="rcr",
+        ),
+    ],
+)
+def test_cuda_gemm_bias_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm(
+    spec_builder,
+    op_name,
+    dequant_call,
+    gemm_call,
+):
+    spec = spec_builder()
+    ir = _renderable_ir(spec)
+    manifest = build_kernel_manifest(ir, CUDA_TARGET)
+
+    source = render_cuda_module(ir, kernel_manifest=manifest)
+
+    assert "void* gguf_dequant_scratch = nullptr;" in source
+    assert (
+        f'return dinoml::module::fail("{op_name} GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
+        in source
+    )
+    assert dequant_call in source
+    assert gemm_call in source
+    assert source.index(dequant_call) < source.index(gemm_call)
+
+
+@pytest.mark.parametrize("spec_builder", [_encoded_rrr_bias_rhs_spec, _encoded_rcr_bias_rhs_spec])
+def test_gguf_runtime_dequant_admission_accepts_bias_rhs_uses(spec_builder):
+    spec = spec_builder()
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    _validate_gguf_runtime_dequant_admission(spec.ir, dml.Target("cuda", arch="sm_86"), manifest)
+
+
 def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mixed_graph():
     spec = _mixed_dense_and_gguf_spec()
     manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
@@ -284,14 +431,14 @@ def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mix
         ),
         pytest.param(
             _unsupported_encoded_spec(
-                GemmRcrBiasEncodedRhs(),
+                GemmRcrBiasReluEncodedRhs(),
                 weight_shape=(24, 32),
                 input_shape=(4, 32),
-                name="gemm_rcr_bias_runtime_dequant",
+                name="gemm_rcr_bias_relu_runtime_dequant",
             ),
             lambda spec: build_kernel_manifest(spec.ir, CUDA_TARGET),
-            r"unsupported uses: weight: gemm_rcr_bias\[input 1\], no_supported_lowered_use",
-            id="gemm_rcr_bias",
+            r"unsupported uses: weight: gemm_rcr_bias_relu\[input 1\], no_supported_lowered_use",
+            id="gemm_rcr_bias_relu",
         ),
     ],
 )

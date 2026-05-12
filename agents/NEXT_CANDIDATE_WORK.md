@@ -5,6 +5,16 @@ This file should be updated after each major loop.
 ## Last Completed Loop
 
 - Extended the bounded CUDA GGUF runtime-dequant-before-GEMM path from base
+  GEMM to the bias-only epilogue slice: manifests now lower RHS GGUF constants
+  with `materialization="dequantize_on_gpu_before_launch"` and
+  `residency="manual_runtime_load"` for `gemm_rrr_bias`/`gemm_rcr_bias`
+  `float32`/`float16` outputs, compile/runtime admission accepts those bias
+  uses alongside the base `gemm_rrr`/`gemm_rcr` path, and generated CUDA reuses
+  the same-stream native libgguf dequant into session-owned dense RHS scratch
+  before the existing dense CUTLASS bias launcher. Added planning/admission/
+  lowering coverage for both layouts and a real CUDA integration test using
+  libgguf `Q4_0` RHS storage plus dense bias compared against a dense reference.
+- Extended the bounded CUDA GGUF runtime-dequant-before-GEMM path from base
   `gemm_rrr` to base `gemm_rcr`: manifests now lower RHS GGUF constants with
   `materialization="dequantize_on_gpu_before_launch"` and
   `residency="manual_runtime_load"` for `float32`/`float16` outputs, admission
@@ -87,11 +97,15 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Consider the next narrow GGUF RHS GEMM extension only after the base
-   `gemm_rrr`/`gemm_rcr` path remains stable: likely one base GEMM epilogue,
-   still using explicit encoded storage, same-stream native dequant, and
-   session-owned scratch. Keep `bfloat16`, scheduler/offload/prefetch/eviction,
-   and in-kernel quantized GEMM out of scope until separately admitted.
-2. Revisit CUTLASS only for another bounded compile-visible robustness slice,
+1. Stabilize the bounded GGUF RHS runtime-dequant slice around the new
+   base-plus-bias GEMM coverage before adding more fused surface: likely next
+   work is float16 bias runtime/lifecycle regression depth or another bounded
+   robustness slice, not a broad epilogue expansion.
+2. If the base-plus-bias slice stays stable, consider one additional narrow
+   GGUF RHS GEMM epilogue with the same explicit encoded storage,
+   same-stream native dequant, and session-owned scratch constraints. Keep
+   `bfloat16`, scheduler/offload/prefetch/eviction, and in-kernel quantized
+   GEMM out of scope until separately admitted.
+3. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

@@ -159,7 +159,10 @@ def _gguf_runtime_dequant_gemm_rhs_plan(
     logical_numel = 1
     for dim in shape:
         logical_numel *= int(dim)
-    lowered = str(node.get("op", "")) in {"gemm_rrr", "gemm_rcr"} and dtype in {"float32", "float16"}
+    lowered = str(node.get("op", "")) in {"gemm_rrr", "gemm_rcr", "gemm_rrr_bias", "gemm_rcr_bias"} and dtype in {
+        "float32",
+        "float16",
+    }
     status = "lowered_runtime_dequant_scratch" if lowered else "planned_not_lowered"
     blocked_reason = None if lowered else "unsupported_gguf_runtime_dequant_gemm_slice"
     plan = {

@@ -291,8 +291,8 @@ porting. It intentionally excludes the op inventory, which lives in
   uses real libgguf `Q4_0` storage with manual runtime loading, unload/reload
   state checks, and output correctness. The CUDA load is synchronous with
   respect to the produced torch tensor and still uses the dense runtime ABI.
-  A generated pre-GEMM runtime path now exists for base `gemm_rrr` and
-  `gemm_rcr` with a GGUF RHS constant declared as
+  A generated pre-GEMM runtime path now exists for `gemm_rrr`, `gemm_rcr`,
+  `gemm_rrr_bias`, and `gemm_rcr_bias` with a GGUF RHS constant declared as
   `dequantize_on_gpu_before_launch` plus
   `manual_runtime_load`: the artifact stores encoded bytes, Python runtime
   loading installs those encoded bytes into CUDA constant storage, generated
@@ -301,7 +301,7 @@ porting. It intentionally excludes the op inventory, which lives in
   own a separate dense dequant scratch buffer, and lowering dequantizes on the
   session stream immediately before the existing dense CUTLASS GEMM launch.
   The tested slice uses real libgguf `Q4_0` storage and compares against a dense
-  dequantized reference. GEMM epilogues, `bfloat16`, direct fused
+  dequantized reference. Non-bias GEMM epilogues, `bfloat16`, direct fused
   dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency policies
   remain future work.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate

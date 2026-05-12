@@ -120,15 +120,17 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Stabilize the bounded GGUF RHS runtime-dequant slice around the new
-   base-plus-bias GEMM coverage before adding more fused surface: likely next
-   work is float16 bias/runtime lifecycle depth or another bounded robustness
-   slice, not a broad epilogue expansion.
-2. If the base-plus-bias slice stays stable, consider one additional narrow
-   GGUF RHS GEMM epilogue with the same explicit encoded storage,
-   same-stream native dequant, and session-owned scratch constraints. Keep
-   `bfloat16`, scheduler/offload/prefetch/eviction, and in-kernel quantized
-   GEMM out of scope until separately admitted.
-3. Revisit CUTLASS only for another bounded compile-visible robustness slice,
-   such as persistent cache concurrency, if it directly affects provider
-   selection or compile/profile correctness.
+1. Close the remaining native GGUF load-path parity gap before adding more
+   runtime-dequant surface: audit and, if needed, fix generated
+   `dino_module_load_constants()` / native open-reload behavior so
+   `manual_runtime_load` GGUF constants are not eagerly materialized outside the
+   explicit encoded-load contract. Prefer direct native-boundary regressions for
+   mixed dense plus manual GGUF constants.
+2. Add a tiny end-to-end GGUF-backed CUDA linear workflow or regression once the
+   native load-path parity check is boring: real GGUF `Q4_0` RHS, dense bias,
+   `manual_runtime_load`, load-run-unload-reload, and dense reference
+   comparison. Keep it a trust-building workflow, not a broad scheduler.
+3. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+   robustness slice, such as persistent cache concurrency or stale-key
+   rejection, if it directly affects provider selection or compile/profile
+   correctness.

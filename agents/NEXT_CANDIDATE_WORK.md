@@ -17,23 +17,19 @@ This file should be updated after each major loop.
   `test_cuda_runtime_supports_dynamic_shapes`,
   `test_cuda_runtime_materializes_direct_input_output`,
   `test_cuda_runtime_set_constant_accepts_dynamic_shape`, and
-  `test_cuda_runtime_supports_dynamic_generic_broadcast` all passed. A full
-  `python -m pytest -q tests/test_cuda_runtime.py` rerun remains pending
-  because the file rebuilds multiple CUTLASS support libraries in per-test temp
-  caches and did not finish within this bounded validation loop.
+  `test_cuda_runtime_supports_dynamic_generic_broadcast` all passed. Human
+  guidance says the full CUDA suite was recently run and is not the current
+  priority; do not spend the next loop rerunning it unless new broad CUDA
+  changes or reproduced failures justify that cost.
 
 ## Ranked Backlog
 
-1. Re-run the full CUDA runtime file end to end,
-   `python -m pytest -q tests/test_cuda_runtime.py`, using a longer validation
-   window or a cache-aware approach so the remaining non-subset CUDA runtime
-   coverage is confirmed after the recent lifecycle and encoded-constant work.
-2. Improve runtime/container lifecycle coverage for session/module close,
+1. Improve runtime/container lifecycle coverage for session/module close,
    allocator cleanup, and constant residency transitions before adding larger
    offload scheduling.
-3. Continue GGUF/offload foundation with the next bounded runtime-supported
+2. Continue GGUF/offload foundation with the next bounded runtime-supported
    slice, preferably explicit CPU/GPU residency-state transitions or load-time
    CUDA dequant staging that preserves the current dense runtime ABI.
-4. Revisit CUTLASS only for another bounded compile-visible robustness slice,
+3. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

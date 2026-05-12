@@ -1,4 +1,5 @@
 import ctypes
+import struct
 import sys
 from types import SimpleNamespace
 
@@ -97,6 +98,24 @@ class MaterializingConstant:
 
     def materialize(self, dtype, shape):
         return MaterializedConstant(array_to_storage(self.value, dtype), self.storage)
+
+
+def _gguf_string(value: str) -> bytes:
+    raw = value.encode("utf-8")
+    return struct.pack("<Q", len(raw)) + raw
+
+
+def _write_minimal_gguf_tensor(path, *, name, gguf_shape, qtype_value, payload):
+    data = bytearray()
+    data += b"GGUF"
+    data += struct.pack("<IQQ", 3, 1, 0)
+    data += _gguf_string(name)
+    data += struct.pack("<I", len(gguf_shape))
+    data += struct.pack("<" + "Q" * len(gguf_shape), *gguf_shape)
+    data += struct.pack("<IQ", int(qtype_value), 0)
+    data += b"\0" * ((32 - len(data) % 32) % 32)
+    data += payload
+    path.write_bytes(data)
 
 
 class DirectIdentityModel(dml.Module):
@@ -2175,6 +2194,96 @@ def test_runtime_load_encoded_constants_resolves_artifact_relative_gguf_path(mon
     assert opened_paths == [str((artifact_dir / "weights.gguf").resolve())]
     np.testing.assert_array_equal(captured["weight"], values)
     assert module.constant_load_state() == {"weight": True}
+
+
+def test_cpu_runtime_load_encoded_constants_from_real_libgguf_artifact(tmp_path):
+    libgguf = pytest.importorskip("libgguf")
+
+    class EncodedRowsWeightModel(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([2, 32], dtype="float32")
+
+        def forward(self, x):
+            return dml.ops.output(x + self.weight, "y")
+
+    rows = np.linspace(-1.0, 1.0, 64, dtype=np.float32).reshape(2, 32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    gguf_path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        gguf_path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 2),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+
+    source = dml.gguf_constant(
+        gguf_path,
+        "blk.0.ffn.weight",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        EncodedRowsWeightModel(),
+        inputs={"x": dml.TensorSpec([2, 32], "float32")},
+        constants={"weight": source},
+        name="encoded_weight_real_libgguf_cpu",
+    )
+    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
+    artifact = dml.compile(
+        spec,
+        dml.Target("cpu"),
+        tmp_path / "encoded_weight_real_libgguf_cpu.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    manifest = read_json(artifact.path / "manifest.json")
+    assert manifest["constant_load_policy"] == "deferred"
+    encoded_constants = read_json(artifact.path / "encoded_constants.json")
+    assert encoded_constants["constants"][0]["storage"]["residency"] == "manual_runtime_load"
+
+    module = runtime.load(artifact.path)
+    assert module.constant_load_state() == {"weight": False}
+    plan = module.encoded_constant_load_plan()
+    assert len(plan) == 1
+    assert plan[0]["name"] == "weight"
+    assert plan[0]["dtype"] == "float32"
+    assert plan[0]["shape"] == [2, 32]
+    assert plan[0]["logical_nbytes"] == rows.nbytes
+    assert plan[0]["storage_kind"] == "gguf"
+    assert plan[0]["storage_path"] == str(gguf_path.resolve())
+    assert plan[0]["storage_tensor"] == "blk.0.ffn.weight"
+    assert plan[0]["storage"]["residency"] == "manual_runtime_load"
+    assert plan[0]["storage"]["qtype"] == "Q4_0"
+    assert plan[0]["storage"]["encoded_nbytes"] == encoded.nbytes
+    assert plan[0]["storage"]["gguf_shape"] == [32, 2]
+    assert plan[0]["storage"]["n_per_row"] == 32
+    assert plan[0]["policy"] == {
+        "materialization": "dequantize_full_before_launch",
+        "materialization_status": "runtime_supported",
+        "residency": "manual_runtime_load",
+        "residency_status": "runtime_supported",
+    }
+    assert plan[0]["runtime_supported"] is True
+    assert plan[0]["loadable_now"] is True
+
+    x = np.linspace(-0.25, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    expected_weight = libgguf.dequantize_rows(encoded, qtype, n_per_row=32).reshape(2, 32)
+    session = module.create_session()
+    try:
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x})
+        module.load_encoded_constants()
+        assert module.constant_load_state() == {"weight": True}
+        actual = session.run_numpy({"x": x})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual["y"], x + expected_weight, atol=0.0, rtol=0.0)
 
 
 @pytest.mark.parametrize(

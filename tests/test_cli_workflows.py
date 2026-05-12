@@ -12,6 +12,7 @@ EXAMPLE = "examples/fused_elementwise.py"
 IMAGE_POOLING_EXAMPLE = "examples/image_pooling.py"
 CANDIDATE_SELECTION_EXAMPLE = "examples/candidate_selection.py"
 SUBPIXEL_UPSAMPLE_EXAMPLE = "examples/subpixel_upsample.py"
+COORDINATE_RAMP_EXAMPLE = "examples/coordinate_ramp.py"
 
 
 def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
@@ -168,4 +169,33 @@ def test_cpu_cli_subpixel_upsample_example_compile_inspect_validate(tmp_path):
         "validate", str(artifact), "--against", SUBPIXEL_UPSAMPLE_EXAMPLE
     )
     assert "image: max_abs_diff=" in validate_result.stdout
+    assert "validation ok" in validate_result.stdout
+
+
+def test_cpu_cli_coordinate_ramp_example_compile_inspect_validate(tmp_path):
+    artifact = tmp_path / "coordinate_ramp_cpu.dinoml"
+
+    compile_result = _run_cli(
+        "compile", COORDINATE_RAMP_EXAMPLE, "--target", "cpu", "--out", str(artifact)
+    )
+    assert f"Wrote {artifact}" in compile_result.stdout
+    assert (artifact / "module.so").exists()
+
+    inspect_result = _run_cli("inspect", str(artifact))
+    summary = json.loads(inspect_result.stdout)
+    assert summary["name"] == "coordinate_ramp"
+    assert summary["target"]["name"] == "cpu"
+    assert summary["inputs"][0]["name"] == "x"
+    assert summary["outputs"][0]["name"] == "features"
+    assert [summary["outputs"][0]["shape"], summary["outputs"][0]["dtype"]] == [
+        [1, 1, 3, 4],
+        "float32",
+    ]
+    assert summary["nodes"] == 9
+    assert summary["constants"] == 2
+
+    validate_result = _run_cli(
+        "validate", str(artifact), "--against", COORDINATE_RAMP_EXAMPLE
+    )
+    assert "features: max_abs_diff=" in validate_result.stdout
     assert "validation ok" in validate_result.stdout

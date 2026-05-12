@@ -37,6 +37,9 @@ python -m dinoml.cli compile examples/subpixel_upsample.py --target cpu --out bu
 python -m dinoml.cli validate build/subpixel_upsample_cpu.dinoml --against examples/subpixel_upsample.py
 ```
 
+Additional compact CPU workflows live under `examples/`, including
+`coordinate_ramp.py` for creation helpers feeding fused elementwise math.
+
 For CUDA smoke coverage, add `--target cuda --arch sm_86` and choose a CUDA
 artifact path.
 `python -m dinoml.cli validate` explicitly loads artifact constants for the

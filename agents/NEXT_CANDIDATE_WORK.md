@@ -9,20 +9,17 @@ This file should be updated after each major loop.
    device-pointer contract now has non-CUDA regression coverage, including
    getter-bound malformed negative reported-shape rejection and rank-growth
    rejection between the two output-shape ABI calls.
-2. Continue the visible workflow/op-parity rotation before more
-   provider/profile hardening. The CPU CLI quick-start path has regression
-   coverage for `compile`, `inspect`, runtime loading, and `validate`; deferred
-   constants have CLI compile plus validation coverage that explicitly loads
-   constants for the correctness run; `examples/image_pooling.py` covers a small
-   CPU pad/avg-pool/max-pool workflow; and
-   `examples/candidate_selection.py` now covers a CPU `topk` plus
-   `batch_gather` selection workflow through CLI compile/inspect/validate;
-   `examples/subpixel_upsample.py` now covers a CPU `pixel_shuffle` layout
-   workflow through the same CLI path. Prefer the next small non-CUDA example or
-   workflow around creation helpers (`arange`/`full`/`meshgrid`/`randn`) before
-   returning to provider internals, and avoid adding another layout example
-   unless it demonstrates a distinct user workflow such as layout round-tripping
-   or channel packing.
+2. Stop the visible CPU example burst unless a future PM request identifies a
+   genuinely distinct workflow. The CLI quick-start path has regression coverage
+   for `compile`, `inspect`, runtime loading, and `validate`; deferred constants
+   have CLI compile plus validation coverage that explicitly loads constants for
+   the correctness run; `examples/image_pooling.py` covers pad/avg-pool/max-pool;
+   `examples/candidate_selection.py` covers `topk` plus `batch_gather`;
+   `examples/subpixel_upsample.py` covers `pixel_shuffle`; and
+   `examples/coordinate_ramp.py` covers creation helpers (`full`/`arange`/
+   `meshgrid`) feeding fused elementwise math through the same CPU
+   compile/inspect/validate path. Prefer the next non-example project priority
+   rather than adding more showcase files by default.
 3. Consider `masked_select` only if the full OP_ADMISSION checklist can be kept
    bounded in one loop: frontend contract, static shape/type limits, CPU
    reference behavior, generated lowering or an explicit bounded helper,

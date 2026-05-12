@@ -314,7 +314,7 @@ class RuntimeModule:
         constant_spec: Mapping[str, object],
         storage: Mapping[str, object],
     ) -> object | None:
-        if self.target_name != "cuda" or storage.get("kind") != "gguf":
+        if getattr(self, "target_name", "cpu") != "cuda" or storage.get("kind") != "gguf":
             return None
         cuda_api = _libgguf_cuda_dequant_api()
         if cuda_api is None:

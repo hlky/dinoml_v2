@@ -178,10 +178,16 @@ from a checked-in static source file and pruned to only the launcher/profiler
 symbols required by the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
-GEMM candidate sets now mirror the v1 SM80 TensorOp 16816 tile list for
+GEMM candidate generation starts from the v1 SM80 TensorOp 16816 tile list for
 `float16`/`bfloat16`, including alignment variants and `float16` versus
-`float32` accumulation choices where v1 generated both. Default `float32`
-candidates now total 221 variants: 57 regular TF32 TensorOp, 57
+`float32` accumulation choices where v1 generated both, then filters candidates
+through CUTLASS SM80 tensor-op thread-map divisibility rules for the op's A/B
+layouts before they reach manifests or support-source generation. This keeps
+RRR reduced-precision manifests from advertising the N=96/160/224 tile shapes
+that CUTLASS rejects at compile time with `ShapeInAccesses must be divisible by
+WarpThreadArrangement`; default RRR fp16/bf16 manifests now carry 111 buildable
+candidates per accumulator policy, while RCR keeps the full 138 candidates.
+Default `float32` candidates still total 221 variants: 57 regular TF32 TensorOp, 57
 `multiply_add_fast_f16` TensorOp, 57 `multiply_add_fast_bf16` TensorOp, 39
 3xTF32 `multiply_add_fast_f32` TensorOp, and 11 exact f32 SIMT fallback
 candidates. All TensorOp float32 families are optional; `no_tf32=True` filters

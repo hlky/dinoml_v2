@@ -115,6 +115,9 @@ CUTLASS_SM80_SIMT_F32_TILES = (
 CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
 CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
 CUTLASS_SM80_SIMT_F32_ALIGNMENTS = (1,)
+CUTLASS_SM80_TENSOROP_ACCESS_SIZE_BITS = 128
+CUTLASS_SM80_TENSOROP_WARP_SIZE = 32
+CUTLASS_SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS = 8
 CUTLASS_GEMM_SPLIT_K_VALUES = (1,)
 CUTLASS_GEMM_DEFAULT_SPLIT_K = 1
 CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES = 0
@@ -229,6 +232,100 @@ def _cutlass_candidate_config(
         "cutlass_policy": _cutlass_policy_name(threadblock, stages, warp_count, align, accumulator_dtype, math, opclass),
         "cutlass": cutlass_config,
     }
+
+
+def _cutlass_candidate_config_buildable_for_layouts(
+    candidate_config: Mapping[str, Any],
+    *,
+    a_layout: str,
+    b_layout: str,
+) -> bool:
+    cutlass_config = candidate_config["cutlass"]
+    if cutlass_config["opclass"] != "tensorop" or cutlass_config["arch"] != "sm80":
+        return True
+    threadblock = tuple(int(dim) for dim in cutlass_config["threadblock"])
+    warp_count = tuple(int(dim) for dim in cutlass_config["warp_count"])
+    if any(threadblock[index] % warp_count[index] for index in range(3)):
+        return False
+    m, n, k = threadblock
+    elements_per_access = CUTLASS_SM80_TENSOROP_ACCESS_SIZE_BITS // _cutlass_dtype_bits(
+        str(candidate_config["dtype"])
+    )
+    return _cutlass_sm80_tensorop_operand_thread_map_buildable(
+        operand="a",
+        layout=a_layout,
+        m=m,
+        n=n,
+        k=k,
+        elements_per_access=elements_per_access,
+    ) and _cutlass_sm80_tensorop_operand_thread_map_buildable(
+        operand="b",
+        layout=b_layout,
+        m=m,
+        n=n,
+        k=k,
+        elements_per_access=elements_per_access,
+    )
+
+
+def _cutlass_sm80_tensorop_operand_thread_map_buildable(
+    *,
+    operand: str,
+    layout: str,
+    m: int,
+    n: int,
+    k: int,
+    elements_per_access: int,
+) -> bool:
+    if operand == "a":
+        shape_contiguous, shape_strided = (k, m) if layout == "row" else (m, k)
+        warp_thread_contiguous = (
+            k // elements_per_access
+            if layout == "row"
+            else min(m // elements_per_access, CUTLASS_SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS)
+        )
+    elif operand == "b":
+        shape_contiguous, shape_strided = (n, k) if layout == "row" else (k, n)
+        warp_thread_contiguous = (
+            min(n // elements_per_access, CUTLASS_SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS)
+            if layout == "row"
+            else k // elements_per_access
+        )
+    else:
+        raise ValueError(f"Unsupported CUTLASS GEMM operand: {operand!r}")
+    return _cutlass_sm80_tensorop_thread_map_shape_divisible(
+        shape_contiguous=shape_contiguous,
+        shape_strided=shape_strided,
+        warp_thread_contiguous=warp_thread_contiguous,
+        elements_per_access=elements_per_access,
+    )
+
+
+def _cutlass_sm80_tensorop_thread_map_shape_divisible(
+    *,
+    shape_contiguous: int,
+    shape_strided: int,
+    warp_thread_contiguous: int,
+    elements_per_access: int,
+) -> bool:
+    if warp_thread_contiguous <= 0 or CUTLASS_SM80_TENSOROP_WARP_SIZE % warp_thread_contiguous:
+        return False
+    if shape_contiguous % elements_per_access:
+        return False
+    shape_in_accesses_contiguous = shape_contiguous // elements_per_access
+    warp_thread_strided = CUTLASS_SM80_TENSOROP_WARP_SIZE // warp_thread_contiguous
+    return (
+        shape_in_accesses_contiguous % warp_thread_contiguous == 0
+        and shape_strided % warp_thread_strided == 0
+    )
+
+
+def _cutlass_dtype_bits(dtype: str) -> int:
+    if dtype in {"float16", "bfloat16"}:
+        return 16
+    if dtype == "float32":
+        return 32
+    raise ValueError(f"Unsupported CUTLASS dtype: {dtype!r}")
 
 
 def _cutlass_sm80_tensorop_16816_candidate_configs() -> tuple[dict[str, Any], ...]:
@@ -453,7 +550,7 @@ def cutlass_gemm_candidates(
     normalized_dtype = normalize_gemm_dtype(dtype)
     return tuple(
         _cutlass_gemm_candidate(op_name, normalized_dtype, config)
-        for config in _cutlass_candidate_configs_for_target(normalized_dtype, target)
+        for config in _cutlass_candidate_configs_for_target(op_name, normalized_dtype, target)
     )
 
 
@@ -509,10 +606,20 @@ def cutlass_gemm_target_policy(target: Mapping[str, Any] | None) -> dict[str, bo
 
 
 def _cutlass_candidate_configs_for_target(
+    op_name: str,
     dtype: str,
     target: Mapping[str, Any] | None,
 ) -> tuple[Mapping[str, Any], ...]:
-    configs: tuple[Mapping[str, Any], ...] = CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+    spec = gemm_op_spec(op_name)
+    configs: tuple[Mapping[str, Any], ...] = tuple(
+        config
+        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+        if _cutlass_candidate_config_buildable_for_layouts(
+            config,
+            a_layout=spec.layouts["a"],
+            b_layout=spec.layouts["b"],
+        )
+    )
     if target is None:
         return configs
     policy = cutlass_gemm_target_policy(target)

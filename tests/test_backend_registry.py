@@ -11,8 +11,10 @@ from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cutlass import ensure_cutlass_gemm_support_lib
 from dinoml.backends.registry import BackendSpec, get_backend_spec, registered_backend_names, registered_backend_specs
 from dinoml.ir import canonical_json, read_json
+from dinoml.kernels.bmm import BMM_OPS
 from dinoml.kernels.gemm import GEMM_OPS
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidates
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
     cutlass_gemm_candidate_set,
@@ -43,6 +45,9 @@ SPLIT_K_RESIDUAL_LAUNCH_ABIS = {
     "dinoml_cutlass_gemm_bias_residual_v1",
     "dinoml_cutlass_gemm_bias_residual2_v1",
 }
+SM80_TENSOROP_ACCESS_SIZE_BITS = 128
+SM80_TENSOROP_WARP_SIZE = 32
+SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS = 8
 
 
 def _assert_float32_candidate_math_families(candidates, *, expect_simt: bool = True):
@@ -125,8 +130,99 @@ def _assert_split_k_metadata(payload, launch_abi: str | None = None) -> None:
         assert "split_k_search" not in payload
 
 
+def _assert_sm80_tensorop_thread_map_divisible(candidate) -> None:
+    cutlass = candidate["cutlass"]
+    if cutlass["opclass"] != "tensorop":
+        return
+    m, n, k = [int(dim) for dim in cutlass["threadblock"]]
+    elements_per_access = SM80_TENSOROP_ACCESS_SIZE_BITS // _dtype_bits(str(candidate["dtype"]))
+    layouts = candidate["layouts"]
+    assert _sm80_operand_thread_map_divisible(
+        "a",
+        str(layouts["a"]),
+        m,
+        n,
+        k,
+        elements_per_access,
+    ), candidate["candidate_id"]
+    assert _sm80_operand_thread_map_divisible(
+        "b",
+        str(layouts["b"]),
+        m,
+        n,
+        k,
+        elements_per_access,
+    ), candidate["candidate_id"]
+
+
+def _sm80_operand_thread_map_divisible(
+    operand: str,
+    layout: str,
+    m: int,
+    n: int,
+    k: int,
+    elements_per_access: int,
+) -> bool:
+    if operand == "a":
+        shape_contiguous, shape_strided = (k, m) if layout == "row" else (m, k)
+        warp_thread_contiguous = (
+            k // elements_per_access
+            if layout == "row"
+            else min(m // elements_per_access, SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS)
+        )
+    else:
+        shape_contiguous, shape_strided = (n, k) if layout == "row" else (k, n)
+        warp_thread_contiguous = (
+            min(n // elements_per_access, SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS)
+            if layout == "row"
+            else k // elements_per_access
+        )
+    if warp_thread_contiguous <= 0 or SM80_TENSOROP_WARP_SIZE % warp_thread_contiguous:
+        return False
+    if shape_contiguous % elements_per_access:
+        return False
+    shape_in_accesses_contiguous = shape_contiguous // elements_per_access
+    warp_thread_strided = SM80_TENSOROP_WARP_SIZE // warp_thread_contiguous
+    return shape_in_accesses_contiguous % warp_thread_contiguous == 0 and shape_strided % warp_thread_strided == 0
+
+
+def _dtype_bits(dtype: str) -> int:
+    return 16 if dtype in {"float16", "bfloat16"} else 32
+
+
 def test_cutlass_float32_candidate_registry_lists_v1_fast_math_families():
     _assert_float32_candidate_math_families(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float32"])
+
+
+def test_cutlass_reduced_precision_gemm_candidates_prune_sm80_thread_map_rejects():
+    target = {"name": "cuda", "arch": "sm_86"}
+    rrr_float16 = cutlass_gemm_candidates("gemm_rrr", "float16", target=target)
+    rcr_float16 = cutlass_gemm_candidates("gemm_rcr", "float16", target=target)
+    rrr_bfloat16 = cutlass_gemm_candidates("gemm_rrr", "bfloat16", target=target)
+    invalid_rrr_ids = {
+        "cutlass_tensorop_sm80_16816_256x96x32_s2_w4x2x1_f32_align8",
+        "cutlass_tensorop_sm80_16816_128x224x32_s4_w2x4x1_f32_align8",
+        "cutlass_tensorop_sm80_16816_192x160x32_s3_w4x2x1_f32_align2",
+        "cutlass_tensorop_sm80_16816_192x96x32_s3_w4x2x1_f32_align8",
+    }
+
+    assert len(rrr_float16) == 111
+    assert len(rrr_bfloat16) == 111
+    assert len(rcr_float16) == 138
+    assert invalid_rrr_ids.isdisjoint({candidate["candidate_id"] for candidate in rrr_float16})
+    assert invalid_rrr_ids.isdisjoint({candidate["candidate_id"] for candidate in rrr_bfloat16})
+    assert invalid_rrr_ids.issubset({candidate["candidate_id"] for candidate in rcr_float16})
+
+
+def test_cutlass_reduced_precision_candidates_satisfy_sm80_thread_map_divisibility():
+    for op_name in GEMM_OPS:
+        for dtype in ("float16", "bfloat16"):
+            for candidate in cutlass_gemm_candidates(op_name, dtype):
+                _assert_sm80_tensorop_thread_map_divisible(candidate)
+    for op_name in BMM_OPS:
+        for dtype in ("float16", "bfloat16"):
+            for candidate in cutlass_bmm_candidates(op_name, dtype):
+                _assert_sm80_tensorop_thread_map_divisible(candidate)
 
 
 def test_cutlass_compile_flags_enable_bounded_split_compile(monkeypatch):

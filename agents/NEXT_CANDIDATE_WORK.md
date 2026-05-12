@@ -4,9 +4,9 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Tightened runtime encoded-constant manifest validation so malformed
-  non-object entries, missing names, and duplicate names are rejected before
-  load planning or GGUF/storage materialization.
+- Filtered CUTLASS SM80 reduced-precision GEMM/BMM candidate manifests by
+  layout-aware tensor-op thread-map divisibility so generated support sources
+  no longer instantiate unbuildable RRR N=96/160/224 TensorOp policies.
 
 ## Ranked Backlog
 

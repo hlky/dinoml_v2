@@ -13,7 +13,6 @@ from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS
 from dinoml.kernels.gemm import GEMM_OPS, render_cutlass_gemm_source
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
 from dinoml.kernels.providers.cutlass.gemm import (
-    CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
     cutlass_gemm_candidates,
     cutlass_gemm_used_candidate_plan,
 )
@@ -149,15 +148,15 @@ def _trace_gemm_bias_activation(op_name: str, layout: str, *, dtype: str = "floa
 
 
 def _cutlass_symbol_ids(dtype: str) -> list[str]:
-    return [str(config["symbol_id"]) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]]
+    return [str(candidate["symbol_id"]) for candidate in cutlass_gemm_candidates("gemm_rrr", dtype)]
 
 
 def _cutlass_candidate_ids(dtype: str) -> list[str]:
-    return [str(config["candidate_id"]) for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]]
+    return [str(candidate["candidate_id"]) for candidate in cutlass_gemm_candidates("gemm_rrr", dtype)]
 
 
 def _cutlass_candidate_count(dtype: str) -> int:
-    return len(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype])
+    return len(cutlass_gemm_candidates("gemm_rrr", dtype))
 
 
 def _cutlass_default_symbol_id(dtype: str) -> str:

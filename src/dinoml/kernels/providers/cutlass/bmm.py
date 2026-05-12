@@ -8,6 +8,7 @@ from dinoml.ir import canonical_json
 from dinoml.kernels.families.bmm import BMM_SUPPORTED_DTYPES, bmm_op_spec, normalize_bmm_dtype
 from dinoml.kernels.providers.cutlass.gemm import (
     CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE,
+    _cutlass_candidate_config_buildable_for_layouts,
     cutlass_gemm_target_policy,
     gemm_dtype_suffix,
 )
@@ -40,7 +41,7 @@ def cutlass_bmm_candidates(
     normalized_dtype = normalize_bmm_dtype(dtype)
     return tuple(
         _cutlass_bmm_candidate(op_name, normalized_dtype, config)
-        for config in _cutlass_candidate_configs_for_target(normalized_dtype, target)
+        for config in _cutlass_candidate_configs_for_target(op_name, normalized_dtype, target)
     )
 
 
@@ -234,10 +235,20 @@ def _cutlass_bmm_candidate(
 
 
 def _cutlass_candidate_configs_for_target(
+    op_name: str,
     dtype: str,
     target: Mapping[str, Any] | None,
 ) -> tuple[Mapping[str, Any], ...]:
-    configs: tuple[Mapping[str, Any], ...] = CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+    spec = bmm_op_spec(op_name)
+    configs: tuple[Mapping[str, Any], ...] = tuple(
+        config
+        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+        if _cutlass_candidate_config_buildable_for_layouts(
+            config,
+            a_layout=spec.layouts["a"],
+            b_layout=spec.layouts["b"],
+        )
+    )
     if target is None:
         return configs
     policy = cutlass_gemm_target_policy(target)

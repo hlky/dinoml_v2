@@ -285,8 +285,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   default candidates: optional v1 SM80 regular TF32 TensorOp candidates,
   optional fast TensorOp families for `multiply_add_fast_f16`,
   `multiply_add_fast_bf16`, and 3xTF32 `multiply_add_fast_f32`, plus the exact
-  f32 SIMT fallback set. The manifest carries target policy for optional TF32
-  and fp16 accumulation; fp16 accumulation and TF32 opt-out now select
+  f32 SIMT fallback set. Reduced-precision tensor-op candidates are filtered by
+  CUTLASS SM80 thread-map divisibility for each op layout before entering
+  manifests, so RRR excludes unbuildable N=96/160/224 tiles while RCR keeps the
+  full reduced-precision tile set. The manifest carries target policy for
+  optional TF32 and fp16 accumulation; fp16 accumulation and TF32 opt-out now select
   policy-specific CUTLASS candidate sets, and rendered policy aliases apply the
   selected candidate alignment and math operator. Residual broadcast epilogues
   now select a TensorOp or SIMT CUTLASS broadcast epilogue path to keep the

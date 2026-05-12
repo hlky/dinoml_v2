@@ -281,6 +281,13 @@ porting. It intentionally excludes the op inventory, which lives in
   compile-time paths to absolute source paths, and runtime encoded loads
   resolve relative manifest paths against the artifact directory before opening
   GGUF storage.
+  The current environment does not yet have a runnable libgguf CUDA dequant
+  extension: `libgguf` imports from `/workspace/libgguf`, CUDA and Torch are
+  available, and `libgguf.libgguf_cuda` imports, but
+  `torch.ops._C_gguf.dequantize` is not registered, causing the upstream
+  libgguf CUDA dequant tests to skip. Do not wire a CUDA encoded-constant load
+  branch until `/workspace/libgguf` is built with the optional CUDA Torch
+  extension and a small real `libgguf.libgguf_cuda.dequantize(...)` call passes.
   GPU dequant, direct fused dequant-in-kernel, and CPU/offload prefetch/eviction
   residency modes remain future policies so the artifact contract can grow
   without changing the dense ABI again. Next GGUF work is true load-time CUDA

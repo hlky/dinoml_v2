@@ -496,9 +496,13 @@ normalization or softmax patterns, otherwise use custom block reductions.
   foundation includes artifact-level eager/deferred constant-load policy plus
   runtime reload/unload primitives with malformed-file reload preflight,
   encoded-constant load planning, and selective dense-path rehydration,
-  including manual runtime loading of GGUF encoded constants; remaining work is
-  policy execution for selective CPU/GPU residency, prefetch, eviction, and
-  CUDA/GGUF dequantization.
+  including manual runtime loading of GGUF encoded constants. A dependency
+  probe found that `/workspace/libgguf` currently imports and CUDA/Torch are
+  available, but the optional CUDA Torch extension is not registered
+  (`torch.ops._C_gguf.dequantize` is absent), so v2 should not claim load-time
+  CUDA dequant support until that extension is built and a small real CUDA
+  dequant call passes. Remaining work is policy execution for selective CPU/GPU
+  residency, prefetch, eviction, and CUDA/GGUF dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

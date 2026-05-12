@@ -1301,7 +1301,14 @@ def _read_profile_cache(path: Path, target: Mapping[str, Any]) -> dict[str, Any]
         return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
     if payload.get("target") != dict(target):
         return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    payload.setdefault("entries", {})
+    entries = payload.get("entries", {})
+    if not isinstance(entries, Mapping):
+        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
+    payload["entries"] = {
+        str(key): dict(value)
+        for key, value in entries.items()
+        if isinstance(value, Mapping)
+    }
     return payload
 
 
@@ -1311,12 +1318,22 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
 
 
 def _cache_entry_satisfies(entry: Mapping[str, Any], *, iterations: int, repeats: int) -> bool:
+    if not isinstance(entry, Mapping):
+        return False
     entry_iterations = int(entry.get("iterations", 0) or 0)
     entry_repeats = int(entry.get("repeats", 1) or 1)
+    timing = entry.get("timing")
+    if not isinstance(timing, Mapping):
+        return False
+    timing_repeats = int(timing.get("repeats", timing.get("sample_count", 0)) or 0)
+    sample_count = int(timing.get("sample_count", timing_repeats) or 0)
     return (
         entry.get("statistics_schema_version") == PROFILE_STATISTICS_SCHEMA_VERSION
+        and timing.get("statistics_schema_version") == PROFILE_STATISTICS_SCHEMA_VERSION
         and entry_iterations >= int(iterations)
         and entry_repeats >= int(repeats)
+        and timing_repeats >= int(repeats)
+        and sample_count >= int(repeats)
     )
 
 

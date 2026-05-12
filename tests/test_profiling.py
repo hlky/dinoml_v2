@@ -1171,6 +1171,67 @@ def test_profile_result_records_timing_statistics_and_residual_bytes(tmp_path):
     assert cached["timing"]["samples_ms"] == [0.20, 0.10, 0.30]
 
 
+def test_profile_cache_rejects_malformed_entries_payload(tmp_path):
+    cache_path = tmp_path / "profile_cache.json"
+    target = {"name": "cuda", "arch": "sm_86"}
+    write_json(cache_path, {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "entries": []})
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache == {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "entries": {}}
+
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {"bad": [], "good": {"profile_key": "good"}},
+        },
+    )
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache == {
+        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": target,
+        "entries": {"good": {"profile_key": "good"}},
+    }
+
+
+def test_profile_cache_hit_requires_enough_timing_samples(tmp_path):
+    spec = dml.trace(
+        GemmModule("gemm_rrr"),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="profile_cache_timing_samples",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    workload = build_profile_workloads(lowered, kernel_manifest)[0]
+    timing = _profile_timing([0.20, 0.20, 0.20], iterations=5)
+    result = _profile_result(workload, timing["median_ms"], 5, profile_key="timed-profile", status="ok", timing=timing)
+    cache_entry = _cache_entry(
+        workload,
+        result,
+        _profile_key_payload(
+            workload,
+            {"target": {"name": "cuda", "arch": "sm_86"}},
+            kernel_manifest,
+            codegen_plan,
+            context={"fingerprint": {"hardware_key": "hardware", "support_libraries_key": "support"}},
+        ),
+    )
+    stale_entry = {
+        **cache_entry,
+        "repeats": 3,
+        "timing": {**cache_entry["timing"], "samples_ms": [0.20], "sample_count": 1, "repeats": 1},
+    }
+
+    assert profiling_mod._cache_entry_satisfies(cache_entry, iterations=5, repeats=3) is True
+    assert profiling_mod._cache_entry_satisfies(stale_entry, iterations=5, repeats=3) is False
+    assert profiling_mod._cache_entry_satisfies({**cache_entry, "timing": {}}, iterations=5, repeats=3) is False
+
+
 def test_build_execution_plan_selects_fastest_candidate_for_profiled_shape(tmp_path):
     spec = dml.trace(
         GemmModule("gemm_rrr"),

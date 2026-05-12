@@ -91,17 +91,15 @@ class RuntimeModule:
             raise RuntimeError("module.so ABI version does not match Python runtime")
         self._handle = ctypes.c_void_p()
         self._sessions: weakref.WeakSet[Session] = weakref.WeakSet()
-        load_fn = self._dll.dino_module_load if load_constants else self._dll.dino_module_load_deferred
         try:
-            self._check(load_fn(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
+            self._check(self._dll.dino_module_load_deferred(str(artifact_dir).encode("utf-8"), ctypes.byref(self._handle)))
             if not self._handle:
                 raise RuntimeError("Native module load returned a null module handle")
             metadata_raw = self._dll.dino_module_get_metadata_json(self._handle)
             self.metadata = json.loads(metadata_raw.decode("utf-8"))
-            self._constant_loaded = {
-                str(constant["name"]): bool(load_constants)
-                for constant in self.metadata.get("constants", [])
-            }
+            self._constant_loaded = {str(constant["name"]): False for constant in self.metadata.get("constants", [])}
+            if load_constants:
+                self.load_constants_from_file()
         except Exception as exc:
             try:
                 self._close_partially_loaded_module()
@@ -145,8 +143,14 @@ class RuntimeModule:
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
         self._require_open()
         constant_path = self.artifact_dir / "constants.bin" if path is None else Path(path)
-        self._check(self._dll.dino_module_load_constants(self._handle, str(constant_path).encode("utf-8")))
-        self._mark_all_constants_loaded(True)
+        materialized_constants = self._materialize_constants_from_file(constant_path)
+        loaded_state_before_setters = dict(self._constant_loaded)
+        try:
+            for name, array in materialized_constants:
+                self.set_constant_numpy(name, array)
+        except Exception:
+            self._constant_loaded = loaded_state_before_setters
+            raise
 
     def unload_constants(self) -> None:
         self._require_open()
@@ -273,6 +277,42 @@ class RuntimeModule:
             "runtime_supported": loadable_now,
             "loadable_now": loadable_now,
         }
+
+    def _materialize_constants_from_file(self, path: Path) -> list[tuple[str, np.ndarray]]:
+        constants = path.read_bytes()
+        materialized_constants: list[tuple[str, np.ndarray]] = []
+        for constant_spec in self._autoloadable_constant_specs():
+            name = str(constant_spec["name"])
+            offset = int(constant_spec.get("offset", 0))
+            nbytes = int(constant_spec.get("nbytes", 0))
+            if len(constants) < offset + nbytes:
+                raise RuntimeError(f"constants file is too small for {name}")
+            dtype = str(constant_spec["dtype"])
+            shape = tuple(int(dim) for dim in constant_spec.get("shape", []))
+            storage = np.frombuffer(
+                constants[offset : offset + nbytes],
+                dtype=dtype_numpy(dtype),
+            ).reshape(shape)
+            materialized_constants.append((name, np.array(storage, copy=True)))
+        return materialized_constants
+
+    def _autoloadable_constant_specs(self) -> list[Mapping[str, object]]:
+        specs: list[Mapping[str, object]] = []
+        for constant_spec in self.metadata.get("constants", []):
+            if not isinstance(constant_spec, MappingABC):
+                continue
+            if self._constant_uses_manual_runtime_load(constant_spec):
+                continue
+            specs.append(constant_spec)
+        return specs
+
+    def _constant_uses_manual_runtime_load(self, constant_spec: Mapping[str, object]) -> bool:
+        storage = constant_spec.get("storage")
+        if not isinstance(storage, MappingABC):
+            return False
+        if storage.get("kind") != "gguf":
+            return False
+        return str(storage.get("residency", "eager_dense_device")) == "manual_runtime_load"
 
     def _encoded_constant_specs(self) -> list[Mapping[str, object]]:
         files = self.manifest.get("files", {}) if isinstance(getattr(self, "manifest", None), Mapping) else {}

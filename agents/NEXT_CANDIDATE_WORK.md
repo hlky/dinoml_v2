@@ -4,10 +4,11 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Hardened runtime lifecycle bookkeeping so closed modules no longer expose
-  stale constant residency snapshots through `constant_load_state()` or
-  `is_constant_loaded()`, keeping constant-state introspection aligned with the
-  rest of the closed-module error contract.
+- Tightened mixed constant residency transitions so module open and
+  `load_constants_from_file()` now reload dense constants without implicitly
+  re-binding `manual_runtime_load` GGUF weights from `constants.bin`; those
+  encoded constants stay explicitly unloaded until
+  `load_encoded_constants(...)`.
 
 ## Ranked Backlog
 

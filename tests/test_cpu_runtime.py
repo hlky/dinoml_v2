@@ -2112,6 +2112,71 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     np.testing.assert_array_equal(captured["weight"], values)
 
 
+def test_runtime_load_encoded_constants_resolves_artifact_relative_gguf_path(monkeypatch, tmp_path):
+    values = np.arange(4, dtype=np.float32).reshape(2, 2)
+    opened_paths = []
+    tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 2), data_offset=64)
+
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: values.tobytes(order="C"),
+    )
+
+    def open_gguf(path):
+        opened_paths.append(path)
+        return fake_file
+
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=open_gguf))
+
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module.artifact_dir = artifact_dir
+    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
+    module.metadata = {"constants": [{"name": "weight", "shape": [2, 2], "shape_spec": [2, 2], "dtype": "float32"}]}
+    module._constant_loaded = {"weight": False}
+    module._handle = ctypes.c_void_p(1)
+    write_json(
+        artifact_dir / "encoded_constants.json",
+        {
+            "schema_version": 1,
+            "kind": "dinoml.encoded_constants",
+            "constants": [
+                {
+                    "name": "weight",
+                    "dtype": "float32",
+                    "shape": [2, 2],
+                    "logical_nbytes": values.nbytes,
+                    "storage": {
+                        "kind": "gguf",
+                        "path": "weights.gguf",
+                        "tensor": "blk.0.ffn.weight",
+                        "logical_dtype": "float32",
+                        "shape": [2, 2],
+                        "qtype": "F32",
+                        "encoded_nbytes": values.nbytes,
+                        "materialization": "dequantize_full_before_launch",
+                        "residency": "manual_runtime_load",
+                    },
+                }
+            ],
+        },
+    )
+    captured = {}
+
+    def set_constant_numpy(name, value):
+        captured[name] = np.array(value, copy=True)
+        module._mark_constant_loaded(name, True)
+
+    module.set_constant_numpy = set_constant_numpy
+
+    module.load_encoded_constants()
+
+    assert opened_paths == [str((artifact_dir / "weights.gguf").resolve())]
+    np.testing.assert_array_equal(captured["weight"], values)
+    assert module.constant_load_state() == {"weight": True}
+
+
 @pytest.mark.parametrize(
     ("dtype", "atol", "rtol"),
     [

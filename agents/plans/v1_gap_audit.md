@@ -268,7 +268,10 @@ porting. It intentionally excludes the op inventory, which lives in
   `RuntimeModule.load_encoded_constants(names=...)`. Encoded loads validate the
   selected names, declared policies, and runtime metadata membership before
   enforcing open-module lifecycle, then reject closed modules before opening or
-  materializing encoded storage.
+  materializing encoded storage. GGUF source metadata now normalizes relative
+  compile-time paths to absolute source paths, and runtime encoded loads
+  resolve relative manifest paths against the artifact directory before opening
+  GGUF storage.
   GPU dequant, direct fused dequant-in-kernel, and CPU/offload prefetch/eviction
   residency modes remain future policies so the artifact contract can grow
   without changing the dense ABI again. Next GGUF work is true load-time CUDA

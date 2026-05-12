@@ -87,7 +87,7 @@ class GGUFConstant:
         self._validate_observed_hints(observed)
         metadata: dict[str, Any] = {
             "kind": "gguf",
-            "path": str(self.path),
+            "path": _normalize_gguf_storage_path(self.path, base_dir=Path.cwd()),
             "tensor": self.tensor,
             "logical_dtype": dtype,
             "shape": list(shape),
@@ -162,7 +162,11 @@ def materialize_constant_value(value: Any, dtype: str, shape: Sequence[int]) -> 
     return MaterializedConstant(array_to_storage(value, dtype), None)
 
 
-def constant_source_from_storage(storage: Mapping[str, Any]) -> GGUFConstant | None:
+def constant_source_from_storage(
+    storage: Mapping[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> GGUFConstant | None:
     if storage.get("kind") != "gguf":
         return None
     source = storage.get("source", {})
@@ -172,8 +176,9 @@ def constant_source_from_storage(storage: Mapping[str, Any]) -> GGUFConstant | N
     tensor = storage.get("tensor") or source.get("tensor")
     if path is None or tensor is None:
         raise ValueError("GGUF storage metadata requires path and tensor")
+    normalized_path = _normalize_gguf_storage_path(path, base_dir=base_dir)
     return GGUFConstant(
-        path=path,
+        path=normalized_path,
         tensor=str(tensor),
         logical_dtype=_optional_str(storage.get("logical_dtype")),
         shape=_optional_shape(storage.get("shape")),
@@ -327,6 +332,15 @@ def _optional_shape(value: Any) -> tuple[int, ...] | None:
     if not isinstance(value, SequenceABC) or isinstance(value, (str, bytes)):
         raise ValueError(f"GGUF storage shape must be a sequence of integers, got {value!r}")
     return tuple(int(dim) for dim in value)
+
+
+def _normalize_gguf_storage_path(path: str | Path, *, base_dir: str | Path | None = None) -> str:
+    normalized = Path(path).expanduser()
+    if base_dir is not None and not normalized.is_absolute():
+        normalized = Path(base_dir).expanduser() / normalized
+    if normalized.is_absolute():
+        return str(normalized.resolve(strict=False))
+    return str(normalized)
 
 
 __all__ = [

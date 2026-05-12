@@ -361,6 +361,22 @@ def test_gguf_constant_materializes_real_libgguf_quantized_rows(tmp_path):
     assert materialized.storage["n_per_row"] == 32
 
 
+def test_gguf_constant_materialize_normalizes_relative_storage_path(monkeypatch, tmp_path):
+    values = np.arange(6, dtype=np.float32).reshape(3, 2)
+    tensor_info = SimpleNamespace(qtype="F32", qtype_value=0, shape=(2, 3), data_offset=128)
+    fake_file = SimpleNamespace(
+        get_tensor=lambda name: tensor_info,
+        read_tensor_bytes=lambda tensor: values.tobytes(order="C"),
+    )
+    monkeypatch.setitem(sys.modules, "libgguf", SimpleNamespace(open_gguf=lambda path: fake_file))
+    monkeypatch.chdir(tmp_path)
+
+    materialized = GGUFConstant("weights.gguf", "blk.0.ffn.weight").materialize("float32", [3, 2])
+
+    assert materialized.storage["path"] == str((tmp_path / "weights.gguf").resolve())
+    np.testing.assert_array_equal(materialized.array, values)
+
+
 def test_frontend_emits_dense_layout_metadata():
     spec = dml.trace(Identity(), inputs={"x": dml.TensorSpec([2, 3])}, name="layout_identity")
 

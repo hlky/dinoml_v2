@@ -4,15 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Filtered CUTLASS SM80 reduced-precision GEMM/BMM candidate manifests by
-  layout-aware tensor-op thread-map divisibility so generated support sources
-  no longer instantiate unbuildable RRR N=96/160/224 TensorOp policies.
+- Hardened GGUF encoded-constant path handling by normalizing compile-time
+  source metadata to absolute paths and resolving runtime-relative manifest
+  paths against the artifact directory before manual encoded loads.
 
 ## Ranked Backlog
 
-1. Continue GGUF/offload foundation with a small policy-execution slice, such
-   as load-time CUDA dequant staging or explicit CPU/GPU residency state, if it
-   can preserve the dense runtime ABI and land with transactional tests.
+1. Continue GGUF/offload foundation with a small validated execution slice,
+   preferably a real-libgguf CPU runtime integration test for
+   `encoded_constant_load_plan()` / `load_encoded_constants()`, or failing that
+   load-time CUDA dequant staging or explicit CPU/GPU residency state that
+   preserves the dense runtime ABI.
 2. Stabilize CUTLASS profile/cache execution-plan robustness around persistent
    cache concurrency or stale support provenance without broadening op surface.
 3. Improve runtime/container lifecycle coverage for session/module close,

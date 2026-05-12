@@ -211,7 +211,7 @@ class RuntimeModule:
             storage = constant_spec.get("storage")
             if not isinstance(storage, Mapping):
                 continue
-            source = constant_source_from_storage(storage)
+            source = constant_source_from_storage(storage, base_dir=self.artifact_dir)
             if source is None:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])

@@ -589,6 +589,51 @@ def test_closing_runtime_module_closes_live_sessions(tmp_path):
         session.set_stream(None)
 
 
+def test_runtime_module_close_attempts_all_sessions_before_reporting_failure():
+    closed = []
+    freed = []
+
+    class FakeSession:
+        def __init__(self, name, should_fail=False):
+            self.name = name
+            self.should_fail = should_fail
+
+        def close(self):
+            closed.append(self.name)
+            if self.should_fail:
+                raise RuntimeError(f"{self.name} close failed")
+
+    class FakeDll:
+        def dino_module_free(self, handle):
+            freed.append(handle.value)
+            return 0
+
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module._handle = ctypes.c_void_p(0x1234)
+    module._sessions = [
+        FakeSession("first", should_fail=True),
+        FakeSession("second"),
+        FakeSession("third"),
+    ]
+    module._dll = FakeDll()
+    module._check = lambda err: None
+
+    with pytest.raises(RuntimeError, match="first close failed"):
+        module.close()
+
+    assert closed == ["first", "second", "third"]
+    assert freed == []
+    assert module._handle.value == 0x1234
+
+    closed.clear()
+    module._sessions[0].should_fail = False
+    module.close()
+
+    assert closed == ["first", "second", "third"]
+    assert freed == [0x1234]
+    assert not module._handle
+
+
 def test_cuda_session_entrypoints_reject_closed_session_before_backend_checks():
     session = object.__new__(runtime.Session)
     session._handle = ctypes.c_void_p()

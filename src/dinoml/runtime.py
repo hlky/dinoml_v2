@@ -101,8 +101,15 @@ class RuntimeModule:
         }
 
     def close(self) -> None:
+        first_error = None
         for session in list(getattr(self, "_sessions", ())):
-            session.close()
+            try:
+                session.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
         if getattr(self, "_handle", None):
             self._check(self._dll.dino_module_free(self._handle))
             self._handle = ctypes.c_void_p()

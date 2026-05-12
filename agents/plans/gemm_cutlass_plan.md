@@ -174,9 +174,12 @@ support cache writes a
 CUTLASS source; that manifest maps source files to the used candidate set keys,
 candidate config keys, launcher/profiler symbols, source metrics, and support
 build units so future generated candidates can be inspected without embedding
-generated source in model artifacts. The support source is currently rendered
-from a checked-in static source file and pruned to only the launcher/profiler
-symbols required by the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
+generated source in model artifacts. Support-cache reuse now rejects cache hits
+when that source manifest is malformed, self-inconsistent, or stale against the
+current used candidate plan, forcing a rebuild instead of reusing ambiguous
+provider provenance. The support source is currently rendered from a checked-in
+static source file and pruned to only the launcher/profiler symbols required by
+the manifest candidate plan. The first epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.
 GEMM candidate generation starts from the v1 SM80 TensorOp 16816 tile list for

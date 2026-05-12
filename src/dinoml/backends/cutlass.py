@@ -157,6 +157,17 @@ def _ensure_cutlass_support_lib(
             family_cache_key,
             used_candidate_plan_key,
         )
+        and _cached_source_manifest_matches(
+            source_manifest,
+            source_hash=source_hash,
+            target=target,
+            family_cache_key=family_cache_key,
+            external_kernel_plan_cache_key=plan["cache_key"],
+            used_candidate_plan_key=used_candidate_plan_key,
+            library_name=library_name,
+            source_name=source.name,
+            library_file_name=library_file_name,
+        )
     ):
         return CutlassSupportLib(
             library=library,
@@ -273,6 +284,75 @@ def _cached_manifest_matches(
         and isinstance(compile_payload, Mapping)
         and isinstance(compile_payload.get("source_metrics"), Mapping)
         and compile_payload.get("duration_ms") is not None
+    )
+
+
+def _cached_source_manifest_matches(
+    path: Path,
+    *,
+    source_hash: str,
+    target: Mapping[str, Any],
+    family_cache_key: str,
+    external_kernel_plan_cache_key: str,
+    used_candidate_plan_key: str,
+    library_name: str,
+    source_name: str,
+    library_file_name: str,
+) -> bool:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, Mapping):
+        return False
+    source_manifest_key = payload.get("source_manifest_key")
+    if not isinstance(source_manifest_key, str):
+        return False
+    expected_key = hashlib.sha256(
+        canonical_json({key: value for key, value in payload.items() if key != "source_manifest_key"}).encode("utf-8")
+    ).hexdigest()
+    if source_manifest_key != expected_key:
+        return False
+    if (
+        payload.get("schema_version") != 2
+        or payload.get("kind") != "dinoml.support_source_manifest"
+        or payload.get("provider") != "cutlass"
+        or payload.get("library") != library_name
+        or payload.get("target") != dict(target)
+        or payload.get("family_cache_key") != family_cache_key
+        or payload.get("external_kernel_plan_cache_key") != external_kernel_plan_cache_key
+        or payload.get("used_candidate_plan_key") != used_candidate_plan_key
+    ):
+        return False
+    used_candidate_plan = payload.get("used_candidate_plan")
+    if (
+        not isinstance(used_candidate_plan, Mapping)
+        or used_candidate_plan.get("used_candidate_plan_key") != used_candidate_plan_key
+    ):
+        return False
+    sources = payload.get("sources")
+    if not isinstance(sources, Sequence):
+        return False
+    source_entry = next(
+        (
+            item
+            for item in sources
+            if isinstance(item, Mapping) and item.get("emitted_source_path") == source_name
+        ),
+        None,
+    )
+    if source_entry is None:
+        return False
+    if source_entry.get("source_sha256") != source_hash or source_entry.get("source_key") != source_hash:
+        return False
+    build_units = payload.get("build_units")
+    if not isinstance(build_units, Sequence):
+        return False
+    expected_output = {"kind": "shared_library", "path": f"../lib/{library_file_name}"}
+    return any(
+        isinstance(item, Mapping)
+        and expected_output in item.get("expected_outputs", [])
+        for item in build_units
     )
 
 

@@ -185,7 +185,9 @@ porting. It intentionally excludes the op inventory, which lives in
   no longer matches the current hardware/support/profile key payload. Profile
   cache writes now merge valid same-target on-disk entries before writing so a
   stale writer preserves entries added by another profiling process while still
-  replacing its own profile keys. The CUDA artifact profiler now scopes
+  replacing its own profile keys. CUTLASS support-cache reuse now also rejects
+  malformed or stale `src/source_manifest.json` payloads instead of treating
+  mere file presence as a cache hit. The CUDA artifact profiler now scopes
   allocator/copy/free helper errors to the CUDA runtime helper library before
   falling back to common runtime errors, and profiler cleanup retains failed
   device pointers for retry instead of dropping them before a successful free.

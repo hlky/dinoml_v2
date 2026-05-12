@@ -2,6 +2,8 @@ import ctypes
 import hashlib
 import shutil
 from collections import Counter
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -113,6 +115,20 @@ def _tiny_cutlass_used_candidate_plan(target=None):
             "required_kernels": [required],
         }
     )
+
+
+def _fake_cuda_library(name: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name,
+        available=True,
+        include_roots=(),
+        headers=(),
+    )
+
+
+def _source_manifest_key(payload):
+    manifest = {key: value for key, value in payload.items() if key != "source_manifest_key"}
+    return hashlib.sha256(canonical_json(manifest).encode("utf-8")).hexdigest()
 
 
 def _assert_split_k_metadata(payload, launch_abi: str | None = None) -> None:
@@ -327,6 +343,84 @@ def test_cuda_library_discovery_reports_expected_keys():
         assert isinstance(payload["available"], bool)
         assert isinstance(payload["include_roots"], list)
     assert libraries["cutlass"].headers == ("cutlass/gemm/device/gemm_universal.h",)
+
+
+def test_cutlass_gemm_support_library_rebuilds_when_source_manifest_is_invalid(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(cutlass_backend, "require_cuda_library", lambda name: _fake_cuda_library(name))
+    build_calls = []
+
+    def fake_run_nvcc(cmd, *, cwd):
+        build_calls.append((list(cmd), cwd))
+        output = Path(cmd[cmd.index("-o") + 1])
+        output.write_bytes(f"fake cutlass build {len(build_calls)}".encode("utf-8"))
+
+    monkeypatch.setattr(cutlass_backend, "_run_nvcc", fake_run_nvcc)
+    used_candidate_plan = _tiny_cutlass_used_candidate_plan()
+
+    support = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-invalid-source-manifest",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 1
+    support.source_manifest.write_text("{invalid json", encoding="utf-8")
+
+    rebuilt = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-invalid-source-manifest",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 2
+    source_manifest = read_json(rebuilt.source_manifest)
+    assert (
+        source_manifest["used_candidate_plan_key"]
+        == used_candidate_plan["used_candidate_plan_key"]
+    )
+    assert source_manifest["source_manifest_key"] == _source_manifest_key(source_manifest)
+
+
+def test_cutlass_gemm_support_library_rebuilds_when_source_manifest_plan_key_is_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        cutlass_backend,
+        "require_cuda_library",
+        lambda name: _fake_cuda_library(name),
+    )
+    build_calls = []
+
+    def fake_run_nvcc(cmd, *, cwd):
+        build_calls.append((list(cmd), cwd))
+        output = Path(cmd[cmd.index("-o") + 1])
+        output.write_bytes(f"fake cutlass build {len(build_calls)}".encode("utf-8"))
+
+    monkeypatch.setattr(cutlass_backend, "_run_nvcc", fake_run_nvcc)
+    used_candidate_plan = _tiny_cutlass_used_candidate_plan()
+
+    support = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-stale-source-manifest",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 1
+    stale_manifest = read_json(support.source_manifest)
+    stale_manifest["used_candidate_plan_key"] = "stale-used-plan"
+    stale_manifest["used_candidate_plan"]["used_candidate_plan_key"] = "stale-used-plan"
+    stale_manifest["source_manifest_key"] = _source_manifest_key(stale_manifest)
+    support.source_manifest.write_text(canonical_json(stale_manifest), encoding="utf-8")
+
+    rebuilt = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-stale-source-manifest",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 2
+    source_manifest = read_json(rebuilt.source_manifest)
+    assert source_manifest["used_candidate_plan_key"] == used_candidate_plan["used_candidate_plan_key"]
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

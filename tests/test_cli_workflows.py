@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from dinoml import runtime
 
 
@@ -34,6 +36,23 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
+def _load_example_namespace(path: str) -> dict[str, object]:
+    import runpy
+
+    return runpy.run_path(str(REPO_ROOT / path))
+
+
+def _fused_elementwise_numpy_reference(example: dict[str, object], inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    constants = example["build_constants"]()
+    x = inputs["x"]
+    y = x * constants["scale"]
+    y = y + constants["bias"]
+    y = y - (1.0 / (1.0 + np.exp(-x)))
+    y = np.maximum(y, 0.0)
+    y = y * 0.5
+    return {"y": y.astype(np.float32)}
+
+
 def test_cpu_cli_compile_inspect_validate_quick_start(tmp_path):
     artifact = tmp_path / "fused_elementwise_cpu.dinoml"
 
@@ -53,6 +72,27 @@ def test_cpu_cli_compile_inspect_validate_quick_start(tmp_path):
     validate_result = _run_cli("validate", str(artifact), "--against", EXAMPLE)
     assert "y: max_abs_diff=" in validate_result.stdout
     assert "validation ok" in validate_result.stdout
+
+
+def test_cpu_quick_start_python_runtime_loop(tmp_path):
+    artifact = tmp_path / "fused_elementwise_cpu.dinoml"
+    _run_cli("compile", EXAMPLE, "--target", "cpu", "--out", str(artifact))
+
+    example = _load_example_namespace(EXAMPLE)
+    inputs = example["build_validation_inputs"]()
+    expected = _fused_elementwise_numpy_reference(example, inputs)
+
+    module = runtime.load(artifact)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual["y"], expected["y"], atol=1e-6, rtol=1e-6)
+    assert not session._handle
+    assert not module._handle
 
 
 def test_cpu_cli_deferred_constant_workflow(tmp_path):

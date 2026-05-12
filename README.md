@@ -9,10 +9,43 @@ without requiring PyTorch at runtime.
 ## Quick Start
 
 ```sh
-pip install -e .
+pip install -e ".[validate]"
 python -m dinoml.cli compile examples/fused_elementwise.py --target cpu --out build/fused_elementwise_cpu.dinoml
 python -m dinoml.cli inspect build/fused_elementwise_cpu.dinoml
 python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examples/fused_elementwise.py
+```
+
+The `validate` extra installs the PyTorch dependency used by example reference
+checks. After compiling the artifact, the same CPU module can be loaded and run
+directly through the Python runtime API:
+
+```sh
+python - <<'PY'
+import numpy as np
+import runpy
+
+from dinoml.runtime import load
+
+example = runpy.run_path("examples/fused_elementwise.py")
+inputs = example["build_validation_inputs"]()
+constants = example["build_constants"]()
+x = inputs["x"]
+expected = np.maximum(
+    x * constants["scale"] + constants["bias"] - (1.0 / (1.0 + np.exp(-x))),
+    0.0,
+) * 0.5
+
+module = load("build/fused_elementwise_cpu.dinoml")
+session = module.create_session()
+try:
+    actual = session.run_numpy(inputs)["y"]
+    np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-6, rtol=1e-6)
+finally:
+    session.close()
+    module.close()
+
+print("runtime ok")
+PY
 ```
 
 For a small image-style CPU workflow using existing pad and pooling primitives:

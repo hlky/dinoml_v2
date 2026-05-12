@@ -4,7 +4,14 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Stop the visible CPU example burst unless a future PM request identifies a
+1. Rotate the onboarding path from example quantity to visible compile/run
+   usability. The quick-start CPU path should keep using
+   `examples/fused_elementwise.py` as the canonical minimal artifact, with
+   coverage for both CLI compile/inspect/validate and the direct Python runtime
+   API loop (`runtime.load`, `create_session`, `run_numpy`, explicit cleanup).
+   Prefer small usability fixes tied to that tested path over broad CLI help
+   rewrites or another showcase example.
+2. Stop the visible CPU example burst unless a future PM request identifies a
    genuinely distinct workflow. The CLI quick-start path has regression coverage
    for `compile`, `inspect`, runtime loading, and `validate`; deferred constants
    have CLI compile plus validation coverage that explicitly loads constants for
@@ -25,7 +32,7 @@ This file should be updated after each major loop.
    next non-example project priority by default; broader CUDA model workflows
    should add a genuinely new provider/runtime contract rather than another
    showcase file.
-2. Leave `masked_select` queued, not admitted. A bounded admission pass found
+3. Leave `masked_select` queued, not admitted. A bounded admission pass found
    that the op's PyTorch/v1 contract has a value-dependent 1D output length in
    `[0, broadcast_numel]`, including all-false masks that produce shape `[0]`.
    V2 `Shape`/`Dim` and runtime shape validation currently require every shape
@@ -36,7 +43,7 @@ This file should be updated after each major loop.
    zero-length, value-dependent output dims plus generated CPU/CUDA output-shape
    override reporting; after that, re-run OP_ADMISSION for a static-rank,
    dense, broadcastable bool-mask `masked_select` helper.
-3. Continue runtime/container stabilization, but rotate to a fresh concrete
+4. Continue runtime/container stabilization, but rotate to a fresh concrete
    contract rather than repeatedly polishing the same CUDA helper paths. Useful
    bounded targets include graph-mode lifecycle, runtime pool/session ownership,
    and remaining allocator or constant-state failure behavior that can be
@@ -59,8 +66,10 @@ This file should be updated after each major loop.
    output-shape capacity rejection through a cheap identity artifact. The latest
    input/output map pass also rejects unexpected tensor names for `run_numpy`,
    `run_torch`, and direct CUDA pointer execution before staging or pointer
-   packing.
-4. Continue provider/profile artifact hardening only for concrete,
+   packing. Python session construction now also destroys a partially created
+   native session handle if native creation or session tracking fails before
+   returning a usable `Session`.
+5. Continue provider/profile artifact hardening only for concrete,
    project-visible failures or for CUDA-backed profile/report cache coverage
    that becomes cheap enough for CI. Recent coverage rejects or skips stale
    CUTLASS launcher/profiler symbols and malformed guarded dispatch shape

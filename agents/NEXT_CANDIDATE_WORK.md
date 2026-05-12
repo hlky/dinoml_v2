@@ -4,6 +4,12 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added CUDA reopen-parity lifecycle coverage for mixed dense and
+  manual-runtime-load encoded constants, matching the CPU regression slice:
+  reopening an eager artifact resets the encoded constant back to unloaded, and
+  closing a deferred artifact with a live session restores both constants to
+  their initial deferred residency state instead of leaking prior runtime loads
+  across module instances.
 - Added broader CPU runtime/container lifecycle coverage for mixed dense and
   manual-runtime-load encoded constants: reloading still requires an explicit
   encoded load after `unload_constants()`/`load_constants_from_file()`, closing
@@ -60,8 +66,8 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Improve broader runtime/container lifecycle coverage for session/module
-   close, allocator cleanup failure/retry paths, and CUDA reopen parity for
-   constant residency transitions before adding larger offload scheduling.
+   close and allocator cleanup failure/retry paths before adding larger offload
+   scheduling.
 2. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
    path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
    explicit encoded storage, same-stream native dequant, and session-owned

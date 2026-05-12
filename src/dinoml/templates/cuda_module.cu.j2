@@ -68,6 +68,8 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
   if (constants.size() < {{ constant.offset + constant.nbytes }}) {
     return dinoml::module::fail("constants file is too small for {{ constant.name }}");
   }
+{% endfor %}
+{% for constant in constants %}
   if (module->const_{{ constant.ident }} == nullptr) {
     DINO_CUDA_CHECK(cudaMalloc(&module->const_{{ constant.ident }}, {{ constant.nbytes }}));
   }

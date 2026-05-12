@@ -454,10 +454,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
   bytes, fully dequantize into a dense weight buffer before GEMM, and leave
   fused quantized-RHS CUTLASS candidate families for a later step. The current
   foundation includes artifact-level eager/deferred constant-load policy plus
-  runtime reload/unload primitives, encoded-constant load planning, and
-  selective dense-path rehydration, including manual runtime loading of GGUF
-  encoded constants; remaining work is policy execution for selective CPU/GPU
-  residency, prefetch, eviction, and CUDA/GGUF dequantization.
+  runtime reload/unload primitives with malformed-file reload preflight,
+  encoded-constant load planning, and selective dense-path rehydration,
+  including manual runtime loading of GGUF encoded constants; remaining work is
+  policy execution for selective CPU/GPU residency, prefetch, eviction, and
+  CUDA/GGUF dequantization.
 
 Library hints: CUTLASS is the primary CUDA candidate for GEMM/BMM, grouped GEMM,
 and epilogue visitors. CK is the corresponding AMD path. oneDNN matmul/brgemm is

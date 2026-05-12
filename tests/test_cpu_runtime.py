@@ -511,6 +511,38 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
     np.testing.assert_allclose(eager_actual["y"], expected["y"], atol=1e-5, rtol=1e-5)
 
 
+def test_cpu_constant_reload_failure_preserves_resident_values(tmp_path):
+    from tests.models.fused_elementwise import build_spec, build_validation_inputs
+
+    spec = build_spec()
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "constant_reload_transactional_cpu.dinoml")
+    metadata = read_json(artifact.path / "metadata.json")
+    constants = {constant["name"]: constant for constant in metadata["constants"]}
+    partial_reload = bytearray((artifact.path / "constants.bin").read_bytes())
+    scale = constants["scale"]
+    bias = constants["bias"]
+    partial_reload[scale["offset"] : scale["offset"] + scale["nbytes"]] = b"\x00" * scale["nbytes"]
+    truncated_path = tmp_path / "truncated_constants.bin"
+    truncated_path.write_bytes(bytes(partial_reload[: bias["offset"] + bias["nbytes"] - 1]))
+
+    inputs = build_validation_inputs()
+    expected = execute_cpu(spec, inputs)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        before = session.run_numpy(inputs)
+        with pytest.raises(RuntimeError, match="constants file is too small for bias"):
+            module.load_constants_from_file(truncated_path)
+        after = session.run_numpy(inputs)
+        assert module.constant_load_state() == {name: True for name in constants}
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(before["y"], expected["y"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(after["y"], expected["y"], atol=1e-5, rtol=1e-5)
+
+
 def test_create_session_rejects_closed_runtime_module(tmp_path):
     from tests.models.fused_elementwise import build_spec
 

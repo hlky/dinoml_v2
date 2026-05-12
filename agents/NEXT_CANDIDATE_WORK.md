@@ -4,16 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Added a real-libgguf CPU runtime integration test that compiles a deferred
-  artifact from `gguf_constant(...)`, inspects
-  `encoded_constant_load_plan()`, manually hydrates the encoded constant with
-  `load_encoded_constants()`, verifies loaded-state transitions, and proves the
-  loaded dense weight changes CPU execution output.
+- Hardened CUTLASS execution-plan application by rejecting duplicate static and
+  guarded selection entries instead of silently letting the last keyed entry
+  win, with targeted manifest/compile regression tests covering ambiguous
+  duplicate payloads.
 
 ## Ranked Backlog
 
 1. Stabilize CUTLASS profile/cache execution-plan robustness around persistent
-   cache concurrency or stale support provenance without broadening op surface.
+   cache concurrency or stale support provenance without broadening op surface;
+   duplicate execution-plan payload rejection is landed, but support-fingerprint
+   freshness and malformed provenance recovery still need a bounded slice.
 2. Improve runtime/container lifecycle coverage for session/module close,
    allocator cleanup, and constant residency transitions before adding larger
    offload scheduling.

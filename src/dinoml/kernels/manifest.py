@@ -212,6 +212,7 @@ def apply_execution_plan(
     *,
     strict: bool = False,
 ) -> dict[str, Any]:
+    _validate_execution_plan_selection_uniqueness(execution_plan, strict=strict)
     manifest = deepcopy(dict(kernel_manifest))
     selections = _execution_plan_static_selections(execution_plan)
     guarded_selections = _execution_plan_guarded_selections(execution_plan)
@@ -285,6 +286,64 @@ def apply_execution_plan(
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)
             raise ValueError(f"Execution plan guarded selections did not match the kernel manifest: {missing_text}")
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _validate_execution_plan_selection_uniqueness(
+    execution_plan: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> None:
+    if not strict:
+        return
+    _validate_unique_execution_plan_entries(execution_plan.get("static_selections", ()), kind="static")
+    _validate_unique_execution_plan_entries(execution_plan.get("selections", ()), kind="guarded")
+
+
+def _validate_unique_execution_plan_entries(entries: Any, *, kind: str) -> None:
+    if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
+        return
+    seen: dict[tuple[str, ...], int] = {}
+    for index, selection in enumerate(entries):
+        key = _execution_plan_selection_uniqueness_key(selection, kind=kind)
+        if key is None:
+            continue
+        previous = seen.get(key)
+        if previous is not None:
+            if kind == "static":
+                _, op, dtype, candidate_set_key = key
+                raise ValueError(
+                    "Execution plan contains duplicate static selections "
+                    f"for {op} {dtype} candidate set {candidate_set_key} "
+                    f"(entries {previous} and {index})"
+                )
+            _, op, dtype, candidate_set_key, node_id, shape_key = key
+            raise ValueError(
+                "Execution plan contains duplicate guarded selections "
+                f"for {op} {dtype} candidate set {candidate_set_key} "
+                f"node_id={node_id!r} shape={shape_key} "
+                f"(entries {previous} and {index})"
+            )
+        seen[key] = index
+
+
+def _execution_plan_selection_uniqueness_key(
+    selection: Any,
+    *,
+    kind: str,
+) -> tuple[str, ...] | None:
+    if not isinstance(selection, Mapping):
+        return None
+    op = str(selection.get("op", ""))
+    dtype = str(selection.get("dtype", ""))
+    candidate_set_key = str(selection.get("candidate_set_key", ""))
+    if not (op and dtype and candidate_set_key):
+        return None
+    if kind == "static":
+        return (kind, op, dtype, candidate_set_key)
+    node_id = str(selection.get("node_id", ""))
+    shape = selection.get("shape")
+    shape_key = canonical_json(shape) if isinstance(shape, Mapping) else "<missing>"
+    return (kind, op, dtype, candidate_set_key, node_id, shape_key)
 
 
 def _execution_plan_selection_supported(

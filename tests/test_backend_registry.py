@@ -1163,3 +1163,56 @@ def test_compile_rejects_tampered_execution_plan_key(tmp_path, monkeypatch):
             tmp_path / "compile_tampered_profile_plan.dinoml",
             execution_plan=execution_plan,
         )
+
+
+def test_compile_rejects_duplicate_execution_plan_selection_keys(tmp_path, monkeypatch):
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: lambda **kwargs: None)
+    spec = dml.trace(
+        GemmRRR(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 6], "float32")},
+        name="compile_duplicate_profile_plan",
+    )
+    target = dml.Target("cuda", arch="sm_86")
+    lowered, _ = PassManager().run(spec.ir)
+    base_manifest = build_kernel_manifest(lowered, target.to_json())
+    required = base_manifest["required_kernels"][0]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": base_manifest["cache_key"],
+        "static_selections": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": required["candidates"][0]["candidate_id"],
+                "candidate_config_key": required["candidates"][0]["candidate_config_key"],
+                "kernel_symbol": required["candidates"][0]["kernel_symbol"],
+                "profiler_symbol": required["candidates"][0]["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": required["candidates"][1]["candidate_id"],
+                "candidate_config_key": required["candidates"][1]["candidate_config_key"],
+                "kernel_symbol": required["candidates"][1]["kernel_symbol"],
+                "profiler_symbol": required["candidates"][1]["profiler_symbol"],
+                "shape": {"m": 4, "n": 6, "k": 8},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="duplicate static selections"):
+        dml.compile(
+            spec,
+            target,
+            tmp_path / "compile_duplicate_profile_plan.dinoml",
+            execution_plan=execution_plan,
+        )

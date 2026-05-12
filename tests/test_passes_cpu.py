@@ -1686,6 +1686,127 @@ def test_apply_execution_plan_rejects_stale_cutlass_candidate_config_key():
     assert "execution_plan_selection" not in relaxed["required_kernels"][0]
 
 
+def test_apply_execution_plan_rejects_duplicate_static_selection_keys():
+    import dinoml as dml
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 8], "float32"), "b": dml.TensorSpec([8, 8], "float32")},
+        name="gemm_profile_duplicate_static_selection_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][0]
+    alternate_candidate = required["candidates"][1]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "profile-selection-0",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 8},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+            {
+                "selection_key": "profile-selection-1",
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": alternate_candidate["candidate_id"],
+                "candidate_config_key": alternate_candidate["candidate_config_key"],
+                "kernel_symbol": alternate_candidate["kernel_symbol"],
+                "profiler_symbol": alternate_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 8},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+        ],
+    }
+
+    with pytest.raises(ValueError, match="duplicate static selections"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+
+def test_apply_execution_plan_rejects_duplicate_guarded_selection_shape():
+    import dinoml as dml
+
+    tokens = dml.Dim("tokens", min=1, max=16, buckets=(6, 8))
+
+    class GemmModel(dml.Module):
+        def forward(self, a, b):
+            return dml.ops.output(dml.ops.gemm_rrr(a, b), "y")
+
+    spec = dml.trace(
+        GemmModel(),
+        inputs={"a": dml.TensorSpec([4, 32], "float32"), "b": dml.TensorSpec([32, tokens], "float32")},
+        name="gemm_profile_duplicate_guarded_selection_manifest",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = required["candidates"][1]
+    alternate_candidate = required["candidates"][2]
+    node_id = lowered["nodes"][0]["id"]
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "selections": [
+            {
+                "selection_key": "profile-selection-n8-a",
+                "node_id": node_id,
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 32},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+            {
+                "selection_key": "profile-selection-n8-b",
+                "node_id": node_id,
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": alternate_candidate["candidate_id"],
+                "candidate_config_key": alternate_candidate["candidate_config_key"],
+                "kernel_symbol": alternate_candidate["kernel_symbol"],
+                "profiler_symbol": alternate_candidate["profiler_symbol"],
+                "shape": {"m": 4, "n": 8, "k": 32},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            },
+        ],
+        "conflicts": [
+            {
+                "op": "gemm_rrr",
+                "dtype": "float32",
+                "candidate_set_key": required["candidate_set_key"],
+                "reason": "profiled_shapes_selected_different_candidate_or_split_k",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="duplicate guarded selections"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+
 def test_cuda_lowering_uses_guarded_execution_plan_dispatch_for_shape_conflicts():
     import dinoml as dml
 

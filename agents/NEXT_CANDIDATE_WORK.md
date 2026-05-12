@@ -15,6 +15,10 @@ This file should be updated after each major loop.
   runtime policy artifact-visible and prevents it from being confused with the
   existing `RuntimeModule.load_encoded_constants()` load-time dense dequant
   branch, which still uses libgguf's Python/Torch CUDA op when available.
+- Profiling now also rejects `planned_not_lowered` GGUF GEMM nodes before they
+  can be treated as ordinary CUTLASS profile workloads, so mixed dense + GGUF
+  graphs fail on the planned node instead of letting a dense profile item mask
+  it.
 - Added focused planning coverage proving the manifest records the
   `gguf_runtime_dequant` plan for the new policy, does not mark the existing
   `dequantize_full_before_launch` path, and fails generated CUDA GEMM lowering

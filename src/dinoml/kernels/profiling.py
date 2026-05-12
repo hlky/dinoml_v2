@@ -195,7 +195,12 @@ def build_profile_workloads(
         output_info = tensor_map[output_name]
         dtype = str(output_info["dtype"])
         binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
-        required_item = _required_profile_item(required_by_op.get(op_name, ()), dtype, binding.symbol)
+        required_item = _required_profile_item(
+            required_by_op.get(op_name, ()),
+            dtype,
+            binding.symbol,
+            node_id=str(node["id"]),
+        )
         if required_item is None:
             continue
         spec = gemm_op_spec(op_name)
@@ -293,7 +298,7 @@ def _append_bmm_profile_workloads(
     output_info = tensor_map[output_name]
     dtype = str(output_info["dtype"])
     binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
-    required_item = _required_profile_item(required_items, dtype, binding.symbol)
+    required_item = _required_profile_item(required_items, dtype, binding.symbol, node_id=str(node["id"]))
     if required_item is None:
         return
     spec = bmm_op_spec(op_name)
@@ -493,7 +498,23 @@ def _required_profile_item(
     required_items: Sequence[Mapping[str, Any]],
     dtype: str,
     fallback_symbol: str,
+    *,
+    node_id: str | None = None,
 ) -> Mapping[str, Any] | None:
+    if node_id is not None:
+        for item in required_items:
+            gguf_runtime_dequant = item.get("gguf_runtime_dequant")
+            if not isinstance(gguf_runtime_dequant, Mapping):
+                continue
+            if str(gguf_runtime_dequant.get("node_id")) != str(node_id):
+                continue
+            if str(gguf_runtime_dequant.get("status")) != "planned_not_lowered":
+                continue
+            raise NotImplementedError(
+                "CUTLASS profiling does not support planned_not_lowered "
+                "gguf_runtime_dequant GEMM nodes; generated CUDA lowering "
+                "rejects them before profile workload generation"
+            )
     for item in required_items:
         candidates = item.get("candidates", [])
         if any(str(candidate.get("dtype")) == dtype for candidate in candidates):

@@ -5,6 +5,7 @@ import dinoml as dml
 from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.lowering.cuda import render_cuda_module
 
 
@@ -28,6 +29,17 @@ class GemmRrrEncodedRhs(dml.Module):
         return dml.ops.output(dml.ops.gemm_rrr(x, self.weight), "y")
 
 
+class MixedGemmRrrEncodedRhs(dml.Module):
+    def __init__(self):
+        self.dense_weight = dml.Parameter([32, 32], dtype="float32")
+        self.gguf_weight = dml.Parameter([32, 32], dtype="float32")
+
+    def forward(self, x):
+        dense_y = dml.ops.output(dml.ops.gemm_rrr(x, self.dense_weight), "dense_y")
+        gguf_y = dml.ops.output(dml.ops.gemm_rrr(x, self.gguf_weight), "gguf_y")
+        return dense_y, gguf_y
+
+
 def _encoded_rhs_spec(*, materialization):
     storage = {
         "kind": "gguf",
@@ -48,6 +60,32 @@ def _encoded_rhs_spec(*, materialization):
         inputs={"x": dml.TensorSpec([4, 32], "float32")},
         constants={"weight": MaterializingConstant(np.zeros((32, 32), dtype=np.float32), storage)},
         name=f"gemm_rrr_{materialization}",
+    )
+
+
+def _mixed_dense_and_gguf_spec():
+    storage = {
+        "kind": "gguf",
+        "path": "weights.gguf",
+        "tensor": "blk.0.ffn.weight",
+        "logical_dtype": "float32",
+        "shape": [32, 32],
+        "qtype": "Q4_0",
+        "qtype_value": 2,
+        "encoded_nbytes": 576,
+        "gguf_shape": [32, 32],
+        "n_per_row": 32,
+        "materialization": "dequantize_on_gpu_before_launch",
+        "residency": "manual_runtime_load",
+    }
+    return dml.trace(
+        MixedGemmRrrEncodedRhs(),
+        inputs={"x": dml.TensorSpec([4, 32], "float32")},
+        constants={
+            "dense_weight": MaterializingConstant(np.zeros((32, 32), dtype=np.float32), None),
+            "gguf_weight": MaterializingConstant(np.zeros((32, 32), dtype=np.float32), storage),
+        },
+        name="mixed_gemm_rrr_dequant",
     )
 
 
@@ -97,3 +135,11 @@ def test_cuda_gemm_lowering_rejects_planned_gguf_runtime_dequant_rhs():
 
     with pytest.raises(NotImplementedError, match="native libgguf CUDA dequant launcher ABI"):
         render_cuda_module(ir, kernel_manifest=manifest)
+
+
+def test_build_profile_workloads_rejects_planned_gguf_runtime_dequant_rhs_in_mixed_graph():
+    spec = _mixed_dense_and_gguf_spec()
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+
+    with pytest.raises(NotImplementedError, match="planned_not_lowered gguf_runtime_dequant GEMM nodes"):
+        build_profile_workloads(spec.ir, manifest)

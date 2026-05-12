@@ -4,6 +4,10 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added focused CUDA allocator/session lifecycle regression for the missing
+  `_cuda_runtime_dll` cleanup path: when the CUDA helper handle is absent during
+  session cleanup, staged buffers are cleared and the session teardown still
+  proceeds.
 - Added focused CUDA allocator/session lifecycle regressions around the
   remaining cleanup/retry edge cases: a failed staging-buffer grow now has a
   regression proving the newly allocated buffer is rolled back when the old
@@ -71,13 +75,10 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Improve the remaining runtime/container lifecycle coverage for session/module
-   close and allocator cleanup failure/retry paths, especially the missing
-   `_cuda_runtime_dll` cleanup path, before adding larger offload scheduling.
-2. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
+1. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
    path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
    explicit encoded storage, same-stream native dequant, and session-owned
    scratch.
-3. Revisit CUTLASS only for another bounded compile-visible robustness slice,
+2. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

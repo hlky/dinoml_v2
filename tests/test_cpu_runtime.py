@@ -1329,6 +1329,35 @@ def test_session_close_keeps_retryable_state_when_cleanup_and_destroy_both_fail(
     assert session not in sessions
 
 
+def test_session_close_clears_staging_buffers_when_cuda_runtime_dll_is_missing():
+    destroys = []
+
+    class FakeModuleDll:
+        def dino_session_destroy(self, handle):
+            destroys.append(handle.value)
+            return 0
+
+    sessions = set()
+    session = object.__new__(runtime.Session)
+    session._handle = ctypes.c_void_p(0x1234)
+    session._cuda_buffers = {"input:x": (ctypes.c_void_p(0x1000), 16)}
+    module = SimpleNamespace(
+        _dll=FakeModuleDll(),
+        _sessions=sessions,
+        _check=lambda err: None,
+        _check_cuda_runtime=lambda err: None,
+    )
+    session.module = module
+    sessions.add(session)
+
+    session.close()
+
+    assert destroys == [0x1234]
+    assert not session._handle
+    assert session._cuda_buffers == {}
+    assert session not in sessions
+
+
 def test_runtime_check_reads_cuda_runtime_last_error():
     class FakeGetter:
         restype = None

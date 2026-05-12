@@ -1227,11 +1227,12 @@ class Session:
     def _free_cuda_buffers(self) -> None:
         if not getattr(self, "_cuda_buffers", None):
             return
-        if self.module._cuda_runtime_dll is None:
+        cuda_runtime_dll = getattr(self.module, "_cuda_runtime_dll", None)
+        if cuda_runtime_dll is None:
             self._cuda_buffers.clear()
             return
         for key, (ptr, _nbytes) in reversed(list(self._cuda_buffers.items())):
-            self.module._check_cuda_runtime(self.module._cuda_runtime_dll.dino_device_free(ptr))
+            self.module._check_cuda_runtime(cuda_runtime_dll.dino_device_free(ptr))
             del self._cuda_buffers[key]
         self._cuda_buffers.clear()
 

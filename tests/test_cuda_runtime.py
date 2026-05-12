@@ -16,16 +16,16 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 DEFAULT_CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 
 
-def _cutlass_default_symbol_id(dtype: str, *, target=None) -> str:
-    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET)[0]["symbol_id"])
+def _cutlass_default_symbol_id(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> str:
+    return str(cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)[0]["symbol_id"])
 
 
-def _cutlass_default_candidate_id(dtype: str, *, target=None) -> str:
-    return str(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET)[0]["candidate_id"])
+def _cutlass_default_candidate_id(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> str:
+    return str(cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET)[0]["candidate_id"])
 
 
-def _cutlass_candidate_count(dtype: str, *, target=None) -> int:
-    return len(cutlass_gemm_candidates("gemm_rrr", dtype, target=target or DEFAULT_CUDA_TARGET))
+def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> int:
+    return len(cutlass_gemm_candidates(op_name, dtype, target=target or DEFAULT_CUDA_TARGET))
 
 
 pytestmark = pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -516,7 +516,14 @@ def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_
         pytest.skip("CUTLASS headers are not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
-    from examples.cuda_linear import build_constants, build_spec, build_validation_inputs, numpy_reference
+    from examples.cuda_linear import (
+        IN_FEATURES,
+        MAX_BATCH,
+        build_constants,
+        build_spec,
+        build_validation_inputs,
+        numpy_reference,
+    )
 
     spec = build_spec()
     target = dml.Target("cuda", arch="sm_86", no_tf32=True)
@@ -531,7 +538,13 @@ def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_
     assert required["candidate_set_id"] == "cutlass_gemm_rrr_bias_float32_bias_v1"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
     assert required["candidate_set"]["target_policy"]["no_tf32"] is True
-    assert required["candidate_set"]["candidate_count"] == 11
+    expected_candidate_count = _cutlass_candidate_count(
+        "float32",
+        op_name="gemm_rrr_bias",
+        target=target.to_json(),
+    )
+    assert required["candidate_set"]["candidate_count"] == expected_candidate_count
+    assert len(required["candidates"]) == expected_candidate_count
     assert required["kernel_symbol"] == required["candidates"][0]["kernel_symbol"]
     assert required["selected_candidate_id"] == required["candidates"][0]["candidate_id"]
     assert required["cutlass_alignment_cap"] == 2
@@ -543,23 +556,35 @@ def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_
         "weight": build_constants()["weight"] * np.float32(-0.5),
         "bias": build_constants()["bias"] + np.float32(0.25),
     }
-    inputs = build_validation_inputs()
-    expected = numpy_reference(inputs, runtime_constants)["y"]
+    validation_inputs = build_validation_inputs()
+
+    def random_inputs(batch: int) -> dict[str, np.ndarray]:
+        rng = np.random.default_rng(2026 + batch)
+        return {"x": rng.standard_normal((batch, IN_FEATURES)).astype(np.float32)}
 
     module = runtime.load(artifact.path)
     weight = torch.tensor(runtime_constants["weight"], device="cuda", dtype=torch.float32)
     bias = torch.tensor(runtime_constants["bias"], device="cuda", dtype=torch.float32)
-    x = torch.tensor(inputs["x"], device="cuda", dtype=torch.float32)
     module.set_constant_torch("weight", weight)
     module.set_constant_torch("bias", bias)
     session = module.create_session()
-    actual = session.run_torch({"x": x})["y"]
-    assert tuple(actual.shape) == expected.shape
-    assert session.get_output_shape("y") == expected.shape
+
+    input_cases = [
+        {"x": validation_inputs["x"][:2].copy()},
+        validation_inputs,
+        random_inputs(1),
+        random_inputs(MAX_BATCH),
+    ]
+    for inputs in input_cases:
+        expected = numpy_reference(inputs, runtime_constants)["y"]
+        x = torch.tensor(inputs["x"], device="cuda", dtype=torch.float32)
+        actual = session.run_torch({"x": x})["y"]
+        assert tuple(actual.shape) == expected.shape
+        assert session.get_output_shape("y") == expected.shape
+        torch.testing.assert_close(actual.cpu(), torch.from_numpy(expected), atol=1e-2, rtol=1e-2)
+
     session.close()
     module.close()
-
-    torch.testing.assert_close(actual.cpu(), torch.from_numpy(expected), atol=1e-2, rtol=1e-2)
 
 
 def test_cuda_cutlass_gemm_no_tf32_runtime_matches_torch(tmp_path, monkeypatch):
@@ -581,7 +606,7 @@ def test_cuda_cutlass_gemm_no_tf32_runtime_matches_torch(tmp_path, monkeypatch):
     required = kernel_manifest["required_kernels"][0]
     symbol = f"dinoml_cutlass_gemm_rrr_float32_{_cutlass_default_symbol_id('float32', target=target.to_json())}"
     assert required["kernel_symbol"] == symbol
-    assert required["candidate_set"]["candidate_count"] == 11
+    assert required["candidate_set"]["candidate_count"] == _cutlass_candidate_count("float32", target=target.to_json())
     assert {candidate["cutlass"]["opclass"] for candidate in required["candidates"]} == {"simt"}
     assert "simt_sm80_f32" in symbol
 

@@ -2214,7 +2214,13 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
     assert required["op"] == "gemm_rrr_bias"
     assert required["candidate_set_id"] == "cutlass_gemm_rrr_bias_float32_bias_v1"
     assert required["candidate_set"]["target_policy"]["no_tf32"] is True
-    assert required["candidate_set"]["candidate_count"] == 11
+    expected_candidate_count = _cutlass_candidate_count(
+        "float32",
+        op_name="gemm_rrr_bias",
+        target=target.to_json(),
+    )
+    assert required["candidate_set"]["candidate_count"] == expected_candidate_count
+    assert len(required["candidates"]) == expected_candidate_count
     assert required["selected_candidate_id"] == final_selection["selected_candidate_id"]
     assert required["kernel_symbol"] == final_selection["kernel_symbol"]
     assert required["profiler_symbol"] == final_selection["profiler_symbol"]

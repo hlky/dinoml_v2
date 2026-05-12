@@ -19,7 +19,13 @@ from dinoml.ir import (
     normalize_dtype,
     read_json,
 )
-from dinoml.constant_sources import constant_source_from_storage, gguf_constant_policy_status
+from dinoml.constant_sources import (
+    GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH,
+    GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD,
+    constant_source_from_storage,
+    gguf_constant_policy_status,
+    materialize_gguf_encoded_constant,
+)
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
 
 
@@ -70,6 +76,7 @@ CUDA_GGUF_DEQUANT_QTYPES = frozenset(
         "BF16",
     }
 )
+_LIBGGUF_CUDA_NATIVE_LIBRARIES: list[ctypes.CDLL] = []
 
 
 def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
@@ -239,26 +246,32 @@ class RuntimeModule:
             )
 
         self._require_open()
-        materialized_constants: list[tuple[str, object]] = []
+        materialized_constants: list[tuple[str, object, str]] = []
         for constant_spec in self._encoded_constant_specs():
             if str(constant_spec["name"]) not in plan_names:
                 continue
             storage = constant_spec.get("storage")
             if not isinstance(storage, Mapping):
                 continue
+            if _is_gguf_runtime_dequant_policy(storage):
+                encoded = self._materialize_gguf_runtime_dequant_encoded_bytes(constant_spec, storage)
+                materialized_constants.append((str(constant_spec["name"]), encoded, "gguf_runtime_dequant_encoded"))
+                continue
             materialized_cuda = self._materialize_encoded_constant_cuda_if_available(constant_spec, storage)
             if materialized_cuda is not None:
-                materialized_constants.append((str(constant_spec["name"]), materialized_cuda))
+                materialized_constants.append((str(constant_spec["name"]), materialized_cuda, "dense"))
                 continue
             source = constant_source_from_storage(storage, base_dir=self.artifact_dir)
             if source is None:
                 continue
             materialized = source.materialize(str(constant_spec["dtype"]), constant_spec["shape"])
-            materialized_constants.append((str(constant_spec["name"]), materialized.array))
+            materialized_constants.append((str(constant_spec["name"]), materialized.array, "dense"))
         loaded_state_before_setters = dict(self._constant_loaded)
         try:
-            for name, value in materialized_constants:
-                if _is_torch_cuda_tensor(value):
+            for name, value, kind in materialized_constants:
+                if kind == "gguf_runtime_dequant_encoded":
+                    self._set_encoded_constant_device_bytes(name, value)
+                elif _is_torch_cuda_tensor(value):
                     self.set_constant_device_pointer(
                         name,
                         _torch_data_ptr(value),
@@ -270,6 +283,23 @@ class RuntimeModule:
         except Exception:
             self._constant_loaded = loaded_state_before_setters
             raise
+
+    def _materialize_gguf_runtime_dequant_encoded_bytes(
+        self,
+        constant_spec: Mapping[str, object],
+        storage: Mapping[str, object],
+    ) -> np.ndarray:
+        if self.target_name != "cuda":
+            raise NotImplementedError("GGUF runtime dequant encoded constants are only supported for CUDA artifacts")
+        dtype = normalize_dtype(str(constant_spec["dtype"]))
+        if dtype not in {"float32", "float16"}:
+            raise NotImplementedError("GGUF runtime dequant encoded constants support float32 and float16 outputs only")
+        source = constant_source_from_storage(storage, base_dir=self.artifact_dir)
+        if source is None:
+            raise ValueError("GGUF runtime dequant encoded constant requires GGUF storage metadata")
+        expected_shape = tuple(int(dim) for dim in constant_spec.get("shape", []))
+        materialized = materialize_gguf_encoded_constant(source, dtype, expected_shape)
+        return np.ascontiguousarray(materialized.array, dtype=np.uint8)
 
     def _materialize_encoded_constant_cuda_if_available(
         self,
@@ -369,8 +399,13 @@ class RuntimeModule:
             materialization = default_materialization
             residency = default_residency
         policy_status = gguf_constant_policy_status(materialization, residency)
+        target_supports_materialization = (
+            materialization != GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+            or getattr(self, "target_name", None) == "cuda"
+        )
         loadable_now = (
             storage_kind == "gguf"
+            and target_supports_materialization
             and policy_status["materialization"] == "runtime_supported"
             and policy_status["residency"] == "runtime_supported"
         )
@@ -532,6 +567,73 @@ class RuntimeModule:
         self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
         self._mark_constant_loaded(name, True)
 
+    def set_libgguf_cuda_dequantize_rows_on_stream(self, fn_ptr: int | ctypes.c_void_p) -> None:
+        self._require_open()
+        if self.target_name != "cuda":
+            raise RuntimeError("libgguf CUDA dequantizer is only available for CUDA artifacts")
+        setter = getattr(self, "_set_libgguf_cuda_dequantize_rows_on_stream", None)
+        if setter is None:
+            raise RuntimeError("Artifact does not expose GGUF runtime dequant native launcher configuration")
+        setter(self, fn_ptr)
+
+    def _set_encoded_constant_device_bytes(self, name: str, value: object) -> None:
+        constants = {constant["name"]: constant for constant in self.metadata["constants"]}
+        if name not in constants:
+            raise ValueError(f"Unknown constant: {name}")
+        self._require_open()
+        if self.target_name != "cuda":
+            raise RuntimeError("Encoded constant device loading is only available for CUDA artifacts")
+        setter = getattr(self, "_encoded_constant_setter", None)
+        if setter is None:
+            raise RuntimeError("Artifact does not expose encoded GGUF constant loading")
+        self._ensure_libgguf_cuda_dequantizer_configured()
+        encoded = np.ascontiguousarray(value, dtype=np.uint8)
+        if self._cuda_runtime_dll is None:
+            raise RuntimeError("CUDA runtime library is not loaded")
+        ptr = ctypes.c_void_p()
+        self._check_cuda_runtime(
+            self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(encoded.nbytes))
+        )
+        primary_error = False
+        try:
+            self._check_cuda_runtime(
+                self._cuda_runtime_dll.dino_copy_host_to_device(
+                    ptr,
+                    ctypes.c_void_p(encoded.ctypes.data),
+                    ctypes.c_size_t(encoded.nbytes),
+                )
+            )
+            self._check(
+                setter(
+                    self._handle,
+                    name.encode("utf-8"),
+                    ptr,
+                    ctypes.c_size_t(encoded.nbytes),
+                )
+            )
+            self._mark_constant_loaded(name, True)
+        except Exception:
+            primary_error = True
+            raise
+        finally:
+            try:
+                self._check_cuda_runtime(self._cuda_runtime_dll.dino_device_free(ptr))
+            except Exception:
+                if not primary_error:
+                    raise
+
+    def _ensure_libgguf_cuda_dequantizer_configured(self) -> None:
+        setter = getattr(self, "_set_libgguf_cuda_dequantize_rows_on_stream", None)
+        if setter is None:
+            raise RuntimeError("Artifact does not expose GGUF runtime dequant native launcher configuration")
+        fn_ptr = _libgguf_cuda_native_dequantize_rows_on_stream()
+        if fn_ptr is None:
+            raise RuntimeError(
+                "GGUF runtime dequant requires libgguf native CUDA symbol "
+                "libgguf_cuda_dequantize_rows_on_stream"
+            )
+        setter(self, ctypes.c_void_p(fn_ptr))
+
     def set_constant_torch(self, name: str, value: object) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
         if name not in constants:
@@ -578,6 +680,26 @@ class RuntimeModule:
         self._dll.dino_module_unload_constants.restype = ctypes.c_int
         self._dll.dino_module_set_constant.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(_DinoTensor)]
         self._dll.dino_module_set_constant.restype = ctypes.c_int
+        try:
+            self._encoded_constant_setter = self._dll.dino_module_set_encoded_constant
+        except AttributeError:
+            self._encoded_constant_setter = None
+        else:
+            self._encoded_constant_setter.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t]
+            self._encoded_constant_setter.restype = ctypes.c_int
+        try:
+            native_setter = self._dll.dino_module_set_libgguf_cuda_dequantize_rows_on_stream
+        except AttributeError:
+            self._set_libgguf_cuda_dequantize_rows_on_stream = None
+        else:
+            native_setter.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            native_setter.restype = ctypes.c_int
+
+            def set_native_dequantizer(module: RuntimeModule, fn_ptr: int | ctypes.c_void_p) -> None:
+                ptr = fn_ptr if isinstance(fn_ptr, ctypes.c_void_p) else ctypes.c_void_p(int(fn_ptr))
+                module._check(native_setter(module._handle, ptr))
+
+            self._set_libgguf_cuda_dequantize_rows_on_stream = set_native_dequantizer
         self._dll.dino_session_create.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
         self._dll.dino_session_create.restype = ctypes.c_int
         self._dll.dino_session_destroy.argtypes = [ctypes.c_void_p]
@@ -1254,6 +1376,42 @@ def _libgguf_cuda_dequant_api() -> tuple[object, object, object] | None:
     if not hasattr(torch.ops, "_C_gguf") or not hasattr(torch.ops._C_gguf, "dequantize"):
         return None
     return torch, libgguf, libgguf_cuda
+
+
+def _libgguf_cuda_native_dequantize_rows_on_stream() -> int | None:
+    extension_path = os.environ.get("LIBGGUF_CUDA_EXTENSION")
+    try:
+        if extension_path is None:
+            import libgguf.libgguf_cuda.ops as cuda_ops  # type: ignore[import-not-found]
+
+            extension = getattr(cuda_ops, "_C_gguf", None)
+            if extension is None:
+                return None
+            extension_path = str(Path(extension.__file__))
+        library = ctypes.CDLL(extension_path)
+        launcher = library.libgguf_cuda_dequantize_rows_on_stream
+    except (ImportError, AttributeError, OSError):
+        return None
+    launcher.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int64,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    )
+    launcher.restype = ctypes.c_int
+    _LIBGGUF_CUDA_NATIVE_LIBRARIES.append(library)
+    return int(ctypes.cast(launcher, ctypes.c_void_p).value or 0) or None
+
+
+def _is_gguf_runtime_dequant_policy(storage: Mapping[str, object]) -> bool:
+    return (
+        storage.get("kind") == "gguf"
+        and str(storage.get("materialization", "")) == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+        and str(storage.get("residency", "")) == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+    )
 
 
 def _gguf_qtype_name(libgguf: object, qtype: int, tensor_info: object) -> str:

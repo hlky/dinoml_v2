@@ -14,15 +14,20 @@ from dinoml.ir import (
     RUNTIME_ABI_VERSION,
     ModelSpec,
     canonical_json,
+    dtype_nbytes,
     dtype_numpy,
     graph_hash,
     read_json,
     write_json,
 )
 from dinoml.constant_sources import (
+    GGUFConstant,
     GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH,
+    GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH,
     GGUF_RESIDENCY_EAGER_DENSE_DEVICE,
+    GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD,
     gguf_constant_policy_status,
+    materialize_gguf_encoded_constant,
     materialize_constant_value,
 )
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
@@ -402,14 +407,19 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any])
             if name not in constants:
                 raise ValueError(f"Missing constant value: {name}")
             expected_shape = tuple(int(dim) for dim in constant["shape"])
-            materialized = materialize_constant_value(constants[name], constant["dtype"], expected_shape)
-            array = materialized.array
-            if array.shape != expected_shape:
-                raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
-            expected_dtype = dtype_numpy(str(constant["dtype"]))
-            if array.dtype != expected_dtype:
-                raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
-            data = array.tobytes(order="C")
+            value = constants[name]
+            if _writes_encoded_gguf_runtime_dequant_constant(value):
+                materialized = materialize_gguf_encoded_constant(value, constant["dtype"], expected_shape)
+                data = materialized.array.tobytes(order="C")
+            else:
+                materialized = materialize_constant_value(value, constant["dtype"], expected_shape)
+                array = materialized.array
+                if array.shape != expected_shape:
+                    raise ValueError(f"Constant {name} has shape {array.shape}, expected {expected_shape}")
+                expected_dtype = dtype_numpy(str(constant["dtype"]))
+                if array.dtype != expected_dtype:
+                    raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
+                data = array.tobytes(order="C")
             constant = dict(constant)
             constant["offset"] = offset
             constant["nbytes"] = len(data)
@@ -426,6 +436,21 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any])
     return ir
 
 
+def _writes_encoded_gguf_runtime_dequant_constant(value: Any) -> bool:
+    return (
+        isinstance(value, GGUFConstant)
+        and value.materialization == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+        and value.residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+    )
+
+
+def _shape_nbytes(shape: Sequence[int], dtype: str) -> int:
+    numel = 1
+    for dim in shape:
+        numel *= int(dim)
+    return numel * dtype_nbytes(dtype)
+
+
 def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
     encoded_constants = []
     total_logical_nbytes = 0
@@ -439,7 +464,10 @@ def _encoded_constants_manifest(ir: Mapping[str, Any]) -> dict[str, Any] | None:
         materialization = str(storage.get("materialization", GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH))
         residency = str(storage.get("residency", GGUF_RESIDENCY_EAGER_DENSE_DEVICE))
         policy_status = gguf_constant_policy_status(materialization, residency)
-        logical_nbytes = int(constant.get("nbytes", 0) or 0)
+        if materialization == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH:
+            logical_nbytes = _shape_nbytes(constant.get("shape", []), str(constant["dtype"]))
+        else:
+            logical_nbytes = int(constant.get("nbytes", 0) or 0)
         encoded_nbytes = int(storage.get("encoded_nbytes", 0) or 0)
         total_logical_nbytes += logical_nbytes
         total_encoded_nbytes += encoded_nbytes

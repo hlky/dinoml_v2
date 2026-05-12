@@ -19,6 +19,17 @@
 struct DinoModule {
   std::string artifact_dir;
   std::string metadata_json;
+{% if gguf_dequant_scratch %}
+  using LibggufCudaDequantizeRowsOnStream = int (*)(
+      const void* device_input,
+      int64_t qtype,
+      int64_t rows,
+      int64_t n_per_row,
+      int output_dtype,
+      void* device_output,
+      void* stream);
+  LibggufCudaDequantizeRowsOnStream libgguf_cuda_dequantize_rows_on_stream = nullptr;
+{% endif %}
 {% for constant in constants %}
   void* const_{{ constant.ident }} = nullptr;
   std::vector<int64_t> const_shape_{{ constant.ident }};
@@ -35,6 +46,10 @@ struct DinoSession {
 {% if cutlass_workspace %}
   void* cutlass_workspace = nullptr;
   size_t cutlass_workspace_nbytes = {{ cutlass_workspace.nbytes }};
+{% endif %}
+{% if gguf_dequant_scratch %}
+  void* gguf_dequant_scratch = nullptr;
+  size_t gguf_dequant_scratch_nbytes = {{ gguf_dequant_scratch.nbytes }};
 {% endif %}
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
@@ -109,6 +124,9 @@ DINO_EXPORT int dino_module_set_constant(
   }
 {% for constant in constants %}
   if (std::strcmp(name, "{{ constant.name }}") == 0) {
+{% if constant.encoded_runtime_dequant %}
+    return dinoml::module::fail("Constant {{ constant.name }} uses encoded GGUF runtime dequant storage; use load_encoded_constants");
+{% else %}
     if (int err = dinoml::module::check_tensor_dynamic(
             *tensor,
             "{{ constant.name }}",
@@ -134,11 +152,56 @@ DINO_EXPORT int dino_module_set_constant(
         cudaMemcpyDeviceToDevice));
     module->const_{{ constant.ident }}_loaded = true;
     return 0;
+{% endif %}
   }
 {% endfor %}
   return dinoml::module::fail(std::string("Unknown constant: ") + name);
 }
 
+{% if gguf_dequant_scratch %}
+DINO_EXPORT int dino_module_set_encoded_constant(
+    DinoModule* module,
+    const char* name,
+    const void* device_data,
+    size_t nbytes) {
+  if (module == nullptr || name == nullptr || (device_data == nullptr && nbytes > 0)) {
+    return dinoml::module::fail("dino_module_set_encoded_constant received null argument");
+  }
+{% for constant in constants %}
+{% if constant.encoded_runtime_dequant %}
+  if (std::strcmp(name, "{{ constant.name }}") == 0) {
+    if (nbytes != {{ constant.nbytes }}) {
+      return dinoml::module::fail("Encoded constant {{ constant.name }} byte size mismatch");
+    }
+    if (module->const_{{ constant.ident }} == nullptr) {
+      DINO_CUDA_CHECK(cudaMalloc(&module->const_{{ constant.ident }}, {{ constant.nbytes }}));
+    }
+    module->const_shape_{{ constant.ident }} = std::vector<int64_t>{ {{ constant.shape_literal }} };
+    DINO_CUDA_CHECK(cudaMemcpy(
+        module->const_{{ constant.ident }},
+        device_data,
+        nbytes,
+        cudaMemcpyDeviceToDevice));
+    module->const_{{ constant.ident }}_loaded = true;
+    return 0;
+  }
+{% endif %}
+{% endfor %}
+  return dinoml::module::fail(std::string("Unknown encoded constant: ") + name);
+}
+
+DINO_EXPORT int dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
+    DinoModule* module,
+    void* fn_ptr) {
+  if (module == nullptr) {
+    return dinoml::module::fail("dino_module_set_libgguf_cuda_dequantize_rows_on_stream received null module");
+  }
+  module->libgguf_cuda_dequantize_rows_on_stream =
+      reinterpret_cast<DinoModule::LibggufCudaDequantizeRowsOnStream>(fn_ptr);
+  return 0;
+}
+
+{% endif %}
 DINO_EXPORT int dino_module_load(const char* artifact_dir, DinoModule** out) {
   if (artifact_dir == nullptr || out == nullptr) {
     return dinoml::module::fail("dino_module_load received null argument");
@@ -222,6 +285,9 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
 {% if cutlass_workspace %}
   DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
 {% endif %}
+{% if gguf_dequant_scratch %}
+  DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->gguf_dequant_scratch, {{ gguf_dequant_scratch.nbytes }}));
+{% endif %}
 {% for temp in temporaries %}
   DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
@@ -260,6 +326,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
 {% if cutlass_workspace %}
   if (session->cutlass_workspace) {
     cudaFree(session->cutlass_workspace);
+  }
+{% endif %}
+{% if gguf_dequant_scratch %}
+  if (session->gguf_dequant_scratch) {
+    cudaFree(session->gguf_dequant_scratch);
   }
 {% endif %}
   delete session;

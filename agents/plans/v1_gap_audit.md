@@ -290,15 +290,19 @@ porting. It intentionally excludes the op inventory, which lives in
   the existing host materialization path. The current tested CUDA runtime slice
   uses real libgguf `Q4_0` storage with manual runtime loading, unload/reload
   state checks, and output correctness. The CUDA load is synchronous with
-  respect to the produced torch tensor and still uses the dense runtime ABI;
-  direct fused dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency
-  policies remain future work. The next dequant-before-GEMM policy now has a
-  manifest-visible admission hook: CUTLASS GEMM manifests record
-  `gguf_runtime_dequant` for a GGUF RHS constant declared with
-  `dequantize_on_gpu_before_launch`, including qtype, encoded size, logical
-  shape, and scratch size. Generated CUDA GEMM lowering rejects that plan
-  clearly because libgguf currently exposes the CUDA dequant path to DinoML as a
-  Python/Torch op rather than a native launcher ABI that generated C++ can call.
+  respect to the produced torch tensor and still uses the dense runtime ABI.
+  A first generated pre-GEMM runtime path now exists for `gemm_rrr` with a GGUF
+  RHS constant declared as `dequantize_on_gpu_before_launch` plus
+  `manual_runtime_load`: the artifact stores encoded bytes, Python runtime
+  loading installs those encoded bytes into CUDA constant storage, generated
+  modules expose an explicit native
+  `libgguf_cuda_dequantize_rows_on_stream` function-pointer setter, sessions
+  own a separate dense dequant scratch buffer, and lowering dequantizes on the
+  session stream immediately before the existing dense CUTLASS GEMM launch.
+  The tested slice uses real libgguf `Q4_0` storage and compares against a dense
+  dequantized reference. `gemm_rcr`, GEMM epilogues, `bfloat16`, direct
+  fused dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency
+  policies remain future work.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate
   additional CUTLASS epilogue functors and visitor forms that can fuse common
   post-GEMM elementwise patterns beyond what DinoML v1 exposed.

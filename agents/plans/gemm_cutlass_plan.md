@@ -78,15 +78,19 @@ The runtime GEMM port now wires model lowering into that support library:
 4. CPU has reference execution only; compiled CPU GEMM still rejects until a
    real CPU library path exists.
 
-GGUF runtime dequantization before GEMM has an explicit planning hook but is
-not lowered yet. When the CUTLASS manifest sees a GGUF constant as the GEMM RHS
-with `materialization="dequantize_on_gpu_before_launch"`, it records a
-`gguf_runtime_dequant` plan containing the qtype, encoded size, logical dense
-shape, scratch size, and intended dense CUTLASS launcher handoff. Generated CUDA
-GEMM lowering rejects that plan with a native libgguf CUDA dequant launcher ABI
-message. The currently installed libgguf path is a Python/Torch op, so a real
-pre-GEMM generated runtime path needs a native C/CUDA dequant ABI before the
-session scratch buffer can honestly launch from generated code.
+GGUF runtime dequantization before GEMM now has a first bounded CUDA runtime
+slice for base `gemm_rrr` with a GGUF RHS constant declared as
+`materialization="dequantize_on_gpu_before_launch"` and
+`residency="manual_runtime_load"`. The CUTLASS manifest records a
+`gguf_runtime_dequant` plan with status `lowered_runtime_dequant_scratch`,
+qtype, encoded size, logical dense shape, scratch size, and the dense CUTLASS
+handoff. Generated CUDA modules store the RHS constant as encoded bytes, expose
+an explicit runtime-set `libgguf_cuda_dequantize_rows_on_stream` function
+pointer boundary, allocate a separate session-owned dense dequant scratch
+buffer, dequantize on the session stream immediately before the GEMM, then pass
+the scratch pointer to the existing dense CUTLASS launcher. This is intentionally
+not a general offload scheduler and does not cover `gemm_rcr`, GEMM epilogues,
+`bfloat16`, or direct in-kernel quantized RHS execution yet.
 
 The first model-level CUDA workflow is intentionally small:
 `examples/cuda_linear.py` builds a single explicit `gemm_rrr_bias` linear layer

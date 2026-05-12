@@ -4,39 +4,36 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Added the bounded admission/planning slice for the future GGUF
-  dequantize-before-GEMM path. CUTLASS GEMM manifests now mark a GGUF encoded
-  constant used as the GEMM RHS with `materialization="dequantize_on_gpu_before_launch"`
-  using a `gguf_runtime_dequant` record. The record carries qtype, encoded byte
-  size, logical dense shape, session scratch byte size, and the intended handoff
-  to the existing dense CUTLASS launcher.
-- Generated CUDA GEMM lowering now rejects that planned policy with a precise
-  native libgguf CUDA dequant launcher ABI message. This keeps the desired
-  runtime policy artifact-visible and prevents it from being confused with the
-  existing `RuntimeModule.load_encoded_constants()` load-time dense dequant
-  branch, which still uses libgguf's Python/Torch CUDA op when available.
-- Profiling now also rejects `planned_not_lowered` GGUF GEMM nodes before they
-  can be treated as ordinary CUTLASS profile workloads, so mixed dense + GGUF
-  graphs fail on the planned node instead of letting a dense profile item mask
-  it.
-- Added focused planning coverage proving the manifest records the
-  `gguf_runtime_dequant` plan for the new policy, does not mark the existing
-  `dequantize_full_before_launch` path, and fails generated CUDA GEMM lowering
-  at the intended ABI boundary.
+- Landed the first bounded runnable GGUF dequantize-before-GEMM path for
+  CUTLASS `gemm_rrr` with a GGUF RHS constant declared as
+  `materialization="dequantize_on_gpu_before_launch"` and
+  `residency="manual_runtime_load"`.
+- Generated CUDA now stores that constant as encoded bytes, exposes an explicit
+  runtime-set `libgguf_cuda_dequantize_rows_on_stream` boundary, allocates a
+  separate session-owned dense RHS scratch buffer, dequantizes on the same
+  session stream immediately before the existing dense CUTLASS GEMM launch, and
+  fails precisely when the native launcher is unavailable.
+- Runtime encoded-constant loading now has a CUDA branch for this policy that
+  installs encoded GGUF bytes into generated module storage while preserving the
+  older `dequantize_full_before_launch` dense load-time path.
+- Added generated-code/lowering coverage for scratch allocation, encoded
+  constant storage, native dequant call ordering, and missing-launcher failure,
+  plus a focused CUDA integration test using real libgguf `Q4_0` RHS storage
+  compared against a dense dequantized GEMM reference.
 
 ## Ranked Backlog
 
-1. With PM approval, add or depend on a native libgguf CUDA dequant launcher
-   ABI that generated C++ can call, likely by adding `hlky/libgguf` as an
-   explicit submodule/dependency boundary, then wire one narrow
-   `gemm_rrr`/`gemm_rcr` GGUF RHS constant through a session-owned dense
-   scratch buffer before the existing CUTLASS GEMM launcher.
+1. Stabilize the new bounded `gemm_rrr` GGUF runtime-dequant path with lifecycle
+   and failure-mode coverage, especially encoded constant unload/reload,
+   missing native launcher behavior at runtime, and malformed encoded byte-size
+   handling.
 2. Improve runtime/container lifecycle coverage for session/module close,
    allocator cleanup, and constant residency transitions before adding larger
    offload scheduling.
-3. Continue GGUF/offload foundation with explicit CPU/GPU residency-state
-   transitions, but keep them policy-visible and separate from the dense CUDA
-   load-time dequant path.
+3. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
+   path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
+   explicit encoded storage, same-stream native dequant, and session-owned
+   scratch.
 4. Revisit CUTLASS only for another bounded compile-visible robustness slice,
    such as persistent cache concurrency, if it directly affects provider
    selection or compile/profile correctness.

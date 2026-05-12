@@ -138,7 +138,24 @@ class ModelSpec:
             if name not in constant_specs:
                 raise ValueError(f"Unknown constant: {name}")
             spec = constant_specs[name]
-            from dinoml.constant_sources import materialize_constant_value
+            from dinoml.constant_sources import (
+                GGUFConstant,
+                GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH,
+                GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD,
+                materialize_gguf_encoded_constant,
+                materialize_constant_value,
+            )
+
+            if (
+                isinstance(value, GGUFConstant)
+                and value.materialization == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+                and value.residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+            ):
+                materialized = materialize_gguf_encoded_constant(value, spec["dtype"], spec["shape"])
+                bound[name] = value
+                if materialized.storage is not None:
+                    spec["storage"] = materialized.storage
+                continue
 
             materialized = materialize_constant_value(value, spec["dtype"], spec["shape"])
             array = materialized.array

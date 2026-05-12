@@ -162,6 +162,24 @@ def materialize_constant_value(value: Any, dtype: str, shape: Sequence[int]) -> 
     return MaterializedConstant(array_to_storage(value, dtype), None)
 
 
+def materialize_gguf_encoded_constant(source: GGUFConstant, dtype: str, shape: Sequence[int]) -> MaterializedConstant:
+    logical_dtype = normalize_dtype(dtype)
+    expected_shape = tuple(int(dim) for dim in shape)
+    if source.logical_dtype is not None and normalize_dtype(source.logical_dtype) != logical_dtype:
+        raise ValueError(
+            f"GGUF constant {source.tensor!r} has logical dtype {normalize_dtype(source.logical_dtype)}, "
+            f"expected {logical_dtype}"
+        )
+    if source.shape is not None:
+        source_shape = tuple(int(dim) for dim in source.shape)
+        if source_shape != expected_shape:
+            raise ValueError(f"GGUF constant {source.tensor!r} has shape {source_shape}, expected {expected_shape}")
+    encoded, observed = _read_gguf_encoded_constant(source, expected_shape)
+    source._validate_observed_hints(observed)
+    metadata = source._metadata(logical_dtype, expected_shape, observed)
+    return MaterializedConstant(np.frombuffer(encoded, dtype=np.uint8).copy(), metadata)
+
+
 def constant_source_from_storage(
     storage: Mapping[str, Any],
     *,
@@ -224,14 +242,28 @@ def validate_gguf_constant_policy(
 def gguf_constant_policy_status(materialization: str, residency: str) -> dict[str, str]:
     validate_gguf_constant_policy(materialization, residency)
     return {
-        "materialization": GGUF_MATERIALIZATION_POLICIES[materialization],
+        "materialization": _gguf_materialization_policy_status(materialization, residency),
         "residency": _gguf_residency_policy_status(materialization, residency),
     }
+
+
+def _gguf_materialization_policy_status(materialization: str, residency: str) -> str:
+    if (
+        materialization == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
+        and residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+    ):
+        return "runtime_supported"
+    return GGUF_MATERIALIZATION_POLICIES[materialization]
 
 
 def _gguf_residency_policy_status(materialization: str, residency: str) -> str:
     if (
         materialization == GGUF_MATERIALIZATION_DEQUANTIZE_FULL_BEFORE_LAUNCH
+        and residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
+    ):
+        return "runtime_supported"
+    if (
+        materialization == GGUF_MATERIALIZATION_DEQUANTIZE_ON_GPU_BEFORE_LAUNCH
         and residency == GGUF_RESIDENCY_MANUAL_RUNTIME_LOAD
     ):
         return "runtime_supported"
@@ -243,6 +275,21 @@ def _materialize_gguf_constant(
     dtype: str,
     expected_shape: tuple[int, ...],
 ) -> tuple[np.ndarray, dict[str, Any]]:
+    raw, observed = _read_gguf_encoded_constant(source, expected_shape)
+    encoded = np.frombuffer(raw, dtype=np.uint8)
+    decoded = _decode_gguf_rows(
+        _import_libgguf(),
+        encoded,
+        int(observed["qtype_value"]),
+        str(observed["qtype"]),
+        int(observed["n_rows"]),
+        int(observed["n_per_row"]),
+        expected_shape,
+    )
+    return decoded, {key: value for key, value in observed.items() if key != "n_rows"}
+
+
+def _import_libgguf() -> Any:
     try:
         import libgguf  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -250,6 +297,14 @@ def _materialize_gguf_constant(
             "GGUF constants require the libgguf Python package. Install hlky/libgguf "
             "or bind a dense NumPy value before compiling."
         ) from exc
+    return libgguf
+
+
+def _read_gguf_encoded_constant(
+    source: GGUFConstant,
+    expected_shape: tuple[int, ...],
+) -> tuple[bytes, dict[str, Any]]:
+    libgguf = _import_libgguf()
 
     gguf = libgguf.open_gguf(source.path)
     tensor_info = gguf.get_tensor(source.tensor)
@@ -267,15 +322,14 @@ def _materialize_gguf_constant(
     qtype_name = str(getattr(tensor_info, "qtype"))
     n_per_row = int(gguf_shape[0]) if gguf_shape else 1
     n_rows = int(np.prod(expected_shape[:-1], dtype=np.int64)) if len(expected_shape) > 1 else 1
-    encoded = np.frombuffer(raw, dtype=np.uint8)
-    decoded = _decode_gguf_rows(libgguf, encoded, qtype, qtype_name, n_rows, n_per_row, expected_shape)
-    return decoded, {
+    return raw, {
         "qtype": qtype_name,
         "qtype_value": qtype,
         "encoded_nbytes": len(raw),
         "gguf_shape": list(gguf_shape),
         "data_offset": int(getattr(tensor_info, "data_offset")),
         "n_per_row": n_per_row,
+        "n_rows": n_rows,
     }
 
 
@@ -359,6 +413,7 @@ __all__ = [
     "constant_source_from_storage",
     "gguf_constant_policy_status",
     "gguf_constant",
+    "materialize_gguf_encoded_constant",
     "materialize_constant_value",
     "validate_gguf_constant_policy",
 ]

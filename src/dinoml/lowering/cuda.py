@@ -65,6 +65,7 @@ def render_cuda_module(
             else render_generated_kernels("cuda", ir["nodes"], tensor_map),
             "external_kernel_declarations": _external_kernel_declarations(kernel_manifest),
             "cutlass_workspace": _cutlass_workspace_context(kernel_manifest),
+            "gguf_dequant_scratch": _gguf_dequant_scratch_context(kernel_manifest),
             "pointer_decls": list(
                 _pointer_decls(
                     input_map=input_map,
@@ -295,6 +296,24 @@ def _cutlass_workspace_context(kernel_manifest: Mapping[str, Any] | None) -> dic
     return {"nbytes": max_workspace}
 
 
+def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> dict[str, int] | None:
+    if kernel_manifest is None:
+        return None
+    max_scratch = 0
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        plan = item.get("gguf_runtime_dequant")
+        if not isinstance(plan, Mapping):
+            continue
+        if str(plan.get("status")) != "lowered_runtime_dequant_scratch":
+            continue
+        max_scratch = max(max_scratch, int(plan.get("scratch_nbytes", 0) or 0))
+    if max_scratch <= 0:
+        return None
+    return {"nbytes": max_scratch}
+
+
 def _cutlass_workspace_selections(item: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     selections = []
     selection = item.get("execution_plan_selection")
@@ -352,6 +371,10 @@ def _io_context(index: int, name: str, shape: Iterable[int], dtype: str, shape_s
 
 def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
     dims = _dim_ranges(item.get("shape_spec", item["shape"]))
+    storage = item.get("storage")
+    storage_kind = storage.get("kind") if isinstance(storage, Mapping) else None
+    materialization = storage.get("materialization") if isinstance(storage, Mapping) else None
+    encoded_runtime_dequant = storage_kind == "gguf" and materialization == "dequantize_on_gpu_before_launch"
     return {
         "name": item["name"],
         "ident": _c_ident(item["tensor"]),
@@ -364,6 +387,7 @@ def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
         "dtype": item["dtype"],
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
+        "encoded_runtime_dequant": encoded_runtime_dequant,
     }
 
 

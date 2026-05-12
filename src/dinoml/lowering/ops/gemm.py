@@ -4,6 +4,7 @@ import re
 from typing import Any, Iterable, Mapping
 
 from dinoml.ir import dtype_nbytes
+from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
@@ -36,13 +37,10 @@ def render_launch(
     dtype = str(tensor_map[c_name]["dtype"])
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]))
     runtime_dequant_plan = _gguf_runtime_dequant_plan(manifest_item, node_id=str(node["id"]))
+    launch_b_ident = b_ident
     if runtime_dequant_plan is not None:
-        raise NotImplementedError(
-            f"{op_name} CUDA lowering saw GGUF {runtime_dequant_plan['materialization']!r} "
-            f"for constant RHS {runtime_dequant_plan['constant']!r}, but generated GEMM lowering "
-            "does not yet have a native libgguf CUDA dequant launcher ABI for pre-GEMM scratch "
-            "materialization"
-        )
+        _validate_gguf_runtime_dequant_lowering(op_name, spec, dtype, runtime_dequant_plan)
+        launch_b_ident = f"{b_ident}_dequant"
     symbol = (
         str(manifest_item["kernel_symbol"])
         if manifest_item is not None
@@ -101,13 +99,23 @@ def render_launch(
         fallback_candidates=_cutlass_alignment_fallback_candidates(manifest_item, selected_candidate),
         dtype=dtype,
         a_ident=a_ident,
-        b_ident=b_ident,
+        b_ident=launch_b_ident,
         epilogue_arg_text=epilogue_arg_text,
         c_ident=c_ident,
         m_expr=m_expr,
         n_expr=n_expr,
         k_expr=k_expr,
     )
+    if runtime_dequant_plan is not None:
+        lines.extend(
+            _gguf_runtime_dequant_lines(
+                op_name=op_name,
+                plan=runtime_dequant_plan,
+                b_ident=b_ident,
+                launch_b_ident=launch_b_ident,
+                dtype=dtype,
+            )
+        )
     dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
     if dispatches:
         lines.extend(
@@ -118,7 +126,7 @@ def render_launch(
                 default_launch=default_launch,
                 dtype=dtype,
                 a_ident=a_ident,
-                b_ident=b_ident,
+                b_ident=launch_b_ident,
                 epilogue_arg_text=epilogue_arg_text,
                 c_ident=c_ident,
                 m_expr=m_expr,
@@ -322,6 +330,52 @@ def _cutlass_dispatch_lines(
     lines.extend(f"  {line}" for line in default_launch)
     lines.append("}")
     return lines
+
+
+def _validate_gguf_runtime_dequant_lowering(
+    op_name: str,
+    spec: Any,
+    dtype: str,
+    plan: Mapping[str, Any],
+) -> None:
+    if op_name != "gemm_rrr":
+        raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering is not supported; supported op is gemm_rrr")
+    if spec.epilogue.inputs:
+        raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering currently supports base GEMM only")
+    if dtype not in {"float32", "float16"}:
+        raise NotImplementedError(f"{op_name} GGUF runtime dequant lowering supports float32 and float16 outputs only")
+    if str(plan.get("status")) != "lowered_runtime_dequant_scratch":
+        raise NotImplementedError(
+            f"{op_name} GGUF runtime dequant plan has unsupported status {plan.get('status')!r}"
+        )
+    if plan.get("qtype_value") is None:
+        raise ValueError(f"{op_name} GGUF runtime dequant plan is missing qtype_value")
+    if plan.get("n_per_row") is None:
+        raise ValueError(f"{op_name} GGUF runtime dequant plan is missing n_per_row")
+
+
+def _gguf_runtime_dequant_lines(
+    *,
+    op_name: str,
+    plan: Mapping[str, Any],
+    b_ident: str,
+    launch_b_ident: str,
+    dtype: str,
+) -> list[str]:
+    output_dtype = 0 if dtype == "float32" else 1
+    qtype_value = int(plan["qtype_value"])
+    n_per_row = int(plan["n_per_row"])
+    scratch_nbytes = int(plan["scratch_nbytes"])
+    constant_name = str(plan["constant"])
+    return [
+        f'if (module->libgguf_cuda_dequantize_rows_on_stream == nullptr) return dinoml::module::fail("{op_name} GGUF runtime dequant for constant {constant_name} requires native libgguf CUDA dequant launcher");',
+        f'if (shape_{b_ident}_1 != {n_per_row}) return dinoml::module::fail("{op_name} GGUF runtime dequant n_per_row mismatch for constant {constant_name}");',
+        f'if (session->gguf_dequant_scratch_nbytes < {scratch_nbytes}) return dinoml::module::fail("{op_name} GGUF runtime dequant scratch is too small");',
+        f"if (int err = module->libgguf_cuda_dequantize_rows_on_stream(module->const_{b_ident}, {qtype_value}, shape_{b_ident}_0, {n_per_row}, {output_dtype}, session->gguf_dequant_scratch, session->stream)) "
+        f'return dinoml::module::fail("{op_name} GGUF runtime dequant failed for constant {constant_name}");',
+        f"const DinoTensor* abi_{launch_b_ident} = nullptr;",
+        f"const {cuda_storage_type(dtype)}* ptr_{launch_b_ident} = static_cast<const {cuda_storage_type(dtype)}*>(session->gguf_dequant_scratch);",
+    ]
 
 
 def _cutlass_dispatch_guard(

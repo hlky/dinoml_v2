@@ -105,8 +105,7 @@ def test_cutlass_manifest_marks_gguf_runtime_dequant_rhs_plan():
     item = manifest["required_kernels"][0]
     plan = item["gguf_runtime_dequant"]
     assert plan["kind"] == "gguf_runtime_dequant_before_cutlass_gemm"
-    assert plan["status"] == "planned_not_lowered"
-    assert plan["blocked_reason"] == "missing_native_libgguf_cuda_dequant_launcher_abi"
+    assert plan["status"] == "lowered_runtime_dequant_scratch"
     assert plan["op"] == "gemm_rrr"
     assert plan["operand"] == "b"
     assert plan["constant"] == "weight"
@@ -128,18 +127,31 @@ def test_cutlass_manifest_does_not_mark_existing_load_time_gguf_policy():
     assert "gguf_runtime_dequant" not in manifest["required_kernels"][0]
 
 
-def test_cuda_gemm_lowering_rejects_planned_gguf_runtime_dequant_rhs():
+def test_cuda_gemm_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm():
     spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
     ir = _renderable_ir(spec)
     manifest = build_kernel_manifest(ir, CUDA_TARGET)
 
-    with pytest.raises(NotImplementedError, match="native libgguf CUDA dequant launcher ABI"):
-        render_cuda_module(ir, kernel_manifest=manifest)
+    source = render_cuda_module(ir, kernel_manifest=manifest)
+
+    assert "void* gguf_dequant_scratch = nullptr;" in source
+    assert "dino_module_set_encoded_constant" in source
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" in source
+    assert (
+        'return dinoml::module::fail("gemm_rrr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
+        in source
+    )
+    dequant_call = "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
+    gemm_call = "ptr_x, ptr_weight_dequant"
+    assert dequant_call in source
+    assert gemm_call in source
+    assert source.index(dequant_call) < source.index(gemm_call)
 
 
-def test_build_profile_workloads_rejects_planned_gguf_runtime_dequant_rhs_in_mixed_graph():
+def test_build_profile_workloads_accepts_lowered_gguf_runtime_dequant_rhs_in_mixed_graph():
     spec = _mixed_dense_and_gguf_spec()
     manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
 
-    with pytest.raises(NotImplementedError, match="planned_not_lowered gguf_runtime_dequant GEMM nodes"):
-        build_profile_workloads(spec.ir, manifest)
+    workloads = build_profile_workloads(spec.ir, manifest)
+
+    assert {workload.node_id for workload in workloads} == {"n0", "n1"}

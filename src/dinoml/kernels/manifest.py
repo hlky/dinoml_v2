@@ -159,11 +159,13 @@ def _gguf_runtime_dequant_gemm_rhs_plan(
     logical_numel = 1
     for dim in shape:
         logical_numel *= int(dim)
-    return {
+    lowered = str(node.get("op", "")) == "gemm_rrr" and dtype in {"float32", "float16"}
+    status = "lowered_runtime_dequant_scratch" if lowered else "planned_not_lowered"
+    blocked_reason = None if lowered else "unsupported_gguf_runtime_dequant_gemm_slice"
+    plan = {
         "schema_version": 1,
         "kind": "gguf_runtime_dequant_before_cutlass_gemm",
-        "status": "planned_not_lowered",
-        "blocked_reason": "missing_native_libgguf_cuda_dequant_launcher_abi",
+        "status": status,
         "node_id": str(node.get("id", "")),
         "op": str(node.get("op", "")),
         "operand": "b",
@@ -182,6 +184,9 @@ def _gguf_runtime_dequant_gemm_rhs_plan(
         "dequant_scratch": "session_temporary_dense_rhs",
         "dense_launcher": "existing_cutlass_gemm",
     }
+    if blocked_reason is not None:
+        plan["blocked_reason"] = blocked_reason
+    return plan
 
 
 def _cutlass_gemm_alignment_contexts(

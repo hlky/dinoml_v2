@@ -491,15 +491,18 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `constant_load_state()`, unload/reload, and output correctness through the
   dense device-pointer setter. This still does not add CPU/GPU prefetch,
   eviction, or direct in-kernel quantized RHS execution.
-- [x] GGUF dequantize-before-GEMM admission metadata:
-  CUTLASS GEMM manifests now mark a GGUF RHS constant declared with
-  `materialization="dequantize_on_gpu_before_launch"` using a
-  `gguf_runtime_dequant` planning record. The record carries the qtype,
-  encoded byte size, logical dense shape, session scratch byte size, and
-  intended handoff to the existing dense CUTLASS launcher. Generated CUDA GEMM
-  lowering rejects this plan with a native libgguf CUDA dequant launcher ABI
-  message, so the future policy cannot be confused with the existing load-time
-  dense dequant path.
+- [x] First GGUF dequantize-before-GEMM runtime path:
+  CUTLASS `gemm_rrr` can now consume a GGUF RHS constant declared with
+  `materialization="dequantize_on_gpu_before_launch"` and
+  `residency="manual_runtime_load"` for `float32`/`float16` dense outputs.
+  Generated CUDA stores the constant as encoded bytes, requires an explicit
+  runtime-set native `libgguf_cuda_dequantize_rows_on_stream` launcher, allocates
+  a separate session-owned dense RHS scratch buffer, dequantizes on the same
+  session stream immediately before the existing dense CUTLASS GEMM launch, and
+  fails clearly if the native launcher is unavailable. Focused CUDA coverage
+  uses real libgguf `Q4_0` storage and compares the runtime path against a dense
+  dequantized reference. `gemm_rcr`, epilogues, `bfloat16`, broad offload
+  scheduling, and direct in-kernel quantized RHS execution remain out of scope.
 - [ ] Future weight-loading/offload path: CPU-resident constants that can move
   to GPU at run time, later expanding to sequential, grouped/block/layer, and
   multi-stream offload policies. GGUF support should evaluate `hlky/libgguf`

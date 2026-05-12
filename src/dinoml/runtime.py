@@ -4,7 +4,7 @@ import ctypes
 import json
 import os
 import weakref
-from collections.abc import Sequence
+from collections.abc import Mapping as MappingABC, Sequence
 from pathlib import Path
 from typing import Dict, Mapping
 
@@ -548,6 +548,7 @@ class Session:
 
     def run_numpy(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         self._require_open()
+        _require_mapping(inputs, "run_numpy inputs")
         if self.module.target_name == "cpu":
             return self._run_numpy_cpu(inputs)
         return self._run_numpy_cuda(inputs)
@@ -621,6 +622,12 @@ class Session:
         self._require_open()
         if self.module.target_name != "cuda":
             raise RuntimeError("run_device_pointers is only available for CUDA artifacts")
+        _require_mapping(inputs, "device input pointers")
+        _require_mapping(outputs, "device output pointers")
+        if input_shapes is not None:
+            _require_mapping(input_shapes, "device input shapes")
+        if output_shapes is not None:
+            _require_mapping(output_shapes, "device output shapes")
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         input_names = [str(spec["name"]) for spec in input_specs]
@@ -696,6 +703,7 @@ class Session:
 
         if self.module.target_name != "cuda":
             raise RuntimeError("run_torch is only available for CUDA artifacts")
+        _require_mapping(inputs, "run_torch inputs")
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         input_names = [str(spec["name"]) for spec in input_specs]
@@ -920,6 +928,11 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
     array = array_to_storage(inputs[name], str(spec["dtype"]))
     validate_runtime_shape(name, array.shape, spec)
     return array
+
+
+def _require_mapping(mapping: object, label: str) -> None:
+    if not isinstance(mapping, MappingABC):
+        raise TypeError(f"{label} must be a mapping")
 
 
 def _reject_unexpected_keys(mapping: Mapping[str, object], expected_names: Sequence[str], label: str) -> None:

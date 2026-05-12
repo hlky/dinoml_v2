@@ -73,13 +73,14 @@ This file should be updated after each major loop.
    including null input/output arrays and wrong input/output counts, the non-CUDA
    CLI quick-start workflow, and CUDA-backed direct device-pointer reported
    output-shape capacity rejection through a cheap identity artifact. The latest
-   input/output map pass also rejects unexpected tensor names for `run_numpy`,
-   `run_torch`, and direct CUDA pointer execution before staging or pointer
-   packing. Python session construction now also destroys a partially created
-   native session handle if native creation or session tracking fails before
-   returning a usable `Session`, and Python module/session construction rejects
-   successful native load/create calls that return null handles before metadata
-   reads or session tracking can proceed.
+   input/output map pass also rejects non-mapping caller bindings and unexpected
+   tensor names for `run_numpy`, `run_torch`, and direct CUDA pointer execution
+   before staging, tensor validation, or pointer packing. Python session
+   construction now also destroys a partially created native session handle if
+   native creation or session tracking fails before returning a usable
+   `Session`, and Python module/session construction rejects successful native
+   load/create calls that return null handles before metadata reads or session
+   tracking can proceed.
 5. Continue provider/profile artifact hardening only for concrete,
    project-visible failures or for CUDA-backed profile/report cache coverage
    that becomes cheap enough for CI. Recent coverage rejects or skips stale

@@ -4,6 +4,12 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added focused CUDA allocator/session lifecycle regressions around the
+  remaining cleanup/retry edge cases: a failed staging-buffer grow now has a
+  regression proving the newly allocated buffer is rolled back when the old
+  buffer free fails, and `Session.close()` now has a regression proving that a
+  cleanup failure followed by a native destroy failure still leaves the session
+  retryable until both paths succeed on a later close.
 - Added CUDA reopen-parity lifecycle coverage for mixed dense and
   manual-runtime-load encoded constants, matching the CPU regression slice:
   reopening an eager artifact resets the encoded constant back to unloaded, and
@@ -65,9 +71,9 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Improve broader runtime/container lifecycle coverage for session/module
-   close and allocator cleanup failure/retry paths before adding larger offload
-   scheduling.
+1. Improve the remaining runtime/container lifecycle coverage for session/module
+   close and allocator cleanup failure/retry paths, especially the missing
+   `_cuda_runtime_dll` cleanup path, before adding larger offload scheduling.
 2. Consider the next narrow GGUF RHS GEMM extension only after the `gemm_rrr`
    path is stable: likely `gemm_rcr` or a base GEMM epilogue, still using
    explicit encoded storage, same-stream native dequant, and session-owned

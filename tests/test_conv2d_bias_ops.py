@@ -527,6 +527,39 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
         2,
         None,
     ) == 901
+    profiler = getattr(stub, required["profiler_symbol"])
+    profiler.restype = ctypes.c_float
+    profiler.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        *([ctypes.c_int] * 16),
+        ctypes.c_void_p,
+    ]
+    assert profiler(
+        None,
+        None,
+        None,
+        None,
+        2,
+        7,
+        8,
+        3,
+        4,
+        6,
+        4,
+        3,
+        2,
+        2,
+        1,
+        1,
+        0,
+        1,
+        2,
+        5,
+        None,
+    ) == pytest.approx(-1.0)
     assert not (artifact_dir / "manifest.json").exists()
     assert not (artifact_dir / "module.so").exists()
 

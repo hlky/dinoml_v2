@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the next narrow CLIP text-tower blocker without broadening general
+  integer tensor support: public/generated `dml.ops.argmax` now admits
+  `int32`/`int64` input tensors alongside the existing
+  `float32`/`float16`/`bfloat16`/`bool` surface, while preserving the same
+  static-shape, last-dim-only, `keepdim`, and `int64` output contract.
+  Generated CPU/CUDA lowering now compares `int32`/`int64` values as integers
+  instead of casting through float, while float inputs keep the existing
+  fp32-plus-NaN behavior. Focused regressions pin frontend/IR admission, CPU
+  reference behavior, generated CPU/CUDA source, CPU artifact runtime, the
+  compiler/runtime dtype exception boundary, and a legacy OpenAI CLIP-style
+  `input_ids.argmax(dim=-1)` EOT pooling case with first-index tie semantics.
+  Keep docs honest: this unblocks only the legacy highest-token-id CLIP EOT
+  pooling step and does not solve non-2 EOS equality matching or the full text
+  pooling gather flow on its own.
 - Landed the next bounded CLIP/BERT text-enabling primitive as a real generated
   lookup op instead of another helper composition: public
   `dml.ops.embedding(table, indices)` is now a registered op with dedicated
@@ -485,21 +499,22 @@ This file should be updated after each major loop.
    newly runtime-hardened helper-only `rms_norm` slice in place, and the now-
    registered generated `layer_norm` primitive unblocking CLIP/ViT/BERT hidden-
    state normalization, plus the newly registered generated `embedding`
-   primitive for learned token/position tables, prefer the next first-model
-   enabling surface that is still half-finished: standard transformer
-   masking/attention support or a small contract hardening pass around those
-   paths before
+   primitive for learned token/position tables, plus the now-bounded
+   `argmax(int32/int64)` admission needed for legacy OpenAI CLIP EOT index
+   selection, prefer the next first-model enabling surface that is still
+   half-finished: the remaining text-pooling gather/masking contract or a
+   standard transformer masking/attention slice before
    revisiting grouped/fused normalization variants or dynamic normalized-
    dimension work. RoPE exploration/planning is now recorded in
    `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a
    downstream consumer of the landed 1D tables, such as a bounded one-tensor
    real-pair application helper or a 2D/3D table-preparation helper, not a
    speculative fused public `apply_rotary_emb` CUDA ABI. Do not restart
-   `cropped_pos_embed` without new human direction. Do not broaden unrelated
-   integer-output support like `argmax`/`eq` in this lane unless a concrete
-   masking or pooling slice proves it is a direct blocker; if CLIP text pooling
-   stays blocked on that surface, keep recording it as the next bounded gap
-   rather than widening multiple integer contracts at once.
+   `cropped_pos_embed` without new human direction. The landed `argmax`
+   integer-input exception is intentionally specific to this direct CLIP
+   blocker; do not use it as a reason to widen unrelated integer tensor
+   support or claim broader CLIP pooling parity before non-2 EOS matching and
+   the pooled hidden-state gather path are actually covered.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

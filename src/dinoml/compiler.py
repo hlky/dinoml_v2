@@ -726,6 +726,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") in {"gather", "batch_gather", "embedding"} and len(node.get("inputs", [])) == 2
     }
+    argmax_input_tensors = {
+        node["inputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "argmax" and len(node.get("inputs", [])) == 1
+    }
     argmax_output_tensors = {
         node["outputs"][0]
         for node in ir["nodes"]
@@ -844,14 +849,15 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     supported = get_backend_spec(target.name).supported_dtypes
     unsupported = sorted(
         {
-            str(tensor["dtype"])
-            for tensor in ir["tensors"]
-            if str(tensor["dtype"]) not in supported
-            and str(tensor["name"]) not in index_tensors
-            and str(tensor["name"]) not in argmax_output_tensors
-            and str(tensor["name"]) not in topk_index_output_tensors
-        }
-    )
+                str(tensor["dtype"])
+                for tensor in ir["tensors"]
+                if str(tensor["dtype"]) not in supported
+                and str(tensor["name"]) not in index_tensors
+                and str(tensor["name"]) not in argmax_input_tensors
+                and str(tensor["name"]) not in argmax_output_tensors
+                and str(tensor["name"]) not in topk_index_output_tensors
+            }
+        )
     if unsupported:
         raise NotImplementedError(
             f"The current {target.name} runtime supports dtypes {sorted(supported)}; "

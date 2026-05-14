@@ -12,10 +12,19 @@ static int {{ func }}(
   for (int64_t row = 0; row < runtime_rows; ++row) {
     const int64_t base = row * cols;
     int64_t best_index = 0;
-{% if input_dtype == "bool" %}
+{% if input_is_bool %}
     bool best_value = x[base];
     for (int64_t col = 1; col < cols; ++col) {
       const bool value = x[base + col];
+      if (value > best_value) {
+        best_value = value;
+        best_index = col;
+      }
+    }
+{% elif input_is_integer %}
+    {{ input_storage_type }} best_value = x[base];
+    for (int64_t col = 1; col < cols; ++col) {
+      const {{ input_storage_type }} value = x[base + col];
       if (value > best_value) {
         best_value = value;
         best_index = col;

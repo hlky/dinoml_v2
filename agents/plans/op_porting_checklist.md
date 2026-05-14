@@ -196,9 +196,14 @@ epilogues where possible.
   `argmax` is available for one static-shape ranked dense tensor over a
   positive static last dimension after negative `dim` normalization, with
   `keepdim` and scalar fallback shape `[1]`. It supports
-  `float32`/`float16`/`bfloat16`/`bool` inputs, compares reduced-precision
-  inputs in fp32, returns first max indices on ties, and materializes `int64`
-  output tensors through an op-specific compiler/runtime contract exception.
+  `float32`/`float16`/`bfloat16`/`bool` plus bounded `int32`/`int64` inputs,
+  compares float inputs in fp32 with NaN-aware first-max behavior, compares
+  `int32`/`int64` inputs as integers, returns first max indices on ties, and
+  materializes `int64` output tensors through an op-specific compiler/runtime
+  contract exception. The integer-input admission is intentionally narrow: it
+  unblocks legacy OpenAI CLIP text EOT pooling via `input_ids.argmax(dim=-1)`
+  only, and does not cover non-2 EOS equality matching or the full pooled
+  hidden-state gather flow by itself.
   Public `topk(x, k, dim=-1, largest=True, sorted=True)` is available as two
   internal single-output ops (`topk_values`, `topk_indices`) for one
   static-shape ranked dense tensor over a positive static last dimension only,

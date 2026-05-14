@@ -62,6 +62,9 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "input_storage_type": input_storage_type,
         "output_storage_type": "int64_t",
         "input_dtype": input_dtype,
+        "input_is_bool": input_dtype == "bool",
+        "input_is_integer": input_dtype in {"int32", "int64"},
+        "input_needs_nan_handling": input_dtype in {"float16", "float32", "bfloat16"},
         "cols": int(input_tensor["shape"][-1]),
         "block_size": 256,
     }

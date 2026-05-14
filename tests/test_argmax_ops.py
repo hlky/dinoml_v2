@@ -39,6 +39,10 @@ def _input(dtype, shape=(2, 3, 4)):
     values = values.reshape(shape)
     if dtype == "bool":
         return (values.astype(np.int64) % 3) == 0
+    if dtype == "int32":
+        return values.astype(np.int32)
+    if dtype == "int64":
+        return values.astype(np.int64)
     if dtype in {"float16", "bfloat16"}:
         return array_from_storage(array_to_storage(values, dtype), dtype)
     return values
@@ -67,7 +71,7 @@ def test_argmax_frontend_ir_normalizes_attrs_shape_and_dtype():
     assert node["attrs"] == {"dim": 2, "keepdim": False}
 
 
-@pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool"])
+@pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool", "int32", "int64"])
 def test_cpu_reference_argmax(dtype):
     spec = _trace(dtype)
     x = _input(dtype)
@@ -99,7 +103,7 @@ def test_argmax_keepdim_and_scalar_fallback_shape():
     np.testing.assert_array_equal(execute_cpu(scalar_spec, {"x": scalar_x})["out"], [1])
 
 
-@pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool"])
+@pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool", "int32", "int64"])
 def test_argmax_generated_cpu_source_and_runtime(tmp_path, dtype):
     spec = _trace(dtype)
     lowered, _ = PassManager().run(spec.ir)
@@ -121,6 +125,16 @@ def test_argmax_generated_cpu_source_and_runtime(tmp_path, dtype):
     if dtype == "bool":
         assert "const bool* DINO_RESTRICT x" in cpu_source
         assert "bool best_value = x[base]" in cpu_source
+    if dtype == "int32":
+        assert "const int32_t* DINO_RESTRICT x" in cpu_source
+        assert "int32_t best_value = x[base]" in cpu_source
+        assert "dinoml::math::cast<float>" not in cpu_source
+        assert "std::isnan(value)" not in cpu_source
+    if dtype == "int64":
+        assert "const int64_t* DINO_RESTRICT x" in cpu_source
+        assert "int64_t best_value = x[base]" in cpu_source
+        assert "dinoml::math::cast<float>" not in cpu_source
+        assert "std::isnan(value)" not in cpu_source
 
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"argmax_{dtype}_cpu.dinoml")
     session = load(artifact.path).create_session()
@@ -134,11 +148,13 @@ def test_argmax_generated_cpu_source_and_runtime(tmp_path, dtype):
     np.testing.assert_array_equal(actual, _expected(x))
 
 
-def test_argmax_generated_cuda_source_supports_reduced_precision_bool_and_int64_output():
+def test_argmax_generated_cuda_source_supports_reduced_precision_bool_integer_inputs_and_int64_output():
     for dtype, pointer_type in (
         ("float16", "const half* DINO_RESTRICT x"),
         ("bfloat16", "const __nv_bfloat16* DINO_RESTRICT x"),
         ("bool", "const bool* DINO_RESTRICT x"),
+        ("int32", "const int32_t* DINO_RESTRICT x"),
+        ("int64", "const int64_t* DINO_RESTRICT x"),
     ):
         spec = _trace(dtype)
         lowered, _ = PassManager().run(spec.ir)
@@ -151,6 +167,9 @@ def test_argmax_generated_cuda_source_supports_reduced_precision_bool_and_int64_
         assert "argmax_" in cuda_source
         assert "value > best_value" in cuda_source
         assert "y[row] = best_index" in cuda_source
+        if dtype in {"int32", "int64"}:
+            assert "dinoml::math::cast<float>" not in cuda_source
+            assert "isnan(value)" not in cuda_source
 
 
 def test_argmax_frontend_rejects_dynamic_non_last_dim_and_bad_dtype():
@@ -166,8 +185,8 @@ def test_argmax_frontend_rejects_dynamic_non_last_dim_and_bad_dtype():
         _trace("float32", dim=3)
     with pytest.raises(NotImplementedError, match="only the last dimension"):
         _trace("float32", dim=1)
-    with pytest.raises(ValueError, match="does not support dtype int64"):
-        _trace("int64")
+    with pytest.raises(ValueError, match="does not support dtype float8_e4m3"):
+        _trace("float8_e4m3")
 
 
 def test_argmax_validation_rejects_dynamic_shape_specs_bad_attrs_shape_and_dtype():
@@ -207,6 +226,51 @@ def test_argmax_validation_rejects_dynamic_shape_specs_bad_attrs_shape_and_dtype
 
     spec = _trace("float32")
     input_tensor = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == "x")
-    input_tensor["dtype"] = "int64"
-    with pytest.raises(ValidationError, match="argmax does not support dtype int64"):
+    input_tensor["dtype"] = "float8_e4m3"
+    with pytest.raises(ValidationError, match="argmax does not support dtype float8_e4m3"):
         validate_ir(spec.ir)
+
+
+@pytest.mark.parametrize("dtype", ["int32", "int64"])
+def test_argmax_frontend_ir_and_runtime_allow_bounded_integer_inputs(dtype, tmp_path):
+    spec = _trace(dtype, shape=(2, 5))
+    assert spec.ir["inputs"][0]["dtype"] == dtype
+    assert spec.ir["outputs"][0]["dtype"] == "int64"
+
+    values = np.array([[1, 7, 7, 3, 0], [4, 4, 2, 9, 9]], dtype=np.int64).astype(dtype)
+    np.testing.assert_array_equal(execute_cpu(spec, {"x": values})["out"], np.array([1, 3], dtype=np.int64))
+
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"argmax_{dtype}_bounded_cpu.dinoml")
+    session = load(artifact.path).create_session()
+    try:
+        actual = session.run_numpy({"x": values})["out"]
+    finally:
+        session.close()
+    np.testing.assert_array_equal(actual, np.array([1, 3], dtype=np.int64))
+
+
+def test_argmax_clip_legacy_eot_pooling_regression_with_int64_ids():
+    spec = _trace("int64", shape=(3, 6))
+    input_ids = np.array(
+        [
+            [49406, 120, 49407, 17, 0, 0],
+            [49406, 49407, 42, 49407, 12, 0],
+            [49406, 1, 2, 3, 4, 5],
+        ],
+        dtype=np.int64,
+    )
+
+    actual = execute_cpu(spec, {"x": input_ids})["out"]
+
+    np.testing.assert_array_equal(actual, np.array([2, 1, 0], dtype=np.int64))
+
+
+def test_argmax_runtime_contract_keeps_unrelated_integer_tensors_rejected(tmp_path):
+    class PassthroughModule(dml.Module):
+        def forward(self, x):
+            return dml.ops.output(x, "out")
+
+    spec = dml.trace(PassthroughModule(), inputs={"x": dml.TensorSpec([2, 3], "int64")}, name="passthrough_int64")
+
+    with pytest.raises(NotImplementedError, match="unsupported compiled dtypes: \\['int64'\\]"):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "passthrough_int64_cpu.dinoml")

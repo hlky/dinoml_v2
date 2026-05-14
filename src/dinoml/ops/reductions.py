@@ -9,8 +9,8 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm")
 BASIC_REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean")
 REDUCTION_DTYPES = ("float16", "float32", "bfloat16")
-ARGMAX_DTYPES = ("float16", "float32", "bfloat16", "bool")
-TOPK_DTYPES = ARGMAX_DTYPES
+ARGMAX_DTYPES = ("float16", "float32", "bfloat16", "bool", "int32", "int64")
+TOPK_DTYPES = ("float16", "float32", "bfloat16", "bool")
 TOPK_INTERNAL_OPS = ("topk_values", "topk_indices")
 
 

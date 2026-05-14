@@ -199,6 +199,8 @@ def test_topk_frontend_rejects_dynamic_bad_k_non_last_dim_modes_and_bad_dtype():
         _trace("float32", largest=False)
     with pytest.raises(NotImplementedError, match="sorted=True"):
         _trace("float32", sorted=False)
+    with pytest.raises(ValueError, match="does not support dtype int32"):
+        _trace("int32")
     with pytest.raises(ValueError, match="does not support dtype int64"):
         _trace("int64")
 
@@ -236,6 +238,12 @@ def test_topk_validation_rejects_dynamic_attrs_shape_and_dtype():
     output_tensor = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == spec.ir["outputs"][1]["tensor"])
     output_tensor["dtype"] = "float32"
     with pytest.raises(ValidationError, match="expected int64"):
+        validate_ir(spec.ir)
+
+    spec = _trace("float32", k=2)
+    input_tensor = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == "x")
+    input_tensor["dtype"] = "int32"
+    with pytest.raises(ValidationError, match="topk does not support dtype int32"):
         validate_ir(spec.ir)
 
     spec = _trace("float32", k=2)

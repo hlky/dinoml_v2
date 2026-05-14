@@ -101,6 +101,16 @@ def _input(dtype):
     return np.arange(12, dtype=np.float32).reshape(2, 3, 2)
 
 
+def _input_for_shape(shape, dtype):
+    if tuple(shape) == (2, 3, 2):
+        return _input(dtype)
+    count = int(np.prod(shape))
+    if dtype == "bool":
+        values = (np.arange(count, dtype=np.int32) % 3) == 0
+        return values.reshape(shape).astype(np.bool_)
+    return np.arange(count, dtype=np.float32).reshape(shape)
+
+
 def test_permute_frontend_ir_normalizes_negative_dims_and_shape():
     spec = _trace_permute("float32", dims=(-1, 0, 1))
 
@@ -300,6 +310,37 @@ def test_specialized_permute_cpu_artifact_manifest_and_source_manifest_use_named
     assert source["generated_function_name"].startswith("permute0213_0213_")
 
 
+@pytest.mark.parametrize(("op_name", "shape", "dims", "_out_shape"), SPECIALIZED_PERMUTE_CASES)
+@pytest.mark.parametrize(
+    ("dtype", "expected_dtype"),
+    [
+        ("float32", np.float32),
+        ("float16", np.float16),
+        ("bfloat16", np.float32),
+        ("bool", np.bool_),
+    ],
+)
+def test_specialized_permute_generated_cpu_runtime_across_admitted_storage(
+    tmp_path, op_name, shape, dims, _out_shape, dtype, expected_dtype
+):
+    spec = _trace_specialized_permute(op_name, dtype=dtype, shape=shape)
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{op_name}_{dtype}_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert f"{op_name}_{''.join(map(str, dims))}_" in generated
+    assert "y[idx] = x[input_idx]" in generated
+
+    session = load(artifact.path).create_session()
+    x = _input_for_shape(shape, dtype)
+    try:
+        actual = session.run_numpy({"x": x})["out"]
+    finally:
+        session.close()
+
+    expected = _storage_roundtrip(np.transpose(x, axes=dims).copy(), dtype)
+    assert actual.dtype == expected_dtype
+    np.testing.assert_array_equal(actual, expected)
+
+
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 def test_specialized_permute_cuda_artifact_compiles_with_named_generated_kernel(tmp_path):
     spec = _trace_specialized_permute("permute210", shape=(2, 3, 4))
@@ -308,6 +349,55 @@ def test_specialized_permute_cuda_artifact_compiles_with_named_generated_kernel(
     assert "permute210_210_" in generated
     assert "generated_permute210" not in generated
     assert "y[idx] = x[input_idx]" in generated
+
+
+@pytest.mark.parametrize(
+    ("op_name", "shape", "pointer_type"),
+    [
+        ("permute021", (2, 3, 4), "const half* DINO_RESTRICT x"),
+        ("permute0213", (2, 3, 4, 5), "const __nv_bfloat16* DINO_RESTRICT x"),
+        ("permute102", (2, 3, 4), "const bool* DINO_RESTRICT x"),
+    ],
+)
+def test_specialized_permute_generated_cuda_source_supports_reduced_precision_and_bool(op_name, shape, pointer_type):
+    dtype = "float16" if "half" in pointer_type else "bfloat16" if "__nv_bfloat16" in pointer_type else "bool"
+    spec = _trace_specialized_permute(op_name, dtype=dtype, shape=shape)
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+
+    cuda_source = render_generated_kernels("cuda", lowered["nodes"], tensor_map)[0]
+
+    assert pointer_type in cuda_source
+    assert f"static int {op_name}_{''.join(map(str, SPECIALIZED_PERMUTE_DIMS[op_name]))}_" in cuda_source
+    assert "y[idx] = x[input_idx]" in cuda_source
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize(("op_name", "shape", "dims", "_out_shape"), SPECIALIZED_PERMUTE_CASES)
+def test_specialized_permute_cuda_runtime_matches_reference(tmp_path, op_name, shape, dims, _out_shape):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    spec = _trace_specialized_permute(op_name, dtype="float32", shape=shape)
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{op_name}_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert f"{op_name}_{''.join(map(str, dims))}_" in generated
+    assert "generated_permute" not in generated
+
+    x = _input_for_shape(shape, "float32")
+    expected = np.transpose(x, axes=dims).copy()
+
+    module = load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_torch({"x": torch.tensor(x, device="cuda", dtype=torch.float32)})["out"]
+    finally:
+        session.close()
+        module.close()
+
+    assert actual.dtype == torch.float32
+    np.testing.assert_array_equal(actual.cpu().numpy(), expected)
 
 
 def test_permute_generated_cuda_source_supports_reduced_precision_and_bool():

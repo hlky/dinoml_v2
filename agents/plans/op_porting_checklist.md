@@ -107,9 +107,12 @@ epilogues where possible.
   `permute021`, `permute0213`, `permute102`, and `permute210` are real
   registered bounded generated ops with fixed-rank/fixed-dims contracts and
   their own named IR nodes, lowering entries, and model-owned generated-kernel
-  provenance. The current slice intentionally reuses the existing generated
-  dense permute-copy strategy with compile-time dims/strides rather than
-  claiming v1 tiled/coalesced kernel parity.
+  provenance. Focused regressions now cover CPU artifact runtime execution for
+  every named specialization across `float32`, `float16`, `bfloat16`, and
+  `bool`, plus CUDA runtime parity for the named float32 specializations when
+  CUDA is available. The current slice intentionally reuses the existing
+  generated dense permute-copy strategy with compile-time dims/strides rather
+  than claiming v1 tiled/coalesced kernel parity.
 - [x] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct` are available as bounded public Python helpers for
   model-building. They do not emit IR nodes or metadata: `size` reads tensor

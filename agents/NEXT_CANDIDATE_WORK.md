@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Hardened the already-registered named permute specialization surface without
+  widening its contract: focused regressions now prove CPU artifact runtime
+  execution for `permute021`, `permute0213`, `permute102`, and `permute210`
+  across the admitted `float32`, `float16`, `bfloat16`, and `bool` storage
+  surface, add reduced-precision/bool CUDA generated-source checks for named
+  kernels, and exercise CUDA runtime parity for the named float32
+  specializations when CUDA is available. The slice stays honest about using
+  the existing generated dense permute-copy strategy rather than claiming v1
+  tiled/coalesced kernel parity.
 - Hardened the bounded helper-only `rms_norm` contract without widening the
   op surface: helper-level regressions now prove that both weighted and
   unweighted `dml.ops.rms_norm(...)` inherit the admitted `t5_layer_norm`

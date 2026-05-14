@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded CLIP contrastive-head composition slice without adding a
+  public head op: focused regressions now prove L2-normalized text/image
+  features via `vector_norm(..., keepdim=True)` plus division, then
+  `gemm_rcr(text_features, image_features.T)`, `exp(logit_scale)`, multiply,
+  and transpose/permute orientation for `logits_per_image`. CPU NumPy parity
+  covers unequal text/image batch sizes, and manifest checks keep `gemm_rcr`
+  CUTLASS-backed while normalization and scalar math stay model-generated.
+  This is still a composition proof, not `CLIPModel`, not encoder/projection
+  coverage, and not a new public `contrastive_head` op.
 - Landed the bounded CLIP text MLP / quick_gelu composition slice without
   adding a new public helper or model: focused regressions now prove
   `gemm_rcr_bias_fast_gelu` as the first projection and `gemm_rcr_bias` as the

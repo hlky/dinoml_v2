@@ -1,0 +1,18 @@
+{
+  "source": "https://huggingface.co/onnx-community/dinov3-vitl16-chmv2-dpt-head-ONNX/raw/main/preprocessor_config.json",
+  "note": "Open ONNX mirror of gated facebook/dinov3-vitl16-chmv2-dpt-head; use as representative preprocessing only.",
+  "image_processor_type": "CHMv2ImageProcessorFast",
+  "data_format": "channels_first",
+  "do_resize": false,
+  "do_rescale": true,
+  "rescale_factor": 0.00392156862745098,
+  "do_normalize": true,
+  "image_mean": [0.42, 0.411, 0.296],
+  "image_std": [0.213, 0.156, 0.143],
+  "do_pad": true,
+  "size_divisor": 16,
+  "ensure_multiple_of": 16,
+  "keep_aspect_ratio": true,
+  "resample": 3,
+  "size": {"height": 384, "width": 384}
+}

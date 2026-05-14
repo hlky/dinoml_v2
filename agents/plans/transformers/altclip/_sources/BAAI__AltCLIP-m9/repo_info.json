@@ -1,0 +1,30 @@
+{
+  "modelId": "BAAI/AltCLIP-m9",
+  "sha": "41d03cb9f2d9f904e7c63e90817d4bbed0d4a3a8",
+  "private": false,
+  "gated": false,
+  "tags": [
+    "transformers",
+    "pytorch",
+    "altclip",
+    "zero-shot-image-classification",
+    "stable-diffusion",
+    "stable-diffusion-diffusers",
+    "text-to-image",
+    "zh",
+    "Chinese",
+    "multilingual",
+    "English(En)",
+    "Chinese(Zh)",
+    "Spanish(Es)",
+    "French(Fr)",
+    "Russian(Ru)",
+    "Japanese(Ja)",
+    "Korean(Ko)",
+    "Arabic(Ar)",
+    "Italian(It)",
+    "arxiv:2211.06679",
+    "license:creativeml-openrail-m",
+    "region:us"
+  ]
+}

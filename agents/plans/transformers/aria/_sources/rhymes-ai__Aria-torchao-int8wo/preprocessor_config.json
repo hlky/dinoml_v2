@@ -1,0 +1,21 @@
+{
+  "_transform": null,
+  "auto_map": {
+    "AutoImageProcessor": "vision_processor.AriaVisionProcessor",
+    "AutoProcessor": "processing_aria.AriaProcessor"
+  },
+  "image_mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "image_processor_type": "AriaVisionProcessor",
+  "image_std": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "max_image_size": 980,
+  "min_image_size": 336,
+  "processor_class": "AriaProcessor"
+}

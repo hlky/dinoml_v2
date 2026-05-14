@@ -1,0 +1,19 @@
+{
+  "downloads": 678776,
+  "gated": false,
+  "likes": 10,
+  "modelId": "YituTech/conv-bert-base",
+  "pipeline_tag": "feature-extraction",
+  "private": false,
+  "sha": "5cb451936b5c4a96562d8b146de85f64f9cf2c22",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "tf",
+    "convbert",
+    "feature-extraction",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ]
+}

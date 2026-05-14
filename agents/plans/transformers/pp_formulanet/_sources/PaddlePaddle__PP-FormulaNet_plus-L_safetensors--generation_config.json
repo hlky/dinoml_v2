@@ -1,0 +1,10 @@
+{
+    "bos_token_id": 0,
+    "eos_token_id": 2,
+    "forced_eos_token_id": 2,
+    "decoder_start_token_id": 2,
+    "max_length": 1537,
+    "pad_token_id": 1,
+    "use_cache": true
+  }
+  

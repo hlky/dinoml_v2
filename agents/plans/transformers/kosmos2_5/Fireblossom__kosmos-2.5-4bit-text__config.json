@@ -1,0 +1,26 @@
+{
+  "activation_dropout": 0.0,
+  "activation_function": "gelu",
+  "architectures": [
+    "Kosmos2_5TextForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "attention_heads": 16,
+  "bos_token_id": 0,
+  "dropout": 0,
+  "embed_dim": 1536,
+  "eos_token_id": 2,
+  "ffn_dim": 6144,
+  "init_std": 0.02,
+  "layer_norm_eps": 1e-05,
+  "layerdrop": 0.0,
+  "layers": 24,
+  "max_position_embeddings": 4096,
+  "model_type": "kosmos_2_5_text_model",
+  "pad_token_id": 1,
+  "scale_embedding": true,
+  "torch_dtype": "float16",
+  "transformers_version": "4.47.0.dev0",
+  "use_cache": true,
+  "vocab_size": 108481
+}

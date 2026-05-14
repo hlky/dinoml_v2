@@ -1,0 +1,41 @@
+{
+  "_attn_implementation_autoset": true,
+  "_name_or_path": "hf-internal-testing/tiny-random-GroupViTModel",
+  "architectures": [
+    "GroupViTModel"
+  ],
+  "bos_token_id": 0,
+  "eos_token_id": 1,
+  "initializer_factor": 1.0,
+  "initializer_range": 0.02,
+  "logit_scale_init_value": 2.6592,
+  "model_type": "groupvit",
+  "output_segmentation": false,
+  "pad_token_id": 1,
+  "projection_dim": 64,
+  "projection_intermediate_dim": 4096,
+  "text_config": {
+    "attention_dropout": 0.1,
+    "bos_token_id": 0,
+    "dropout": 0.1,
+    "eos_token_id": 2,
+    "hidden_size": 32,
+    "intermediate_size": 37,
+    "max_position_embeddings": 512,
+    "model_type": "groupvit_text_model",
+    "num_hidden_layers": 5,
+    "vocab_size": 1024
+  },
+  "transformers_version": "4.48.2",
+  "vision_config": {
+    "attention_dropout": 0.1,
+    "dropout": 0.1,
+    "hidden_size": 32,
+    "image_size": 30,
+    "intermediate_size": 37,
+    "model_type": "groupvit_vision_model",
+    "num_attention_heads": 4,
+    "patch_size": 2,
+    "qkv_bias": true
+  }
+}

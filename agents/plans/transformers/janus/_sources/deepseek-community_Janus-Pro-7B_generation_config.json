@@ -1,0 +1,11 @@
+{
+  "_from_model_config": false,
+  "bos_token_id": 100000,
+  "eos_token_id": 100001,
+  "generation_kwargs": {
+    "boi_token_id": 100016
+  },
+  "guidance_scale": 5,
+  "pad_token_id": 100015,
+  "transformers_version": "4.52.0.dev0"
+}

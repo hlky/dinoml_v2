@@ -1,0 +1,22 @@
+{
+  "downloads": 12,
+  "gated": false,
+  "likes": 3,
+  "modelId": "dbmdz/convbert-base-german-europeana-cased",
+  "pipeline_tag": "feature-extraction",
+  "private": false,
+  "sha": "5bf2d7f7d226cf5afb6fef7cc3e5cde942e0f55e",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "tf",
+    "safetensors",
+    "convbert",
+    "feature-extraction",
+    "historic german",
+    "de",
+    "license:mit",
+    "endpoints_compatible",
+    "region:us"
+  ]
+}

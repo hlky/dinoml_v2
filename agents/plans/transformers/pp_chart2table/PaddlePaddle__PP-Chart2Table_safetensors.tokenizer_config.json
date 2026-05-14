@@ -1,0 +1,10 @@
+{
+  "add_prefix_space": null,
+  "backend": "tokenizers",
+  "bos_token": null,
+  "eos_token": "<|endoftext|>",
+  "model_max_length": 1000000000000000019884624838656,
+  "pad_token": "<|endoftext|>",
+  "tokenizer_class": "Qwen2Tokenizer",
+  "unk_token": "<|endoftext|>"
+}

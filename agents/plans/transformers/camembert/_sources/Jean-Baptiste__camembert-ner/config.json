@@ -1,0 +1,41 @@
+{
+  "_name_or_path": "camembert-base",
+  "architectures": [
+    "CamembertForTokenClassification"
+  ],
+  "attention_probs_dropout_prob": 0.1,
+  "bos_token_id": 5,
+  "eos_token_id": 6,
+  "gradient_checkpointing": false,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "id2label": {
+    "0": "O",
+    "1": "I-LOC",
+    "2": "I-PER",
+    "3": "I-MISC",
+    "4": "I-ORG"
+  },
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "label2id": {
+    "I-LOC": 1,
+    "I-MISC": 3,
+    "O": 0,
+    "I-ORG": 4,
+    "I-PER": 2
+  },
+  "layer_norm_eps": 1e-05,
+  "max_position_embeddings": 514,
+  "model_type": "camembert",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "output_past": true,
+  "pad_token_id": 1,
+  "position_embedding_type": "absolute",
+  "transformers_version": "4.3.2",
+  "type_vocab_size": 1,
+  "use_cache": true,
+  "vocab_size": 32005
+}

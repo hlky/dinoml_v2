@@ -1,0 +1,6 @@
+{
+  "bos_token": "<|endoftext|>",
+  "eos_token": "[STOP]",
+  "pad_token": "[STOP]",
+  "unk_token": "[UNK]"
+}

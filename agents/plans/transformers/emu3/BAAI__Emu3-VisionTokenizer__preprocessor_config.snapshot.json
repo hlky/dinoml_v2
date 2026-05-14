@@ -1,0 +1,29 @@
+{
+  "auto_map": {
+    "AutoImageProcessor": "image_processing_emu3visionvq.Emu3VisionVQImageProcessor"
+  },
+  "do_convert_rgb": true,
+  "do_normalize": true,
+  "do_rescale": true,
+  "do_resize": true,
+  "image_mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "image_processor_type": "Emu3VisionVQImageProcessor",
+  "image_std": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "max_pixels": 1048576,
+  "min_pixels": 262144,
+  "resample": 3,
+  "rescale_factor": 0.00392156862745098,
+  "size": {
+    "max_pixels": 1048576,
+    "min_pixels": 262144
+  },
+  "spatial_factor": 8
+}

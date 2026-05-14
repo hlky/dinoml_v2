@@ -1,0 +1,21 @@
+{
+  "modelId": "BAAI/AltCLIP",
+  "sha": "17788d7d45af0e41d0f10682fe91d655ac96435c",
+  "private": false,
+  "gated": false,
+  "tags": [
+    "transformers",
+    "pytorch",
+    "altclip",
+    "zero-shot-image-classification",
+    "Zero-Shot Image Classification",
+    "bilingual",
+    "en",
+    "English",
+    "zh",
+    "Chinese",
+    "arxiv:2211.06679",
+    "license:creativeml-openrail-m",
+    "region:us"
+  ]
+}

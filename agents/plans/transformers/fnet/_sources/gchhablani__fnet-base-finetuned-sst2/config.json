@@ -1,0 +1,33 @@
+{
+  "_name_or_path": "google/fnet-base",
+  "architectures": [
+    "FNetForSequenceClassification"
+  ],
+  "bos_token_id": 1,
+  "eos_token_id": 2,
+  "finetuning_task": "sst2",
+  "hidden_act": "gelu_new",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "id2label": {
+    "0": "negative",
+    "1": "positive"
+  },
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "label2id": {
+    "negative": 0,
+    "positive": 1
+  },
+  "layer_norm_eps": 1e-12,
+  "max_position_embeddings": 512,
+  "model_type": "fnet",
+  "num_hidden_layers": 12,
+  "pad_token_id": 3,
+  "torch_dtype": "float32",
+  "tpu_short_seq_length": 512,
+  "transformers_version": "4.11.0.dev0",
+  "type_vocab_size": 4,
+  "use_tpu_fourier_optimizations": false,
+  "vocab_size": 32000
+}

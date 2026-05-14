@@ -1,0 +1,257 @@
+class PatchTSTStdScaler(nn.Module):
+    """
+    Standardize features by calculating the mean and scaling along the first dimension, and then normalizes it by
+    subtracting from the mean and dividing by the standard deviation.
+    """
+
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__()
+        self.dim = config.scaling_dim if hasattr(config, "scaling_dim") else 1
+        self.keepdim = config.keepdim if hasattr(config, "keepdim") else True
+        self.minimum_scale = config.minimum_scale if hasattr(config, "minimum_scale") else 1e-5
+
+    def forward(
+        self, data: torch.Tensor, observed_indicator: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Parameters:
+            data (`torch.Tensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                input for Batch norm calculation
+            observed_indicator (`torch.BoolTensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                Calculating the scale on the observed indicator.
+        Returns:
+            tuple of `torch.Tensor` of shapes
+                (`(batch_size, sequence_length, num_input_channels)`,`(batch_size, 1, num_input_channels)`,
+                `(batch_size, 1, num_input_channels)`)
+        """
+        denominator = observed_indicator.sum(self.dim, keepdim=self.keepdim)
+        denominator = denominator.clamp_min(1.0)
+        loc = (data * observed_indicator).sum(self.dim, keepdim=self.keepdim) / denominator
+
+        variance = (((data - loc) * observed_indicator) ** 2).sum(self.dim, keepdim=self.keepdim) / denominator
+        scale = torch.sqrt(variance + self.minimum_scale)
+        return (data - loc) / scale, loc, scale
+
+
+# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesMeanScaler with TimeSeriesTransformer->PatchTST,TimeSeries->PatchTST
+class PatchTSTMeanScaler(nn.Module):
+    """
+    Computes a scaling factor as the weighted average absolute value along the first dimension, and scales the data
+    accordingly.
+    """
+
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__()
+        self.dim = config.scaling_dim if hasattr(config, "scaling_dim") else 1
+        self.keepdim = config.keepdim if hasattr(config, "keepdim") else True
+        self.minimum_scale = config.minimum_scale if hasattr(config, "minimum_scale") else 1e-10
+        self.default_scale = config.default_scale if hasattr(config, "default_scale") else None
+
+    def forward(
+        self, data: torch.Tensor, observed_indicator: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Parameters:
+            data (`torch.Tensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                input for Batch norm calculation
+            observed_indicator (`torch.BoolTensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                Calculating the scale on the observed indicator.
+        Returns:
+            tuple of `torch.Tensor` of shapes
+                (`(batch_size, sequence_length, num_input_channels)`,`(batch_size, 1, num_input_channels)`,
+                `(batch_size, 1, num_input_channels)`)
+        """
+        ts_sum = (data * observed_indicator).abs().sum(self.dim, keepdim=True)
+        num_observed = observed_indicator.sum(self.dim, keepdim=True)
+
+        scale = ts_sum / torch.clamp(num_observed, min=1)
+
+        # If `default_scale` is provided, we use it, otherwise we use the scale
+        # of the batch.
+        if self.default_scale is None:
+            batch_sum = ts_sum.sum(dim=0)
+            batch_observations = torch.clamp(num_observed.sum(0), min=1)
+            default_scale = torch.squeeze(batch_sum / batch_observations)
+        else:
+            default_scale = self.default_scale * torch.ones_like(scale)
+
+        # apply default scale where there are no observations
+        scale = torch.where(num_observed > 0, scale, default_scale)
+
+        # ensure the scale is at least `self.minimum_scale`
+        scale = torch.clamp(scale, min=self.minimum_scale)
+        scaled_data = data / scale
+
+        if not self.keepdim:
+            scale = scale.squeeze(dim=self.dim)
+
+        return scaled_data, torch.zeros_like(scale), scale
+
+
+# Copied from transformers.models.time_series_transformer.modeling_time_series_transformer.TimeSeriesNOPScaler with TimeSeriesTransformer->PatchTST,TimeSeries->PatchTST
+class PatchTSTNOPScaler(nn.Module):
+    """
+    Assigns a scaling factor equal to 1 along the first dimension, and therefore applies no scaling to the input data.
+    """
+
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__()
+        self.dim = config.scaling_dim if hasattr(config, "scaling_dim") else 1
+        self.keepdim = config.keepdim if hasattr(config, "keepdim") else True
+
+    def forward(
+        self, data: torch.Tensor, observed_indicator: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Parameters:
+            data (`torch.Tensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                input for Batch norm calculation
+        Returns:
+            tuple of `torch.Tensor` of shapes
+                (`(batch_size, sequence_length, num_input_channels)`,`(batch_size, 1, num_input_channels)`,
+                `(batch_size, 1, num_input_channels)`)
+        """
+        scale = torch.ones_like(data, requires_grad=False).mean(dim=self.dim, keepdim=self.keepdim)
+        loc = torch.zeros_like(data, requires_grad=False).mean(dim=self.dim, keepdim=self.keepdim)
+        return data, loc, scale
+
+
+class PatchTSTScaler(nn.Module):
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__()
+        if config.scaling == "mean" or config.scaling is True:
+            self.scaler = PatchTSTMeanScaler(config)
+        elif config.scaling == "std":
+            self.scaler = PatchTSTStdScaler(config)
+        else:
+            self.scaler = PatchTSTNOPScaler(config)
+
+    def forward(
+        self, data: torch.Tensor, observed_indicator: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Parameters:
+            data (`torch.Tensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                Input for scaler calculation
+            observed_indicator (`torch.BoolTensor` of shape `(batch_size, sequence_length, num_input_channels)`):
+                Calculating the scale on the observed indicator.
+        Returns:
+            tuple of `torch.Tensor` of shapes
+                (`(batch_size, sequence_length, num_input_channels)`,`(batch_size, 1, num_input_channels)`,
+                `(batch_size, 1, um_input_channels)`)
+        """
+        data, loc, scale = self.scaler(data, observed_indicator)
+        return data, loc, scale
+
+
+@auto_docstring
+class PatchTSTModel(PatchTSTPreTrainedModel):
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__(config)
+
+        self.scaler = PatchTSTScaler(config)
+        self.patchifier = PatchTSTPatchify(config)
+        self.do_mask_input = config.do_mask_input
+        # get num_patches information from PatchTSTPatchify
+        num_patches = self.patchifier.num_patches
+
+        if self.do_mask_input:
+            self.masking = PatchTSTMasking(config)
+        else:
+            self.masking = nn.Identity()
+        self.encoder = PatchTSTEncoder(config, num_patches=num_patches)
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+    def forward(
+        self,
+        past_values: torch.Tensor,
+        past_observed_mask: torch.Tensor | None = None,
+        future_values: torch.Tensor | None = None,
+        output_hidden_states: bool | None = None,
+        output_attentions: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ) -> tuple | PatchTSTModelOutput:
+        r"""
+        Parameters:
+            past_values (`torch.Tensor` of shape `(bs, sequence_length, num_input_channels)`, *required*):
+                Input sequence to the model
+            past_observed_mask (`torch.BoolTensor` of shape `(batch_size, sequence_length, num_input_channels)`, *optional*):
+                Boolean mask to indicate which `past_values` were observed and which were missing. Mask values selected
+                in `[0, 1]`:
+
+                - 1 for values that are **observed**,
+                - 0 for values that are **missing** (i.e. NaNs that were replaced by zeros).
+            future_values (`torch.BoolTensor` of shape `(batch_size, prediction_length, num_input_channels)`, *optional*):
+                Future target values associated with the `past_values`
+            output_hidden_states (`bool`, *optional*):
+                Whether or not to return the hidden states of all layers
+            output_attentions (`bool`, *optional*):
+                Whether or not to return the output attention of all layers
+            return_dict (`bool`, *optional*):
+                Whether or not to return a `ModelOutput` instead of a plain tuple.
+
+        Returns:
+            `PatchTSTModelOutput` or tuple of `torch.Tensor` (if `return_dict`=False or `config.return_dict`=False)
+
+        Examples:
+
+        ```python
+        >>> from huggingface_hub import hf_hub_download
+        >>> import torch
+        >>> from transformers import PatchTSTModel
+
+        >>> file = hf_hub_download(
+        ...     repo_id="hf-internal-testing/etth1-hourly-batch", filename="train-batch.pt", repo_type="dataset"
+        ... )
+        >>> batch = torch.load(file)
+
+        >>> model = PatchTSTModel.from_pretrained("namctin/patchtst_etth1_pretrain")
+
+        >>> # during training, one provides both past and future values
+        >>> outputs = model(
+        ...     past_values=batch["past_values"],
+        ...     future_values=batch["future_values"],
+        ... )
+
+        >>> last_hidden_state = outputs.last_hidden_state
+        ```"""
+
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
+        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
+        output_hidden_states = (
+            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
+        )
+
+        if past_observed_mask is None:
+            past_observed_mask = torch.ones_like(past_values)
+
+        # x: tensor [bs x sequence_length x num_input_channels]
+        scaled_past_values, loc, scale = self.scaler(past_values, past_observed_mask)
+
+        # patched_values: [bs x num_input_channels x num_patches x patch_length] for pretrain
+        patched_values = self.patchifier(scaled_past_values)
+        if self.do_mask_input:
+            masked_values, mask = self.masking(patched_values)
+        else:
+            masked_values, mask = self.masking(patched_values), None
+
+        encoder_output = self.encoder(
+            patch_input=masked_values, output_hidden_states=output_hidden_states, output_attentions=output_attentions
+        )
+
+        if not return_dict:
+            outputs = (encoder_output.last_hidden_state, encoder_output.hidden_states, encoder_output.attentions)
+            outputs = outputs + (mask, loc, scale, patched_values)
+            return tuple(v for v in outputs if v is not None)
+
+        return PatchTSTModelOutput(
+            last_hidden_state=encoder_output.last_hidden_state,
+            hidden_states=encoder_output.hidden_states,
+            attentions=encoder_output.attentions,
+            mask=mask,
+            loc=loc,
+            scale=scale,
+            patch_input=patched_values,

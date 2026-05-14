@@ -1,0 +1,32 @@
+{
+  "id": "HuggingFaceTB/SmolVLM2-2.2B-Instruct",
+  "sha": "482adb537c021c86670beed01cd58990d01e72e4",
+  "lastModified": "2025-04-08T07:25:13Z",
+  "tags": [
+    "transformers",
+    "safetensors",
+    "smolvlm",
+    "image-text-to-text",
+    "video-text-to-text",
+    "conversational",
+    "en",
+    "dataset:HuggingFaceM4/the_cauldron",
+    "dataset:HuggingFaceM4/Docmatix",
+    "dataset:lmms-lab/LLaVA-OneVision-Data",
+    "dataset:lmms-lab/M4-Instruct-Data",
+    "dataset:HuggingFaceFV/finevideo",
+    "dataset:MAmmoTH-VL/MAmmoTH-VL-Instruct-12M",
+    "dataset:lmms-lab/LLaVA-Video-178K",
+    "dataset:orrzohar/Video-STaR",
+    "dataset:Mutonix/Vript",
+    "dataset:TIGER-Lab/VISTA-400K",
+    "dataset:Enxin/MovieChat-1K_train",
+    "dataset:ShareGPT4Video/ShareGPT4Video",
+    "arxiv:2504.05299",
+    "base_model:HuggingFaceTB/SmolVLM-Instruct",
+    "base_model:finetune:HuggingFaceTB/SmolVLM-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+  ]
+}

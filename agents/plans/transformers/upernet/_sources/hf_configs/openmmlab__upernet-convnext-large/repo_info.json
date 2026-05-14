@@ -1,0 +1,71 @@
+{
+  "_id": "63c16a571584c1120feca22b",
+  "id": "openmmlab/upernet-convnext-large",
+  "private": false,
+  "pipeline_tag": "image-segmentation",
+  "library_name": "transformers",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "upernet",
+    "vision",
+    "image-segmentation",
+    "en",
+    "arxiv:1807.10221",
+    "arxiv:2201.03545",
+    "license:mit",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ],
+  "downloads": 2054,
+  "likes": 1,
+  "modelId": "openmmlab/upernet-convnext-large",
+  "author": "openmmlab",
+  "sha": "b029b4fb01ac63f0f9507b9eb60ac716cfb1f568",
+  "lastModified": "2023-01-19T10:45:41Z",
+  "gated": false,
+  "disabled": false,
+  "model-index": null,
+  "config": {
+    "architectures": [
+      "UperNetForSemanticSegmentation"
+    ],
+    "model_type": "upernet"
+  },
+  "cardData": {
+    "language": "en",
+    "license": "mit",
+    "tags": [
+      "vision",
+      "image-segmentation"
+    ],
+    "model_name": "openmmlab/upernet-convnext-large"
+  },
+  "transformersInfo": {
+    "auto_model": "UperNetForSemanticSegmentation",
+    "processor": "AutoImageProcessor"
+  },
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    },
+    {
+      "rfilename": "pytorch_model.bin"
+    }
+  ],
+  "spaces": [
+    "duongve/Spatial_Control_for_SD"
+  ],
+  "createdAt": "2023-01-13T14:27:35Z",
+  "usedStorage": 1880254115
+}

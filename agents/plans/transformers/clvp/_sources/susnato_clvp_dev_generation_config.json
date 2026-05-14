@@ -1,0 +1,7 @@
+{
+  "bos_token_id": 8192,
+  "eos_token_id": 8193,
+  "do_sample": true,
+  "max_new_tokens": 256,
+  "return_dict_in_generate": true
+}

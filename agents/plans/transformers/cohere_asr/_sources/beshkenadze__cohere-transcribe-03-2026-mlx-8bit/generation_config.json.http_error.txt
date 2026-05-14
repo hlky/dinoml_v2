@@ -1,0 +1,3 @@
+https://huggingface.co/beshkenadze/cohere-transcribe-03-2026-mlx-8bit/resolve/main/generation_config.json
+404
+Response status code does not indicate success: 404 (Not Found).

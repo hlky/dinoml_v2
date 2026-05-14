@@ -1,0 +1,75 @@
+{
+  "_id": "66a3d1892b460286b016b32d",
+  "author": "depth-anything",
+  "cardData": {
+    "library_name": "transformers",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "depth",
+      "absolute depth"
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-07-26T16:40:41.000Z",
+  "disabled": false,
+  "downloads": 5153,
+  "gated": false,
+  "id": "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf",
+  "lastModified": "2024-08-27T14:05:51.000Z",
+  "library_name": "transformers",
+  "likes": 2,
+  "model-index": null,
+  "modelId": "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 24785089
+    },
+    "total": 24785089
+  },
+  "sha": "fd2c22027eaf20374204f14099b8341e1925ad39",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "pranjal00/AutoSeg-Demo"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "depth",
+    "absolute depth",
+    "arxiv:2406.09414",
+    "arxiv:2401.10891",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 99173660
+}

@@ -1,0 +1,154 @@
+{
+  "audit_target": "timm_backbone",
+  "fetched_on": "2026-05-13",
+  "configs": [
+    {
+      "model_id": "Noah-Wang/eva02-ai-art-detector",
+      "url": "https://huggingface.co/Noah-Wang/eva02-ai-art-detector/raw/main/config.json",
+      "scope": "Hub timm-style image classification config tagged timm_backbone",
+      "model_type": "timm_backbone",
+      "current_source_backbone_field_present": false,
+      "delegated_body_fields": {
+        "architecture": "eva02_base_patch14_448",
+        "num_classes": 3,
+        "num_features": 768,
+        "global_pool": "avg"
+      },
+      "pretrained_cfg": {
+        "input_size": [3, 448, 448],
+        "fixed_input_size": true,
+        "interpolation": "bicubic",
+        "crop_pct": 1.0,
+        "crop_mode": "squash",
+        "mean": [0.48145466, 0.4578275, 0.40821073],
+        "std": [0.26862954, 0.26130258, 0.27577711],
+        "first_conv": "patch_embed.proj",
+        "classifier": "head"
+      },
+      "preprocessor_config": "404 at main revision"
+    },
+    {
+      "model_id": "Noah-Wang/eva02-ai-art-detector-prod",
+      "url": "https://huggingface.co/Noah-Wang/eva02-ai-art-detector-prod/raw/main/config.json",
+      "scope": "Hub timm-style image classification config tagged timm_backbone",
+      "model_type": "timm_backbone",
+      "current_source_backbone_field_present": false,
+      "delegated_body_fields": {
+        "architecture": "eva02_base_patch14_448",
+        "num_classes": 9,
+        "num_features": 768,
+        "global_pool": "avg"
+      },
+      "pretrained_cfg": {
+        "input_size": [3, 448, 448],
+        "fixed_input_size": true,
+        "interpolation": "bicubic",
+        "crop_pct": 1.0,
+        "crop_mode": "squash",
+        "mean": [0.48145466, 0.4578275, 0.40821073],
+        "std": [0.26862954, 0.26130258, 0.27577711],
+        "first_conv": "patch_embed.proj",
+        "classifier": "head"
+      },
+      "preprocessor_config": "404 at main revision"
+    },
+    {
+      "model_id": "scizzum/model_10_22_run",
+      "url": "https://huggingface.co/scizzum/model_10_22_run/raw/main/config.json",
+      "scope": "Hub config advertising TimmBackbone architecture",
+      "model_type": "timm_backbone",
+      "architectures": ["TimmBackbone"],
+      "current_source_backbone_field_present": false,
+      "delegated_body_fields": {
+        "timm_model_name": "eva_giant_patch14_224.clip_ft_in1k",
+        "image_size": 224,
+        "patch_size": 14,
+        "hidden_size": 1408,
+        "num_hidden_layers": 40,
+        "num_attention_heads": 16,
+        "num_labels": 2
+      },
+      "preprocessor_config": {
+        "url": "https://huggingface.co/scizzum/model_10_22_run/raw/main/preprocessor_config.json",
+        "do_resize": true,
+        "do_rescale": true,
+        "do_normalize": true,
+        "size": {"shortest_edge": 224, "height": 224, "width": 224},
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711]
+      }
+    },
+    {
+      "model_id": "omlab/omdet-turbo-swin-tiny-hf",
+      "url": "https://huggingface.co/omlab/omdet-turbo-swin-tiny-hf/raw/main/config.json",
+      "scope": "Composite OmDet-Turbo config that routes to timm backbone",
+      "model_type": "omdet-turbo",
+      "use_timm_backbone": true,
+      "delegated_body_fields": {
+        "backbone": "swin_tiny_patch4_window7_224",
+        "backbone_kwargs": {
+          "out_indices": [1, 2, 3],
+          "img_size": 640,
+          "always_partition": true
+        },
+        "encoder_in_channels": [192, 384, 768],
+        "vision_features_channels": [256, 256, 256]
+      },
+      "preprocessor_config": {
+        "url": "https://huggingface.co/omlab/omdet-turbo-swin-tiny-hf/raw/main/preprocessor_config.json",
+        "image_processor_type": "DetrImageProcessor",
+        "processor_class": "OmDetTurboProcessor",
+        "do_resize": true,
+        "do_rescale": false,
+        "do_normalize": true,
+        "size": {"height": 640, "width": 640},
+        "image_mean": [123.675, 116.28, 103.53],
+        "image_std": [58.395, 57.12, 57.375]
+      }
+    },
+    {
+      "model_id": "facebook/detr-resnet-50",
+      "url": "https://huggingface.co/facebook/detr-resnet-50/raw/main/config.json",
+      "scope": "Historical composite DETR config with backbone string",
+      "model_type": "detr",
+      "delegated_body_fields": {
+        "backbone": "resnet50",
+        "dilation": false,
+        "d_model": 256,
+        "num_queries": 100
+      },
+      "preprocessor_config": {
+        "url": "https://huggingface.co/facebook/detr-resnet-50/raw/main/preprocessor_config.json",
+        "image_processor_type": "DetrImageProcessor",
+        "do_resize": true,
+        "do_normalize": true,
+        "size": {"shortest_edge": 800, "longest_edge": 1333},
+        "image_mean": [0.485, 0.456, 0.406],
+        "image_std": [0.229, 0.224, 0.225]
+      }
+    },
+    {
+      "model_id": "facebook/maskformer-swin-base-ade",
+      "url": "https://huggingface.co/facebook/maskformer-swin-base-ade/raw/main/config.json",
+      "scope": "Contrast case: native Transformers Swin backbone, not timm_backbone",
+      "model_type": "maskformer",
+      "backbone_config": {
+        "model_type": "swin",
+        "image_size": 384,
+        "patch_size": 4,
+        "embed_dim": 128,
+        "depths": [2, 2, 18, 2],
+        "num_heads": [4, 8, 16, 32],
+        "window_size": 12
+      },
+      "preprocessor_config": {
+        "url": "https://huggingface.co/facebook/maskformer-swin-base-ade/raw/main/preprocessor_config.json",
+        "feature_extractor_type": "MaskFormerFeatureExtractor",
+        "do_resize": true,
+        "do_normalize": true,
+        "size": 640,
+        "size_divisibility": 32
+      }
+    }
+  ]
+}

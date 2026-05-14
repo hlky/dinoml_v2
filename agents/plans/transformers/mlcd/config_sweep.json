@@ -1,0 +1,136 @@
+{
+  "source": "Hugging Face Hub via huggingface_hub on 2026-05-13",
+  "notes": [
+    "DeepGlint-AI/mlcd-vit-base-patch32-224 and DeepGlint-AI/mlcd-vit-large-patch14-336 are MLCD-branded but their config.json routes to CLIPVisionModel, not the in-library MLCDVisionModel audited here.",
+    "No representative repo in this sweep returned gated/private status.",
+    "processor_config.json was absent for all swept repos; preprocessing facts came from preprocessor_config.json and Transformers AutoImageProcessor mapping."
+  ],
+  "checkpoints": [
+    {
+      "model_id": "DeepGlint-AI/mlcd-vit-base-patch32-224",
+      "model_type": "clip_vision_model",
+      "architectures": ["CLIPVisionModel"],
+      "hidden_size": 768,
+      "intermediate_size": 3072,
+      "num_hidden_layers": 12,
+      "num_attention_heads": 12,
+      "image_size": 224,
+      "patch_size": 32,
+      "hidden_act": "quick_gelu",
+      "torch_dtype": "float32",
+      "preprocessor": {
+        "size": 224,
+        "crop_size": 224,
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711],
+        "resample": 3,
+        "do_resize": true,
+        "do_center_crop": true,
+        "do_normalize": true
+      },
+      "audit_scope": "out_of_scope_clip_vision"
+    },
+    {
+      "model_id": "DeepGlint-AI/mlcd-vit-large-patch14-336",
+      "model_type": "clip_vision_model",
+      "architectures": ["CLIPVisionModel"],
+      "hidden_size": 1024,
+      "intermediate_size": 4096,
+      "num_hidden_layers": 24,
+      "num_attention_heads": 16,
+      "image_size": 336,
+      "patch_size": 14,
+      "hidden_act": "quick_gelu",
+      "torch_dtype": "float32",
+      "preprocessor": {
+        "size": 336,
+        "crop_size": 336,
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711],
+        "resample": 3,
+        "do_resize": true,
+        "do_center_crop": true,
+        "do_normalize": true
+      },
+      "audit_scope": "out_of_scope_clip_vision"
+    },
+    {
+      "model_id": "DeepGlint-AI/mlcd-vit-bigG-patch14-224",
+      "model_type": "mlcd",
+      "architectures": ["MLCDVisionModel"],
+      "hidden_size": 1664,
+      "intermediate_size": 8192,
+      "num_hidden_layers": 48,
+      "num_attention_heads": 16,
+      "num_key_value_groups": "omitted_effective_default_1",
+      "image_size": 224,
+      "patch_size": 14,
+      "hidden_act": "gelu",
+      "torch_dtype": "float32",
+      "safetensors_total_size": 7369398992,
+      "preprocessor": {
+        "size": {"shortest_edge": 224},
+        "crop_size": {"height": 224, "width": 224},
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711],
+        "resample": 3,
+        "do_resize": true,
+        "do_center_crop": true,
+        "do_normalize": true
+      },
+      "audit_scope": "in_scope_mlcd_vision"
+    },
+    {
+      "model_id": "DeepGlint-AI/mlcd-vit-bigG-patch14-336",
+      "model_type": "mlcd",
+      "architectures": ["MLCDVisionModel"],
+      "hidden_size": 1664,
+      "intermediate_size": 8192,
+      "num_hidden_layers": 48,
+      "num_attention_heads": 16,
+      "num_key_value_groups": "omitted_effective_default_1",
+      "image_size": 336,
+      "patch_size": 14,
+      "hidden_act": "gelu",
+      "torch_dtype": "float32",
+      "safetensors_total_size": 7369398992,
+      "preprocessor": {
+        "size": {"shortest_edge": 336},
+        "crop_size": {"height": 336, "width": 336},
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711],
+        "resample": 3,
+        "do_resize": true,
+        "do_center_crop": true,
+        "do_normalize": true
+      },
+      "audit_scope": "in_scope_mlcd_vision"
+    },
+    {
+      "model_id": "DeepGlint-AI/mlcd-vit-bigG-patch14-448",
+      "model_type": "mlcd",
+      "architectures": ["MLCDVisionModel"],
+      "hidden_size": 1664,
+      "intermediate_size": 8192,
+      "num_hidden_layers": 48,
+      "num_attention_heads": 16,
+      "num_key_value_groups": "omitted_effective_default_1",
+      "image_size": 448,
+      "patch_size": 14,
+      "hidden_act": "gelu",
+      "torch_dtype": "float32",
+      "safetensors_total_size": 7369398992,
+      "preprocessor": {
+        "size": {"shortest_edge": 448},
+        "crop_size": {"height": 448, "width": 448},
+        "image_mean": [0.48145466, 0.4578275, 0.40821073],
+        "image_std": [0.26862954, 0.26130258, 0.27577711],
+        "resample": 3,
+        "do_resize": true,
+        "do_center_crop": true,
+        "do_normalize": true
+      },
+      "audit_scope": "in_scope_mlcd_vision"
+    }
+  ]
+}

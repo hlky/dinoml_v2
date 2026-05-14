@@ -1,0 +1,153 @@
+{
+  "_name_or_path": "microsoft/layoutxlm-base",
+  "architectures": [
+    "LayoutLMv2ForTokenClassification"
+  ],
+  "attention_probs_dropout_prob": 0.1,
+  "bos_token_id": 0,
+  "convert_sync_batchnorm": true,
+  "coordinate_size": 128,
+  "detectron2_config_args": {
+    "MODEL.ANCHOR_GENERATOR.SIZES": [
+      [
+        32
+      ],
+      [
+        64
+      ],
+      [
+        128
+      ],
+      [
+        256
+      ],
+      [
+        512
+      ]
+    ],
+    "MODEL.BACKBONE.NAME": "build_resnet_fpn_backbone",
+    "MODEL.FPN.IN_FEATURES": [
+      "res2",
+      "res3",
+      "res4",
+      "res5"
+    ],
+    "MODEL.MASK_ON": true,
+    "MODEL.PIXEL_STD": [
+      57.375,
+      57.12,
+      58.395
+    ],
+    "MODEL.POST_NMS_TOPK_TEST": 1000,
+    "MODEL.RESNETS.ASPECT_RATIOS": [
+      [
+        0.5,
+        1.0,
+        2.0
+      ]
+    ],
+    "MODEL.RESNETS.DEPTH": 101,
+    "MODEL.RESNETS.NUM_GROUPS": 32,
+    "MODEL.RESNETS.OUT_FEATURES": [
+      "res2",
+      "res3",
+      "res4",
+      "res5"
+    ],
+    "MODEL.RESNETS.SIZES": [
+      [
+        32
+      ],
+      [
+        64
+      ],
+      [
+        128
+      ],
+      [
+        256
+      ],
+      [
+        512
+      ]
+    ],
+    "MODEL.RESNETS.STRIDE_IN_1X1": false,
+    "MODEL.RESNETS.WIDTH_PER_GROUP": 8,
+    "MODEL.ROI_BOX_HEAD.NAME": "FastRCNNConvFCHead",
+    "MODEL.ROI_BOX_HEAD.NUM_FC": 2,
+    "MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION": 14,
+    "MODEL.ROI_HEADS.IN_FEATURES": [
+      "p2",
+      "p3",
+      "p4",
+      "p5"
+    ],
+    "MODEL.ROI_HEADS.NAME": "StandardROIHeads",
+    "MODEL.ROI_HEADS.NUM_CLASSES": 5,
+    "MODEL.ROI_MASK_HEAD.NAME": "MaskRCNNConvUpsampleHead",
+    "MODEL.ROI_MASK_HEAD.NUM_CONV": 4,
+    "MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION": 7,
+    "MODEL.RPN.IN_FEATURES": [
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6"
+    ],
+    "MODEL.RPN.POST_NMS_TOPK_TRAIN": 1000,
+    "MODEL.RPN.PRE_NMS_TOPK_TEST": 1000,
+    "MODEL.RPN.PRE_NMS_TOPK_TRAIN": 2000
+  },
+  "eos_token_id": 2,
+  "fast_qkv": false,
+  "gradient_checkpointing": false,
+  "has_relative_attention_bias": false,
+  "has_spatial_attention_bias": false,
+  "has_visual_segment_embedding": true,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "id2label": {
+    "0": "O",
+    "1": "B-QUESTION",
+    "2": "B-ANSWER",
+    "3": "B-HEADER",
+    "4": "I-ANSWER",
+    "5": "I-QUESTION",
+    "6": "I-HEADER"
+  },
+  "image_feature_pool_shape": [
+    7,
+    7,
+    256
+  ],
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "label2id": {
+    "B-ANSWER": 2,
+    "B-HEADER": 3,
+    "B-QUESTION": 1,
+    "I-ANSWER": 4,
+    "I-HEADER": 6,
+    "I-QUESTION": 5,
+    "O": 0
+  },
+  "layer_norm_eps": 1e-05,
+  "max_2d_position_embeddings": 1024,
+  "max_position_embeddings": 514,
+  "max_rel_2d_pos": 256,
+  "max_rel_pos": 128,
+  "model_type": "layoutlmv2",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "output_past": true,
+  "pad_token_id": 1,
+  "rel_2d_pos_bins": 64,
+  "rel_pos_bins": 32,
+  "shape_size": 128,
+  "tokenizer_class": "LayoutXLMTokenizer",
+  "torch_dtype": "float32",
+  "transformers_version": "4.22.1",
+  "type_vocab_size": 1,
+  "vocab_size": 250002
+}

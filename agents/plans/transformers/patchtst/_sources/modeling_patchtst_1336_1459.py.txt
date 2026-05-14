@@ -1,0 +1,124 @@
+class PatchTSTClassificationHead(nn.Module):
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__()
+        self.use_cls_token = config.use_cls_token
+        self.pooling_type = config.pooling_type
+        self.flatten = nn.Flatten(start_dim=1)
+        self.dropout = nn.Dropout(config.head_dropout) if config.head_dropout > 0 else nn.Identity()
+        self.linear = nn.Linear(config.num_input_channels * config.d_model, config.num_targets)
+
+    def forward(self, embedding: torch.Tensor):
+        """
+        Parameters:
+            embedding (`torch.Tensor` of shape `(bs, num_channels, num_patches, d_model)` or
+                     `(bs, num_channels, num_patches+1, d_model)` if `cls_token` is set to True, *required*):
+                Embedding from the model
+        Returns:
+            `torch.Tensor` of shape `(bs, num_targets)`
+
+        """
+        if self.use_cls_token:
+            # use the first output token, pooled_embedding: bs x num_channels x d_model
+            pooled_embedding = embedding[:, :, 0, :]
+        elif self.pooling_type == "mean":
+            # pooled_embedding: [bs x num_channels x d_model]
+            pooled_embedding = embedding.mean(dim=2)
+        elif self.pooling_type == "max":
+            # pooled_embedding: [bs x num_channels x d_model]
+            pooled_embedding = embedding.max(dim=2).values
+        else:
+            raise ValueError(f"pooling operator {self.pooling_type} is not implemented yet")
+        # pooled_embedding: bs x num_channels * d_model
+        pooled_embedding = self.flatten(pooled_embedding)
+        # output: bs x n_classes
+        output = self.linear(self.dropout(pooled_embedding))
+        return output
+
+
+@auto_docstring(
+    custom_intro="""
+    The PatchTST for classification model.
+    """
+)
+class PatchTSTForClassification(PatchTSTPreTrainedModel):
+    def __init__(self, config: PatchTSTConfig):
+        super().__init__(config)
+
+        # Turn off masking
+        if config.do_mask_input:
+            logger.warning("Setting `do_mask_input` parameter to False.")
+            config.do_mask_input = False
+
+        self.model = PatchTSTModel(config)
+        self.head = PatchTSTClassificationHead(config)
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+    @auto_docstring
+    def forward(
+        self,
+        past_values: torch.Tensor,
+        target_values: torch.Tensor | None = None,
+        past_observed_mask: bool | None = None,
+        output_hidden_states: bool | None = None,
+        output_attentions: bool | None = None,
+        return_dict: bool | None = None,
+        **kwargs,
+    ) -> tuple | PatchTSTForClassificationOutput:
+        r"""
+        past_values (`torch.Tensor` of shape `(bs, sequence_length, num_input_channels)`, *required*):
+            Input sequence to the model
+        target_values (`torch.Tensor`, *optional*):
+            Labels associates with the `past_values`
+        past_observed_mask (`torch.BoolTensor` of shape `(batch_size, sequence_length, num_input_channels)`, *optional*):
+            Boolean mask to indicate which `past_values` were observed and which were missing. Mask values selected
+            in `[0, 1]`:
+
+            - 1 for values that are **observed**,
+            - 0 for values that are **missing** (i.e. NaNs that were replaced by zeros).
+
+        Examples:
+
+        ```python
+        >>> from transformers import PatchTSTConfig, PatchTSTForClassification
+
+        >>> # classification task with two input channel2 and 3 classes
+        >>> config = PatchTSTConfig(
+        ...     num_input_channels=2,
+        ...     num_targets=3,
+        ...     context_length=512,
+        ...     patch_length=12,
+        ...     stride=12,
+        ...     use_cls_token=True,
+        ... )
+        >>> model = PatchTSTForClassification(config=config)
+
+        >>> # during inference, one only provides past values
+        >>> past_values = torch.randn(20, 512, 2)
+        >>> outputs = model(past_values=past_values)
+        >>> labels = outputs.prediction_logits
+        ```"""
+
+        return_dict = return_dict if return_dict is not None else self.config.return_dict
+
+        model_output = self.model(
+            past_values=past_values,
+            past_observed_mask=past_observed_mask,
+            output_hidden_states=output_hidden_states,
+            output_attentions=output_attentions,
+            return_dict=True,
+        )
+        y_hat = self.head(model_output.last_hidden_state)
+
+        loss_val = None
+        if target_values is not None:
+            loss = nn.CrossEntropyLoss()
+            loss_val = loss(y_hat, target_values)
+
+        if not return_dict:
+            outputs = (y_hat,) + model_output[1:-3]
+            outputs = (loss_val,) + outputs if loss_val is not None else outputs
+            return outputs
+        return PatchTSTForClassificationOutput(
+            loss=loss_val,

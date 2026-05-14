@@ -1,0 +1,22 @@
+{
+  "id": "HuggingFaceTB/SmolVLM-Instruct",
+  "sha": "81cd9a775a4d644f2faf4e7becff4559b46b14c7",
+  "lastModified": "2025-04-08T07:26:41Z",
+  "tags": [
+    "transformers",
+    "onnx",
+    "safetensors",
+    "idefics3",
+    "image-text-to-text",
+    "conversational",
+    "en",
+    "dataset:HuggingFaceM4/the_cauldron",
+    "dataset:HuggingFaceM4/Docmatix",
+    "arxiv:2504.05299",
+    "base_model:HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    "base_model:quantized:HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+  ]
+}

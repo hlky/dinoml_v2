@@ -1,0 +1,111 @@
+{
+  "transformers_commit": "b75feb2af64c3e29cbbc1bd859958c5432cc7ed4",
+  "fetched_at": "2026-05-13",
+  "configs": [
+    {
+      "model_id": "microsoft/biogpt",
+      "hf_sha": "eb0d815e95434dc9e3b78f464e52b899bee7d923",
+      "config_url": "https://huggingface.co/microsoft/biogpt/raw/main/config.json",
+      "api_url": "https://huggingface.co/api/models/microsoft/biogpt",
+      "architectures": ["BioGptForCausalLM"],
+      "hidden_size": 1024,
+      "num_hidden_layers": 24,
+      "num_attention_heads": 16,
+      "head_dim_inferred": 64,
+      "intermediate_size": 4096,
+      "max_position_embeddings": 1024,
+      "vocab_size": 42384,
+      "hidden_act": "gelu",
+      "scale_embedding": true,
+      "use_cache": true,
+      "pad_token_id": 1,
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "torch_dtype": null
+    },
+    {
+      "model_id": "microsoft/BioGPT-Large",
+      "hf_sha": "c6a5136a91c5e3150d9f05ab9d33927a3210a22e",
+      "config_url": "https://huggingface.co/microsoft/BioGPT-Large/raw/main/config.json",
+      "api_url": "https://huggingface.co/api/models/microsoft/BioGPT-Large",
+      "architectures": ["BioGptForCausalLM"],
+      "hidden_size": 1600,
+      "num_hidden_layers": 48,
+      "num_attention_heads": 25,
+      "head_dim_inferred": 64,
+      "intermediate_size": 6400,
+      "max_position_embeddings": 2048,
+      "vocab_size": 57717,
+      "hidden_act": "gelu",
+      "scale_embedding": true,
+      "use_cache": true,
+      "pad_token_id": 1,
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "torch_dtype": "float32"
+    },
+    {
+      "model_id": "microsoft/BioGPT-Large-PubMedQA",
+      "hf_sha": "39c04fb31dfc8094b0f04c7bb7973cf612606c0c",
+      "config_url": "https://huggingface.co/microsoft/BioGPT-Large-PubMedQA/raw/main/config.json",
+      "api_url": "https://huggingface.co/api/models/microsoft/BioGPT-Large-PubMedQA",
+      "architectures": ["BioGptForCausalLM"],
+      "hidden_size": 1600,
+      "num_hidden_layers": 48,
+      "num_attention_heads": 25,
+      "head_dim_inferred": 64,
+      "intermediate_size": 6400,
+      "max_position_embeddings": 2048,
+      "vocab_size": 57726,
+      "hidden_act": "gelu",
+      "scale_embedding": true,
+      "use_cache": true,
+      "pad_token_id": 1,
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "torch_dtype": "float32"
+    }
+  ],
+  "gated_or_unauthorized": [
+    {
+      "model_id": "microsoft/BioGPT-Large-BC5CDR",
+      "url": "https://huggingface.co/microsoft/BioGPT-Large-BC5CDR",
+      "status": 401,
+      "resolution": "Authenticate with an account/token that has access to the model repository."
+    },
+    {
+      "model_id": "microsoft/BioGPT-Large-KD-DTI",
+      "url": "https://huggingface.co/microsoft/BioGPT-Large-KD-DTI",
+      "status": 401,
+      "resolution": "Authenticate with an account/token that has access to the model repository."
+    },
+    {
+      "model_id": "microsoft/BioGPT-Large-DDI",
+      "url": "https://huggingface.co/microsoft/BioGPT-Large-DDI",
+      "status": 401,
+      "resolution": "Authenticate with an account/token that has access to the model repository."
+    }
+  ],
+  "tokenizer_configs": [
+    {
+      "model_id": "microsoft/BioGPT-Large",
+      "tokenizer_class": "BioGptTokenizer",
+      "model_max_length": 1024,
+      "bos_token": "<s>",
+      "eos_token": "</s>",
+      "sep_token": "</s>",
+      "pad_token": "<pad>",
+      "unk_token": "<unk>"
+    },
+    {
+      "model_id": "microsoft/BioGPT-Large-PubMedQA",
+      "tokenizer_class": "BioGptTokenizer",
+      "model_max_length": 1024,
+      "bos_token": "<s>",
+      "eos_token": "</s>",
+      "sep_token": "</s>",
+      "pad_token": "<pad>",
+      "unk_token": "<unk>"
+    }
+  ]
+}

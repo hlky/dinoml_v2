@@ -1,0 +1,9 @@
+{
+  "crop_size": 256,
+  "do_center_crop": true,
+  "do_flip_channels": true,
+  "do_resize": true,
+  "feature_extractor_type": "MobileViTFeatureExtractor",
+  "resample": 2,
+  "size": 288
+}

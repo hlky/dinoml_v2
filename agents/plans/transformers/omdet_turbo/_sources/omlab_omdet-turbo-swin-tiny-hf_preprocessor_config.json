@@ -1,0 +1,27 @@
+{
+  "do_convert_annotations": true,
+  "do_normalize": true,
+  "do_pad": false,
+  "do_rescale": false,
+  "do_resize": true,
+  "format": "coco_detection",
+  "image_mean": [
+    123.675,
+    116.28,
+    103.53
+  ],
+  "image_processor_type": "DetrImageProcessor",
+  "image_std": [
+    58.395,
+    57.12,
+    57.375
+  ],
+  "pad_size": null,
+  "processor_class": "OmDetTurboProcessor",
+  "resample": 2,
+  "rescale_factor": 0.00392156862745098,
+  "size": {
+    "height": 640,
+    "width": 640
+  }
+}

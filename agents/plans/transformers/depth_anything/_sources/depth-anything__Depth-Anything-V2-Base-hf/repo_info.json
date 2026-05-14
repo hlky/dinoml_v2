@@ -1,0 +1,108 @@
+{
+  "_id": "66744b1c9ef561768e7e2216",
+  "author": "depth-anything",
+  "cardData": {
+    "library": "transformers",
+    "library_name": "transformers",
+    "license": "cc-by-nc-4.0",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "depth",
+      "relative depth"
+    ],
+    "widget": [
+      {
+        "inference": false
+      }
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-06-20T15:30:36.000Z",
+  "disabled": false,
+  "downloads": 70393,
+  "gated": false,
+  "id": "depth-anything/Depth-Anything-V2-Base-hf",
+  "lastModified": "2024-07-05T11:29:09.000Z",
+  "library_name": "transformers",
+  "likes": 2,
+  "model-index": null,
+  "modelId": "depth-anything/Depth-Anything-V2-Base-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 97470785
+    },
+    "total": 97470785
+  },
+  "sha": "b1958afc87fb45a9e3746cb387596094de553ed8",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "dimdimz/DimensioDepth",
+    "zxxie/lens_blur",
+    "CoPilotXR/depthanything2",
+    "radar-ifdl/RADAR-demo",
+    "inaturtle/depth-anything-v2-demo",
+    "Nikman800/Vision_Transformer_Demo",
+    "WizardWang01/Image_Blur_DeepLearning",
+    "Vishnuramjawaharram/BLUR",
+    "Vishnuramjawaharram/BLUR_ver1",
+    "Av-idan/kalnur",
+    "lml2008/yolo-3d-realtime-demo",
+    "lml2008/YOLO-3D",
+    "aaabdelreheem/yolo-3d-realtime-demo",
+    "CoPilotXR/25dver1",
+    "carlchinatomby/depth-view",
+    "asachdeva01/assignment3_problem2",
+    "saarstefan/depth-mapping-test",
+    "Merlimhhs/Lhamaluy",
+    "saptarshib194/foodlens-backend",
+    "Ramkumarnn/blind-nav",
+    "skye6/room_remix-demo"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "depth",
+    "relative depth",
+    "arxiv:2406.09414",
+    "arxiv:2401.10891",
+    "license:cc-by-nc-4.0",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 389916980,
+  "widgetData": [
+    {
+      "inference": false
+    }
+  ]
+}

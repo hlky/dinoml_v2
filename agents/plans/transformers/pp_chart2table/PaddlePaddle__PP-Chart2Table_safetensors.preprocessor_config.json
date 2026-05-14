@@ -1,0 +1,34 @@
+{
+  "_valid_processor_keys": [
+    "images",
+    "do_resize",
+    "size",
+    "resample",
+    "do_rescale",
+    "rescale_factor",
+    "do_normalize",
+    "image_mean",
+    "image_std",
+    "return_tensors",
+    "data_format",
+    "input_data_format"
+  ],
+  "do_normalize": true,
+  "do_rescale": true,
+  "do_resize": true,
+  "image_processor_type": "PPChart2TableImageProcessor",
+  "model_input_names": ["pixel_values", "original_image_size"],
+  "image_mode": "RGB",
+  "channel_first": false,
+  "image_mean": [0.48145466, 0.4578275, 0.40821073],
+  "image_std": [0.26862954, 0.26130258, 0.27577711],
+  "rescale_factor": 0.00392156862745098,
+  "resample": 3,
+  "normalize_order": "hwc",
+  "do_to_chw": true,
+  "size": {
+      "height": 1024,
+      "width": 1024
+  },
+  "keep_keys": ["image", "shape", "polys", "ignore_tags"]
+}

@@ -1,0 +1,49 @@
+{
+  "add_bos_token": false,
+  "add_eos_token": false,
+  "add_prefix_space": false,
+  "added_tokens_decoder": {
+    "0": {
+      "content": "[STOP]",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "1": {
+      "content": "[UNK]",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "2": {
+      "content": "[SPACE]",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255": {
+      "content": "<|endoftext|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  },
+  "additional_special_tokens": [],
+  "bos_token": "<|endoftext|>",
+  "clean_up_tokenization_spaces": true,
+  "eos_token": "[STOP]",
+  "errors": "replace",
+  "model_max_length": 402,
+  "pad_token": "[STOP]",
+  "tokenizer_class": "ClvpTokenizer",
+  "tokenizer_file": "/home/susnato/.cache/huggingface/hub/models--susnato--clvp_dev/snapshots/75fdab928ec8ef23e0f66bb0bf70518989388456/tokenizer.json",
+  "unk_token": "[UNK]"
+}

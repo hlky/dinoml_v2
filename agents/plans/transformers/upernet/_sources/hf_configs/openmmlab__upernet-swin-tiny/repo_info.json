@@ -1,0 +1,72 @@
+{
+  "_id": "63c16b5c2b1328c42a32c98e",
+  "id": "openmmlab/upernet-swin-tiny",
+  "private": false,
+  "pipeline_tag": "image-segmentation",
+  "library_name": "transformers",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "upernet",
+    "vision",
+    "image-segmentation",
+    "en",
+    "arxiv:1807.10221",
+    "arxiv:2103.14030",
+    "license:mit",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ],
+  "downloads": 1500,
+  "likes": 3,
+  "modelId": "openmmlab/upernet-swin-tiny",
+  "author": "openmmlab",
+  "sha": "dc8e8c94669c6f14d5cc4c21a141daebd2280d59",
+  "lastModified": "2023-01-19T10:43:44Z",
+  "gated": false,
+  "disabled": false,
+  "model-index": null,
+  "config": {
+    "architectures": [
+      "UperNetForSemanticSegmentation"
+    ],
+    "model_type": "upernet"
+  },
+  "cardData": {
+    "language": "en",
+    "license": "mit",
+    "tags": [
+      "vision",
+      "image-segmentation"
+    ],
+    "model_name": "openmmlab/upernet-swin-tiny"
+  },
+  "transformersInfo": {
+    "auto_model": "UperNetForSemanticSegmentation",
+    "processor": "AutoImageProcessor"
+  },
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    },
+    {
+      "rfilename": "pytorch_model.bin"
+    }
+  ],
+  "spaces": [
+    "duongve/Spatial_Control_for_SD"
+  ],
+  "createdAt": "2023-01-13T14:31:56Z",
+  "inference": "warm",
+  "usedStorage": 480244613
+}

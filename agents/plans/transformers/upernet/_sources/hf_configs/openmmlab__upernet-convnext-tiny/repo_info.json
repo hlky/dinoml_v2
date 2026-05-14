@@ -1,0 +1,84 @@
+{
+  "_id": "63c1695094b28327f0e931be",
+  "id": "openmmlab/upernet-convnext-tiny",
+  "private": false,
+  "pipeline_tag": "image-segmentation",
+  "library_name": "transformers",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "safetensors",
+    "upernet",
+    "vision",
+    "image-segmentation",
+    "en",
+    "arxiv:1807.10221",
+    "arxiv:2201.03545",
+    "license:mit",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "downloads": 5657,
+  "likes": 3,
+  "modelId": "openmmlab/upernet-convnext-tiny",
+  "author": "openmmlab",
+  "sha": "876ffc56b819a829448f7e81e9f8606deef6fb65",
+  "lastModified": "2023-04-24T07:14:02Z",
+  "gated": false,
+  "disabled": false,
+  "model-index": null,
+  "config": {
+    "architectures": [
+      "UperNetForSemanticSegmentation"
+    ],
+    "model_type": "upernet"
+  },
+  "cardData": {
+    "language": "en",
+    "license": "mit",
+    "tags": [
+      "vision",
+      "image-segmentation"
+    ],
+    "model_name": "openmmlab/upernet-convnext-tiny"
+  },
+  "transformersInfo": {
+    "auto_model": "UperNetForSemanticSegmentation",
+    "processor": "AutoImageProcessor"
+  },
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    },
+    {
+      "rfilename": "pytorch_model.bin"
+    }
+  ],
+  "spaces": [
+    "sandraw11031/virtual-staging",
+    "duongve/Spatial_Control_for_SD",
+    "biennh/interior-segmentation",
+    "KATHIR2006/agrisense-app"
+  ],
+  "createdAt": "2023-01-13T14:23:12Z",
+  "safetensors": {
+    "parameters": {
+      "F32": 60255436
+    },
+    "total": 60255436
+  },
+  "inference": "warm",
+  "usedStorage": 482162679
+}

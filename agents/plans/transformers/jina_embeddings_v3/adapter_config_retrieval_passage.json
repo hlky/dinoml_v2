@@ -1,0 +1,18 @@
+{
+   "peft_type":"LORA",
+   "base_model_name_or_path":null,
+   "r":4,
+   "lora_alpha":1,
+   "lora_dropout":0.0,
+   "target_modules":[
+      "word_embeddings",
+      "token_type_embeddings",
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "fc1",
+      "fc2",
+      "dense"
+   ]
+}

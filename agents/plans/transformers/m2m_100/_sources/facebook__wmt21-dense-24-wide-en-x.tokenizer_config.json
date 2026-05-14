@@ -1,0 +1,1 @@
+{"src_lang": "en", "tgt_lang": null, "bos_token": "<s>", "eos_token": "</s>", "sep_token": "</s>", "unk_token": "<unk>", "pad_token": "<pad>", "sp_model_kwargs": {}, "language_codes": "wmt21", "num_madeup_words": 0, "additional_special_tokens": ["__en__", "__ha__", "__is__", "__ja__", "__cs__", "__ru__", "__zh__", "__de__"], "tokenizer_class": "M2M100Tokenizer"}

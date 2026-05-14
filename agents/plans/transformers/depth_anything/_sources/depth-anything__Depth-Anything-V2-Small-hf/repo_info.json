@@ -1,0 +1,177 @@
+{
+  "_id": "66715aebae01d352c9ac6ba5",
+  "author": "depth-anything",
+  "cardData": {
+    "library": "transformers",
+    "license": "apache-2.0",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "depth",
+      "relative depth"
+    ],
+    "widget": [
+      {
+        "inference": false
+      }
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-06-18T10:01:15.000Z",
+  "disabled": false,
+  "downloads": 2047455,
+  "gated": false,
+  "id": "depth-anything/Depth-Anything-V2-Small-hf",
+  "lastModified": "2024-07-05T11:38:31.000Z",
+  "library_name": "transformers",
+  "likes": 32,
+  "model-index": null,
+  "modelId": "depth-anything/Depth-Anything-V2-Small-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 24785089
+    },
+    "total": 24785089
+  },
+  "sha": "5426e4f0f36572d16453bbda7a8389317b1bef99",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "Mccscs2/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "strelizi/monocular-depth-risk",
+    "aet256/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "cruisewagner2220/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental-neo",
+    "Dref360/human-interaction-demo",
+    "kvinod15/eee515",
+    "DariusGiannoli/PerceptionBenchmark",
+    "TK156/depth-estimation-api",
+    "dimdimz/DimensioDepth",
+    "Blackbody256/HospiNav",
+    "tahp0604/transgrasp-adapt-demo",
+    "srivatsavdamaraju/cannyest",
+    "narainp/test",
+    "ya3/Blurable",
+    "sjagird1/DL",
+    "carlos-synthiq-ai/depth-anything-Depth-Anything-V2-Small-hf",
+    "Perghect/imgBlur",
+    "Jrambo03/Narahs_Blur_Effects_App",
+    "Jeevan-HM/blur_background",
+    "sjagird1/Vision",
+    "Manasi1312/blur_effects",
+    "Kristyyy/GaussLensBlur",
+    "Saitama0510/Background_Blur_App",
+    "sank11/Hugging-App",
+    "Deepikaa07/EEE-Assigment",
+    "davidtangint/eee515lensblur",
+    "ArunLouis/BlurMaster",
+    "ChrisMalili/VisionTransformer",
+    "gchallar/Vision_Transformer",
+    "apexmin/depth_blur_effect",
+    "NTUST-DDRC/cosmos_transfer1_av",
+    "ngohel58/DepthanythingV2-Large-NIK2",
+    "smt-ai/gen-ai-3d",
+    "dreaming-tree/dlschool-hw3",
+    "Ryo563/spatial-scene-generator",
+    "lobster2154/image-to-stl",
+    "JishaR/QR_validator",
+    "DEADPOOL2008/depth_deploy",
+    "digdobayu2020/My-Deep-SLAM",
+    "patanopanda/pic2DDD",
+    "mdark4025/Dhaatu",
+    "ShyeonJ/DA2_test",
+    "Av-idan/kalnur",
+    "lml2008/yolo-3d-realtime-demo",
+    "lml2008/YOLO-3D",
+    "profanitys/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "gastakhov/3d-depth-viewer",
+    "aaabdelreheem/yolo-3d-realtime-demo",
+    "GioVar/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "verymehari/depthshift-depth-generator",
+    "Rickxz06/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "solbon1212/chroma-relief-depth",
+    "badgaitintin/shoedetclss",
+    "carlchinatomby/depth-view",
+    "loke007/object-measure-ai",
+    "magboola/sam3-zerogpu",
+    "ceshank01/Corinne_blur",
+    "dreamlessx/envisage",
+    "VAnanya/Geospatial_Digital_Twin",
+    "vm163/vision",
+    "abubber/Machine_Vision",
+    "ankur619/EEE-HW-3-BLUR",
+    "SaiGanesh314/Blurry",
+    "oneeyedk1ng/eee515-hw3-blur",
+    "Krisheli/Anagylph-3D",
+    "Krisheli/video",
+    "laisoo/Da-3",
+    "Ryukijano/TRIBE-V2-DEMO",
+    "AthithyaLogan/SAMSpade",
+    "1900690kensyuyou/Cucumber_Leaf_Area_Measurement",
+    "Rishabh12j/DepthLens",
+    "Erunyan/lineflow",
+    "Ramkumarnn/blind-nav",
+    "mnunziant/surgical-registration",
+    "Calinolino/deepctrl",
+    "MuscleMate/corrosion-detector",
+    "Carir/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental-neo",
+    "Akhassan12/home-gennie-backend",
+    "Rana095/clothing-bump-adjuster",
+    "DIGIADSGR/photo_to_video",
+    "cybermedia/darkmedia-x-api",
+    "Thesilenthowler029/TRIBE-V2-DEMO",
+    "ValAgu/navia-backend",
+    "vincentwei123/basketball",
+    "M3st3rJ4k3l/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "kizukuno/chonjinboldog-3d",
+    "kizukuno/chonjinboldog-3d-v2",
+    "strelizi/depthrisk-fusion",
+    "1900690kensyuyou/Cucumber_Analysis_System",
+    "PGausL/Qwen-Image-Edit-Rapid-AIO-Loras-Experimental",
+    "skye6/room_remix-demo"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "depth",
+    "relative depth",
+    "arxiv:2406.09414",
+    "arxiv:2401.10891",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 99173660,
+  "widgetData": [
+    {
+      "inference": false
+    }
+  ]
+}

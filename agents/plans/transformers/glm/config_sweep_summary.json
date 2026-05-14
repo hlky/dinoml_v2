@@ -1,0 +1,82 @@
+[
+  {
+    "architectures": [
+      "GlmForCausalLM"
+    ],
+    "attention_bias": true,
+    "head_dim": 128,
+    "hidden_size": 4096,
+    "id": "THUDM/glm-4-9b-chat-hf",
+    "intermediate_size": 13696,
+    "max_position_embeddings": 131072,
+    "model_type": "glm",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 40,
+    "num_key_value_heads": 2,
+    "rms_norm_eps": 1.5625e-07,
+    "rope_theta": 10000.0,
+    "snapshot": "THUDM__glm-4-9b-chat-hf__config.json",
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16",
+    "vocab_size": 151552
+  },
+  {
+    "architectures": [
+      "GlmForCausalLM"
+    ],
+    "attention_bias": true,
+    "head_dim": 128,
+    "hidden_size": 4096,
+    "id": "THUDM/glm-4-9b-hf",
+    "intermediate_size": 13696,
+    "max_position_embeddings": 8192,
+    "model_type": "glm",
+    "num_attention_heads": 32,
+    "num_hidden_layers": 40,
+    "num_key_value_heads": 2,
+    "rms_norm_eps": 1.5625e-07,
+    "rope_theta": 10000.0,
+    "snapshot": "THUDM__glm-4-9b-hf__config.json",
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16",
+    "vocab_size": 151552
+  },
+  {
+    "architectures": [
+      "ChatGLMModel"
+    ],
+    "ffn_hidden_size": 13696,
+    "hidden_size": 4096,
+    "id": "THUDM/glm-4-9b-chat",
+    "kv_channels": 128,
+    "model_type": "chatglm",
+    "multi_query_attention": true,
+    "multi_query_group_num": 2,
+    "num_attention_heads": 32,
+    "num_hidden_layers": 40,
+    "padded_vocab_size": 151552,
+    "seq_length": 131072,
+    "snapshot": "THUDM__glm-4-9b-chat__config.json",
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16"
+  },
+  {
+    "architectures": [
+      "ChatGLMModel"
+    ],
+    "ffn_hidden_size": 13696,
+    "hidden_size": 4096,
+    "id": "THUDM/glm-4-9b-chat-1m",
+    "kv_channels": 128,
+    "model_type": "chatglm",
+    "multi_query_attention": true,
+    "multi_query_group_num": 4,
+    "num_attention_heads": 32,
+    "num_hidden_layers": 40,
+    "padded_vocab_size": 151552,
+    "seq_length": 1048576,
+    "snapshot": "THUDM__glm-4-9b-chat-1m__config.json",
+    "tie_word_embeddings": false,
+    "torch_dtype": "bfloat16"
+  }
+]

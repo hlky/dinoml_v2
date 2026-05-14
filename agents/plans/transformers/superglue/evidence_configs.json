@@ -1,0 +1,69 @@
+{
+  "transformers_commit": "b75feb2af64c3e29cbbc1bd859958c5432cc7ed4",
+  "source_root": "X:/H/transformers",
+  "model_family": "superglue",
+  "official_checkpoints": [
+    {
+      "model_id": "magic-leap-community/superglue_indoor",
+      "hf_sha": "413dc1d8a2b02aabea6ea6e24c62d9dcf1857705",
+      "last_modified": "2025-07-17T10:08:53Z",
+      "gated": false,
+      "parameters": {
+        "F32": 13343553,
+        "total": 13343553
+      },
+      "config": {
+        "architectures": ["SuperGlueForKeypointMatching"],
+        "model_type": "superglue",
+        "hidden_size": 256,
+        "num_attention_heads": 4,
+        "keypoint_encoder_sizes": [32, 64, 128, 256],
+        "gnn_layers_types": ["self", "cross", "self", "cross", "self", "cross", "self", "cross", "self", "cross", "self", "cross", "self", "cross", "self", "cross", "self", "cross"],
+        "sinkhorn_iterations": 100,
+        "matching_threshold": 0.0,
+        "keypoint_detector_config": {"model_type": "superpoint"},
+        "torch_dtype": "float32"
+      },
+      "preprocessor": {
+        "image_processor_type": "SuperGlueImageProcessor",
+        "do_resize": true,
+        "size": {"height": 480, "width": 640},
+        "do_rescale": true,
+        "rescale_factor": 0.00392156862745098,
+        "do_grayscale": true,
+        "resample": 2
+      }
+    },
+    {
+      "model_id": "magic-leap-community/superglue_outdoor",
+      "hf_sha": "f4041f88aa6789c46558efaafc98316c6b58a382",
+      "last_modified": "2025-07-17T10:08:47Z",
+      "gated": false,
+      "parameters": {
+        "F32": 13343553,
+        "total": 13343553
+      },
+      "config_delta_vs_indoor": "No operator-significant config or processor deltas observed; weight values differ."
+    }
+  ],
+  "delegated_detector_default": {
+    "model_id": "magic-leap-community/superpoint",
+    "hf_sha": "734450e9ffe229074f5998494ddc615475cdb20a",
+    "parameters": {
+      "F32": 1300865,
+      "total": 1300865
+    },
+    "config": {
+      "model_type": "superpoint",
+      "encoder_hidden_sizes": [64, 64, 128, 128],
+      "decoder_hidden_size": 256,
+      "keypoint_decoder_dim": 65,
+      "descriptor_decoder_dim": 256,
+      "keypoint_threshold": 0.005,
+      "max_keypoints": -1,
+      "nms_radius": 4,
+      "border_removal_distance": 4,
+      "torch_dtype": "float32"
+    }
+  }
+}

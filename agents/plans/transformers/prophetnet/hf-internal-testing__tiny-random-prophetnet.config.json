@@ -1,0 +1,36 @@
+{
+  "activation_dropout": 0.1,
+  "activation_function": "gelu",
+  "add_cross_attention": true,
+  "architectures": [
+    "ProphetNetModel"
+  ],
+  "attention_dropout": 0.1,
+  "bos_token_id": 1,
+  "decoder_ffn_dim": 32,
+  "decoder_start_token_id": 0,
+  "disable_ngram_loss": false,
+  "dropout": 0.1,
+  "encoder_ffn_dim": 32,
+  "eos_token_id": 2,
+  "eps": 0.0,
+  "gradient_checkpointing": false,
+  "hidden_size": 16,
+  "init_std": 0.02,
+  "is_encoder_decoder": true,
+  "max_position_embeddings": 30,
+  "model_type": "prophetnet",
+  "ngram": 2,
+  "num_buckets": 32,
+  "num_decoder_attention_heads": 4,
+  "num_decoder_layers": 4,
+  "num_encoder_attention_heads": 4,
+  "num_encoder_layers": 4,
+  "pad_token_id": 0,
+  "relative_max_distance": 128,
+  "torch_dtype": "float32",
+  "transformers_version": "4.52.0.dev0",
+  "use_cache": true,
+  "vocab_size": 30522
+}
+

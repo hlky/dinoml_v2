@@ -1,0 +1,37 @@
+[
+  {
+    "model": "shi-labs/dinat-tiny-in1k-224",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-tiny-in1k-224__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-tiny-in1k-224__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-mini-in1k-224",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-mini-in1k-224__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-mini-in1k-224__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-small-in1k-224",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-small-in1k-224__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-small-in1k-224__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-base-in1k-224",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-base-in1k-224__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-base-in1k-224__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-large-in22k-in1k-224",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-in22k-in1k-224__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-in22k-in1k-224__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-large-in22k-in1k-384",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-in22k-in1k-384__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-in22k-in1k-384__preprocessor_config.json"
+  },
+  {
+    "model": "shi-labs/dinat-large-11x11-in22k-in1k-384",
+    "config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-11x11-in22k-in1k-384__config.json",
+    "preprocessor_config.json": "agents\\plans\\transformers\\dinat\\shi-labs__dinat-large-11x11-in22k-in1k-384__preprocessor_config.json"
+  }
+]

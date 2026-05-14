@@ -1,0 +1,252 @@
+[
+  {
+    "architectures": [
+      "GroupViTModel"
+    ],
+    "model_id": "hf-tiny-model-private/tiny-random-GroupViTModel",
+    "output_segmentation": false,
+    "projection_dim": 64,
+    "projection_intermediate_dim": 4096,
+    "text": {
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "hidden_act": "quick_gelu",
+      "hidden_size": 32,
+      "intermediate_size": 37,
+      "max_position_embeddings": 512,
+      "num_attention_heads": 4,
+      "num_hidden_layers": 5,
+      "pad_token_id": 1,
+      "vocab_size": 1024
+    },
+    "torch_dtype": "float32",
+    "vision": {
+      "assign_eps": 1.0,
+      "assign_mlp_ratio": [
+        0.5,
+        4
+      ],
+      "depths": [
+        6,
+        3,
+        3
+      ],
+      "hidden_act": "gelu",
+      "hidden_size": 32,
+      "image_size": 30,
+      "intermediate_size": 37,
+      "num_attention_heads": 4,
+      "num_channels": 3,
+      "num_group_tokens": [
+        64,
+        8,
+        0
+      ],
+      "num_hidden_layers": 12,
+      "num_output_groups": [
+        64,
+        8,
+        8
+      ],
+      "patch_size": 2,
+      "qkv_bias": null
+    }
+  },
+  {
+    "architectures": [
+      "GroupViTModel"
+    ],
+    "model_id": "nielsr/groupvit-gcc-yfcc-old",
+    "output_segmentation": false,
+    "projection_dim": 256,
+    "projection_intermediate_dim": 4096,
+    "text": {
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "hidden_act": "quick_gelu",
+      "hidden_size": 256,
+      "intermediate_size": 1024,
+      "max_position_embeddings": 77,
+      "num_attention_heads": 4,
+      "num_hidden_layers": 12,
+      "pad_token_id": 1,
+      "vocab_size": 49408
+    },
+    "torch_dtype": "float32",
+    "vision": {
+      "assign_eps": 1.0,
+      "assign_mlp_ratio": [
+        0.5,
+        4
+      ],
+      "depths": [
+        6,
+        3,
+        3
+      ],
+      "hidden_act": "gelu",
+      "hidden_size": 384,
+      "image_size": 224,
+      "intermediate_size": 1536,
+      "num_attention_heads": 6,
+      "num_channels": 3,
+      "num_group_tokens": [
+        64,
+        8,
+        0
+      ],
+      "num_hidden_layers": 12,
+      "num_output_groups": [
+        64,
+        8,
+        8
+      ],
+      "patch_size": 16,
+      "qkv_bias": true
+    }
+  },
+  {
+    "architectures": [
+      "GroupViTModel"
+    ],
+    "model_id": "nvidia/groupvit-gcc-redcaps",
+    "output_segmentation": false,
+    "projection_dim": 256,
+    "projection_intermediate_dim": 4096,
+    "text": {
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "hidden_act": "quick_gelu",
+      "hidden_size": 256,
+      "intermediate_size": 1024,
+      "max_position_embeddings": 77,
+      "num_attention_heads": 4,
+      "num_hidden_layers": 12,
+      "pad_token_id": 1,
+      "vocab_size": 49408
+    },
+    "torch_dtype": "float32",
+    "vision": {
+      "assign_eps": 1.0,
+      "assign_mlp_ratio": [
+        0.5,
+        4
+      ],
+      "depths": [
+        6,
+        3,
+        3
+      ],
+      "hidden_act": "gelu",
+      "hidden_size": 384,
+      "image_size": 224,
+      "intermediate_size": 1536,
+      "num_attention_heads": 6,
+      "num_channels": 3,
+      "num_group_tokens": [
+        64,
+        8,
+        0
+      ],
+      "num_hidden_layers": 12,
+      "num_output_groups": [
+        64,
+        8,
+        8
+      ],
+      "patch_size": 16,
+      "qkv_bias": true
+    }
+  },
+  {
+    "architectures": [
+      "GroupViTModel"
+    ],
+    "model_id": "nvidia/groupvit-gcc-yfcc",
+    "output_segmentation": false,
+    "projection_dim": 256,
+    "projection_intermediate_dim": 4096,
+    "text": {
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "hidden_act": "quick_gelu",
+      "hidden_size": 256,
+      "intermediate_size": 1024,
+      "max_position_embeddings": 77,
+      "num_attention_heads": 4,
+      "num_hidden_layers": 12,
+      "pad_token_id": 1,
+      "vocab_size": 49408
+    },
+    "torch_dtype": "float32",
+    "vision": {
+      "assign_eps": 1.0,
+      "assign_mlp_ratio": [
+        0.5,
+        4
+      ],
+      "depths": [
+        6,
+        3,
+        3
+      ],
+      "hidden_act": "gelu",
+      "hidden_size": 384,
+      "image_size": 224,
+      "intermediate_size": 1536,
+      "num_attention_heads": 6,
+      "num_channels": 3,
+      "num_group_tokens": [
+        64,
+        8,
+        0
+      ],
+      "num_hidden_layers": 12,
+      "num_output_groups": [
+        64,
+        8,
+        8
+      ],
+      "patch_size": 16,
+      "qkv_bias": true
+    }
+  },
+  {
+    "architectures": [
+      "GroupViTModel"
+    ],
+    "model_id": "onnx-internal-testing/tiny-random-GroupViTModel-ONNX",
+    "output_segmentation": false,
+    "projection_dim": 64,
+    "projection_intermediate_dim": 4096,
+    "text": {
+      "bos_token_id": 0,
+      "eos_token_id": 2,
+      "hidden_act": null,
+      "hidden_size": 32,
+      "intermediate_size": 37,
+      "max_position_embeddings": 512,
+      "num_attention_heads": null,
+      "num_hidden_layers": 5,
+      "pad_token_id": null,
+      "vocab_size": 1024
+    },
+    "torch_dtype": null,
+    "vision": {
+      "assign_eps": null,
+      "assign_mlp_ratio": null,
+      "depths": null,
+      "hidden_act": null,
+      "hidden_size": 32,
+      "image_size": 30,
+      "intermediate_size": 37,
+      "num_attention_heads": 4,
+      "num_channels": null,
+      "num_group_tokens": null,
+      "num_hidden_layers": null,
+      "num_output_groups": null,
+      "patch_size": 2,
+      "qkv_bias": true
+    }
+  }
+]

@@ -1,0 +1,40 @@
+{
+  "_name_or_path": "trl-internal-testing/tiny-random-paligemma",
+  "_vocab_size": 257216,
+  "architectures": [
+    "ColPali"
+  ],
+  "bos_token_id": 2,
+  "eos_token_id": 1,
+  "hidden_size": 2048,
+  "image_token_index": 257152,
+  "model_type": "paligemma",
+  "pad_token_id": 0,
+  "projection_dim": 32,
+  "text_config": {
+    "hidden_size": 32,
+    "intermediate_size": 32,
+    "model_type": "gemma",
+    "num_attention_heads": 8,
+    "num_attn_heads": 1,
+    "num_hidden_layers": 1,
+    "num_image_tokens": 256,
+    "num_key_value_heads": 1,
+    "torch_dtype": "float32",
+    "vocab_size": 257216
+  },
+  "torch_dtype": "float16",
+  "transformers_version": "4.45.2",
+  "vision_config": {
+    "hidden_size": 32,
+    "intermediate_size": 32,
+    "model_type": "siglip_vision_model",
+    "num_attention_heads": 1,
+    "num_hidden_layers": 1,
+    "num_image_tokens": 256,
+    "patch_size": 14,
+    "projection_dim": 32,
+    "projector_hidden_act": "gelu_fast",
+    "vision_use_head": false
+  }
+}

@@ -1,0 +1,24 @@
+commit b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Author:     kaixuanliu <kaixuan.liu@intel.com>
+AuthorDate: Mon May 11 05:26:00 2026 -0700
+Commit:     GitHub <noreply@github.com>
+CommitDate: Mon May 11 12:26:00 2026 +0000
+
+    fix(minicpmv4_6): skip invalid failing tests (#45836)
+    
+    * fix(minicpmv4_6): auto-fix failing tests
+    
+    Fixed 1 test(s):
+    - tests/models/minicpmv4_6/test_modeling_minicpmv4_6.py::MiniCPMV4_6ModelTest::test_generate_with_quant_cache
+    
+    * skip the test case for Qwen3.5 as well
+    
+    Signed-off-by: Liu, Kaixuan <kaixuan.liu@intel.com>
+    
+    * add similar process for Qwen3.5-next and Qwen3.5-moe
+    
+    Signed-off-by: Liu, Kaixuan <kaixuan.liu@intel.com>
+    
+    ---------
+    
+    Signed-off-by: Liu, Kaixuan <kaixuan.liu@intel.com>

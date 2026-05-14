@@ -1,0 +1,30 @@
+{
+  "crop_size": {
+    "height": 289,
+    "width": 289
+  },
+  "do_center_crop": true,
+  "do_normalize": false,
+  "do_rescale": true,
+  "do_resize": true,
+  "image_mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "image_processor_type": "EfficientNetImageProcessor",
+  "image_std": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "include_top": false,
+  "processor_class": "AlignProcessor",
+  "resample": 2,
+  "rescale_factor": 0.00784313725490196,
+  "rescale_offset": true,
+  "size": {
+    "height": 346,
+    "width": 346
+  }
+}

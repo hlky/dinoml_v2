@@ -1,0 +1,30 @@
+{
+  "source": "https://huggingface.co/dg845/univnet-dev/raw/main/preprocessor_config.json",
+  "retrieved": "2026-05-13",
+  "hub_sha": "fbfdd9ac17e7708deb785156e18131e7aee10ee3",
+  "config": {
+    "center": false,
+    "compression_clip_val": 1e-05,
+    "compression_factor": 1.0,
+    "do_normalize": false,
+    "feature_extractor_type": "UnivNetFeatureExtractor",
+    "feature_size": 1,
+    "filter_length": 1024,
+    "fmax": 12000.0,
+    "fmin": 0.0,
+    "hop_length": 256,
+    "max_length_s": 10,
+    "mel_floor": 1e-09,
+    "model_in_channels": 64,
+    "normalize_max": 2.3143386840820312,
+    "normalize_min": -11.512925148010254,
+    "num_mel_bins": 100,
+    "pad_end_length": 10,
+    "padding_side": "right",
+    "padding_value": 0.0,
+    "return_attention_mask": true,
+    "sampling_rate": 24000,
+    "win_function": "hann_window",
+    "win_length": 1024
+  }
+}

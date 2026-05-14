@@ -1,0 +1,392 @@
+{
+  "add_bos_token": true,
+  "add_eos_token": false,
+  "add_prefix_space": false,
+  "added_tokens_decoder": {
+    "0": {
+      "content": "<PAD>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "1": {
+      "content": "<UNK>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "2": {
+      "content": "<CLS>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "3": {
+      "content": "<SEP>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "4": {
+      "content": "<MASK_TOKEN>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "5": {
+      "content": "<BOS_TOKEN>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "6": {
+      "content": "<EOS_TOKEN>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "7": {
+      "content": "<EOP_TOKEN>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "255000": {
+      "content": "<|START_OF_TURN_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255001": {
+      "content": "<|END_OF_TURN_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "255002": {
+      "content": "<|YES_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255003": {
+      "content": "<|NO_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255004": {
+      "content": "<|GOOD_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255005": {
+      "content": "<|BAD_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255006": {
+      "content": "<|USER_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255007": {
+      "content": "<|CHATBOT_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255008": {
+      "content": "<|SYSTEM_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255009": {
+      "content": "<|USER_0_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255010": {
+      "content": "<|USER_1_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255011": {
+      "content": "<|USER_2_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255012": {
+      "content": "<|USER_3_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255013": {
+      "content": "<|USER_4_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255014": {
+      "content": "<|USER_5_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255015": {
+      "content": "<|USER_6_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255016": {
+      "content": "<|USER_7_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255017": {
+      "content": "<|USER_8_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255018": {
+      "content": "<|USER_9_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255019": {
+      "content": "<|START_THINKING|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255020": {
+      "content": "<|END_THINKING|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255021": {
+      "content": "<|START_RESPONSE|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "255022": {
+      "content": "<|END_RESPONSE|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "255023": {
+      "content": "<|START_ACTION|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255024": {
+      "content": "<|END_ACTION|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255025": {
+      "content": "<|START_TOOL_RESULT|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255026": {
+      "content": "<|END_TOOL_RESULT|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255027": {
+      "content": "<|EXTRA_8_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255028": {
+      "content": "<|NEW_FILE|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "255029": {
+      "content": "<|BEGINNING_OF_PREFIX_FIM_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255030": {
+      "content": "<|BEGINNING_OF_MIDDLE_FIM_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255031": {
+      "content": "<|BEGINNING_OF_SUFFIX_FIM_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255032": {
+      "content": "<|END_OF_MIDDLE_FIM_TOKEN|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255033": {
+      "content": "<|START_OF_IMG|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255034": {
+      "content": "<|END_OF_IMG|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255035": {
+      "content": "<|IMG_LINE_BREAK|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    },
+    "255036": {
+      "content": "<|IMG_PATCH|>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": false
+    }
+  },
+  "bos_token": "<BOS_TOKEN>",
+  "chat_template": [
+    {
+      "name": "default",
+      "template": "{{ bos_token }}<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|># System Preamble\nYou are in contextual safety mode. You will reject requests to generate child sexual abuse material and child exploitation material in your responses. You will accept to provide information and creative content related to violence, hate, misinformation or sex, but you will not provide any content that could directly or indirectly lead to harmful outcomes. When analyzing images, carefully describe and interpret their content while avoiding any promotion of harm, misinformation, or bias.\n\nYou are Aya Vision, a vision-language model built by Cohere for AI. You have been trained on data in English, French, Spanish, Italian, German, Portuguese, Japanese, Korean, Modern Standard Arabic, Mandarin, Russian, Indonesian, Turkish, Dutch, Polish, Persian, Vietnamese, Czech, Hindi, Ukrainian, Romanian, Greek and Hebrew. You are capable of interpreting images, including describing them, answering questions about their contents, extracting textual information, and analyzing visual context. Your responses must maintain the highest standards of quality, accuracy, and safety.\n\n# Default Preamble\nThe following instructions are your defaults unless specified elsewhere in developer preamble or user prompt.\n- Your name is Aya Vision.\n- You are a large language model built by Cohere for AI.\n- You reply conversationally with a friendly and informative tone and often include introductory statements and follow-up questions.\n- If the input is ambiguous, ask clarifying follow-up questions.\n- Use Markdown-specific formatting in your response (for example to highlight phrases in bold or italics, create tables, or format code blocks).\n- Use LaTeX to generate mathematical notation for complex equations.\n- When responding in English, use American English unless context indicates otherwise.\n- When outputting responses of more than seven sentences, split the response into paragraphs.\n- Prefer the active voice.\n- Adhere to the APA style guidelines for punctuation, spelling, hyphenation, capitalization, numbers, lists, and quotation marks. Do not worry about them for other elements such as italics, citations, figures, or references.\n- Use gender-neutral pronouns for unspecified persons.\n- Limit lists to no more than 10 items unless the list is a set of finite instructions, in which case complete the list.\n- Use the third person when asked to write a summary.\n- When asked to extract values from source material, use the exact form, separated by commas.\n- When generating code output, please provide an explanation after the code.\n- When generating code output without specifying the programming language, please generate Python code.\n- If you are asked a question that requires reasoning, first think through your answer, slowly and step by step, then answer.\n<|END_OF_TURN_TOKEN|>\n{%- for message in messages -%}\n    <|START_OF_TURN_TOKEN|>{{ message.role | replace(\"user\", \"<|USER_TOKEN|>\") | replace(\"assistant\", \"<|CHATBOT_TOKEN|><|START_RESPONSE|>\") | replace(\"system\", \"<|SYSTEM_TOKEN|>\") }}\n    {%- if message.content is defined -%}\n        {%- if message.content is string -%}\n{{ message.content }}\n        {%- else -%}\n            {%- for item in message.content | selectattr('type', 'equalto', 'image') -%}\n<image>\n            {%- endfor -%}\n            {%- for item in message.content | selectattr('type', 'equalto', 'text') -%}\n{{ item.text }}\n            {%- endfor -%}\n        {%- endif -%}\n    {%- elif message.message is defined -%}\n        {%- if message.message is string -%}\n{{ message.message }}\n        {%- else -%}\n            {%- for item in message.message | selectattr('type', 'equalto', 'image') -%}\n<image>\n            {%- endfor -%}\n            {%- for item in message.message | selectattr('type', 'equalto', 'text') -%}\n{{ item.text }}\n            {%- endfor -%}\n        {%- endif -%}\n    {%- endif -%}\n    {%- if message.role == \"assistant\" -%}\n<|END_RESPONSE|>\n    {%- endif -%}\n<|END_OF_TURN_TOKEN|>\n{%- endfor -%}\n{%- if add_generation_prompt -%}\n<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>\n{%- endif -%}\n"
+    }
+  ],
+  "clean_up_tokenization_spaces": false,
+  "eos_token": "<|END_OF_TURN_TOKEN|>",
+  "extra_special_tokens": {},
+  "legacy": true,
+  "max_length": null,
+  "merges_file": null,
+  "model_max_length": 16384,
+  "pad_to_multiple_of": null,
+  "pad_token": "<PAD>",
+  "pad_token_type_id": 0,
+  "padding_side": "left",
+  "processor_class": "AyaVisionProcessor",
+  "sp_model_kwargs": {},
+  "spaces_between_special_tokens": false,
+  "tokenizer_class": "CohereTokenizer",
+  "unk_token": null,
+  "use_default_system_prompt": false,
+  "vocab_file": null
+}

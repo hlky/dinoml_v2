@@ -1,0 +1,9 @@
+{
+  "modelId": "xxai/AltCLIP",
+  "sha": "bca9ecc87ec0fe04754a275e5e5dac0554b44edc",
+  "private": false,
+  "gated": false,
+  "tags": [
+    "region:us"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "image_break_token": "<|box_end|>",
+  "image_end_token": "<|box_end|>",
+  "image_token": "<|image_pad|>",
+  "patch_size": 14,
+  "processor_class": "PixtralProcessor",
+  "spatial_merge_size": 2
+}

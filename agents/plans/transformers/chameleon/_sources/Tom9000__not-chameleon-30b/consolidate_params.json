@@ -1,0 +1,8 @@
+{
+    "dtype": "bf16",
+    "model_parallel_size": 4,
+    "on_gpu": true,
+    "src": "/fsx-onellm/rpasunuru/SFT/v2.1_textpp_30b_730k_sftv1.4_exp1/v2.1_textpp_30b_730k_sftv1.4_exp1_run000/checkpoints/checkpoint_0001200_noimggen",
+    "tgt": "/fsx-onellm/rpasunuru/SFT/v2.1_textpp_30b_730k_sftv1.4_exp1/v2.1_textpp_30b_730k_sftv1.4_exp1_run000/checkpoints/checkpoint_0001200_noimggen_consolidated/",
+    "tokenizer_path": null
+}

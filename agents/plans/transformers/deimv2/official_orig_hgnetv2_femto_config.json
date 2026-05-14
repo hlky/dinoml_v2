@@ -1,0 +1,53 @@
+{
+  "DEIMTransformer": {
+    "dim_feedforward": 256,
+    "eval_idx": -1,
+    "eval_spatial_size": [
+      416,
+      416
+    ],
+    "feat_channels": [
+      96,
+      96
+    ],
+    "feat_strides": [
+      16,
+      32
+    ],
+    "hidden_dim": 96,
+    "num_layers": 3,
+    "num_levels": 2,
+    "num_points": [
+      4,
+      2
+    ],
+    "num_queries": 150,
+    "share_bbox_head": true,
+    "use_gateway": false
+  },
+  "HGNetv2": {
+    "freeze_at": -1,
+    "freeze_norm": false,
+    "name": "Femto",
+    "pretrained": false,
+    "return_idx": [
+      2
+    ],
+    "use_lab": true
+  },
+  "LiteEncoder": {
+    "act": "silu",
+    "depth_mult": 0.5,
+    "expansion": 0.34,
+    "feat_strides": [
+      16
+    ],
+    "hidden_dim": 96,
+    "in_channels": [
+      512
+    ]
+  },
+  "PostProcessor": {
+    "num_top_queries": 300
+  }
+}

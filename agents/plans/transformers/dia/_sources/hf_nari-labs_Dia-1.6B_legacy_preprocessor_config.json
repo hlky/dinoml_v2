@@ -1,0 +1,7 @@
+{
+  "feature_extractor_type": "DacFeatureExtractor",
+  "processor_class": "DiaProcessor",
+  "audio_eos_value": 1024,
+  "audio_pad_value": 1025,
+  "audio_bos_value": 1026
+}

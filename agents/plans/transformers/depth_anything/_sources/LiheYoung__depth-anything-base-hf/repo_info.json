@@ -1,0 +1,90 @@
+{
+  "_id": "65ae7d1377ce425d18dd63fb",
+  "author": "LiheYoung",
+  "cardData": {
+    "license": "apache-2.0",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "vision"
+    ],
+    "widget": [
+      {
+        "inference": false
+      }
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-01-22T14:34:59.000Z",
+  "disabled": false,
+  "downloads": 63383,
+  "gated": false,
+  "id": "LiheYoung/depth-anything-base-hf",
+  "lastModified": "2024-01-25T08:13:34.000Z",
+  "library_name": "transformers",
+  "likes": 12,
+  "model-index": null,
+  "modelId": "LiheYoung/depth-anything-base-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 97470785
+    },
+    "total": 97470785
+  },
+  "sha": "fbce2ff06a429af8a3fdb9296c6a922a37e43482",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "qubvel-hf/depth-anything-v1-vs-v2",
+    "akashraj98283/depth_compare",
+    "David-Chew-HL/Blur-Anything",
+    "Nightfury16/virtual-staging",
+    "Seraph19/depth",
+    "suyash-asu/EEE515HW3",
+    "GZLad/eee515-background-blur",
+    "Ramkumarnn/blind-nav"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "vision",
+    "arxiv:2401.10891",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 779833968,
+  "widgetData": [
+    {
+      "inference": false
+    }
+  ]
+}

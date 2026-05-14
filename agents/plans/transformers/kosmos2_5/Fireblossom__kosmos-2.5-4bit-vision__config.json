@@ -1,0 +1,22 @@
+{
+  "architectures": [
+    "Kosmos2_5VisionModel"
+  ],
+  "attention_dropout": 0.0,
+  "d_ff": 3968,
+  "d_kv": 64,
+  "dense_act_fn": "gelu_new",
+  "dropout_rate": 0.0,
+  "hidden_size": 1536,
+  "initializer_factor": 1.0,
+  "initializer_range": 1e-10,
+  "layer_norm_eps": 1e-06,
+  "max_length": 4096,
+  "model_type": "kosmos_2_5_vision_model",
+  "num_attention_heads": 24,
+  "num_hidden_layers": 18,
+  "patch_embed_hidden_size": 768,
+  "seq_len": 4096,
+  "torch_dtype": "float16",
+  "transformers_version": "4.47.0.dev0"
+}

@@ -1,0 +1,104 @@
+{
+  "source_basis": {
+    "transformers_commit": "b75feb2af64c3e29cbbc1bd859958c5432cc7ed4",
+    "snapshot_date": "2026-05-13",
+    "hub_access": "public raw Hub/API; no gated repositories encountered"
+  },
+  "helium_family_in_scope": [
+    {
+      "model_id": "kyutai/helium-1-preview",
+      "hub_url": "https://hf.co/kyutai/helium-1-preview",
+      "model_type": "helium",
+      "architectures": ["HeliumForCausalLM"],
+      "hidden_size": 2560,
+      "intermediate_size": 7040,
+      "num_hidden_layers": 24,
+      "num_attention_heads": 20,
+      "num_key_value_heads": 20,
+      "head_dim": 128,
+      "attention_bias": false,
+      "mlp_bias": false,
+      "hidden_act": "silu",
+      "max_position_embeddings": 4096,
+      "rope_theta": 100000.0,
+      "vocab_size": 48000,
+      "torch_dtype": "bfloat16",
+      "use_cache": true,
+      "tie_word_embeddings": false,
+      "bos_token_id": 1,
+      "eos_token_id": 2,
+      "pad_token_id_effective_source_default": 3,
+      "config_omits": ["pad_token_id", "rope_parameters"],
+      "effective_defaults_from_helium_config": {
+        "pad_token_id": 3,
+        "rope_parameters": {
+          "rope_type": "default",
+          "rope_theta": 100000.0
+        }
+      }
+    },
+    {
+      "model_id": "kyutai/helium-1-preview-2b",
+      "hub_url": "https://hf.co/kyutai/helium-1-preview-2b",
+      "hub_sha": "645c94758493d06ba1b4706c5674d6510e3a84cb",
+      "model_type": "helium",
+      "architectures": ["HeliumForCausalLM"],
+      "notes": "Same public config values as kyutai/helium-1-preview."
+    }
+  ],
+  "helium_named_but_out_of_scope_for_this_source": [
+    {
+      "model_id": "kyutai/helium-1-2b",
+      "hub_url": "https://hf.co/kyutai/helium-1-2b",
+      "hub_sha": "5764947fc2e782982c24f363eacd9baea3e821f8",
+      "model_type": "llama",
+      "architectures": ["LlamaForCausalLM"],
+      "hidden_size": 2048,
+      "intermediate_size": 8192,
+      "num_hidden_layers": 28,
+      "num_attention_heads": 16,
+      "num_key_value_heads": 8,
+      "head_dim_inferred": 128,
+      "rope_theta": 20000.0,
+      "vocab_size": 64000,
+      "reason": "Routes through Llama source, not src/transformers/models/helium."
+    },
+    {
+      "model_id": "kyutai/helium-1-2b-books",
+      "model_type": "llama",
+      "architectures": ["LlamaForCausalLM"],
+      "reason": "Same Llama-shaped config as kyutai/helium-1-2b; out of scope for Helium source audit."
+    },
+    {
+      "model_id": "kyutai/helium-1-2b-main",
+      "model_type": "llama",
+      "architectures": ["LlamaForCausalLM"],
+      "reason": "Same Llama-shaped config as kyutai/helium-1-2b; out of scope for Helium source audit."
+    },
+    {
+      "model_id": "kyutai/helium-1-2b-science",
+      "model_type": "llama",
+      "architectures": ["LlamaForCausalLM"],
+      "reason": "Same Llama-shaped config as kyutai/helium-1-2b; out of scope for Helium source audit."
+    },
+    {
+      "model_id": "kyutai/helium-1-2b-stem",
+      "model_type": "llama",
+      "architectures": ["LlamaForCausalLM"],
+      "reason": "Same Llama-shaped config as kyutai/helium-1-2b; out of scope for Helium source audit."
+    }
+  ],
+  "tokenizer_snapshot": {
+    "kyutai/helium-1-preview-2b": {
+      "tokenizer_class": "PreTrainedTokenizerFast",
+      "model_input_names": ["input_ids", "attention_mask"],
+      "padding": "right, pad_id 3 in tokenizer.json",
+      "special_token_ids": {
+        "bos": 1,
+        "eos": 2,
+        "pad": 3
+      },
+      "notes": "tokenizer_config lists many image-style added tokens (<|im_*|>), but Helium source has no multimodal branch or placeholder scatter."
+    }
+  }
+}

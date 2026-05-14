@@ -1,0 +1,115 @@
+{
+  "_id": "66744b4d8f2103a91b556603",
+  "author": "depth-anything",
+  "cardData": {
+    "library": "transformers",
+    "library_name": "transformers",
+    "license": "cc-by-nc-4.0",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "depth",
+      "relative depth"
+    ],
+    "widget": [
+      {
+        "inference": false
+      }
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-06-20T15:31:25.000Z",
+  "disabled": false,
+  "downloads": 294979,
+  "gated": false,
+  "id": "depth-anything/Depth-Anything-V2-Large-hf",
+  "lastModified": "2024-07-05T11:30:29.000Z",
+  "library_name": "transformers",
+  "likes": 32,
+  "model-index": null,
+  "modelId": "depth-anything/Depth-Anything-V2-Large-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 335315649
+    },
+    "total": 335315649
+  },
+  "sha": "7581137eff8d4e94f6e796d3baea0e9fa79b22d2",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "blair-johnson/image-to-relief",
+    "EXCAI/Diffusion-As-Shader",
+    "cyun9286/Align3R",
+    "rahul7star/ai-toolkit",
+    "enoky/2D-to-Stereo-3D",
+    "asahi417/stable-depth2image-v2",
+    "dimdimz/DimensioDepth",
+    "likhinvault/depth-anything-Depth-Anything-V2-Large-hf",
+    "rahul7star/ohamlab-ai-toolkit",
+    "ngohel58/DepthanythingV2-Large-NIK",
+    "ngohel58/DepthanythingV2-Large",
+    "ngohel58/DepthanythingV2-Large-NIK3",
+    "gidibsa/360-Panoramic-Depth-Estimator",
+    "Tohru127/3d-insta360",
+    "Jiangsan123/Beetle_viz",
+    "allcansell/2D-to-Stereo-3D",
+    "Useruser2statsaltalt/ai-toolkit",
+    "Av-idan/kalnur",
+    "lml2008/yolo-3d-realtime-demo",
+    "lml2008/YOLO-3D",
+    "aaabdelreheem/yolo-3d-realtime-demo",
+    "onorabil/Diffusion-As-Shader-ECCV",
+    "moort/2D-to-Stereo-3D",
+    "Akhassan12/home-gennie-backend",
+    "futuro315/image-to-relief",
+    "kizukuno/chonjinboldog-3d",
+    "XciD/tile-visualizer-api",
+    "skye6/room_remix-demo"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "depth",
+    "relative depth",
+    "arxiv:2406.09414",
+    "arxiv:2401.10891",
+    "license:cc-by-nc-4.0",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 1341322868,
+  "widgetData": [
+    {
+      "inference": false
+    }
+  ]
+}

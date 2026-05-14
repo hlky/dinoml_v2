@@ -1,0 +1,2 @@
+https://huggingface.co/facebook/dinov3-convnext-base-pretrain-lvd1689m/resolve/main/config.json
+Response status code does not indicate success: 401 (Unauthorized).

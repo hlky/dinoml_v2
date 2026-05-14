@@ -1,0 +1,123 @@
+{
+  "architectures": [
+    "Florence2ForConditionalGeneration"
+  ],
+  "dtype": "float16",
+  "image_token_id": 51289,
+  "is_encoder_decoder": true,
+  "model_type": "florence2",
+  "text_config": {
+    "activation_dropout": 0.1,
+    "activation_function": "gelu",
+    "add_bias_logits": false,
+    "add_final_layer_norm": false,
+    "attention_dropout": 0.1,
+    "classif_dropout": 0.1,
+    "classifier_dropout": 0.0,
+    "d_model": 1024,
+    "decoder_attention_heads": 16,
+    "decoder_ffn_dim": 4096,
+    "decoder_layerdrop": 0.0,
+    "decoder_layers": 12,
+    "dropout": 0.1,
+    "early_stopping": true,
+    "encoder_attention_heads": 16,
+    "encoder_ffn_dim": 4096,
+    "encoder_layerdrop": 0.0,
+    "encoder_layers": 12,
+    "forced_bos_token_id": 0,
+    "gradient_checkpointing": false,
+    "init_std": 0.02,
+    "max_position_embeddings": 4096,
+    "model_type": "bart",
+    "no_repeat_ngram_size": 3,
+    "normalize_before": false,
+    "num_beams": 3,
+    "num_hidden_layers": 12,
+    "scale_embedding": false,
+    "use_cache": true,
+    "vocab_size": 51328
+  },
+  "transformers_version": "4.56.1",
+  "vision_config": {
+    "activation_function": "gelu",
+    "depths": [
+      1,
+      1,
+      9,
+      1
+    ],
+    "dim_embed": [
+      256,
+      512,
+      1024,
+      2048
+    ],
+    "drop_path_rate": 0.1,
+    "embed_dim": [
+      256,
+      512,
+      1024,
+      2048
+    ],
+    "enable_checkpoint": false,
+    "image_feature_source": [
+      "spatial_avg_pool",
+      "temporal_avg_pool"
+    ],
+    "image_pos_embed": {
+      "max_pos_embeddings": 50,
+      "type": "learned_abs_2d"
+    },
+    "in_channels": 3,
+    "initializer_range": 0.02,
+    "max_pos_embeddings": 50,
+    "max_position_embeddings": 50,
+    "max_temporal_embeddings": 100,
+    "mlp_ratio": 4.0,
+    "model_type": "florence_vision",
+    "num_groups": [
+      8,
+      16,
+      32,
+      64
+    ],
+    "num_heads": [
+      8,
+      16,
+      32,
+      64
+    ],
+    "patch_padding": [
+      3,
+      1,
+      1,
+      1
+    ],
+    "patch_prenorm": [
+      false,
+      true,
+      true,
+      true
+    ],
+    "patch_size": [
+      7,
+      3,
+      3,
+      3
+    ],
+    "patch_stride": [
+      4,
+      2,
+      2,
+      2
+    ],
+    "projection_dim": 1024,
+    "qkv_bias": true,
+    "visual_temporal_embedding": {
+      "max_temporal_embeddings": 100,
+      "type": "COSINE"
+    },
+    "window_size": 12
+  }
+}

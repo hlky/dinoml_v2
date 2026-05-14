@@ -1,0 +1,28 @@
+{
+  "source": "https://huggingface.co/unsloth/Llama-4-Scout-17B-16E-Instruct/raw/main/tokenizer_config.json",
+  "snapshot_note": "Small derived tokenizer snapshot for the Llama4 audit; the full tokenizer_config.json was not retained because it is mostly a very large added_tokens_decoder map.",
+  "tokenizer_class": "PreTrainedTokenizer",
+  "processor_class": "Llama4Processor",
+  "padding_side": "left",
+  "model_max_length": 10485760,
+  "bos_token": "<|begin_of_text|>",
+  "eos_token": "<|eot|>",
+  "pad_token": "<|finetune_right_pad|>",
+  "special_token_ids": {
+    "bos": 200000,
+    "end_of_text": 200001,
+    "header_start": 200005,
+    "header_end": 200006,
+    "eom": 200007,
+    "eot": 200008,
+    "python_start": 200016,
+    "python_end": 200017,
+    "pad": 200018,
+    "image_start": 200080,
+    "image_end": 200081,
+    "tile_x_separator": 200084,
+    "tile_y_separator": 200085,
+    "image": 200090,
+    "patch": 200092
+  }
+}

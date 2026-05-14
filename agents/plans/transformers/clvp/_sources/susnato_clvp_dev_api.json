@@ -1,0 +1,82 @@
+{
+  "_id": "64ad013f264bbbf171ac39e0",
+  "id": "susnato/clvp_dev",
+  "private": false,
+  "pipeline_tag": "feature-extraction",
+  "library_name": "transformers",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "clvp",
+    "feature-extraction",
+    "endpoints_compatible",
+    "deploy:azure",
+    "region:us"
+  ],
+  "downloads": 89555,
+  "likes": 0,
+  "modelId": "susnato/clvp_dev",
+  "author": "susnato",
+  "sha": "5dee0e6a8386f5abe33e6df17da708f02e659eaf",
+  "lastModified": "2023-10-29T09:16:52Z",
+  "gated": false,
+  "disabled": false,
+  "config": {
+    "architectures": [
+      "ClvpModelForConditionalGeneration"
+    ],
+    "model_type": "clvp",
+    "tokenizer_config": {
+      "bos_token": "<|endoftext|>",
+      "eos_token": "[STOP]",
+      "pad_token": "[STOP]",
+      "unk_token": "[UNK]"
+    }
+  },
+  "transformersInfo": {
+    "auto_model": "AutoModel",
+    "pipeline_tag": "feature-extraction",
+    "processor": "AutoProcessor"
+  },
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "added_tokens.json"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "generation_config.json"
+    },
+    {
+      "rfilename": "merges.txt"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    },
+    {
+      "rfilename": "pytorch_model.bin"
+    },
+    {
+      "rfilename": "special_tokens_map.json"
+    },
+    {
+      "rfilename": "tokenizer.json"
+    },
+    {
+      "rfilename": "tokenizer_config.json"
+    },
+    {
+      "rfilename": "vocab.json"
+    }
+  ],
+  "spaces": [],
+  "createdAt": "2023-07-11T07:14:07Z",
+  "usedStorage": 49844551585
+}

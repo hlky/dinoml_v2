@@ -1,0 +1,13 @@
+{
+  "end_of_img_token": "<|END_OF_IMG|>",
+  "image_token": "<image>",
+  "img_line_break_token": "<|IMG_LINE_BREAK|>",
+  "img_patch_token": "<|IMG_PATCH|>",
+  "img_size": 364,
+  "patch_size": 28,
+  "processor_class": "AyaVisionProcessor",
+  "start_of_img_token": "<|START_OF_IMG|>",
+  "tile_global_token": "TILE_GLOBAL",
+  "tile_token": "TILE",
+  "vision_feature_select_strategy": "full"
+}

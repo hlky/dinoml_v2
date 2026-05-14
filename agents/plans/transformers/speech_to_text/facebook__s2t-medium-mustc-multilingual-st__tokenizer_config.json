@@ -1,0 +1,1 @@
+{"bos_token": "<s>", "eos_token": "</s>", "unk_token": "<unk>", "pad_token": "<pad>", "do_upper_case": false, "do_lower_case": false, "tgt_lang": null, "lang_codes": "mustc", "special_tokens_map_file": "hf_models/s2t_mustc_multilinguial_medium/special_tokens_map.json", "tokenizer_file": null, "name_or_path": "hf_models/s2t_mustc_multilinguial_medium"}

@@ -1,0 +1,43 @@
+{
+  "_name_or_path": "SmallDoge/Doge-20M-Instruct",
+  "architectures": [
+    "DogeForCausalLM"
+  ],
+  "attention_dropout": 0.0,
+  "auto_map": {
+    "AutoConfig": "configuration_doge.DogeConfig",
+    "AutoModelForCausalLM": "modeling_doge.DogeForCausalLM"
+  },
+  "bos_token_id": 0,
+  "dynamic_mask_ratio": 0.0,
+  "eos_token_id": 1,
+  "expert_retrieval_size": 256,
+  "hidden_act": "silu",
+  "hidden_bias": false,
+  "hidden_dropout": 0.0,
+  "hidden_size": 256,
+  "initializer_range": 0.02,
+  "intermediate_size": 512,
+  "is_moe": false,
+  "max_position_embeddings": 2048,
+  "model_type": "doge",
+  "num_attention_heads": 2,
+  "num_cdmoe_experts": 16348,
+  "num_cdmoe_experts_per_head": 8,
+  "num_cdmoe_heads": 4,
+  "num_hidden_layers": 8,
+  "num_key_value_heads": 1,
+  "pad_token_id": 2,
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": {
+    "factor": 4.0,
+    "original_max_position_embeddings": 2048,
+    "rope_type": "dynamic"
+  },
+  "rope_theta": 10000.0,
+  "tie_word_embeddings": true,
+  "torch_dtype": "float32",
+  "transformers_version": "4.48.3",
+  "use_cache": true,
+  "vocab_size": 32768
+}

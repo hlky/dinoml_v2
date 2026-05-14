@@ -1,0 +1,55 @@
+{
+  "activation_dropout": 0.1,
+  "activation_function": "gelu",
+  "architectures": [
+    "ProphetNetForConditionalGeneration"
+  ],
+  "attention_dropout": 0.1,
+  "bos_token_id": 102,
+  "decoder_ffn_dim": 4096,
+  "decoder_layerdrop": 0.0,
+  "decoder_max_position_embeddings": 514,
+  "decoder_start_token_id": 102,
+  "disable_ngram_loss": false,
+  "dropout": 0.1,
+  "encoder_ffn_dim": 4096,
+  "encoder_layerdrop": 0.0,
+  "encoder_max_position_embeddings": 513,
+  "eos_token_id": 102,
+  "eps": 0.0,
+  "hidden_size": 1024,
+  "id2label": {
+    "0": "LABEL_0",
+    "1": "LABEL_1",
+    "2": "LABEL_2"
+  },
+  "init_std": 0.02,
+  "is_encoder_decoder": true,
+  "label2id": {
+    "LABEL_0": 0,
+    "LABEL_1": 1,
+    "LABEL_2": 2
+  },
+  "max_position_embeddings": 512,
+  "model_type": "prophetnet",
+  "ngram": 2,
+  "num_buckets": 32,
+  "num_decoder_attention_heads": 16,
+  "num_decoder_layers": 12,
+  "num_encoder_attention_heads": 16,
+  "num_encoder_layers": 12,
+  "output_past": false,
+  "pad_token_id": 0,
+  "prefix": " ",
+  "relative_max_distance": 128,
+  "task_specific_params": {
+    "summarization": {
+      "early_stopping": true,
+      "length_penalty": 1.2,
+      "no_repeat_ngram_size": 3,
+      "num_beams": 5
+    }
+  },
+  "vocab_size": 30522
+}
+

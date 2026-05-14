@@ -1,0 +1,146 @@
+{
+  "_id": "65ae65e49d5b4222185561d0",
+  "author": "LiheYoung",
+  "cardData": {
+    "license": "apache-2.0",
+    "pipeline_tag": "depth-estimation",
+    "tags": [
+      "vision"
+    ],
+    "widget": [
+      {
+        "inference": false
+      }
+    ]
+  },
+  "config": {
+    "architectures": [
+      "DepthAnythingForDepthEstimation"
+    ],
+    "model_type": "depth_anything"
+  },
+  "createdAt": "2024-01-22T12:56:04.000Z",
+  "disabled": false,
+  "downloads": 47096,
+  "gated": false,
+  "id": "LiheYoung/depth-anything-small-hf",
+  "lastModified": "2024-01-25T08:12:14.000Z",
+  "library_name": "transformers",
+  "likes": 35,
+  "model-index": null,
+  "modelId": "LiheYoung/depth-anything-small-hf",
+  "pipeline_tag": "depth-estimation",
+  "private": false,
+  "safetensors": {
+    "parameters": {
+      "F32": 24785089
+    },
+    "total": 24785089
+  },
+  "sha": "25216a913fa218ccb7d58cce818d52b728b6c1f6",
+  "siblings": [
+    {
+      "rfilename": ".gitattributes"
+    },
+    {
+      "rfilename": "README.md"
+    },
+    {
+      "rfilename": "config.json"
+    },
+    {
+      "rfilename": "model.safetensors"
+    },
+    {
+      "rfilename": "preprocessor_config.json"
+    }
+  ],
+  "spaces": [
+    "Yuanshi/OminiControl",
+    "radames/Real-Time-Latent-Consistency-Model",
+    "Yuanshi/OminiControl_Art",
+    "radames/Real-Time-SD-Turbo",
+    "merve/vision_papers",
+    "radames/real-time-pix2pix-turbo",
+    "nycu-cplab/Genfocus-Demo",
+    "Kunbyte/DRA-Ctrl",
+    "merve/compare_depth_models",
+    "ByteDance/XVerse",
+    "qubvel-hf/depth-anything-v1-vs-v2",
+    "DawnC/SceneWeaver",
+    "merve/seggpt-depth-anything",
+    "theaiinstitute/theia",
+    "chancetophugging/OminiControl",
+    "akashraj98283/depth_compare",
+    "Surn/HexaGrid",
+    "qyoo/Conceptrol",
+    "Cicici1109/IEAP",
+    "David-Chew-HL/Blur-Anything",
+    "svjack/OminiControl",
+    "zoezz/xyartgenerator",
+    "dimdimz/DimensioDepth",
+    "Hasthika/experience-eats",
+    "oindrila13saha/sigma-gen-demo",
+    "sea45/sea",
+    "kabirjaiswal/SpatialSense",
+    "Binlaveloos/compare_depth_models",
+    "Seraph19/depth",
+    "Fantomio/LiheYoung-depth-anything-small-hf",
+    "cocktailpeanut/OminiControl",
+    "lamanweb/OminiControl",
+    "kp-forks/OminiControl",
+    "momiman/OminiControl",
+    "shreyasxjoshi/OminiControl",
+    "ilovehuggingfacecanbemore/OminiControl",
+    "ers121/OminiControl",
+    "gradiopro/OminiControl",
+    "alexzverev123/OminiControl",
+    "prepconcede/image-processing",
+    "jayforjerry/OminiControl-duplicated",
+    "eMILF2/real-time-model",
+    "elope148/gaussian_lens_blur",
+    "brennenh102/SemanticBlur",
+    "svjack/OminiControl_Art",
+    "XavierJiezou/face-mogle",
+    "orange15/wayfu-amazing-art-v2",
+    "mkrystal/Real-Time-Latent-Consistency-Model",
+    "vzhizhi6611/OminiControlArt_X",
+    "marlonbarrios/Real-Time-Latent-Consistency-Model",
+    "Cascade-Inc/Ad_gen",
+    "machichiotte/damage-control-ai-backend",
+    "hangst/ai-playground",
+    "Bruhn/Genfocus-Demo",
+    "iskandermahmut9/3D-CROSS-MATERIAL-LAB",
+    "Mrgf9993/Real-Time-Latent-Consistency-Model",
+    "zaql/real-time-pix2pix-turbo",
+    "didierbalam/cattle-distance-api",
+    "poolvarine/theia",
+    "hadrianag/cracknet-gnn",
+    "abersbail/simple-image-to-3d-cpu",
+    "rvijay12/EEE515-HW3-Q2-segmentation",
+    "reuahn/FrameWorld",
+    "Ramkumarnn/blind-nav"
+  ],
+  "tags": [
+    "transformers",
+    "safetensors",
+    "depth_anything",
+    "depth-estimation",
+    "vision",
+    "arxiv:2401.10891",
+    "license:apache-2.0",
+    "endpoints_compatible",
+    "region:us"
+  ],
+  "transformersInfo": {
+    "auto_model": "AutoModelForDepthEstimation",
+    "pipeline_tag": "depth-estimation",
+    "processor": "AutoImageProcessor"
+  },
+  "usedStorage": 198347328,
+  "widgetData": [
+    {
+      "inference": false
+    }
+  ]
+}

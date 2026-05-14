@@ -1,0 +1,18 @@
+{
+  "downloads": 3264,
+  "gated": false,
+  "likes": 2,
+  "modelId": "YituTech/conv-bert-small",
+  "pipeline_tag": "feature-extraction",
+  "private": false,
+  "sha": "9a11330184f20d78feb3fd45edd1e8dad23205e8",
+  "tags": [
+    "transformers",
+    "pytorch",
+    "tf",
+    "convbert",
+    "feature-extraction",
+    "endpoints_compatible",
+    "region:us"
+  ]
+}

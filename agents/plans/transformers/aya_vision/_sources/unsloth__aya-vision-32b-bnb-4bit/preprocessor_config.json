@@ -1,0 +1,27 @@
+{
+  "crop_to_patches": false,
+  "do_convert_rgb": true,
+  "do_normalize": true,
+  "do_rescale": true,
+  "do_resize": true,
+  "image_mean": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "image_processor_type": "GotOcr2ImageProcessor",
+  "image_std": [
+    0.5,
+    0.5,
+    0.5
+  ],
+  "max_patches": 12,
+  "min_patches": 1,
+  "processor_class": "AyaVisionProcessor",
+  "resample": 3,
+  "rescale_factor": 0.00392156862745098,
+  "size": {
+    "height": 364,
+    "width": 364
+  }
+}

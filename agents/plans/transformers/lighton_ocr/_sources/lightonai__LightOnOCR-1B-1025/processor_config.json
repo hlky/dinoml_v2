@@ -1,0 +1,8 @@
+{
+  "image_break_token": "<|vision_pad|>",
+  "image_end_token": "<|vision_end|>",
+  "image_token": "<|image_pad|>",
+  "patch_size": 14,
+  "processor_class": "LightOnOCRProcessor",
+  "spatial_merge_size": 2
+}

@@ -1,0 +1,5 @@
+{
+    "image_processor_type": "Kosmos2_5ImageProcessor",
+    "processor_class": "Kosmos2_5Processor"
+  }
+  

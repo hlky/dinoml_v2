@@ -1,0 +1,75 @@
+mode: pretrain_image
+devices: 
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+    #- 7
+
+total_steps: 4700000
+accumulate_grad: 5
+resume: True
+#checkpoint: /home/ubuntu/Make-A-Scene/outputs/pretrain_image/2022-06-10/06-36-07/checkpoint.pt
+checkpoint: /home/ubuntu/Make-A-Scene/outputs/pretrain_image/2022-06-13/22-05-22/checkpoint_21.0.pt
+log_period: 50
+save_period: 1000
+batch_size: 3  # 192 for 256 model and 128 for 512 model
+
+model:
+  _target_: models.VQBASE
+  embed_dim: 256
+  n_embed: 8192
+  init_steps: 3000
+  reservoir_size: 12500 # 2e5 / 8
+  ddconfig:
+    z_channels: 256
+    in_channels: 3
+    out_channels: 3
+    channels: [128, 128, 128, 256, 512, 512]  # [1, 1, 2, 4, 4]
+    num_res_blocks: 2
+    resolution: 512
+    attn_resolutions:
+    - 32
+    dropout: 0.0
+
+optimizer:
+  vq:
+    lr: 5e-6
+    betas:
+      - 0.5
+      - 0.9
+  disc:
+    lr: 4.5e-6
+    betas:
+      - 0.5
+      - 0.9
+
+dataset:
+  _target_: Data.dataset_preprocessor_web.S3ProcessedDataset
+  resampled: True
+  names:
+    - cc3m
+    - cc12m
+#  path: file:D:/PycharmProjects/Make-A-Scene/server/Make-A-Scene/dataset/coco/{00000..00004}.tar
+#  path: file:D:/PycharmProjects/Make-A-Scene/server/Make-A-Scene/dataset/coco/great_dataset.tar
+
+loss:
+  #_target_: losses.VQVAEWithBCELoss
+  _target_: losses.loss_img.VQLPIPSWithDiscriminator
+  disc_start: 250001
+  disc_weight: 0.8
+  codebook_weight: 1.0
+
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  pin_memory: True
+
+hydra:
+  job:
+    chdir: True
+  run:
+    dir: ./outputs/${mode}/${now:%Y-%m-%d}/${now:%H-%M-%S}

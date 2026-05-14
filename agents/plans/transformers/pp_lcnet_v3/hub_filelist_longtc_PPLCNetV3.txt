@@ -1,0 +1,18 @@
+Hugging Face search result:
+- https://hf.co/longtc/PPLCNetV3
+
+Connector metadata:
+- Tags: paddlepaddle, region:us
+- Created: 2025-02-11
+- Downloads at inspection: 0
+- Likes at inspection: 0
+- Not an official PaddlePaddle or Transformers checkpoint.
+
+Raw file list from `huggingface_hub.HfApi().list_repo_files("longtc/PPLCNetV3")`:
+- .gitattributes
+- PPHGNet_small_ocr_det.pdparams
+- PPLCNetV3_x0_75_ocr_det.pdparams
+
+Audit implication:
+- No `config.json`, `preprocessor_config.json`, `model.safetensors`, or native Transformers checkpoint metadata was available in this repo at inspection time.
+- The `.pdparams` name suggests a Paddle checkpoint, not a directly loadable in-library `pp_lcnet_v3` Transformers config.

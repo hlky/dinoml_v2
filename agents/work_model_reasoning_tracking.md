@@ -24,3 +24,4 @@ Format:
 - 0d73929, Compile CUTLASS conv support stubs, gpt-5.5, high
 - b6ea294, Fix CUTLASS conv source-only scaffold metadata, gpt-5.5, high
 - 199ca28, Exercise CUTLASS conv profiler stub export, gpt-5.5, high
+- f6dfe0d, Add CUTLASS conv layout transform helpers, gpt-5.4, high

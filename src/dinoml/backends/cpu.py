@@ -17,6 +17,7 @@ from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
+from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims
 from dinoml.ops.positional import normalize_get_1d_rotary_pos_embed_attrs
 
 
@@ -169,11 +170,12 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ).copy(),
                 output_dtype,
             )
-        elif node["op"] == "permute":
+        elif node["op"] in {"permute", *SPECIALIZED_PERMUTE_DIMS}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
+            axes = _permute_axes(node, len(values[node["inputs"][0]].shape))
             values[output_name] = _store_reference(
-                np.transpose(values[node["inputs"][0]], axes=tuple(node.get("attrs", {}).get("dims", ()))).copy(),
+                np.transpose(values[node["inputs"][0]], axes=tuple(axes)).copy(),
                 output_dtype,
             )
         elif node["op"] == "dynamic_slice":
@@ -893,6 +895,20 @@ def _tensor_dtype(ir: Mapping[str, object], tensor_name: str) -> str:
         if tensor["name"] == tensor_name:
             return str(tensor["dtype"])
     raise KeyError(tensor_name)
+
+
+def _permute_axes(node: Mapping[str, object], rank: int) -> list[int]:
+    op_name = str(node["op"])
+    if op_name in SPECIALIZED_PERMUTE_DIMS:
+        attrs_dims = node.get("attrs", {}).get("dims")
+        fixed_dims = list(SPECIALIZED_PERMUTE_DIMS[op_name])
+        if attrs_dims is None:
+            return fixed_dims
+        normalized_dims = normalize_permute_dims(attrs_dims, rank)
+        if tuple(normalized_dims) != SPECIALIZED_PERMUTE_DIMS[op_name]:
+            raise ValueError(f"{op_name} uses fixed dims {fixed_dims}, got {list(normalized_dims)}")
+        return normalized_dims
+    return normalize_permute_dims(node.get("attrs", {}).get("dims"), rank)
 
 
 def _tensor_shape(ir: Mapping[str, object], tensor_name: str) -> list[int]:

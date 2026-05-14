@@ -9,7 +9,10 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
-from dinoml.ops.collections import COLLECTION_DTYPES, normalize_permute_dims, resolve_permute_shape
+from dinoml.ops.collections import COLLECTION_DTYPES, SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims, resolve_permute_shape
+
+
+PERMUTE_OPS = ("permute", *SPECIALIZED_PERMUTE_DIMS)
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -70,7 +73,7 @@ def _validate_node_contract(
     input_tensor: Mapping[str, Any],
     output_tensor: Mapping[str, Any],
 ) -> list[int]:
-    if node["op"] != "permute":
+    if str(node["op"]) not in PERMUTE_OPS:
         raise ValueError(f"Unsupported collection op: {node['op']}")
     if len(node.get("inputs", [])) != 1:
         raise ValueError("permute expects one tensor input")
@@ -81,7 +84,7 @@ def _validate_node_contract(
         raise NotImplementedError(f"permute lowering does not support dtype {output_tensor['dtype']}")
     if str(input_tensor["dtype"]) != dtype:
         raise ValueError("permute input and output dtype must match")
-    dims = normalize_permute_dims(node.get("attrs", {}).get("dims"), len(input_tensor["shape"]))
+    dims = _node_dims(node, len(input_tensor["shape"]))
     expected_shape = resolve_permute_shape(input_tensor["shape"], dims)
     if list(expected_shape) != list(output_tensor["shape"]):
         raise ValueError("permute output shape does not match input shape")
@@ -124,15 +127,32 @@ def _dense_strides(shape: list[int]) -> list[int]:
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
     input_tensor = tensor_map[node["inputs"][0]]
     output_tensor = tensor_map[node["outputs"][0]]
+    dims = _node_dims(node, len(input_tensor["shape"]))
+    op_name = str(node["op"])
+    dims_id = "".join(str(dim) for dim in dims)
     signature = {
-        "op": "permute",
+        "op": op_name,
         "input_shape": list(input_tensor["shape"]),
         "output_shape": list(output_tensor["shape"]),
-        "dims": list(node.get("attrs", {}).get("dims", [])),
+        "dims": dims,
         "dtype": str(output_tensor["dtype"]),
     }
     digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
-    return f"permute_{digest}"
+    return f"{op_name}_{dims_id}_{digest}"
+
+
+def _node_dims(node: Mapping[str, Any], rank: int) -> list[int]:
+    op_name = str(node["op"])
+    if op_name in SPECIALIZED_PERMUTE_DIMS:
+        fixed_dims = list(SPECIALIZED_PERMUTE_DIMS[op_name])
+        attrs_dims = node.get("attrs", {}).get("dims")
+        if attrs_dims is None:
+            return fixed_dims
+        normalized_dims = normalize_permute_dims(attrs_dims, rank)
+        if tuple(normalized_dims) != SPECIALIZED_PERMUTE_DIMS[op_name]:
+            raise ValueError(f"{op_name} lowering requires fixed dims {fixed_dims}")
+        return normalized_dims
+    return normalize_permute_dims(node.get("attrs", {}).get("dims"), rank)
 
 
 def _render_template(name: str, context: Mapping[str, Any]) -> str:
@@ -153,10 +173,15 @@ def _c_ident(name: str) -> str:
     return ident
 
 
-PERMUTE_LOWERING = OpLowering(
-    op_name="permute",
-    render_generated_kernel=render_generated_kernel,
-    render_launch=render_launch,
-    source_key=source_key,
-    generated_function_name=generated_function_name,
-)
+PERMUTE_LOWERINGS = {
+    op_name: OpLowering(
+        op_name=op_name,
+        render_generated_kernel=render_generated_kernel,
+        render_launch=render_launch,
+        source_key=source_key,
+        generated_function_name=generated_function_name,
+    )
+    for op_name in PERMUTE_OPS
+}
+
+PERMUTE_LOWERING = PERMUTE_LOWERINGS["permute"]

@@ -26,7 +26,7 @@ from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
-from dinoml.lowering.ops.permute import PERMUTE_LOWERING
+from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
@@ -57,7 +57,6 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
-    PERMUTE_LOWERING.op_name: PERMUTE_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
     SHAPE_BUFFER_COUNT_TRUE_LOWERING.op_name: SHAPE_BUFFER_COUNT_TRUE_LOWERING,
@@ -71,6 +70,7 @@ OP_LOWERINGS.update(GEMM_LOWERINGS)
 OP_LOWERINGS.update(BMM_LOWERINGS)
 OP_LOWERINGS.update(TOPK_LOWERINGS)
 OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
+OP_LOWERINGS.update(PERMUTE_LOWERINGS)
 
 
 def generated_source_provenance(

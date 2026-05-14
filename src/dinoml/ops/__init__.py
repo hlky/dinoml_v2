@@ -12,6 +12,7 @@ from dinoml.ops.broadcasting import BROADCAST_DTYPES, resolve_expand_shape
 from dinoml.ops.collections import (
     COLLECTION_DTYPES,
     GATHER_INDEX_DTYPES,
+    SPECIALIZED_PERMUTE_DIMS,
     chunk_sections,
     infer_batch_gather_shape_with_attrs,
     infer_concatenate_shape_with_attrs,
@@ -507,20 +508,41 @@ def _permute_frontend(x: Any, dims: Any) -> Tensor:
     )
 
 
+def _specialized_permute_frontend(op_name: str, x: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError(f"{op_name} currently supports only static input shapes")
+    fixed_dims = SPECIALIZED_PERMUTE_DIMS[op_name]
+    if tensor.rank != len(fixed_dims):
+        raise ValueError(f"{op_name} expects rank-{len(fixed_dims)} input, got rank {tensor.rank}")
+    normalized_dims = list(fixed_dims)
+    out_shape = infer_permute_shape_with_attrs([tensor.shape], {"dims": normalized_dims})
+    return tensor.builder.emit(
+        op_name,
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=out_shape,
+    )
+
+
 def _permute021_frontend(x: Any) -> Tensor:
-    return _permute_frontend(x, (0, 2, 1))
+    return _specialized_permute_frontend("permute021", x)
 
 
 def _permute0213_frontend(x: Any) -> Tensor:
-    return _permute_frontend(x, (0, 2, 1, 3))
+    return _specialized_permute_frontend("permute0213", x)
 
 
 def _permute102_frontend(x: Any) -> Tensor:
-    return _permute_frontend(x, (1, 0, 2))
+    return _specialized_permute_frontend("permute102", x)
 
 
 def _permute210_frontend(x: Any) -> Tensor:
-    return _permute_frontend(x, (2, 1, 0))
+    return _specialized_permute_frontend("permute210", x)
 
 
 def _pixel_shuffle_frontend(x: Any, upscale_factor: Any) -> Tensor:

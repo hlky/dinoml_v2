@@ -1,14 +1,27 @@
+import shutil
+
 import numpy as np
 import pytest
 
 import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import array_from_storage, array_to_storage
-from dinoml.lowering.ops import render_generated_kernels
+from dinoml.ir import array_from_storage, array_to_storage, read_json
+from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels
+from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS
+from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
 from dinoml.runtime import load
 from dinoml.shapes import Dim
+
+
+SPECIALIZED_PERMUTE_CASES = [
+    ("permute021", (2, 3, 4), (0, 2, 1), [2, 4, 3]),
+    ("permute102", (2, 3, 4), (1, 0, 2), [3, 2, 4]),
+    ("permute210", (2, 3, 4), (2, 1, 0), [4, 3, 2]),
+    ("permute0213", (2, 3, 4, 5), (0, 2, 1, 3), [2, 4, 3, 5]),
+]
 
 
 class PermuteModule(dml.Module):
@@ -94,36 +107,52 @@ def test_transpose_frontend_emits_normalized_permute():
     assert node["attrs"] == {"dims": [2, 1, 0]}
 
 
-@pytest.mark.parametrize(
-    ("op_name", "shape", "dims", "out_shape"),
-    [
-        ("permute021", (2, 3, 4), (0, 2, 1), [2, 4, 3]),
-        ("permute102", (2, 3, 4), (1, 0, 2), [3, 2, 4]),
-        ("permute210", (2, 3, 4), (2, 1, 0), [4, 3, 2]),
-        ("permute0213", (2, 3, 4, 5), (0, 2, 1, 3), [2, 4, 3, 5]),
-    ],
-)
-def test_specialized_permute_frontends_emit_permute_ir(op_name, shape, dims, out_shape):
+@pytest.mark.parametrize(("op_name", "shape", "dims", "out_shape"), SPECIALIZED_PERMUTE_CASES)
+def test_specialized_permute_frontends_emit_specialized_ir(op_name, shape, dims, out_shape):
     spec = _trace_specialized_permute(op_name, shape=shape)
 
+    assert op_name in OP_REGISTRY.frontend_names()
     assert spec.ir["outputs"][0]["shape"] == out_shape
     assert spec.ir["outputs"][0]["shape_spec"] == out_shape
     node = spec.ir["nodes"][0]
-    assert node["op"] == "permute"
+    assert node["op"] == op_name
     assert node["inputs"] == ["x"]
     assert node["attrs"] == {"dims": list(dims)}
 
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    assert [lowered_node["op"] for lowered_node in lowered["nodes"]] == [op_name]
 
-@pytest.mark.parametrize(
-    ("op_name", "shape", "dims"),
-    [
-        ("permute021", (2, 3, 4), (0, 2, 1)),
-        ("permute102", (2, 3, 4), (1, 0, 2)),
-        ("permute210", (2, 3, 4), (2, 1, 0)),
-        ("permute0213", (2, 3, 4, 5), (0, 2, 1, 3)),
-    ],
-)
-def test_cpu_reference_specialized_permute_float32(op_name, shape, dims):
+
+@pytest.mark.parametrize(("op_name", "shape", "dims", "_out_shape"), SPECIALIZED_PERMUTE_CASES)
+def test_specialized_permute_manifest_and_generated_sources_are_model_owned(op_name, shape, dims, _out_shape):
+    spec = _trace_specialized_permute(op_name, shape=shape)
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    [required] = manifest["required_kernels"]
+    assert required["op"] == op_name
+    assert required["kernel_symbol"] == f"generated_{op_name}"
+    assert required["kernel_library"] == "model"
+    assert required["profiler_symbol"] is None
+    assert required["has_profiler"] is False
+    assert required["generated_source"]["generated_function_name"].startswith(f"{op_name}_{''.join(map(str, dims))}_")
+    assert required["generated_source"]["source_key"].startswith(f"cpu:{op_name}_{''.join(map(str, dims))}_")
+
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 1
+    assert len(sources["manifest"]["sources"]) == 1
+    assert sources["manifest"]["sources"][0]["op"] == op_name
+    generated = sources["kernels"][0]
+    assert f"static int {op_name}_{''.join(map(str, dims))}_" in generated
+    assert "y[idx] = x[input_idx]" in generated
+    assert "generated_permute" not in generated
+
+
+@pytest.mark.parametrize(("op_name", "shape", "dims", "_out_shape"), SPECIALIZED_PERMUTE_CASES)
+def test_cpu_reference_specialized_permute_float32(op_name, shape, dims, _out_shape):
     spec = _trace_specialized_permute(op_name, shape=shape)
     x = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
 
@@ -143,8 +172,9 @@ def test_cpu_reference_specialized_permute_float32(op_name, shape, dims):
         ("permute0213", (2, 3, 4)),
     ],
 )
-def test_specialized_permute_frontends_reject_bad_rank_via_permute_validation(op_name, bad_shape):
-    with pytest.raises(ValueError, match="length"):
+def test_specialized_permute_frontends_reject_bad_rank(op_name, bad_shape):
+    expected_rank = len(SPECIALIZED_PERMUTE_DIMS[op_name])
+    with pytest.raises(ValueError, match=rf"rank-{expected_rank} input"):
         _trace_specialized_permute(op_name, shape=bad_shape)
 
 
@@ -216,6 +246,32 @@ def test_permute_generated_cpu_source_and_runtime(tmp_path, dtype):
 
     expected = _storage_roundtrip(np.transpose(x, axes=(2, 0, 1)).copy(), dtype)
     np.testing.assert_array_equal(actual, expected)
+
+
+def test_specialized_permute_cpu_artifact_manifest_and_source_manifest_use_named_op(tmp_path):
+    spec = _trace_specialized_permute("permute0213", shape=(2, 3, 4, 5))
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "permute0213_cpu.dinoml")
+
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
+
+    [required] = kernel_manifest["required_kernels"]
+    [source] = source_manifest["sources"]
+    assert required["op"] == "permute0213"
+    assert required["kernel_symbol"] == "generated_permute0213"
+    assert required["generated_source"]["generated_function_name"].startswith("permute0213_0213_")
+    assert source["op"] == "permute0213"
+    assert source["generated_function_name"].startswith("permute0213_0213_")
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_specialized_permute_cuda_artifact_compiles_with_named_generated_kernel(tmp_path):
+    spec = _trace_specialized_permute("permute210", shape=(2, 3, 4))
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "permute210_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "permute210_210_" in generated
+    assert "generated_permute210" not in generated
+    assert "y[idx] = x[input_idx]" in generated
 
 
 def test_permute_generated_cuda_source_supports_reduced_precision_and_bool():
@@ -309,4 +365,11 @@ def test_permute_validation_rejects_dynamic_shape_spec_bad_dims_shape_and_dtype(
     output_tensor = next(tensor for tensor in spec.ir["tensors"] if tensor["name"] == spec.ir["outputs"][0]["tensor"])
     output_tensor["dtype"] = "bool"
     with pytest.raises(ValidationError, match="expected float32"):
+        validate_ir(spec.ir)
+
+
+def test_specialized_permute_validation_rejects_attr_drift_from_fixed_dims():
+    spec = _trace_specialized_permute("permute102", shape=(2, 3, 4))
+    spec.ir["nodes"][0]["attrs"]["dims"] = [2, 0, 1]
+    with pytest.raises(ValidationError, match=r"uses fixed dims \[1, 0, 2\]"):
         validate_ir(spec.ir)

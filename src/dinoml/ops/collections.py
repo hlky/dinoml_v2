@@ -7,6 +7,12 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
 GATHER_INDEX_DTYPES = ("int64", "int32")
+SPECIALIZED_PERMUTE_DIMS: dict[str, tuple[int, ...]] = {
+    "permute021": (0, 2, 1),
+    "permute0213": (0, 2, 1, 3),
+    "permute102": (1, 0, 2),
+    "permute210": (2, 1, 0),
+}
 
 
 def infer_concatenate_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -104,6 +110,26 @@ def infer_permute_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs:
     if len(input_shapes) != 1:
         raise ValueError("permute expects one tensor input")
     return resolve_permute_shape(input_shapes[0], attrs.get("dims"))
+
+
+def infer_specialized_permute_shape_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+    *,
+    op_name: str,
+) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError(f"{op_name} expects one tensor input")
+    fixed_dims = SPECIALIZED_PERMUTE_DIMS[op_name]
+    rank = len(input_shapes[0])
+    if rank != len(fixed_dims):
+        raise ValueError(f"{op_name} expects rank-{len(fixed_dims)} input, got rank {rank}")
+    attrs_dims = attrs.get("dims")
+    if attrs_dims is not None:
+        normalized_dims = normalize_permute_dims(attrs_dims, rank)
+        if tuple(normalized_dims) != fixed_dims:
+            raise ValueError(f"{op_name} uses fixed dims {list(fixed_dims)}, got {list(normalized_dims)}")
+    return resolve_permute_shape(input_shapes[0], fixed_dims)
 
 
 def infer_dynamic_slice_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -682,6 +708,37 @@ def register_collection_ops(registry: OpRegistry) -> None:
             description="Materialize a dense bounded copy with permuted static dimensions.",
         )
     )
+    for op_name, dims in SPECIALIZED_PERMUTE_DIMS.items():
+        rank = len(dims)
+        registry.register(
+            OpDef(
+                name=op_name,
+                schema=OpSchema(inputs=("x",), attrs=()),
+                infer_shape=infer_permute_shape,
+                infer_shape_with_attrs=lambda input_shapes, attrs, *, _op_name=op_name: infer_specialized_permute_shape_with_attrs(
+                    input_shapes,
+                    attrs,
+                    op_name=_op_name,
+                ),
+                allowed_dtypes=COLLECTION_DTYPES,
+                backend_kernels={
+                    "cpu": KernelBinding(
+                        symbol=f"generated_{op_name}",
+                        library="model",
+                        source_template="permute_cpu.cpp.j2",
+                    ),
+                    "cuda": KernelBinding(
+                        symbol=f"generated_{op_name}",
+                        library="model",
+                        source_template="permute_cuda.cu.j2",
+                    ),
+                },
+                frontend=FrontendBinding(op_name, default_attrs={"dims": list(dims)}),
+                description=(
+                    f"Materialize a dense bounded copy for the fixed {list(dims)} permutation on rank-{rank} static tensors."
+                ),
+            )
+        )
     registry.register(
         OpDef(
             name="dynamic_slice",
@@ -801,6 +858,7 @@ def register_collection_ops(registry: OpRegistry) -> None:
 __all__ = [
     "COLLECTION_DTYPES",
     "GATHER_INDEX_DTYPES",
+    "SPECIALIZED_PERMUTE_DIMS",
     "infer_batch_gather_shape",
     "infer_batch_gather_shape_with_attrs",
     "infer_concatenate_shape",
@@ -821,6 +879,7 @@ __all__ = [
     "infer_slice_scatter_shape_with_attrs",
     "infer_permute_shape",
     "infer_permute_shape_with_attrs",
+    "infer_specialized_permute_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
     "chunk_sections",

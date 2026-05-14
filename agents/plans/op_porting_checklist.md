@@ -104,9 +104,12 @@ epilogues where possible.
   flattened range, and scalar view tensors are not exposed yet. Layout-changing
   `permute`/`transpose` are available as bounded materialized dense copies
   rather than metadata-only views. Specialized frontend layout helpers
-  `permute021`, `permute0213`, `permute102`, and `permute210` are public wrappers
-  over `permute`, sharing the same static-shape, dtype, validation, and generated
-  kernel limits without adding separate kernels.
+  `permute021`, `permute0213`, `permute102`, and `permute210` are real
+  registered bounded generated ops with fixed-rank/fixed-dims contracts and
+  their own named IR nodes, lowering entries, and model-owned generated-kernel
+  provenance. The current slice intentionally reuses the existing generated
+  dense permute-copy strategy with compile-time dims/strides rather than
+  claiming v1 tiled/coalesced kernel parity.
 - [x] Symbolic shape/container helpers: `size`, `getitem`, `tuple_construct`,
   `list_construct` are available as bounded public Python helpers for
   model-building. They do not emit IR nodes or metadata: `size` reads tensor

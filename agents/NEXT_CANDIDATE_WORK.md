@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Repaired the named permute specialization surface so it is now honest instead
+  of alias-shaped. Public `dml.ops.permute021`, `permute0213`, `permute102`,
+  and `permute210` are now real registered bounded ops with fixed-rank,
+  fixed-dims contracts; traced and lowered IR preserve those node names instead
+  of silently rewriting them to generic `permute`; and generated CPU/CUDA
+  lowering, `kernel_manifest.json`, and generated-source provenance now carry
+  op-specific symbols/function names for the specialized nodes. This slice
+  intentionally reuses the existing generated dense permute-copy strategy with
+  compile-time dims/strides, so it is truthful about being a bounded generated
+  specialization rather than v1 tiled kernel parity. Focused regressions now
+  cover specialized frontend/IR emission, fixed-dims validation against attr
+  drift, CPU reference parity, artifact-level CPU manifest/source-manifest
+  provenance, and optional CUDA compile coverage for a representative named
+  specialization.
 - Closed the reviewer follow-ups on the just-landed generated
   `get_1d_rotary_pos_embed` slice without widening the op surface. Model-owned
   generated-kernel provenance is now artifact-visible enough to distinguish

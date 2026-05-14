@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- e3e1955, Add CLIP text MLP composition tests, gpt-5.4-mini, medium
 - 497c83b, Add CLIP text attention composition tests, gpt-5.4, high
 - ceb1f4f, Add CLIP text embedding composition tests, gpt-5.4-mini, medium
 - 805133e, Add CLIP text pooling composition tests, gpt-5.4-mini, medium

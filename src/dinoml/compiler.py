@@ -849,15 +849,15 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     supported = get_backend_spec(target.name).supported_dtypes
     unsupported = sorted(
         {
-                str(tensor["dtype"])
-                for tensor in ir["tensors"]
-                if str(tensor["dtype"]) not in supported
-                and str(tensor["name"]) not in index_tensors
-                and str(tensor["name"]) not in argmax_input_tensors
-                and str(tensor["name"]) not in argmax_output_tensors
-                and str(tensor["name"]) not in topk_index_output_tensors
-            }
-        )
+            str(tensor["dtype"])
+            for tensor in ir["tensors"]
+            if str(tensor["dtype"]) not in supported
+            and str(tensor["name"]) not in index_tensors
+            and str(tensor["name"]) not in argmax_input_tensors
+            and str(tensor["name"]) not in argmax_output_tensors
+            and str(tensor["name"]) not in topk_index_output_tensors
+        }
+    )
     if unsupported:
         raise NotImplementedError(
             f"The current {target.name} runtime supports dtypes {sorted(supported)}; "

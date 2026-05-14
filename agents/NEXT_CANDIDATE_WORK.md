@@ -4,6 +4,12 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the top-ranked trust-building GGUF/CUDA workflow gap with a focused
+  float32 `gemm_rrr_bias` runtime regression: real libgguf `Q4_0` RHS storage,
+  dense bias loaded from `constants.bin`, `manual_runtime_load` encoded weight,
+  load -> run -> unload -> reload plus reopen, and dense reference comparisons
+  across each successful execution. Updated the gap audit to describe the
+  proven dense-bias lifecycle slice instead of only one-shot correctness.
 - Closed the reviewer follow-up on native manual GGUF autoload parity: added a
   bounded direct CUDA native-boundary regression for mixed dense plus
   `manual_runtime_load` constants that mirrors the CPU ABI test shape. The test
@@ -139,14 +145,10 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Add a tiny end-to-end GGUF-backed CUDA linear workflow or regression now that
-   the native load-path parity check is boring: real GGUF `Q4_0` RHS, dense
-   bias, `manual_runtime_load`, load-run-unload-reload, and dense reference
-   comparison. Keep it a trust-building workflow, not a broad scheduler.
-2. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+1. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice, such as persistent cache concurrency or stale-key
    rejection, if it directly affects provider selection or compile/profile
    correctness.
-3. Add one more bounded native regression only if another GGUF loader edge
+2. Add one more bounded native regression only if another GGUF loader edge
    appears, preferably around encoded-runtime-dequant native reload behavior
    rather than broadening the runtime surface.

@@ -303,8 +303,9 @@ porting. It intentionally excludes the op inventory, which lives in
   `libgguf_cuda_dequantize_rows_on_stream` function-pointer setter, sessions
   own a separate dense dequant scratch buffer, and lowering dequantizes on the
   session stream immediately before the existing dense CUTLASS GEMM launch.
-  The tested slice uses real libgguf `Q4_0` storage and compares against a dense
-  dequantized reference. Non-bias GEMM epilogues, `bfloat16`, direct fused
+  The tested slice uses real libgguf `Q4_0` storage, includes dense-bias
+  load/unload/reload coverage, and compares against a dense dequantized
+  reference. Non-bias GEMM epilogues, `bfloat16`, direct fused
   dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency policies
   remain future work.
 - Beyond-v1 CUTLASS epilogues: after v1 epilogue parity is solid, evaluate

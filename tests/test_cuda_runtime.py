@@ -1271,7 +1271,9 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
 
 
-def test_cuda_cutlass_gemm_rrr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_launch(tmp_path, monkeypatch):
+def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_dense_reference(
+    tmp_path, monkeypatch
+):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
@@ -1340,8 +1342,11 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
         "ptr_x, ptr_weight_dequant, ptr_bias, "
     )
 
-    x = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
-    expected = x @ expected_weight + bias
+    x0 = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
+    x1 = np.linspace(0.125, 1.375, 64, dtype=np.float32).reshape(2, 32)
+    expected0 = x0 @ expected_weight + bias
+    expected1 = x1 @ expected_weight + bias
+
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
@@ -1349,14 +1354,47 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
         module.load_constants_from_file()
         assert module.constant_load_state() == {"weight": False, "bias": True}
         with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
-            session.run_numpy({"x": x})
+            session.run_numpy({"x": x0})
         module.load_encoded_constants(["weight"])
-        actual = session.run_numpy({"x": x})["y"]
+        assert module.constant_load_state() == {"weight": True, "bias": True}
+        loaded = session.run_numpy({"x": x0})["y"]
+
+        module.unload_constants()
+        assert module.constant_load_state() == {"weight": False, "bias": False}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x1})
+
+        module.load_constants_from_file()
+        assert module.constant_load_state() == {"weight": False, "bias": True}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            session.run_numpy({"x": x1})
+
+        module.load_encoded_constants(["weight"])
+        assert module.constant_load_state() == {"weight": True, "bias": True}
+        reloaded = session.run_numpy({"x": x1})["y"]
     finally:
         session.close()
         module.close()
 
-    np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
+    reopened = runtime.load(artifact.path)
+    reopened_session = reopened.create_session()
+    try:
+        assert reopened.constant_load_state() == {"weight": False, "bias": False}
+        reopened.load_constants_from_file()
+        assert reopened.constant_load_state() == {"weight": False, "bias": True}
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            reopened_session.run_numpy({"x": x0})
+
+        reopened.load_encoded_constants(["weight"])
+        assert reopened.constant_load_state() == {"weight": True, "bias": True}
+        reopened_output = reopened_session.run_numpy({"x": x0})["y"]
+    finally:
+        reopened_session.close()
+        reopened.close()
+
+    np.testing.assert_allclose(loaded, expected0, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reloaded, expected1, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reopened_output, expected0, atol=1e-4, rtol=1e-4)
 
 
 def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(tmp_path, monkeypatch):

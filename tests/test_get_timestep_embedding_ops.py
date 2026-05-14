@@ -368,6 +368,65 @@ def test_get_timestep_embedding_float32_cuda_runtime_matches_reference(tmp_path)
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_get_timestep_embedding_dynamic_cuda_runtime_matches_reference_across_lengths(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    batch = dml.Dim("batch", min=1, max=4)
+    spec = dml.trace(
+        TimestepEmbeddingModule(
+            embedding_dim=7,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=0.5,
+            scale=0.75,
+            max_period=64,
+        ),
+        inputs={"timesteps": dml.TensorSpec([batch], "float32")},
+        name="get_timestep_embedding_dynamic_cuda",
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "get_timestep_embedding_dynamic_cuda.dinoml",
+    )
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "get_timestep_embedding_" in generated
+    assert "sinf" in generated
+    assert "cosf" in generated
+    assert "concatenate_" not in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        for timesteps in (
+            np.array([0.0, 1.5], dtype=np.float32),
+            np.array([0.0, 1.25, 10.5, -0.75], dtype=np.float32),
+        ):
+            expected = _reference_get_timestep_embedding(
+                timesteps,
+                embedding_dim=7,
+                flip_sin_to_cos=True,
+                downscale_freq_shift=0.5,
+                scale=0.75,
+                max_period=64,
+                dtype="float32",
+            )
+            actual = session.run_torch({"timesteps": torch.tensor(timesteps, device="cuda", dtype=torch.float32)})["out"]
+            assert actual.dtype == torch.float32
+            assert tuple(actual.shape) == expected.shape
+            np.testing.assert_allclose(
+                actual.float().cpu().numpy(),
+                expected.astype(np.float32),
+                atol=2e-6,
+                rtol=1e-6,
+            )
+    finally:
+        session.close()
+        module.close()
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 @pytest.mark.parametrize(
     ("dtype", "torch_dtype", "atol", "rtol"),
     [

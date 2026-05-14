@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Hardened the bounded `get_timestep_embedding` runtime contract without
+  widening the op surface: added a focused CUDA dynamic-shape artifact
+  regression that compiles one `float32` artifact with dynamic timestep length
+  `N` and proves the generated kernel runs correctly across multiple runtime
+  lengths while preserving the existing single-op lowering and in-kernel
+  sinusoidal math contract. This closes the remaining gap between the documented
+  dynamic-`N` claim and runtime validation, which previously existed only on
+  the CPU artifact path.
 - Hardened the already-registered named permute specialization surface without
   widening its contract: focused regressions now prove CPU artifact runtime
   execution for `permute021`, `permute0213`, `permute102`, and `permute210`

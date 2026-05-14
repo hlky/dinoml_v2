@@ -613,6 +613,64 @@ def test_get_1d_rotary_pos_embed_float32_cuda_runtime_matches_reference_for_use_
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_get_1d_rotary_pos_embed_dynamic_tensor_pos_cuda_runtime_matches_reference_across_lengths(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    seq = dml.Dim("seq", min=1, max=4)
+    spec = dml.trace(
+        RotaryTensorModule(
+            dim=8,
+            theta=4096.0,
+            use_real=True,
+            linear_factor=1.25,
+            ntk_factor=1.1,
+            repeat_interleave_real=False,
+            dtype="float32",
+        ),
+        inputs={"pos": dml.TensorSpec([seq], "float32")},
+        name="get_1d_rotary_pos_embed_dynamic_cuda",
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "get_1d_rotary_pos_embed_dynamic_cuda.dinoml",
+    )
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "get_1d_rotary_pos_embed_cos_" in generated
+    assert "get_1d_rotary_pos_embed_sin_" in generated
+    assert "generated_repeat_interleave" not in generated
+    assert "generated_concatenate" not in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        for positions in (
+            np.array([0.0, 1.5], dtype=np.float32),
+            np.array([0.0, 1.25, 3.25, 7.5], dtype=np.float32),
+        ):
+            expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+                dim=8,
+                positions=positions,
+                theta=4096.0,
+                use_real=True,
+                linear_factor=1.25,
+                ntk_factor=1.1,
+                repeat_interleave_real=False,
+                dtype="float32",
+            )
+            actual = session.run_numpy({"pos": positions})
+            assert actual["cos"].shape == expected_cos.shape
+            assert actual["sin"].shape == expected_sin.shape
+            np.testing.assert_allclose(actual["cos"], expected_cos, atol=1e-6, rtol=1e-6)
+            np.testing.assert_allclose(actual["sin"], expected_sin, atol=1e-6, rtol=1e-6)
+    finally:
+        session.close()
+        module.close()
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 def test_get_1d_rotary_pos_embed_no_input_integer_pos_cuda_runtime_matches_reference(tmp_path):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

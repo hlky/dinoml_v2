@@ -730,7 +730,8 @@ when compile-time constants make that practical.
   `sequence_length` attr or take float32 tensor positions, perform the
   frequency/trig math in fp32, preserve dynamic `S` in output shape-spec
   metadata for the tensor-input path, and cover generated CPU/CUDA lowering
-  plus focused CPU/CUDA parity tests. Remaining bounds: the public
+  plus focused CPU/CUDA parity tests including dynamic tensor-position CUDA
+  runtime reuse across multiple sequence lengths. Remaining bounds: the public
   wrapper itself still lives outside `OP_REGISTRY` because multi-output
   frontend registration is not available yet, and v1-style single two-output
   kernel launch parity should wait for real multi-output IR/runtime support.

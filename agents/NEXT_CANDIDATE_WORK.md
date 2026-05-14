@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining bounded CUDA runtime-validation gap around
+  `get_1d_rotary_pos_embed` tensor-position dynamics without widening the op
+  surface: focused regressions now compile one dynamic `float32` CUDA artifact
+  with rank-1 tensor positions and prove the generated cos/sin component kernels
+  run correctly across multiple runtime sequence lengths through the NumPy
+  staging path, while preserving the existing table-generation-only contract,
+  mixed-variant provenance coverage, and no-input integer-position runtime
+  coverage.
 - Hardened the bounded `get_timestep_embedding` runtime contract without
   widening the op surface: added a focused CUDA dynamic-shape artifact
   regression that compiles one `float32` artifact with dynamic timestep length

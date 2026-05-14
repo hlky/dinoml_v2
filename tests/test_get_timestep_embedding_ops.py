@@ -6,6 +6,8 @@ import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage
+from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import collect_generated_sources
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.passes import PassManager, validate_ir
 
@@ -102,46 +104,76 @@ def _reference_get_timestep_embedding(
     return _storage_roundtrip(embedding, dtype)
 
 
-def test_get_timestep_embedding_helper_stays_out_of_registry_and_composes_existing_ops():
+def test_get_timestep_embedding_frontend_ir_registers_op_and_preserves_dynamic_shape_spec_and_dtype():
+    batch = dml.Dim("batch", min=1, max=4)
+    spec = dml.trace(
+        TimestepEmbeddingModule(
+            embedding_dim=5,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=0.5,
+            scale=1.25,
+            max_period=64,
+        ),
+        inputs={"timesteps": dml.TensorSpec([batch], "float16")},
+        name="get_timestep_embedding_dynamic_batch",
+    )
+
+    node = spec.ir["nodes"][0]
+    output = spec.ir["outputs"][0]
+    assert "get_timestep_embedding" in OP_REGISTRY.frontend_names()
+    assert len(spec.ir["nodes"]) == 1
+    assert node["op"] == "get_timestep_embedding"
+    assert node["inputs"] == ["timesteps"]
+    assert node["attrs"] == {
+        "embedding_dim": 5,
+        "flip_sin_to_cos": True,
+        "downscale_freq_shift": 0.5,
+        "scale": 1.25,
+        "max_period": 64.0,
+    }
+    assert output["shape"] == [4, 5]
+    assert output["shape_spec"] == [batch.to_json(), 5]
+    assert output["dtype"] == "float16"
+
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    assert [lowered_node["op"] for lowered_node in lowered["nodes"]] == ["get_timestep_embedding"]
+
+
+def test_get_timestep_embedding_manifest_and_generated_sources_are_model_owned():
     spec = _trace_timestep_embedding(
-        dtype="float16",
+        dtype="float32",
+        timesteps_shape=(16,),
         embedding_dim=5,
         flip_sin_to_cos=True,
         downscale_freq_shift=0.5,
         scale=1.25,
         max_period=64,
     )
-
-    assert "get_timestep_embedding" not in OP_REGISTRY.frontend_names()
-    assert spec.ir["outputs"][0]["shape"] == [4, 5]
-    assert spec.ir["outputs"][0]["dtype"] == "float16"
-    assert len(spec.ir["constants"]) == 2
-    assert all(node["op"] != "get_timestep_embedding" for node in spec.ir["nodes"])
-    assert {"mul", "sin", "cos", "concatenate", "full", "cast"}.issubset(
-        {node["op"] for node in spec.ir["nodes"]}
-    )
-
-    lowered, _ = PassManager().run(spec.ir)
-    validate_ir(lowered)
-    lowered_ops = [node["op"] for node in lowered["nodes"]]
-    assert "get_timestep_embedding" not in lowered_ops
-    assert "concatenate" in lowered_ops
-    assert lowered_ops.count("fused_elementwise") >= 1
-
-
-@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
-def test_get_timestep_embedding_reduced_precision_cast_fuses_before_view_boundary(dtype):
-    spec = _trace_timestep_embedding(dtype=dtype, embedding_dim=6)
-
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
 
-    lowered_ops = [node["op"] for node in lowered["nodes"]]
-    assert lowered_ops == ["fused_elementwise", "concatenate", "fused_elementwise"]
-    assert all(node["op"] != "cast" for node in lowered["nodes"])
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    assert manifest["required_kernels"] == [
+        {
+            "op": "get_timestep_embedding",
+            "kernel_symbol": "generated_get_timestep_embedding",
+            "kernel_library": "model",
+            "profiler_symbol": None,
+            "has_profiler": False,
+        }
+    ]
 
-    fused = lowered["nodes"][0]
-    assert [sub_op["op"] for sub_op in fused["attrs"]["sub_ops"]] == ["cast", "mul", "sin", "cos"]
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 1
+    generated = sources["kernels"][0]
+    assert "get_timestep_embedding_" in generated
+    assert "sinf" in generated
+    assert "cosf" in generated
+    assert "expf" in generated
+    assert "concatenate_" not in generated
+    assert "fused_elementwise" not in generated
 
 
 def test_get_timestep_embedding_supports_embedding_dim_one_zero_column():
@@ -155,13 +187,14 @@ def test_get_timestep_embedding_supports_embedding_dim_one_zero_column():
 
 def test_get_timestep_embedding_frontend_rejects_dynamic_rank_dtype_and_bad_parameters():
     dynamic_n = dml.Dim("n", min=1, max=4)
+    dynamic_spec = dml.trace(
+        TimestepEmbeddingModule(embedding_dim=6),
+        inputs={"timesteps": dml.TensorSpec([dynamic_n], "float32")},
+        name="get_timestep_embedding_dynamic",
+    )
 
-    with pytest.raises(ValueError, match="static timesteps length"):
-        dml.trace(
-            TimestepEmbeddingModule(embedding_dim=6),
-            inputs={"timesteps": dml.TensorSpec([dynamic_n], "float32")},
-            name="get_timestep_embedding_dynamic",
-        )
+    assert dynamic_spec.ir["outputs"][0]["shape"] == [4, 6]
+    assert dynamic_spec.ir["outputs"][0]["shape_spec"] == [dynamic_n.to_json(), 6]
 
     with pytest.raises(ValueError, match="rank-1 timesteps"):
         _trace_timestep_embedding(dtype="float32", timesteps_shape=(2, 2), embedding_dim=6)
@@ -230,6 +263,48 @@ def test_cpu_reference_get_timestep_embedding_matches_formula(
     np.testing.assert_allclose(actual.astype(np.float32), expected.astype(np.float32), atol=atol, rtol=rtol)
 
 
+def test_cpu_artifact_runs_generated_get_timestep_embedding_with_dynamic_timesteps_length(tmp_path):
+    batch = dml.Dim("batch", min=1, max=4)
+    spec = dml.trace(
+        TimestepEmbeddingModule(
+            embedding_dim=7,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=0.5,
+            scale=0.75,
+            max_period=64,
+        ),
+        inputs={"timesteps": dml.TensorSpec([batch], "float32")},
+        name="get_timestep_embedding_dynamic_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "get_timestep_embedding_dynamic_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "get_timestep_embedding_" in generated
+    assert "sinf" in generated
+    assert "cosf" in generated
+    assert "concatenate_" not in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    for timesteps in (
+        np.array([0.0, 1.5], dtype=np.float32),
+        np.array([0.0, 1.25, 10.5, -0.75], dtype=np.float32),
+    ):
+        expected = _reference_get_timestep_embedding(
+            timesteps,
+            embedding_dim=7,
+            flip_sin_to_cos=True,
+            downscale_freq_shift=0.5,
+            scale=0.75,
+            max_period=64,
+            dtype="float32",
+        )
+        actual = session.run_numpy({"timesteps": timesteps})["out"]
+        assert actual.shape == expected.shape
+        np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+    session.close()
+    module.close()
+
+
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 def test_get_timestep_embedding_float32_cuda_artifact_compiles_for_even_and_odd_cases(tmp_path):
     for embedding_dim, flip_sin_to_cos in ((6, False), (5, True)):
@@ -247,8 +322,10 @@ def test_get_timestep_embedding_float32_cuda_artifact_compiles_for_even_and_odd_
             tmp_path / f"get_timestep_embedding_{embedding_dim}_cuda.dinoml",
         )
         generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-        assert "concatenate_" in generated
-        assert "<<<grid, block, 0, stream>>>(x0, x1, y, runtime_numel);" in generated
+        assert "get_timestep_embedding_" in generated
+        assert "sinf" in generated
+        assert "cosf" in generated
+        assert "concatenate_" not in generated
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

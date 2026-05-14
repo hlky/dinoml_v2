@@ -9,6 +9,7 @@ from dinoml.ops.elementwise import register_elementwise_ops
 from dinoml.ops.gemm import register_gemm_ops
 from dinoml.ops.internal import register_internal_ops
 from dinoml.ops.normalization import register_normalization_ops
+from dinoml.ops.positional import register_positional_ops
 from dinoml.ops.pooling import register_pooling_ops
 from dinoml.ops.reductions import register_reduction_ops
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
@@ -25,6 +26,7 @@ register_softmax_op(OP_REGISTRY)
 register_reduction_ops(OP_REGISTRY)
 register_pooling_ops(OP_REGISTRY)
 register_creation_ops(OP_REGISTRY)
+register_positional_ops(OP_REGISTRY)
 register_broadcasting_ops(OP_REGISTRY)
 register_collection_ops(OP_REGISTRY)
 register_internal_ops(OP_REGISTRY)

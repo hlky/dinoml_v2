@@ -1,0 +1,51 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT timesteps,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_timesteps) {
+  constexpr int64_t embedding_dim = {{ embedding_dim }};
+  constexpr int64_t half_dim = {{ half_dim }};
+  constexpr bool flip_sin_to_cos = {{ "true" if flip_sin_to_cos else "false" }};
+  constexpr bool odd_embedding_dim = {{ "true" if odd_embedding_dim else "false" }};
+  constexpr float denominator = {{ denominator_literal }};
+  constexpr float neg_log_max_period = {{ neg_log_max_period_literal }};
+  constexpr float scale = {{ scale_literal }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t runtime_total = runtime_timesteps * embedding_dim;
+  if (linear_idx >= runtime_total) {
+    return;
+  }
+  const int64_t row = linear_idx / embedding_dim;
+  const int64_t col = linear_idx - row * embedding_dim;
+  if (odd_embedding_dim && col == embedding_dim - 1) {
+    y[linear_idx] = dinoml::math::cast<{{ storage_type }}>({{ zero_literal }});
+    return;
+  }
+  const int64_t pair_idx = col % half_dim;
+  const float exponent = (neg_log_max_period * static_cast<float>(pair_idx)) / denominator;
+  const float angle = dinoml::math::cast<float>(timesteps[row]) * expf(exponent) * scale;
+  const float sin_value = sinf(angle);
+  const float cos_value = cosf(angle);
+  const bool write_cos = flip_sin_to_cos ? (col < half_dim) : (col >= half_dim);
+  y[linear_idx] = dinoml::math::cast<{{ storage_type }}>(write_cos ? cos_value : sin_value);
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT timesteps,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_timesteps,
+    int64_t runtime_total,
+    cudaStream_t stream) {
+  if (timesteps == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t embedding_dim = {{ embedding_dim }};
+  if (runtime_total != runtime_timesteps * embedding_dim) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  const int block = {{ block_size }};
+  const int64_t total = runtime_total;
+  const int grid = static_cast<int>((total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(timesteps, y, runtime_timesteps);
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

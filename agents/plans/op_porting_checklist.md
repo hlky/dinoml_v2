@@ -671,20 +671,20 @@ when compile-time constants make that practical.
 - [x] `gelu_new` - bounded public frontend helper aliasing the existing tanh
   `gelu` op; see the V2 MVP activation notes above for the helper-only
   contract.
-- [x] `get_timestep_embedding` - bounded public frontend helper composing
-  existing primitives for rank-1 dense `float32`/`float16`/`bfloat16`
-  timesteps with static length `N`, positive static `embedding_dim`, finite
-  `downscale_freq_shift`/`scale`, positive finite `max_period`, and a non-zero
-  `half_dim - downscale_freq_shift` denominator. The helper precomputes the
-  static frequency vector as a traced constant, performs the sinusoid math in
-  fp32 when practical, preserves the input float storage dtype on the public
-  output, swaps halves for `flip_sin_to_cos`, and appends the odd-dimension
-  zero column through existing helpers. Current bound: dynamic `N` is not
-  admitted because `concatenate` still requires static shapes. CUDA parity is
-  now proven for `float32`, `float16`, and `bfloat16`: float32 compile parity
-  covers even-width plus odd-width/`flip_sin_to_cos` helper compositions, and
-  representative runtime regressions cover float32 plus reduced-precision
-  output-dtype preservation on the composed helper path.
+- [x] `get_timestep_embedding` - bounded registered positional op with
+  generated CPU and CUDA kernels for rank-1 dense
+  `float32`/`float16`/`bfloat16` timesteps, positive integer
+  `embedding_dim`, finite `downscale_freq_shift`/`scale`, positive finite
+  `max_period`, and a non-zero `half_dim - downscale_freq_shift` denominator
+  whenever `half_dim > 0`. Traced and lowered IR now preserve a single
+  `get_timestep_embedding` node instead of expanding to primitive trig/copy
+  launches, dynamic `N` is preserved through output shape-spec propagation,
+  internal math stays in fp32, output storage dtype matches the input storage
+  dtype, `flip_sin_to_cos` swaps halves in-kernel, and odd embedding widths
+  append the zero column in-kernel. Focused tests cover the registered
+  frontend/IR contract, generated-source/kernel-manifest ownership, CPU
+  formula parity, dynamic-`N` CPU artifact execution, and CUDA compile/runtime
+  parity for `float32`, `float16`, and `bfloat16`.
 - [ ] Rotary/sincos helpers: `get_2d_rotary_pos_embed`,
   `get_2d_rotary_pos_embed_lumina`,
   `get_2d_sincos_pos_embed`, `get_2d_sincos_pos_embed_cogview3plus`,

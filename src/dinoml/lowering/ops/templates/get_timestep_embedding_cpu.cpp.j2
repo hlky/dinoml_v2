@@ -1,0 +1,43 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT timesteps,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_timesteps,
+    int64_t runtime_total) {
+  if (timesteps == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t embedding_dim = {{ embedding_dim }};
+  if (runtime_total != runtime_timesteps * embedding_dim) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  constexpr int64_t half_dim = {{ half_dim }};
+  constexpr bool flip_sin_to_cos = {{ "true" if flip_sin_to_cos else "false" }};
+  constexpr bool odd_embedding_dim = {{ "true" if odd_embedding_dim else "false" }};
+  constexpr float denominator = {{ denominator_literal }};
+  constexpr float neg_log_max_period = {{ neg_log_max_period_literal }};
+  constexpr float scale = {{ scale_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < runtime_timesteps; ++row) {
+    const float timestep = dinoml::math::cast<float>(timesteps[row]);
+    const int64_t base = row * embedding_dim;
+    for (int64_t idx = 0; idx < half_dim; ++idx) {
+      const float exponent = (neg_log_max_period * static_cast<float>(idx)) / denominator;
+      const float angle = timestep * expf(exponent) * scale;
+      const float sin_value = sinf(angle);
+      const float cos_value = cosf(angle);
+      if (flip_sin_to_cos) {
+        y[base + idx] = dinoml::math::cast<{{ storage_type }}>(cos_value);
+        y[base + half_dim + idx] = dinoml::math::cast<{{ storage_type }}>(sin_value);
+      } else {
+        y[base + idx] = dinoml::math::cast<{{ storage_type }}>(sin_value);
+        y[base + half_dim + idx] = dinoml::math::cast<{{ storage_type }}>(cos_value);
+      }
+    }
+    if (odd_embedding_dim) {
+      y[base + embedding_dim - 1] = dinoml::math::cast<{{ storage_type }}>({{ zero_literal }});
+    }
+  }
+  return 0;
+}

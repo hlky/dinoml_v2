@@ -59,6 +59,13 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 ),
                 output_dtype,
             )
+        elif node["op"] == "get_timestep_embedding":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_get_timestep_embedding(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -488,6 +495,36 @@ def _execute_t5_layer_norm(value: np.ndarray, weight: np.ndarray, attrs: Mapping
     scale = np.asarray(weight, dtype=np.float32)
     mean_square = np.mean(source * source, axis=-1, keepdims=True)
     return np.asarray(source * (1.0 / np.sqrt(mean_square + eps)) * scale, dtype=np.float32)
+
+
+def _execute_get_timestep_embedding(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    if value.ndim != 1:
+        raise ValueError(f"CPU reference get_timestep_embedding expects rank-1 timesteps, got rank {value.ndim}")
+    embedding_dim = int(attrs["embedding_dim"])
+    flip_sin_to_cos = bool(attrs.get("flip_sin_to_cos", False))
+    downscale_freq_shift = float(attrs.get("downscale_freq_shift", 1.0))
+    scale = float(attrs.get("scale", 1.0))
+    max_period = float(attrs.get("max_period", 10000.0))
+    timesteps = np.asarray(value, dtype=np.float32)
+    batch = int(timesteps.shape[0])
+    half_dim = embedding_dim // 2
+    if half_dim == 0:
+        return np.zeros((batch, 1), dtype=np.float32)
+    exponent = (
+        -np.log(np.float32(max_period))
+        * np.arange(half_dim, dtype=np.float32)
+        / np.float32(float(half_dim) - downscale_freq_shift)
+    )
+    frequencies = np.exp(exponent).astype(np.float32, copy=False)
+    args = timesteps[:, None] * frequencies[None, :]
+    args = args * np.float32(scale)
+    sin_part = np.sin(args).astype(np.float32, copy=False)
+    cos_part = np.cos(args).astype(np.float32, copy=False)
+    pieces = [cos_part, sin_part] if flip_sin_to_cos else [sin_part, cos_part]
+    embedding = np.concatenate(pieces, axis=1)
+    if embedding_dim % 2 == 1:
+        embedding = np.concatenate([embedding, np.zeros((batch, 1), dtype=np.float32)], axis=1)
+    return np.asarray(embedding, dtype=np.float32)
 
 
 def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

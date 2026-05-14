@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Finished the half-landed `get_timestep_embedding` slice as a real registered
+  generated op instead of a helper composition. Public
+  `dml.ops.get_timestep_embedding(...)` now lives in `OP_REGISTRY`, traced IR
+  and lowered IR carry a single `get_timestep_embedding` node, dynamic rank-1
+  `N` is preserved through output shape-spec propagation, and generated CPU and
+  CUDA kernels compute the full sinusoidal table in one op/kernel with fp32
+  internal math, output-dtype preservation for `float32`/`float16`/`bfloat16`,
+  odd-width zero padding, and `flip_sin_to_cos`. Focused tests now cover the
+  registered frontend/IR contract, generated-source/kernel-manifest ownership,
+  CPU formula parity, dynamic-`N` CPU artifact execution, and CUDA compile plus
+  runtime parity.
 - Hardened the bounded ConvNd/CUTLASS scaffold contract around its
   artifact-visible layout/weight transform metadata. The shared
   `cutlass_conv_plan` now validates its own NCHW/OIHW -> NHWC/OHWI semantics,
@@ -77,43 +88,6 @@ This file should be updated after each major loop.
   focused regressions that prove the Conv used-candidate plan now preserves the
   scaffold candidate payloads and that a failing CUDA compile still materializes
   the support scaffold before the expected `manifest_scaffold_only` rejection.
-- Closed the reduced-precision CUDA `get_timestep_embedding` helper gap
-  without widening the pass or op surface: the helper now unsqueezes timesteps
-  before casting to fp32, which keeps the internal math in fp32 when practical
-  but moves the input cast onto the elementwise side of the view boundary so
-  it fuses with the multiply/sin/cos chain instead of surviving as a raw CUDA
-  `cast` op. Added a focused lowered-graph regression that proves the first
-  node becomes `fused_elementwise` with `cast`/`mul`/`sin`/`cos`, plus reduced-
-  precision CUDA runtime parity tests for `float16` and `bfloat16`. Dynamic
-  `N` remains out because `concatenate` is still static-shape only.
-- Fixed the narrow generated-CUDA `concatenate` wrapper bug that blocked
-  intermediate producer outputs from feeding `concatenate`: the wrapper-local
-  CUDA launch now passes wrapper parameters `x0`, `x1`, ... into the generated
-  kernel instead of undefined IR pointer names like `ptr_t3`. Added a focused
-  fused-elementwise (`sin`/`cos`) -> `concatenate` CUDA regression that checks
-  the generated launch site and compiles/runs the CUDA artifact, then extended
-  `get_timestep_embedding` coverage with honest float32 CUDA compile parity for
-  even-width plus odd-width/`flip_sin_to_cos` cases and a representative
-  even-width float32 CUDA runtime regression. The helper contract is now
-  updated accordingly: dynamic `N` remains out because `concatenate` is still
-  static-shape only, while reduced-precision CUDA parity is still not claimed
-  because the separate raw-cast-across-view admission/fusion gap remains.
-- Landed the next bounded small/custom helper slice around
-  `get_timestep_embedding`: public `dml.ops.get_timestep_embedding(...)` is now
-  a helper-only composition over existing v2 primitives instead of a new
-  registered op, provider, or custom kernel family. The helper keeps the
-  Diffusers/v1 sinusoid contract for rank-1 dense floating timesteps with
-  finite attrs, precomputes the static frequency vector as a traced constant,
-  does the internal trig/frequency math in fp32 when practical, preserves the
-  input float storage dtype on the public output, swaps sin/cos halves when
-  requested, and appends the odd-width zero column. Focused tests now pin even
-  and odd embedding widths, `flip_sin_to_cos`, `downscale_freq_shift`, `scale`,
-  `max_period`, dtype preservation, the `embedding_dim == 1` zero-column edge,
-  and rejection of dynamic timestep length, bad rank/dtype, and invalid
-  parameter combinations. The honest current bounds are documented in the
-  checklist: dynamic `N` is still out because `concatenate` remains static-only,
-  and CUDA parity is now proven for float32 plus reduced-precision runtime
-  slices without expanding the helper into a dedicated op/provider surface.
 - Landed the smallest honest v1/HuggingFace custom-op helper slice around
   `gelu_new`: public `dml.ops.gelu_new(x)` is now a bounded frontend helper
   that rewrites directly to the existing tanh-approximation `gelu` op instead
@@ -326,19 +300,17 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
-   with `gelu_new`, `get_timestep_embedding`, and the bounded helper-only
-   `rms_norm` plus `get_1d_rotary_pos_embed` slices closed, prefer the next
-   smallest candidate such as `cropped_pos_embed` or the next bounded rotary
-   follow-up before revisiting
+   with `gelu_new`, the now-registered generated `get_timestep_embedding`, and
+   the bounded helper-only `rms_norm` plus `get_1d_rotary_pos_embed` slices in
+   place, prefer the next half-finished surface that either needs promotion out
+   of helper-only status or a small contract hardening pass before revisiting
    broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
    normalized-dimension work. RoPE exploration/planning is now recorded in
-   `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is now a
+   `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a
    downstream consumer of the landed 1D tables, such as a bounded one-tensor
    real-pair application helper or a 2D/3D table-preparation helper, not a
-   speculative fused public `apply_rotary_emb` CUDA ABI. If the next rotary
-   helper needs dynamic concatenation or compiled CUDA parity, first decide
-   whether that belongs in the helper slice or in the existing
-   collection/codegen gaps called out by `get_timestep_embedding`.
+   speculative fused public `apply_rotary_emb` CUDA ABI. Do not restart
+   `cropped_pos_embed` without new human direction.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

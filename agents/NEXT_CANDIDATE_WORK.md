@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Fixed the narrow generated-CUDA `concatenate` wrapper bug that blocked
+  intermediate producer outputs from feeding `concatenate`: the wrapper-local
+  CUDA launch now passes wrapper parameters `x0`, `x1`, ... into the generated
+  kernel instead of undefined IR pointer names like `ptr_t3`. Added a focused
+  fused-elementwise (`sin`/`cos`) -> `concatenate` CUDA regression that checks
+  the generated launch site and compiles/runs the CUDA artifact, then extended
+  `get_timestep_embedding` coverage with honest float32 CUDA compile parity for
+  even-width plus odd-width/`flip_sin_to_cos` cases and a representative
+  even-width float32 CUDA runtime regression. The helper contract is now
+  updated accordingly: dynamic `N` remains out because `concatenate` is still
+  static-shape only, while reduced-precision CUDA parity is still not claimed
+  because the separate raw-cast-across-view admission/fusion gap remains.
 - Landed the next bounded small/custom helper slice around
   `get_timestep_embedding`: public `dml.ops.get_timestep_embedding(...)` is now
   a helper-only composition over existing v2 primitives instead of a new
@@ -18,9 +30,9 @@ This file should be updated after each major loop.
   and rejection of dynamic timestep length, bad rank/dtype, and invalid
   parameter combinations. The honest current bounds are documented in the
   checklist: dynamic `N` is still out because `concatenate` remains static-only,
-  and compiled CUDA parity is not claimed yet because the composed path still
-  runs into existing standalone-cast admission and fused-elementwise-output to
-  `concatenate` codegen gaps outside this helper slice.
+  float32 CUDA compile parity plus a representative runtime slice are now
+  proven, and reduced-precision CUDA parity is still deferred behind the
+  separate raw-cast-across-view admission/fusion gap outside this helper slice.
 - Landed the smallest honest v1/HuggingFace custom-op helper slice around
   `gelu_new`: public `dml.ops.gelu_new(x)` is now a bounded frontend helper
   that rewrites directly to the existing tanh-approximation `gelu` op instead

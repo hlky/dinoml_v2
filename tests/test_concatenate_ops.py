@@ -1,7 +1,10 @@
 import numpy as np
 import pytest
+import re
+import shutil
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
@@ -17,6 +20,11 @@ class ConcatenateModule(dml.Module):
 
     def forward(self, x, y, z):
         return dml.ops.output(dml.ops.concatenate([x, y, z], dim=self.dim), "out")
+
+
+class FusedConcatenateModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.concatenate([dml.ops.sin(x), dml.ops.cos(x)], dim=1), "out")
 
 
 def _trace_concatenate(dtype="float32", dim=1, shapes=([2, 1, 4], [2, 2, 4], [2, 3, 4])):
@@ -46,6 +54,14 @@ def _inputs(dtype):
         "y": (10 + np.arange(3, dtype=np.float32)).reshape(1, 3, 1),
         "z": (20 + np.arange(1, dtype=np.float32)).reshape(1, 1, 1),
     }
+
+
+def _trace_fused_concatenate(dtype="float32", shape=(2, 3)):
+    return dml.trace(
+        FusedConcatenateModule(),
+        inputs={"x": dml.TensorSpec(shape, dtype)},
+        name=f"fused_concatenate_{dtype}",
+    )
 
 
 def test_concatenate_frontend_ir_normalizes_negative_dim():
@@ -124,6 +140,50 @@ def test_concatenate_generated_cuda_source_supports_reduced_precision_and_bool()
         assert pointer_type in cuda_source
         assert "concatenate_" in cuda_source
         assert "y[idx] = x" in cuda_source
+
+
+def test_concatenate_generated_cuda_source_uses_wrapper_parameter_names_for_fused_inputs():
+    spec = _trace_fused_concatenate("float32", shape=(2, 3))
+    lowered, _ = PassManager().run(spec.ir)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+
+    cuda_source = "\n".join(render_generated_kernels("cuda", lowered["nodes"], tensor_map))
+
+    assert "concatenate_" in cuda_source
+    assert "fused_elementwise_" in cuda_source
+    assert re.search(
+        r"static int concatenate_[0-9a-f]+\([^)]*\)\s*\{.*?<<<grid, block, 0, stream>>>\(x0, x1, y, runtime_numel\);",
+        cuda_source,
+        re.DOTALL,
+    )
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_cuda_artifact_compiles_and_runs_fused_elementwise_concatenate(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    spec = _trace_fused_concatenate("float32", shape=(2, 3))
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "fused_concatenate_cuda.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "concatenate_" in generated
+    assert re.search(
+        r"static int concatenate_[0-9a-f]+\([^)]*\)\s*\{.*?<<<grid, block, 0, stream>>>\(x0, x1, y, runtime_numel\);",
+        generated,
+        re.DOTALL,
+    )
+
+    x = np.array([[0.0, 0.25, 0.5], [1.0, -0.75, 2.0]], dtype=np.float32)
+    expected = np.concatenate([np.sin(x), np.cos(x)], axis=1).astype(np.float32)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"x": torch.tensor(x, device="cuda", dtype=torch.float32)})["out"]
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual.float().cpu().numpy(), expected, atol=1e-6, rtol=1e-6)
 
 
 def test_concatenate_frontend_rejects_invalid_inputs_and_dynamic_shapes():

@@ -27,7 +27,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.providers.cutlass.conv import CONV_OPS
+from dinoml.kernels.providers.cutlass.conv import CONV_OPS, validate_cutlass_conv_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
@@ -411,10 +411,6 @@ def _append_conv_profile_workloads(
     if required_item is None:
         return
     conv_plan = required_item.get("cutlass_conv_plan")
-    if not isinstance(conv_plan, Mapping):
-        raise ValueError("CUTLASS Conv profile workloads require manifest cutlass_conv_plan transform metadata")
-    if str(conv_plan.get("status")) != "manifest_scaffold_only":
-        raise ValueError(f"Unsupported CUTLASS Conv plan status for profiling scaffold: {conv_plan.get('status')!r}")
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
@@ -422,6 +418,11 @@ def _append_conv_profile_workloads(
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
         for candidate in _profile_candidates(required_item):
+            normalized_conv_plan = validate_cutlass_conv_plan(
+                conv_plan,
+                candidate=candidate,
+                node_id=str(node["id"]),
+            )
             workloads.append(
                 ConvProfileWorkload(
                     node_id=str(node["id"]),
@@ -452,17 +453,17 @@ def _append_conv_profile_workloads(
                     weight_shape=tuple(weight_shape),
                     bias_shape=tuple(bias_shape),
                     output_shape=tuple(output_shape),
-                    conv_config=dict(conv_plan.get("conv_config", {})),
-                    semantic_layout=dict(conv_plan.get("semantic_layout", {})),
-                    provider_layout=dict(conv_plan.get("provider_layout", {})),
-                    layout_translation=dict(conv_plan.get("layout_translation", {})),
-                    weight_transform=dict(conv_plan.get("weight_transform", {})),
+                    conv_config=dict(normalized_conv_plan.get("conv_config", {})),
+                    semantic_layout=dict(normalized_conv_plan.get("semantic_layout", {})),
+                    provider_layout=dict(normalized_conv_plan.get("provider_layout", {})),
+                    layout_translation=dict(normalized_conv_plan.get("layout_translation", {})),
+                    weight_transform=dict(normalized_conv_plan.get("weight_transform", {})),
                     temporary_buffers=tuple(
                         dict(buffer)
-                        for buffer in conv_plan.get("temporary_buffers", ())
+                        for buffer in normalized_conv_plan.get("temporary_buffers", ())
                         if isinstance(buffer, Mapping)
                     ),
-                    workspace_nbytes=int(conv_plan.get("workspace_nbytes", 0) or 0),
+                    workspace_nbytes=int(normalized_conv_plan.get("workspace_nbytes", 0) or 0),
                     shape_source=scenario.source,
                     shape_case_id=scenario.case_id,
                     dim_values=scenario.dim_values,

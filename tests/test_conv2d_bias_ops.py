@@ -346,6 +346,24 @@ def test_cutlass_conv2d_bias_profile_workload_requires_manifest_transform_metada
         build_profile_workloads(spec.ir, kernel_manifest)
 
 
+def test_cutlass_conv2d_bias_profile_workload_rejects_incoherent_transform_nbytes():
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    kernel_manifest["required_kernels"][0]["cutlass_conv_plan"]["layout_translation"]["input_pack_nbytes"] -= 2
+
+    with pytest.raises(ValueError, match="input_pack_nbytes mismatch"):
+        build_profile_workloads(spec.ir, kernel_manifest)
+
+
+def test_cutlass_conv2d_bias_codegen_plan_rejects_candidate_layout_drift(tmp_path):
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    kernel_manifest["required_kernels"][0]["candidates"][0]["layouts"]["activation_provider"] = "nchw"
+
+    with pytest.raises(ValueError, match="candidate layouts do not match transform plan"):
+        create_codegen_plan(kernel_manifest, tmp_path / "cache")
+
+
 def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_path):
     spec = _trace_conv2d_bias("float32")
 

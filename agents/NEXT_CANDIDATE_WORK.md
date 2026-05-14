@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Hardened the bounded ConvNd/CUTLASS scaffold contract around its
+  artifact-visible layout/weight transform metadata. The shared
+  `cutlass_conv_plan` now validates its own NCHW/OIHW -> NHWC/OHWI semantics,
+  dtype/shape-derived temporary sizes, padded-channel bookkeeping, and
+  temporary-buffer inventory before profiling, codegen-plan generation, or the
+  support-cache/source-manifest scaffold consume it. Candidate metadata must
+  also agree with the recorded semantic/provider layouts, so manifest drift now
+  fails explicitly instead of propagating incoherent provenance into workload
+  JSON or support manifests. Added focused regressions that prove profiling
+  rejects malformed transform byte counts and that codegen/support provenance
+  rejects candidate-layout drift against the recorded transform plan.
 - Landed the first bounded rotary table-generation slice as a helper-only
   public `dml.ops.get_1d_rotary_pos_embed(...)`, deliberately without adding a
   new op/provider/kernel family or any fused `apply_rotary_emb` ABI. The new
@@ -326,9 +337,10 @@ This file should be updated after each major loop.
    `conv2d_bias` public/reference surface, `cutlass_conv`
    `manifest_scaffold_only` compile metadata, and profile workload scaffold to
    the next honest provider step. The support-cache/source-manifest scaffold is
-   now in place, so prefer the next small artifact-visible increment such as a
-   generated pack/unpack lowering metadata/test slice or another narrow
-   codegen-plan/profiler-provenance follow-up before attempting a full CUTLASS
+   now in place and its transform metadata is validated for internal
+   coherence, so prefer the next small artifact-visible increment such as
+   execution-plan/schema hardening for Conv scaffold provenance or a generated
+   pack/unpack lowering metadata/test slice before attempting a full CUTLASS
    runtime.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel

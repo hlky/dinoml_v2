@@ -125,10 +125,14 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         candidates = [dict(candidate) for candidate in item.get("candidates", [])]
         candidate_set = dict(item.get("candidate_set", {}))
         conv_plan = item.get("cutlass_conv_plan")
-        conv_plan_payload = dict(conv_plan) if isinstance(conv_plan, Mapping) else {}
-        conv_plan_key = hashlib.sha256(canonical_json(conv_plan_payload).encode("utf-8")).hexdigest() if conv_plan_payload else ""
         selected_id = str(item.get("selected_candidate_id", ""))
         selected = next((candidate for candidate in candidates if str(candidate.get("candidate_id")) == selected_id), None)
+        conv_plan_payload = validate_cutlass_conv_plan(
+            conv_plan,
+            candidate=selected,
+            node_id=str(item.get("node_id", "")) or None,
+        )
+        conv_plan_key = hashlib.sha256(canonical_json(conv_plan_payload).encode("utf-8")).hexdigest()
         candidate_config_key = str(selected.get("candidate_config_key") if selected else "")
         entries.append(
             {
@@ -194,7 +198,8 @@ def cutlass_conv_layout_plan(
         {"name": "weight_ohwi", "kind": "layout_pack", "layout": "ohwi", "nbytes": _nbytes(weight_shape, dtype_size)},
         {"name": "output_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(output_shape, dtype_size)},
     ]
-    return {
+    return validate_cutlass_conv_plan(
+        {
         "schema_version": 1,
         "kind": "cutlass_conv2d_bias_manifest_scaffold",
         "status": "manifest_scaffold_only",
@@ -235,7 +240,206 @@ def cutlass_conv_layout_plan(
         "workspace_nbytes": 0,
         "temporary_buffers": temporary_buffers,
         "temporary_nbytes": sum(int(buffer["nbytes"]) for buffer in temporary_buffers),
-    }
+        },
+        node_id=str(node.get("id", "")) or None,
+    )
+
+
+def validate_cutlass_conv_plan(
+    plan: Mapping[str, Any] | None,
+    *,
+    candidate: Mapping[str, Any] | None = None,
+    node_id: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(plan, Mapping):
+        raise ValueError("CUTLASS Conv scaffold requires cutlass_conv_plan transform metadata")
+    payload = dict(plan)
+    if str(payload.get("kind")) != "cutlass_conv2d_bias_manifest_scaffold":
+        raise ValueError(f"Unsupported CUTLASS Conv scaffold kind {payload.get('kind')!r}")
+    if str(payload.get("status")) != "manifest_scaffold_only":
+        raise ValueError(f"Unsupported CUTLASS Conv scaffold status {payload.get('status')!r}")
+    if str(payload.get("blocked_reason")) != "cutlass_conv_runtime_launcher_not_implemented":
+        raise ValueError(
+            "CUTLASS Conv scaffold blocked_reason must record "
+            "'cutlass_conv_runtime_launcher_not_implemented'"
+        )
+    if str(payload.get("op_family")) != "conv2d_bias":
+        raise ValueError(f"Unsupported CUTLASS Conv scaffold op family {payload.get('op_family')!r}")
+    if node_id is not None and str(payload.get("node_id", "")) != node_id:
+        raise ValueError(
+            f"CUTLASS Conv scaffold node_id mismatch: expected {node_id!r}, got {payload.get('node_id')!r}"
+        )
+    dtype = _normalize_conv_dtype(str(payload.get("dtype")))
+    semantic_layout = dict(payload.get("semantic_layout", {}))
+    provider_layout = dict(payload.get("provider_layout", {}))
+    expected_semantic_layout = {"activation": "nchw", "weight": "oihw", "bias": "o", "output": "nchw"}
+    expected_provider_layout = {"activation": "nhwc", "weight": "ohwi", "bias": "o", "output": "nhwc"}
+    if semantic_layout != expected_semantic_layout:
+        raise ValueError(
+            f"CUTLASS Conv scaffold semantic_layout must be {expected_semantic_layout}, got {semantic_layout!r}"
+        )
+    if provider_layout != expected_provider_layout:
+        raise ValueError(
+            f"CUTLASS Conv scaffold provider_layout must be {expected_provider_layout}, got {provider_layout!r}"
+        )
+    x_shape = _validate_positive_shape(payload.get("input_shape"), rank=4, name="input_shape")
+    weight_shape = _validate_positive_shape(payload.get("weight_shape"), rank=4, name="weight_shape")
+    bias_shape = _validate_positive_shape(payload.get("bias_shape"), rank=1, name="bias_shape")
+    output_shape = _validate_positive_shape(payload.get("output_shape"), rank=4, name="output_shape")
+    dtype_size = dtype_nbytes(dtype)
+    conv_config = dict(payload.get("conv_config", {}))
+    stride = _validate_positive_shape(conv_config.get("stride"), rank=2, name="conv_config.stride")
+    padding = _validate_non_negative_shape(conv_config.get("padding"), rank=2, name="conv_config.padding")
+    dilation = _validate_positive_shape(conv_config.get("dilation"), rank=2, name="conv_config.dilation")
+    groups = conv_config.get("groups")
+    if not isinstance(groups, int) or isinstance(groups, bool) or groups != 1:
+        raise ValueError(f"CUTLASS Conv scaffold currently requires conv_config.groups == 1, got {groups!r}")
+    if weight_shape[1] != x_shape[1]:
+        raise ValueError(
+            "CUTLASS Conv scaffold weight/input channel mismatch for groups=1: "
+            f"weight I={weight_shape[1]} vs input C={x_shape[1]}"
+        )
+    if bias_shape[0] != weight_shape[0] or output_shape[1] != weight_shape[0]:
+        raise ValueError(
+            "CUTLASS Conv scaffold output/bias channels must match weight O: "
+            f"bias={bias_shape[0]}, output C={output_shape[1]}, weight O={weight_shape[0]}"
+        )
+    layout_translation = dict(payload.get("layout_translation", {}))
+    expected_input_nbytes = _nbytes(x_shape, dtype_size)
+    expected_output_nbytes = _nbytes(output_shape, dtype_size)
+    if layout_translation.get("input_pack") != "nchw_to_nhwc_temporary":
+        raise ValueError("CUTLASS Conv scaffold layout_translation.input_pack must be 'nchw_to_nhwc_temporary'")
+    if layout_translation.get("output_unpack") != "nhwc_to_nchw_temporary":
+        raise ValueError("CUTLASS Conv scaffold layout_translation.output_unpack must be 'nhwc_to_nchw_temporary'")
+    if layout_translation.get("bias") != "direct_per_output_channel":
+        raise ValueError("CUTLASS Conv scaffold layout_translation.bias must be 'direct_per_output_channel'")
+    if int(layout_translation.get("input_pack_nbytes", -1)) != expected_input_nbytes:
+        raise ValueError(
+            "CUTLASS Conv scaffold input_pack_nbytes mismatch: "
+            f"expected {expected_input_nbytes}, got {layout_translation.get('input_pack_nbytes')!r}"
+        )
+    if int(layout_translation.get("output_unpack_nbytes", -1)) != expected_output_nbytes:
+        raise ValueError(
+            "CUTLASS Conv scaffold output_unpack_nbytes mismatch: "
+            f"expected {expected_output_nbytes}, got {layout_translation.get('output_unpack_nbytes')!r}"
+        )
+    weight_transform = dict(payload.get("weight_transform", {}))
+    expected_weight_nbytes = _nbytes(weight_shape, dtype_size)
+    if weight_transform.get("from") != "oihw":
+        raise ValueError("CUTLASS Conv scaffold weight_transform.from must be 'oihw'")
+    if weight_transform.get("to") != "ohwi":
+        raise ValueError("CUTLASS Conv scaffold weight_transform.to must be 'ohwi'")
+    if weight_transform.get("pack") != "oihw_to_ohwi_temporary":
+        raise ValueError("CUTLASS Conv scaffold weight_transform.pack must be 'oihw_to_ohwi_temporary'")
+    if int(weight_transform.get("temporary_nbytes", -1)) != expected_weight_nbytes:
+        raise ValueError(
+            "CUTLASS Conv scaffold weight temporary_nbytes mismatch: "
+            f"expected {expected_weight_nbytes}, got {weight_transform.get('temporary_nbytes')!r}"
+        )
+    if bool(weight_transform.get("runtime_persistent")):
+        raise ValueError("CUTLASS Conv scaffold weight_transform.runtime_persistent must be false")
+    channel_pad_multiple = weight_transform.get("channel_pad_multiple")
+    if not isinstance(channel_pad_multiple, int) or isinstance(channel_pad_multiple, bool) or channel_pad_multiple <= 0:
+        raise ValueError(
+            "CUTLASS Conv scaffold weight_transform.channel_pad_multiple must be a positive integer, "
+            f"got {channel_pad_multiple!r}"
+        )
+    expected_padded_input_channels = _round_up(weight_shape[1], channel_pad_multiple)
+    expected_padded_output_channels = _round_up(weight_shape[0], channel_pad_multiple)
+    if int(weight_transform.get("padded_input_channels", -1)) != expected_padded_input_channels:
+        raise ValueError(
+            "CUTLASS Conv scaffold padded_input_channels mismatch: "
+            f"expected {expected_padded_input_channels}, got {weight_transform.get('padded_input_channels')!r}"
+        )
+    if int(weight_transform.get("padded_output_channels", -1)) != expected_padded_output_channels:
+        raise ValueError(
+            "CUTLASS Conv scaffold padded_output_channels mismatch: "
+            f"expected {expected_padded_output_channels}, got {weight_transform.get('padded_output_channels')!r}"
+        )
+    if float(weight_transform.get("padding_fill_value", 0.0)) != 0.0:
+        raise ValueError("CUTLASS Conv scaffold padding_fill_value must be 0.0")
+    temporary_buffers = payload.get("temporary_buffers", ())
+    if not isinstance(temporary_buffers, (list, tuple)):
+        raise ValueError("CUTLASS Conv scaffold temporary_buffers must be a list")
+    expected_buffers = (
+        ("activation_nhwc", "layout_pack", "nhwc", expected_input_nbytes),
+        ("weight_ohwi", "layout_pack", "ohwi", expected_weight_nbytes),
+        ("output_nhwc", "layout_pack", "nhwc", expected_output_nbytes),
+    )
+    if len(temporary_buffers) != len(expected_buffers):
+        raise ValueError(
+            f"CUTLASS Conv scaffold temporary_buffers must contain {len(expected_buffers)} entries, "
+            f"got {len(temporary_buffers)}"
+        )
+    normalized_buffers = []
+    for buffer, (expected_name, expected_kind, expected_layout, expected_nbytes) in zip(
+        temporary_buffers, expected_buffers, strict=True
+    ):
+        if not isinstance(buffer, Mapping):
+            raise ValueError("CUTLASS Conv scaffold temporary_buffers entries must be objects")
+        buffer_payload = dict(buffer)
+        if str(buffer_payload.get("name")) != expected_name:
+            raise ValueError(
+                f"CUTLASS Conv scaffold temporary buffer name mismatch: expected {expected_name!r}, "
+                f"got {buffer_payload.get('name')!r}"
+            )
+        if str(buffer_payload.get("kind")) != expected_kind:
+            raise ValueError(
+                f"CUTLASS Conv scaffold temporary buffer kind mismatch for {expected_name!r}: "
+                f"expected {expected_kind!r}, got {buffer_payload.get('kind')!r}"
+            )
+        if str(buffer_payload.get("layout")) != expected_layout:
+            raise ValueError(
+                f"CUTLASS Conv scaffold temporary buffer layout mismatch for {expected_name!r}: "
+                f"expected {expected_layout!r}, got {buffer_payload.get('layout')!r}"
+            )
+        if int(buffer_payload.get("nbytes", -1)) != expected_nbytes:
+            raise ValueError(
+                f"CUTLASS Conv scaffold temporary buffer nbytes mismatch for {expected_name!r}: "
+                f"expected {expected_nbytes}, got {buffer_payload.get('nbytes')!r}"
+            )
+        normalized_buffers.append(buffer_payload)
+    if int(payload.get("workspace_nbytes", -1)) != 0:
+        raise ValueError("CUTLASS Conv scaffold workspace_nbytes must be 0 for the current scaffold")
+    expected_temporary_nbytes = sum(int(buffer["nbytes"]) for buffer in normalized_buffers)
+    if int(payload.get("temporary_nbytes", -1)) != expected_temporary_nbytes:
+        raise ValueError(
+            "CUTLASS Conv scaffold temporary_nbytes mismatch: "
+            f"expected {expected_temporary_nbytes}, got {payload.get('temporary_nbytes')!r}"
+        )
+    if candidate is not None:
+        candidate_layouts = dict(candidate.get("layouts", {}))
+        expected_candidate_layouts = {
+            "activation_semantic": semantic_layout["activation"],
+            "weight_semantic": semantic_layout["weight"],
+            "output_semantic": semantic_layout["output"],
+            "activation_provider": provider_layout["activation"],
+            "weight_provider": provider_layout["weight"],
+            "output_provider": provider_layout["output"],
+        }
+        if candidate_layouts != expected_candidate_layouts:
+            raise ValueError(
+                "CUTLASS Conv scaffold candidate layouts do not match transform plan: "
+                f"expected {expected_candidate_layouts}, got {candidate_layouts!r}"
+            )
+        if str(candidate.get("dtype")) != dtype:
+            raise ValueError(
+                f"CUTLASS Conv scaffold candidate dtype mismatch: expected {dtype!r}, got {candidate.get('dtype')!r}"
+            )
+    payload["dtype"] = dtype
+    payload["semantic_layout"] = semantic_layout
+    payload["provider_layout"] = provider_layout
+    payload["layout_translation"] = layout_translation
+    payload["weight_transform"] = weight_transform
+    payload["conv_config"] = {"stride": stride, "padding": padding, "dilation": dilation, "groups": 1}
+    payload["input_shape"] = x_shape
+    payload["weight_shape"] = weight_shape
+    payload["bias_shape"] = bias_shape
+    payload["output_shape"] = output_shape
+    payload["temporary_buffers"] = normalized_buffers
+    payload["workspace_nbytes"] = 0
+    payload["temporary_nbytes"] = expected_temporary_nbytes
+    return payload
 
 
 def _nbytes(shape: list[int], dtype_size: int) -> int:
@@ -243,6 +447,32 @@ def _nbytes(shape: list[int], dtype_size: int) -> int:
     for dim in shape:
         count *= int(dim)
     return count * int(dtype_size)
+
+
+def _validate_positive_shape(value: Any, *, rank: int, name: str) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != rank:
+        raise ValueError(f"CUTLASS Conv scaffold {name} must be a rank-{rank} integer shape, got {value!r}")
+    dims = []
+    for dim in value:
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+            raise ValueError(f"CUTLASS Conv scaffold {name} must contain positive integers, got {value!r}")
+        dims.append(int(dim))
+    return dims
+
+
+def _validate_non_negative_shape(value: Any, *, rank: int, name: str) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != rank:
+        raise ValueError(f"CUTLASS Conv scaffold {name} must be a rank-{rank} integer shape, got {value!r}")
+    dims = []
+    for dim in value:
+        if not isinstance(dim, int) or isinstance(dim, bool) or dim < 0:
+            raise ValueError(f"CUTLASS Conv scaffold {name} must contain non-negative integers, got {value!r}")
+        dims.append(int(dim))
+    return dims
+
+
+def _round_up(value: int, multiple: int) -> int:
+    return ((int(value) + int(multiple) - 1) // int(multiple)) * int(multiple)
 
 
 def _normalize_conv_dtype(dtype: str) -> str:
@@ -292,4 +522,5 @@ __all__ = [
     "cutlass_conv_profiler_symbol",
     "cutlass_conv_symbol",
     "cutlass_conv_used_candidate_plan",
+    "validate_cutlass_conv_plan",
 ]

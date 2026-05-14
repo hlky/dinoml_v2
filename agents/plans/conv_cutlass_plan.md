@@ -292,3 +292,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   candidate plan, candidate/config keys, and explicit layout/weight-transform
   provenance. This is still scaffold-only metadata: no ConvNd profiler
   execution, compiled support library, or runtime launcher exists yet.
+- The shared `cutlass_conv_plan` scaffold metadata is now validated before
+  profile workload generation, codegen-plan support-library enumeration, and
+  support-cache/source-manifest emission consume it. The current bounded
+  contract explicitly rejects layout/candidate drift, incorrect temporary byte
+  counts, inconsistent padded-channel bookkeeping, and malformed temporary-pack
+  inventories instead of letting incoherent NCHW/OIHW -> NHWC/OHWI provenance
+  propagate deeper into artifacts.

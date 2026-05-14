@@ -17,7 +17,7 @@ from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
-from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, validate_cutlass_conv_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
@@ -112,6 +112,11 @@ def ensure_cutlass_conv_support_scaffold(
     source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
     source_manifest = src_dir / "source_manifest.json"
     manifest = lib_dir / "cutlass_conv_manifest.json"
+    for entry in used_candidate_plan.get("entries", ()):
+        validate_cutlass_conv_plan(
+            entry.get("cutlass_conv_plan"),
+            node_id=str(entry.get("node_id", "")) or None,
+        )
     source_metrics = _support_source_metrics(repo_source_text, used_candidate_plan)
     family_cache_key = _cutlass_conv_family_cache_key(target, used_candidate_plan)
     external_kernel_plan_cache_key = _cutlass_conv_external_kernel_plan_cache_key(

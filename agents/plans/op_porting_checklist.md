@@ -560,8 +560,9 @@ behavior.
   explicit launcher/profiler stub exports for the planned Conv ABI, while model
   compile still rejects before module build. `kernel_codegen_plan.json` now
   also exposes explicit wrapper-stage metadata for activation pack, weight
-  pack, planned provider launch, and output unpack, plus source-renderable call
-  snippets for tests, while compile rejection remains unchanged. No ConvNd
+  pack, planned provider launch, and output unpack, plus rejected-artifact
+  debug wrapper scaffold sources linked from `kernel_codegen_plan.json` for
+  guarded inspection, while compile rejection remains unchanged. No ConvNd
   profiler execution, generated module wrapper lowering, real CUTLASS runtime
   launcher, or CUDA runtime parity is implemented yet.
   Keep all other ConvNd families unported until that bounded slice is real.

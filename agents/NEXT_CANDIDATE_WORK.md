@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` wrapper-source lane
+  without weakening the current compile rejection: rejected CUDA artifacts now
+  emit `debug/generated_src/scaffold_source_manifest.json` plus a guarded
+  scaffold-only `.cu` wrapper snippet for each Conv wrapper-stage group, and
+  `kernel_codegen_plan.json` links those emitted sources back to the recorded
+  activation-pack, weight-pack, provider-launch, and output-unpack stage
+  sequence. Focused tests now pin the stage-to-source linkage, emitted file
+  path, guarded `#if 0` snippet shape, and artifact-side manifest wiring while
+  CUDA compile still rejects before module build with the existing
+  `manifest/codegen scaffold only` boundary.
 - Advanced the bounded `conv2d_bias`/`cutlass_conv` wrapper-metadata lane
   without weakening the current compile rejection: `kernel_codegen_plan.json`
   now records explicit per-node wrapper stages for activation NCHW -> NHWC

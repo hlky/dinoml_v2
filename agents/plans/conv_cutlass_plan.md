@@ -318,7 +318,11 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   Those entries are derived from the validated `cutlass_conv_plan`, keep the
   temporary-buffer/layout contract artifact-visible, and are source-renderable
   into future CUDA wrapper call snippets for tests without claiming runtime
-  lowering is wired yet.
+  lowering is wired yet. Rejected CUDA artifacts now also emit guarded debug
+  wrapper-scaffold `.cu` snippets plus
+  `debug/generated_src/scaffold_source_manifest.json`, and
+  `kernel_codegen_plan.json` links those source files back to the same per-node
+  stage groups for artifact inspection only.
 - Support-scaffold emission now also revalidates caller-supplied Conv
   `used_candidate_plan` payloads entry by entry before it writes those manifest
   files: the scaffold re-derives the selected candidate from the embedded

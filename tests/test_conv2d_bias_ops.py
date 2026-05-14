@@ -22,7 +22,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_used_candidate_plan,
     cutlass_conv_weight_pack_symbol,
 )
-from dinoml.lowering.ops.conv import render_scaffold_wrapper_stages
+from dinoml.lowering.ops.conv import render_scaffold_wrapper_source, render_scaffold_wrapper_stages
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.passes import validate_ir
 from dinoml.passes.validation import ValidationError
@@ -432,6 +432,35 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "DINO_CUDA_CHECK(dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_float16_v1("
         "tmp_output_nhwc, ptr_output, output_n, output_c, output_h, output_w, stream));"
     )
+    rendered_source = render_scaffold_wrapper_source(
+        codegen_plan.wrapper_stages,
+        op_name="conv2d_bias",
+        node_id="conv_node_0",
+    )
+    assert rendered_source == (
+        "// CUTLASS Conv scaffold only: emitted for artifact/source inspection.\n"
+        "// This debug wrapper snippet is intentionally not compiled into the runtime module.\n"
+        "// op: conv2d_bias\n"
+        "// node_id: conv_node_0\n"
+        "#if 0\n"
+        "extern \"C\" int dinoml_cutlass_conv_wrapper_scaffold_conv_node_0(cudaStream_t stream) {\n"
+        "  DINO_CUDA_CHECK(dinoml_cutlass_conv_input_pack_nchw_to_nhwc_float16_v1("
+        "ptr_activation, tmp_activation_nhwc, activation_n, activation_c, activation_h, activation_w, stream));\n"
+        "  DINO_CUDA_CHECK(dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_float16_v1("
+        "ptr_weight, tmp_weight_ohwi, weight_o, weight_i, kernel_h, kernel_w, stream));\n"
+        "  int status_provider_launch = dinoml_cutlass_conv2d_bias_float16_scaffold_sm80_nhwc_ohwi_bias("
+        "tmp_activation_nhwc, tmp_weight_ohwi, ptr_bias, tmp_output_nhwc, activation_n, activation_h, "
+        "activation_w, activation_c, output_h, output_w, output_c, kernel_h, kernel_w, stride_h, stride_w, "
+        "pad_h, pad_w, dilation_h, dilation_w, stream);\n"
+        "  if (status_provider_launch != 0) {\n"
+        "    return status_provider_launch;\n"
+        "  }\n"
+        "  DINO_CUDA_CHECK(dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_float16_v1("
+        "tmp_output_nhwc, ptr_output, output_n, output_c, output_h, output_w, stream));\n"
+        "  return 0;\n"
+        "}\n"
+        "#endif\n"
+    )
 
 
 def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transforms():
@@ -584,6 +613,32 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     ]
     assert codegen_plan["wrapper_stages"][2]["symbol"] == required["kernel_symbol"]
     assert codegen_plan["wrapper_stages"][3]["symbol"] == required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"]
+    assert codegen_plan["wrapper_scaffold_manifest"] == "debug/generated_src/scaffold_source_manifest.json"
+    [wrapper_source] = codegen_plan["wrapper_scaffold_sources"]
+    assert wrapper_source["source_kind"] == "cutlass_conv_wrapper_scaffold"
+    assert wrapper_source["op"] == "conv2d_bias"
+    assert wrapper_source["node_id"] == expected_node_id
+    assert wrapper_source["stage_names"] == [
+        "activation_pack",
+        "weight_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    wrapper_source_path = artifact_dir / wrapper_source["emitted_source_path"]
+    assert wrapper_source_path.exists()
+    wrapper_source_text = wrapper_source_path.read_text(encoding="utf-8")
+    assert wrapper_source_text.startswith("// CUTLASS Conv scaffold only: emitted for artifact/source inspection.\n")
+    assert f"// node_id: {expected_node_id}\n" in wrapper_source_text
+    assert "#if 0\n" in wrapper_source_text
+    assert required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"] in wrapper_source_text
+    assert required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"] in wrapper_source_text
+    assert required["kernel_symbol"] in wrapper_source_text
+    assert required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"] in wrapper_source_text
+    scaffold_manifest = read_json(artifact_dir / codegen_plan["wrapper_scaffold_manifest"])
+    assert scaffold_manifest["kind"] == "dinoml.wrapper_scaffold_source_manifest"
+    assert scaffold_manifest["target"]["name"] == "cuda"
+    assert scaffold_manifest["target"]["arch"] == "sm_86"
+    assert scaffold_manifest["sources"] == codegen_plan["wrapper_scaffold_sources"]
     support_cache_dir = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / kernel_manifest["support_cache_key"][:16]
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")

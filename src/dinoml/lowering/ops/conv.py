@@ -70,6 +70,41 @@ def render_scaffold_wrapper_stages(stages: list[Mapping[str, Any]] | tuple[Mappi
     return [render_scaffold_wrapper_stage(stage) for stage in stages]
 
 
+def render_scaffold_wrapper_source(
+    stages: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    *,
+    op_name: str | None = None,
+    node_id: str | None = None,
+) -> str:
+    if not stages:
+        raise ValueError("CUTLASS Conv scaffold wrapper source requires at least one stage")
+    first_stage = stages[0]
+    op_name = str(op_name or first_stage.get("op") or "conv2d_bias")
+    node_id = None if node_id is None and first_stage.get("node_id") is None else str(node_id or first_stage.get("node_id"))
+    snippet_lines = []
+    for stage in stages:
+        snippet_lines.extend(render_scaffold_wrapper_stage(stage).splitlines())
+    function_suffix = _c_ident(node_id or op_name)
+    lines = [
+        "// CUTLASS Conv scaffold only: emitted for artifact/source inspection.",
+        "// This debug wrapper snippet is intentionally not compiled into the runtime module.",
+        f"// op: {op_name}",
+        f"// node_id: {node_id or '<unknown>'}",
+        "#if 0",
+        f'extern "C" int dinoml_cutlass_conv_wrapper_scaffold_{function_suffix}(cudaStream_t stream) {{',
+    ]
+    lines.extend(f"  {line}" for line in snippet_lines)
+    lines.extend(
+        [
+            "  return 0;",
+            "}",
+            "#endif",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def _descriptor_placeholder(descriptor: Any) -> str:
     if not isinstance(descriptor, Mapping):
         raise ValueError(f"Malformed CUTLASS Conv scaffold descriptor: {descriptor!r}")
@@ -118,6 +153,7 @@ CONV2D_BIAS_LOWERING = OpLowering(
 
 __all__ = [
     "CONV2D_BIAS_LOWERING",
+    "render_scaffold_wrapper_source",
     "render_scaffold_wrapper_stage",
     "render_scaffold_wrapper_stages",
 ]

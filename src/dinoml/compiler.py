@@ -35,6 +35,7 @@ from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
+from dinoml.lowering.ops.conv import render_scaffold_wrapper_source
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
@@ -272,7 +273,17 @@ def _build_artifact_from_lowered_ir(
         kernel_manifest,
         Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
     )
-    write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
+    codegen_plan_payload = codegen_plan.to_json()
+    wrapper_scaffold_sources = _materialize_wrapper_stage_debug_sources(
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        target=codegen_plan.target,
+        wrapper_stages=codegen_plan.wrapper_stages,
+    )
+    if wrapper_scaffold_sources:
+        codegen_plan_payload["wrapper_scaffold_manifest"] = "debug/generated_src/scaffold_source_manifest.json"
+        codegen_plan_payload["wrapper_scaffold_sources"] = wrapper_scaffold_sources
+    write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan_payload)
     _materialize_manifest_only_support_scaffolds(kernel_manifest)
 
     _reject_manifest_scaffold_only_kernels(kernel_manifest)
@@ -324,6 +335,97 @@ def _load_execution_plan(execution_plan: str | Path | Mapping[str, Any] | None) 
     if isinstance(execution_plan, Mapping):
         return dict(execution_plan)
     return read_json(Path(execution_plan))
+
+
+def _materialize_wrapper_stage_debug_sources(
+    *,
+    artifact_dir: Path,
+    generated_src_dir: Path,
+    target: Mapping[str, Any],
+    wrapper_stages: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    stage_groups = _group_wrapper_stages(wrapper_stages)
+    if not stage_groups:
+        (generated_src_dir / "scaffold_source_manifest.json").unlink(missing_ok=True)
+        return []
+    sources: list[dict[str, Any]] = []
+    for stages in stage_groups:
+        first_stage = stages[0]
+        op_name = str(first_stage.get("op") or "conv2d_bias")
+        node_id = None if first_stage.get("node_id") is None else str(first_stage.get("node_id"))
+        source_key = canonical_json(
+            {
+                "kind": "cutlass_conv_wrapper_scaffold",
+                "op": op_name,
+                "node_id": node_id,
+                "stages": [dict(stage) for stage in stages],
+            }
+        )
+        source_hash = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:16]
+        file_name = f"{_scaffold_file_stem(node_id=node_id, op_name=op_name)}_{source_hash}.cu"
+        emitted_source_path = Path("debug") / "generated_src" / "scaffolds" / op_name / file_name
+        full_source_path = artifact_dir / emitted_source_path
+        full_source_path.parent.mkdir(parents=True, exist_ok=True)
+        full_source_path.write_text(
+            render_scaffold_wrapper_source(stages, op_name=op_name, node_id=node_id),
+            encoding="utf-8",
+        )
+        sources.append(
+            {
+                "source_kind": "cutlass_conv_wrapper_scaffold",
+                "kernel_library": str(first_stage.get("kernel_library") or "cutlass_conv"),
+                "op": op_name,
+                "node_id": node_id,
+                "stage_names": [str(stage.get("stage_name") or "") for stage in stages],
+                "stage_count": len(stages),
+                "blocked_reason": str(
+                    first_stage.get("blocked_reason") or "cutlass_conv_runtime_launcher_not_implemented"
+                ),
+                "source_key": source_key,
+                "source_hash": source_hash,
+                "emitted_source_path": emitted_source_path.as_posix(),
+            }
+        )
+    manifest = {
+        "schema_version": 1,
+        "kind": "dinoml.wrapper_scaffold_source_manifest",
+        "target": dict(target),
+        "sources": sources,
+    }
+    (generated_src_dir / "scaffold_source_manifest.json").write_text(
+        canonical_json(manifest),
+        encoding="utf-8",
+    )
+    return sources
+
+
+def _group_wrapper_stages(
+    wrapper_stages: Sequence[Mapping[str, Any]],
+) -> list[list[Mapping[str, Any]]]:
+    groups: list[list[Mapping[str, Any]]] = []
+    current: list[Mapping[str, Any]] = []
+    current_key: tuple[str, str | None, str] | None = None
+    for stage in wrapper_stages:
+        key = (
+            str(stage.get("op") or ""),
+            None if stage.get("node_id") is None else str(stage.get("node_id")),
+            str(stage.get("kernel_library") or ""),
+        )
+        if current and key != current_key:
+            groups.append(current)
+            current = []
+        current.append(dict(stage))
+        current_key = key
+    if current:
+        groups.append(current)
+    return groups
+
+
+def _scaffold_file_stem(*, node_id: str | None, op_name: str) -> str:
+    base = node_id or op_name
+    pieces = [char if char.isalnum() else "_" for char in str(base)]
+    stem = "".join(pieces).strip("_")
+    return stem or "cutlass_conv_wrapper_scaffold"
 
 
 def _validate_constant_load_policy(policy: str) -> str:

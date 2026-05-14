@@ -255,9 +255,12 @@ porting. It intentionally excludes the op inventory, which lives in
   wrapper-stage metadata for activation pack, weight pack, planned provider
   launch, and output unpack, and those stage entries can be rendered into
   future CUDA wrapper call snippets for source-level tests without enabling
-  runtime lowering. Generated ConvNd module wrapper lowering, profiler
-  execution, real CUTLASS Conv runtime launch, and general channel-last runtime
-  layout remain unimplemented.
+  runtime lowering. Rejected CUDA artifacts now also emit guarded debug wrapper
+  scaffold `.cu` sources plus a small scaffold-source manifest under
+  `debug/generated_src/`, linked from `kernel_codegen_plan.json` for
+  artifact-side inspection only. Generated ConvNd module wrapper lowering,
+  profiler execution, real CUTLASS Conv runtime launch, and general
+  channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

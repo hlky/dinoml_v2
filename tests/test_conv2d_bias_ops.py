@@ -22,6 +22,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_used_candidate_plan,
     cutlass_conv_weight_pack_symbol,
 )
+from dinoml.lowering.ops.conv import render_scaffold_wrapper_stages
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.passes import validate_ir
 from dinoml.passes.validation import ValidationError
@@ -359,6 +360,78 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
         cutlass_conv_output_unpack_symbol("float16"),
         cutlass_conv_weight_pack_symbol("float16"),
     ]
+    assert [stage["stage_name"] for stage in codegen_plan.wrapper_stages] == [
+        "activation_pack",
+        "weight_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert codegen_plan.wrapper_stages[0]["source"] == {
+        "kind": "semantic_tensor",
+        "role": "activation",
+        "layout": "nchw",
+    }
+    assert codegen_plan.wrapper_stages[0]["destination"] == {
+        "kind": "temporary_buffer",
+        "name": "activation_nhwc",
+        "layout": "nhwc",
+        "nbytes": layout_plan["layout_translation"]["input_pack_nbytes"],
+    }
+    assert codegen_plan.wrapper_stages[1]["destination"]["name"] == "weight_ohwi"
+    assert codegen_plan.wrapper_stages[2]["stage_kind"] == "provider_launcher"
+    assert codegen_plan.wrapper_stages[2]["symbol"] == candidates[0]["kernel_symbol"]
+    assert [arg["placeholder"] for arg in codegen_plan.wrapper_stages[2]["shape_args"]] == [
+        "activation_n",
+        "activation_h",
+        "activation_w",
+        "activation_c",
+        "output_h",
+        "output_w",
+        "output_c",
+        "kernel_h",
+        "kernel_w",
+        "stride_h",
+        "stride_w",
+        "pad_h",
+        "pad_w",
+        "dilation_h",
+        "dilation_w",
+    ]
+    assert codegen_plan.wrapper_stages[3]["destination"] == {
+        "kind": "semantic_tensor",
+        "role": "output",
+        "layout": "nchw",
+    }
+
+
+def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_path):
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache")
+    rendered = render_scaffold_wrapper_stages(codegen_plan.wrapper_stages)
+
+    assert rendered[0] == (
+        "DINO_CUDA_CHECK(dinoml_cutlass_conv_input_pack_nchw_to_nhwc_float16_v1("
+        "ptr_activation, tmp_activation_nhwc, activation_n, activation_c, activation_h, activation_w, stream));"
+    )
+    assert rendered[1] == (
+        "DINO_CUDA_CHECK(dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_float16_v1("
+        "ptr_weight, tmp_weight_ohwi, weight_o, weight_i, kernel_h, kernel_w, stream));"
+    )
+    assert rendered[2] == (
+        "int status_provider_launch = dinoml_cutlass_conv2d_bias_float16_scaffold_sm80_nhwc_ohwi_bias("
+        "tmp_activation_nhwc, tmp_weight_ohwi, ptr_bias, tmp_output_nhwc, activation_n, activation_h, "
+        "activation_w, activation_c, output_h, output_w, output_c, kernel_h, kernel_w, stride_h, stride_w, "
+        "pad_h, pad_w, dilation_h, dilation_w, stream);\n"
+        "if (status_provider_launch != 0) {\n"
+        "  return status_provider_launch;\n"
+        "}"
+    )
+    assert rendered[3] == (
+        "DINO_CUDA_CHECK(dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_float16_v1("
+        "tmp_output_nhwc, ptr_output, output_n, output_c, output_h, output_w, stream));"
+    )
 
 
 def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transforms():
@@ -499,6 +572,18 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     [support_lib] = codegen_plan["external_support_libraries"]
     assert support_lib["name"] == "cutlass_conv"
     assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
+    assert [stage["stage_name"] for stage in codegen_plan["wrapper_stages"]] == [
+        "activation_pack",
+        "weight_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert [stage["symbol"] for stage in codegen_plan["wrapper_stages"][:2]] == [
+        required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"],
+        required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"],
+    ]
+    assert codegen_plan["wrapper_stages"][2]["symbol"] == required["kernel_symbol"]
+    assert codegen_plan["wrapper_stages"][3]["symbol"] == required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"]
     support_cache_dir = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / kernel_manifest["support_cache_key"][:16]
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")

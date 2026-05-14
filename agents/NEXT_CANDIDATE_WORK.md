@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` wrapper-metadata lane
+  without weakening the current compile rejection: `kernel_codegen_plan.json`
+  now records explicit per-node wrapper stages for activation NCHW -> NHWC
+  pack, OIHW -> OHWI weight pack, planned provider launch, and NHWC -> NCHW
+  output unpack, all derived from the validated `cutlass_conv_plan`
+  temporary/layout contract and linked to the selected helper or launcher
+  symbols plus static shape/attr call arguments. Added a small source-render
+  helper that turns those stage entries into future CUDA wrapper call snippets,
+  with focused tests proving the stage order, temporary-buffer usage, helper
+  symbol wiring, and rendered call shapes while CUDA compile still stops at the
+  existing `manifest/codegen scaffold only` boundary before module build.
 - Closed the remaining native-boundary regression gap around the bounded GGUF
   runtime-dequant CUDA slice without widening policy: direct native
   `dino_module_load()` now has CUDA-gated coverage for a mixed dense-bias plus
@@ -419,13 +430,14 @@ This file should be updated after each major loop.
    `conv2d_bias` public/reference surface, `cutlass_conv`
    `manifest_scaffold_only` compile metadata, and profile workload scaffold to
    the next honest provider step. The support-cache/source-manifest scaffold is
-   now in place and its transform metadata is validated for internal
-   coherence, and the support-cache boundary now compiles explicit launcher and
-   profiler stubs when `nvcc` is available. Prefer the next small
-   artifact-visible increment such as generated NCHW/OIHW pack/unpack lowering
-   metadata plus guarded module-source tests, or a real CUTLASS implicit-GEMM
-   launcher only if it can include runtime parity without weakening the current
-   honest rejection behavior.
+   now in place, its transform metadata is validated for internal coherence,
+   the support-cache boundary compiles explicit launcher/profiler stubs when
+   `nvcc` is available, and `kernel_codegen_plan.json` now exposes the planned
+   wrapper pack/launch/unpack stages with source-renderable call metadata.
+   Prefer the next small artifact-visible increment such as guarded generated
+   module-source emission/inspection for those wrapper stages, or a real
+   CUTLASS implicit-GEMM launcher only if it can include runtime parity without
+   weakening the current honest rejection behavior.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.

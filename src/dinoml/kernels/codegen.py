@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
-from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, cutlass_conv_wrapper_stages
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
 
 
@@ -19,6 +19,7 @@ class KernelCodegenPlan:
     candidate_profiler_symbols: tuple[str, ...] = ()
     generated_sources: tuple[Mapping[str, Any], ...] = ()
     external_support_libraries: tuple[Mapping[str, Any], ...] = ()
+    wrapper_stages: tuple[Mapping[str, Any], ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -30,6 +31,7 @@ class KernelCodegenPlan:
             "candidate_profiler_symbols": list(self.candidate_profiler_symbols),
             "generated_sources": [dict(item) for item in self.generated_sources],
             "external_support_libraries": [dict(item) for item in self.external_support_libraries],
+            "wrapper_stages": [dict(item) for item in self.wrapper_stages],
         }
 
 
@@ -48,6 +50,7 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
     generated_sources = _generated_sources(kernel_manifest)
     support_key = kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16]
     external_support_libraries = _external_support_libraries(kernel_manifest, Path(cache_root), target_dir, support_key)
+    wrapper_stages = _wrapper_stages(kernel_manifest)
     return KernelCodegenPlan(
         target=target,
         cache_key=kernel_manifest["cache_key"],
@@ -57,6 +60,7 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
         candidate_profiler_symbols=candidate_profiler_symbols,
         generated_sources=generated_sources,
         external_support_libraries=external_support_libraries,
+        wrapper_stages=wrapper_stages,
     )
 
 
@@ -143,3 +147,7 @@ def _external_support_libraries(
                 }
             )
     return tuple(result)
+
+
+def _wrapper_stages(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    return tuple(cutlass_conv_wrapper_stages(kernel_manifest))

@@ -313,6 +313,12 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   counts, inconsistent padded-channel bookkeeping, and malformed temporary-pack
   inventories instead of letting incoherent NCHW/OIHW -> NHWC/OHWI provenance
   propagate deeper into artifacts.
+- `kernel_codegen_plan.json` now also records explicit scaffold wrapper stages
+  for activation pack, weight pack, planned provider launch, and output unpack.
+  Those entries are derived from the validated `cutlass_conv_plan`, keep the
+  temporary-buffer/layout contract artifact-visible, and are source-renderable
+  into future CUDA wrapper call snippets for tests without claiming runtime
+  lowering is wired yet.
 - Support-scaffold emission now also revalidates caller-supplied Conv
   `used_candidate_plan` payloads entry by entry before it writes those manifest
   files: the scaffold re-derives the selected candidate from the embedded

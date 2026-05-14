@@ -259,6 +259,15 @@ def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str,
     return payload
 
 
+def cutlass_conv_wrapper_stages(kernel_manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    stages: list[dict[str, Any]] = []
+    for item in kernel_manifest.get("required_kernels", ()):
+        if not isinstance(item, Mapping) or str(item.get("kernel_library", "")) != "cutlass_conv":
+            continue
+        stages.extend(_cutlass_conv_item_wrapper_stages(item))
+    return stages
+
+
 def cutlass_conv_layout_plan(
     node: Mapping[str, Any],
     *,
@@ -723,6 +732,130 @@ def _validate_cutlass_conv_selected_candidate(op_name: str, candidate: Mapping[s
             )
 
 
+def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str, Any]]:
+    op_name = str(item.get("op", ""))
+    _validate_conv_op_name(op_name)
+    selected_candidate = _selected_cutlass_conv_candidate(item)
+    node_id = _optional_str(item.get("node_id"))
+    if node_id is None and isinstance(item.get("cutlass_conv_plan"), Mapping):
+        node_id = _optional_str(item["cutlass_conv_plan"].get("node_id"))
+    conv_plan = validate_cutlass_conv_scaffold_plan(
+        item.get("cutlass_conv_plan"),
+        candidate=selected_candidate,
+        node_id=node_id,
+    )
+    layout_translation = dict(conv_plan["layout_translation"])
+    weight_transform = dict(conv_plan["weight_transform"])
+    temporary_buffers = {
+        str(buffer["name"]): dict(buffer)
+        for buffer in conv_plan.get("temporary_buffers", ())
+        if isinstance(buffer, Mapping)
+    }
+    activation_shape = list(conv_plan["input_shape"])
+    weight_shape = list(conv_plan["weight_shape"])
+    output_shape = list(conv_plan["output_shape"])
+    conv_config = dict(conv_plan["conv_config"])
+    stage_common = {
+        "schema_version": 1,
+        "op": op_name,
+        "node_id": node_id,
+        "kernel_library": "cutlass_conv",
+        "dtype": str(conv_plan["dtype"]),
+        "status": str(conv_plan["status"]),
+        "blocked_reason": str(conv_plan["blocked_reason"]),
+    }
+    return [
+        {
+            **stage_common,
+            "stage_index": 0,
+            "stage_name": "activation_pack",
+            "stage_kind": "transform_helper",
+            "symbol": str(layout_translation["input_pack_symbol"]),
+            "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            "tensor_role": "activation",
+            "layout_from": "nchw",
+            "layout_to": "nhwc",
+            "source": {"kind": "semantic_tensor", "role": "activation", "layout": "nchw"},
+            "destination": _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
+            "shape_args": [
+                {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
+                {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
+                {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
+                {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
+            ],
+        },
+        {
+            **stage_common,
+            "stage_index": 1,
+            "stage_name": "weight_pack",
+            "stage_kind": "transform_helper",
+            "symbol": str(weight_transform["pack_symbol"]),
+            "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            "tensor_role": "weight",
+            "layout_from": "oihw",
+            "layout_to": "ohwi",
+            "source": {"kind": "semantic_tensor", "role": "weight", "layout": "oihw"},
+            "destination": _temporary_buffer_descriptor(temporary_buffers["weight_ohwi"]),
+            "shape_args": [
+                {"name": "out_c", "placeholder": "weight_o", "value": int(weight_shape[0])},
+                {"name": "in_c", "placeholder": "weight_i", "value": int(weight_shape[1])},
+                {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
+                {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
+            ],
+        },
+        {
+            **stage_common,
+            "stage_index": 2,
+            "stage_name": "provider_launch",
+            "stage_kind": "provider_launcher",
+            "symbol": str(selected_candidate["kernel_symbol"]),
+            "launch_abi": str(selected_candidate["launch_abi"]),
+            "inputs": [
+                _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
+                _temporary_buffer_descriptor(temporary_buffers["weight_ohwi"]),
+                {"kind": "semantic_tensor", "role": "bias", "layout": "o"},
+            ],
+            "output": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+            "shape_args": [
+                {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
+                {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
+                {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
+                {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
+                {"name": "out_h", "placeholder": "output_h", "value": int(output_shape[2])},
+                {"name": "out_w", "placeholder": "output_w", "value": int(output_shape[3])},
+                {"name": "out_c", "placeholder": "output_c", "value": int(output_shape[1])},
+                {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
+                {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
+                {"name": "stride_h", "placeholder": "stride_h", "value": int(conv_config["stride"][0])},
+                {"name": "stride_w", "placeholder": "stride_w", "value": int(conv_config["stride"][1])},
+                {"name": "pad_h", "placeholder": "pad_h", "value": int(conv_config["padding"][0])},
+                {"name": "pad_w", "placeholder": "pad_w", "value": int(conv_config["padding"][1])},
+                {"name": "dilation_h", "placeholder": "dilation_h", "value": int(conv_config["dilation"][0])},
+                {"name": "dilation_w", "placeholder": "dilation_w", "value": int(conv_config["dilation"][1])},
+            ],
+        },
+        {
+            **stage_common,
+            "stage_index": 3,
+            "stage_name": "output_unpack",
+            "stage_kind": "transform_helper",
+            "symbol": str(layout_translation["output_unpack_symbol"]),
+            "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            "tensor_role": "output",
+            "layout_from": "nhwc",
+            "layout_to": "nchw",
+            "source": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+            "destination": {"kind": "semantic_tensor", "role": "output", "layout": "nchw"},
+            "shape_args": [
+                {"name": "n", "placeholder": "output_n", "value": int(output_shape[0])},
+                {"name": "c", "placeholder": "output_c", "value": int(output_shape[1])},
+                {"name": "h", "placeholder": "output_h", "value": int(output_shape[2])},
+                {"name": "w", "placeholder": "output_w", "value": int(output_shape[3])},
+            ],
+        },
+    ]
+
+
 def _nbytes(shape: list[int], dtype_size: int) -> int:
     count = 1
     for dim in shape:
@@ -769,6 +902,27 @@ def _normalize_target_policy(target: Mapping[str, Any] | None) -> dict[str, Any]
     return {
         "no_tf32": bool(normalized_target.get("no_tf32", False)),
         "use_fp16_acc": bool(normalized_target.get("use_fp16_acc", False)),
+    }
+
+
+def _selected_cutlass_conv_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
+    selected_id = str(item.get("selected_candidate_id", ""))
+    candidates = item.get("candidates", ())
+    if isinstance(candidates, (list, tuple)):
+        for candidate in candidates:
+            if isinstance(candidate, Mapping) and str(candidate.get("candidate_id", "")) == selected_id:
+                return dict(candidate)
+    raise ValueError(
+        "CUTLASS Conv scaffold wrapper stages require a selected candidate present in the manifest item"
+    )
+
+
+def _temporary_buffer_descriptor(buffer: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "temporary_buffer",
+        "name": str(buffer["name"]),
+        "layout": str(buffer["layout"]),
+        "nbytes": int(buffer["nbytes"]),
     }
 
 
@@ -1180,6 +1334,7 @@ __all__ = [
     "cutlass_conv_profiler_symbol",
     "cutlass_conv_symbol",
     "cutlass_conv_used_candidate_plan",
+    "cutlass_conv_wrapper_stages",
     "cutlass_conv_weight_pack_symbol",
     "normalize_cutlass_conv_used_candidate_plan",
     "render_cutlass_conv_scaffold_source",

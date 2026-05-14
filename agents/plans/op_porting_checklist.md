@@ -558,9 +558,12 @@ behavior.
   plan and transform provenance under the advertised support `cache_dir`; when
   `nvcc` is available this boundary builds `libdinoml_cutlass_conv.so` with
   explicit launcher/profiler stub exports for the planned Conv ABI, while model
-  compile still rejects before module build. No ConvNd profiler execution,
-  generated pack/unpack lowering, real CUTLASS runtime launcher, or CUDA runtime
-  parity is implemented yet.
+  compile still rejects before module build. `kernel_codegen_plan.json` now
+  also exposes explicit wrapper-stage metadata for activation pack, weight
+  pack, planned provider launch, and output unpack, plus source-renderable call
+  snippets for tests, while compile rejection remains unchanged. No ConvNd
+  profiler execution, generated module wrapper lowering, real CUTLASS runtime
+  launcher, or CUDA runtime parity is implemented yet.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

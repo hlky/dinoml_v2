@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the smallest honest v1/HuggingFace custom-op helper slice around
+  `gelu_new`: public `dml.ops.gelu_new(x)` is now a bounded frontend helper
+  that rewrites directly to the existing tanh-approximation `gelu` op instead
+  of expanding provider or kernel surface. Focused tests now pin that the
+  traced IR is identical to `gelu`, the lowered path stays on
+  `fused_elementwise`, CPU reference execution matches the HuggingFace/v1 tanh
+  GELU-new formula, CUDA codegen uses the existing `dinoml::math::gelu` path,
+  and helper-only admission stays honest by keeping `gelu_new` out of
+  `OP_REGISTRY` while delegating unsupported dtype rejection to `gelu`.
 - Closed the reviewer-noted reduced-precision CUDA runtime gap for the bounded
   `t5_layer_norm` slice: `float16` and `bfloat16` now have a numeric CUDA
   runtime parity regression in `tests/test_t5_layer_norm_ops.py`, using the
@@ -206,12 +215,11 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Keep normalization on the bounded lane if another concrete model need
-   appears, but only through a similarly honest admission-backed follow-up:
-   prefer either a weight-optional/front-end RMS helper or another small
-   non-provider normalization contract over broadening into full LayerNorm,
-   GroupNorm, fused sigmoid/swish variants, or dynamic normalized-dimension
-   work.
+1. Keep the small/custom-op lane on honest helper or bounded-op slices:
+   with `gelu_new` closed, prefer the next smallest candidate such as
+   `get_timestep_embedding`, a bounded weight-optional RMS helper, or
+   pack/unpack/rotary helpers before revisiting broader LayerNorm, GroupNorm,
+   fused sigmoid/swish variants, or dynamic normalized-dimension work.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

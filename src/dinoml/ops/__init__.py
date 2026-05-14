@@ -131,6 +131,10 @@ def _cast_frontend(x: Any, dtype: str) -> Tensor:
     )
 
 
+def _gelu_new_frontend(x: Any) -> Tensor:
+    return emit_registered_op("gelu", x)
+
+
 def _full_frontend(shape: Any, fill_value: Any, dtype: str = "float32") -> Tensor:
     dtype = normalize_dtype(dtype)
     if dtype not in CREATION_DTYPES:
@@ -892,6 +896,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
 
 globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
+globals()["gelu_new"] = _gelu_new_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
@@ -942,6 +947,7 @@ __all__ = list(dict.fromkeys([
     "expand_static_shape",
     "flip",
     "flatten",
+    "gelu_new",
     "identity",
     "make_frontend_op",
     "meshgrid",

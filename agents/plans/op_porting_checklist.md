@@ -32,6 +32,9 @@ helpers, and exact flash/memory-efficient attention variants.
 - [x] Dense elementwise math surface - public frontend ops lower into
   model-generated `fused_elementwise` kernels.
 - [x] `gelu` - v2 native frontend op, tanh approximation.
+- [x] `gelu_new` - bounded public frontend helper that rewrites to the existing
+  tanh-approximation `gelu` op, so it inherits the current fused-elementwise
+  CPU/CUDA lowering without adding a new kernel family or provider surface.
 - [x] Runtime shape buffers for dynamic shape validation and generic
   fused-elementwise broadcasting.
 
@@ -80,7 +83,10 @@ These should be reusable building blocks. They generally map to `torch` or
   `exp`, `sqrt`, `max`, `min`, `sigmoid`, `leaky_relu`, `hardtanh`, `relu`,
   `silu`, `nan_to_num`, `pow`, `fast_gelu`, `softplus`, `elu`, `softsign`,
   `floor_div`, `celu`, `floor`, `eq`, `ge`, `gt`, `le`, `lt`, `ne`, plus
-  `sub`, `mul`, `div`, and `clamp_nan_to_num`.
+  `sub`, `mul`, `div`, and `clamp_nan_to_num`. Public helper `gelu_new`
+  is also available as an alias to the existing tanh-approximation `gelu`,
+  matching the bounded HuggingFace/v1 activation behavior without adding a
+  separate registered op.
 
 Library hints: CPU can use scalar loops first, then `std::simd` or xsimd for
 vector paths. CUDA/HIP elementwise kernels are usually simpler than library

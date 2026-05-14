@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the reviewer follow-up on native manual GGUF autoload parity: added a
+  bounded direct CUDA native-boundary regression for mixed dense plus
+  `manual_runtime_load` constants that mirrors the CPU ABI test shape. The test
+  now calls generated native CUDA `dino_module_load()`,
+  `dino_module_load_constants()`, `dino_module_set_constant()`, and
+  `dino_session_run()` directly enough to prove `constants.bin` does not eagerly
+  materialize the manual GGUF constant, and that after native unload/reload the
+  module still requires an explicit native load/set before run. Updated the gap
+  audit to describe the proven CPU/CUDA native coverage precisely.
 - Closed the remaining native GGUF load-path parity gap for mixed dense plus
   `manual_runtime_load` constants: generated CPU/CUDA native
   `dino_module_load_constants()` now skips eager `constants.bin`
@@ -138,6 +147,6 @@ This file should be updated after each major loop.
    robustness slice, such as persistent cache concurrency or stale-key
    rejection, if it directly affects provider selection or compile/profile
    correctness.
-3. Add direct CUDA native-boundary coverage for mixed dense plus manual GGUF
-   constants if the end-to-end workflow exposes another loader edge, reusing the
-   now-shared native skip contract rather than expanding runtime-dequant surface.
+3. Add one more bounded native regression only if another GGUF loader edge
+   appears, preferably around encoded-runtime-dequant native reload behavior
+   rather than broadening the runtime surface.

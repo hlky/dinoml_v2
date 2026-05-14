@@ -91,9 +91,10 @@ porting. It intentionally excludes the op inventory, which lives in
   autoload only dense constants plus GGUF constants that still declare eager
   dense residency; `manual_runtime_load` GGUF constants stay explicitly
   unloaded across open/unload/reload until `load_encoded_constants(...)` or an
-  explicit native setter call materializes them. CUDA runtime coverage now
-  exercises that mixed dense/manual encoded reload contract in addition to the
-  existing CPU regression and direct native-boundary coverage.
+  explicit native setter call materializes them. Mixed dense plus manual GGUF
+  coverage now includes both Python runtime reload tests and direct CPU/CUDA
+  native-boundary regressions proving eager native open/reload still require an
+  explicit load/set before run.
   The Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes

@@ -12,7 +12,7 @@ import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import ModelSpec, read_json, write_json
+from dinoml.ir import ModelSpec, dtype_runtime_enum, read_json, write_json
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
 
@@ -233,6 +233,142 @@ def test_cuda_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_ex
 
     np.testing.assert_allclose(loaded["y"], expected, atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(reloaded["y"], expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cuda_native_module_load_and_reload_skip_manual_runtime_load_gguf_constants(monkeypatch, tmp_path):
+    artifact, x, expected = _build_cuda_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
+    manual_bias = np.array([1.5, 2.0], dtype=np.float32)
+
+    module = runtime.load(artifact.path, load_constants=False)
+    assert module._cuda_runtime_dll is not None
+
+    native_handle = ctypes.c_void_p()
+    session_handle = ctypes.c_void_p()
+    input_ptr = ctypes.c_void_p()
+    output_ptr = ctypes.c_void_p()
+    manual_ptr = ctypes.c_void_p()
+    input_keepalive = output_keepalive = manual_keepalive = None
+    try:
+        module._check(module._dll.dino_module_load(str(artifact.path).encode("utf-8"), ctypes.byref(native_handle)))
+        assert native_handle.value
+
+        module._check(module._dll.dino_session_create(native_handle, ctypes.byref(session_handle)))
+        assert session_handle.value
+
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(input_ptr), ctypes.c_size_t(x.nbytes))
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_host_to_device(
+                input_ptr,
+                ctypes.c_void_p(x.ctypes.data),
+                ctypes.c_size_t(x.nbytes),
+            )
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(output_ptr), ctypes.c_size_t(x.nbytes))
+        )
+
+        y = np.empty_like(x)
+        input_tensor, input_keepalive = runtime._make_dino_tensor(
+            input_ptr,
+            x.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=x.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        output_tensor, output_keepalive = runtime._make_dino_tensor(
+            output_ptr,
+            y.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=y.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        inputs = (runtime._DinoTensor * 1)(input_tensor)
+        outputs = (runtime._DinoTensor * 1)(output_tensor)
+
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(manual_ptr), ctypes.c_size_t(manual_bias.nbytes))
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_host_to_device(
+                manual_ptr,
+                ctypes.c_void_p(manual_bias.ctypes.data),
+                ctypes.c_size_t(manual_bias.nbytes),
+            )
+        )
+        manual_tensor, manual_keepalive = runtime._make_dino_tensor(
+            manual_ptr,
+            manual_bias.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=manual_bias.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        module._check(
+            module._dll.dino_module_set_constant(
+                native_handle,
+                b"manual_bias",
+                ctypes.byref(manual_tensor),
+            )
+        )
+        module._check(
+            module._dll.dino_session_run(
+                session_handle,
+                inputs,
+                ctypes.c_size_t(1),
+                outputs,
+                ctypes.c_size_t(1),
+            )
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_device_to_host(
+                ctypes.c_void_p(y.ctypes.data),
+                output_ptr,
+                ctypes.c_size_t(y.nbytes),
+            )
+        )
+        np.testing.assert_allclose(y, expected, atol=1e-5, rtol=1e-5)
+
+        module._check(module._dll.dino_module_unload_constants(native_handle))
+        module._check(
+            module._dll.dino_module_load_constants(
+                native_handle,
+                str(artifact.path / "constants.bin").encode("utf-8"),
+            )
+        )
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+    finally:
+        if manual_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(manual_ptr))
+        if output_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(output_ptr))
+        if input_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(input_ptr))
+        if session_handle.value:
+            module._check(module._dll.dino_session_destroy(session_handle))
+        if native_handle.value:
+            module._check(module._dll.dino_module_free(native_handle))
+        module.close()
 
 
 def test_cuda_runtime_module_close_reopen_resets_manual_encoded_constant_residency(monkeypatch, tmp_path):

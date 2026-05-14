@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 2268efe, Add CLIP text attention composition tests, gpt-5.4, high
 - ceb1f4f, Add CLIP text embedding composition tests, gpt-5.4-mini, medium
 - 805133e, Add CLIP text pooling composition tests, gpt-5.4-mini, medium
 - 0d460e3, Add bounded integer argmax input support, gpt-5.4, medium

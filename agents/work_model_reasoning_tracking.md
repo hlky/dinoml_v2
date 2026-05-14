@@ -17,3 +17,4 @@ Format:
 - 7f839d0, Tighten CUTLASS conv scaffold provenance validation, gpt-5.4, medium
 - bda4377, Register generated get_timestep_embedding op, gpt-5.4, high
 - f50b79c, Finish generated get_1d_rotary_pos_embed slice, gpt-5.4, high
+- e93db9e, Fix rotary follow-up provenance and arity contracts, gpt-5.4, high

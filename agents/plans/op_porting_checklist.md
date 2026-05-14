@@ -690,7 +690,13 @@ when compile-time constants make that practical.
   `get_2d_sincos_pos_embed`, `get_2d_sincos_pos_embed_cogview3plus`,
   `get_3d_rotary_pos_embed`, `get_3d_rotary_pos_embed_allegro`,
   `get_3d_sincos_pos_embed`, `get_3d_sincos_pos_embed_cogvideox`,
-  `get_fourier_embeds_from_boundingbox`.
+  `get_fourier_embeds_from_boundingbox`. See
+  `agents/plans/rotary_apply_plan.md` before implementing this lane: planning
+  is complete, the old `/workspace/apply_rotary_emb` prototype is documented as
+  a CUDA-only coupled Q/K Torch ABI with limited real-pair modes, and the
+  recommended first bounded v2 slice is `get_1d_rotary_pos_embed` table
+  generation with explicit duplicated-real variants rather than a broad fused
+  public `apply_rotary_emb`.
 
 Library hints: no major external kernel library is expected to own these. Use
 common primitive composition for CPU/CUDA first; add fused kernels only if these

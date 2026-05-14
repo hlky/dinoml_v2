@@ -699,6 +699,19 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"Op {op_def.name} output dtype {output_dtype} must be {expected_output_dtype}"
                 )
             continue
+        if node.get("op") in {"get_1d_rotary_pos_embed_cos", "get_1d_rotary_pos_embed_sin"}:
+            input_dtype = None if not node.get("inputs") else str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype is not None and input_dtype != "float32":
+                raise NotImplementedError(
+                    f"Op {op_def.name} requires float32 pos input; unsupported compiled dtypes: {[input_dtype]}"
+                )
+            if output_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports output dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[output_dtype]}"
+                )
+            continue
         node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
         node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
         unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]

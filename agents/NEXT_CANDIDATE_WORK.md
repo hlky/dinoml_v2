@@ -33,24 +33,27 @@ This file should be updated after each major loop.
   that prove profiling rejects malformed transform byte counts, codegen/support
   provenance rejects candidate-layout drift against the recorded transform plan,
   and direct mutated used-plan payloads fail before manifest writes.
-- Landed the first bounded rotary table-generation slice as a helper-only
-  public `dml.ops.get_1d_rotary_pos_embed(...)`, deliberately without adding a
-  new op/provider/kernel family or any fused `apply_rotary_emb` ABI. The new
-  helper stays out of `OP_REGISTRY`, composes existing `arange`, fp32 trig,
-  `repeat_interleave`, `concatenate`, and `cast` primitives, and returns a
-  public `(cos, sin)` tensor pair rather than a coupled Q/K apply result.
-  The admitted contract is explicit: positive even static `dim`; `pos` as
-  either a positive integer sequence length or a rank-1 dense
-  `float32`/`float16`/`bfloat16` tensor with static positive length; positive
-  finite `theta`/`linear_factor`/`ntk_factor`; explicit duplicated-real output
-  variants through `repeat_interleave_real=True` (repeat-interleave pairs) or
-  `False` (concat/split-half style); and explicit output `dtype` across the
-  same float surface with internal fp32 math. Focused tests now pin helper-only
-  admission, reference parity against the v1/diffusers-style formula for both
-  duplication conventions and reduced-precision outputs, static tensor-position
-  parity, and clear frontend rejection for odd dims, `use_real=False`, dynamic
-  lengths, bad dtypes, and non-finite scaling parameters. No standalone CUDA
-  parity is claimed yet for this helper-only slice.
+- Finished the half-landed `get_1d_rotary_pos_embed` surface as a bounded
+  generated-op slice instead of helper math composition. Public
+  `dml.ops.get_1d_rotary_pos_embed(...)` still returns a `(cos, sin)` tuple,
+  but current v2 IR/runtime remain single-output per node, so the public API
+  now lowers explicitly to two generated component ops,
+  `get_1d_rotary_pos_embed_cos` and `get_1d_rotary_pos_embed_sin`, rather than
+  claiming full v1 single-launch/two-output-kernel parity. The admitted
+  contract is now explicit and tested: positive even static `dim`; `pos` as a
+  positive integer sequence length or rank-1 dense
+  `float32`/`float16`/`bfloat16` tensor with positive static or dynamic length;
+  positive finite `theta`/`linear_factor`/`ntk_factor`; `use_real=True`
+  duplicated-real outputs with both duplication conventions; `use_real=False`
+  base cos/sin outputs of shape `[S, dim/2]`; and float16/float32/bfloat16
+  output storage with fp32 internal math from float32 positions. Integer `pos`
+  now lowers directly as two no-input generated component nodes with a static
+  `sequence_length` attr instead of adding an `arange` launch. Focused tests
+  now pin the two-component-node IR/lowered-IR contract, generated
+  source/manifest ownership, CPU formula parity, dynamic-`S` CPU artifact
+  execution, CUDA compile coverage for both real/base modes, and CUDA runtime
+  parity for one `use_real=False` float32 case plus reduced-precision real
+  outputs.
 - Captured the recent RoPE/apply-rotary exploration as durable project memory
   before any implementation starts. Added `agents/plans/rotary_apply_plan.md`
   to pin the old `/workspace/apply_rotary_emb` prototype's real ABI and limits:
@@ -300,10 +303,11 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
-   with `gelu_new`, the now-registered generated `get_timestep_embedding`, and
-   the bounded helper-only `rms_norm` plus `get_1d_rotary_pos_embed` slices in
-   place, prefer the next half-finished surface that either needs promotion out
-   of helper-only status or a small contract hardening pass before revisiting
+   with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
+   completed bounded `get_1d_rotary_pos_embed` component-op slice, and the
+   bounded helper-only `rms_norm` slice in place, prefer the next half-finished
+   surface that either needs promotion out of helper-only status or a small
+   contract hardening pass before revisiting
    broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
    normalized-dimension work. RoPE exploration/planning is now recorded in
    `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a

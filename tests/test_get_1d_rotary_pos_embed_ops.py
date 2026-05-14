@@ -1,11 +1,17 @@
 import numpy as np
 import pytest
+import shutil
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage
-from dinoml.ops.definitions import OP_REGISTRY
+from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import collect_generated_sources
 from dinoml.passes import PassManager, validate_ir
+
+
+COMPONENT_OPS = ("get_1d_rotary_pos_embed_cos", "get_1d_rotary_pos_embed_sin")
 
 
 class RotaryIntModule(dml.Module):
@@ -15,6 +21,7 @@ class RotaryIntModule(dml.Module):
         dim: int,
         pos: int,
         theta: float = 10000.0,
+        use_real: bool = True,
         linear_factor: float = 1.0,
         ntk_factor: float = 1.0,
         repeat_interleave_real: bool = True,
@@ -23,6 +30,7 @@ class RotaryIntModule(dml.Module):
         self.dim = dim
         self.pos = pos
         self.theta = theta
+        self.use_real = use_real
         self.linear_factor = linear_factor
         self.ntk_factor = ntk_factor
         self.repeat_interleave_real = repeat_interleave_real
@@ -33,6 +41,7 @@ class RotaryIntModule(dml.Module):
             self.dim,
             self.pos,
             theta=self.theta,
+            use_real=self.use_real,
             linear_factor=self.linear_factor,
             ntk_factor=self.ntk_factor,
             repeat_interleave_real=self.repeat_interleave_real,
@@ -47,6 +56,7 @@ class RotaryTensorModule(dml.Module):
         *,
         dim: int,
         theta: float = 10000.0,
+        use_real: bool = True,
         linear_factor: float = 1.0,
         ntk_factor: float = 1.0,
         repeat_interleave_real: bool = True,
@@ -54,6 +64,7 @@ class RotaryTensorModule(dml.Module):
     ):
         self.dim = dim
         self.theta = theta
+        self.use_real = use_real
         self.linear_factor = linear_factor
         self.ntk_factor = ntk_factor
         self.repeat_interleave_real = repeat_interleave_real
@@ -64,6 +75,7 @@ class RotaryTensorModule(dml.Module):
             self.dim,
             pos,
             theta=self.theta,
+            use_real=self.use_real,
             linear_factor=self.linear_factor,
             ntk_factor=self.ntk_factor,
             repeat_interleave_real=self.repeat_interleave_real,
@@ -77,6 +89,7 @@ def _trace_rotary_int(
     dim: int = 8,
     pos: int = 4,
     theta: float = 10000.0,
+    use_real: bool = True,
     linear_factor: float = 1.0,
     ntk_factor: float = 1.0,
     repeat_interleave_real: bool = True,
@@ -87,13 +100,14 @@ def _trace_rotary_int(
             dim=dim,
             pos=pos,
             theta=theta,
+            use_real=use_real,
             linear_factor=linear_factor,
             ntk_factor=ntk_factor,
             repeat_interleave_real=repeat_interleave_real,
             dtype=dtype,
         ),
         inputs={},
-        name=f"get_1d_rotary_pos_embed_int_{dtype}_{dim}",
+        name=f"get_1d_rotary_pos_embed_int_{dtype}_{dim}_{use_real}",
     )
 
 
@@ -103,6 +117,7 @@ def _trace_rotary_tensor(
     pos_shape=(4,),
     pos_dtype: str = "float32",
     theta: float = 10000.0,
+    use_real: bool = True,
     linear_factor: float = 1.0,
     ntk_factor: float = 1.0,
     repeat_interleave_real: bool = True,
@@ -112,13 +127,14 @@ def _trace_rotary_tensor(
         RotaryTensorModule(
             dim=dim,
             theta=theta,
+            use_real=use_real,
             linear_factor=linear_factor,
             ntk_factor=ntk_factor,
             repeat_interleave_real=repeat_interleave_real,
             dtype=dtype,
         ),
         inputs={"pos": dml.TensorSpec(pos_shape, pos_dtype)},
-        name=f"get_1d_rotary_pos_embed_tensor_{dtype}_{dim}",
+        name=f"get_1d_rotary_pos_embed_tensor_{dtype}_{dim}_{use_real}",
     )
 
 
@@ -133,6 +149,7 @@ def _reference_get_1d_rotary_pos_embed(
     dim: int,
     positions: np.ndarray,
     theta: float,
+    use_real: bool,
     linear_factor: float,
     ntk_factor: float,
     repeat_interleave_real: bool,
@@ -140,11 +157,14 @@ def _reference_get_1d_rotary_pos_embed(
 ) -> tuple[np.ndarray, np.ndarray]:
     positions_fp32 = positions.astype(np.float32, copy=False)
     theta_scaled = np.float32(theta * ntk_factor)
-    exponents = np.arange(0, dim, 2, dtype=np.float32) / np.float32(dim)
-    inv_freqs = (1.0 / (np.power(theta_scaled, exponents) * np.float32(linear_factor))).astype(np.float32, copy=False)
+    rotary_dim = dim // 2
+    exponent = -np.log(theta_scaled) * np.arange(rotary_dim, dtype=np.float32) / np.float32(rotary_dim)
+    inv_freqs = np.exp(exponent).astype(np.float32, copy=False) / np.float32(linear_factor)
     freqs = positions_fp32[:, None] * inv_freqs[None, :]
     cos_base = np.cos(freqs).astype(np.float32, copy=False)
     sin_base = np.sin(freqs).astype(np.float32, copy=False)
+    if not use_real:
+        return _storage_roundtrip(cos_base, dtype), _storage_roundtrip(sin_base, dtype)
     if repeat_interleave_real:
         cos_part = np.repeat(cos_base, 2, axis=1)
         sin_part = np.repeat(sin_base, 2, axis=1)
@@ -154,44 +174,114 @@ def _reference_get_1d_rotary_pos_embed(
     return _storage_roundtrip(cos_part, dtype), _storage_roundtrip(sin_part, dtype)
 
 
-def test_get_1d_rotary_pos_embed_helper_stays_out_of_registry_and_composes_existing_ops():
+def test_get_1d_rotary_pos_embed_int_frontend_lowers_to_two_generated_component_nodes_without_arange_helper():
     spec = _trace_rotary_int(
         dim=8,
         pos=5,
         theta=4096.0,
+        use_real=True,
         linear_factor=1.25,
         ntk_factor=1.1,
         repeat_interleave_real=True,
         dtype="float16",
     )
 
-    assert "get_1d_rotary_pos_embed" not in OP_REGISTRY.frontend_names()
     assert [output["shape"] for output in spec.ir["outputs"]] == [[5, 8], [5, 8]]
     assert [output["dtype"] for output in spec.ir["outputs"]] == ["float16", "float16"]
-    assert all(node["op"] != "get_1d_rotary_pos_embed" for node in spec.ir["nodes"])
-    assert {"arange", "mul", "cos", "sin", "repeat_interleave", "cast"}.issubset(
-        {node["op"] for node in spec.ir["nodes"]}
-    )
+    assert [node["op"] for node in spec.ir["nodes"]] == list(COMPONENT_OPS)
+    assert all(not node["inputs"] for node in spec.ir["nodes"])
 
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     lowered_ops = [node["op"] for node in lowered["nodes"]]
-    assert "get_1d_rotary_pos_embed" not in lowered_ops
-    assert "repeat_interleave" in lowered_ops
-    assert lowered_ops.count("fused_elementwise") >= 2
+    assert lowered_ops == list(COMPONENT_OPS)
+    for helper_op in {"concatenate", "repeat_interleave", "cos", "sin", "fused_elementwise"}:
+        assert helper_op not in lowered_ops
+
+
+def test_get_1d_rotary_pos_embed_dynamic_tensor_pos_and_use_real_false_preserve_shape_spec():
+    seq = dml.Dim("seq", min=1, max=4)
+    spec = dml.trace(
+        RotaryTensorModule(
+            dim=6,
+            theta=64.0,
+            use_real=False,
+            linear_factor=1.5,
+            ntk_factor=1.25,
+            repeat_interleave_real=False,
+            dtype="float32",
+        ),
+        inputs={"pos": dml.TensorSpec([seq], "float32")},
+        name="get_1d_rotary_pos_embed_dynamic_use_real_false",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == list(COMPONENT_OPS)
+    assert [output["shape"] for output in spec.ir["outputs"]] == [[4, 3], [4, 3]]
+    assert [output["shape_spec"] for output in spec.ir["outputs"]] == [[seq.to_json(), 3], [seq.to_json(), 3]]
+
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    assert [node["op"] for node in lowered["nodes"]] == list(COMPONENT_OPS)
+
+
+def test_get_1d_rotary_pos_embed_manifest_and_generated_sources_are_two_model_owned_component_kernels():
+    spec = _trace_rotary_tensor(
+        dim=8,
+        pos_shape=(5,),
+        pos_dtype="float32",
+        theta=4096.0,
+        use_real=True,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=False,
+        dtype="float32",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+
+    manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
+    assert manifest["required_kernels"] == [
+        {
+            "op": "get_1d_rotary_pos_embed_cos",
+            "kernel_symbol": "generated_get_1d_rotary_pos_embed",
+            "kernel_library": "model",
+            "profiler_symbol": None,
+            "has_profiler": False,
+        },
+        {
+            "op": "get_1d_rotary_pos_embed_sin",
+            "kernel_symbol": "generated_get_1d_rotary_pos_embed",
+            "kernel_library": "model",
+            "profiler_symbol": None,
+            "has_profiler": False,
+        },
+    ]
+
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+    assert len(sources["kernels"]) == 2
+    combined = "\n".join(sources["kernels"])
+    assert "get_1d_rotary_pos_embed_cos_" in combined
+    assert "get_1d_rotary_pos_embed_sin_" in combined
+    assert "sinf" in combined
+    assert "cosf" in combined
+    assert "generated_concatenate" not in combined
+    assert "generated_repeat_interleave" not in combined
 
 
 @pytest.mark.parametrize(
-    ("dtype", "repeat_interleave_real", "theta", "linear_factor", "ntk_factor", "atol", "rtol"),
+    ("dtype", "use_real", "repeat_interleave_real", "theta", "linear_factor", "ntk_factor", "atol", "rtol"),
     [
-        ("float32", True, 10000.0, 1.0, 1.0, 1e-6, 1e-6),
-        ("float32", False, 4096.0, 2.0, 1.5, 1e-6, 1e-6),
-        ("float16", True, 1000.0, 1.25, 1.1, 2e-3, 2e-3),
-        ("bfloat16", False, 256.0, 0.75, 1.25, 2e-2, 2e-2),
+        ("float32", True, True, 10000.0, 1.0, 1.0, 1e-6, 1e-6),
+        ("float32", True, False, 4096.0, 2.0, 1.5, 1e-6, 1e-6),
+        ("float16", True, True, 1000.0, 1.25, 1.1, 2e-3, 2e-3),
+        ("bfloat16", True, False, 256.0, 0.75, 1.25, 2e-2, 2e-2),
+        ("float32", False, True, 512.0, 1.25, 0.75, 1e-6, 1e-6),
     ],
 )
-def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_int_positions(
+def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula(
     dtype,
+    use_real,
     repeat_interleave_real,
     theta,
     linear_factor,
@@ -203,6 +293,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_int_po
         dim=8,
         pos=4,
         theta=theta,
+        use_real=use_real,
         linear_factor=linear_factor,
         ntk_factor=ntk_factor,
         repeat_interleave_real=repeat_interleave_real,
@@ -213,6 +304,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_int_po
         dim=8,
         positions=positions,
         theta=theta,
+        use_real=use_real,
         linear_factor=linear_factor,
         ntk_factor=ntk_factor,
         repeat_interleave_real=repeat_interleave_real,
@@ -233,6 +325,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_tensor
         pos_shape=(3,),
         pos_dtype="float16",
         theta=64.0,
+        use_real=False,
         linear_factor=1.5,
         ntk_factor=1.25,
         repeat_interleave_real=False,
@@ -243,6 +336,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_tensor
         dim=6,
         positions=positions,
         theta=64.0,
+        use_real=False,
         linear_factor=1.5,
         ntk_factor=1.25,
         repeat_interleave_real=False,
@@ -255,29 +349,62 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_tensor
     np.testing.assert_allclose(actual["sin"], expected_sin, atol=1e-6, rtol=1e-6)
 
 
-def test_get_1d_rotary_pos_embed_frontend_rejects_unsupported_inputs():
-    dynamic_n = dml.Dim("n", min=1, max=4)
+def test_cpu_artifact_runs_two_component_rotary_kernels_with_dynamic_pos_length_and_use_real_false(tmp_path):
+    seq = dml.Dim("seq", min=1, max=4)
+    spec = dml.trace(
+        RotaryTensorModule(
+            dim=6,
+            theta=64.0,
+            use_real=False,
+            linear_factor=1.5,
+            ntk_factor=1.25,
+            repeat_interleave_real=False,
+            dtype="float32",
+        ),
+        inputs={"pos": dml.TensorSpec([seq], "float32")},
+        name="get_1d_rotary_pos_embed_dynamic_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "get_1d_rotary_pos_embed_dynamic_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "get_1d_rotary_pos_embed_cos_" in generated
+    assert "get_1d_rotary_pos_embed_sin_" in generated
+    assert "generated_repeat_interleave" not in generated
+    assert "generated_concatenate" not in generated
 
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    for positions in (
+        np.array([0.0, 1.5], dtype=np.float32),
+        np.array([0.0, 1.25, 3.25, 7.5], dtype=np.float32),
+    ):
+        expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+            dim=6,
+            positions=positions,
+            theta=64.0,
+            use_real=False,
+            linear_factor=1.5,
+            ntk_factor=1.25,
+            repeat_interleave_real=False,
+            dtype="float32",
+        )
+        actual = session.run_numpy({"pos": positions})
+        assert actual["cos"].shape == expected_cos.shape
+        assert actual["sin"].shape == expected_sin.shape
+        np.testing.assert_allclose(actual["cos"], expected_cos, atol=1e-6, rtol=1e-6)
+        np.testing.assert_allclose(actual["sin"], expected_sin, atol=1e-6, rtol=1e-6)
+    session.close()
+    module.close()
+
+
+def test_get_1d_rotary_pos_embed_frontend_rejects_unsupported_inputs():
     with pytest.raises(ValueError, match="positive integer"):
         _trace_rotary_int(dim=0)
     with pytest.raises(ValueError, match="even dim"):
         _trace_rotary_int(dim=7)
-    with pytest.raises(ValueError, match="supports only use_real=True"):
-        class UseRealFalseModule(dml.Module):
-            def forward(self):
-                return dml.ops.get_1d_rotary_pos_embed(8, 4, use_real=False)
-
-        dml.trace(UseRealFalseModule(), inputs={})
     with pytest.raises(ValueError, match="does not support dtype bool"):
         _trace_rotary_int(dtype="bool")
     with pytest.raises(ValueError, match="positive sequence length"):
         _trace_rotary_int(pos=0)
-    with pytest.raises(ValueError, match="static pos length"):
-        dml.trace(
-            RotaryTensorModule(dim=8),
-            inputs={"pos": dml.TensorSpec([dynamic_n], "float32")},
-            name="get_1d_rotary_pos_embed_dynamic",
-        )
     with pytest.raises(ValueError, match="rank-1 pos tensor"):
         _trace_rotary_tensor(pos_shape=(2, 2))
     with pytest.raises(ValueError, match="does not support pos dtype bool"):
@@ -288,3 +415,145 @@ def test_get_1d_rotary_pos_embed_frontend_rejects_unsupported_inputs():
         _trace_rotary_int(linear_factor=0.0)
     with pytest.raises(ValueError, match="ntk_factor must be a positive finite number"):
         _trace_rotary_int(ntk_factor=-1.0)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize(
+    ("use_real", "repeat_interleave_real"),
+    [
+        (True, False),
+        (False, False),
+    ],
+)
+def test_get_1d_rotary_pos_embed_float32_cuda_artifact_compiles_as_two_component_kernels(
+    tmp_path,
+    use_real,
+    repeat_interleave_real,
+):
+    spec = _trace_rotary_tensor(
+        dim=8,
+        pos_shape=(5,),
+        pos_dtype="float32",
+        theta=4096.0,
+        use_real=use_real,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=repeat_interleave_real,
+        dtype="float32",
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / f"get_1d_rotary_pos_embed_{use_real}_cuda.dinoml",
+    )
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "get_1d_rotary_pos_embed_cos_" in generated
+    assert "get_1d_rotary_pos_embed_sin_" in generated
+    assert "generated_repeat_interleave" not in generated
+    assert "generated_concatenate" not in generated
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_get_1d_rotary_pos_embed_float32_cuda_runtime_matches_reference_for_use_real_false(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    spec = _trace_rotary_tensor(
+        dim=8,
+        pos_shape=(4,),
+        pos_dtype="float32",
+        theta=512.0,
+        use_real=False,
+        linear_factor=1.25,
+        ntk_factor=0.75,
+        repeat_interleave_real=False,
+        dtype="float32",
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "get_1d_rotary_pos_embed_runtime_float32_cuda.dinoml",
+    )
+    positions = np.array([0.0, 1.25, 10.5, -0.75], dtype=np.float32)
+    expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+        dim=8,
+        positions=positions,
+        theta=512.0,
+        use_real=False,
+        linear_factor=1.25,
+        ntk_factor=0.75,
+        repeat_interleave_real=False,
+        dtype="float32",
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"pos": torch.tensor(positions, device="cuda", dtype=torch.float32)})
+    session.close()
+    module.close()
+
+    assert actual["cos"].dtype == torch.float32
+    assert actual["sin"].dtype == torch.float32
+    np.testing.assert_allclose(actual["cos"].float().cpu().numpy(), expected_cos.astype(np.float32), atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(actual["sin"].float().cpu().numpy(), expected_sin.astype(np.float32), atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize(
+    ("dtype", "torch_dtype", "atol", "rtol"),
+    [
+        ("float16", "float16", 2e-3, 2e-3),
+        ("bfloat16", "bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_get_1d_rotary_pos_embed_reduced_precision_cuda_runtime_matches_reference(
+    tmp_path,
+    dtype,
+    torch_dtype,
+    atol,
+    rtol,
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    runtime_dtype = getattr(torch, torch_dtype)
+
+    spec = _trace_rotary_tensor(
+        dim=8,
+        pos_shape=(4,),
+        pos_dtype="float32",
+        theta=1000.0,
+        use_real=True,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=(dtype == "float16"),
+        dtype=dtype,
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / f"get_1d_rotary_pos_embed_runtime_{dtype}_cuda.dinoml",
+    )
+    positions = np.array([0.0, 1.25, 10.5, -0.75], dtype=np.float32)
+    expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+        dim=8,
+        positions=positions,
+        theta=1000.0,
+        use_real=True,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=(dtype == "float16"),
+        dtype=dtype,
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"pos": torch.tensor(positions, device="cuda", dtype=torch.float32)})
+    session.close()
+    module.close()
+
+    assert actual["cos"].dtype == runtime_dtype
+    assert actual["sin"].dtype == runtime_dtype
+    np.testing.assert_allclose(actual["cos"].float().cpu().numpy(), expected_cos.astype(np.float32), atol=atol, rtol=rtol)
+    np.testing.assert_allclose(actual["sin"].float().cpu().numpy(), expected_sin.astype(np.float32), atol=atol, rtol=rtol)

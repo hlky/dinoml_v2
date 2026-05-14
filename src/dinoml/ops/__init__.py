@@ -52,7 +52,12 @@ from dinoml.ops.conv import (
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, ELEMENTWISE_OUTPUT_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.normalization import t5_layer_norm as _t5_layer_norm_frontend
-from dinoml.ops.positional import get_timestep_embedding as _get_timestep_embedding_frontend
+from dinoml.ops.positional import (
+    GET_1D_ROTARY_POS_EMBED_DTYPES,
+    emit_get_1d_rotary_pos_embed_component as _emit_get_1d_rotary_pos_embed_component,
+    get_timestep_embedding as _get_timestep_embedding_frontend,
+    normalize_get_1d_rotary_pos_embed_attrs,
+)
 from dinoml.ops.pooling import (
     POOLING_DTYPES,
     normalize_avg_pool1d_attrs,
@@ -65,9 +70,6 @@ from dinoml.ops.pooling import (
 from dinoml.ops.reductions import argmax as _argmax_frontend, reduce_max, reduce_mean, reduce_min, reduce_sum, topk as _topk_frontend, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
-
-GET_1D_ROTARY_POS_EMBED_DTYPES = ("float16", "float32", "bfloat16")
-
 
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
     op_def = get_op_def(op_name)
@@ -172,79 +174,59 @@ def _get_1d_rotary_pos_embed_frontend(
     output_dtype = normalize_dtype(dtype)
     if output_dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
         raise ValueError(f"get_1d_rotary_pos_embed does not support dtype {output_dtype}")
-    if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
-        raise ValueError(f"get_1d_rotary_pos_embed dim must be a positive integer, got {dim!r}")
-    if dim % 2 != 0:
-        raise ValueError("get_1d_rotary_pos_embed requires an even dim")
-    if not isinstance(use_real, bool):
-        raise ValueError(f"get_1d_rotary_pos_embed use_real must be bool, got {use_real!r}")
-    if not use_real:
-        raise ValueError("get_1d_rotary_pos_embed currently supports only use_real=True")
-    if not isinstance(repeat_interleave_real, bool):
-        raise ValueError(
-            f"get_1d_rotary_pos_embed repeat_interleave_real must be bool, got {repeat_interleave_real!r}"
-        )
-    if not isinstance(theta, (int, float)) or isinstance(theta, bool):
-        raise ValueError("get_1d_rotary_pos_embed theta must be a positive finite number")
-    if not isinstance(linear_factor, (int, float)) or isinstance(linear_factor, bool):
-        raise ValueError("get_1d_rotary_pos_embed linear_factor must be a positive finite number")
-    if not isinstance(ntk_factor, (int, float)) or isinstance(ntk_factor, bool):
-        raise ValueError("get_1d_rotary_pos_embed ntk_factor must be a positive finite number")
-    normalized_theta = float(theta)
-    normalized_linear_factor = float(linear_factor)
-    normalized_ntk_factor = float(ntk_factor)
-    if not isfinite(normalized_theta) or normalized_theta <= 0.0:
-        raise ValueError("get_1d_rotary_pos_embed theta must be a positive finite number")
-    if not isfinite(normalized_linear_factor) or normalized_linear_factor <= 0.0:
-        raise ValueError("get_1d_rotary_pos_embed linear_factor must be a positive finite number")
-    if not isfinite(normalized_ntk_factor) or normalized_ntk_factor <= 0.0:
-        raise ValueError("get_1d_rotary_pos_embed ntk_factor must be a positive finite number")
+    normalized_attrs = normalize_get_1d_rotary_pos_embed_attrs(
+        dim=dim,
+        theta=theta,
+        use_real=use_real,
+        linear_factor=linear_factor,
+        ntk_factor=ntk_factor,
+        repeat_interleave_real=repeat_interleave_real,
+        output_kind="cos",
+    )
 
+    sequence_length: int | None = None
     if isinstance(pos, int) and not isinstance(pos, bool):
         sequence_length = int(pos)
         if sequence_length <= 0:
             raise ValueError("get_1d_rotary_pos_embed integer pos must be a positive sequence length")
-        pos_tensor = _arange_frontend(sequence_length, dtype="float32")
+        pos_tensor = None
     else:
         pos_tensor = as_tensor(pos, dtype_hint="float32")
         if pos_tensor.dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
             raise ValueError(f"get_1d_rotary_pos_embed does not support pos dtype {pos_tensor.dtype}")
         if pos_tensor.rank != 1:
             raise ValueError(f"get_1d_rotary_pos_embed expects rank-1 pos tensor, got rank {pos_tensor.rank}")
-        if pos_tensor.dynamic:
-            raise ValueError("get_1d_rotary_pos_embed currently requires a static pos length")
         if int(pos_tensor.shape[0]) <= 0:
             raise ValueError("get_1d_rotary_pos_embed pos length must be positive")
         if pos_tensor.dtype != "float32":
             pos_tensor = _cast_frontend(pos_tensor, "float32")
 
-    rotary_dim = dim // 2
-    scaled_theta = normalized_theta * normalized_ntk_factor
-    inv_freq_values = np.asarray(
-        [
-            1.0
-            / ((scaled_theta ** (float(index) / float(dim))) * normalized_linear_factor)
-            for index in range(0, dim, 2)
-        ],
-        dtype=np.float32,
+    # IR/runtime lowering is still single-output per node, so the public tuple API
+    # is implemented as two generated component ops instead of a fake multi-output node.
+    cos_out = _emit_get_1d_rotary_pos_embed_component(
+        pos_tensor,
+        dim=int(normalized_attrs["dim"]),
+        theta=float(normalized_attrs["theta"]),
+        use_real=bool(normalized_attrs["use_real"]),
+        linear_factor=float(normalized_attrs["linear_factor"]),
+        ntk_factor=float(normalized_attrs["ntk_factor"]),
+        repeat_interleave_real=bool(normalized_attrs["repeat_interleave_real"]),
+        sequence_length=sequence_length if pos_tensor is None else None,
+        output_kind="cos",
+        dtype=output_dtype,
     )
-    inv_freqs = as_tensor(Parameter(inv_freq_values), dtype_hint="float32")
-    freqs = unsqueeze(pos_tensor, -1) * unsqueeze(inv_freqs, 0)
-    if int(freqs.shape[-1]) != rotary_dim:
-        raise ValueError("get_1d_rotary_pos_embed internal frequency shape mismatch")
-
-    cos_base = cos(freqs)
-    sin_base = sin(freqs)
-    if repeat_interleave_real:
-        cos_out = _repeat_interleave_frontend(cos_base, repeats=2, dim=1)
-        sin_out = _repeat_interleave_frontend(sin_base, repeats=2, dim=1)
-    else:
-        cos_out = _concatenate_frontend([cos_base, cos_base], dim=1)
-        sin_out = _concatenate_frontend([sin_base, sin_base], dim=1)
-
-    if output_dtype != "float32":
-        cos_out = _cast_frontend(cos_out, output_dtype)
-        sin_out = _cast_frontend(sin_out, output_dtype)
+    sin_out = _emit_get_1d_rotary_pos_embed_component(
+        pos_tensor,
+        dim=int(normalized_attrs["dim"]),
+        theta=float(normalized_attrs["theta"]),
+        use_real=bool(normalized_attrs["use_real"]),
+        linear_factor=float(normalized_attrs["linear_factor"]),
+        ntk_factor=float(normalized_attrs["ntk_factor"]),
+        repeat_interleave_real=bool(normalized_attrs["repeat_interleave_real"]),
+        sequence_length=sequence_length if pos_tensor is None else None,
+        output_kind="sin",
+        dtype=output_dtype,
+    )
     return cos_out, sin_out
 
 

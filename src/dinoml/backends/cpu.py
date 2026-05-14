@@ -17,6 +17,7 @@ from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
+from dinoml.ops.positional import normalize_get_1d_rotary_pos_embed_attrs
 
 
 def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -64,6 +65,17 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_get_timestep_embedding(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] in {"get_1d_rotary_pos_embed_cos", "get_1d_rotary_pos_embed_sin"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_get_1d_rotary_pos_embed_component(
+                    None if not node["inputs"] else values[node["inputs"][0]],
+                    node.get("attrs", {}),
+                    output_kind="cos" if node["op"] == "get_1d_rotary_pos_embed_cos" else "sin",
+                ),
                 output_dtype,
             )
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
@@ -525,6 +537,43 @@ def _execute_get_timestep_embedding(value: np.ndarray, attrs: Mapping[str, objec
     if embedding_dim % 2 == 1:
         embedding = np.concatenate([embedding, np.zeros((batch, 1), dtype=np.float32)], axis=1)
     return np.asarray(embedding, dtype=np.float32)
+
+
+def _execute_get_1d_rotary_pos_embed_component(
+    value: np.ndarray | None,
+    attrs: Mapping[str, object],
+    *,
+    output_kind: str,
+) -> np.ndarray:
+    normalized = normalize_get_1d_rotary_pos_embed_attrs(
+        dim=attrs.get("dim"),
+        theta=attrs.get("theta", 10000.0),
+        use_real=attrs.get("use_real", True),
+        linear_factor=attrs.get("linear_factor", 1.0),
+        ntk_factor=attrs.get("ntk_factor", 1.0),
+        repeat_interleave_real=attrs.get("repeat_interleave_real", True),
+        output_kind=output_kind,
+    )
+    if value is None:
+        sequence_length = int(attrs.get("sequence_length", 0))
+        if sequence_length <= 0:
+            raise ValueError("CPU reference get_1d_rotary_pos_embed integer pos must be positive")
+        positions = np.arange(sequence_length, dtype=np.float32)
+    else:
+        if value.ndim != 1:
+            raise ValueError(f"CPU reference get_1d_rotary_pos_embed expects rank-1 pos, got rank {value.ndim}")
+        positions = np.asarray(value, dtype=np.float32)
+    rotary_dim = int(normalized["dim"]) // 2
+    scaled_theta = np.float32(float(normalized["theta"]) * float(normalized["ntk_factor"]))
+    exponent = -np.log(scaled_theta) * np.arange(rotary_dim, dtype=np.float32) / np.float32(rotary_dim)
+    inv_freqs = np.exp(exponent).astype(np.float32, copy=False) / np.float32(float(normalized["linear_factor"]))
+    freqs = positions[:, None] * inv_freqs[None, :]
+    base = np.cos(freqs).astype(np.float32, copy=False) if output_kind == "cos" else np.sin(freqs).astype(np.float32, copy=False)
+    if not bool(normalized["use_real"]):
+        return np.asarray(base, dtype=np.float32)
+    if bool(normalized["repeat_interleave_real"]):
+        return np.repeat(base, 2, axis=1).astype(np.float32, copy=False)
+    return np.concatenate([base, base], axis=1).astype(np.float32, copy=False)
 
 
 def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

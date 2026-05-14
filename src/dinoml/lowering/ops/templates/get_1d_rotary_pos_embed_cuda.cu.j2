@@ -1,0 +1,45 @@
+__global__ void {{ kernel }}(
+    const {{ input_storage_type }}* DINO_RESTRICT pos,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_pos) {
+  constexpr int64_t output_cols = {{ output_cols }};
+  constexpr int64_t rotary_dim = {{ rotary_dim }};
+  constexpr bool use_real = {{ "true" if use_real else "false" }};
+  constexpr bool repeat_interleave_real = {{ "true" if repeat_interleave_real else "false" }};
+  constexpr bool write_cos = {{ "true" if write_cos else "false" }};
+  constexpr float neg_log_scaled_theta = {{ neg_log_scaled_theta_literal }};
+  constexpr float inv_linear_factor = {{ inv_linear_factor_literal }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t runtime_total = runtime_pos * output_cols;
+  if (linear_idx >= runtime_total) {
+    return;
+  }
+  const int64_t row = linear_idx / output_cols;
+  const int64_t col = linear_idx - row * output_cols;
+  const int64_t pair_idx = !use_real ? col : (repeat_interleave_real ? (col / 2) : (col % rotary_dim));
+  const float exponent = (neg_log_scaled_theta * static_cast<float>(pair_idx)) / static_cast<float>(rotary_dim);
+  const float angle = {% if has_input %}pos[row]{% else %}static_cast<float>(row){% endif %} * expf(exponent) * inv_linear_factor;
+  const float value = write_cos ? cosf(angle) : sinf(angle);
+  y[linear_idx] = dinoml::math::cast<{{ output_storage_type }}>(value);
+}
+
+static int {{ func }}(
+    const {{ input_storage_type }}* DINO_RESTRICT pos,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_pos,
+    int64_t runtime_total,
+    cudaStream_t stream) {
+  if (y == nullptr{% if has_input %} || pos == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t output_cols = {{ output_cols }};
+  if (runtime_total != runtime_pos * output_cols) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  const int block = {{ block_size }};
+  const int64_t total = runtime_total;
+  const int grid = static_cast<int>((total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(pos, y, runtime_pos);
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

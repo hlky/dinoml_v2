@@ -1,0 +1,34 @@
+static int {{ func }}(
+    const {{ input_storage_type }}* DINO_RESTRICT pos,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_pos,
+    int64_t runtime_total) {
+  if (y == nullptr{% if has_input %} || pos == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t output_cols = {{ output_cols }};
+  if (runtime_total != runtime_pos * output_cols) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  constexpr int64_t rotary_dim = {{ rotary_dim }};
+  constexpr bool use_real = {{ "true" if use_real else "false" }};
+  constexpr bool repeat_interleave_real = {{ "true" if repeat_interleave_real else "false" }};
+  constexpr bool write_cos = {{ "true" if write_cos else "false" }};
+  constexpr float neg_log_scaled_theta = {{ neg_log_scaled_theta_literal }};
+  constexpr float inv_linear_factor = {{ inv_linear_factor_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < runtime_pos; ++row) {
+    const float position = {% if has_input %}pos[row]{% else %}static_cast<float>(row){% endif %};
+    const int64_t base = row * output_cols;
+    for (int64_t col = 0; col < output_cols; ++col) {
+      const int64_t pair_idx = !use_real ? col : (repeat_interleave_real ? (col / 2) : (col % rotary_dim));
+      const float exponent = (neg_log_scaled_theta * static_cast<float>(pair_idx)) / static_cast<float>(rotary_dim);
+      const float angle = position * expf(exponent) * inv_linear_factor;
+      const float value = write_cos ? cosf(angle) : sinf(angle);
+      y[base + col] = dinoml::math::cast<{{ output_storage_type }}>(value);
+    }
+  }
+  return 0;
+}

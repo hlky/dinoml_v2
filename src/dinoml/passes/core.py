@@ -8,6 +8,10 @@ from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.layout import dense_layout
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS, elementwise_output_dtype
+from dinoml.ops.positional import (
+    GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS,
+    infer_get_1d_rotary_pos_embed_component_shape_spec,
+)
 from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError, validate_view_metadata
@@ -42,6 +46,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             expected_dtype = "int64"
         elif node["op"] == "topk_indices":
             expected_dtype = "int64"
+        elif node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
+            expected_dtype = str(tensors[node["outputs"][0]]["dtype"])
         elif node["op"] in FUSABLE_ELEMENTWISE_OPS and inputs:
             expected_dtype = elementwise_output_dtype(str(node["op"]), str(inputs[0]["dtype"]), node.get("attrs", {}))
         elif node["op"] == "fused_elementwise":
@@ -85,6 +91,11 @@ def _infer_node_shape_spec(
         shape_spec = _copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]))
         shape_spec[-1] = int(node.get("attrs", {})["k"])
         return shape_spec
+    if node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
+        return infer_get_1d_rotary_pos_embed_component_shape_spec(
+            None if not inputs else inputs[0].get("shape_spec", inputs[0]["shape"]),
+            node.get("attrs", {}),
+        )
     return None
 
 

@@ -20,6 +20,12 @@ from dinoml.ops.elementwise import (
     FLOAT_ELEMENTWISE_DTYPES,
     elementwise_output_dtype,
 )
+from dinoml.ops.positional import (
+    GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS,
+    GET_1D_ROTARY_POS_EMBED_DTYPES,
+    normalize_get_1d_rotary_pos_embed_attrs,
+    rotary_output_cols,
+)
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import is_dynamic_shape, validate_shape_spec
 
@@ -185,6 +191,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] in {"topk_values", "topk_indices"}:
         _validate_topk_node(node, inputs, tensors)
+        return
+    if node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
+        _validate_get_1d_rotary_pos_embed_node(node, inputs, tensors)
         return
     if node["op"] == "t5_layer_norm":
         _validate_t5_layer_norm_node(node, inputs, tensors)
@@ -399,6 +408,53 @@ def _validate_topk_node(
     if str(output["dtype"]) != expected_dtype:
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {expected_dtype}"
+        )
+
+
+def _validate_get_1d_rotary_pos_embed_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) not in {0, 1}:
+        raise ValidationError(f"{op_name} expects zero or one input")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    if inputs and len(inputs[0]["shape"]) != 1:
+        raise ValidationError(f"{op_name} expects rank-1 pos input, got rank {len(inputs[0]['shape'])}")
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, expected {expected_shape}"
+        )
+    input_dtype = None if not inputs else str(inputs[0]["dtype"])
+    if input_dtype is not None and input_dtype != "float32":
+        raise ValidationError(f"{op_name} requires float32 pos input, got {input_dtype}")
+    if str(output["dtype"]) not in GET_1D_ROTARY_POS_EMBED_DTYPES:
+        raise ValidationError(f"{op_name} does not support output dtype {output['dtype']}")
+    normalized_attrs = normalize_get_1d_rotary_pos_embed_attrs(
+        dim=node.get("attrs", {}).get("dim"),
+        theta=node.get("attrs", {}).get("theta", 10000.0),
+        use_real=node.get("attrs", {}).get("use_real", True),
+        linear_factor=node.get("attrs", {}).get("linear_factor", 1.0),
+        ntk_factor=node.get("attrs", {}).get("ntk_factor", 1.0),
+        repeat_interleave_real=node.get("attrs", {}).get("repeat_interleave_real", True),
+        output_kind=node.get("attrs", {}).get("output_kind"),
+    )
+    expected_kind = "cos" if op_name.endswith("_cos") else "sin"
+    if str(normalized_attrs["output_kind"]) != expected_kind:
+        raise ValidationError(f"{op_name} must use output_kind={expected_kind}")
+    expected_cols = rotary_output_cols(normalized_attrs)
+    if int(output["shape"][1]) != expected_cols:
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has width {output['shape'][1]}, expected {expected_cols}"
         )
 
 

@@ -265,27 +265,60 @@ integration:
 
 ### Landed Bounded Contract
 
-The first v2 slice is now landed as a helper-only public
-`dml.ops.get_1d_rotary_pos_embed(...)` composition, not a registered op.
+The first v2 slice is now landed as a bounded public
+`dml.ops.get_1d_rotary_pos_embed(...)` wrapper over two generated internal
+component ops, `get_1d_rotary_pos_embed_cos` and
+`get_1d_rotary_pos_embed_sin`.
+
+This is intentionally explicit about current IR/runtime limits:
+
+- v2 still has single-output graph nodes, so the public `(cos, sin)` API lowers
+  to two generated component nodes/kernels.
+- This is not full v1 single-launch/two-output-kernel parity.
+- The repair removes the earlier helper-math composition path instead of
+  pretending that multi-output support already exists.
 
 - Admitted inputs:
   - positive even static `dim`
   - `pos` as either a positive integer sequence length or a rank-1 dense
-    `float32`/`float16`/`bfloat16` tensor with static positive length `S`
+    `float32`/`float16`/`bfloat16` tensor with positive static or dynamic
+    length `S`
   - positive finite `theta`, `linear_factor`, and `ntk_factor`
   - explicit output `dtype` on that same float surface
+- Admitted output modes:
+  - `use_real=True` returns duplicated-real `(cos, sin)` tables with shape
+    `[S, dim]`
+  - `repeat_interleave_real=True` uses repeat-interleave pairs
+  - `repeat_interleave_real=False` uses concat/split-half style duplication
+  - `use_real=False` returns base `(cos, sin)` tables with shape `[S, dim/2]`
+- Lowering/runtime contract:
+  - the generated component ops either synthesize integer positions internally
+    from a static `sequence_length` attr or take float32 tensor positions
+  - frequency/trig math runs in fp32 and stores float16/float32/bfloat16
+    outputs
+  - dynamic rank-1 tensor `pos` is admitted and preserved through output
+    shape-spec propagation
 - Output:
-  - tuple `(cos, sin)` with both tensors shaped `[S, dim]`
-  - duplicated-real style is explicit:
+  - tuple `(cos, sin)` with both tensors shaped `[S, dim]` when `use_real=True`
+  - tuple `(cos, sin)` with both tensors shaped `[S, dim/2]` when
+    `use_real=False`
+  - duplicated-real style is explicit for `use_real=True`:
     - `repeat_interleave_real=True` for adjacent-pair duplication
     - `repeat_interleave_real=False` for concat/split-half duplication
 - Internal behavior:
-  - helper stays out of `OP_REGISTRY`
-  - math runs in fp32, then casts to the requested output dtype
+  - the public wrapper still stays out of `OP_REGISTRY`
+  - lowering uses two generated component ops because the current IR/runtime
+    are single-output per node
+  - integer `pos` lowers as two no-input component nodes with a static
+    `sequence_length` attr, so the int path does not add an `arange` launch
+  - rank-1 tensor `pos` may be dynamic and preserves `S` through output
+    shape-spec propagation
+  - math runs in fp32 from float32 positions and stores the requested output
+    dtype
 - Current bounds:
-  - `use_real=False` / complex-style output remains rejected
-  - dynamic `S` is still out
-  - no standalone CUDA parity claim is recorded yet for this helper-only slice
+  - this is still not v1 single-launch/two-output-kernel parity
+  - public frontend registration must wait for real multi-output IR/runtime
+    support
 
 ### Later Application Slices
 

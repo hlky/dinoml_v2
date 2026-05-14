@@ -20,6 +20,7 @@ from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gather import GATHER_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
+from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_LOWERINGS
 from dinoml.lowering.ops.get_timestep_embedding import GET_TIMESTEP_EMBEDDING_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
@@ -69,6 +70,7 @@ OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)
 OP_LOWERINGS.update(BMM_LOWERINGS)
 OP_LOWERINGS.update(TOPK_LOWERINGS)
+OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
 
 
 def render_generated_kernels(

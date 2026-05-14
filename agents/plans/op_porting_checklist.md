@@ -696,20 +696,28 @@ when compile-time constants make that practical.
   a CUDA-only coupled Q/K Torch ABI with limited real-pair modes, and the
   broader application lane should still start from explicit table-generation
   helpers rather than a broad fused public `apply_rotary_emb`.
-- [x] `get_1d_rotary_pos_embed` - bounded public frontend helper composing
-  existing primitives for real-table-only 1D rotary cos/sin generation. The
-  admitted slice supports positive even static `dim`, positive integer
-  sequence-length `pos` or rank-1 dense `float32`/`float16`/`bfloat16`
-  position tensors with static length `S`, positive finite
-  `theta`/`linear_factor`/`ntk_factor`, explicit duplicated-real outputs via
-  `repeat_interleave_real=True` (repeat-interleave pairs) or `False`
-  (concat/split-half style), and explicit output storage `dtype` across the
-  same float surface. The helper keeps `get_1d_rotary_pos_embed` out of the
-  op registry, performs the trig/frequency math in fp32, and returns a pair of
-  public tensors `(cos, sin)` each with shape `[S, dim]`. Current bounds:
-  `use_real=False` complex-style output is rejected, dynamic `S` is not
-  admitted, and no standalone CUDA parity is claimed yet for this helper-only
-  slice.
+- [x] `get_1d_rotary_pos_embed` - bounded public tuple-returning rotary table
+  surface backed by two real generated component ops,
+  `get_1d_rotary_pos_embed_cos` and `get_1d_rotary_pos_embed_sin`. Current v2
+  IR/runtime still require one output per node, so this is explicitly not full
+  v1 single-launch/two-output parity: public `dml.ops.get_1d_rotary_pos_embed`
+  lowers to two generated component nodes/kernels with shared attrs rather than
+  helper math composition. The admitted slice supports positive even static
+  `dim`; `pos` as either a positive integer sequence length or a rank-1 dense
+  `float32`/`float16`/`bfloat16` tensor with positive static or dynamic length
+  `S`; positive finite `theta`/`linear_factor`/`ntk_factor`; `use_real=True`
+  duplicated-real outputs via `repeat_interleave_real=True` (repeat-interleave
+  pairs) or `False` (concat/split-half style); `use_real=False` base
+  cos/sin-table outputs with shape `[S, dim/2]`; and explicit output storage
+  `dtype` across `float16`/`float32`/`bfloat16`. The generated component kernels
+  either synthesize integer positions internally from an admitted static
+  `sequence_length` attr or take float32 tensor positions, perform the
+  frequency/trig math in fp32, preserve dynamic `S` in output shape-spec
+  metadata for the tensor-input path, and cover generated CPU/CUDA lowering
+  plus focused CPU/CUDA parity tests. Remaining bounds: the public
+  wrapper itself still lives outside `OP_REGISTRY` because multi-output
+  frontend registration is not available yet, and v1-style single two-output
+  kernel launch parity should wait for real multi-output IR/runtime support.
 
 Library hints: no major external kernel library is expected to own these. Use
 common primitive composition for CPU/CUDA first; add fused kernels only if these

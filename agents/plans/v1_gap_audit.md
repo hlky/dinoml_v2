@@ -230,7 +230,11 @@ porting. It intentionally excludes the op inventory, which lives in
   capacity, device type, flags, and alignment. Current generated modules apply
   ABI byte offsets to logical tensor pointers, still require row-major
   contiguous tensors, and most lowering assumes dense layout; layout views and
-  NHWC/channel-last policies remain open.
+  NHWC/channel-last policies remain open. ConvNd planning is now explicitly
+  captured in `agents/plans/conv_cutlass_plan.md`: keep public ConvNd semantics
+  source-faithful NCHW/NCDHW, treat NHWC/NDHWC as guarded provider-internal
+  islands only, and require generated pack/unpack temporaries plus manifest
+  metadata instead of relying on ABI strides for layout translation.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

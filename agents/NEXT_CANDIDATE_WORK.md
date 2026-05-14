@@ -161,10 +161,17 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+1. Start the first bounded ConvNd provider slice described in
+   `agents/plans/conv_cutlass_plan.md`: CUDA-only `conv2d_bias` with public
+   NCHW semantics, artifact-visible NHWC/OHWI provider transforms, groups=`1`,
+   static channel/kernel attrs, and CPU/PyTorch reference validation. Keep the
+   work design-first and narrow: no conv3d, no transposed/depthwise/grouped
+   expansion, no hidden channel padding, no runtime-set packed weights, and no
+   public NHWC toggle.
+2. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice if a new concrete stale-payload edge appears in an existing
    cache/test area; otherwise keep provider-cache work paused and avoid
    speculative broadening.
-2. Add one more bounded native regression only if another GGUF loader edge
+3. Add one more bounded native regression only if another GGUF loader edge
    appears, preferably around encoded-runtime-dequant native reload behavior
    rather than broadening the runtime surface.

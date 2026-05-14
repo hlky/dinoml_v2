@@ -531,6 +531,12 @@ behavior.
 
 - [ ] Convolution: `conv2d`, `conv3d`, `conv3d_bias`, `depthwise_conv3d`,
   `depthwise_conv3d_bias`, `transposed_conv2d`.
+  First implementation target is documented in
+  `agents/plans/conv_cutlass_plan.md`: a CUDA-only `conv2d_bias`
+  `cutlass_conv` slice with source-faithful public NCHW semantics,
+  artifact-visible NHWC/OHWI provider transforms, groups=`1`, static
+  channel/kernel attrs, and CPU/PyTorch reference validation. Keep all other
+  ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,
   stride=None, padding=0)` for rank-3 NCL static-shape `float32`, `float16`,

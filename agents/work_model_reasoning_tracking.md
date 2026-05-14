@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 6710c2d, Add CLIP text encoder-layer composition tests, gpt-5.4, high
 - 1ba2f2f, Add CLIP contrastive head composition tests, gpt-5.4-mini, medium
 - e3e1955, Add CLIP text MLP composition tests, gpt-5.4-mini, medium
 - 497c83b, Add CLIP text attention composition tests, gpt-5.4, high

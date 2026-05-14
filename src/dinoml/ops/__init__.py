@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 from math import isfinite, prod
 from typing import Any, Callable, Mapping, Sequence
 
@@ -50,7 +49,8 @@ from dinoml.ops.conv import (
     normalize_conv2d_bias_attrs,
     resolve_conv2d_bias_shape,
 )
-from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, ELEMENTWISE_OUTPUT_DTYPES, elementwise_output_dtype
+from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, elementwise_output_dtype
+from dinoml.ops._frontend_utils import infer_shape_spec as _infer_shape_spec
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
 from dinoml.ops.normalization import t5_layer_norm as _t5_layer_norm_frontend
 from dinoml.ops.positional import (
@@ -71,6 +71,7 @@ from dinoml.ops.pooling import (
 from dinoml.ops.reductions import argmax as _argmax_frontend, reduce_max, reduce_mean, reduce_min, reduce_sum, topk as _topk_frontend, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
+from dinoml.ops.where import where as _where_frontend
 
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
     op_def = get_op_def(op_name)
@@ -104,27 +105,6 @@ def make_frontend_op(op_name: str) -> Callable[..., Tensor]:
     _frontend.__qualname__ = frontend_name
     _frontend.__doc__ = op_def.description
     return _frontend
-
-
-def _where_frontend(condition: Any, x: Any, y: Any) -> Tensor:
-    op_def = get_op_def("where")
-    condition_tensor = as_tensor(condition)
-    x_tensor = as_tensor(x)
-    y_tensor = as_tensor(y, dtype_hint=x_tensor.dtype)
-    tensors = [condition_tensor, x_tensor, y_tensor]
-    builder = condition_tensor.builder
-    for tensor in tensors[1:]:
-        if tensor.builder is not builder:
-            raise ValueError("Cannot combine tensors from different DinoML traces")
-    if condition_tensor.dtype != "bool":
-        raise ValueError(f"where condition must have dtype bool, got {condition_tensor.dtype}")
-    if x_tensor.dtype != y_tensor.dtype:
-        raise ValueError(f"where x/y dtype mismatch: {x_tensor.dtype} vs {y_tensor.dtype}")
-    if x_tensor.dtype not in ELEMENTWISE_OUTPUT_DTYPES:
-        raise ValueError(f"where does not support dtype {x_tensor.dtype}")
-    out_shape = op_def.infer_shape([tensor.shape for tensor in tensors])
-    out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
-    return builder.emit("where", tensors, out_shape, x_tensor.dtype, {}, shape_spec=out_shape_spec)
 
 
 def _cast_frontend(x: Any, dtype: str) -> Tensor:
@@ -976,27 +956,6 @@ def _dtype_hint(args: tuple[Any, ...], op_def: OpDef) -> str:
     return op_def.allowed_dtypes[0]
 
 
-def _infer_shape_spec(shape_specs: list[list[Any]], out_shape: list[int]) -> list[Any]:
-    if not shape_specs:
-        return list(out_shape)
-    result: list[Any] = []
-    max_rank = builtins.max(len(shape) for shape in shape_specs)
-    aligned = [[1] * (max_rank - len(shape)) + list(shape) for shape in shape_specs]
-    for dims in zip(*aligned):
-        chosen = dims[0]
-        for dim in dims[1:]:
-            if _dim_is_one(chosen):
-                chosen = dim
-            elif _dim_is_one(dim):
-                continue
-            elif dim == chosen:
-                continue
-            else:
-                return list(out_shape)
-        result.append(chosen)
-    return result
-
-
 def _infer_registered_shape_spec(
     op_name: str,
     shape_specs: list[list[Any]],
@@ -1016,12 +975,6 @@ def _infer_registered_shape_spec(
 
 def _copy_shape_dim(dim: Any) -> Any:
     return dict(dim) if isinstance(dim, Mapping) else dim
-
-
-def _dim_is_one(dim: Any) -> bool:
-    return isinstance(dim, int) and int(dim) == 1
-
-
 def _normalize_symbolic_index(index: Any, length: int, name: str) -> int:
     if not isinstance(index, int) or isinstance(index, bool):
         raise TypeError(f"{name} must be an integer, got {type(index).__name__}")

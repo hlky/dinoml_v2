@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Started the `src/dinoml/ops/__init__.py` decomposition without widening the
+  op surface: public `dml.ops.where(...)` now lives in
+  `src/dinoml/ops/where.py`, while the small broadcast shape-spec inference
+  helper it depends on moved into private `src/dinoml/ops/_frontend_utils.py`
+  so the registry/export wiring in `dml.ops` can keep overriding the generic
+  registered frontend with the bespoke `where` contract. Focused `where`
+  frontend, CPU reference, generated CPU/CUDA source, and runtime smoke tests
+  continue to cover the public API, and no broader op extraction or checklist
+  churn was introduced in this structural slice.
 - Repaired the named permute specialization surface so it is now honest instead
   of alias-shaped. Public `dml.ops.permute021`, `permute0213`, `permute102`,
   and `permute210` are now real registered bounded ops with fixed-rank,

@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- edfa639, Emit CUTLASS conv scaffold wrapper debug sources, gpt-5.4, high
 - def4984, Record CUTLASS conv wrapper staging metadata, gpt-5.4, high
 - 61c5a0f, Add native GGUF runtime-dequant reload regression, gpt-5.4, high
 - bff8139, Document rotary apply exploration and next slice, gpt-5.4, medium

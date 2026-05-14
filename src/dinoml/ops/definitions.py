@@ -5,6 +5,7 @@ from dinoml.ops.broadcasting import register_broadcasting_ops
 from dinoml.ops.collections import register_collection_ops
 from dinoml.ops.conv import register_conv_ops
 from dinoml.ops.creation import register_creation_ops
+from dinoml.ops.embedding import register_embedding_ops
 from dinoml.ops.elementwise import register_elementwise_ops
 from dinoml.ops.gemm import register_gemm_ops
 from dinoml.ops.internal import register_internal_ops
@@ -26,6 +27,7 @@ register_softmax_op(OP_REGISTRY)
 register_reduction_ops(OP_REGISTRY)
 register_pooling_ops(OP_REGISTRY)
 register_creation_ops(OP_REGISTRY)
+register_embedding_ops(OP_REGISTRY)
 register_positional_ops(OP_REGISTRY)
 register_broadcasting_ops(OP_REGISTRY)
 register_collection_ops(OP_REGISTRY)

@@ -1,0 +1,17 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT table,
+    const {{ index_storage_type }}* DINO_RESTRICT indices,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel_indices,
+    int64_t runtime_numel_out) {
+  if (table == nullptr || indices == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel_out != runtime_numel_indices * {{ hidden_size }}) {
+    return dino_runtime_fail("embedding runtime output size mismatch");
+  }
+  for (int64_t idx = 0; idx < runtime_numel_out; ++idx) {
+{{ copy_body }}
+  }
+  return 0;
+}

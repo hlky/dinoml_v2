@@ -696,6 +696,18 @@ when compile-time constants make that practical.
 
 ### Embedding and Positional Helpers
 
+- [x] `embedding` - bounded registered learned table lookup op for CLIP/BERT
+  style token and position embeddings. Public `dml.ops.embedding(table,
+  indices)` now requires a positive static table shape `[vocab, hidden]`,
+  supports `float32`/`float16`/`bfloat16` table storage plus `int64`/`int32`
+  indices with rank >= 1, preserves dynamic leading index dims in the output
+  shape-spec, returns output shaped `indices.shape + [hidden]`, and keeps the
+  output dtype equal to the table dtype. Generated CPU/CUDA lowering and CPU
+  reference execution now include explicit runtime output-size checks plus
+  out-of-bounds index rejection, with focused regressions covering frontend/IR
+  shape and dtype, int32/int64 indices, validation failures, generated-source
+  and kernel-manifest ownership, dynamic-batch CPU runtime execution, CUDA
+  compile/runtime parity, and CPU OOB runtime rejection.
 - [ ] Embedding/model helpers: `bert_embeddings`, `relative_attention_bias`,
   `sinusoidal_positional_embedding`, `gaussian_fourier_projection`,
   `cropped_pos_embed`.

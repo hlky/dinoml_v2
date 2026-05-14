@@ -201,6 +201,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "layer_norm":
         _validate_layer_norm_node(node, inputs, tensors)
         return
+    if node["op"] == "embedding":
+        _validate_embedding_node(node, inputs, tensors)
+        return
     if node["op"] in {
         "avg_pool1d",
         "avg_pool2d",
@@ -652,6 +655,43 @@ def _validate_collection_node(
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
             f"expected {inputs[0]['dtype']}"
+        )
+
+
+def _validate_embedding_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("embedding")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 2:
+        raise ValidationError("embedding expects exactly two inputs")
+    table_tensor = inputs[0]
+    index_tensor = inputs[1]
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    table_shape_spec = table_tensor.get("shape_spec", table_tensor["shape"])
+    if is_dynamic_shape(table_shape_spec):
+        raise ValidationError("embedding currently requires a static table shape [vocab, hidden]")
+    try:
+        expected_shape = op_def.infer_shape_for([table_tensor["shape"], index_tensor["shape"]], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+            f"expected {expected_shape}"
+        )
+    if str(table_tensor["dtype"]) not in op_def.allowed_dtypes:
+        raise ValidationError(f"embedding does not support dtype {table_tensor['dtype']}")
+    if str(index_tensor["dtype"]) not in {"int64", "int32"}:
+        raise ValidationError(f"embedding indices must have dtype int64 or int32, got {index_tensor['dtype']}")
+    if str(output["dtype"]) != str(table_tensor["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+            f"expected {table_tensor['dtype']}"
         )
 
 

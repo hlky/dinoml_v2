@@ -49,6 +49,7 @@ from dinoml.ops.conv import (
     normalize_conv2d_bias_attrs,
     resolve_conv2d_bias_shape,
 )
+from dinoml.ops.embedding import embedding as _embedding_frontend
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, elementwise_output_dtype
 from dinoml.ops._frontend_utils import infer_shape_spec as _infer_shape_spec
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
@@ -1002,6 +1003,7 @@ globals()["randn"] = _randn_frontend
 globals()["argmax"] = _argmax_frontend
 globals()["topk"] = _topk_frontend
 globals()["batch_gather"] = _batch_gather_frontend
+globals()["embedding"] = _embedding_frontend
 globals()["expand"] = _expand_frontend
 globals()["expand_static_shape"] = _expand_static_shape_frontend
 globals()["meshgrid"] = _meshgrid_frontend

@@ -721,10 +721,10 @@ def _validate_gguf_runtime_dequant_admission(
 
 def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
-    gather_index_tensors = {
+    index_tensors = {
         node["inputs"][1]
         for node in ir["nodes"]
-        if node.get("op") in {"gather", "batch_gather"} and len(node.get("inputs", [])) == 2
+        if node.get("op") in {"gather", "batch_gather", "embedding"} and len(node.get("inputs", [])) == 2
     }
     argmax_output_tensors = {
         node["outputs"][0]
@@ -787,6 +787,25 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"Op batch_gather output dtype {output_dtype} must match input dtype {data_dtype}"
                 )
             continue
+        if node.get("op") == "embedding":
+            table_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if table_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[table_dtype]}"
+                )
+            if index_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op embedding indices support dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[index_dtype]}"
+                )
+            if output_dtype != table_dtype:
+                raise NotImplementedError(
+                    f"Op embedding output dtype {output_dtype} must match table dtype {table_dtype}"
+                )
+            continue
         if node.get("op") in {"topk_values", "topk_indices"}:
             input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
             output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
@@ -828,7 +847,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             str(tensor["dtype"])
             for tensor in ir["tensors"]
             if str(tensor["dtype"]) not in supported
-            and str(tensor["name"]) not in gather_index_tensors
+            and str(tensor["name"]) not in index_tensors
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
         }

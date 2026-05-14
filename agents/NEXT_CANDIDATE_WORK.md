@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the next bounded CLIP/BERT text-enabling primitive as a real generated
+  lookup op instead of another helper composition: public
+  `dml.ops.embedding(table, indices)` is now a registered op with dedicated
+  validation, CPU reference execution, and generated CPU/CUDA lowering for a
+  positive static table `[vocab, hidden]`, `float32`/`float16`/`bfloat16`
+  table storage, `int64`/`int32` indices, output dtype matching the table, and
+  output shape `indices.shape + [hidden]`. The landed slice preserves dynamic
+  leading index dims while keeping the table static, emits explicit CPU/CUDA
+  runtime output-size checks plus out-of-bounds index rejection, and adds
+  focused regressions for frontend/IR shape-spec propagation, int32/int64
+  index support, validation failures, generated-source/kernel-manifest
+  ownership, dynamic-batch CPU artifact runtime, CUDA compile/runtime parity,
+  and CPU runtime OOB rejection.
 - Landed the first real affine LayerNorm primitive needed for the CLIP/ViT/BERT
   first-model sprint without widening beyond the bounded static-hidden slice:
   public `dml.ops.layer_norm(x, weight, bias, eps=...)` is now a registered op
@@ -471,16 +484,22 @@ This file should be updated after each major loop.
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the
    newly runtime-hardened helper-only `rms_norm` slice in place, and the now-
    registered generated `layer_norm` primitive unblocking CLIP/ViT/BERT hidden-
-   state normalization, prefer the next first-model enabling surface that is
-   still half-finished: standard transformer embedding/masking/attention
-   support or a small contract hardening pass around those paths before
+   state normalization, plus the newly registered generated `embedding`
+   primitive for learned token/position tables, prefer the next first-model
+   enabling surface that is still half-finished: standard transformer
+   masking/attention support or a small contract hardening pass around those
+   paths before
    revisiting grouped/fused normalization variants or dynamic normalized-
    dimension work. RoPE exploration/planning is now recorded in
    `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a
    downstream consumer of the landed 1D tables, such as a bounded one-tensor
    real-pair application helper or a 2D/3D table-preparation helper, not a
    speculative fused public `apply_rotary_emb` CUDA ABI. Do not restart
-   `cropped_pos_embed` without new human direction.
+   `cropped_pos_embed` without new human direction. Do not broaden unrelated
+   integer-output support like `argmax`/`eq` in this lane unless a concrete
+   masking or pooling slice proves it is a direct blocker; if CLIP text pooling
+   stays blocked on that surface, keep recording it as the next bounded gap
+   rather than widening multiple integer contracts at once.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

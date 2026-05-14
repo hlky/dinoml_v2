@@ -1329,7 +1329,7 @@ def _read_profile_cache(path: Path, target: Mapping[str, Any]) -> dict[str, Any]
     entries = payload.get("entries", {})
     if not isinstance(entries, Mapping):
         return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    payload["entries"] = _valid_profile_cache_entries(entries)
+    payload["entries"] = _valid_profile_cache_entries(entries, target=target)
     return payload
 
 
@@ -1347,13 +1347,18 @@ def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
         merged_entries.update(existing.get("entries", {}))
     entries = cache.get("entries", {})
     if isinstance(entries, Mapping):
-        merged_entries.update(_valid_profile_cache_entries(entries))
+        merged_entries.update(_valid_profile_cache_entries(entries, target=target))
     payload["entries"] = merged_entries
     write_json(path, payload)
 
 
-def _valid_profile_cache_entries(entries: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def _valid_profile_cache_entries(
+    entries: Mapping[str, Any],
+    *,
+    target: Mapping[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
     valid: dict[str, dict[str, Any]] = {}
+    expected_target = dict(target) if isinstance(target, Mapping) else None
     for key, value in entries.items():
         if not isinstance(value, Mapping):
             continue
@@ -1362,6 +1367,16 @@ def _valid_profile_cache_entries(entries: Mapping[str, Any]) -> dict[str, dict[s
         normalized_key = str(key)
         if not isinstance(entry_key, str) or entry_key != normalized_key:
             continue
+        key_payload = entry.get("key")
+        if key_payload is not None:
+            if not isinstance(key_payload, Mapping):
+                continue
+            if key_payload.get("schema_version") != PROFILE_CACHE_SCHEMA_VERSION:
+                continue
+            if expected_target is not None and key_payload.get("target") != expected_target:
+                continue
+            if _profile_key(key_payload) != normalized_key:
+                continue
         valid[normalized_key] = entry
     return valid
 

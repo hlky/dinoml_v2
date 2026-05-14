@@ -1229,6 +1229,77 @@ def test_profile_cache_rejects_mismatched_profile_key_entries(tmp_path):
     assert cache["entries"] == {"good": {"profile_key": "good", "elapsed_ms": 1.0}}
 
 
+def test_profile_cache_rejects_stale_or_cross_target_payload_keys(tmp_path):
+    cache_path = tmp_path / "profile_cache.json"
+    target = {"name": "cuda", "arch": "sm_86"}
+    good_payload = {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "good"}
+    stale_payload = {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "stale"}
+    wrong_target_payload = {
+        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "cuda", "arch": "sm_90"},
+        "candidate_id": "other-target",
+    }
+    good_key = _profile_key(good_payload)
+    stale_key = _profile_key({"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "current"})
+    wrong_target_key = _profile_key(wrong_target_payload)
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                good_key: {"profile_key": good_key, "key": good_payload, "elapsed_ms": 1.0},
+                stale_key: {"profile_key": stale_key, "key": stale_payload, "elapsed_ms": 2.0},
+                wrong_target_key: {"profile_key": wrong_target_key, "key": wrong_target_payload, "elapsed_ms": 3.0},
+            },
+        },
+    )
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache["entries"] == {good_key: {"profile_key": good_key, "key": good_payload, "elapsed_ms": 1.0}}
+
+
+def test_profile_cache_write_discards_stale_on_disk_payload_entries(tmp_path):
+    cache_path = tmp_path / "profile_cache.json"
+    target = {"name": "cuda", "arch": "sm_86"}
+    existing_payload = {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "existing"}
+    stale_payload = {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "stale"}
+    fresh_payload = {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "fresh"}
+    existing_key = _profile_key(existing_payload)
+    stale_key = _profile_key({"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": target, "candidate_id": "old"})
+    fresh_key = _profile_key(fresh_payload)
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                existing_key: {"profile_key": existing_key, "key": existing_payload, "elapsed_ms": 1.0},
+                stale_key: {"profile_key": stale_key, "key": stale_payload, "elapsed_ms": 2.0},
+            },
+        },
+    )
+
+    profiling_mod._write_profile_cache(
+        cache_path,
+        {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": target,
+            "entries": {
+                fresh_key: {"profile_key": fresh_key, "key": fresh_payload, "elapsed_ms": 0.5},
+            },
+        },
+    )
+
+    cache = profiling_mod._read_profile_cache(cache_path, target)
+
+    assert cache["entries"] == {
+        existing_key: {"profile_key": existing_key, "key": existing_payload, "elapsed_ms": 1.0},
+        fresh_key: {"profile_key": fresh_key, "key": fresh_payload, "elapsed_ms": 0.5},
+    }
+
+
 def test_profile_cache_write_preserves_existing_same_target_entries(tmp_path):
     cache_path = tmp_path / "profile_cache.json"
     target = {"name": "cuda", "arch": "sm_86"}

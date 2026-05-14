@@ -191,7 +191,11 @@ porting. It intentionally excludes the op inventory, which lives in
   statistics have malformed count fields, do not contain enough samples for
   the requested repeat-count confidence policy, or carry a `profile_key` that is
   missing or inconsistent with the cache map key, or whose embedded key payload
-  no longer matches the current hardware/support/profile key payload. Profile
+  no longer matches the current hardware/support/profile key payload. Cache
+  reads now also reject entries whose embedded payload no longer hashes to the
+  stored `profile_key` or whose embedded target no longer matches the cache
+  target, and cache writes drop those stale on-disk entries instead of merging
+  them forward. Profile
   cache writes now merge valid same-target on-disk entries before writing so a
   stale writer preserves entries added by another profiling process while still
   replacing its own profile keys. CUTLASS support-cache reuse now also rejects

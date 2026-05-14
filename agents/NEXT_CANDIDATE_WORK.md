@@ -4,6 +4,13 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened the CUTLASS profile-cache persistence contract with a small
+  compile-visible robustness slice: cache reads now reject entries whose
+  embedded key payload no longer hashes to the stored `profile_key` or whose
+  embedded target drifts from the cache target, and cache writes now drop those
+  stale on-disk payloads instead of merging them back. Added focused profiling
+  regressions for stale embedded payload hashes, cross-target payload drift, and
+  stale-on-disk entry rejection during a normal write.
 - Closed the top-ranked trust-building GGUF/CUDA workflow gap with a focused
   float32 `gemm_rrr_bias` runtime regression: real libgguf `Q4_0` RHS storage,
   dense bias loaded from `constants.bin`, `manual_runtime_load` encoded weight,
@@ -146,9 +153,9 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Revisit CUTLASS/provider maturity only for another bounded compile-visible
-   robustness slice, such as persistent cache concurrency or stale-key
-   rejection, if it directly affects provider selection or compile/profile
-   correctness.
+   robustness slice, such as support-cache/source-manifest stale-key rejection
+   in another existing test area, if it directly affects provider selection or
+   compile/profile correctness.
 2. Add one more bounded native regression only if another GGUF loader edge
    appears, preferably around encoded-runtime-dequant native reload behavior
    rather than broadening the runtime surface.

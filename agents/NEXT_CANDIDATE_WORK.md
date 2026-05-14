@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded CLIP text encoder-layer composition slice without adding
+  `CLIPTextModel`, a new op, or a flash provider path: focused regressions now
+  prove one tiny float32 text encoder layer as
+  `layer_norm -> dense causal self-attention -> residual -> layer_norm ->
+  gemm_rcr_bias_fast_gelu -> gemm_rcr_bias -> residual`, with CPU NumPy parity
+  for both static additive causal masking and an optional bool padding mask.
+  A light CUDA manifest check keeps provider ownership honest by showing
+  `layer_norm`/`softmax` stay model-generated while GEMM/BMM pieces stay
+  CUTLASS-backed. This is still a composition proof, not `CLIPTextModel`, not
+  a dynamic causal-mask builder, and not a fused attention admission.
 - Landed a bounded CLIP contrastive-head composition slice without adding a
   public head op: focused regressions now prove L2-normalized text/image
   features via `vector_norm(..., keepdim=True)` plus division, then

@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Made the bounded GGUF runtime-dequant -> CUTLASS GEMM scratch policy more
+  artifact-visible without widening the runtime surface: `kernel_manifest.json`
+  now records a `session_resources` entry for the shared per-session
+  `gguf_runtime_dequant_scratch` CUDA allocation, sized to the maximum dense RHS
+  requirement across all lowered `gguf_runtime_dequant` GEMM plans and linked
+  back to the source node/constant scratch plans. CUDA lowering now consumes
+  that manifest resource when allocating the session-owned scratch buffer while
+  retaining the existing lowered-plan fallback for older manifests. Focused
+  planning/codegen coverage pins the max-sized shared allocation and its source
+  plan provenance; encoded-load plan regressions remain green. No new GGUF
+  materialization policy, offload scheduler, op surface, or non-bias GEMM
+  epilogue support was added.
 - Advanced the bounded `conv2d_bias`/`cutlass_conv` support-library lane by
   compiling the next honest prerequisite for a real launcher without widening
   the runtime claim: the CUTLASS Conv scaffold now emits exported CUDA layout

@@ -300,6 +300,15 @@ def _cutlass_workspace_context(kernel_manifest: Mapping[str, Any] | None) -> dic
 def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> dict[str, int] | None:
     if kernel_manifest is None:
         return None
+    for resource in kernel_manifest.get("session_resources", ()):
+        if not isinstance(resource, Mapping):
+            continue
+        if str(resource.get("kind", "")) != "gguf_runtime_dequant_scratch":
+            continue
+        nbytes = int(resource.get("nbytes", 0) or 0)
+        if nbytes <= 0:
+            continue
+        return {"nbytes": nbytes}
     max_scratch = 0
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_gemm":

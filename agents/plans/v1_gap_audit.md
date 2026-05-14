@@ -328,7 +328,9 @@ porting. It intentionally excludes the op inventory, which lives in
   `dequantize_on_gpu_before_launch` plus
   `manual_runtime_load`: the artifact stores encoded bytes, Python runtime
   loading installs those encoded bytes into CUDA constant storage, generated
-  modules expose an explicit native
+  manifests expose a shared per-session `gguf_runtime_dequant_scratch`
+  resource sized to the maximum lowered dense RHS requirement, modules expose an
+  explicit native
   `libgguf_cuda_dequantize_rows_on_stream` function-pointer setter, sessions
   own a separate dense dequant scratch buffer, and lowering dequantizes on the
   session stream immediately before the existing dense CUTLASS GEMM launch.

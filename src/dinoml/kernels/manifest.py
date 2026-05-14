@@ -158,6 +158,9 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         "codegen_strategy": "prebuilt_static_library",
         "profiler_strategy": "manifest_declared_not_yet_generated",
     }
+    session_resources = _session_resource_plan(required)
+    if session_resources:
+        manifest["session_resources"] = session_resources
     return _with_kernel_manifest_cache_keys(manifest)
 
 
@@ -225,6 +228,45 @@ def _gguf_runtime_dequant_gemm_rhs_plan(
     if blocked_reason is not None:
         plan["blocked_reason"] = blocked_reason
     return plan
+
+
+def _session_resource_plan(required_kernels: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    gguf_plans = []
+    max_scratch_nbytes = 0
+    for item in required_kernels:
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        plan = item.get("gguf_runtime_dequant")
+        if not isinstance(plan, Mapping):
+            continue
+        if str(plan.get("status")) != "lowered_runtime_dequant_scratch":
+            continue
+        scratch_nbytes = int(plan.get("scratch_nbytes", 0) or 0)
+        if scratch_nbytes <= 0:
+            continue
+        max_scratch_nbytes = max(max_scratch_nbytes, scratch_nbytes)
+        gguf_plans.append(
+            {
+                "node_id": str(plan.get("node_id", "")),
+                "op": str(plan.get("op", "")),
+                "constant": str(plan.get("constant", "")),
+                "scratch_nbytes": scratch_nbytes,
+            }
+        )
+    if not gguf_plans:
+        return []
+    return [
+        {
+            "schema_version": 1,
+            "kind": "gguf_runtime_dequant_scratch",
+            "name": "gguf_runtime_dequant_dense_rhs",
+            "allocation": "per_session",
+            "residency": "cuda_device",
+            "reuse": "shared_max_sized",
+            "nbytes": max_scratch_nbytes,
+            "source_plans": gguf_plans,
+        }
+    ]
 
 
 def _cutlass_gemm_alignment_contexts(

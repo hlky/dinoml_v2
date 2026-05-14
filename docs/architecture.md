@@ -120,10 +120,13 @@ consuming a GGUF RHS constant with `residency="manual_runtime_load"` and
 `float32` or `float16` output. CUTLASS kernel manifests record that case with
 a lowered `gguf_runtime_dequant` plan,
 including the encoded qtype/size, logical dense shape, and required dense RHS
-scratch size. Generated CUDA stores that constant as encoded bytes, exposes an
-explicit native `libgguf_cuda_dequantize_rows_on_stream` setter, dequantizes on
-the session stream immediately before the GEMM launch, and passes the dense
-scratch buffer to the existing CUTLASS GEMM ABI.
+scratch size. They also record a shared per-session
+`gguf_runtime_dequant_scratch` resource sized to the maximum lowered dense RHS
+scratch requirement in the artifact. Generated CUDA stores that constant as
+encoded bytes, exposes an explicit native
+`libgguf_cuda_dequantize_rows_on_stream` setter, dequantizes on the session
+stream immediately before the GEMM launch, and passes the dense scratch buffer
+to the existing CUTLASS GEMM ABI.
 
 That surface is intentionally narrow. Non-bias GEMM epilogues, non-GEMM
 consumers such as elementwise `add`, non-CUDA targets, and any use without a

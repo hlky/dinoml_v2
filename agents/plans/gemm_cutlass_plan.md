@@ -84,13 +84,16 @@ constant declared as `materialization="dequantize_on_gpu_before_launch"` and
 `residency="manual_runtime_load"`. The CUTLASS manifest records a
 `gguf_runtime_dequant` plan with status `lowered_runtime_dequant_scratch`,
 qtype, encoded size, logical dense shape, scratch size, and the dense CUTLASS
-handoff. Generated CUDA modules store the RHS constant as encoded bytes, expose
-an explicit runtime-set `libgguf_cuda_dequantize_rows_on_stream` function
-pointer boundary, allocate a separate session-owned dense dequant scratch
-buffer, dequantize on the session stream immediately before the GEMM, then pass
-the scratch pointer to the existing dense CUTLASS launcher. This is intentionally
-not a general offload scheduler and does not cover non-bias GEMM epilogues,
-`bfloat16`, or direct in-kernel quantized RHS execution yet.
+handoff. The manifest also exposes the shared per-session
+`gguf_runtime_dequant_scratch` resource as a max-sized CUDA-device allocation
+derived from all lowered runtime-dequant GEMM plans in the artifact. Generated
+CUDA modules store the RHS constant as encoded bytes, expose an explicit
+runtime-set `libgguf_cuda_dequantize_rows_on_stream` function pointer boundary,
+allocate that session-owned dense dequant scratch buffer, dequantize on the
+session stream immediately before the GEMM, then pass the scratch pointer to the
+existing dense CUTLASS launcher. This is intentionally not a general offload
+scheduler and does not cover non-bias GEMM epilogues, `bfloat16`, or direct
+in-kernel quantized RHS execution yet.
 
 The first model-level CUDA workflow is intentionally small:
 `examples/cuda_linear.py` builds a single explicit `gemm_rrr_bias` linear layer

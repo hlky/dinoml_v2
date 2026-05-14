@@ -479,6 +479,31 @@ def test_cuda_gemm_lowering_shares_max_sized_runtime_gguf_dequant_scratch():
     }
     assert plans["small_weight"]["scratch_nbytes"] == 24 * 32 * 4
     assert plans["large_weight"]["scratch_nbytes"] == 64 * 64 * 4
+    assert manifest["session_resources"] == [
+        {
+            "schema_version": 1,
+            "kind": "gguf_runtime_dequant_scratch",
+            "name": "gguf_runtime_dequant_dense_rhs",
+            "allocation": "per_session",
+            "residency": "cuda_device",
+            "reuse": "shared_max_sized",
+            "nbytes": 64 * 64 * 4,
+            "source_plans": [
+                {
+                    "node_id": "n0",
+                    "op": "gemm_rcr",
+                    "constant": "small_weight",
+                    "scratch_nbytes": 24 * 32 * 4,
+                },
+                {
+                    "node_id": "n1",
+                    "op": "gemm_rrr",
+                    "constant": "large_weight",
+                    "scratch_nbytes": 64 * 64 * 4,
+                },
+            ],
+        }
+    ]
 
     source = render_cuda_module(ir, kernel_manifest=manifest)
 

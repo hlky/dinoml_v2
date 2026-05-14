@@ -230,8 +230,17 @@ def test_cuda_artifact_runs_generated_t5_layer_norm(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
-@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
-def test_t5_layer_norm_reduced_precision_cuda_source_uses_fp32_accumulation(tmp_path, dtype):
+@pytest.mark.parametrize(
+    ("dtype", "torch_dtype", "atol", "rtol"),
+    [("float16", "float16", 2e-3, 2e-3), ("bfloat16", "bfloat16", 2e-2, 2e-2)],
+)
+def test_t5_layer_norm_reduced_precision_cuda_runtime_matches_reference_and_uses_fp32_accumulation(
+    tmp_path, dtype, torch_dtype, atol, rtol
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
     spec = _trace_t5_layer_norm(dtype=dtype, x_shape=(8, 33), weight_shape=(33,), eps=1e-5)
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"t5_layer_norm_{dtype}_cuda.dinoml")
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
@@ -242,3 +251,19 @@ def test_t5_layer_norm_reduced_precision_cuda_source_uses_fp32_accumulation(tmp_
     assert "float thread_sum_sq" in generated
     assert "dinoml::math::cast<float>(x[base + col])" in generated
     assert f"dinoml::math::cast<{storage_type}>" in generated
+
+    rng = np.random.default_rng(456)
+    x = (rng.standard_normal((8, 33)).astype(np.float32) * 1.25) - 0.4
+    weight = (rng.standard_normal((33,)).astype(np.float32) * 0.2) + 1.0
+    expected = _reference_t5_layer_norm(x, weight, eps=1e-5, dtype=dtype)
+    x_torch = torch.tensor(x, device="cuda", dtype=getattr(torch, torch_dtype))
+    weight_torch = torch.tensor(weight, device="cuda", dtype=getattr(torch, torch_dtype))
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"x": x_torch, "weight": weight_torch})["out"]
+    session.close()
+    module.close()
+
+    assert actual.dtype == getattr(torch, torch_dtype)
+    np.testing.assert_allclose(actual.float().cpu().numpy(), expected.astype(np.float32), atol=atol, rtol=rtol)

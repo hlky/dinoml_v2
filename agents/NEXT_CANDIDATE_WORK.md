@@ -4,6 +4,13 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the reviewer-noted reduced-precision CUDA runtime gap for the bounded
+  `t5_layer_norm` slice: `float16` and `bfloat16` now have a numeric CUDA
+  runtime parity regression in `tests/test_t5_layer_norm_ops.py`, using the
+  existing trace/reference helpers and the generated CUDA artifact path. The
+  source-side fp32-accumulation assertions stayed in place, so the bounded
+  T5/RMSNorm contract remains unchanged while the reduced-precision runtime
+  path is now exercised directly.
 - Landed the first bounded normalization slice away from the Conv metadata
   lane: public `t5_layer_norm` now covers the T5/RMSNorm-style form
   `x * rsqrt(mean(x^2) + eps) * weight` over rank >= 1 dense tensors with a

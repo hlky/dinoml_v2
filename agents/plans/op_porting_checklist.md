@@ -600,7 +600,8 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   bias: `x * rsqrt(mean(x^2) + eps) * weight`. Out of scope for this bounded
   slice: missing/optional affine weights, dynamic hidden size, full LayerNorm
   mean/bias semantics, grouped/batched/fused variants, and provider/library
-  claims.
+  claims. Reduced-precision CUDA runtime parity is now covered by a numeric
+  `float16`/`bfloat16` regression in `tests/test_t5_layer_norm_ops.py`.
 - [ ] Remaining LayerNorm family: `layernorm`, `group_layernorm`,
   `batch_layernorm_sigmoid_mul`, `layernorm_sigmoid_mul`,
   `group_layernorm_sigmoid_mul`.

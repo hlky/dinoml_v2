@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded ConvNd/CUTLASS maturity lane by turning the existing
+  `cutlass_conv` manifest/codegen scaffold into a manifest-only support-cache
+  scaffold: CUDA compile still rejects before module build, but it now writes
+  `lib/cutlass_conv_manifest.json` and `src/source_manifest.json` under the
+  advertised support `cache_dir`, carrying the used candidate plan, candidate
+  config keys, and explicit NCHW/OIHW -> NHWC/OHWI transform provenance. Added
+  focused regressions that prove the Conv used-candidate plan now preserves the
+  scaffold candidate payloads and that a failing CUDA compile still materializes
+  the support scaffold before the expected `manifest_scaffold_only` rejection.
 - Closed the reduced-precision CUDA `get_timestep_embedding` helper gap
   without widening the pass or op surface: the helper now unsqueezes timesteps
   before casting to fp32, which keeps the internal math in fp32 when practical
@@ -265,8 +274,11 @@ This file should be updated after each major loop.
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`
    `manifest_scaffold_only` compile metadata, and profile workload scaffold to
-   the next honest provider step. Prefer a small source-manifest scaffold or
-   generated pack/unpack lowering test before attempting a full CUTLASS runtime.
+   the next honest provider step. The support-cache/source-manifest scaffold is
+   now in place, so prefer the next small artifact-visible increment such as a
+   generated pack/unpack lowering metadata/test slice or another narrow
+   codegen-plan/profiler-provenance follow-up before attempting a full CUTLASS
+   runtime.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.

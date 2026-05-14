@@ -285,6 +285,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   and then rejects before module build.
 - The profile workload builder now has a scaffold-only `cutlass_conv` workload
   that preserves the same layout translation and weight-transform metadata, and
-  refuses manifests that omit that transform plan. This is profile-visible
-  metadata only; no ConvNd profiler execution, support-library source build, or
-  runtime launcher exists yet.
+  refuses manifests that omit that transform plan.
+- CUDA compile now also materializes a manifest-only `cutlass_conv` support
+  cache scaffold under the advertised support `cache_dir`, including
+  `lib/cutlass_conv_manifest.json` and `src/source_manifest.json` with the used
+  candidate plan, candidate/config keys, and explicit layout/weight-transform
+  provenance. This is still scaffold-only metadata: no ConvNd profiler
+  execution, compiled support library, or runtime launcher exists yet.

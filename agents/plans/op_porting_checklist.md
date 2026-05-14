@@ -550,8 +550,11 @@ behavior.
   same artifact-visible layout translation and weight transform metadata, and it
   rejects manifests missing that transform plan. Downstream profiling now also
   fails explicitly before GEMM/BMM-only cache-key, result, or execution-plan
-  logic can consume those scaffold workloads. No ConvNd profiler execution or
-  support-library build is implemented yet.
+  logic can consume those scaffold workloads. CUDA compile now also writes a
+  manifest-only `cutlass_conv` support-cache/source-manifest scaffold with the
+  used candidate plan and transform provenance under the advertised support
+  `cache_dir`. No ConvNd profiler execution, compiled support library, or
+  runtime launcher is implemented yet.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

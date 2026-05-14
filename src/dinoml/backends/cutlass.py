@@ -17,6 +17,7 @@ from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
@@ -24,6 +25,13 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_pl
 class CutlassSupportLib:
     library: Path
     include_roots: tuple[Path, ...]
+    source: Path
+    manifest: Path
+    source_manifest: Path
+
+
+@dataclass(frozen=True)
+class CutlassSupportScaffold:
     source: Path
     manifest: Path
     source_manifest: Path
@@ -74,6 +82,101 @@ def ensure_cutlass_bmm_support_lib(
         used_candidate_plan_builder=cutlass_bmm_used_candidate_plan,
         source_id="cutlass_bmm_static_default",
         build_unit_id="cutlass_bmm_shared",
+    )
+
+
+def ensure_cutlass_conv_support_scaffold(
+    arch: str,
+    *,
+    cache_key: str | None = None,
+    used_candidate_plan: Mapping[str, Any] | None = None,
+) -> CutlassSupportScaffold:
+    if used_candidate_plan is None:
+        raise ValueError("CUTLASS Conv support scaffold requires an explicit used candidate plan")
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_num = _cmake_arch(arch)
+    target = dict(used_candidate_plan.get("target", {"name": "cuda", "arch": f"sm_{arch_num}"}))
+    manifest_key = cache_key or str(used_candidate_plan.get("support_cache_key") or "")[:16]
+    if not manifest_key:
+        manifest_key = hashlib.sha256(canonical_json(dict(used_candidate_plan)).encode("utf-8")).hexdigest()[:16]
+    support_root = cache_root / "support" / f"cuda-{arch_num}" / "cutlass-conv" / manifest_key
+    src_dir = support_root / "src"
+    lib_dir = support_root / "lib"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    repo_source = _repo_cutlass_conv_scaffold_source()
+    repo_source_text = repo_source.read_text(encoding="utf-8")
+    repo_source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
+    source = src_dir / "dinoml_cutlass_conv_scaffold.cu"
+    source.write_text(repo_source_text, encoding="utf-8")
+    source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
+    source_manifest = src_dir / "source_manifest.json"
+    manifest = lib_dir / "cutlass_conv_manifest.json"
+    source_metrics = _support_source_metrics(repo_source_text, used_candidate_plan)
+    family_cache_key = _cutlass_conv_family_cache_key(target, used_candidate_plan)
+    external_kernel_plan_cache_key = _cutlass_conv_external_kernel_plan_cache_key(
+        target,
+        family_cache_key=family_cache_key,
+        used_candidate_plan=used_candidate_plan,
+    )
+    _write_source_manifest(
+        source_manifest,
+        target=target,
+        families=[],
+        source=source,
+        repo_source=repo_source,
+        repo_source_hash=repo_source_hash,
+        source_hash=source_hash,
+        source_metrics=source_metrics,
+        family_cache_key=family_cache_key,
+        external_kernel_plan_cache_key=external_kernel_plan_cache_key,
+        used_candidate_plan=used_candidate_plan,
+        library_name="cutlass_conv",
+        source_id="cutlass_conv_scaffold_default",
+        build_unit_id="cutlass_conv_scaffold",
+        library_file_name="libdinoml_cutlass_conv.so",
+    )
+    provenance = _cutlass_conv_scaffold_provenance(
+        target=target,
+        family_cache_key=family_cache_key,
+        external_kernel_plan_cache_key=external_kernel_plan_cache_key,
+        source_hash=source_hash,
+        used_candidate_plan_key=str(used_candidate_plan["used_candidate_plan_key"]),
+    )
+    write_json(
+        manifest,
+        {
+            "schema_version": 2,
+            "target": target,
+            "provider": "cutlass",
+            "library_name": "cutlass_conv",
+            "family": "conv2d_fprop",
+            "library": "libdinoml_cutlass_conv.so",
+            "source": source.name,
+            "source_sha256": source_hash,
+            "source_manifest": "../src/source_manifest.json",
+            "external_kernel_plan_cache_key": external_kernel_plan_cache_key,
+            "family_cache_key": family_cache_key,
+            "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+            "used_candidate_plan": dict(used_candidate_plan),
+            "build_fingerprint": provenance["provenance_key"],
+            "provenance_key": provenance["provenance_key"],
+            "provenance": provenance,
+            "compile": {
+                "status": "manifest_scaffold_only",
+                "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+                "flags": [],
+                "source_metrics": source_metrics,
+            },
+            "cache_key": manifest_key,
+            "status": "manifest_scaffold_only",
+            "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+        },
+    )
+    return CutlassSupportScaffold(
+        source=source,
+        manifest=manifest,
+        source_manifest=source_manifest,
     )
 
 
@@ -253,6 +356,71 @@ def _repo_cutlass_bmm_source() -> Path:
     if not source.exists():
         raise FileNotFoundError(f"Missing CUTLASS BMM source: {source}")
     return source
+
+
+def _repo_cutlass_conv_scaffold_source() -> Path:
+    repo_root = Path(__file__).resolve().parents[3]
+    source = repo_root / "kernels" / "cuda" / "src" / "cutlass_conv_scaffold.cu"
+    if not source.exists():
+        raise FileNotFoundError(f"Missing CUTLASS Conv scaffold source: {source}")
+    return source
+
+
+def _cutlass_conv_family_cache_key(target: Mapping[str, Any], used_candidate_plan: Mapping[str, Any]) -> str:
+    payload = {
+        "schema_version": 1,
+        "target": dict(target),
+        "provider": "cutlass",
+        "library": "cutlass_conv",
+        "family": "conv2d_fprop",
+        "candidate_sets": [dict(item) for item in used_candidate_plan.get("candidate_sets", [])],
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _cutlass_conv_external_kernel_plan_cache_key(
+    target: Mapping[str, Any],
+    *,
+    family_cache_key: str,
+    used_candidate_plan: Mapping[str, Any],
+) -> str:
+    payload = {
+        "schema_version": 1,
+        "kind": "cutlass_conv_support_scaffold",
+        "target": dict(target),
+        "provider": "cutlass",
+        "library": "cutlass_conv",
+        "family_cache_key": family_cache_key,
+        "candidate_set_keys": list(used_candidate_plan.get("candidate_set_keys", [])),
+        "candidate_config_keys": list(used_candidate_plan.get("candidate_config_keys", [])),
+    }
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _cutlass_conv_scaffold_provenance(
+    *,
+    target: Mapping[str, Any],
+    family_cache_key: str,
+    external_kernel_plan_cache_key: str,
+    source_hash: str,
+    used_candidate_plan_key: str,
+) -> dict[str, Any]:
+    payload = {
+        "schema_version": 1,
+        "kind": "cutlass_conv_support_scaffold",
+        "status": "manifest_scaffold_only",
+        "target": dict(target),
+        "family_cache_key": family_cache_key,
+        "external_kernel_plan_cache_key": external_kernel_plan_cache_key,
+        "source_sha256": source_hash,
+        "used_candidate_plan_key": used_candidate_plan_key,
+        "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+    }
+    return {
+        **payload,
+        "compile_flags": [],
+        "provenance_key": hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest(),
+    }
 
 
 def _file_sha256(path: Path) -> str:

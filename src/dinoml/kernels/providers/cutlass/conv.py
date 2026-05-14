@@ -122,12 +122,12 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "cutlass_conv":
             continue
+        candidates = [dict(candidate) for candidate in item.get("candidates", [])]
         candidate_set = dict(item.get("candidate_set", {}))
         conv_plan = item.get("cutlass_conv_plan")
         conv_plan_payload = dict(conv_plan) if isinstance(conv_plan, Mapping) else {}
         conv_plan_key = hashlib.sha256(canonical_json(conv_plan_payload).encode("utf-8")).hexdigest() if conv_plan_payload else ""
         selected_id = str(item.get("selected_candidate_id", ""))
-        candidates = [dict(candidate) for candidate in item.get("candidates", [])]
         selected = next((candidate for candidate in candidates if str(candidate.get("candidate_id")) == selected_id), None)
         candidate_config_key = str(selected.get("candidate_config_key") if selected else "")
         entries.append(
@@ -142,12 +142,17 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
                 "profiler_symbol": str(item.get("profiler_symbol", "")),
                 "cutlass_conv_plan": conv_plan_payload,
                 "cutlass_conv_plan_key": conv_plan_key,
+                "candidate_set": candidate_set,
+                "candidates": candidates,
             }
         )
+    entries = sorted(entries, key=lambda entry: (entry["op"], entry["candidate_set_id"], entry["kernel_symbol"]))
     candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
+    candidates = _unique_by_key((candidate for entry in entries for candidate in entry["candidates"]), "candidate_config_key")
     payload = {
         "schema_version": CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
         "provider": "cutlass",
+        "library": "cutlass_conv",
         "library_name": "cutlass_conv",
         "family": "conv2d_fprop",
         "target": dict(kernel_manifest.get("target", {})),
@@ -155,14 +160,9 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         "support_cache_key": kernel_manifest.get("support_cache_key"),
         "entries": entries,
         "candidate_sets": candidate_sets,
+        "candidates": candidates,
         "candidate_set_keys": [str(item.get("candidate_set_key", "")) for item in candidate_sets],
-        "candidate_config_keys": sorted(
-            {
-                entry["candidate_config_key"]
-                for entry in entries
-                if entry["candidate_config_key"]
-            }
-        ),
+        "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
         "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
         "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
     }

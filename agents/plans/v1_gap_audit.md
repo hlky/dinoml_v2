@@ -241,9 +241,11 @@ porting. It intentionally excludes the op inventory, which lives in
   scaffold-only `cutlass_conv` workload from that explicit transform plan and
   rejects missing transform metadata; downstream profiling now also rejects
   scaffold-only Conv workloads explicitly before GEMM/BMM cache-key, result, or
-  execution-plan logic can consume them. Compiled ConvNd lowering, profiler
-  execution, support-library build, and general channel-last runtime layout
-  remain unimplemented.
+  execution-plan logic can consume them. CUDA compile now also materializes a
+  support-cache/source-manifest scaffold for `cutlass_conv` so provider
+  transform provenance is visible before runtime launchers exist. Compiled
+  ConvNd lowering, profiler execution, compiled support-library build, and
+  general channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
+from dinoml.backends.cutlass import ensure_cutlass_conv_support_scaffold
 from dinoml.backends.registry import get_backend_spec
 from dinoml.backends.target import Target
 from dinoml.ir import (
@@ -33,6 +34,7 @@ from dinoml.constant_sources import (
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
@@ -271,6 +273,7 @@ def _build_artifact_from_lowered_ir(
         Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
     )
     write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
+    _materialize_manifest_only_support_scaffolds(kernel_manifest)
 
     _reject_manifest_scaffold_only_kernels(kernel_manifest)
 
@@ -401,6 +404,22 @@ def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
     return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
 
 
+def _materialize_manifest_only_support_scaffolds(kernel_manifest: Mapping[str, Any]) -> None:
+    target = kernel_manifest.get("target")
+    if not isinstance(target, Mapping) or target.get("name") != "cuda":
+        return
+    if not _requires_kernel_library(dict(kernel_manifest), "cutlass_conv"):
+        return
+    arch = str(target.get("arch", ""))
+    if not arch:
+        return
+    ensure_cutlass_conv_support_scaffold(
+        arch,
+        cache_key=str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]))[:16],
+        used_candidate_plan=cutlass_conv_used_candidate_plan(kernel_manifest),
+    )
+
+
 def _reject_manifest_scaffold_only_kernels(kernel_manifest: Mapping[str, Any]) -> None:
     unsupported = []
     for item in kernel_manifest.get("required_kernels", []):
@@ -417,8 +436,6 @@ def _reject_manifest_scaffold_only_kernels(kernel_manifest: Mapping[str, Any]) -
         "CUDA runtime launcher integration is not implemented yet. "
         f"Unsupported compiled op(s): {ops}"
     )
-
-
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any]) -> Dict:
     offset = 0
     constant_infos = []

@@ -73,6 +73,26 @@ OP_LOWERINGS.update(TOPK_LOWERINGS)
 OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
 
 
+def generated_source_provenance(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    lowering = OP_LOWERINGS.get(str(node["op"]))
+    if lowering is None or lowering.source_key is None:
+        return None
+    source_key = lowering.source_key(target, node, tensor_map)
+    if source_key is None:
+        return None
+    provenance = {
+        "source_key": source_key,
+        "source_hash": _source_hash(source_key),
+    }
+    if lowering.generated_function_name is not None:
+        provenance["generated_function_name"] = lowering.generated_function_name(target, node, tensor_map)
+    return provenance
+
+
 def render_generated_kernels(
     target: str,
     nodes: Sequence[Mapping[str, Any]],
@@ -93,13 +113,12 @@ def collect_generated_sources(
     seen_source_keys: dict[str, dict[str, Any]] = {}
     extension = _source_extension(target)
     for node in nodes:
+        provenance = generated_source_provenance(target, node, tensor_map)
         lowering = OP_LOWERINGS.get(node["op"])
         if lowering is None:
             continue
-        source_key = lowering.source_key(target, node, tensor_map) if lowering.source_key else None
-        function_name = None
-        if lowering.generated_function_name:
-            function_name = lowering.generated_function_name(target, node, tensor_map)
+        source_key = None if provenance is None else provenance["source_key"]
+        function_name = None if provenance is None else provenance.get("generated_function_name")
         kernel = (
             None
             if source_key is not None and source_key in seen_source_keys
@@ -113,7 +132,7 @@ def collect_generated_sources(
         if existing is None:
             if not kernel:
                 continue
-            source_hash = _source_hash(source_key)
+            source_hash = str(provenance["source_hash"]) if provenance is not None else _source_hash(source_key)
             source_path = Path("ops") / str(node["op"]) / f"{source_hash}.{extension}"
             kernels.append(kernel)
             if generated_src_dir is not None:
@@ -180,4 +199,10 @@ def render_launch(
     return lowering.render_launch(target, node, tensor_map, kernel_manifest)
 
 
-__all__ = ["OP_LOWERINGS", "collect_generated_sources", "render_generated_kernels", "render_launch"]
+__all__ = [
+    "OP_LOWERINGS",
+    "collect_generated_sources",
+    "generated_source_provenance",
+    "render_generated_kernels",
+    "render_launch",
+]

@@ -5,9 +5,10 @@ import shutil
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
-from dinoml.ir import array_from_storage, array_to_storage
+from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
+from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager, validate_ir
 
 
@@ -82,6 +83,36 @@ class RotaryTensorModule(dml.Module):
             dtype=self.dtype,
         )
         return dml.ops.output(cos_part, "cos"), dml.ops.output(sin_part, "sin")
+
+
+class MixedRotaryVariantModule(dml.Module):
+    def forward(self, pos):
+        int_cos, int_sin = dml.ops.get_1d_rotary_pos_embed(
+            8,
+            3,
+            theta=4096.0,
+            use_real=True,
+            linear_factor=1.25,
+            ntk_factor=1.1,
+            repeat_interleave_real=True,
+            dtype="float32",
+        )
+        tensor_cos, tensor_sin = dml.ops.get_1d_rotary_pos_embed(
+            6,
+            pos,
+            theta=512.0,
+            use_real=False,
+            linear_factor=1.5,
+            ntk_factor=0.75,
+            repeat_interleave_real=False,
+            dtype="float32",
+        )
+        return (
+            dml.ops.output(int_cos, "int_cos"),
+            dml.ops.output(int_sin, "int_sin"),
+            dml.ops.output(tensor_cos, "tensor_cos"),
+            dml.ops.output(tensor_sin, "tensor_sin"),
+        )
 
 
 def _trace_rotary_int(
@@ -224,6 +255,15 @@ def test_get_1d_rotary_pos_embed_dynamic_tensor_pos_and_use_real_false_preserve_
     assert [node["op"] for node in lowered["nodes"]] == list(COMPONENT_OPS)
 
 
+@pytest.mark.parametrize("op_name", COMPONENT_OPS)
+def test_get_1d_rotary_pos_embed_component_registry_truthfully_reports_zero_or_one_input(op_name):
+    op_def = get_op_def(op_name)
+
+    assert op_def.accepts_input_count(0)
+    assert op_def.accepts_input_count(1)
+    assert not op_def.accepts_input_count(2)
+
+
 def test_get_1d_rotary_pos_embed_manifest_and_generated_sources_are_two_model_owned_component_kernels():
     spec = _trace_rotary_tensor(
         dim=8,
@@ -240,22 +280,15 @@ def test_get_1d_rotary_pos_embed_manifest_and_generated_sources_are_two_model_ow
     validate_ir(lowered)
 
     manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
-    assert manifest["required_kernels"] == [
-        {
-            "op": "get_1d_rotary_pos_embed_cos",
-            "kernel_symbol": "generated_get_1d_rotary_pos_embed",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        },
-        {
-            "op": "get_1d_rotary_pos_embed_sin",
-            "kernel_symbol": "generated_get_1d_rotary_pos_embed",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        },
-    ]
+    assert [item["op"] for item in manifest["required_kernels"]] == list(COMPONENT_OPS)
+    for item in manifest["required_kernels"]:
+        assert item["kernel_symbol"] == "generated_get_1d_rotary_pos_embed"
+        assert item["kernel_library"] == "model"
+        assert item["profiler_symbol"] is None
+        assert item["has_profiler"] is False
+        assert item["generated_source"]["generated_function_name"].startswith(f"{item['op']}_")
+        assert item["generated_source"]["source_key"].startswith("cpu:")
+        assert len(item["generated_source"]["source_hash"]) == 16
 
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
@@ -267,6 +300,40 @@ def test_get_1d_rotary_pos_embed_manifest_and_generated_sources_are_two_model_ow
     assert "cosf" in combined
     assert "generated_concatenate" not in combined
     assert "generated_repeat_interleave" not in combined
+
+
+def test_get_1d_rotary_pos_embed_mixed_variants_keep_distinct_model_generated_provenance(tmp_path):
+    spec = dml.trace(
+        MixedRotaryVariantModule(),
+        inputs={"pos": dml.TensorSpec([4], "float32")},
+        name="get_1d_rotary_pos_embed_mixed_variants",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "get_1d_rotary_pos_embed_mixed_variants_cpu.dinoml")
+
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+
+    required = kernel_manifest["required_kernels"]
+    assert [item["op"] for item in required] == [
+        "get_1d_rotary_pos_embed_cos",
+        "get_1d_rotary_pos_embed_sin",
+        "get_1d_rotary_pos_embed_cos",
+        "get_1d_rotary_pos_embed_sin",
+    ]
+    assert all(item["kernel_symbol"] == "generated_get_1d_rotary_pos_embed" for item in required)
+    assert len({item["generated_source"]["source_key"] for item in required}) == 4
+    assert len({item["generated_source"]["generated_function_name"] for item in required}) == 4
+
+    assert len(codegen_plan["generated_sources"]) == 4
+    assert len({entry["source_key"] for entry in codegen_plan["generated_sources"]}) == 4
+    assert len({entry["generated_function_name"] for entry in codegen_plan["generated_sources"]}) == 4
+
+    assert len(source_manifest["sources"]) == 4
+    assert len({entry["source_key"] for entry in source_manifest["sources"]}) == 4
+    assert generated.count("static int get_1d_rotary_pos_embed_cos_") == 2
+    assert generated.count("static int get_1d_rotary_pos_embed_sin_") == 2
 
 
 @pytest.mark.parametrize(
@@ -396,6 +463,52 @@ def test_cpu_artifact_runs_two_component_rotary_kernels_with_dynamic_pos_length_
     module.close()
 
 
+def test_cpu_artifact_runs_no_input_integer_pos_rotary_component_kernels_without_helper_composition(tmp_path):
+    spec = _trace_rotary_int(
+        dim=8,
+        pos=5,
+        theta=4096.0,
+        use_real=True,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=False,
+        dtype="float16",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "get_1d_rotary_pos_embed_static_int_cpu.dinoml")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+
+    assert len(kernel_manifest["required_kernels"]) == 2
+    assert [item["op"] for item in kernel_manifest["required_kernels"]] == list(COMPONENT_OPS)
+    assert len(codegen_plan["generated_sources"]) == 2
+    assert "get_1d_rotary_pos_embed_cos_" in generated
+    assert "get_1d_rotary_pos_embed_sin_" in generated
+    assert "generated_arange" not in generated
+    assert "generated_repeat_interleave" not in generated
+    assert "generated_concatenate" not in generated
+
+    expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+        dim=8,
+        positions=np.arange(5, dtype=np.float32),
+        theta=4096.0,
+        use_real=True,
+        linear_factor=1.25,
+        ntk_factor=1.1,
+        repeat_interleave_real=False,
+        dtype="float16",
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({})
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual["cos"].astype(np.float32), expected_cos.astype(np.float32), atol=2e-3, rtol=2e-3)
+    np.testing.assert_allclose(actual["sin"].astype(np.float32), expected_sin.astype(np.float32), atol=2e-3, rtol=2e-3)
+
+
 def test_get_1d_rotary_pos_embed_frontend_rejects_unsupported_inputs():
     with pytest.raises(ValueError, match="positive integer"):
         _trace_rotary_int(dim=0)
@@ -497,6 +610,55 @@ def test_get_1d_rotary_pos_embed_float32_cuda_runtime_matches_reference_for_use_
     assert actual["sin"].dtype == torch.float32
     np.testing.assert_allclose(actual["cos"].float().cpu().numpy(), expected_cos.astype(np.float32), atol=1e-6, rtol=1e-6)
     np.testing.assert_allclose(actual["sin"].float().cpu().numpy(), expected_sin.astype(np.float32), atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_get_1d_rotary_pos_embed_no_input_integer_pos_cuda_runtime_matches_reference(tmp_path):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    spec = _trace_rotary_int(
+        dim=6,
+        pos=4,
+        theta=512.0,
+        use_real=False,
+        linear_factor=1.5,
+        ntk_factor=0.75,
+        repeat_interleave_real=False,
+        dtype="float32",
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / "get_1d_rotary_pos_embed_static_int_cuda.dinoml",
+    )
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "get_1d_rotary_pos_embed_cos_" in generated
+    assert "get_1d_rotary_pos_embed_sin_" in generated
+    assert "generated_arange" not in generated
+    assert "generated_repeat_interleave" not in generated
+    assert "generated_concatenate" not in generated
+
+    expected_cos, expected_sin = _reference_get_1d_rotary_pos_embed(
+        dim=6,
+        positions=np.arange(4, dtype=np.float32),
+        theta=512.0,
+        use_real=False,
+        linear_factor=1.5,
+        ntk_factor=0.75,
+        repeat_interleave_real=False,
+        dtype="float32",
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({})
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual["cos"], expected_cos, atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(actual["sin"], expected_sin, atol=1e-6, rtol=1e-6)
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

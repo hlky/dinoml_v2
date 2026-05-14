@@ -17,6 +17,7 @@ class KernelCodegenPlan:
     kernel_symbols: tuple[str, ...]
     profiler_symbols: tuple[str, ...]
     candidate_profiler_symbols: tuple[str, ...] = ()
+    generated_sources: tuple[Mapping[str, Any], ...] = ()
     external_support_libraries: tuple[Mapping[str, Any], ...] = ()
 
     def to_json(self) -> dict[str, Any]:
@@ -27,6 +28,7 @@ class KernelCodegenPlan:
             "kernel_symbols": list(self.kernel_symbols),
             "profiler_symbols": list(self.profiler_symbols),
             "candidate_profiler_symbols": list(self.candidate_profiler_symbols),
+            "generated_sources": [dict(item) for item in self.generated_sources],
             "external_support_libraries": [dict(item) for item in self.external_support_libraries],
         }
 
@@ -43,6 +45,7 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
         if item.get("profiler_symbol")
     )
     candidate_profiler_symbols = _candidate_profiler_symbols(kernel_manifest)
+    generated_sources = _generated_sources(kernel_manifest)
     support_key = kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16]
     external_support_libraries = _external_support_libraries(kernel_manifest, Path(cache_root), target_dir, support_key)
     return KernelCodegenPlan(
@@ -52,6 +55,7 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
         kernel_symbols=kernel_symbols,
         profiler_symbols=profiler_symbols,
         candidate_profiler_symbols=candidate_profiler_symbols,
+        generated_sources=generated_sources,
         external_support_libraries=external_support_libraries,
     )
 
@@ -66,6 +70,21 @@ def _candidate_profiler_symbols(kernel_manifest: Mapping[str, Any]) -> tuple[str
                 seen.add(symbol)
                 symbols.append(str(symbol))
     return tuple(symbols)
+
+
+def _generated_sources(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    sources = []
+    for item in kernel_manifest["required_kernels"]:
+        generated_source = item.get("generated_source")
+        if not isinstance(generated_source, Mapping):
+            continue
+        entry = {
+            "op": str(item["op"]),
+            "kernel_symbol": str(item["kernel_symbol"]),
+            **{str(key): value for key, value in generated_source.items()},
+        }
+        sources.append(entry)
+    return tuple(sources)
 
 
 def _external_support_libraries(

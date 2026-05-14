@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the reviewer follow-ups on the just-landed generated
+  `get_1d_rotary_pos_embed` slice without widening the op surface. Model-owned
+  generated-kernel provenance is now artifact-visible enough to distinguish
+  mixed rotary variants in one graph: `build_kernel_manifest()` no longer
+  collapses distinct component variants solely by the shared
+  `generated_get_1d_rotary_pos_embed` symbol, and model kernels now carry
+  generated function/source provenance through `kernel_manifest.json` and
+  `kernel_codegen_plan.json`. The rotary component registry contract is also
+  now truthful about input arity by admitting exactly zero-or-one inputs rather
+  than pretending to accept arbitrary variadic counts. Focused regressions now
+  cover mixed int-pos plus tensor-pos variants in one artifact, artifact-level
+  no-input integer-pos CPU runtime execution, optional no-input CUDA runtime
+  execution through `run_numpy`, and the zero-or-one `accepts_input_count`
+  contract on the internal component ops.
 - Finished the half-landed `get_timestep_embedding` slice as a real registered
   generated op instead of a helper composition. Public
   `dml.ops.get_timestep_embedding(...)` now lives in `OP_REGISTRY`, traced IR

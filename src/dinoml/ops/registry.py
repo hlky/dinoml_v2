@@ -74,6 +74,7 @@ class OpDef:
     frontend: FrontendBinding | None = None
     profiler: bool = False
     variadic_inputs: bool = False
+    accepted_input_counts: tuple[int, ...] | None = None
     description: str = ""
     infer_shape_with_attrs: AttrShapeFn | None = None
 
@@ -82,9 +83,28 @@ class OpDef:
         return len(self.schema.inputs)
 
     def accepts_input_count(self, input_count: int) -> bool:
+        if self.accepted_input_counts is not None:
+            return input_count in self.accepted_input_counts
         if self.variadic_inputs:
             return input_count >= self.input_count
         return input_count == self.input_count
+
+    def input_count_description(self) -> str:
+        if self.accepted_input_counts is not None:
+            accepted = sorted(set(int(count) for count in self.accepted_input_counts))
+            if len(accepted) == 1:
+                return f"{accepted[0]} input"
+            if len(accepted) == 2:
+                return f"{accepted[0]} or {accepted[1]} inputs"
+            leading = ", ".join(str(count) for count in accepted[:-1])
+            return f"{leading}, or {accepted[-1]} inputs"
+        if self.variadic_inputs:
+            if self.input_count == 0:
+                return "any number of inputs"
+            if self.input_count == 1:
+                return "at least 1 input"
+            return f"at least {self.input_count} inputs"
+        return f"{self.input_count} input" if self.input_count == 1 else f"{self.input_count} inputs"
 
     def infer_shape_for(self, input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any] | None = None) -> list[int]:
         if self.infer_shape_with_attrs is not None:

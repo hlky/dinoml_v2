@@ -2596,15 +2596,14 @@ def test_softmax_manifest_and_generated_sources_are_model_owned():
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
-    assert manifest["required_kernels"] == [
-        {
-            "op": "softmax",
-            "kernel_symbol": "generated_softmax",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        }
-    ]
+    [required] = manifest["required_kernels"]
+    assert required["op"] == "softmax"
+    assert required["kernel_symbol"] == "generated_softmax"
+    assert required["kernel_library"] == "model"
+    assert required["profiler_symbol"] is None
+    assert required["has_profiler"] is False
+    assert required["generated_source"]["generated_function_name"].startswith("softmax_")
+    assert required["generated_source"]["source_key"].startswith("cpu:")
 
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
@@ -2665,15 +2664,14 @@ def test_reduction_manifest_and_keepdim_shape_inference():
     assert output_tensor["shape_spec"] == [2, 3, 1]
 
     manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
-    assert manifest["required_kernels"] == [
-        {
-            "op": "reduce_mean",
-            "kernel_symbol": "generated_reduction",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        }
-    ]
+    [required] = manifest["required_kernels"]
+    assert required["op"] == "reduce_mean"
+    assert required["kernel_symbol"] == "generated_reduction"
+    assert required["kernel_library"] == "model"
+    assert required["profiler_symbol"] is None
+    assert required["has_profiler"] is False
+    assert required["generated_source"]["generated_function_name"].startswith("reduce_mean_")
+    assert required["generated_source"]["source_key"].startswith("cpu:")
 
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
     assert len(sources["kernels"]) == 1

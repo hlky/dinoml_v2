@@ -155,15 +155,14 @@ def test_t5_layer_norm_manifest_and_generated_sources_are_model_owned():
     spec = _trace_t5_layer_norm(dtype="float32", x_shape=(16, 257), weight_shape=(257,), eps=1e-5)
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
-    assert manifest["required_kernels"] == [
-        {
-            "op": "t5_layer_norm",
-            "kernel_symbol": "generated_t5_layer_norm",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        }
-    ]
+    [required] = manifest["required_kernels"]
+    assert required["op"] == "t5_layer_norm"
+    assert required["kernel_symbol"] == "generated_t5_layer_norm"
+    assert required["kernel_library"] == "model"
+    assert required["profiler_symbol"] is None
+    assert required["has_profiler"] is False
+    assert required["generated_source"]["generated_function_name"].startswith("t5_layer_norm_")
+    assert required["generated_source"]["source_key"].startswith("cpu:")
 
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)

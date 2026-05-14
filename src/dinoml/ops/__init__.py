@@ -74,7 +74,7 @@ from dinoml.ops.softmax import softmax
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
     op_def = get_op_def(op_name)
     if not op_def.accepts_input_count(len(args)):
-        raise ValueError(f"{op_name} expects {op_def.input_count} inputs, got {len(args)}")
+        raise ValueError(f"{op_name} expects {op_def.input_count_description()}, got {len(args)}")
     dtype_hint = _dtype_hint(args, op_def)
     tensors = [as_tensor(arg, dtype_hint=dtype_hint) for arg in args]
     builder, dtype = _resolve_builder_and_dtype(op_def, tensors)

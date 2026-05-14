@@ -220,7 +220,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
     if not op_def.accepts_input_count(len(inputs)):
-        raise ValidationError(f"{op_def.name} expects {op_def.input_count} inputs")
+        raise ValidationError(f"{op_def.name} expects {op_def.input_count_description()}")
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
     except ValueError as exc:

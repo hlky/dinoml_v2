@@ -154,15 +154,14 @@ def test_get_timestep_embedding_manifest_and_generated_sources_are_model_owned()
     validate_ir(lowered)
 
     manifest = build_kernel_manifest(lowered, {"name": "cpu", "arch": "native"})
-    assert manifest["required_kernels"] == [
-        {
-            "op": "get_timestep_embedding",
-            "kernel_symbol": "generated_get_timestep_embedding",
-            "kernel_library": "model",
-            "profiler_symbol": None,
-            "has_profiler": False,
-        }
-    ]
+    [required] = manifest["required_kernels"]
+    assert required["op"] == "get_timestep_embedding"
+    assert required["kernel_symbol"] == "generated_get_timestep_embedding"
+    assert required["kernel_library"] == "model"
+    assert required["profiler_symbol"] is None
+    assert required["has_profiler"] is False
+    assert required["generated_source"]["generated_function_name"].startswith("get_timestep_embedding_")
+    assert required["generated_source"]["source_key"].startswith("cpu:")
 
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
     sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)

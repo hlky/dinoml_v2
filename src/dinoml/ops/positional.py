@@ -239,7 +239,7 @@ def register_positional_ops(registry: OpRegistry) -> None:
                 ),
                 infer_shape=infer_get_1d_rotary_pos_embed_component,
                 infer_shape_with_attrs=infer_get_1d_rotary_pos_embed_component_with_attrs,
-                variadic_inputs=True,
+                accepted_input_counts=(0, 1),
                 backend_kernels={
                     "cpu": KernelBinding(
                         symbol="generated_get_1d_rotary_pos_embed",

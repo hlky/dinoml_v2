@@ -28,6 +28,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     filter_candidates_by_alignment,
 )
 from dinoml.kernels.gemm import gemm_op_spec
+from dinoml.lowering.ops import generated_source_provenance
 from dinoml.ops.definitions import get_op_def
 
 
@@ -102,9 +103,13 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         else:
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
+        model_generated_source = (
+            generated_source_provenance(target_name, node, tensor_map) if resolved.library == "model" else None
+        )
         key = (
             node["op"],
             kernel_symbol,
+            canonical_json(model_generated_source) if model_generated_source is not None else "",
             canonical_json(gguf_runtime_dequant) if gguf_runtime_dequant is not None else "",
             canonical_json(cutlass_conv_plan) if cutlass_conv_plan is not None else "",
         )
@@ -118,6 +123,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             "profiler_symbol": profiler_symbol,
             "has_profiler": op_def.profiler,
         }
+        if model_generated_source is not None:
+            item["generated_source"] = dict(model_generated_source)
         if candidates:
             item["selected_candidate_id"] = selected_candidate_id
             item["candidates"] = candidates

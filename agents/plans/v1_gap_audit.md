@@ -86,12 +86,14 @@ porting. It intentionally excludes the op inventory, which lives in
   fails, so a failed selected load does not partially advance `_constant_loaded`.
   Encoded-constant manifests are validated for object entries, names, and
   duplicate names before load planning or materialization can open external
-  storage. Runtime module open and `load_constants_from_file()` now autoload
-  only dense constants plus GGUF constants that still declare eager dense
-  residency; `manual_runtime_load` GGUF constants stay explicitly unloaded
-  across open/unload/reload until `load_encoded_constants(...)` materializes
-  them. CUDA runtime coverage now exercises that mixed dense/manual encoded
-  reload contract in addition to the existing CPU regression coverage.
+  storage. Runtime module open, generated native `dino_module_load()` /
+  `dino_module_load_constants()`, and Python `load_constants_from_file()` now
+  autoload only dense constants plus GGUF constants that still declare eager
+  dense residency; `manual_runtime_load` GGUF constants stay explicitly
+  unloaded across open/unload/reload until `load_encoded_constants(...)` or an
+  explicit native setter call materializes them. CUDA runtime coverage now
+  exercises that mixed dense/manual encoded reload contract in addition to the
+  existing CPU regression and direct native-boundary coverage.
   The Python CUDA staging allocator now preserves the currently cached session
   buffer when a grow allocation fails, so allocator failures do not leave the
   session tracking a freed pointer. CUDA staging-buffer cleanup also removes

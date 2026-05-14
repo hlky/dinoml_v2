@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining native GGUF load-path parity gap for mixed dense plus
+  `manual_runtime_load` constants: generated CPU/CUDA native
+  `dino_module_load_constants()` now skips eager `constants.bin`
+  materialization for any GGUF constant that declares
+  `residency="manual_runtime_load"`, matching the Python open/reload contract
+  instead of only the lowered CUDA runtime-dequant slice. Added direct CPU
+  native-boundary coverage proving `dino_module_load()` and
+  `dino_module_load_constants()` leave the manual GGUF constant unloaded across
+  eager open and reload until an explicit setter call, plus mixed CPU/CUDA
+  generated-source regressions that pin the skip path.
 - Tightened the bounded GGUF runtime-dequant -> CUTLASS GEMM contract so only
   `residency="manual_runtime_load"` produces
   `lowered_runtime_dequant_scratch`: manifest planning now marks non-manual
@@ -120,17 +130,14 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Close the remaining native GGUF load-path parity gap before adding more
-   runtime-dequant surface: audit and, if needed, fix generated
-   `dino_module_load_constants()` / native open-reload behavior so
-   `manual_runtime_load` GGUF constants are not eagerly materialized outside the
-   explicit encoded-load contract. Prefer direct native-boundary regressions for
-   mixed dense plus manual GGUF constants.
-2. Add a tiny end-to-end GGUF-backed CUDA linear workflow or regression once the
-   native load-path parity check is boring: real GGUF `Q4_0` RHS, dense bias,
-   `manual_runtime_load`, load-run-unload-reload, and dense reference
+1. Add a tiny end-to-end GGUF-backed CUDA linear workflow or regression now that
+   the native load-path parity check is boring: real GGUF `Q4_0` RHS, dense
+   bias, `manual_runtime_load`, load-run-unload-reload, and dense reference
    comparison. Keep it a trust-building workflow, not a broad scheduler.
-3. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+2. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice, such as persistent cache concurrency or stale-key
    rejection, if it directly affects provider selection or compile/profile
    correctness.
+3. Add direct CUDA native-boundary coverage for mixed dense plus manual GGUF
+   constants if the end-to-end workflow exposes another loader edge, reusing the
+   now-shared native skip contract rather than expanding runtime-dequant surface.

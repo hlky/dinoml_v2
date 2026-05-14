@@ -200,6 +200,11 @@ def test_cuda_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_ex
     monkeypatch, tmp_path
 ):
     artifact, x, expected = _build_cuda_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert (
+        "Constant manual_bias uses explicit encoded runtime load; skip eager constants.bin materialization."
+        in generated
+    )
 
     module = runtime.load(artifact.path)
     session = module.create_session()

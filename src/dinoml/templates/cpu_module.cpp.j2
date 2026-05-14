@@ -57,11 +57,14 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
     return read_err;
   }
 {% for constant in constants %}
+{% if constant.autoload_from_constants_bin %}
   if (constants.size() < {{ constant.offset + constant.nbytes }}) {
     return dinoml::module::fail("constants file is too small for {{ constant.name }}");
   }
+{% endif %}
 {% endfor %}
 {% for constant in constants %}
+{% if constant.autoload_from_constants_bin %}
   module->const_{{ constant.ident }}.resize({{ constant.numel }});
   module->const_shape_{{ constant.ident }} = std::vector<int64_t>{ {{ constant.shape_literal }} };
   std::memcpy(
@@ -69,6 +72,9 @@ DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path)
       constants.data() + {{ constant.offset }},
       {{ constant.nbytes }});
   module->const_{{ constant.ident }}_loaded = true;
+{% else %}
+  // Constant {{ constant.name }} uses explicit encoded runtime load; skip eager constants.bin materialization.
+{% endif %}
 {% endfor %}
   return 0;
 }

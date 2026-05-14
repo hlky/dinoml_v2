@@ -375,10 +375,14 @@ def _constant_context(item: Mapping[str, Any], lowered_runtime_dequant_constants
     storage = item.get("storage")
     storage_kind = storage.get("kind") if isinstance(storage, Mapping) else None
     materialization = storage.get("materialization") if isinstance(storage, Mapping) else None
+    residency = storage.get("residency") if isinstance(storage, Mapping) else None
     encoded_runtime_dequant = (
         storage_kind == "gguf"
         and materialization == "dequantize_on_gpu_before_launch"
         and str(item["name"]) in lowered_runtime_dequant_constants
+    )
+    autoload_from_constants_bin = not (
+        storage_kind == "gguf" and str(residency or "eager_dense_device") == "manual_runtime_load"
     )
     return {
         "name": item["name"],
@@ -393,7 +397,7 @@ def _constant_context(item: Mapping[str, Any], lowered_runtime_dequant_constants
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
         "encoded_runtime_dequant": encoded_runtime_dequant,
-        "autoload_from_constants_bin": not encoded_runtime_dequant,
+        "autoload_from_constants_bin": autoload_from_constants_bin,
     }
 
 

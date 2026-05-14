@@ -101,6 +101,12 @@ def _io_context(index: int, name: str, shape: Iterable[int], dtype: str, shape_s
 
 def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
     dims = _dim_ranges(item.get("shape_spec", item["shape"]))
+    storage = item.get("storage")
+    autoload_from_constants_bin = not (
+        isinstance(storage, Mapping)
+        and storage.get("kind") == "gguf"
+        and str(storage.get("residency", "eager_dense_device")) == "manual_runtime_load"
+    )
     return {
         "name": item["name"],
         "ident": _c_ident(item["tensor"]),
@@ -115,6 +121,7 @@ def _constant_context(item: Mapping[str, Any]) -> dict[str, Any]:
         "dtype_enum": dtype_runtime_enum(item["dtype"]),
         "dtype_nbytes": dtype_nbytes(item["dtype"]),
         "storage_type": cpu_storage_type(str(item["dtype"])),
+        "autoload_from_constants_bin": autoload_from_constants_bin,
     }
 
 

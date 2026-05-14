@@ -2599,6 +2599,11 @@ def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_exp
     monkeypatch, tmp_path
 ):
     artifact, x, expected = _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert (
+        "Constant manual_bias uses explicit encoded runtime load; skip eager constants.bin materialization."
+        in generated
+    )
 
     module = runtime.load(artifact.path)
     session = module.create_session()
@@ -2627,6 +2632,100 @@ def test_cpu_runtime_mixed_dense_and_manual_encoded_constant_reload_requires_exp
 
     np.testing.assert_allclose(loaded["y"], expected, atol=0.0, rtol=0.0)
     np.testing.assert_allclose(reloaded["y"], expected, atol=0.0, rtol=0.0)
+
+
+def test_cpu_native_module_load_and_reload_skip_manual_runtime_load_gguf_constants(monkeypatch, tmp_path):
+    artifact, x, expected = _build_cpu_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path)
+    manual_bias = np.array([1.5, 2.0], dtype=np.float32)
+
+    module = runtime.load(artifact.path, load_constants=False)
+    native_handle = ctypes.c_void_p()
+    session_handle = ctypes.c_void_p()
+    input_keepalive = output_keepalive = manual_keepalive = None
+    try:
+        module._check(module._dll.dino_module_load(str(artifact.path).encode("utf-8"), ctypes.byref(native_handle)))
+        assert native_handle.value
+
+        module._check(module._dll.dino_session_create(native_handle, ctypes.byref(session_handle)))
+        assert session_handle.value
+
+        y = np.empty_like(x)
+        input_tensor, input_keepalive = runtime._make_dino_tensor(
+            ctypes.c_void_p(x.ctypes.data),
+            x.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=x.nbytes,
+            device_type=runtime.DINO_DEVICE_CPU,
+        )
+        output_tensor, output_keepalive = runtime._make_dino_tensor(
+            ctypes.c_void_p(y.ctypes.data),
+            y.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=y.nbytes,
+            device_type=runtime.DINO_DEVICE_CPU,
+        )
+        inputs = (runtime._DinoTensor * 1)(input_tensor)
+        outputs = (runtime._DinoTensor * 1)(output_tensor)
+
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+
+        manual_tensor, manual_keepalive = runtime._make_dino_tensor(
+            ctypes.c_void_p(manual_bias.ctypes.data),
+            manual_bias.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=manual_bias.nbytes,
+            device_type=runtime.DINO_DEVICE_CPU,
+        )
+        module._check(
+            module._dll.dino_module_set_constant(
+                native_handle,
+                b"manual_bias",
+                ctypes.byref(manual_tensor),
+            )
+        )
+        module._check(
+            module._dll.dino_session_run(
+                session_handle,
+                inputs,
+                ctypes.c_size_t(1),
+                outputs,
+                ctypes.c_size_t(1),
+            )
+        )
+        np.testing.assert_allclose(y, expected, atol=0.0, rtol=0.0)
+
+        module._check(module._dll.dino_module_unload_constants(native_handle))
+        module._check(
+            module._dll.dino_module_load_constants(
+                native_handle,
+                str(artifact.path / "constants.bin").encode("utf-8"),
+            )
+        )
+        with pytest.raises(RuntimeError, match="Constant manual_bias has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+    finally:
+        if session_handle.value:
+            module._check(module._dll.dino_session_destroy(session_handle))
+        if native_handle.value:
+            module._check(module._dll.dino_module_free(native_handle))
+        module.close()
 
 
 def test_cpu_runtime_module_close_reopen_resets_manual_encoded_constant_residency(monkeypatch, tmp_path):

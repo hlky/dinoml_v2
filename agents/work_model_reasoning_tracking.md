@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 9a9eac2, Harden dynamic get_1d_rotary_pos_embed CUDA runtime, gpt-5.4, medium
 - 625b25c, Harden dynamic get_timestep_embedding CUDA runtime, gpt-5.4, medium
 - 6742bd7, Harden named permute runtime regressions, gpt-5.4, medium
 - e7b11bf, Harden rms_norm helper runtime regressions, gpt-5.4, high

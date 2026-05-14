@@ -272,6 +272,8 @@ def _build_artifact_from_lowered_ir(
     )
     write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
 
+    _reject_manifest_scaffold_only_kernels(kernel_manifest)
+
     files = {
         "graph": "graph.dinoir.json",
         "module": "module.so",
@@ -397,6 +399,24 @@ def _runtime_metadata(ir: Dict) -> Dict:
 
 def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
     return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
+
+
+def _reject_manifest_scaffold_only_kernels(kernel_manifest: Mapping[str, Any]) -> None:
+    unsupported = []
+    for item in kernel_manifest.get("required_kernels", []):
+        if not isinstance(item, Mapping) or item.get("kernel_library") != "cutlass_conv":
+            continue
+        conv_plan = item.get("cutlass_conv_plan")
+        if isinstance(conv_plan, Mapping) and conv_plan.get("status") == "manifest_scaffold_only":
+            unsupported.append(str(item.get("op", "")))
+    if not unsupported:
+        return
+    ops = ", ".join(sorted(set(unsupported)))
+    raise NotImplementedError(
+        "CUTLASS ConvNd kernels are manifest/codegen scaffold only; "
+        "CUDA runtime launcher integration is not implemented yet. "
+        f"Unsupported compiled op(s): {ops}"
+    )
 
 
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any]) -> Dict:

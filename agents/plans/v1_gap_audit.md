@@ -234,7 +234,11 @@ porting. It intentionally excludes the op inventory, which lives in
   captured in `agents/plans/conv_cutlass_plan.md`: keep public ConvNd semantics
   source-faithful NCHW/NCDHW, treat NHWC/NDHWC as guarded provider-internal
   islands only, and require generated pack/unpack temporaries plus manifest
-  metadata instead of relying on ABI strides for layout translation.
+  metadata instead of relying on ABI strides for layout translation. The first
+  `conv2d_bias` reference/scaffold slice now lets CUDA compile emit intended
+  NHWC/OHWI provider transforms as kernel-manifest/codegen metadata before
+  rejecting ahead of module build, but compiled ConvNd lowering and general
+  channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

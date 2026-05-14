@@ -241,6 +241,18 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "conv2d_bias":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_conv2d_bias(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -690,6 +702,56 @@ def _execute_max_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.nd
                                 continue
                             max_value = max(max_value, float(source[n, c, ih, iw]))
                     result[n, c, oh, ow] = max_value
+    return result
+
+
+def _execute_conv2d_bias(
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1))]
+    pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0))]
+    dilation_h, dilation_w = [int(item) for item in attrs.get("dilation", (1, 1))]
+    groups = int(attrs.get("groups", 1))
+    if groups != 1:
+        raise NotImplementedError(f"conv2d_bias CPU reference currently supports groups=1 only, got {groups}")
+    batch, in_channels, in_height, in_width = [int(dim) for dim in x.shape]
+    out_channels, weight_in_channels, kernel_h, kernel_w = [int(dim) for dim in weight.shape]
+    if weight_in_channels != in_channels:
+        raise ValueError(
+            "conv2d_bias CPU reference weight input channels must match activation channels for groups=1: "
+            f"got activation C={in_channels}, weight C={weight_in_channels}"
+        )
+    if bias.shape != (out_channels,):
+        raise ValueError(
+            f"conv2d_bias CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
+        )
+    out_height = (in_height + 2 * pad_h - dilation_h * (kernel_h - 1) - 1) // stride_h + 1
+    out_width = (in_width + 2 * pad_w - dilation_w * (kernel_w - 1) - 1) // stride_w + 1
+    result = np.empty((batch, out_channels, out_height, out_width), dtype=np.float32)
+    source = np.asarray(x, dtype=np.float32)
+    filters = np.asarray(weight, dtype=np.float32)
+    bias_values = np.asarray(bias, dtype=np.float32)
+    for n in range(batch):
+        for oc in range(out_channels):
+            for oh in range(out_height):
+                h_start = oh * stride_h - pad_h
+                for ow in range(out_width):
+                    w_start = ow * stride_w - pad_w
+                    total = float(bias_values[oc])
+                    for ic in range(in_channels):
+                        for kh in range(kernel_h):
+                            ih = h_start + kh * dilation_h
+                            if ih < 0 or ih >= in_height:
+                                continue
+                            for kw in range(kernel_w):
+                                iw = w_start + kw * dilation_w
+                                if iw < 0 or iw >= in_width:
+                                    continue
+                                total += float(source[n, ic, ih, iw] * filters[oc, ic, kh, kw])
+                    result[n, oc, oh, ow] = total
     return result
 
 

@@ -12,6 +12,7 @@ from dinoml.lowering.ops.avg_pool2d import AVG_POOL2D_LOWERING
 from dinoml.lowering.ops.batch_gather import BATCH_GATHER_LOWERING
 from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.concatenate import CONCATENATE_LOWERING
+from dinoml.lowering.ops.conv import CONV2D_BIAS_LOWERING
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.dynamic_slice import DYNAMIC_SLICE_LOWERING
 from dinoml.lowering.ops.expand import EXPAND_LOWERING
@@ -42,6 +43,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     AVG_POOL2D_LOWERING.op_name: AVG_POOL2D_LOWERING,
     BATCH_GATHER_LOWERING.op_name: BATCH_GATHER_LOWERING,
     CONCATENATE_LOWERING.op_name: CONCATENATE_LOWERING,
+    CONV2D_BIAS_LOWERING.op_name: CONV2D_BIAS_LOWERING,
     DYNAMIC_SLICE_LOWERING.op_name: DYNAMIC_SLICE_LOWERING,
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,
     FLIP_LOWERING.op_name: FLIP_LOWERING,

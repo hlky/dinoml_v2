@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Started the bounded ConvNd provider lane without claiming a CUDA runtime yet:
+  added a public/reference-only `conv2d_bias` surface with NCHW activation,
+  OIHW weight, bias `[Cout]`, groups=`1`, static rank-4/static channel+kernel
+  limits, and CPU reference parity against PyTorch. CUDA compile now reaches a
+  `cutlass_conv` manifest/codegen scaffold that records the intended NHWC/OHWI
+  provider layout and explicit layout/weight-transform metadata as
+  `manifest_scaffold_only`, then rejects before module build until a real
+  launcher exists; CPU compile still rejects at backend admission.
 - Tightened CUTLASS support-cache/source-manifest reuse with another bounded
   compile-visible robustness slice: cache hits now also reject
   `src/source_manifest.json` payloads whose embedded `used_candidate_plan`
@@ -161,13 +169,15 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Start the first bounded ConvNd provider slice described in
-   `agents/plans/conv_cutlass_plan.md`: CUDA-only `conv2d_bias` with public
-   NCHW semantics, artifact-visible NHWC/OHWI provider transforms, groups=`1`,
-   static channel/kernel attrs, and CPU/PyTorch reference validation. Keep the
-   work design-first and narrow: no conv3d, no transposed/depthwise/grouped
-   expansion, no hidden channel padding, no runtime-set packed weights, and no
-   public NHWC toggle.
+1. Continue the first bounded ConvNd provider slice described in
+   `agents/plans/conv_cutlass_plan.md` by connecting the existing
+   `conv2d_bias` public/reference surface and `cutlass_conv`
+   `manifest_scaffold_only` compile metadata to the next honest provider step.
+   Prefer a small launcher/source-manifest/profile scaffold or generated
+   pack/unpack lowering test before attempting a full CUTLASS runtime. Keep the
+   work narrow:
+   no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
+   padding, no runtime-set packed weights, and no public NHWC toggle.
 2. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice if a new concrete stale-payload edge appears in an existing
    cache/test area; otherwise keep provider-cache work paused and avoid

@@ -189,6 +189,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] in {
         "avg_pool1d",
         "avg_pool2d",
+        "conv2d_bias",
         "max_pool2d",
         "concatenate",
         "stack",
@@ -420,7 +421,7 @@ def _validate_collection_node(
         raise ValidationError(f"{op_name} currently supports only static shapes: {dynamic_tensors}")
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
-    except ValueError as exc:
+    except (ValueError, NotImplementedError) as exc:
         raise ValidationError(str(exc)) from exc
     if list(output["shape"]) != list(expected_shape):
         raise ValidationError(

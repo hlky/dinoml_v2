@@ -535,8 +535,12 @@ behavior.
   `agents/plans/conv_cutlass_plan.md`: a CUDA-only `conv2d_bias`
   `cutlass_conv` slice with source-faithful public NCHW semantics,
   artifact-visible NHWC/OHWI provider transforms, groups=`1`, static
-  channel/kernel attrs, and CPU/PyTorch reference validation. Keep all other
-  ConvNd families unported until that bounded slice is real.
+  channel/kernel attrs, and CPU/PyTorch reference validation. The first
+  reference/scaffold slice now exists as a public `conv2d_bias` frontend plus
+  CPU reference execution. CUDA compile emits `manifest_scaffold_only`
+  `cutlass_conv` kernel manifest/codegen metadata and then rejects before module
+  build until a real provider launcher is wired; CPU compile still rejects.
+  Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,
   stride=None, padding=0)` for rank-3 NCL static-shape `float32`, `float16`,

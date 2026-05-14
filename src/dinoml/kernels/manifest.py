@@ -12,6 +12,11 @@ from dinoml.ir import canonical_json, dtype_nbytes
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.bmm import bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
+from dinoml.kernels.providers.cutlass.conv import (
+    cutlass_conv_candidate_set,
+    cutlass_conv_candidates,
+    cutlass_conv_layout_plan,
+)
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
@@ -69,6 +74,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
                 constant_map=constant_map,
                 dtype=dtype,
             )
+            cutlass_conv_plan = None
         elif resolved.library == "cutlass_bmm":
             candidates = [dict(candidate) for candidate in cutlass_bmm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_bmm_candidate_set(str(node["op"]), dtype, target=target)
@@ -83,12 +89,24 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
+            cutlass_conv_plan = None
+        elif resolved.library == "cutlass_conv":
+            candidates = [dict(candidate) for candidate in cutlass_conv_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = cutlass_conv_candidate_set(str(node["op"]), dtype, target=target)
+            selected_candidate = candidates[0]
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
+            gguf_runtime_dequant = None
+            cutlass_conv_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
         else:
             gguf_runtime_dequant = None
+            cutlass_conv_plan = None
         key = (
             node["op"],
             kernel_symbol,
             canonical_json(gguf_runtime_dequant) if gguf_runtime_dequant is not None else "",
+            canonical_json(cutlass_conv_plan) if cutlass_conv_plan is not None else "",
         )
         if key in seen:
             continue
@@ -109,6 +127,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set"] = candidate_set
         if gguf_runtime_dequant is not None:
             item["gguf_runtime_dequant"] = gguf_runtime_dequant
+        if cutlass_conv_plan is not None:
+            item["cutlass_conv_plan"] = cutlass_conv_plan
         if resolved.library in {"cutlass_gemm", "cutlass_bmm"}:
             alignment_context = (
                 cutlass_alignment_contexts.get((str(node["op"]), dtype))

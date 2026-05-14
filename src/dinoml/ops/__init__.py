@@ -184,13 +184,15 @@ def _get_timestep_embedding_frontend(
     if denominator == 0.0:
         raise ValueError("get_timestep_embedding requires half_dim - downscale_freq_shift to be non-zero")
 
-    work_timesteps = timestep_tensor if timestep_tensor.dtype == "float32" else _cast_frontend(timestep_tensor, "float32")
+    work_timesteps = unsqueeze(timestep_tensor, -1)
+    if timestep_tensor.dtype != "float32":
+        work_timesteps = _cast_frontend(work_timesteps, "float32")
     frequency_values = np.asarray(
         [math.exp((-math.log(normalized_max_period) * float(index)) / denominator) for index in range(half_dim)],
         dtype=np.float32,
     )
     frequencies = as_tensor(Parameter(frequency_values), dtype_hint="float32")
-    args = unsqueeze(work_timesteps, -1) * unsqueeze(frequencies, 0)
+    args = work_timesteps * unsqueeze(frequencies, 0)
     if normalized_scale != 1.0:
         args = args * normalized_scale
 

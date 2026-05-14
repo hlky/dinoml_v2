@@ -664,12 +664,11 @@ when compile-time constants make that practical.
   fp32 when practical, preserves the input float storage dtype on the public
   output, swaps halves for `flip_sin_to_cos`, and appends the odd-dimension
   zero column through existing helpers. Current bound: dynamic `N` is not
-  admitted because `concatenate` still requires static shapes. Float32 CUDA
-  compile parity now covers even-width plus odd-width/`flip_sin_to_cos`
-  helper compositions, and a representative even-width float32 CUDA runtime
-  regression is proven for the composed helper path. Reduced-precision CUDA
-  parity is still not claimed because the separate raw cast across
-  view/admission-fusion gap remains outside this helper slice.
+  admitted because `concatenate` still requires static shapes. CUDA parity is
+  now proven for `float32`, `float16`, and `bfloat16`: float32 compile parity
+  covers even-width plus odd-width/`flip_sin_to_cos` helper compositions, and
+  representative runtime regressions cover float32 plus reduced-precision
+  output-dtype preservation on the composed helper path.
 - [ ] Rotary/sincos helpers: `get_1d_rotary_pos_embed`,
   `get_2d_rotary_pos_embed`, `get_2d_rotary_pos_embed_lumina`,
   `get_2d_sincos_pos_embed`, `get_2d_sincos_pos_embed_cogview3plus`,

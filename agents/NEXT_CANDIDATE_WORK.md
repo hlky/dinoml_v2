@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the reduced-precision CUDA `get_timestep_embedding` helper gap
+  without widening the pass or op surface: the helper now unsqueezes timesteps
+  before casting to fp32, which keeps the internal math in fp32 when practical
+  but moves the input cast onto the elementwise side of the view boundary so
+  it fuses with the multiply/sin/cos chain instead of surviving as a raw CUDA
+  `cast` op. Added a focused lowered-graph regression that proves the first
+  node becomes `fused_elementwise` with `cast`/`mul`/`sin`/`cos`, plus reduced-
+  precision CUDA runtime parity tests for `float16` and `bfloat16`. Dynamic
+  `N` remains out because `concatenate` is still static-shape only.
 - Fixed the narrow generated-CUDA `concatenate` wrapper bug that blocked
   intermediate producer outputs from feeding `concatenate`: the wrapper-local
   CUDA launch now passes wrapper parameters `x0`, `x1`, ... into the generated
@@ -30,9 +39,8 @@ This file should be updated after each major loop.
   and rejection of dynamic timestep length, bad rank/dtype, and invalid
   parameter combinations. The honest current bounds are documented in the
   checklist: dynamic `N` is still out because `concatenate` remains static-only,
-  float32 CUDA compile parity plus a representative runtime slice are now
-  proven, and reduced-precision CUDA parity is still deferred behind the
-  separate raw-cast-across-view admission/fusion gap outside this helper slice.
+  and CUDA parity is now proven for float32 plus reduced-precision runtime
+  slices without expanding the helper into a dedicated op/provider surface.
 - Landed the smallest honest v1/HuggingFace custom-op helper slice around
   `gelu_new`: public `dml.ops.gelu_new(x)` is now a bounded frontend helper
   that rewrites directly to the existing tanh-approximation `gelu` op instead

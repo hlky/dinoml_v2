@@ -129,6 +129,21 @@ def test_get_timestep_embedding_helper_stays_out_of_registry_and_composes_existi
     assert lowered_ops.count("fused_elementwise") >= 1
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_get_timestep_embedding_reduced_precision_cast_fuses_before_view_boundary(dtype):
+    spec = _trace_timestep_embedding(dtype=dtype, embedding_dim=6)
+
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+
+    lowered_ops = [node["op"] for node in lowered["nodes"]]
+    assert lowered_ops == ["fused_elementwise", "concatenate", "fused_elementwise"]
+    assert all(node["op"] != "cast" for node in lowered["nodes"])
+
+    fused = lowered["nodes"][0]
+    assert [sub_op["op"] for sub_op in fused["attrs"]["sub_ops"]] == ["cast", "mul", "sin", "cos"]
+
+
 def test_get_timestep_embedding_supports_embedding_dim_one_zero_column():
     spec = _trace_timestep_embedding(dtype="float32", embedding_dim=1)
     timesteps = np.array([0.5, 1.5, -2.0, 4.0], dtype=np.float32)
@@ -274,3 +289,57 @@ def test_get_timestep_embedding_float32_cuda_runtime_matches_reference(tmp_path)
 
     assert actual.dtype == torch.float32
     np.testing.assert_allclose(actual.float().cpu().numpy(), expected.astype(np.float32), atol=1e-6, rtol=1e-6)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize(
+    ("dtype", "torch_dtype", "atol", "rtol"),
+    [
+        ("float16", "float16", 2e-3, 2e-3),
+        ("bfloat16", "bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_get_timestep_embedding_reduced_precision_cuda_runtime_matches_reference(
+    tmp_path,
+    dtype,
+    torch_dtype,
+    atol,
+    rtol,
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    runtime_dtype = getattr(torch, torch_dtype)
+
+    spec = _trace_timestep_embedding(
+        dtype=dtype,
+        embedding_dim=7,
+        flip_sin_to_cos=(dtype == "bfloat16"),
+        downscale_freq_shift=0.5,
+        scale=0.75,
+        max_period=64,
+    )
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86"),
+        tmp_path / f"get_timestep_embedding_runtime_{dtype}_cuda.dinoml",
+    )
+    timesteps = np.array([0.0, 1.25, 10.5, -0.75], dtype=np.float32)
+    expected = _reference_get_timestep_embedding(
+        timesteps,
+        embedding_dim=7,
+        flip_sin_to_cos=(dtype == "bfloat16"),
+        downscale_freq_shift=0.5,
+        scale=0.75,
+        max_period=64,
+        dtype=dtype,
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch({"timesteps": torch.tensor(timesteps, device="cuda", dtype=runtime_dtype)})["out"]
+    session.close()
+    module.close()
+
+    assert actual.dtype == runtime_dtype
+    np.testing.assert_allclose(actual.float().cpu().numpy(), expected.astype(np.float32), atol=atol, rtol=rtol)

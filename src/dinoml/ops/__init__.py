@@ -140,6 +140,25 @@ def _gelu_new_frontend(x: Any) -> Tensor:
     return emit_registered_op("gelu", x)
 
 
+def _rms_norm_frontend(x: Any, weight: Any | None = None, eps: float = 1e-6) -> Tensor:
+    x_tensor = as_tensor(x, dtype_hint="float32")
+    if x_tensor.dtype not in ("float16", "float32", "bfloat16"):
+        raise ValueError(f"rms_norm does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank < 1:
+        raise ValueError("rms_norm requires rank >= 1 input")
+    if not isinstance(x_tensor.shape_spec[-1], int):
+        raise ValueError("rms_norm currently requires a static last dimension")
+    hidden = int(x_tensor.shape[-1])
+    if hidden <= 0:
+        raise ValueError("rms_norm last dimension must be positive")
+    if weight is None:
+        weight = as_tensor(
+            Parameter([hidden], dtype=x_tensor.dtype, value=np.ones((hidden,), dtype=np.float32)),
+            dtype_hint=x_tensor.dtype,
+        )
+    return _t5_layer_norm_frontend(x_tensor, weight, eps=eps)
+
+
 def _get_timestep_embedding_frontend(
     timesteps: Any,
     embedding_dim: int,
@@ -969,6 +988,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
 globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
 globals()["gelu_new"] = _gelu_new_frontend
+globals()["rms_norm"] = _rms_norm_frontend
 globals()["get_timestep_embedding"] = _get_timestep_embedding_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
@@ -1043,6 +1063,7 @@ __all__ = list(dict.fromkeys([
     "permute210",
     "pixel_shuffle",
     "pixel_unshuffle",
+    "rms_norm",
     "reshape",
     "reduce_max",
     "reduce_mean",

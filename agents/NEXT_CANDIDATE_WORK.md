@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded weight-optional normalization helper slice:
+  public `dml.ops.rms_norm(x, weight=None, eps=1e-6)` now stays helper-only and
+  reuses the existing `t5_layer_norm` generated CPU/CUDA backend instead of
+  adding a new op, provider, or kernel family. The weighted path delegates
+  directly to `t5_layer_norm`, while the weightless path materializes a
+  same-dtype static ones vector `[hidden]` and delegates to that same node, so
+  lowered IR still contains only `t5_layer_norm`. Added focused regressions
+  proving the helper stays out of `OP_REGISTRY`, that the weighted IR is the
+  same single `t5_layer_norm` node, that the unweighted IR adds only a ones
+  constant plus `t5_layer_norm`, that CPU parity holds for weighted/unweighted
+  `float32`/`float16`/`bfloat16`, that CUDA runtime parity works for one
+  weighted and one unweighted `float32` case, and that dynamic hidden size,
+  bad rank/dtype, weight shape mismatch, and mixed builder/dtype contracts fail
+  clearly without widening the normalization/provider surface.
 - Advanced the bounded ConvNd/CUTLASS maturity lane by turning the existing
   `cutlass_conv` manifest/codegen scaffold into a manifest-only support-cache
   scaffold: CUDA compile still rejects before module build, but it now writes
@@ -262,9 +276,9 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
-   with `gelu_new` and `get_timestep_embedding` closed, prefer the next
-   smallest candidate such as a bounded weight-optional RMS helper,
-   `cropped_pos_embed`, or pack/unpack/rotary helpers before revisiting
+   with `gelu_new`, `get_timestep_embedding`, and the bounded helper-only
+   `rms_norm` slice closed, prefer the next smallest candidate such as
+   `cropped_pos_embed` or pack/unpack/rotary helpers before revisiting
    broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
    normalized-dimension work. If the next helper needs dynamic concatenation or
    compiled CUDA parity, first decide whether that belongs in the helper slice

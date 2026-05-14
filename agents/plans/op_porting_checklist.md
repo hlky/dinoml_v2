@@ -599,6 +599,19 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
 ### Normalization
 
 - [ ] GroupNorm: `group_norm`, `group_norm_swish`.
+- [x] `rms_norm`: bounded public helper `dml.ops.rms_norm(x, weight=None,
+  eps=1e-6)` for rank >= 1 dense tensors with a positive static last dimension
+  and optional rank-1 affine weight `[hidden]`, across `float32`, `float16`,
+  and `bfloat16` input/output storage. This helper does not register a new op
+  or kernel family: the weighted path delegates directly to `t5_layer_norm`,
+  while the weightless path materializes a same-dtype static ones vector
+  `[hidden]` and then delegates to that same bounded T5/RMS kernel path. It
+  inherits the existing fp32 accumulation semantics, dynamic leading-dimension
+  support, CPU reference execution, and generated CPU/CUDA lowering from
+  `t5_layer_norm`. Out of scope for this bounded helper slice: dynamic hidden
+  size, non-rank-1 weights, mixed builder/dtype inputs, full LayerNorm
+  mean/bias semantics, grouped/batched/fused variants, and any new provider or
+  profiler surface.
 - [x] `t5_layer_norm`: bounded public `dml.ops.t5_layer_norm(x, weight,
   eps=1e-6)` port for rank >= 1 dense tensors with a positive static last
   dimension and required rank-1 affine weight `[hidden]`, across `float32`,

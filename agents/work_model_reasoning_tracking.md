@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 3a32757, Scope CUTLASS conv provider status names, gpt-5.5, high
 - 629d793, Build guarded CUTLASS conv CUDA wrapper, gpt-5.5, high
 - 6710c2d, Add CLIP text encoder-layer composition tests, gpt-5.4, high
 - 1ba2f2f, Add CLIP contrastive head composition tests, gpt-5.4-mini, medium

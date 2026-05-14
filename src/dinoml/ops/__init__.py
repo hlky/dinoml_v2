@@ -49,6 +49,7 @@ from dinoml.ops.conv import (
 )
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, ELEMENTWISE_OUTPUT_DTYPES, elementwise_output_dtype
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
+from dinoml.ops.normalization import t5_layer_norm as _t5_layer_norm_frontend
 from dinoml.ops.pooling import (
     POOLING_DTYPES,
     normalize_avg_pool1d_attrs,
@@ -919,6 +920,7 @@ globals()["conv2d_bias"] = _conv2d_bias_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
+globals()["t5_layer_norm"] = _t5_layer_norm_frontend
 globals()["permute021"] = _permute021_frontend
 globals()["permute0213"] = _permute0213_frontend
 globals()["permute102"] = _permute102_frontend

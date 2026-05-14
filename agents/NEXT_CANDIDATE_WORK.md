@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first bounded normalization slice away from the Conv metadata
+  lane: public `t5_layer_norm` now covers the T5/RMSNorm-style form
+  `x * rsqrt(mean(x^2) + eps) * weight` over rank >= 1 dense tensors with a
+  positive static last dimension and required affine weight `[hidden]`, across
+  `float32`, `float16`, and `bfloat16` storage. The slice keeps fp32
+  accumulation semantics, preserves dynamic leading-dimension shape metadata,
+  adds CPU reference execution plus generated CPU/CUDA kernels, and has focused
+  frontend/IR rejection coverage for dynamic hidden size and bad weight
+  contracts. The docs/checklist now call this out explicitly as a bounded
+  RMS/T5-only slice; full LayerNorm, grouped, sigmoid-mul, adaptive, and
+  provider-backed normalization variants remain unimplemented.
 - Closed a reviewer-found P1 in the bounded `cutlass_conv` profiling scaffold:
   scaffold-only `ConvProfileWorkload` objects now fail explicitly before the
   GEMM/BMM-only profiling cache-key, profile-result, cache read/write, or
@@ -188,7 +199,13 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Continue the first bounded ConvNd provider slice described in
+1. Keep normalization on the bounded lane if another concrete model need
+   appears, but only through a similarly honest admission-backed follow-up:
+   prefer either a weight-optional/front-end RMS helper or another small
+   non-provider normalization contract over broadening into full LayerNorm,
+   GroupNorm, fused sigmoid/swish variants, or dynamic normalized-dimension
+   work.
+2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`
    `manifest_scaffold_only` compile metadata, and profile workload scaffold to
@@ -197,10 +214,10 @@ This file should be updated after each major loop.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.
-2. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+3. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice if a new concrete stale-payload edge appears in an existing
    cache/test area; otherwise keep provider-cache work paused and avoid
    speculative broadening.
-3. Add one more bounded native regression only if another GGUF loader edge
+4. Add one more bounded native regression only if another GGUF loader edge
    appears, preferably around encoded-runtime-dequant native reload behavior
    rather than broadening the runtime surface.

@@ -590,7 +590,18 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
 ### Normalization
 
 - [ ] GroupNorm: `group_norm`, `group_norm_swish`.
-- [ ] LayerNorm family: `layernorm`, `t5_layer_norm`, `group_layernorm`,
+- [x] `t5_layer_norm`: bounded public `dml.ops.t5_layer_norm(x, weight,
+  eps=1e-6)` port for rank >= 1 dense tensors with a positive static last
+  dimension and required rank-1 affine weight `[hidden]`, across `float32`,
+  `float16`, and `bfloat16` input/output storage. CPU reference plus generated
+  CPU/CUDA kernels use fp32 accumulation and preserve dynamic leading-dimension
+  shape metadata while flattening those leading dims into rows at runtime.
+  Semantics match the T5/RMSNorm-style form with no mean subtraction and no
+  bias: `x * rsqrt(mean(x^2) + eps) * weight`. Out of scope for this bounded
+  slice: missing/optional affine weights, dynamic hidden size, full LayerNorm
+  mean/bias semantics, grouped/batched/fused variants, and provider/library
+  claims.
+- [ ] Remaining LayerNorm family: `layernorm`, `group_layernorm`,
   `batch_layernorm_sigmoid_mul`, `layernorm_sigmoid_mul`,
   `group_layernorm_sigmoid_mul`.
 

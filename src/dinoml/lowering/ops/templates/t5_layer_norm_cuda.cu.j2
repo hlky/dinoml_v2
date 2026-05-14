@@ -1,0 +1,108 @@
+{% if use_warp_kernel %}
+__global__ void {{ warp_kernel }}(
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    const {{ cuda_storage_type }}* DINO_RESTRICT weight,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int cols_per_thread = {{ cols_per_thread }};
+  constexpr float eps = {{ "%.8ff"|format(eps) }};
+  const int row = static_cast<int>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+
+  float thread_sum_sq = 0.0f;
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    if (col < cols) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      thread_sum_sq += value * value;
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    thread_sum_sq += __shfl_down_sync(0xffffffffu, thread_sum_sq, offset);
+  }
+  const float inv_rms =
+      rsqrtf(__shfl_sync(0xffffffffu, thread_sum_sq, 0) / {{ "%.8ff"|format(cols|float) }} + eps);
+
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int col = i * 32 + lane;
+    if (col < cols) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      const float scale = dinoml::math::cast<float>(weight[col]);
+      y[base + col] = dinoml::math::cast<{{ cuda_storage_type }}>(value * inv_rms * scale);
+    }
+  }
+}
+
+{% endif %}
+__global__ void {{ kernel }}(
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    const {{ cuda_storage_type }}* DINO_RESTRICT weight,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    int64_t rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr float eps = {{ "%.8ff"|format(eps) }};
+  extern __shared__ float shared[];
+  const int row = static_cast<int>(blockIdx.x);
+  if (row >= rows) {
+    return;
+  }
+  const int tid = threadIdx.x;
+  const int64_t base = static_cast<int64_t>(row) * cols;
+
+  float thread_sum_sq = 0.0f;
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    const float value = dinoml::math::cast<float>(x[base + col]);
+    thread_sum_sq += value * value;
+  }
+  shared[tid] = thread_sum_sq;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared[tid] += shared[tid + stride];
+    }
+    __syncthreads();
+  }
+  const float inv_rms = rsqrtf(shared[0] / {{ "%.8ff"|format(cols|float) }} + eps);
+
+  for (int64_t col = tid; col < cols; col += blockDim.x) {
+    const float value = dinoml::math::cast<float>(x[base + col]);
+    const float scale = dinoml::math::cast<float>(weight[col]);
+    y[base + col] = dinoml::math::cast<{{ cuda_storage_type }}>(value * inv_rms * scale);
+  }
+}
+
+static int {{ func }}(
+    const {{ cuda_storage_type }}* DINO_RESTRICT x,
+    const {{ cuda_storage_type }}* DINO_RESTRICT weight,
+    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total,
+    cudaStream_t stream) {
+  if (x == nullptr || weight == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t cols = {{ cols }};
+  if (runtime_total % cols != 0) {
+    return dino_runtime_fail("{{ func }} received non-row-aligned element count");
+  }
+  const int64_t rows = runtime_total / cols;
+{% if use_warp_kernel %}
+  dim3 block(32, {{ rows_per_block }});
+  dim3 grid(static_cast<unsigned int>((rows + {{ rows_per_block }} - 1) / {{ rows_per_block }}));
+  {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, weight, y, rows);
+{% else %}
+  const int block = {{ block_size }};
+  {{ kernel }}<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>(x, weight, y, rows);
+{% endif %}
+  DINO_CUDA_CHECK(cudaGetLastError());
+  return 0;
+}

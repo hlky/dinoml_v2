@@ -48,6 +48,17 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_softmax(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "t5_layer_norm":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_t5_layer_norm(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -457,6 +468,26 @@ def _execute_softmax(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarr
     shifted = value - np.max(value, axis=dim, keepdims=True)
     exp_value = np.exp(shifted)
     return np.asarray(exp_value / np.sum(exp_value, axis=dim, keepdims=True), dtype=np.float32)
+
+
+def _execute_t5_layer_norm(value: np.ndarray, weight: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    if value.ndim < 1:
+        raise ValueError("CPU reference t5_layer_norm requires rank >= 1 input")
+    if weight.ndim != 1:
+        raise ValueError("CPU reference t5_layer_norm requires rank-1 weight")
+    hidden = int(value.shape[-1])
+    if hidden <= 0:
+        raise ValueError("CPU reference t5_layer_norm requires a positive last dimension")
+    if int(weight.shape[0]) != hidden:
+        raise ValueError(
+            "CPU reference t5_layer_norm weight length must match input hidden size: "
+            f"got hidden={hidden}, weight={weight.shape[0]}"
+        )
+    eps = float(attrs.get("eps", 1e-6))
+    source = np.asarray(value, dtype=np.float32)
+    scale = np.asarray(weight, dtype=np.float32)
+    mean_square = np.mean(source * source, axis=-1, keepdims=True)
+    return np.asarray(source * (1.0 / np.sqrt(mean_square + eps)) * scale, dtype=np.float32)
 
 
 def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

@@ -186,6 +186,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] in {"topk_values", "topk_indices"}:
         _validate_topk_node(node, inputs, tensors)
         return
+    if node["op"] == "t5_layer_norm":
+        _validate_t5_layer_norm_node(node, inputs, tensors)
+        return
     if node["op"] in {
         "avg_pool1d",
         "avg_pool2d",
@@ -396,6 +399,59 @@ def _validate_topk_node(
     if str(output["dtype"]) != expected_dtype:
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {expected_dtype}"
+        )
+
+
+def _validate_t5_layer_norm_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("t5_layer_norm")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if not op_def.accepts_input_count(len(inputs)):
+        raise ValidationError("t5_layer_norm expects exactly two inputs")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    x_tensor, weight_tensor = inputs
+    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+    weight_shape_spec = weight_tensor.get("shape_spec", weight_tensor["shape"])
+    if not x_tensor["shape"]:
+        raise ValidationError("t5_layer_norm requires rank >= 1 input")
+    if len(weight_tensor["shape"]) != 1:
+        raise ValidationError("t5_layer_norm requires rank-1 weight")
+    if not isinstance(x_shape_spec[-1], int):
+        raise ValidationError("t5_layer_norm currently requires a static last dimension")
+    if not isinstance(weight_shape_spec[0], int):
+        raise ValidationError("t5_layer_norm currently requires a static weight shape")
+    if int(weight_tensor["shape"][0]) != int(x_tensor["shape"][-1]):
+        raise ValidationError(
+            "t5_layer_norm weight length must match the input hidden size: "
+            f"got hidden={x_tensor['shape'][-1]}, weight={weight_tensor['shape'][0]}"
+        )
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+            f"expected {expected_shape}"
+        )
+    if list(output["shape"]) != list(x_tensor["shape"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+            f"expected {x_tensor['shape']}"
+        )
+    if any(input_info["dtype"] != x_tensor["dtype"] for input_info in inputs):
+        raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
+    if x_tensor["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"t5_layer_norm does not support dtype {x_tensor['dtype']}")
+    if str(output["dtype"]) != str(x_tensor["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+            f"expected {x_tensor['dtype']}"
         )
 
 

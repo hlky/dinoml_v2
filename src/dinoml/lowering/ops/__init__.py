@@ -32,6 +32,7 @@ from dinoml.lowering.ops.shape_buffer_count_true import SHAPE_BUFFER_COUNT_TRUE_
 from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
 from dinoml.lowering.ops.stack import STACK_LOWERING
+from dinoml.lowering.ops.t5_layer_norm import T5_LAYER_NORM_LOWERING
 from dinoml.lowering.ops.topk import TOPK_LOWERINGS
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
@@ -60,6 +61,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     SLICE_SCATTER_LOWERING.op_name: SLICE_SCATTER_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,
     STACK_LOWERING.op_name: STACK_LOWERING,
+    T5_LAYER_NORM_LOWERING.op_name: T5_LAYER_NORM_LOWERING,
 }
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)

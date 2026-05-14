@@ -113,6 +113,22 @@ class BmmModule(dml.Module):
         return dml.ops.output(op(a, b), "y")
 
 
+class Conv2dBiasModule(dml.Module):
+    def forward(self, x, weight, bias):
+        return dml.ops.output(
+            dml.ops.conv2d_bias(
+                x,
+                weight,
+                bias,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+                groups=1,
+            ),
+            "y",
+        )
+
+
 class GemmBiasModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -131,6 +147,21 @@ class GemmResidualModule(dml.Module):
         if d1 is None:
             return dml.ops.output(op(a, b, bias, d0), "y")
         return dml.ops.output(op(a, b, bias, d0, d1), "y")
+
+
+def _conv2d_bias_profile_workload():
+    spec = dml.trace(
+        Conv2dBiasModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="profile_conv2d_bias_scaffold",
+    )
+    kernel_manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    [workload] = build_profile_workloads(spec.ir, kernel_manifest)
+    return workload, kernel_manifest
 
 
 GEMM_BIAS_RESIDUAL_CASES = tuple(
@@ -457,6 +488,89 @@ def test_build_execution_plan_marks_bmm_static_conflict_for_batch_specific_winne
     assert conflict["op"] == "bmm_rrr"
     assert conflict["selected_candidate_ids"] == sorted({workloads[0].candidate_id, workloads[1].candidate_id})
     assert {shape["batch_count"] for shape in conflict["profiled_shapes"]} == {3, 7}
+
+
+def test_cutlass_conv_profile_scaffold_rejects_profile_key_and_result_paths(tmp_path):
+    workload, kernel_manifest = _conv2d_bias_profile_workload()
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    context = {"fingerprint": {"hardware_key": "hardware-key", "support_libraries_key": "support-key"}}
+
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads are scaffold only"):
+        _profile_key_payload(
+            workload,
+            {"target": DEFAULT_CUDA_TARGET},
+            kernel_manifest,
+            codegen_plan,
+            context=context,
+        )
+
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads are scaffold only"):
+        _profile_result(
+            workload,
+            0.25,
+            5,
+            profile_key="conv-scaffold-profile",
+            status="ok",
+        )
+
+
+def test_cutlass_conv_profile_scaffold_rejects_execution_plan_generation():
+    workload, _kernel_manifest = _conv2d_bias_profile_workload()
+    problem = workload.to_json()
+    problem.update(
+        {
+            "status": "ok",
+            "profile_key": "conv-scaffold-profile",
+            "elapsed_ms": 0.25,
+            "iterations": 5,
+            "repeats": 1,
+            "timing": _profile_timing([0.25], iterations=5),
+            "gflops": 0.0,
+            "tflops": 0.0,
+            "gbps": 0.0,
+            "candidates": [
+                {
+                    **dict(workload.candidate),
+                    "candidate_id": workload.candidate_id,
+                    "split_k": 1,
+                    "workspace_nbytes": int(workload.workspace_nbytes),
+                    "avg_ms": 0.25,
+                    "median_ms": 0.25,
+                    "mean_ms": 0.25,
+                    "min_ms": 0.25,
+                    "max_ms": 0.25,
+                    "stddev_ms": 0.0,
+                    "standard_error_ms": 0.0,
+                    "mean_ci95_ms": {
+                        "low": 0.25,
+                        "high": 0.25,
+                        "half_width": 0.0,
+                        "confidence_level": profiling_mod.PROFILE_CONFIDENCE_LEVEL,
+                        "z_score": profiling_mod.PROFILE_CONFIDENCE_Z_SCORE,
+                    },
+                    "relative_stddev": 0.0,
+                    "gflops": 0.0,
+                    "iterations": 5,
+                    "repeats": 1,
+                    "statistics_schema_version": profiling_mod.PROFILE_STATISTICS_SCHEMA_VERSION,
+                }
+            ],
+            "selected": {
+                "candidate_id": workload.candidate_id,
+                "split_k": 1,
+                "reason": "scaffold_only",
+            },
+        }
+    )
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": DEFAULT_CUDA_TARGET,
+        "problems": [problem],
+    }
+
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile results are scaffold only"):
+        build_execution_plan(report)
 
 
 def test_build_profile_workloads_expands_dim_buckets():

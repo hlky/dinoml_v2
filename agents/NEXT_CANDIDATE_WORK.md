@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed a reviewer-found P1 in the bounded `cutlass_conv` profiling scaffold:
+  scaffold-only `ConvProfileWorkload` objects now fail explicitly before the
+  GEMM/BMM-only profiling cache-key, profile-result, cache read/write, or
+  execution-plan code can touch them. `profile_artifact(...)` also rejects
+  unsupported Conv scaffold workloads at the profiling boundary for future
+  safety, and focused profiling regressions pin the new error contract so
+  scaffold-only Conv results cannot silently disappear from execution-plan
+  generation.
 - Connected the existing bounded `conv2d_bias`/`cutlass_conv` scaffold to the
   first profile-visible provider step without adding a runtime launcher:
   `build_profile_workloads(...)` now emits a `cutlass_conv` workload scaffold

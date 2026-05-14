@@ -239,7 +239,9 @@ porting. It intentionally excludes the op inventory, which lives in
   NHWC/OHWI provider transforms as kernel-manifest/codegen metadata before
   rejecting ahead of module build. The profile workload builder can now emit a
   scaffold-only `cutlass_conv` workload from that explicit transform plan and
-  rejects missing transform metadata, but compiled ConvNd lowering, profiler
+  rejects missing transform metadata; downstream profiling now also rejects
+  scaffold-only Conv workloads explicitly before GEMM/BMM cache-key, result, or
+  execution-plan logic can consume them. Compiled ConvNd lowering, profiler
   execution, support-library build, and general channel-last runtime layout
   remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original

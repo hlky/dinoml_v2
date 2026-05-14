@@ -542,7 +542,9 @@ behavior.
   build until a real provider launcher is wired; CPU compile still rejects. The
   profile path now has a scaffold-only `cutlass_conv` workload that records the
   same artifact-visible layout translation and weight transform metadata, and it
-  rejects manifests missing that transform plan. No ConvNd profiler execution or
+  rejects manifests missing that transform plan. Downstream profiling now also
+  fails explicitly before GEMM/BMM-only cache-key, result, or execution-plan
+  logic can consume those scaffold workloads. No ConvNd profiler execution or
   support-library build is implemented yet.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.

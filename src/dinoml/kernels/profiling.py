@@ -365,6 +365,36 @@ def build_profile_workloads(
     return workloads
 
 
+def _unsupported_profile_workload_reason(workload: GemmProfileWorkload | ConvProfileWorkload) -> str | None:
+    if workload.kernel_library != "cutlass_conv":
+        return None
+    return (
+        "CUTLASS Conv profile workloads are scaffold only; profiler execution, "
+        "profile cache keys/results, and execution-plan generation are not "
+        f"implemented yet for {workload.op}."
+    )
+
+
+def _require_supported_profile_workload(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    context: str,
+) -> None:
+    reason = _unsupported_profile_workload_reason(workload)
+    if reason is None:
+        return
+    raise NotImplementedError(f"{reason} Unsupported context: {context}.")
+
+
+def _reject_unsupported_profile_workloads(
+    workloads: Sequence[GemmProfileWorkload | ConvProfileWorkload],
+    *,
+    context: str,
+) -> None:
+    for workload in workloads:
+        _require_supported_profile_workload(workload, context=context)
+
+
 def _append_conv_profile_workloads(
     workloads: list[GemmProfileWorkload | ConvProfileWorkload],
     node: Mapping[str, Any],
@@ -725,6 +755,7 @@ def profile_artifact(
     kernel_manifest = read_json(artifact_dir / manifest["files"]["kernel_manifest"])
     codegen_plan = read_json(artifact_dir / manifest["files"]["kernel_codegen_plan"])
     workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
+    _reject_unsupported_profile_workloads(workloads, context="profile execution")
     cache_path = profile_cache_path(codegen_plan)
     cache = _read_profile_cache(cache_path, manifest["target"])
     context = _profile_context(artifact_dir, manifest, codegen_plan)
@@ -1017,7 +1048,7 @@ def _named_dim_leaves(dim: Any) -> list[Mapping[str, Any]]:
 
 
 def _profile_result(
-    workload: GemmProfileWorkload,
+    workload: GemmProfileWorkload | ConvProfileWorkload,
     elapsed_ms: float,
     iterations: int,
     *,
@@ -1027,6 +1058,7 @@ def _profile_result(
     workspace_nbytes: int | None = None,
     timing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _require_supported_profile_workload(workload, context="profile result")
     actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
     timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
     batch_count = int(workload.batch_count or 1)
@@ -1429,13 +1461,14 @@ def _fingerprint_key(payload: Mapping[str, Any] | Sequence[Mapping[str, Any]]) -
 
 
 def _profile_key_payload(
-    workload: GemmProfileWorkload,
+    workload: GemmProfileWorkload | ConvProfileWorkload,
     manifest: Mapping[str, Any],
     kernel_manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _require_supported_profile_workload(workload, context="profile cache key")
     profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
     shape = {"m": workload.m, "n": workload.n, "k": workload.k}
     if workload.batch_count is not None:
@@ -1578,10 +1611,11 @@ def _cache_positive_int(value: Any, *, default: int) -> int:
 
 
 def _cache_entry(
-    workload: GemmProfileWorkload,
+    workload: GemmProfileWorkload | ConvProfileWorkload,
     result: Mapping[str, Any],
     key_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
+    _require_supported_profile_workload(workload, context="profile cache write")
     candidate = result["candidates"][0]
     timing = dict(result.get("timing", {})) if isinstance(result.get("timing"), Mapping) else {}
     return {
@@ -1610,7 +1644,11 @@ def _cache_entry(
     }
 
 
-def _profile_result_from_cache(workload: GemmProfileWorkload, entry: Mapping[str, Any]) -> dict[str, Any]:
+def _profile_result_from_cache(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    entry: Mapping[str, Any],
+) -> dict[str, Any]:
+    _require_supported_profile_workload(workload, context="profile cache read")
     timing = dict(entry.get("timing", {})) if isinstance(entry.get("timing"), Mapping) and entry.get("timing") else None
     return _profile_result(
         workload,
@@ -1657,6 +1695,14 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
 
 
 def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
+    for problem in report.get("problems", []):
+        if not isinstance(problem, Mapping):
+            continue
+        if problem.get("kernel_library") == "cutlass_conv":
+            raise NotImplementedError(
+                "CUTLASS Conv profile results are scaffold only; execution-plan generation is not "
+                f"implemented yet for {problem.get('op')}."
+            )
     groups: dict[tuple[str, str, str, str, int, int, int, int], list[Mapping[str, Any]]] = {}
     for problem in report.get("problems", []):
         if not isinstance(problem, Mapping) or problem.get("status") not in {"ok", "cached"}:

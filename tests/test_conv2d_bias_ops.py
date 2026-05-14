@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 
 import dinoml as dml
+from dinoml.backends.cutlass import ensure_cutlass_conv_support_scaffold
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.codegen import create_codegen_plan
@@ -264,6 +265,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
 
     required = {
         "op": "conv2d_bias",
+        "node_id": node["id"],
         "kernel_symbol": candidates[0]["kernel_symbol"],
         "kernel_library": "cutlass_conv",
         "profiler_symbol": candidates[0]["profiler_symbol"],
@@ -286,6 +288,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert used_plan["candidate_config_keys"] == [candidates[0]["candidate_config_key"]]
     assert used_plan["entries"][0]["cutlass_conv_plan"] == layout_plan
     assert used_plan["entries"][0]["candidates"] == candidates
+    assert used_plan["entries"][0]["node_id"] == node["id"]
     assert len(used_plan["entries"][0]["cutlass_conv_plan_key"]) == 64
 
     codegen_plan = create_codegen_plan(manifest, tmp_path / "cache")
@@ -364,6 +367,47 @@ def test_cutlass_conv2d_bias_codegen_plan_rejects_candidate_layout_drift(tmp_pat
         create_codegen_plan(kernel_manifest, tmp_path / "cache")
 
 
+@pytest.mark.parametrize(
+    ("mutator", "error_match"),
+    [
+        (
+            lambda used_plan: used_plan["entries"][0]["candidates"][0]["layouts"].__setitem__("activation_provider", "nchw"),
+            r"candidate\.layouts mismatch",
+        ),
+        (
+            lambda used_plan: used_plan["entries"][0]["candidates"][0].__setitem__("dtype", "float32"),
+            r"candidate\.(candidate_config_key|kernel_symbol|profiler_symbol|dtype) mismatch",
+        ),
+    ],
+)
+def test_cutlass_conv_support_scaffold_rejects_mutated_used_plan_candidate_before_writing_manifests(
+    tmp_path,
+    monkeypatch,
+    mutator,
+    error_match,
+):
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
+    mutator(used_plan)
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    support_root = (
+        tmp_path
+        / "cache"
+        / "support"
+        / "cuda-86"
+        / "cutlass-conv"
+        / str(used_plan["support_cache_key"])[:16]
+    )
+
+    with pytest.raises(ValueError, match=error_match):
+        ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
+
+    assert not (support_root / "lib" / "cutlass_conv_manifest.json").exists()
+    assert not (support_root / "src" / "source_manifest.json").exists()
+
+
 def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_path):
     spec = _trace_conv2d_bias("float32")
 
@@ -381,6 +425,7 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
 
     kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
     [required] = kernel_manifest["required_kernels"]
+    expected_node_id = spec.ir["nodes"][0]["id"]
     assert required["op"] == "conv2d_bias"
     assert required["kernel_library"] == "cutlass_conv"
     assert required["candidate_set"]["status"] == "manifest_scaffold_only"
@@ -399,11 +444,13 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert support_manifest["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["compile"]["status"] == "manifest_scaffold_only"
+    assert support_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
     assert support_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
     assert support_manifest["used_candidate_plan"]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
     assert source_manifest["kind"] == "dinoml.support_source_manifest"
     assert source_manifest["provider"] == "cutlass"
     assert source_manifest["library"] == "cutlass_conv"
+    assert source_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
     assert source_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
     assert source_manifest["used_candidate_plan"]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
     assert source_manifest["sources"][0]["source_role"] == "support_library"

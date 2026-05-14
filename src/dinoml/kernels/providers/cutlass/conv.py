@@ -11,6 +11,21 @@ CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CONV_OPS = ("conv2d_bias",)
 CONV_SUPPORTED_DTYPES = ("float16", "float32")
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "scaffold_sm80_nhwc_ohwi_bias"
+_CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
+_CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
+_CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON = "cutlass_conv_runtime_launcher_not_implemented"
+_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT = {
+    "activation": "nchw",
+    "weight": "oihw",
+    "bias": "o",
+    "output": "nchw",
+}
+_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT = {
+    "activation": "nhwc",
+    "weight": "ohwi",
+    "bias": "o",
+    "output": "nhwc",
+}
 
 
 def cutlass_conv_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
@@ -125,12 +140,15 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         candidates = [dict(candidate) for candidate in item.get("candidates", [])]
         candidate_set = dict(item.get("candidate_set", {}))
         conv_plan = item.get("cutlass_conv_plan")
+        item_node_id = _optional_str(item.get("node_id"))
+        if item_node_id is None and isinstance(conv_plan, Mapping):
+            item_node_id = _optional_str(conv_plan.get("node_id"))
         selected_id = str(item.get("selected_candidate_id", ""))
         selected = next((candidate for candidate in candidates if str(candidate.get("candidate_id")) == selected_id), None)
-        conv_plan_payload = validate_cutlass_conv_plan(
+        conv_plan_payload = validate_cutlass_conv_scaffold_plan(
             conv_plan,
             candidate=selected,
-            node_id=str(item.get("node_id", "")) or None,
+            node_id=item_node_id,
         )
         conv_plan_key = hashlib.sha256(canonical_json(conv_plan_payload).encode("utf-8")).hexdigest()
         candidate_config_key = str(selected.get("candidate_config_key") if selected else "")
@@ -141,6 +159,7 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
                 "candidate_set_key": str(item.get("candidate_set_key", "")),
                 "candidate_set": candidate_set,
                 "selected_candidate_id": selected_id,
+                "node_id": item_node_id,
                 "candidate_config_key": candidate_config_key,
                 "kernel_symbol": str(item.get("kernel_symbol", "")),
                 "profiler_symbol": str(item.get("profiler_symbol", "")),
@@ -162,6 +181,40 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         "target": dict(kernel_manifest.get("target", {})),
         "kernel_manifest_cache_key": kernel_manifest.get("cache_key"),
         "support_cache_key": kernel_manifest.get("support_cache_key"),
+        "entries": entries,
+        "candidate_sets": candidate_sets,
+        "candidates": candidates,
+        "candidate_set_keys": [str(item.get("candidate_set_key", "")) for item in candidate_sets],
+        "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
+        "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
+        "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
+    }
+    payload["used_candidate_plan_key"] = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return payload
+
+
+def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(used_candidate_plan, Mapping):
+        raise ValueError("CUTLASS Conv support scaffold requires a used candidate plan mapping")
+    raw_entries = used_candidate_plan.get("entries", ())
+    if not isinstance(raw_entries, (list, tuple)):
+        raise ValueError("CUTLASS Conv used candidate plan entries must be a list")
+    entries = [
+        _normalize_cutlass_conv_used_candidate_entry(entry)
+        for entry in raw_entries
+    ]
+    entries = sorted(entries, key=lambda entry: (entry["op"], entry["candidate_set_id"], entry["kernel_symbol"]))
+    candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
+    candidates = _unique_by_key((candidate for entry in entries for candidate in entry["candidates"]), "candidate_config_key")
+    payload = {
+        "schema_version": CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
+        "provider": "cutlass",
+        "library": "cutlass_conv",
+        "library_name": "cutlass_conv",
+        "family": "conv2d_fprop",
+        "target": dict(used_candidate_plan.get("target", {})),
+        "kernel_manifest_cache_key": used_candidate_plan.get("kernel_manifest_cache_key"),
+        "support_cache_key": used_candidate_plan.get("support_cache_key"),
         "entries": entries,
         "candidate_sets": candidate_sets,
         "candidates": candidates,
@@ -198,17 +251,17 @@ def cutlass_conv_layout_plan(
         {"name": "weight_ohwi", "kind": "layout_pack", "layout": "ohwi", "nbytes": _nbytes(weight_shape, dtype_size)},
         {"name": "output_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(output_shape, dtype_size)},
     ]
-    return validate_cutlass_conv_plan(
+    return validate_cutlass_conv_scaffold_plan(
         {
         "schema_version": 1,
-        "kind": "cutlass_conv2d_bias_manifest_scaffold",
-        "status": "manifest_scaffold_only",
-        "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+        "kind": _CUTLASS_CONV_SCAFFOLD_KIND,
+        "status": _CUTLASS_CONV_SCAFFOLD_STATUS,
+        "blocked_reason": _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON,
         "node_id": str(node.get("id", "")),
         "op_family": "conv2d_bias",
         "dtype": dtype,
-        "semantic_layout": {"activation": "nchw", "weight": "oihw", "bias": "o", "output": "nchw"},
-        "provider_layout": {"activation": "nhwc", "weight": "ohwi", "bias": "o", "output": "nhwc"},
+        "semantic_layout": dict(_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT),
+        "provider_layout": dict(_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT),
         "layout_translation": {
             "input_pack": "nchw_to_nhwc_temporary",
             "output_unpack": "nhwc_to_nchw_temporary",
@@ -241,11 +294,11 @@ def cutlass_conv_layout_plan(
         "temporary_buffers": temporary_buffers,
         "temporary_nbytes": sum(int(buffer["nbytes"]) for buffer in temporary_buffers),
         },
-        node_id=str(node.get("id", "")) or None,
+        node_id=_optional_str(node.get("id")),
     )
 
 
-def validate_cutlass_conv_plan(
+def validate_cutlass_conv_scaffold_plan(
     plan: Mapping[str, Any] | None,
     *,
     candidate: Mapping[str, Any] | None = None,
@@ -254,14 +307,14 @@ def validate_cutlass_conv_plan(
     if not isinstance(plan, Mapping):
         raise ValueError("CUTLASS Conv scaffold requires cutlass_conv_plan transform metadata")
     payload = dict(plan)
-    if str(payload.get("kind")) != "cutlass_conv2d_bias_manifest_scaffold":
+    if str(payload.get("kind")) != _CUTLASS_CONV_SCAFFOLD_KIND:
         raise ValueError(f"Unsupported CUTLASS Conv scaffold kind {payload.get('kind')!r}")
-    if str(payload.get("status")) != "manifest_scaffold_only":
+    if str(payload.get("status")) != _CUTLASS_CONV_SCAFFOLD_STATUS:
         raise ValueError(f"Unsupported CUTLASS Conv scaffold status {payload.get('status')!r}")
-    if str(payload.get("blocked_reason")) != "cutlass_conv_runtime_launcher_not_implemented":
+    if str(payload.get("blocked_reason")) != _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON:
         raise ValueError(
             "CUTLASS Conv scaffold blocked_reason must record "
-            "'cutlass_conv_runtime_launcher_not_implemented'"
+            f"{_CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON!r}"
         )
     if str(payload.get("op_family")) != "conv2d_bias":
         raise ValueError(f"Unsupported CUTLASS Conv scaffold op family {payload.get('op_family')!r}")
@@ -272,8 +325,8 @@ def validate_cutlass_conv_plan(
     dtype = _normalize_conv_dtype(str(payload.get("dtype")))
     semantic_layout = dict(payload.get("semantic_layout", {}))
     provider_layout = dict(payload.get("provider_layout", {}))
-    expected_semantic_layout = {"activation": "nchw", "weight": "oihw", "bias": "o", "output": "nchw"}
-    expected_provider_layout = {"activation": "nhwc", "weight": "ohwi", "bias": "o", "output": "nhwc"}
+    expected_semantic_layout = dict(_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT)
+    expected_provider_layout = dict(_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT)
     if semantic_layout != expected_semantic_layout:
         raise ValueError(
             f"CUTLASS Conv scaffold semantic_layout must be {expected_semantic_layout}, got {semantic_layout!r}"
@@ -442,6 +495,184 @@ def validate_cutlass_conv_plan(
     return payload
 
 
+def validate_cutlass_conv_plan(
+    plan: Mapping[str, Any] | None,
+    *,
+    candidate: Mapping[str, Any] | None = None,
+    node_id: str | None = None,
+) -> dict[str, Any]:
+    # Compatibility alias for existing callers; this validator remains scoped to
+    # the current NHWC/OHWI manifest-only scaffold.
+    return validate_cutlass_conv_scaffold_plan(plan, candidate=candidate, node_id=node_id)
+
+
+def _normalize_cutlass_conv_used_candidate_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(entry, Mapping):
+        raise ValueError("CUTLASS Conv used candidate plan entries must be objects")
+    payload = dict(entry)
+    op_name = str(payload.get("op", ""))
+    _validate_conv_op_name(op_name)
+    selected_candidate_id = str(payload.get("selected_candidate_id", ""))
+    if not selected_candidate_id:
+        raise ValueError("CUTLASS Conv used candidate plan entry is missing selected_candidate_id")
+    raw_candidates = payload.get("candidates", ())
+    if not isinstance(raw_candidates, (list, tuple)):
+        raise ValueError("CUTLASS Conv used candidate plan entry candidates must be a list")
+    candidates = []
+    selected_candidate = None
+    for candidate in raw_candidates:
+        if not isinstance(candidate, Mapping):
+            raise ValueError("CUTLASS Conv used candidate plan entry candidates must be objects")
+        candidate_payload = dict(candidate)
+        candidates.append(candidate_payload)
+        if str(candidate_payload.get("candidate_id", "")) == selected_candidate_id:
+            selected_candidate = candidate_payload
+    if selected_candidate is None:
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry selected_candidate_id does not match any candidate: "
+            f"{selected_candidate_id!r}"
+        )
+    _validate_cutlass_conv_selected_candidate(op_name, selected_candidate)
+    node_id = _optional_str(payload.get("node_id"))
+    if node_id is None and isinstance(payload.get("cutlass_conv_plan"), Mapping):
+        node_id = _optional_str(payload["cutlass_conv_plan"].get("node_id"))
+    conv_plan_payload = validate_cutlass_conv_scaffold_plan(
+        payload.get("cutlass_conv_plan"),
+        candidate=selected_candidate,
+        node_id=node_id,
+    )
+    conv_plan_key = hashlib.sha256(canonical_json(conv_plan_payload).encode("utf-8")).hexdigest()
+    candidate_set = _normalize_cutlass_conv_candidate_set(
+        payload.get("candidate_set"),
+        op_name=op_name,
+        dtype=str(selected_candidate["dtype"]),
+        selected_candidate=selected_candidate,
+    )
+    if payload.get("candidate_set_id") and str(payload.get("candidate_set_id")) != str(candidate_set["candidate_set_id"]):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate_set_id mismatch: "
+            f"expected {candidate_set['candidate_set_id']!r}, got {payload.get('candidate_set_id')!r}"
+        )
+    if payload.get("candidate_set_key") and str(payload.get("candidate_set_key")) != str(candidate_set["candidate_set_key"]):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate_set_key mismatch: "
+            f"expected {candidate_set['candidate_set_key']!r}, got {payload.get('candidate_set_key')!r}"
+        )
+    expected_candidate_config_key = str(selected_candidate.get("candidate_config_key", ""))
+    if payload.get("candidate_config_key") and str(payload.get("candidate_config_key")) != expected_candidate_config_key:
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate_config_key mismatch: "
+            f"expected {expected_candidate_config_key!r}, got {payload.get('candidate_config_key')!r}"
+        )
+    if payload.get("kernel_symbol") and str(payload.get("kernel_symbol")) != str(selected_candidate.get("kernel_symbol", "")):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry kernel_symbol mismatch: "
+            f"expected {selected_candidate.get('kernel_symbol')!r}, got {payload.get('kernel_symbol')!r}"
+        )
+    if payload.get("profiler_symbol") and str(payload.get("profiler_symbol")) != str(selected_candidate.get("profiler_symbol", "")):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry profiler_symbol mismatch: "
+            f"expected {selected_candidate.get('profiler_symbol')!r}, got {payload.get('profiler_symbol')!r}"
+        )
+    return {
+        "op": op_name,
+        "candidate_set_id": str(candidate_set["candidate_set_id"]),
+        "candidate_set_key": str(candidate_set["candidate_set_key"]),
+        "candidate_set": candidate_set,
+        "selected_candidate_id": selected_candidate_id,
+        "node_id": node_id,
+        "candidate_config_key": expected_candidate_config_key,
+        "kernel_symbol": str(selected_candidate.get("kernel_symbol", "")),
+        "profiler_symbol": str(selected_candidate.get("profiler_symbol", "")),
+        "cutlass_conv_plan": conv_plan_payload,
+        "cutlass_conv_plan_key": conv_plan_key,
+        "candidates": candidates,
+    }
+
+
+def _normalize_cutlass_conv_candidate_set(
+    candidate_set: Mapping[str, Any] | None,
+    *,
+    op_name: str,
+    dtype: str,
+    selected_candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(candidate_set, Mapping):
+        raise ValueError("CUTLASS Conv used candidate plan entry is missing candidate_set metadata")
+    payload = dict(candidate_set)
+    expected = cutlass_conv_candidate_set(op_name, dtype, target=payload.get("target_policy"))
+    for field in (
+        "candidate_set_id",
+        "candidate_set_key",
+        "provider",
+        "family",
+        "op",
+        "dtype",
+        "accumulator_dtype",
+        "epilogue",
+        "launch_abi",
+        "semantic_layout",
+        "provider_layout",
+        "supported_groups",
+        "supported_dtypes",
+        "candidate_count",
+        "candidate_config_keys",
+        "target_policy",
+        "status",
+    ):
+        if payload.get(field) != expected.get(field):
+            raise ValueError(
+                f"CUTLASS Conv used candidate plan entry candidate_set.{field} mismatch: "
+                f"expected {expected.get(field)!r}, got {payload.get(field)!r}"
+            )
+    if str(selected_candidate.get("candidate_config_key", "")) not in payload["candidate_config_keys"]:
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate_set does not contain the selected candidate config key"
+        )
+    return expected
+
+
+def _validate_cutlass_conv_selected_candidate(op_name: str, candidate: Mapping[str, Any]) -> None:
+    dtype = _normalize_conv_dtype(str(candidate.get("dtype")))
+    expected_candidates = cutlass_conv_candidates(op_name, dtype, target=candidate.get("target_policy"))
+    expected = next(
+        (
+            item
+            for item in expected_candidates
+            if str(item.get("candidate_id", "")) == str(candidate.get("candidate_id", ""))
+        ),
+        None,
+    )
+    if expected is None:
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry selected candidate_id is not emitted by the current scaffold: "
+            f"{candidate.get('candidate_id')!r}"
+        )
+    candidate_payload = dict(candidate)
+    for field in (
+        "candidate_id",
+        "candidate_config_key",
+        "kernel_symbol",
+        "profiler_symbol",
+        "provider",
+        "family",
+        "dtype",
+        "accumulator_dtype",
+        "epilogue",
+        "launch_abi",
+        "layouts",
+        "cutlass",
+        "optional",
+        "target_policy",
+        "status",
+    ):
+        if candidate_payload.get(field) != expected.get(field):
+            raise ValueError(
+                f"CUTLASS Conv used candidate plan entry candidate.{field} mismatch: "
+                f"expected {expected.get(field)!r}, got {candidate_payload.get(field)!r}"
+            )
+
+
 def _nbytes(shape: list[int], dtype_size: int) -> int:
     count = 1
     for dim in shape:
@@ -510,6 +741,13 @@ def _unique_by_key(items, key: str) -> list[dict[str, Any]]:
     return unique
 
 
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
 __all__ = [
     "CONV_OPS",
     "CONV_SUPPORTED_DTYPES",
@@ -522,5 +760,7 @@ __all__ = [
     "cutlass_conv_profiler_symbol",
     "cutlass_conv_symbol",
     "cutlass_conv_used_candidate_plan",
+    "normalize_cutlass_conv_used_candidate_plan",
     "validate_cutlass_conv_plan",
+    "validate_cutlass_conv_scaffold_plan",
 ]

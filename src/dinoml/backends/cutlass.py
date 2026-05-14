@@ -17,7 +17,11 @@ from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
-from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, validate_cutlass_conv_plan
+from dinoml.kernels.providers.cutlass.conv import (
+    cutlass_conv_used_candidate_plan,
+    normalize_cutlass_conv_used_candidate_plan,
+    validate_cutlass_conv_scaffold_plan,
+)
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
@@ -93,6 +97,7 @@ def ensure_cutlass_conv_support_scaffold(
 ) -> CutlassSupportScaffold:
     if used_candidate_plan is None:
         raise ValueError("CUTLASS Conv support scaffold requires an explicit used candidate plan")
+    used_candidate_plan = normalize_cutlass_conv_used_candidate_plan(used_candidate_plan)
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_num = _cmake_arch(arch)
     target = dict(used_candidate_plan.get("target", {"name": "cuda", "arch": f"sm_{arch_num}"}))
@@ -113,9 +118,17 @@ def ensure_cutlass_conv_support_scaffold(
     source_manifest = src_dir / "source_manifest.json"
     manifest = lib_dir / "cutlass_conv_manifest.json"
     for entry in used_candidate_plan.get("entries", ()):
-        validate_cutlass_conv_plan(
+        validate_cutlass_conv_scaffold_plan(
             entry.get("cutlass_conv_plan"),
-            node_id=str(entry.get("node_id", "")) or None,
+            candidate=next(
+                (
+                    candidate
+                    for candidate in entry.get("candidates", ())
+                    if str(candidate.get("candidate_id", "")) == str(entry.get("selected_candidate_id", ""))
+                ),
+                None,
+            ),
+            node_id=(None if entry.get("node_id") is None else str(entry.get("node_id"))),
         )
     source_metrics = _support_source_metrics(repo_source_text, used_candidate_plan)
     family_cache_key = _cutlass_conv_family_cache_key(target, used_candidate_plan)

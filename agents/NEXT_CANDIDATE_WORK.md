@@ -12,9 +12,16 @@ This file should be updated after each major loop.
   support-cache/source-manifest scaffold consume it. Candidate metadata must
   also agree with the recorded semantic/provider layouts, so manifest drift now
   fails explicitly instead of propagating incoherent provenance into workload
-  JSON or support manifests. Added focused regressions that prove profiling
-  rejects malformed transform byte counts and that codegen/support provenance
-  rejects candidate-layout drift against the recorded transform plan.
+  JSON or support manifests. The Conv support scaffold now also revalidates and
+  normalizes each caller-supplied used-plan entry before persisting
+  `cutlass_conv_manifest.json` or `source_manifest.json`: it re-derives the
+  selected scaffold candidate from the entry candidate list, validates
+  candidate-set provenance, carries `node_id` when present, and rejects direct
+  caller mutations to selected-candidate layout/dtype metadata before any
+  support-manifest payload is written or trusted. Added focused regressions
+  that prove profiling rejects malformed transform byte counts, codegen/support
+  provenance rejects candidate-layout drift against the recorded transform plan,
+  and direct mutated used-plan payloads fail before manifest writes.
 - Landed the first bounded rotary table-generation slice as a helper-only
   public `dml.ops.get_1d_rotary_pos_embed(...)`, deliberately without adding a
   new op/provider/kernel family or any fused `apply_rotary_emb` ABI. The new

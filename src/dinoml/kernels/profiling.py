@@ -27,7 +27,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.providers.cutlass.conv import CONV_OPS, validate_cutlass_conv_plan
+from dinoml.kernels.providers.cutlass.conv import CONV_OPS, validate_cutlass_conv_scaffold_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
@@ -418,7 +418,7 @@ def _append_conv_profile_workloads(
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
         for candidate in _profile_candidates(required_item):
-            normalized_conv_plan = validate_cutlass_conv_plan(
+            normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
                 conv_plan,
                 candidate=candidate,
                 node_id=str(node["id"]),

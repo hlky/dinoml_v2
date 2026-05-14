@@ -299,3 +299,11 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   counts, inconsistent padded-channel bookkeeping, and malformed temporary-pack
   inventories instead of letting incoherent NCHW/OIHW -> NHWC/OHWI provenance
   propagate deeper into artifacts.
+- Support-scaffold emission now also revalidates caller-supplied Conv
+  `used_candidate_plan` payloads entry by entry before it writes those manifest
+  files: the scaffold re-derives the selected candidate from the embedded
+  candidate list, validates candidate-set provenance against the current
+  NHWC/OHWI scaffold contract, and checks `node_id` when present. Direct
+  caller-side mutations to selected-candidate layout or dtype metadata now fail
+  before support manifests are emitted, so the scaffold does not become a
+  side-door for stale candidate provenance.

@@ -12,6 +12,10 @@ CONV_OPS = ("conv2d_bias",)
 CONV_SUPPORTED_DTYPES = ("float16", "float32")
 _CUTLASS_CONV_SIMT_SYMBOL_ID = "simt_sm80_nhwc_ohwi_bias"
 _CUTLASS_CONV_FEW_CHANNELS_SYMBOL_ID = "tensorop_sm80_nhwc_ohwi_bias_few_channels_c3"
+_CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS = {
+    4: "tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c4",
+    8: "tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c8",
+}
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = _CUTLASS_CONV_SIMT_SYMBOL_ID
 _CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
 _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
@@ -145,6 +149,47 @@ def cutlass_conv_candidates(
                 optional=True,
             )
         )
+        for channel_count, symbol_id in _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS.items():
+            candidates.append(
+                _cutlass_conv_candidate(
+                    op_name,
+                    normalized_dtype,
+                    symbol_id=symbol_id,
+                    target_policy=normalized_target,
+                    status=status,
+                    accumulator_dtype="float32",
+                    cutlass={
+                        "opclass": "tensorop",
+                        "arch": "sm80",
+                        "iterator_algorithm": "fixed_channels",
+                        "instruction_shape": [16, 8, 16],
+                        "threadblock": [128, 64, 32],
+                        "warp": [64, 16, 32],
+                        "stages": 3,
+                        "align_a": channel_count,
+                        "align_b": channel_count,
+                        "math_operator": "multiply_add",
+                        "kind": "implicit_gemm_runtime_launcher",
+                        "v1_inspiration": {
+                            "few_channels": True,
+                            "semantic_input_channels": channel_count,
+                            "iterator_algorithm": "FixedChannels",
+                            "align_a": channel_count,
+                            "align_b": channel_count,
+                            "stages": 3,
+                        },
+                    },
+                    selection_predicate={
+                        "kind": "semantic_input_channels",
+                        "input_channels": channel_count,
+                        "dtype": "float16",
+                        "groups": 1,
+                        "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+                        "padding_policy": "none",
+                    },
+                    optional=True,
+                )
+            )
     return candidates
 
 
@@ -1193,6 +1238,11 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
     iterator_algorithm = str(candidate.get("cutlass", {}).get("iterator_algorithm", "analytic"))
     if iterator_algorithm == "few_channels":
         launch_function = "dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias"
+    elif iterator_algorithm == "fixed_channels":
+        input_channels = int(candidate.get("selection_predicate", {}).get("input_channels", 0) or 0)
+        if input_channels not in _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS:
+            raise ValueError(f"Unsupported CUTLASS Conv fixed-channel launcher input channel count {input_channels}")
+        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c{input_channels}_bias"
     else:
         launch_function = "dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias"
     return f"""extern "C" int {symbol}(
@@ -1522,6 +1572,38 @@ using DinomlCutlassConvFp16FewChannelsKernel = typename cutlass::conv::kernel::D
 using DinomlCutlassConvFp16FewChannelsImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16FewChannelsKernel>;
 
+using DinomlCutlassConvFp16FixedChannelsMmaOp = cutlass::arch::OpClassTensorOp;
+using DinomlCutlassConvFp16FixedChannelsThreadblockShape = cutlass::gemm::GemmShape<128, 64, 32>;
+using DinomlCutlassConvFp16FixedChannelsWarpShape = cutlass::gemm::GemmShape<64, 16, 32>;
+using DinomlCutlassConvFp16FixedChannelsInstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+using DinomlCutlassConvFp16FixedChannelsEpilogue = cutlass::epilogue::thread::LinearCombination<
+    DinomlCutlassConvFp16Element,
+    1,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute>;
+template <int ChannelCount>
+using DinomlCutlassConvFp16FixedChannelsKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16FixedChannelsMmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16FixedChannelsThreadblockShape,
+    DinomlCutlassConvFp16FixedChannelsWarpShape,
+    DinomlCutlassConvFp16FixedChannelsInstructionShape,
+    DinomlCutlassConvFp16FixedChannelsEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    3,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kFixedChannels,
+    cutlass::conv::StrideSupport::kStrided,
+    ChannelCount,
+    ChannelCount>::Kernel;
+
 template <typename ImplicitGemm>
 int dinoml_cutlass_conv_launch_fp16_kernel_bias(
     const void* activation_nhwc,
@@ -1667,6 +1749,144 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias(
     return static_cast<int>(cudaErrorInvalidValue);
   }
   return dinoml_cutlass_conv_launch_fp16_kernel_bias<DinomlCutlassConvFp16FewChannelsImplicitGemm>(
+      activation_nhwc,
+      weight_ohwi,
+      bias,
+      output_nhwc,
+      n,
+      h,
+      w,
+      c,
+      out_h,
+      out_w,
+      out_c,
+      kernel_h,
+      kernel_w,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      dilation_h,
+      dilation_w,
+      stream);
+}
+
+template <int ChannelCount>
+int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_bias(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c != ChannelCount) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  using ImplicitGemm = cutlass::conv::device::ImplicitGemmConvolution<
+      DinomlCutlassConvFp16FixedChannelsKernel<ChannelCount>>;
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias<ImplicitGemm>(
+      activation_nhwc,
+      weight_ohwi,
+      bias,
+      output_nhwc,
+      n,
+      h,
+      w,
+      c,
+      out_h,
+      out_w,
+      out_c,
+      kernel_h,
+      kernel_w,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      dilation_h,
+      dilation_w,
+      stream);
+}
+
+int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c4_bias(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  return dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_bias<4>(
+      activation_nhwc,
+      weight_ohwi,
+      bias,
+      output_nhwc,
+      n,
+      h,
+      w,
+      c,
+      out_h,
+      out_w,
+      out_c,
+      kernel_h,
+      kernel_w,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      dilation_h,
+      dilation_w,
+      stream);
+}
+
+int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c8_bias(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  return dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_bias<8>(
       activation_nhwc,
       weight_ohwi,
       bias,

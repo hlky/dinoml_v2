@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 4950033, Add CUTLASS conv fixed-channel TensorOp path, gpt-5.5, high
 - 8fe4db0, Add CUTLASS conv few-channel TensorOp path, gpt-5.5, high
 - 91cd722, Update conv2d_bias runtime description, gpt-5.5, high
 - 6077e16, Clarify CUTLASS conv support source boundary, gpt-5.5, high

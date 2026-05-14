@@ -341,6 +341,16 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
         "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
         "padding_policy": "none",
     }
+    assert [candidate["cutlass"]["iterator_algorithm"] for candidate in candidates] == [
+        "analytic",
+        "few_channels",
+        "fixed_channels",
+        "fixed_channels",
+    ]
+    assert [candidate["selection_predicate"].get("input_channels") for candidate in candidates[2:]] == [4, 8]
+    assert [candidate["cutlass"]["align_a"] for candidate in candidates[2:]] == [4, 8]
+    assert [candidate["cutlass"]["align_b"] for candidate in candidates[2:]] == [4, 8]
+    assert [candidate["cutlass"]["stages"] for candidate in candidates[2:]] == [3, 3]
     selected = candidates[1]
 
     layout_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
@@ -507,11 +517,23 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
     )
 
 
-def test_cutlass_conv2d_bias_manifest_selects_few_channel_tensorop_only_for_c3():
+def test_cutlass_conv2d_bias_manifest_selects_tensorop_for_c3_c4_c8_without_padding():
     few_spec = _trace_conv2d_bias(
         "float16",
         x_shape=(2, 3, 7, 8),
         weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+    )
+    fixed4_spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 4, 7, 8),
+        weight_shape=(4, 4, 3, 2),
+        bias_shape=(4,),
+    )
+    fixed8_spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 8, 7, 8),
+        weight_shape=(4, 8, 3, 2),
         bias_shape=(4,),
     )
     fallback_spec = _trace_conv2d_bias(
@@ -522,6 +544,8 @@ def test_cutlass_conv2d_bias_manifest_selects_few_channel_tensorop_only_for_c3()
     )
 
     [few_required] = build_kernel_manifest(few_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
+    [fixed4_required] = build_kernel_manifest(fixed4_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
+    [fixed8_required] = build_kernel_manifest(fixed8_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
     [fallback_required] = build_kernel_manifest(fallback_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
 
     assert few_required["selected_candidate_id"].endswith("few_channels_c3")
@@ -530,6 +554,30 @@ def test_cutlass_conv2d_bias_manifest_selects_few_channel_tensorop_only_for_c3()
     assert few_required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
     assert few_required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
     assert few_required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 3
+
+    for required, channel_count in ((fixed4_required, 4), (fixed8_required, 8)):
+        assert required["selected_candidate_id"].endswith(f"fixed_channels_c{channel_count}")
+        assert required["kernel_symbol"].endswith(f"tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c{channel_count}")
+        assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+        assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "fixed_channels"
+        assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"] == {
+            "kind": "semantic_input_channels",
+            "input_channels": channel_count,
+            "dtype": "float16",
+            "groups": 1,
+            "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+            "padding_policy": "none",
+        }
+        assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+        assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == channel_count
+        selected_candidate = next(
+            candidate
+            for candidate in required["candidates"]
+            if candidate["candidate_id"] == required["selected_candidate_id"]
+        )
+        assert selected_candidate["cutlass"]["align_a"] == channel_count
+        assert selected_candidate["cutlass"]["align_b"] == channel_count
+        assert selected_candidate["cutlass"]["stages"] == 3
 
     assert fallback_required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
     assert fallback_required["kernel_symbol"].endswith("simt_sm80_nhwc_ohwi_bias")
@@ -566,8 +614,13 @@ def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transfor
 
     workloads = build_profile_workloads(spec.ir, kernel_manifest)
 
-    assert len(workloads) == 2
+    assert len(workloads) == 4
     assert {workload.candidate["cutlass"]["opclass"] for workload in workloads} == {"simt", "tensorop"}
+    assert {workload.candidate["cutlass"]["iterator_algorithm"] for workload in workloads} == {
+        "analytic",
+        "few_channels",
+        "fixed_channels",
+    }
     workload = next(item for item in workloads if item.candidate["cutlass"]["opclass"] == "tensorop")
     assert workload.kernel_library == "cutlass_conv"
     assert workload.op == "conv2d_bias"
@@ -789,7 +842,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert source_manifest["used_candidate_plan"]["candidate_config_keys"] == expected_candidate_config_keys
     assert source_manifest["sources"][0]["source_role"] == "support_library"
     assert source_manifest["sources"][0]["candidate_set_keys"] == [required["candidate_set_key"]]
-    assert source_manifest["sources"][0]["candidate_config_keys"] == expected_candidate_config_keys
+    assert source_manifest["sources"][0]["candidate_config_keys"] == sorted(expected_candidate_config_keys)
     source_symbols = {item["name"] for item in source_manifest["sources"][0]["symbols"]}
     helper_symbols = {
         required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"],
@@ -925,6 +978,55 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
         finally:
             session.close()
             module.close()
+
+
+def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, monkeypatch):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 4, 7, 8),
+        weight_shape=(8, 4, 3, 2),
+        bias_shape=(8,),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    artifact_dir = tmp_path / "conv2d_bias_cuda_fixed_c4.dinoml"
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["selected_candidate_id"].endswith("fixed_channels_c4")
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "fixed_channels"
+    assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 4
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input((2, 4, 7, 8), "float16", -1.0, 1.0)
+        weight = _input((8, 4, 3, 2), "float16", -0.5, 0.5)
+        bias = _input((8,), "float16", -0.25, 0.25)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+        expected = _storage_roundtrip(
+            _torch_conv2d_bias_reference(
+                x,
+                weight,
+                bias,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+            ),
+            "float16",
+        )
+        np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
+    finally:
+        session.close()
+        module.close()
 
 
 def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tmp_path, monkeypatch):

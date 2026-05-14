@@ -247,7 +247,9 @@ porting. It intentionally excludes the op inventory, which lives in
   transform helpers, a correctness-first SIMT CUTLASS
   `device::ImplicitGemmConvolution` Fprop+bias launcher for fp16, a
   v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` fp16 launcher selected
-  only for semantic input `C=3`, and an unsupported profiler stub. The shared
+  only for semantic input `C=3`, v1-inspired TensorOp
+  `IteratorAlgorithm::kFixedChannels` fp16 launchers selected only for semantic
+  input `C=4` or `C=8`, and an unsupported profiler stub. The shared
   Conv scaffold transform plan is now also validated for internal coherence
   before profiling/codegen/support-cache consumers can reuse it, so layout
   drift, incorrect temporary byte counts, and inconsistent padded-channel
@@ -261,11 +263,12 @@ porting. It intentionally excludes the op inventory, which lives in
   plan enough to allocate the per-session Conv pack/unpack temporaries, call
   the support-library transform helpers, call the selected provider launcher
   symbol, and unpack outputs back to NCHW. Focused CUDA runtime parity covers
-  the bounded fp16 C=3 few-channel path against Torch, while manifest tests
-  keep non-C=3 shapes on the SIMT fallback with no hidden channel padding.
-  Fixed-channel TensorOp C=4/8, profiler execution, execution-plan consumption,
-  dynamic Conv profiling, and general channel-last runtime layout remain
-  unimplemented.
+  the bounded fp16 C=3 few-channel path and C=4 fixed-channel path against
+  Torch, while manifest/source tests keep C=8 artifact-visible and keep
+  non-3/4/8 shapes on the SIMT fallback with no hidden channel padding.
+  Regular Optimized TensorOp candidates, profiler execution, execution-plan
+  consumption, dynamic Conv profiling, and general channel-last runtime layout
+  remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

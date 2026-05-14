@@ -565,15 +565,18 @@ behavior.
   support cache. The fp16 launcher set now includes the correctness-first
   CUTLASS SIMT `device::ImplicitGemmConvolution` Fprop+bias fallback plus a
   v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` candidate selected
-  only for semantic input `C=3`; both use bias as CUTLASS C with
-  `TensorNHWC::Stride(0)`. Focused CUDA runtime parity compares the selected
-  C=3 public NCHW/OIHW result against Torch, and manifest tests prove non-C=3
-  shapes stay on the SIMT fallback with no hidden channel padding. CPU compile
-  still rejects. The profile path records the same artifact-visible layout
-  translation, weight transform, and candidate metadata but still rejects
+  only for semantic input `C=3`, plus v1-inspired TensorOp
+  `IteratorAlgorithm::kFixedChannels` candidates selected only for semantic
+  input `C=4` or `C=8`; all use bias as CUTLASS C with
+  `TensorNHWC::Stride(0)` and no hidden channel padding. Focused CUDA runtime
+  parity compares the selected C=3 few-channel and C=4 fixed-channel public
+  NCHW/OIHW results against Torch, and manifest/source tests prove C=8 is
+  artifact-visible while non-3/4/8 shapes stay on the SIMT fallback. CPU
+  compile still rejects. The profile path records the same artifact-visible
+  layout translation, weight transform, and candidate metadata but still rejects
   before Conv profiler/cache/result or execution-plan logic can claim support.
-  Fixed-channel TensorOp C=4/8, profile-selected Conv, dynamic Conv profiling,
-  hidden channel padding, runtime-persistent packed weights,
+  Regular Optimized TensorOp candidates, profile-selected Conv, dynamic Conv
+  profiling, hidden channel padding, runtime-persistent packed weights,
   grouped/depthwise/transposed/3D Conv, and public NHWC semantics remain
   unported.
   Keep all other ConvNd families unported until that bounded slice is real.

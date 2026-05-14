@@ -298,11 +298,14 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   NHWC/OHWI/NHWC temporaries, calls the support-library NCHW -> NHWC activation
   pack helper, OIHW -> OHWI weight pack helper, the manifest-selected provider
   launcher, and NHWC -> NCHW output unpack helper. The candidate set now records
-  both the SIMT fallback and a v1-inspired TensorOp
+  the SIMT fallback, a v1-inspired TensorOp
   `IteratorAlgorithm::kFewChannels` candidate selected only for semantic input
-  `C=3`, with no channel padding. Focused CUDA runtime parity validates that
-  selected C=3 few-channel path against Torch, while manifest tests keep
-  non-C=3 shapes on the SIMT fallback. This is intentionally not a
+  `C=3`, and v1-inspired TensorOp `IteratorAlgorithm::kFixedChannels`
+  candidates selected only for semantic input `C=4` or `C=8`, all with no
+  channel padding. Focused CUDA runtime parity validates the selected C=3
+  few-channel path and selected C=4 fixed-channel path against Torch, while
+  manifest/source tests keep C=8 artifact-visible and keep non-3/4/8 shapes on
+  the SIMT fallback. This is intentionally not a
   profile-selected Conv provider yet.
 - The profile workload builder still emits an unsupported-profiler
   `cutlass_conv` workload that preserves the same layout translation and
@@ -347,9 +350,29 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
 - Model CUDA compile now builds a generated module when `nvcc` can compile the
   support library, and the artifact manifest carries
   `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is
-  either the SIMT implicit-GEMM fallback or the C=3 TensorOp FewChannels
-  Fprop+bias call, selected from artifact-visible candidate predicates. The
-  FixedChannels C=4/8 path is not admitted yet. No Conv profiler execution,
-  execution-plan consumption, dynamic Conv profiling,
-  grouped/depthwise/transposed/3D coverage, runtime-set packed weights, or
-  public NHWC semantics are claimed.
+  either the SIMT implicit-GEMM fallback, the C=3 TensorOp FewChannels
+  Fprop+bias call, or the C=4/C=8 TensorOp FixedChannels Fprop+bias call,
+  selected from artifact-visible candidate predicates. No regular Optimized
+  TensorOp candidate, Conv profiler execution, execution-plan consumption,
+  dynamic Conv profiling, grouped/depthwise/transposed/3D coverage, runtime-set
+  packed weights, or public NHWC semantics are claimed.
+
+## Next Provider-Maturity Lane
+
+The next `cutlass_conv` slice should use GEMM/BMM profiling as the maturity
+reference rather than adding more unprofiled launchers. Add a regular fp16
+NHWC/OHWI TensorOp `IteratorAlgorithm::kOptimized` candidate for
+`conv2d_bias` with an explicit predicate for non-small-channel shapes, then
+make Conv profiling real and predicate-filtered:
+
+- workload construction should profile only candidates compatible with the
+  semantic input channel count, dtype, groups, and explicit pack/unpack plan;
+- the support library should expose real Conv profiler exports with the same
+  candidate/config/source provenance standards as GEMM/BMM;
+- `dinoml profile` should write Conv profile reports and confident
+  execution-plan selections instead of rejecting Conv workloads;
+- compile-time execution-plan application should reject stale or incompatible
+  Conv selections and visibly update the selected `cutlass_conv_plan` candidate
+  consumed by generated lowering;
+- unsupported dynamic Conv profiling, guarded dispatch, or malformed Conv
+  profile payloads should fail explicitly until admitted.

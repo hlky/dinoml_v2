@@ -27,6 +27,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
+from dinoml.kernels.providers.cutlass.conv import CONV_OPS
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
@@ -150,6 +151,75 @@ class GemmProfileWorkload:
         return payload
 
 
+@dataclass(frozen=True)
+class ConvProfileWorkload:
+    node_id: str
+    op: str
+    dtype: str
+    kernel_symbol: str
+    profiler_symbol: str
+    candidate_set_id: str | None
+    candidate_set_key: str | None
+    candidate_id: str
+    candidate_config_key: str | None
+    candidate: Mapping[str, Any]
+    x_tensor: str
+    weight_tensor: str
+    bias_tensor: str
+    output_tensor: str
+    x_shape: tuple[int, ...]
+    weight_shape: tuple[int, ...]
+    bias_shape: tuple[int, ...]
+    output_shape: tuple[int, ...]
+    conv_config: Mapping[str, Any]
+    semantic_layout: Mapping[str, str]
+    provider_layout: Mapping[str, str]
+    layout_translation: Mapping[str, Any]
+    weight_transform: Mapping[str, Any]
+    temporary_buffers: tuple[Mapping[str, Any], ...]
+    workspace_nbytes: int
+    shape_source: str
+    shape_case_id: str
+    dim_values: Mapping[str, int]
+    dim_sources: Mapping[str, str]
+    kernel_library: str = "cutlass_conv"
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "node_id": self.node_id,
+            "op": self.op,
+            "dtype": self.dtype,
+            "kernel_library": self.kernel_library,
+            "kernel_symbol": self.kernel_symbol,
+            "profiler_symbol": self.profiler_symbol,
+            "candidate_set_id": self.candidate_set_id,
+            "candidate_set_key": self.candidate_set_key,
+            "candidate_id": self.candidate_id,
+            "candidate_config_key": self.candidate_config_key,
+            "candidate": dict(self.candidate),
+            "inputs": {
+                self.x_tensor: list(self.x_shape),
+                self.weight_tensor: list(self.weight_shape),
+                self.bias_tensor: list(self.bias_shape),
+            },
+            "output": {self.output_tensor: list(self.output_shape)},
+            "conv": dict(self.conv_config),
+            "semantic_layout": dict(self.semantic_layout),
+            "provider_layout": dict(self.provider_layout),
+            "layout_translation": dict(self.layout_translation),
+            "weight_transform": dict(self.weight_transform),
+            "temporary_buffers": [dict(buffer) for buffer in self.temporary_buffers],
+            "workspace_nbytes": self.workspace_nbytes,
+            "profile_variant": {"kind": "manifest_scaffold_only"},
+            "shape_case": {
+                "source": self.shape_source,
+                "case_id": self.shape_case_id,
+                "dims": dict(self.dim_values),
+                "dim_sources": dict(self.dim_sources),
+            },
+        }
+
+
 def parse_shape_overrides(items: Sequence[str] | None) -> dict[str, tuple[int, ...]]:
     overrides: dict[str, tuple[int, ...]] = {}
     for item in items or ():
@@ -168,7 +238,7 @@ def build_profile_workloads(
     kernel_manifest: Mapping[str, Any],
     *,
     input_shapes: Mapping[str, Sequence[int]] | None = None,
-) -> list[GemmProfileWorkload]:
+) -> list[GemmProfileWorkload | ConvProfileWorkload]:
     if kernel_manifest.get("target", {}).get("name") != "cuda":
         return []
     tensor_map = {str(tensor["name"]): tensor for tensor in graph["tensors"]}
@@ -182,6 +252,15 @@ def build_profile_workloads(
         op_name = str(node["op"])
         if op_name in BMM_OPS:
             _append_bmm_profile_workloads(
+                workloads,
+                node,
+                tensor_map,
+                required_by_op.get(op_name, ()),
+                overrides,
+            )
+            continue
+        if op_name in CONV_OPS:
+            _append_conv_profile_workloads(
                 workloads,
                 node,
                 tensor_map,
@@ -284,6 +363,82 @@ def build_profile_workloads(
                         )
                     )
     return workloads
+
+
+def _append_conv_profile_workloads(
+    workloads: list[GemmProfileWorkload | ConvProfileWorkload],
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    required_items: Sequence[Mapping[str, Any]],
+    overrides: Mapping[str, Sequence[int]],
+) -> None:
+    op_name = str(node["op"])
+    output_name = str(node["outputs"][0])
+    output_info = tensor_map[output_name]
+    dtype = str(output_info["dtype"])
+    binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
+    required_item = _required_profile_item(required_items, dtype, binding.symbol, node_id=str(node["id"]))
+    if required_item is None:
+        return
+    conv_plan = required_item.get("cutlass_conv_plan")
+    if not isinstance(conv_plan, Mapping):
+        raise ValueError("CUTLASS Conv profile workloads require manifest cutlass_conv_plan transform metadata")
+    if str(conv_plan.get("status")) != "manifest_scaffold_only":
+        raise ValueError(f"Unsupported CUTLASS Conv plan status for profiling scaffold: {conv_plan.get('status')!r}")
+    x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+        x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
+        weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
+        bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
+        output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
+        for candidate in _profile_candidates(required_item):
+            workloads.append(
+                ConvProfileWorkload(
+                    node_id=str(node["id"]),
+                    op=op_name,
+                    dtype=dtype,
+                    kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                    profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                    candidate_set_id=(
+                        str(required_item["candidate_set_id"])
+                        if required_item.get("candidate_set_id") is not None
+                        else None
+                    ),
+                    candidate_set_key=(
+                        str(required_item["candidate_set_key"])
+                        if required_item.get("candidate_set_key") is not None
+                        else None
+                    ),
+                    candidate_id=str(candidate["candidate_id"]),
+                    candidate_config_key=(
+                        str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                    ),
+                    candidate=candidate,
+                    x_tensor=x_name,
+                    weight_tensor=weight_name,
+                    bias_tensor=bias_name,
+                    output_tensor=output_name,
+                    x_shape=tuple(x_shape),
+                    weight_shape=tuple(weight_shape),
+                    bias_shape=tuple(bias_shape),
+                    output_shape=tuple(output_shape),
+                    conv_config=dict(conv_plan.get("conv_config", {})),
+                    semantic_layout=dict(conv_plan.get("semantic_layout", {})),
+                    provider_layout=dict(conv_plan.get("provider_layout", {})),
+                    layout_translation=dict(conv_plan.get("layout_translation", {})),
+                    weight_transform=dict(conv_plan.get("weight_transform", {})),
+                    temporary_buffers=tuple(
+                        dict(buffer)
+                        for buffer in conv_plan.get("temporary_buffers", ())
+                        if isinstance(buffer, Mapping)
+                    ),
+                    workspace_nbytes=int(conv_plan.get("workspace_nbytes", 0) or 0),
+                    shape_source=scenario.source,
+                    shape_case_id=scenario.case_id,
+                    dim_values=scenario.dim_values,
+                    dim_sources=scenario.dim_sources,
+                )
+            )
 
 
 def _append_bmm_profile_workloads(

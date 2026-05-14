@@ -7,12 +7,14 @@ import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidates,
     cutlass_conv_layout_plan,
     cutlass_conv_used_candidate_plan,
 )
+from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.passes import validate_ir
 from dinoml.passes.validation import ValidationError
 from dinoml.shapes import Dim
@@ -286,6 +288,57 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert support_lib["name"] == "cutlass_conv"
     assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
     assert support_lib["used_candidate_plan_key"] == used_plan["used_candidate_plan_key"]
+
+
+def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transforms():
+    spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    target = {"name": "cuda", "arch": "sm_86", "no_tf32": True}
+    kernel_manifest = build_kernel_manifest(spec.ir, target)
+
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+
+    assert len(workloads) == 1
+    workload = workloads[0]
+    assert workload.kernel_library == "cutlass_conv"
+    assert workload.op == "conv2d_bias"
+    assert workload.dtype == "float16"
+    assert workload.x_shape == (2, 3, 7, 8)
+    assert workload.weight_shape == (4, 3, 3, 2)
+    assert workload.bias_shape == (4,)
+    assert workload.output_shape == (2, 4, 4, 6)
+    assert workload.conv_config == {"stride": [2, 1], "padding": [1, 0], "dilation": [1, 2], "groups": 1}
+    assert workload.semantic_layout == {"activation": "nchw", "weight": "oihw", "bias": "o", "output": "nchw"}
+    assert workload.provider_layout == {"activation": "nhwc", "weight": "ohwi", "bias": "o", "output": "nhwc"}
+    assert workload.layout_translation["input_pack"] == "nchw_to_nhwc_temporary"
+    assert workload.layout_translation["output_unpack"] == "nhwc_to_nchw_temporary"
+    assert workload.weight_transform["from"] == "oihw"
+    assert workload.weight_transform["to"] == "ohwi"
+    assert workload.weight_transform["channel_pad_multiple"] == 1
+    assert workload.shape_source == "graph_max_shape"
+    assert workload.shape_case_id == "max"
+    payload = workload.to_json()
+    assert payload["profile_variant"] == {"kind": "manifest_scaffold_only"}
+    assert payload["inputs"] == {"x": [2, 3, 7, 8], "weight": [4, 3, 3, 2], "bias": [4]}
+    assert payload["output"] == {workload.output_tensor: [2, 4, 4, 6]}
+    assert payload["temporary_buffers"]
+    assert payload["candidate"]["status"] == "manifest_scaffold_only"
+
+
+def test_cutlass_conv2d_bias_profile_workload_requires_manifest_transform_metadata():
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    kernel_manifest["required_kernels"][0].pop("cutlass_conv_plan")
+
+    with pytest.raises(ValueError, match="cutlass_conv_plan transform metadata"):
+        build_profile_workloads(spec.ir, kernel_manifest)
 
 
 def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_path):

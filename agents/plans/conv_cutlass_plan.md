@@ -279,6 +279,12 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
 
 ## Current status
 
-- No ConvNd provider is implemented in v2 yet.
-- This plan exists to keep the first implementation bounded and architecture
-  honest.
+- A reference/scaffold-only `conv2d_bias` surface exists in v2: public semantics
+  are NCHW/OIHW, CPU reference execution validates against PyTorch, CUDA compile
+  emits `cutlass_conv` manifest/codegen metadata with NHWC/OHWI transform plans,
+  and then rejects before module build.
+- The profile workload builder now has a scaffold-only `cutlass_conv` workload
+  that preserves the same layout translation and weight-transform metadata, and
+  refuses manifests that omit that transform plan. This is profile-visible
+  metadata only; no ConvNd profiler execution, support-library source build, or
+  runtime launcher exists yet.

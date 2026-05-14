@@ -237,8 +237,11 @@ porting. It intentionally excludes the op inventory, which lives in
   metadata instead of relying on ABI strides for layout translation. The first
   `conv2d_bias` reference/scaffold slice now lets CUDA compile emit intended
   NHWC/OHWI provider transforms as kernel-manifest/codegen metadata before
-  rejecting ahead of module build, but compiled ConvNd lowering and general
-  channel-last runtime layout remain unimplemented.
+  rejecting ahead of module build. The profile workload builder can now emit a
+  scaffold-only `cutlass_conv` workload from that explicit transform plan and
+  rejects missing transform metadata, but compiled ConvNd lowering, profiler
+  execution, support-library build, and general channel-last runtime layout
+  remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

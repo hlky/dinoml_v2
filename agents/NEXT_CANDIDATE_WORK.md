@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Connected the existing bounded `conv2d_bias`/`cutlass_conv` scaffold to the
+  first profile-visible provider step without adding a runtime launcher:
+  `build_profile_workloads(...)` now emits a `cutlass_conv` workload scaffold
+  from the manifest's explicit NCHW/OIHW semantic metadata, NHWC/OHWI provider
+  metadata, layout-pack/unpack plan, weight-transform metadata, Conv2d attrs,
+  shapes, candidates, and profiler symbol. The scaffold refuses manifests that
+  omit `cutlass_conv_plan` transform metadata, preserving the artifact-visible
+  layout contract. Added focused tests for the emitted workload JSON and the
+  missing-transform guard. CUDA compile still rejects before module build with
+  `manifest_scaffold_only`; no CUTLASS Conv runtime, support build, or profiler
+  execution is claimed.
 - Started the bounded ConvNd provider lane without claiming a CUDA runtime yet:
   added a public/reference-only `conv2d_bias` surface with NCHW activation,
   OIHW weight, bias `[Cout]`, groups=`1`, static rank-4/static channel+kernel
@@ -171,11 +182,11 @@ This file should be updated after each major loop.
 
 1. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
-   `conv2d_bias` public/reference surface and `cutlass_conv`
-   `manifest_scaffold_only` compile metadata to the next honest provider step.
-   Prefer a small launcher/source-manifest/profile scaffold or generated
-   pack/unpack lowering test before attempting a full CUTLASS runtime. Keep the
-   work narrow:
+   `conv2d_bias` public/reference surface, `cutlass_conv`
+   `manifest_scaffold_only` compile metadata, and profile workload scaffold to
+   the next honest provider step. Prefer a small source-manifest scaffold or
+   generated pack/unpack lowering test before attempting a full CUTLASS runtime.
+   Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.
 2. Revisit CUTLASS/provider maturity only for another bounded compile-visible

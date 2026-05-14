@@ -539,7 +539,11 @@ behavior.
   reference/scaffold slice now exists as a public `conv2d_bias` frontend plus
   CPU reference execution. CUDA compile emits `manifest_scaffold_only`
   `cutlass_conv` kernel manifest/codegen metadata and then rejects before module
-  build until a real provider launcher is wired; CPU compile still rejects.
+  build until a real provider launcher is wired; CPU compile still rejects. The
+  profile path now has a scaffold-only `cutlass_conv` workload that records the
+  same artifact-visible layout translation and weight transform metadata, and it
+  rejects manifests missing that transform plan. No ConvNd profiler execution or
+  support-library build is implemented yet.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

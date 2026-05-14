@@ -11,7 +11,7 @@ Format:
 
 ## Entries
 
-- 75a1e99, Add CUTLASS conv optimized TensorOp path, gpt-5, high
+- 75a1e99, Add CUTLASS conv optimized TensorOp path, gpt-5.5, high
 - 9f819b9, Add CUTLASS conv fixed-channel TensorOp path, gpt-5.5, high
 - 8fe4db0, Add CUTLASS conv few-channel TensorOp path, gpt-5.5, high
 - 91cd722, Update conv2d_bias runtime description, gpt-5.5, high

@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 61c5a0f, Add native GGUF runtime-dequant reload regression, gpt-5.4, high
 - bff8139, Document rotary apply exploration and next slice, gpt-5.4, medium
 - 3bb83a8, Add helper-only 1D rotary table generation, gpt-5.4, medium
 - 191e1d9, Harden CUTLASS conv scaffold transform plans, gpt-5.4, medium

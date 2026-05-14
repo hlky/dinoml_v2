@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 6742bd7, Harden named permute runtime regressions, gpt-5.4, medium
 - e7b11bf, Harden rms_norm helper runtime regressions, gpt-5.4, high
 - edfa639, Emit CUTLASS conv scaffold wrapper debug sources, gpt-5.4, high
 - def4984, Record CUTLASS conv wrapper staging metadata, gpt-5.4, high

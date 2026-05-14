@@ -237,11 +237,12 @@ porting. It intentionally excludes the op inventory, which lives in
   metadata instead of relying on ABI strides for layout translation. The first
   `conv2d_bias` slice now lets CUDA compile emit intended NHWC/OHWI provider
   transforms as kernel-manifest/codegen metadata and runs a bounded fp16
-  groups=1 static rank-4 provider path. The profile workload builder can emit a
-  `cutlass_conv` workload from that explicit transform plan and rejects missing
-  transform metadata, but downstream profiling still rejects Conv workloads
-  before GEMM/BMM-only cache-key, result, or execution-plan logic can consume
-  them. CUDA compile now also materializes a support-cache/source-manifest
+  groups=1 static rank-4 provider path. The static profile workload builder
+  emits `cutlass_conv` workloads from that explicit transform plan, rejects
+  missing transform metadata, and carries Conv-specific layout transform,
+  weight transform, Conv config, candidate/config, and support provenance into
+  profile reports and cache keys. CUDA compile now also materializes a
+  support-cache/source-manifest
   boundary for `cutlass_conv` so provider transform provenance is visible; with
   `nvcc` available that boundary compiles `libdinoml_cutlass_conv.so` with
   transform helpers, a correctness-first SIMT CUTLASS
@@ -252,7 +253,8 @@ porting. It intentionally excludes the op inventory, which lives in
   input `C=4` or `C=8`, a regular TensorOp
   `IteratorAlgorithm::kOptimized` fp16 launcher selected only for naturally
   aligned non-small-channel shapes (`C >= 16` with input/output channels
-  divisible by 8), and an unsupported profiler stub. The shared
+  divisible by 8), and real profiler exports for all emitted runtime
+  candidates. The shared
   Conv scaffold transform plan is now also validated for internal coherence
   before profiling/codegen/support-cache consumers can reuse it, so layout
   drift, incorrect temporary byte counts, and inconsistent padded-channel
@@ -272,9 +274,12 @@ porting. It intentionally excludes the op inventory, which lives in
   fallback with no hidden channel padding. Conv profile workload construction
   now filters candidates through the same shape/layout/dtype predicate used by
   manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer
-  emitted. Profiler execution, profile reports/cache keys, execution-plan
-  consumption, dynamic Conv profiling, and general channel-last runtime layout
-  remain unimplemented.
+  emitted. `profile_artifact` now profiles those Conv candidates on
+  provider-layout buffers, writes report/cache/plan artifacts, and static Conv
+  execution-plan application updates both manifest symbols and the
+  `cutlass_conv_plan["selected_candidate"]` payload consumed by generated
+  lowering. Dynamic Conv profiling, guarded Conv dispatch, and general
+  channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

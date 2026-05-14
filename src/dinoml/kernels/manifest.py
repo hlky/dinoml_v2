@@ -17,6 +17,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_compatible_with_plan,
     cutlass_conv_candidates,
     cutlass_conv_layout_plan,
+    validate_cutlass_conv_scaffold_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
 from dinoml.kernels.providers.cutlass.alignment import (
@@ -419,7 +420,7 @@ def apply_execution_plan(
     manifest_kernel_libraries: dict[tuple[str, str, str], str] = {}
     for item in manifest.get("required_kernels", []):
         kernel_library = item.get("kernel_library")
-        if kernel_library not in {"cutlass_gemm", "cutlass_bmm"}:
+        if kernel_library not in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
             continue
         candidate_set = item.get("candidate_set", {})
         dtype = str(candidate_set.get("dtype", "")) if isinstance(candidate_set, Mapping) else ""
@@ -445,7 +446,16 @@ def apply_execution_plan(
                     selection,
                     selected_candidate,
                 )
+                if kernel_library == "cutlass_conv":
+                    _apply_cutlass_conv_static_selection(item, selected_candidate)
         dispatch_group = guarded_selections.get(key, ())
+        if dispatch_group and kernel_library == "cutlass_conv" and (key in conflict_keys or key not in selections):
+            if strict:
+                raise ValueError(
+                    "CUTLASS Conv execution plans only support static selections; "
+                    f"guarded selection was provided for {key[0]} {key[1]}"
+                )
+            continue
         if dispatch_group and (key in conflict_keys or key not in selections):
             dispatch_entries = []
             for guarded in dispatch_group:
@@ -474,7 +484,7 @@ def apply_execution_plan(
         missing_guarded = sorted(
             key
             for key in guarded_keys - applied_guarded_keys
-            if manifest_kernel_libraries.get(key, "cutlass_gemm") in {"cutlass_gemm", "cutlass_bmm"}
+            if manifest_kernel_libraries.get(key, "cutlass_gemm") in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}
         )
         if missing_guarded:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)
@@ -560,6 +570,13 @@ def _execution_plan_selection_supported(
     if split_k is None or workspace_nbytes is None:
         return False
     if kernel_library != "cutlass_bmm":
+        if kernel_library == "cutlass_conv" and (split_k != 1 or workspace_nbytes != 0):
+            if strict:
+                raise ValueError(
+                    "CUTLASS Conv execution plan selections only support split_k=1 "
+                    f"and workspace_nbytes=0 for {key[0]} {key[1]}"
+                )
+            return False
         return True
     if split_k == 1 and workspace_nbytes == 0:
         return True
@@ -717,6 +734,7 @@ def _execution_plan_selection_payload(
         "selection_key": selection.get("selection_key"),
         "node_id": selection.get("node_id"),
         "candidate_set_key": key[2],
+        "kernel_library": selection.get("kernel_library"),
         "selected_candidate_id": selection.get("selected_candidate_id"),
         "candidate_config_key": selection.get("candidate_config_key") or selected_candidate.get("candidate_config_key"),
         "kernel_symbol": str(selection.get("kernel_symbol") or selected_candidate["kernel_symbol"]),
@@ -726,6 +744,31 @@ def _execution_plan_selection_payload(
         "confidence": dict(selection.get("confidence", {})) if isinstance(selection.get("confidence"), Mapping) else {},
         "split_k": int(selection.get("split_k", 1) or 1),
         "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
+    }
+
+
+def _apply_cutlass_conv_static_selection(item: dict[str, Any], selected_candidate: Mapping[str, Any]) -> None:
+    conv_plan = validate_cutlass_conv_scaffold_plan(
+        item.get("cutlass_conv_plan"),
+        node_id=str(item.get("node_id", "")) if item.get("node_id") is not None else None,
+    )
+    if not cutlass_conv_candidate_compatible_with_plan(selected_candidate, conv_plan):
+        raise ValueError(
+            "Execution plan selected CUTLASS Conv candidate "
+            f"{selected_candidate.get('candidate_id')!r} that is incompatible with the manifest transform plan"
+        )
+    item["cutlass_conv_plan"] = {
+        **conv_plan,
+        "selected_candidate": {
+            "candidate_id": str(selected_candidate["candidate_id"]),
+            "symbol_id": str(selected_candidate.get("symbol_id", "")),
+            "kernel_symbol": str(selected_candidate["kernel_symbol"]),
+            "profiler_symbol": str(selected_candidate.get("profiler_symbol", "")),
+            "opclass": str(selected_candidate.get("cutlass", {}).get("opclass", "")),
+            "iterator_algorithm": str(selected_candidate.get("cutlass", {}).get("iterator_algorithm", "")),
+            "selection_predicate": dict(selected_candidate.get("selection_predicate", {})),
+            "candidate_config_key": str(selected_candidate.get("candidate_config_key", "")),
+        },
     }
 
 

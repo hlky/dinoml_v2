@@ -25,7 +25,7 @@ from dinoml.kernels.providers.cutlass.conv import (
 )
 from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.conv import render_scaffold_wrapper_source, render_scaffold_wrapper_stages
-from dinoml.kernels.profiling import build_profile_workloads
+from dinoml.kernels.profiling import build_profile_workloads, profile_artifact
 from dinoml.passes import validate_ir
 from dinoml.passes.validation import ValidationError
 from dinoml.shapes import Dim
@@ -313,7 +313,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     candidate_set = cutlass_conv_candidate_set("conv2d_bias", "float16", target=target)
     candidates = cutlass_conv_candidates("conv2d_bias", "float16", target=target)
     assert candidate_set["status"] == "bounded_runtime"
-    assert candidate_set["profiler_status"] == "unsupported_stub"
+    assert candidate_set["profiler_status"] == "bounded_runtime_profiler"
     assert candidate_set["semantic_layout"] == {
         "activation": "nchw",
         "weight": "oihw",
@@ -327,7 +327,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
         "output": "nhwc",
     }
     assert candidates[0]["status"] == "bounded_runtime"
-    assert candidates[0]["profiler_status"] == "unsupported_stub"
+    assert candidates[0]["profiler_status"] == "bounded_runtime_profiler"
     assert candidates[0]["cutlass"]["opclass"] == "simt"
     assert candidates[0]["cutlass"]["kind"] == "implicit_gemm_runtime_launcher"
     assert candidates[1]["status"] == "bounded_runtime"
@@ -371,8 +371,8 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     layout_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
     assert layout_plan["status"] == "bounded_runtime"
     assert layout_plan["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
-    assert layout_plan["profiler_status"] == "unsupported_stub"
-    assert layout_plan["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
+    assert layout_plan["profiler_status"] == "bounded_runtime_profiler"
+    assert "profiler_blocked_reason" not in layout_plan
     assert layout_plan["semantic_layout"]["activation"] == "nchw"
     assert layout_plan["provider_layout"]["activation"] == "nhwc"
     assert layout_plan["layout_translation"]["input_pack"] == "nchw_to_nhwc_temporary"
@@ -601,7 +601,7 @@ def test_cutlass_conv2d_bias_manifest_selects_tensorop_for_c3_c4_c8_and_optimize
         assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == channel_count
         selected_candidate = next(
             candidate
-            for candidate in required["candidates"]
+            for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
             if candidate["candidate_id"] == required["selected_candidate_id"]
         )
         assert selected_candidate["cutlass"]["align_a"] == channel_count
@@ -691,12 +691,12 @@ def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transfor
     assert workload.shape_source == "graph_max_shape"
     assert workload.shape_case_id == "max"
     payload = workload.to_json()
-    assert payload["profile_variant"] == {"kind": "bounded_runtime", "profiler_status": "unsupported_stub"}
+    assert payload["profile_variant"] == {"kind": "bounded_runtime", "profiler_status": "bounded_runtime_profiler"}
     assert payload["inputs"] == {"x": [2, 3, 7, 8], "weight": [4, 3, 3, 2], "bias": [4]}
     assert payload["output"] == {workload.output_tensor: [2, 4, 4, 6]}
     assert payload["temporary_buffers"]
     assert payload["candidate"]["status"] == "bounded_runtime"
-    assert payload["candidate"]["profiler_status"] == "unsupported_stub"
+    assert payload["candidate"]["profiler_status"] == "bounded_runtime_profiler"
     assert payload["candidate"]["cutlass"]["iterator_algorithm"] == "few_channels"
 
 
@@ -837,14 +837,15 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert required["op"] == "conv2d_bias"
     assert required["kernel_library"] == "cutlass_conv"
     assert required["candidate_set"]["status"] == "bounded_runtime"
-    assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
+    assert required["candidate_set"]["profiler_status"] == "bounded_runtime_profiler"
     assert required["selected_candidate_id"].endswith("few_channels_c3")
     assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
     assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
     assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == required["kernel_symbol"]
     assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
-    assert required["cutlass_conv_plan"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
+    assert required["cutlass_conv_plan"]["profiler_status"] == "bounded_runtime_profiler"
+    assert "profiler_blocked_reason" not in required["cutlass_conv_plan"]
 
     codegen_plan = read_json(artifact_dir / "kernel_codegen_plan.json")
     [support_lib] = codegen_plan["external_support_libraries"]
@@ -892,8 +893,8 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
     source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
-    assert support_manifest["profiler_status"] == "unsupported_stub"
-    assert support_manifest["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
+    assert support_manifest["profiler_status"] == "bounded_runtime_profiler"
+    assert "profiler_blocked_reason" not in support_manifest
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
     export_status = support_manifest["status"]
@@ -911,13 +912,17 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
             }
             for candidate in required["candidates"]
         ],
-        {
-            "kind": "profiler",
-            "symbol": required["profiler_symbol"],
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": export_status,
-            "return_value_ms": -1.0,
-        },
+        *[
+            {
+                "kind": "profiler",
+                "symbol": candidate["profiler_symbol"],
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": export_status,
+                "profiler_status": "bounded_runtime_profiler",
+                "success_return_min_ms": 0.0,
+            }
+            for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
+        ],
     ]
     assert support_manifest["exports"] == expected_exports
     assert support_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
@@ -940,7 +945,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     }
     assert helper_symbols.issubset(source_symbols)
     assert {candidate["kernel_symbol"] for candidate in required["candidates"]}.issubset(source_symbols)
-    assert required["profiler_symbol"] in source_symbols
+    assert {candidate["profiler_symbol"] for candidate in required["candidates"]}.issubset(source_symbols)
     helper_entries = [item for item in source_manifest["sources"][0]["symbols"] if item["kind"] == "transform_helper"]
     assert [(item["tensor_role"], item["name"]) for item in helper_entries] == [
         ("activation", required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"]),
@@ -1067,6 +1072,10 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
         finally:
             session.close()
             module.close()
+        profile_report = profile_artifact(artifact_dir, iterations=1, repeats=1, refresh=True)
+        assert profile_report["summary"]["profiled"] >= 2
+        assert profile_report["summary"]["failed"] == 0
+        assert (artifact_dir / "debug" / "profile_report.json").exists()
 
 
 def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, monkeypatch):
@@ -1201,13 +1210,17 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
             }
             for candidate in required["candidates"]
         ],
-        {
-            "kind": "profiler",
-            "symbol": required["profiler_symbol"],
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "source_bounded_runtime",
-            "return_value_ms": -1.0,
-        },
+        *[
+            {
+                "kind": "profiler",
+                "symbol": candidate["profiler_symbol"],
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": "source_bounded_runtime",
+                "profiler_status": "bounded_runtime_profiler",
+                "success_return_min_ms": 0.0,
+            }
+            for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
+        ],
     ]
 
 

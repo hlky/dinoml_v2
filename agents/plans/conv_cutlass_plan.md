@@ -305,13 +305,20 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   channel padding. Focused CUDA runtime parity validates the selected C=3
   few-channel path and selected C=4 fixed-channel path against Torch, while
   manifest/source tests keep C=8 artifact-visible and keep non-3/4/8 shapes on
-  the SIMT fallback. This is intentionally not a
-  profile-selected Conv provider yet.
-- The profile workload builder still emits an unsupported-profiler
-  `cutlass_conv` workload that preserves the same layout translation and
-  weight-transform metadata, and refuses manifests that omit that transform
-  plan. Conv profiler execution and execution-plan generation remain explicit
-  future work.
+  the SIMT fallback.
+- The profile workload builder now emits real static `cutlass_conv` workloads
+  for compatible runtime candidates and preserves the same layout translation,
+  weight-transform, Conv config, candidate/config, and source provenance in
+  profile reports and cache keys. `dinoml profile` can time the exported Conv
+  profiler symbols on provider-layout NHWC/OHWI buffers, write
+  `debug/profile_report.json`, update the support-cache profile cache, and
+  write `debug/execution_plan.json`.
+- Static Conv execution-plan selections are consumable during compile. Applying
+  a static selection updates the manifest `selected_candidate_id`,
+  kernel/profiler symbols, `execution_plan_selection`, and
+  `cutlass_conv_plan["selected_candidate"]` payload consumed by generated
+  lowering. Stale or incompatible Conv selections are rejected in strict mode,
+  and guarded/dynamic Conv dispatch remains explicitly unsupported.
 - CUDA compile now materializes a `cutlass_conv` support-cache boundary under
   the advertised support `cache_dir`, including `lib/cutlass_conv_manifest.json`
   and `src/source_manifest.json` with the used candidate plan,
@@ -319,9 +326,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   `nvcc` is available, the support cache also builds
   `lib/libdinoml_cutlass_conv.so` with concrete transform helper exports, the
   fp16 SIMT fallback launcher export, the fp16 TensorOp FewChannels C=3
-  launcher export, and a profiler stub for the selected
-  `dinoml_cutlass_conv2d_bias_v1` ABI. If `nvcc` is unavailable, the manifest
-  records source-only status.
+  launcher export, the C=4/C=8 FixedChannels exports, the regular Optimized
+  align8 export, and matching real profiler exports for all emitted runtime
+  candidates using the `dinoml_cutlass_conv2d_bias_v1` ABI. If `nvcc` is
+  unavailable, the manifest records source-only status.
 - The shared `cutlass_conv_plan` scaffold metadata is now validated before
   profile workload generation, codegen-plan support-library enumeration, and
   support-cache/source-manifest emission consume it. The current bounded
@@ -358,25 +366,23 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   evaluator now filters Conv profile workload construction so incompatible
   small-channel and optimized candidates are not emitted for a node's
   shape/layout/dtype contract. CUDA runtime parity covers C=3 FewChannels,
-  C=4 FixedChannels, and optimized C=16/O=16 against Torch. No Conv profiler
-  execution, profile report/cache-key path, execution-plan consumption,
-  dynamic Conv profiling, grouped/depthwise/transposed/3D coverage, runtime-set
-  packed weights, C=8 runtime parity, or public NHWC semantics are claimed.
+  C=4 FixedChannels, and optimized C=16/O=16 against Torch; CUDA-gated profile
+  smoke validates the real Conv profiler exports through `profile_artifact`.
+  No dynamic Conv profiling, guarded Conv dispatch,
+  grouped/depthwise/transposed/3D coverage, runtime-set packed weights, C=8
+  runtime parity, or public NHWC semantics are claimed.
 
 ## Next Provider-Maturity Lane
 
-The next `cutlass_conv` slice should use GEMM/BMM profiling as the maturity
-reference rather than adding more unprofiled launchers. The regular fp16
-NHWC/OHWI TensorOp `IteratorAlgorithm::kOptimized` candidate and
-predicate-filtered workload construction are now landed; next make Conv
-profiling real without broadening public ConvNd semantics:
+The next `cutlass_conv` slice should keep tightening maturity without
+broadening public ConvNd semantics:
 
-- the support library should expose real Conv profiler exports with the same
-  candidate/config/source provenance standards as GEMM/BMM;
-- `dinoml profile` should write Conv profile reports and confident
-  execution-plan selections instead of rejecting Conv workloads;
-- compile-time execution-plan application should reject stale or incompatible
-  Conv selections and visibly update the selected `cutlass_conv_plan` candidate
-  consumed by generated lowering;
-- unsupported dynamic Conv profiling, guarded dispatch, or malformed Conv
-  profile payloads should fail explicitly until admitted.
+- add C=8 runtime parity if useful for the already-emitted FixedChannels
+  candidate;
+- decide whether dynamic spatial/profile buckets and guarded Conv dispatch need
+  admission, or keep rejecting them explicitly;
+- keep profile/cache/execution-plan schemas stable as Conv gains more shapes or
+  candidates;
+- do not add grouped/depthwise/transposed/3D Conv, runtime-persistent packed
+  weights, hidden channel padding, or public NHWC semantics without a separate
+  admission pass.

@@ -575,14 +575,17 @@ behavior.
   parity compares the selected C=3 few-channel, C=4 fixed-channel, and
   optimized C=16/O=16 public NCHW/OIHW results against Torch, and
   manifest/source tests prove C=8 is artifact-visible while unaligned shapes
-  stay on the SIMT fallback. CPU compile still rejects. The profile workload
-  path records the same artifact-visible layout translation, weight transform,
-  and candidate metadata and now filters out predicate-incompatible Conv
-  candidates, but profiler execution still rejects before Conv
-  profiler/cache/result or execution-plan logic can claim support.
-  Profile-selected Conv, dynamic Conv profiling, hidden channel padding,
-  runtime-persistent packed weights, grouped/depthwise/transposed/3D Conv, and
-  public NHWC semantics remain unported.
+  stay on the SIMT fallback. CPU compile still rejects. The static profile
+  workload path records the same artifact-visible layout translation, weight
+  transform, Conv config, candidate/config, and support provenance; real
+  support-library profiler exports now time compatible runtime candidates on
+  provider-layout NHWC/OHWI buffers. `profile_artifact` writes Conv profile
+  reports, updates the profile cache, and emits static execution plans, and
+  compile-time application of a static Conv selection visibly updates both the
+  manifest symbols and `cutlass_conv_plan["selected_candidate"]` consumed by
+  generated lowering. Dynamic Conv profiling/guarded dispatch, hidden channel
+  padding, runtime-persistent packed weights, grouped/depthwise/transposed/3D
+  Conv, and public NHWC semantics remain unported.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

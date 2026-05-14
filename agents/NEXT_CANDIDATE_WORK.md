@@ -4,32 +4,29 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Advanced the bounded `conv2d_bias`/`cutlass_conv` provider-maturity lane with
-  an fp16 TensorOp `IteratorAlgorithm::kOptimized` candidate for naturally
-  aligned non-small-channel NHWC/OHWI shapes. Manifest selection now uses the
-  explicit predicate order C=3 FewChannels, C=4/C=8 FixedChannels, regular
-  Optimized for `C >= 16` with input/output channels divisible by 8, then the
-  SIMT fallback; the predicate keeps `channel_pad_multiple=1` and does not hide
-  padding. The same Conv predicate evaluator now filters profile workload
-  construction, so C=3 emits only SIMT+FewChannels, C=4 emits SIMT+Fixed C4,
-  and C=16/O=16 emits SIMT+Optimized. CUDA runtime parity against Torch now
-  covers the selected optimized C=16/O=16 path in addition to the existing C=3
-  and C=4 paths. This is still not provider-mature Conv: Conv profiler
-  execution, profile reports/cache keys, execution-plan consumption, dynamic
-  Conv profiling, grouped/depthwise/transposed/3D, C=8 runtime parity, and
-  public NHWC semantics remain unsupported.
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` provider-maturity lane from
+  runtime-only candidates to a real static profile/report/cache/plan loop.
+  The CUTLASS Conv support source now exports real profiler entrypoints for all
+  emitted fp16 runtime candidates (SIMT, FewChannels C=3, FixedChannels C=4/C=8,
+  and Optimized align8), and `_CudaProfiler` times those profiler symbols on
+  provider-layout NHWC/OHWI buffers. `profile_artifact` now writes Conv
+  `debug/profile_report.json`, updates the support-cache profile cache with
+  Conv-specific layout/weight/Conv config/candidate provenance, and emits static
+  execution plans. Applying a static Conv selection updates manifest
+  `selected_candidate_id`, kernel/profiler symbols, `execution_plan_selection`,
+  and `cutlass_conv_plan["selected_candidate"]` for generated lowering; stale
+  or guarded Conv selections remain rejected. This still does not claim dynamic
+  Conv profiling/guarded dispatch, grouped/depthwise/transposed/3D, hidden
+  channel padding, runtime-persistent packed weights, C=8 runtime parity, or
+  public NHWC semantics.
 
 ## Next Recommended Lane
 
-- Continue `cutlass_conv` toward GEMM/BMM-style provider maturity without
-  broadening public ConvNd surface: the regular Optimized candidate and
-  predicate-filtered workload construction are now in place, but Conv profiling
-  still needs the real mature loop. The remaining profiling lane should follow
-  the mature GEMM/BMM pattern: support-library profiler ABI, profile
-  reports/cache keys with candidate/config provenance, confident
-  execution-plan selections, manifest overlays or guarded dispatch, generated
-  lowering that visibly consumes the selected Conv candidate, and explicit
-  rejection for unsupported Conv profiler/execution-plan payloads.
+- Keep `cutlass_conv` bounded while tightening the now-static profiled path:
+  add C=8 runtime parity if useful, decide whether dynamic Conv buckets/guarded
+  dispatch need admission, and keep rejecting grouped/depthwise/transposed/3D,
+  hidden padding, persistent packed weights, and public NHWC semantics until a
+  separate design pass admits them.
 - Landed a bounded CLIP text encoder-layer composition slice without adding
   `CLIPTextModel`, a new op, or a flash provider path: focused regressions now
   prove one tiny float32 text encoder layer as

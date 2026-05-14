@@ -375,11 +375,10 @@ def build_profile_workloads(
 def _unsupported_profile_workload_reason(workload: GemmProfileWorkload | ConvProfileWorkload) -> str | None:
     if workload.kernel_library != "cutlass_conv":
         return None
-    return (
-        "CUTLASS Conv profile workloads do not have a real profiler yet; profiler execution, "
-        "profile cache keys/results, and execution-plan generation are not "
-        f"implemented yet for {workload.op}."
-    )
+    profiler_status = str(workload.candidate.get("profiler_status", ""))
+    if profiler_status == "bounded_runtime_profiler":
+        return None
+    return f"CUTLASS Conv profile workload for {workload.op} candidate {workload.candidate_id} has unsupported profiler_status={profiler_status!r}."
 
 
 def _require_supported_profile_workload(
@@ -1076,6 +1075,17 @@ def _profile_result(
     timing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _require_supported_profile_workload(workload, context="profile result")
+    if workload.kernel_library == "cutlass_conv":
+        return _conv_profile_result(
+            workload,
+            elapsed_ms,
+            iterations,
+            profile_key=profile_key,
+            status=status,
+            reason=reason,
+            workspace_nbytes=workspace_nbytes,
+            timing=timing,
+        )
     actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
     timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
     batch_count = int(workload.batch_count or 1)
@@ -1171,6 +1181,103 @@ def _profile_result(
             "b": int(workload.ldb or 0),
             "c": int(workload.ldc or 0),
         }
+    return payload
+
+
+def _conv_profile_result(
+    workload: ConvProfileWorkload,
+    elapsed_ms: float,
+    iterations: int,
+    *,
+    profile_key: str,
+    status: str,
+    reason: str,
+    workspace_nbytes: int | None,
+    timing: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
+    timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
+    n, c, h, w = (int(dim) for dim in workload.x_shape)
+    out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+    weight_o, _weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+    groups = int(workload.conv_config.get("groups", 1) or 1)
+    flops = 2 * out_n * out_h * out_w * out_c * kernel_h * kernel_w * (c // groups)
+    bytes_moved = dtype_nbytes(workload.dtype) * (
+        int(np.prod(workload.x_shape, dtype=np.int64))
+        + int(np.prod(workload.weight_shape, dtype=np.int64))
+        + int(np.prod(workload.bias_shape, dtype=np.int64))
+        + int(np.prod(workload.output_shape, dtype=np.int64))
+    )
+    seconds = max(float(elapsed_ms) / 1000.0, 1e-12)
+    tflops = float(flops / seconds / 1.0e12)
+    gbps = float(bytes_moved / seconds / 1.0e9)
+    payload = workload.to_json()
+    candidate_result = dict(workload.candidate)
+    candidate_result.update(
+        {
+            "candidate_id": workload.candidate_id,
+            "workspace_nbytes": actual_workspace_nbytes,
+            "avg_ms": float(timing_payload["mean_ms"]),
+            "median_ms": float(timing_payload["median_ms"]),
+            "mean_ms": float(timing_payload["mean_ms"]),
+            "min_ms": float(timing_payload["min_ms"]),
+            "max_ms": float(timing_payload["max_ms"]),
+            "stddev_ms": float(timing_payload["stddev_ms"]),
+            "standard_error_ms": float(timing_payload["standard_error_ms"]),
+            "mean_ci95_ms": dict(timing_payload["mean_ci95_ms"]),
+            "relative_stddev": float(timing_payload["relative_stddev"]),
+            "gflops": float(tflops * 1000.0),
+            "iterations": int(iterations),
+            "repeats": int(timing_payload["repeats"]),
+            "statistics_schema_version": int(timing_payload["statistics_schema_version"]),
+        }
+    )
+    shape_payload = {
+        "source": workload.shape_source,
+        "case_id": workload.shape_case_id,
+        "dims": dict(workload.dim_values),
+        "dim_sources": dict(workload.dim_sources),
+        "n": n,
+        "c": c,
+        "h": h,
+        "w": w,
+        "out_n": out_n,
+        "out_c": out_c,
+        "out_h": out_h,
+        "out_w": out_w,
+        "weight_o": weight_o,
+        "kernel_h": kernel_h,
+        "kernel_w": kernel_w,
+    }
+    payload.update(
+        {
+            "profile_key": profile_key,
+            "status": status,
+            "shape": shape_payload,
+            "tensors": {
+                "x": workload.x_tensor,
+                "weight": workload.weight_tensor,
+                "bias": workload.bias_tensor,
+                "output": workload.output_tensor,
+            },
+            "kernel_library": workload.kernel_library,
+            "elapsed_ms": float(elapsed_ms),
+            "iterations": int(iterations),
+            "repeats": int(timing_payload["repeats"]),
+            "timing": timing_payload,
+            "workspace_nbytes": actual_workspace_nbytes,
+            "flops": int(flops),
+            "bytes": int(bytes_moved),
+            "gflops": float(tflops * 1000.0),
+            "tflops": tflops,
+            "gbps": gbps,
+            "candidates": [candidate_result],
+            "selected": {
+                "candidate_id": workload.candidate_id,
+                "reason": reason,
+            },
+        }
+    )
     return payload
 
 
@@ -1487,6 +1594,43 @@ def _profile_key_payload(
 ) -> dict[str, Any]:
     _require_supported_profile_workload(workload, context="profile cache key")
     profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
+    if workload.kernel_library == "cutlass_conv":
+        return {
+            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": manifest["target"],
+            "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
+            "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
+            "support_cache_key": kernel_manifest.get("support_cache_key"),
+            "codegen_plan_cache_key": codegen_plan["cache_key"],
+            "kernel_library": workload.kernel_library,
+            "op": workload.op,
+            "dtype": workload.dtype,
+            "layouts": dict(workload.candidate.get("layouts", {})),
+            "semantic_layout": dict(workload.semantic_layout),
+            "provider_layout": dict(workload.provider_layout),
+            "layout_translation": dict(workload.layout_translation),
+            "weight_transform": dict(workload.weight_transform),
+            "conv_config": dict(workload.conv_config),
+            "shape": {
+                "input": list(workload.x_shape),
+                "weight": list(workload.weight_shape),
+                "bias": list(workload.bias_shape),
+                "output": list(workload.output_shape),
+                "source": workload.shape_source,
+                "case_id": workload.shape_case_id,
+                "dims": dict(workload.dim_values),
+            },
+            "profile_variant": {
+                "kind": str(workload.candidate.get("status", "")),
+                "profiler_status": str(workload.candidate.get("profiler_status", "")),
+            },
+            "kernel_symbol": workload.kernel_symbol,
+            "profiler_symbol": workload.profiler_symbol,
+            "candidate_set_id": workload.candidate_set_id,
+            "candidate_set_key": workload.candidate_set_key,
+            "candidate_id": workload.candidate_id,
+            "candidate_config_key": workload.candidate_config_key,
+        }
     shape = {"m": workload.m, "n": workload.n, "k": workload.k}
     if workload.batch_count is not None:
         shape["batch_count"] = int(workload.batch_count)
@@ -1635,7 +1779,7 @@ def _cache_entry(
     _require_supported_profile_workload(workload, context="profile cache write")
     candidate = result["candidates"][0]
     timing = dict(result.get("timing", {})) if isinstance(result.get("timing"), Mapping) else {}
-    return {
+    payload = {
         "profile_key": result["profile_key"],
         "key": dict(key_payload),
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -1643,11 +1787,9 @@ def _cache_entry(
         "dtype": workload.dtype,
         "kernel_library": workload.kernel_library,
         "shape": dict(result["shape"]),
-        "alignment_context": dict(result.get("alignment_context", workload.alignment_context)),
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "best_candidate_id": workload.candidate_id,
-        "split_k": int(result.get("split_k", workload.split_k)),
         "workspace_nbytes": int(result.get("workspace_nbytes", workload.workspace_nbytes)),
         "elapsed_ms": float(result.get("elapsed_ms", candidate["avg_ms"])),
         "avg_ms": float(candidate["avg_ms"]),
@@ -1659,6 +1801,19 @@ def _cache_entry(
         "iterations": int(candidate["iterations"]),
         "repeats": int(candidate.get("repeats", timing.get("repeats", 1)) or 1),
     }
+    if workload.kernel_library == "cutlass_conv":
+        payload.update(
+            {
+                "layout_translation": dict(workload.layout_translation),
+                "weight_transform": dict(workload.weight_transform),
+                "conv_config": dict(workload.conv_config),
+                "candidate_config_key": workload.candidate_config_key,
+            }
+        )
+    else:
+        payload["alignment_context"] = dict(result.get("alignment_context", workload.alignment_context))
+        payload["split_k"] = int(result.get("split_k", workload.split_k))
+    return payload
 
 
 def _profile_result_from_cache(
@@ -1712,38 +1867,24 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
 
 
 def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
-    for problem in report.get("problems", []):
-        if not isinstance(problem, Mapping):
-            continue
-        if problem.get("kernel_library") == "cutlass_conv":
-            raise NotImplementedError(
-                "CUTLASS Conv profile results do not have a real profiler yet; execution-plan generation is not "
-                f"implemented yet for {problem.get('op')}."
-            )
-    groups: dict[tuple[str, str, str, str, int, int, int, int], list[Mapping[str, Any]]] = {}
+    groups: dict[tuple[str, str, str, str, str], list[Mapping[str, Any]]] = {}
     for problem in report.get("problems", []):
         if not isinstance(problem, Mapping) or problem.get("status") not in {"ok", "cached"}:
             continue
         candidate_set_key = problem.get("candidate_set_key")
         if not candidate_set_key:
             continue
-        shape = problem.get("shape", {})
-        batch_count = 0
-        if isinstance(shape, Mapping) and shape.get("batch_count") is not None:
-            batch_count = int(shape.get("batch_count", 0) or 0)
-        elif problem.get("batch_count") is not None:
-            batch_count = int(problem.get("batch_count", 0) or 0)
+        shape_payload = _execution_plan_problem_shape(problem)
+        if shape_payload is None:
+            continue
         key = (
             str(problem.get("node_id", "")),
             str(problem.get("op", "")),
             str(problem.get("dtype", "")),
             str(candidate_set_key),
-            int(problem.get("m", 0)),
-            int(problem.get("n", 0)),
-            int(problem.get("k", 0)),
-            batch_count,
+            canonical_json(shape_payload),
         )
-        if key[0] and key[1] and key[2] and key[3] and key[4] > 0 and key[5] > 0 and key[6] > 0:
+        if key[0] and key[1] and key[2] and key[3]:
             groups.setdefault(key, []).append(problem)
 
     candidate_selections = [_selection_from_group(key, entries) for key, entries in sorted(groups.items())]
@@ -1791,7 +1932,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _selection_from_group(
-    key: tuple[str, str, str, str, int, int, int, int],
+    key: tuple[str, str, str, str, str],
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     ranked = sorted(
@@ -1806,15 +1947,15 @@ def _selection_from_group(
     runner_up = ranked[1] if len(ranked) > 1 else None
     candidate = _result_candidate(best)
     shape = dict(best.get("shape", {})) if isinstance(best.get("shape"), Mapping) else {}
-    shape.setdefault("m", key[4])
-    shape.setdefault("n", key[5])
-    shape.setdefault("k", key[6])
-    if key[7] > 0:
-        shape.setdefault("batch_count", key[7])
     split_k = _problem_split_k(best)
-    selection_shape = {"m": key[4], "n": key[5], "k": key[6]}
-    if key[7] > 0:
-        selection_shape["batch_count"] = key[7]
+    selection_shape = _execution_plan_problem_shape(best) or shape
+    profile_variant = (
+        dict(best.get("profile_variant", {}))
+        if isinstance(best.get("profile_variant"), Mapping)
+        else {"split_k": split_k}
+    )
+    if best.get("kernel_library") != "cutlass_conv":
+        profile_variant["split_k"] = split_k
     return {
         "selection_key": hashlib.sha256(
             canonical_json(
@@ -1839,7 +1980,8 @@ def _selection_from_group(
         "shape": shape,
         "workspace_nbytes": _problem_workspace_nbytes(best),
         "split_k": split_k,
-        "profile_variant": {"split_k": split_k},
+        "profile_variant": profile_variant,
+        "kernel_library": best.get("kernel_library"),
         "avg_ms": _problem_elapsed_ms(best),
         "gflops": float(best.get("gflops", 0.0)),
         "iterations": int(best.get("iterations", 0) or 0),
@@ -1847,6 +1989,44 @@ def _selection_from_group(
         "status": best.get("status"),
         "confidence": _selection_confidence(best, runner_up),
     }
+
+
+def _execution_plan_problem_shape(problem: Mapping[str, Any]) -> dict[str, Any] | None:
+    if problem.get("kernel_library") == "cutlass_conv":
+        shape = problem.get("shape")
+        if not isinstance(shape, Mapping):
+            return None
+        required = ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+        payload = {}
+        for field in required:
+            value = shape.get(field)
+            if type(value) is not int or value <= 0:
+                return None
+            payload[field] = int(value)
+        conv_config = problem.get("conv")
+        if isinstance(conv_config, Mapping):
+            payload["conv_config"] = {
+                "stride": list(conv_config.get("stride", ())),
+                "padding": list(conv_config.get("padding", ())),
+                "dilation": list(conv_config.get("dilation", ())),
+                "groups": conv_config.get("groups"),
+            }
+        return payload
+    shape = problem.get("shape", {})
+    batch_count = 0
+    if isinstance(shape, Mapping) and shape.get("batch_count") is not None:
+        batch_count = int(shape.get("batch_count", 0) or 0)
+    elif problem.get("batch_count") is not None:
+        batch_count = int(problem.get("batch_count", 0) or 0)
+    m = int(problem.get("m", 0))
+    n = int(problem.get("n", 0))
+    k = int(problem.get("k", 0))
+    if m <= 0 or n <= 0 or k <= 0:
+        return None
+    payload = {"m": m, "n": n, "k": k}
+    if batch_count > 0:
+        payload["batch_count"] = batch_count
+    return payload
 
 
 def _selection_confidence_policy() -> dict[str, Any]:
@@ -2096,6 +2276,11 @@ class _CudaProfiler:
             if "cutlass_bmm_library" in files
             else None
         )
+        self._cutlass_conv = (
+            ctypes.CDLL(str(artifact_dir / files["cutlass_conv_library"]), mode=global_mode)
+            if "cutlass_conv_library" in files
+            else None
+        )
         self._buffers: list[ctypes.c_void_p] = []
         self._runtime.dino_get_last_error.restype = ctypes.c_char_p
         if hasattr(self._cuda_runtime, "dino_get_last_error"):
@@ -2113,9 +2298,17 @@ class _CudaProfiler:
             self._check(self._cuda_runtime.dino_device_free(ptr))
             del self._buffers[index]
 
-    def profile(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
+    def profile(
+        self,
+        workload: GemmProfileWorkload | ConvProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
         if workload.kernel_library == "cutlass_bmm":
             return self._profile_bmm(workload, iterations=iterations, rng=rng)
+        if workload.kernel_library == "cutlass_conv":
+            return self._profile_conv(workload, iterations=iterations, rng=rng)
         if workload.kernel_library != "cutlass_gemm":
             raise RuntimeError(f"Unsupported profiler library {workload.kernel_library!r}")
         return self.profile_gemm(workload, iterations=iterations, rng=rng)
@@ -2301,11 +2494,67 @@ class _CudaProfiler:
             raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
         return elapsed_ms, int(workload.workspace_nbytes)
 
+    def _profile_conv(self, workload: ConvProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
+        n, c, h, w = (int(dim) for dim in workload.x_shape)
+        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+        weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+        if out_n != n or weight_i != c or weight_o != out_c:
+            raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
+        stride = [int(value) for value in workload.conv_config.get("stride", ())]
+        padding = [int(value) for value in workload.conv_config.get("padding", ())]
+        dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
+        if len(stride) != 2 or len(padding) != 2 or len(dilation) != 2:
+            raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
+        activation = self._device_array(_random_storage((n, h, w, c), workload.dtype, rng))
+        weight = self._device_array(_random_storage((weight_o, kernel_h, kernel_w, weight_i), workload.dtype, rng))
+        bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+        output = self._device_array(_zero_storage((out_n, out_h, out_w, out_c), workload.dtype))
+        fn = getattr(self._cutlass_library("cutlass_conv"), workload.profiler_symbol)
+        fn.restype = ctypes.c_float
+        fn.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            *([ctypes.c_int] * 16),
+            ctypes.c_void_p,
+        ]
+        elapsed_ms = float(
+            fn(
+                activation,
+                weight,
+                bias,
+                output,
+                ctypes.c_int(n),
+                ctypes.c_int(h),
+                ctypes.c_int(w),
+                ctypes.c_int(c),
+                ctypes.c_int(out_h),
+                ctypes.c_int(out_w),
+                ctypes.c_int(out_c),
+                ctypes.c_int(kernel_h),
+                ctypes.c_int(kernel_w),
+                ctypes.c_int(stride[0]),
+                ctypes.c_int(stride[1]),
+                ctypes.c_int(padding[0]),
+                ctypes.c_int(padding[1]),
+                ctypes.c_int(dilation[0]),
+                ctypes.c_int(dilation[1]),
+                ctypes.c_int(iterations),
+                ctypes.c_void_p(0),
+            )
+        )
+        if elapsed_ms < 0.0:
+            raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
+        return elapsed_ms, int(workload.workspace_nbytes)
+
     def _cutlass_library(self, library: str) -> ctypes.CDLL:
         if library == "cutlass_gemm" and self._cutlass_gemm is not None:
             return self._cutlass_gemm
         if library == "cutlass_bmm" and self._cutlass_bmm is not None:
             return self._cutlass_bmm
+        if library == "cutlass_conv" and self._cutlass_conv is not None:
+            return self._cutlass_conv
         raise RuntimeError(f"Artifact does not contain required {library} support library")
 
     def _cutlass_workspace_nbytes(self, workload: GemmProfileWorkload, cutlass: ctypes.CDLL) -> int:

@@ -23,6 +23,7 @@ _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
 _CUTLASS_CONV_RUNTIME_STATUS = "bounded_runtime"
 _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON = "cutlass_conv_runtime_launcher_not_implemented"
 _CUTLASS_CONV_PROFILER_BLOCKED_REASON = "cutlass_conv_profiler_not_implemented"
+_CUTLASS_CONV_RUNTIME_PROFILER_STATUS = "bounded_runtime_profiler"
 _CUTLASS_CONV_TRANSFORM_ABI = "dinoml_cutlass_layout_transform_v1"
 _CUTLASS_CONV_STUB_RETURN_CODE = 901
 _CUTLASS_CONV_STUB_PROFILE_MS = -1.0
@@ -350,8 +351,16 @@ def _cutlass_conv_candidate(
         "optional": bool(optional),
         "target_policy": dict(target_policy),
         "status": status,
-        "profiler_status": "unsupported_stub",
-        "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
+        "profiler_status": (
+            _CUTLASS_CONV_RUNTIME_PROFILER_STATUS
+            if status == _CUTLASS_CONV_RUNTIME_STATUS
+            else "unsupported_stub"
+        ),
+        **(
+            {}
+            if status == _CUTLASS_CONV_RUNTIME_STATUS
+            else {"profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON}
+        ),
     }
 
 
@@ -382,8 +391,16 @@ def cutlass_conv_candidate_set(
         "candidate_config_keys": [str(candidate["candidate_config_key"]) for candidate in candidates],
         "target_policy": normalized_target,
         "status": _conv_candidate_status(normalized_dtype),
-        "profiler_status": "unsupported_stub",
-        "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
+        "profiler_status": (
+            _CUTLASS_CONV_RUNTIME_PROFILER_STATUS
+            if _conv_candidate_status(normalized_dtype) == _CUTLASS_CONV_RUNTIME_STATUS
+            else "unsupported_stub"
+        ),
+        **(
+            {}
+            if _conv_candidate_status(normalized_dtype) == _CUTLASS_CONV_RUNTIME_STATUS
+            else {"profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON}
+        ),
     }
     return {
         **config,
@@ -448,7 +465,13 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         "candidate_set_keys": [str(item.get("candidate_set_key", "")) for item in candidate_sets],
         "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
         "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
-        "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
+        "profiler_symbols": sorted(
+            {
+                str(candidate.get("profiler_symbol", ""))
+                for candidate in candidates
+                if candidate.get("profiler_symbol")
+            }
+        ),
         "transform_helpers": transform_helpers,
         "transform_helper_symbols": [str(item["symbol"]) for item in transform_helpers],
     }
@@ -493,7 +516,13 @@ def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str,
         "candidate_set_keys": [str(item.get("candidate_set_key", "")) for item in candidate_sets],
         "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
         "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
-        "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
+        "profiler_symbols": sorted(
+            {
+                str(candidate.get("profiler_symbol", ""))
+                for candidate in candidates
+                if candidate.get("profiler_symbol")
+            }
+        ),
         "transform_helpers": transform_helpers,
         "transform_helper_symbols": [str(item["symbol"]) for item in transform_helpers],
     }
@@ -622,12 +651,10 @@ def validate_cutlass_conv_scaffold_plan(
             raise ValueError("CUTLASS Conv bounded runtime plan requires runtime metadata")
         if str(runtime.get("status")) != _CUTLASS_CONV_RUNTIME_STATUS:
             raise ValueError("CUTLASS Conv bounded runtime metadata has an unexpected status")
-        if str(payload.get("profiler_status")) != "unsupported_stub":
-            raise ValueError("CUTLASS Conv bounded runtime plan must keep profiler_status='unsupported_stub'")
-        if str(payload.get("profiler_blocked_reason")) != _CUTLASS_CONV_PROFILER_BLOCKED_REASON:
+        if str(payload.get("profiler_status")) != _CUTLASS_CONV_RUNTIME_PROFILER_STATUS:
             raise ValueError(
-                "CUTLASS Conv bounded runtime plan must record profiler_blocked_reason "
-                f"{_CUTLASS_CONV_PROFILER_BLOCKED_REASON!r}"
+                "CUTLASS Conv bounded runtime plan must record "
+                f"profiler_status={_CUTLASS_CONV_RUNTIME_PROFILER_STATUS!r}"
             )
     semantic_layout = dict(payload.get("semantic_layout", {}))
     provider_layout = dict(payload.get("provider_layout", {}))
@@ -828,8 +855,8 @@ def validate_cutlass_conv_scaffold_plan(
     payload["status"] = status
     if status == _CUTLASS_CONV_RUNTIME_STATUS:
         payload["runtime"] = dict(payload["runtime"])
-        payload["profiler_status"] = "unsupported_stub"
-        payload["profiler_blocked_reason"] = _CUTLASS_CONV_PROFILER_BLOCKED_REASON
+        payload["profiler_status"] = _CUTLASS_CONV_RUNTIME_PROFILER_STATUS
+        payload.pop("profiler_blocked_reason", None)
         payload.pop("blocked_reason", None)
     else:
         payload["blocked_reason"] = _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON
@@ -962,13 +989,19 @@ def _normalize_cutlass_conv_candidate_set(
         "target_policy",
         "status",
         "profiler_status",
-        "profiler_blocked_reason",
     ):
         if payload.get(field) != expected.get(field):
             raise ValueError(
                 f"CUTLASS Conv used candidate plan entry candidate_set.{field} mismatch: "
                 f"expected {expected.get(field)!r}, got {payload.get(field)!r}"
             )
+    if expected.get("profiler_blocked_reason") is not None and payload.get("profiler_blocked_reason") != expected.get(
+        "profiler_blocked_reason"
+    ):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate_set.profiler_blocked_reason mismatch: "
+            f"expected {expected.get('profiler_blocked_reason')!r}, got {payload.get('profiler_blocked_reason')!r}"
+        )
     if str(selected_candidate.get("candidate_config_key", "")) not in payload["candidate_config_keys"]:
         raise ValueError(
             "CUTLASS Conv used candidate plan entry candidate_set does not contain the selected candidate config key"
@@ -1012,13 +1045,19 @@ def _validate_cutlass_conv_selected_candidate(op_name: str, candidate: Mapping[s
         "target_policy",
         "status",
         "profiler_status",
-        "profiler_blocked_reason",
     ):
         if candidate_payload.get(field) != expected.get(field):
             raise ValueError(
                 f"CUTLASS Conv used candidate plan entry candidate.{field} mismatch: "
                 f"expected {expected.get(field)!r}, got {candidate_payload.get(field)!r}"
             )
+    if expected.get("profiler_blocked_reason") is not None and candidate_payload.get(
+        "profiler_blocked_reason"
+    ) != expected.get("profiler_blocked_reason"):
+        raise ValueError(
+            "CUTLASS Conv used candidate plan entry candidate.profiler_blocked_reason mismatch: "
+            f"expected {expected.get('profiler_blocked_reason')!r}, got {candidate_payload.get('profiler_blocked_reason')!r}"
+        )
 
 
 def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -1291,12 +1330,21 @@ def _cutlass_conv_stub_source_exports(used_candidate_plan: Mapping[str, Any]) ->
             lines.append(_cutlass_conv_runtime_launcher_source(symbol_name, candidate))
         else:
             lines.append(_cutlass_conv_stub_launcher_source(symbol_name))
+    candidates_by_profiler = {
+        str(candidate.get("profiler_symbol", "")): candidate
+        for candidate in used_candidate_plan.get("candidates", ())
+        if isinstance(candidate, Mapping)
+    }
     for symbol in used_candidate_plan.get("profiler_symbols", ()):
         symbol_name = str(symbol)
         if not symbol_name or symbol_name in emitted:
             continue
         emitted.add(symbol_name)
-        lines.append(_cutlass_conv_stub_profiler_source(symbol_name))
+        candidate = candidates_by_profiler.get(symbol_name)
+        if isinstance(candidate, Mapping) and str(candidate.get("status", "")) == _CUTLASS_CONV_RUNTIME_STATUS:
+            lines.append(_cutlass_conv_runtime_profiler_source(symbol_name, candidate))
+        else:
+            lines.append(_cutlass_conv_stub_profiler_source(symbol_name))
     return "\n\n".join(lines) if lines else "// no CUTLASS Conv stub exports requested"
 
 
@@ -1460,8 +1508,97 @@ def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
 }}"""
 
 
+def _cutlass_conv_runtime_profiler_source(symbol: str, candidate: Mapping[str, Any]) -> str:
+    launcher_symbol = str(candidate.get("kernel_symbol", ""))
+    if not launcher_symbol:
+        raise ValueError(f"CUTLASS Conv runtime profiler {symbol!r} is missing a launcher symbol")
+    return f"""extern "C" float {symbol}(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    cudaStream_t stream) {{
+  if (iterations <= 0) {{
+    return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+  }}
+  cudaEvent_t start;
+  cudaEvent_t stop;
+  cudaError_t event_status = cudaEventCreate(&start);
+  if (event_status != cudaSuccess) {{
+    return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+  }}
+  event_status = cudaEventCreate(&stop);
+  if (event_status != cudaSuccess) {{
+    cudaEventDestroy(start);
+    return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+  }}
+  cudaStream_t profile_stream = stream;
+  cudaEventRecord(start, profile_stream);
+  for (int iter = 0; iter < iterations; ++iter) {{
+    int status = {launcher_symbol}(
+        activation_nhwc,
+        weight_ohwi,
+        bias,
+        output_nhwc,
+        n,
+        h,
+        w,
+        c,
+        out_h,
+        out_w,
+        out_c,
+        kernel_h,
+        kernel_w,
+        stride_h,
+        stride_w,
+        pad_h,
+        pad_w,
+        dilation_h,
+        dilation_w,
+        profile_stream);
+    if (status != 0) {{
+      cudaEventDestroy(start);
+      cudaEventDestroy(stop);
+      return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+    }}
+  }}
+  cudaEventRecord(stop, profile_stream);
+  event_status = cudaEventSynchronize(stop);
+  if (event_status != cudaSuccess) {{
+    cudaEventDestroy(start);
+    cudaEventDestroy(stop);
+    return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+  }}
+  float elapsed_ms = 0.0f;
+  event_status = cudaEventElapsedTime(&elapsed_ms, start, stop);
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+  if (event_status != cudaSuccess) {{
+    return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+  }}
+  return elapsed_ms;
+}}"""
+
+
 def _cutlass_conv_transform_runtime_support_source() -> str:
-    return """#include "cutlass/cutlass.h"
+    return """#include <cuda_runtime.h>
+#include "cutlass/cutlass.h"
 #include "cutlass/half.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
 #include "cutlass/conv/device/implicit_gemm_convolution.h"
@@ -2170,8 +2307,7 @@ def _conv_plan_status_payload(dtype: str) -> dict[str, Any]:
                 "status": _CUTLASS_CONV_RUNTIME_STATUS,
                 "launcher": "cutlass_implicit_gemm_conv2d_fprop_bias",
             },
-            "profiler_status": "unsupported_stub",
-            "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
+            "profiler_status": _CUTLASS_CONV_RUNTIME_PROFILER_STATUS,
         }
     return {"blocked_reason": _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON}
 

@@ -184,6 +184,7 @@ def ensure_cutlass_conv_support_scaffold(
         external_kernel_plan_cache_key=external_kernel_plan_cache_key,
         source_hash=source_hash,
         used_candidate_plan_key=str(used_candidate_plan["used_candidate_plan_key"]),
+        profiler_status=_cutlass_conv_profiler_status(used_candidate_plan),
         compile_flags=compile_flags,
         compile_status=compile_status,
         cutlass=cutlass,
@@ -194,9 +195,10 @@ def ensure_cutlass_conv_support_scaffold(
         "flags": compile_flags,
         "include_roots": [str(root) for root in include_roots if root.exists()],
         "source_metrics": source_metrics,
-        "profiler_status": "unsupported_stub",
-        "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
+        "profiler_status": _cutlass_conv_profiler_status(used_candidate_plan),
     }
+    if compile_payload["profiler_status"] == "unsupported_stub":
+        compile_payload["profiler_blocked_reason"] = "cutlass_conv_profiler_not_implemented"
     if compile_status in {"compiled_stub_only", "compiled_bounded_runtime"}:
         compile_payload["command"] = compile_command
         compile_payload["duration_ms"] = compile_duration_ms
@@ -226,8 +228,12 @@ def ensure_cutlass_conv_support_scaffold(
             "cache_key": manifest_key,
             **({"library_sha256": library_hash} if library_hash is not None else {}),
             "status": compile_status,
-            "profiler_status": "unsupported_stub",
-            "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
+            "profiler_status": _cutlass_conv_profiler_status(used_candidate_plan),
+            **(
+                {"profiler_blocked_reason": "cutlass_conv_profiler_not_implemented"}
+                if _cutlass_conv_profiler_status(used_candidate_plan) == "unsupported_stub"
+                else {}
+            ),
         },
     )
     return CutlassSupportScaffold(
@@ -461,6 +467,7 @@ def _cutlass_conv_scaffold_provenance(
     external_kernel_plan_cache_key: str,
     source_hash: str,
     used_candidate_plan_key: str,
+    profiler_status: str,
     compile_flags: Sequence[str],
     compile_status: str,
     cutlass: Any | None = None,
@@ -479,13 +486,29 @@ def _cutlass_conv_scaffold_provenance(
         "compile_flags": compile_flags,
         "include_roots": [str(root) for root in include_roots if root.exists()],
         "dependencies": dependencies,
-        "profiler_status": "unsupported_stub",
-        "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
+        "profiler_status": profiler_status,
     }
+    if payload["profiler_status"] == "unsupported_stub":
+        payload["profiler_blocked_reason"] = "cutlass_conv_profiler_not_implemented"
     return {
         **payload,
         "provenance_key": hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest(),
     }
+
+
+def _cutlass_conv_profiler_status(used_candidate_plan: Mapping[str, Any]) -> str:
+    return _cutlass_conv_profiler_status_from_candidates(used_candidate_plan)
+
+
+def _cutlass_conv_profiler_status_from_candidates(used_candidate_plan: Mapping[str, Any]) -> str:
+    statuses = {
+        str(candidate.get("profiler_status", ""))
+        for candidate in used_candidate_plan.get("candidates", ())
+        if isinstance(candidate, Mapping)
+    }
+    if "bounded_runtime_profiler" in statuses:
+        return "bounded_runtime_profiler"
+    return "unsupported_stub"
 
 
 def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status: str) -> list[dict[str, Any]]:
@@ -530,14 +553,28 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status
         symbol_name = str(symbol)
         if not symbol_name:
             continue
+        candidate = next(
+            (
+                item
+                for item in used_candidate_plan.get("candidates", ())
+                if isinstance(item, Mapping) and str(item.get("profiler_symbol", "")) == symbol_name
+            ),
+            {},
+        )
+        profiler_status = str(candidate.get("profiler_status", "unsupported_stub")) if isinstance(candidate, Mapping) else "unsupported_stub"
+        export = {
+            "kind": "profiler",
+            "symbol": symbol_name,
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": status,
+            "profiler_status": profiler_status,
+        }
+        if profiler_status == "bounded_runtime_profiler":
+            export["success_return_min_ms"] = 0.0
+        else:
+            export["return_value_ms"] = -1.0
         exports.append(
-            {
-                "kind": "profiler",
-                "symbol": symbol_name,
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-                "status": status,
-                "return_value_ms": -1.0,
-            }
+            export
         )
     return exports
 

@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded CLIP text dense-attention composition slice without adding a
+  public attention op or FlashAttention/provider surface: focused regressions
+  now prove a tiny static CLIP-style text self-attention path built from
+  existing `gemm_rcr_bias`, static shape views, `permute0213`, rank-3
+  `bmm_rcr`/`bmm_rrr`, scale multiply, static additive causal-mask constant,
+  optional bool padding mask via `reshape`/`expand`/`where`, last-dim
+  `softmax`, and output projection. CPU reference parity covers unpadded and
+  padded cases, and CUDA manifest coverage keeps provider ownership honest by
+  showing CUTLASS GEMM/BMM kernels remain provider-backed while softmax remains
+  model-generated. This is still a static composition proof, not
+  `CLIPTextModel`, not a dynamic mask builder, and not a fused attention
+  admission.
 - Landed a bounded CLIP text-embedding composition slice without adding any
   new public op: focused regressions now prove
   `token_embedding(input_ids) + position_embedding(position_ids)` for both

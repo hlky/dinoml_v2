@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining native-boundary regression gap around the bounded GGUF
+  runtime-dequant CUDA slice without widening policy: direct native
+  `dino_module_load()` now has CUDA-gated coverage for a mixed dense-bias plus
+  encoded GGUF RHS `gemm_rrr_bias` artifact, proving that native module load
+  autoloads only the dense bias, native encoded-weight installation plus the
+  explicit `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` hook make
+  the lowered runtime-dequant path runnable, native
+  `dino_module_unload_constants()` / `dino_module_load_constants()` preserve the
+  installed dequantizer pointer while requiring only the encoded weight to be
+  reinstalled, and a freshly reopened native module handle again requires
+  reinstalling the dequantizer hook before the same encoded bytes can run.
 - Closed the skeptical-reviewer follow-ups on the bounded GGUF
   runtime-dequant scratch-resource slice without widening policy: support
   library cache keys no longer churn from generated-module/runtime
@@ -422,6 +433,7 @@ This file should be updated after each major loop.
    robustness slice if a new concrete stale-payload edge appears in an existing
    cache/test area; otherwise keep provider-cache work paused and avoid
    speculative broadening.
-4. Add one more bounded native regression only if another GGUF loader edge
-   appears, preferably around encoded-runtime-dequant native reload behavior
-   rather than broadening the runtime surface.
+4. Add one more bounded GGUF regression only if another concrete loader or
+   native/runtime contract edge appears, preferably around runtime load-plan
+   edge cases or mixed dense/manual encoded constants on the lowered
+   runtime-dequant path rather than broadening the runtime surface.

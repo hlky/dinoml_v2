@@ -1397,6 +1397,259 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_d
     np.testing.assert_allclose(reopened_output, expected0, atol=1e-4, rtol=1e-4)
 
 
+def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encoded_weight_only_on_same_module(
+    tmp_path, monkeypatch
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    libgguf = pytest.importorskip("libgguf")
+    pytest.importorskip("libgguf.libgguf_cuda")
+    dequant_fn_ptr = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
+    if dequant_fn_ptr is None:
+        pytest.skip("libgguf CUDA native dequantize ABI is not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class EncodedRhsBiasGemm(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([32, 32], dtype="float32")
+            self.bias = dml.Parameter([32], dtype="float32")
+
+        def forward(self, x):
+            return dml.ops.output(dml.ops.gemm_rrr_bias(x, self.weight, self.bias), "y")
+
+    rows = np.linspace(-1.5, 1.5, 32 * 32, dtype=np.float32).reshape(32, 32)
+    bias = np.linspace(-0.25, 0.5, 32, dtype=np.float32)
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    encoded = libgguf.quantize_rows(rows, qtype)
+    expected_weight = libgguf.dequantize_rows(encoded, qtype, n_per_row=32).reshape(32, 32)
+    gguf_path = tmp_path / "weights.gguf"
+    _write_minimal_gguf_tensor(
+        gguf_path,
+        name="blk.0.ffn.weight",
+        gguf_shape=(32, 32),
+        qtype_value=int(qtype),
+        payload=encoded.tobytes(order="C"),
+    )
+    weight_source = dml.gguf_constant(
+        gguf_path,
+        "blk.0.ffn.weight",
+        qtype="Q4_0",
+        encoded_nbytes=encoded.nbytes,
+        n_per_row=32,
+        materialization="dequantize_on_gpu_before_launch",
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        EncodedRhsBiasGemm(),
+        inputs={"x": dml.TensorSpec([2, 32], "float32")},
+        constants={"weight": weight_source, "bias": bias},
+        name="gguf_q4_0_runtime_dequant_gemm_rrr_bias_native_reload",
+    )
+    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": weight_source, "bias": bias})
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86", no_tf32=True),
+        tmp_path / "gguf_q4_0_runtime_dequant_gemm_rrr_bias_native_reload.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    module = runtime.load(artifact.path, load_constants=False)
+    assert module._cuda_runtime_dll is not None
+
+    x0 = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
+    x1 = np.linspace(0.125, 1.375, 64, dtype=np.float32).reshape(2, 32)
+    expected0 = x0 @ expected_weight + bias
+    expected1 = x1 @ expected_weight + bias
+
+    native_handle = ctypes.c_void_p()
+    session_handle = ctypes.c_void_p()
+    input_ptr = ctypes.c_void_p()
+    output_ptr = ctypes.c_void_p()
+    encoded_ptr = ctypes.c_void_p()
+    input_keepalive = output_keepalive = None
+
+    def _copy_host_array_to_device(array: np.ndarray) -> ctypes.c_void_p:
+        ptr = ctypes.c_void_p()
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes))
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_host_to_device(
+                ptr,
+                ctypes.c_void_p(array.ctypes.data),
+                ctypes.c_size_t(array.nbytes),
+            )
+        )
+        return ptr
+
+    def _run_native_input(x_value: np.ndarray) -> np.ndarray:
+        y = np.empty((x_value.shape[0], bias.shape[0]), dtype=np.float32)
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_host_to_device(
+                input_ptr,
+                ctypes.c_void_p(x_value.ctypes.data),
+                ctypes.c_size_t(x_value.nbytes),
+            )
+        )
+        module._check(
+            module._dll.dino_session_run(
+                session_handle,
+                inputs,
+                ctypes.c_size_t(1),
+                outputs,
+                ctypes.c_size_t(1),
+            )
+        )
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_copy_device_to_host(
+                ctypes.c_void_p(y.ctypes.data),
+                output_ptr,
+                ctypes.c_size_t(y.nbytes),
+            )
+        )
+        return y
+
+    try:
+        module._check(module._dll.dino_module_load(str(artifact.path).encode("utf-8"), ctypes.byref(native_handle)))
+        assert native_handle.value
+
+        module._check(module._dll.dino_session_create(native_handle, ctypes.byref(session_handle)))
+        assert session_handle.value
+
+        input_ptr = _copy_host_array_to_device(x0)
+        module._check_cuda_runtime(
+            module._cuda_runtime_dll.dino_device_malloc(ctypes.byref(output_ptr), ctypes.c_size_t(expected0.nbytes))
+        )
+        input_tensor, input_keepalive = runtime._make_dino_tensor(
+            input_ptr,
+            x0.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=x0.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        output_tensor, output_keepalive = runtime._make_dino_tensor(
+            output_ptr,
+            expected0.shape,
+            dtype_runtime_enum("float32"),
+            nbytes=expected0.nbytes,
+            device_type=runtime.DINO_DEVICE_CUDA,
+        )
+        inputs = (runtime._DinoTensor * 1)(input_tensor)
+        outputs = (runtime._DinoTensor * 1)(output_tensor)
+
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+
+        module._check(
+            module._dll.dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
+                native_handle,
+                ctypes.c_void_p(dequant_fn_ptr),
+            )
+        )
+        encoded_ptr = _copy_host_array_to_device(encoded)
+        module._check(
+            module._dll.dino_module_set_encoded_constant(
+                native_handle,
+                b"weight",
+                encoded_ptr,
+                ctypes.c_size_t(encoded.nbytes),
+            )
+        )
+        loaded = _run_native_input(x0)
+
+        module._check(module._dll.dino_module_unload_constants(native_handle))
+        module._check(
+            module._dll.dino_module_load_constants(
+                native_handle,
+                str(artifact.path / "constants.bin").encode("utf-8"),
+            )
+        )
+        with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+
+        module._check(
+            module._dll.dino_module_set_encoded_constant(
+                native_handle,
+                b"weight",
+                encoded_ptr,
+                ctypes.c_size_t(encoded.nbytes),
+            )
+        )
+        reloaded = _run_native_input(x1)
+
+        module._check(module._dll.dino_session_destroy(session_handle))
+        session_handle = ctypes.c_void_p()
+        module._check(module._dll.dino_module_free(native_handle))
+        native_handle = ctypes.c_void_p()
+
+        module._check(module._dll.dino_module_load(str(artifact.path).encode("utf-8"), ctypes.byref(native_handle)))
+        module._check(module._dll.dino_session_create(native_handle, ctypes.byref(session_handle)))
+        with pytest.raises(
+            RuntimeError,
+            match="gemm_rrr_bias GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher",
+        ):
+            module._check(
+                module._dll.dino_module_set_encoded_constant(
+                    native_handle,
+                    b"weight",
+                    encoded_ptr,
+                    ctypes.c_size_t(encoded.nbytes),
+                )
+            )
+            module._check(
+                module._dll.dino_session_run(
+                    session_handle,
+                    inputs,
+                    ctypes.c_size_t(1),
+                    outputs,
+                    ctypes.c_size_t(1),
+                )
+            )
+
+        module._check(
+            module._dll.dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
+                native_handle,
+                ctypes.c_void_p(dequant_fn_ptr),
+            )
+        )
+        reopened = _run_native_input(x0)
+    finally:
+        if encoded_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(encoded_ptr))
+        if output_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(output_ptr))
+        if input_ptr.value:
+            module._check_cuda_runtime(module._cuda_runtime_dll.dino_device_free(input_ptr))
+        if session_handle.value:
+            module._check(module._dll.dino_session_destroy(session_handle))
+        if native_handle.value:
+            module._check(module._dll.dino_module_free(native_handle))
+        module.close()
+
+    np.testing.assert_allclose(loaded, expected0, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reloaded, expected1, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reopened, expected0, atol=1e-4, rtol=1e-4)
+
+
 def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

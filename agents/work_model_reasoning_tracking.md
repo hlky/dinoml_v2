@@ -26,3 +26,4 @@ Format:
 - 199ca28, Exercise CUTLASS conv profiler stub export, gpt-5.5, high
 - f6dfe0d, Add CUTLASS conv layout transform helpers, gpt-5.4, high
 - 29bf5aa, Expose GGUF dequant scratch session resource, gpt-5.5, high
+- 49a1382, Fix GGUF dequant scratch cache keys, gpt-5.5, high

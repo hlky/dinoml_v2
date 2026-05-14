@@ -22,3 +22,4 @@ Format:
 - bd0ea2a, Align specialized permute schema attrs, gpt-5.4, high
 - 34eff08, Extract where frontend module, gpt-5.4, medium
 - 0d73929, Compile CUTLASS conv support stubs, gpt-5.5, high
+- b6ea294, Fix CUTLASS conv source-only scaffold metadata, gpt-5.5, high

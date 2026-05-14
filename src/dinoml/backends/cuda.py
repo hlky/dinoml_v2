@@ -8,9 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from dinoml.backends.cutlass import ensure_cutlass_bmm_support_lib, ensure_cutlass_gemm_support_lib
+from dinoml.backends.cutlass import (
+    ensure_cutlass_bmm_support_lib,
+    ensure_cutlass_conv_support_scaffold,
+    ensure_cutlass_gemm_support_lib,
+)
 from dinoml.ir import write_json
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cuda import render_cuda_module, render_template
@@ -24,6 +29,7 @@ class SupportLibs:
     kernels_lib: Path
     cutlass_gemm_lib: Path | None
     cutlass_bmm_lib: Path | None
+    cutlass_conv_lib: Path | None
     runtime_include: Path
     common_include: Path
     kernels_include: Path
@@ -45,6 +51,7 @@ def build_cuda_module(
     kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
     cutlass_gemm_lib = None if support_libs.cutlass_gemm_lib is None else artifact_lib_dir / support_libs.cutlass_gemm_lib.name
     cutlass_bmm_lib = None if support_libs.cutlass_bmm_lib is None else artifact_lib_dir / support_libs.cutlass_bmm_lib.name
+    cutlass_conv_lib = None if support_libs.cutlass_conv_lib is None else artifact_lib_dir / support_libs.cutlass_conv_lib.name
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.cuda_runtime_lib, cuda_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
@@ -52,6 +59,8 @@ def build_cuda_module(
         shutil.copy2(support_libs.cutlass_gemm_lib, cutlass_gemm_lib)
     if support_libs.cutlass_bmm_lib is not None and cutlass_bmm_lib is not None:
         shutil.copy2(support_libs.cutlass_bmm_lib, cutlass_bmm_lib)
+    if support_libs.cutlass_conv_lib is not None and cutlass_conv_lib is not None:
+        shutil.copy2(support_libs.cutlass_conv_lib, cutlass_conv_lib)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
@@ -74,6 +83,7 @@ def build_cuda_module(
                 "kernels_lib": str(kernels_lib),
                 "cutlass_gemm_lib": "" if cutlass_gemm_lib is None else str(cutlass_gemm_lib),
                 "cutlass_bmm_lib": "" if cutlass_bmm_lib is None else str(cutlass_bmm_lib),
+                "cutlass_conv_lib": "" if cutlass_conv_lib is None else str(cutlass_conv_lib),
                 "runtime_include": str(support_libs.runtime_include),
                 "common_include": str(support_libs.common_include),
                 "kernels_include": str(support_libs.kernels_include),
@@ -116,6 +126,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     kernels_lib = lib_dir / "libdinoml_cuda_kernels.so"
     cutlass_gemm_lib = None
     cutlass_bmm_lib = None
+    cutlass_conv_lib = None
 
     lib_dir.mkdir(parents=True, exist_ok=True)
     _run_cmake(
@@ -161,6 +172,18 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
             used_candidate_plan=cutlass_bmm_used_candidate_plan(kernel_manifest),
         )
         cutlass_bmm_lib = cutlass_support.library
+    if _requires_kernel_library(kernel_manifest, "cutlass_conv"):
+        cutlass_support = ensure_cutlass_conv_support_scaffold(
+            arch,
+            cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
+            used_candidate_plan=cutlass_conv_used_candidate_plan(kernel_manifest),
+        )
+        cutlass_conv_lib = cutlass_support.manifest.parent / "libdinoml_cutlass_conv.so"
+        if not cutlass_conv_lib.exists():
+            raise NotImplementedError(
+                "CUTLASS Conv support scaffold did not produce a compiled support library; "
+                "nvcc is required before generated CUDA module build can link the guarded Conv wrapper"
+            )
     libraries = {
         "runtime": runtime_lib.name,
         "cuda_runtime": cuda_runtime_lib.name,
@@ -170,6 +193,8 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         libraries["cutlass_gemm"] = cutlass_gemm_lib.name
     if cutlass_bmm_lib is not None:
         libraries["cutlass_bmm"] = cutlass_bmm_lib.name
+    if cutlass_conv_lib is not None:
+        libraries["cutlass_conv"] = cutlass_conv_lib.name
     default_target = {"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"}
     support_target = dict(kernel_manifest.get("target", default_target)) if kernel_manifest is not None else default_target
     write_json(
@@ -186,6 +211,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         kernels_lib=kernels_lib,
         cutlass_gemm_lib=cutlass_gemm_lib,
         cutlass_bmm_lib=cutlass_bmm_lib,
+        cutlass_conv_lib=cutlass_conv_lib,
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "cuda" / "include",

@@ -8,6 +8,7 @@ import torch
 import torch.nn.functional as F
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cutlass import ensure_cutlass_conv_support_scaffold
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage, read_json
@@ -580,13 +581,17 @@ def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_pa
         dml.compile(spec, dml.Target("cpu"), tmp_path / "conv2d_bias_cpu.dinoml")
 
 
-def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtime_boundary(tmp_path, monkeypatch):
     spec = _trace_conv2d_bias("float16")
     artifact_dir = tmp_path / "conv2d_bias_cuda.dinoml"
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
-    with pytest.raises(NotImplementedError, match="manifest/codegen scaffold only"):
+    nvcc_available = shutil.which("nvcc") is not None
+    if nvcc_available:
         dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+    else:
+        with pytest.raises(NotImplementedError, match="compiled support library"):
+            dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
     kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
     [required] = kernel_manifest["required_kernels"]
@@ -697,7 +702,6 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
         assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
         assert "library_sha256" not in support_manifest
         assert not (support_cache_dir / "lib" / "libdinoml_cutlass_conv.so").exists()
-        assert not (artifact_dir / "manifest.json").exists()
         assert not (artifact_dir / "module.so").exists()
         return
     assert support_manifest["status"] == "compiled_stub_only"
@@ -774,8 +778,32 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
         5,
         None,
     ) == pytest.approx(-1.0)
-    assert not (artifact_dir / "manifest.json").exists()
-    assert not (artifact_dir / "module.so").exists()
+    artifact_manifest = read_json(artifact_dir / "manifest.json")
+    assert artifact_manifest["files"]["cutlass_conv_library"] == "lib/libdinoml_cutlass_conv.so"
+    assert (artifact_dir / "lib" / "libdinoml_cutlass_conv.so").exists()
+    assert (artifact_dir / "module.so").exists()
+    module_source = (artifact_dir / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "void* cutlass_conv_tmp_" in module_source
+    assert f"extern \"C\" int {required['cutlass_conv_plan']['layout_translation']['input_pack_symbol']}(" in module_source
+    assert f"extern \"C\" int {required['cutlass_conv_plan']['weight_transform']['pack_symbol']}(" in module_source
+    assert f"extern \"C\" int {required['kernel_symbol']}(" in module_source
+    assert required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"] in module_source
+    assert required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"] in module_source
+    assert required["kernel_symbol"] in module_source
+    assert required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"] in module_source
+    assert "CUTLASS Conv provider launcher is unsupported by the current scaffold" in module_source
+    if torch.cuda.is_available():
+        module = runtime.load(artifact_dir, load_constants=False)
+        session = module.create_session()
+        try:
+            x = np.ones((2, 3, 7, 8), dtype=np.float16)
+            weight = np.ones((4, 3, 3, 2), dtype=np.float16)
+            bias = np.ones((4,), dtype=np.float16)
+            with pytest.raises(RuntimeError, match="CUTLASS Conv provider launcher is unsupported"):
+                session.run_numpy({"x": x, "weight": weight, "bias": bias})
+        finally:
+            session.close()
+            module.close()
 
 
 def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tmp_path, monkeypatch):

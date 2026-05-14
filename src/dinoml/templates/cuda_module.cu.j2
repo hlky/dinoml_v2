@@ -54,6 +54,10 @@ struct DinoSession {
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
+{% for temp in cutlass_conv_temporaries %}
+  void* cutlass_conv_tmp_{{ temp.ident }} = nullptr;
+  size_t cutlass_conv_tmp_{{ temp.ident }}_nbytes = {{ temp.nbytes }};
+{% endfor %}
 {% for shape in shape_buffers %}
   int64_t* shape_{{ shape.ident }} = nullptr;
 {% endfor %}
@@ -297,6 +301,9 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
 {% for temp in temporaries %}
   DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
+{% for temp in cutlass_conv_temporaries %}
+  DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->cutlass_conv_tmp_{{ temp.ident }}, {{ temp.nbytes }}));
+{% endfor %}
 {% for shape in shape_buffers %}
   DINO_SESSION_CREATE_CUDA_CHECK(cudaMalloc(&session->shape_{{ shape.ident }}, sizeof(int64_t) * {{ shape.rank }}));
 {% endfor %}
@@ -327,6 +334,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
 {% for temp in temporaries %}
   if (session->tmp_{{ temp.ident }}) {
     cudaFree(session->tmp_{{ temp.ident }});
+  }
+{% endfor %}
+{% for temp in cutlass_conv_temporaries %}
+  if (session->cutlass_conv_tmp_{{ temp.ident }}) {
+    cudaFree(session->cutlass_conv_tmp_{{ temp.ident }});
   }
 {% endfor %}
 {% if cutlass_workspace %}

@@ -131,7 +131,11 @@ key used for cache reuse and profiling fingerprints. The support cache also
 writes a `dinoml.support_source_manifest` at `src/source_manifest.json`, which
 maps the reviewable support source to candidate set keys, candidate config keys,
 launcher/profiler symbols, and support build units for later generated CUTLASS
-candidates.
+candidates. CUDA artifacts with the current `cutlass_conv` scaffold carry
+`libdinoml_cutlass_conv.so` only as a guarded support-stub boundary: generated
+modules can pack NCHW/OIHW inputs into NHWC/OHWI temporaries and call the
+selected Conv launcher symbol, but that launcher still returns an explicit
+unsupported status until a real CUTLASS Conv runtime lands.
 
 Generated model code is a small Jinja2 wrapper that links against those
 libraries. It loads runtime metadata from `metadata.json` and contains launch

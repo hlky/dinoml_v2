@@ -253,14 +253,17 @@ porting. It intentionally excludes the op inventory, which lives in
   metadata fail explicitly instead of silently propagating through artifact
   provenance. `kernel_codegen_plan.json` now additionally records explicit
   wrapper-stage metadata for activation pack, weight pack, planned provider
-  launch, and output unpack, and those stage entries can be rendered into
-  future CUDA wrapper call snippets for source-level tests without enabling
-  runtime lowering. Rejected CUDA artifacts now also emit guarded debug wrapper
-  scaffold `.cu` sources plus a small scaffold-source manifest under
-  `debug/generated_src/`, linked from `kernel_codegen_plan.json` for
-  artifact-side inspection only. Generated ConvNd module wrapper lowering,
-  profiler execution, real CUTLASS Conv runtime launch, and general
-  channel-last runtime layout remain unimplemented.
+  launch, and output unpack, and rejected/compiled CUDA artifacts also emit
+  guarded debug wrapper scaffold `.cu` sources plus a small scaffold-source
+  manifest under `debug/generated_src/`, linked from `kernel_codegen_plan.json`
+  for artifact-side inspection. Generated CUDA modules now consume that same
+  plan enough to allocate the per-session Conv pack/unpack temporaries, call
+  the support-library transform helpers, call the selected provider launcher
+  symbol, and unpack outputs back to NCHW. The selected provider launcher is
+  still the unsupported scaffold export, so runtime fails clearly at that
+  boundary; profiler execution, real CUTLASS Conv runtime launch,
+  execution-plan consumption, and general channel-last runtime layout remain
+  unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

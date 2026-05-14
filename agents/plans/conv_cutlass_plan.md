@@ -331,8 +331,14 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   caller-side mutations to selected-candidate layout or dtype metadata now fail
   before support manifests are emitted, so the scaffold does not become a
   side-door for stale candidate provenance.
-- Model CUDA compile still rejects before writing the final artifact manifest or
-  building the generated module while the kernel manifest remains
-  `manifest_scaffold_only`; no generated pack/unpack lowering, CUTLASS
+- Model CUDA compile now builds a generated module when `nvcc` can compile the
+  support stub library. The generated wrapper allocates the manifest-recorded
+  per-session NHWC/OHWI/NHWC temporaries, calls the exported support-library
+  NCHW -> NHWC activation pack helper, OIHW -> OHWI weight pack helper, selected
+  provider launcher symbol, and NHWC -> NCHW output unpack helper in order, and
+  the artifact manifest carries `lib/libdinoml_cutlass_conv.so`. The selected
+  provider launcher is still the scaffold export and returns the documented
+  unsupported status, so runtime execution now fails at an honest generated
+  provider-call boundary instead of rejecting before module build. No CUTLASS
   implicit-GEMM launcher, profiler execution, execution-plan consumption, or
   CUDA runtime parity is claimed yet.

@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` generated-runtime lane
+  without claiming a real Conv launcher: when `nvcc` can build the existing
+  support stub library, CUDA compile now completes module build, links
+  `lib/libdinoml_cutlass_conv.so`, allocates the manifest-recorded per-session
+  NHWC/OHWI/NHWC wrapper temporaries, runs the activation and weight pack
+  helpers, calls the selected provider launcher symbol, and keeps the NCHW
+  output unpack in generated source. The provider call still reaches the
+  documented unsupported scaffold export and runtime fails clearly at that
+  boundary, so no CUTLASS implicit-GEMM Conv launch, profiler execution,
+  execution-plan consumption, or CUDA parity is claimed.
 - Landed a bounded CLIP text encoder-layer composition slice without adding
   `CLIPTextModel`, a new op, or a flash provider path: focused regressions now
   prove one tiny float32 text encoder layer as

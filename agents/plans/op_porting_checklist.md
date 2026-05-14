@@ -568,14 +568,17 @@ behavior.
   `cutlass_conv` support-cache/source-manifest boundary with the used candidate
   plan and transform provenance under the advertised support `cache_dir`; when
   `nvcc` is available this boundary builds `libdinoml_cutlass_conv.so` with
-  explicit launcher/profiler stub exports for the planned Conv ABI, while model
-  compile still rejects before module build. `kernel_codegen_plan.json` now
-  also exposes explicit wrapper-stage metadata for activation pack, weight
-  pack, planned provider launch, and output unpack, plus rejected-artifact
-  debug wrapper scaffold sources linked from `kernel_codegen_plan.json` for
-  guarded inspection, while compile rejection remains unchanged. No ConvNd
-  profiler execution, generated module wrapper lowering, real CUTLASS runtime
-  launcher, or CUDA runtime parity is implemented yet.
+  explicit launcher/profiler stub exports for the planned Conv ABI. CUDA model
+  compile now links that support stub library and emits generated wrapper
+  lowering that allocates the manifest-recorded NHWC/OHWI/NHWC temporaries,
+  packs activation/weight inputs, calls the selected provider launcher symbol,
+  and unpacks the provider output back to NCHW. The provider launcher is still
+  a guarded unsupported scaffold export, so runtime fails clearly at that
+  boundary rather than claiming Conv parity. `kernel_codegen_plan.json` still
+  exposes wrapper-stage metadata plus debug wrapper scaffold sources for
+  guarded inspection. No ConvNd profiler execution, real CUTLASS runtime
+  launcher, execution-plan consumption, or CUDA runtime parity is implemented
+  yet.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

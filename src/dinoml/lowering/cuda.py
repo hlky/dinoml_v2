@@ -8,6 +8,7 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import dtype_nbytes, dtype_runtime_enum
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
@@ -59,6 +60,7 @@ def render_cuda_module(
             ],
             "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
             "temporaries": [_temporary_context(item) for item in temporaries],
+            "cutlass_conv_temporaries": _cutlass_conv_temporary_contexts(kernel_manifest),
             "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
             "generated_kernels": list(generated_kernels)
@@ -90,7 +92,16 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
     declarations = []
     seen = set()
     for item in kernel_manifest.get("required_kernels", []):
-        if item.get("kernel_library") not in {"cutlass_gemm", "cutlass_bmm"}:
+        if item.get("kernel_library") not in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
+            continue
+        if item.get("kernel_library") == "cutlass_conv":
+            conv_manifest = {"required_kernels": [item]}
+            for declaration in _cutlass_conv_declarations(cutlass_conv_wrapper_stages(conv_manifest)):
+                symbol = declaration["symbol"]
+                if symbol in seen:
+                    continue
+                declarations.append(declaration["source"])
+                seen.add(symbol)
             continue
         for declaration in _cutlass_item_declarations(item):
             symbol = declaration["symbol"]
@@ -117,6 +128,47 @@ def _external_kernel_declarations(kernel_manifest: Mapping[str, Any] | None) -> 
                 )
             seen.add(symbol)
     return declarations
+
+
+def _cutlass_conv_declarations(stages: Iterable[Mapping[str, Any]]) -> list[dict[str, str]]:
+    declarations = []
+    for stage in stages:
+        symbol = str(stage.get("symbol", ""))
+        if not symbol:
+            continue
+        stage_kind = str(stage.get("stage_kind", ""))
+        if stage_kind == "transform_helper":
+            args = [
+                "    const void* src,",
+                "    void* dst,",
+                *["    int," for _ in _shape_args(stage)],
+                "    cudaStream_t stream);",
+            ]
+        elif stage_kind == "provider_launcher":
+            args = [
+                "    const void* activation_nhwc,",
+                "    const void* weight_ohwi,",
+                "    const void* bias,",
+                "    void* output_nhwc,",
+                *["    int," for _ in _shape_args(stage)],
+                "    cudaStream_t stream);",
+            ]
+        else:
+            continue
+        declarations.append(
+            {
+                "symbol": symbol,
+                "source": f'extern "C" int {symbol}(\n' + "\n".join(args),
+            }
+        )
+    return declarations
+
+
+def _shape_args(stage: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    args = stage.get("shape_args")
+    if not isinstance(args, (list, tuple)):
+        return []
+    return [arg for arg in args if isinstance(arg, Mapping)]
 
 
 def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -322,6 +374,41 @@ def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> 
     if max_scratch <= 0:
         return None
     return {"nbytes": max_scratch}
+
+
+def _cutlass_conv_temporary_contexts(kernel_manifest: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if kernel_manifest is None:
+        return []
+    contexts = []
+    seen = set()
+    for item in kernel_manifest.get("required_kernels", []):
+        if not isinstance(item, Mapping) or item.get("kernel_library") != "cutlass_conv":
+            continue
+        plan = item.get("cutlass_conv_plan")
+        if not isinstance(plan, Mapping):
+            continue
+        node_id = str(plan.get("node_id") or item.get("node_id") or item.get("op") or "conv")
+        for buffer in plan.get("temporary_buffers", ()):
+            if not isinstance(buffer, Mapping):
+                continue
+            name = str(buffer.get("name", ""))
+            nbytes = int(buffer.get("nbytes", 0) or 0)
+            if not name or nbytes <= 0:
+                continue
+            ident = f"{_c_ident(node_id)}_{_c_ident(name)}"
+            if ident in seen:
+                continue
+            seen.add(ident)
+            contexts.append(
+                {
+                    "ident": ident,
+                    "node_id": node_id,
+                    "name": name,
+                    "layout": str(buffer.get("layout", "")),
+                    "nbytes": nbytes,
+                }
+            )
+    return contexts
 
 
 def _cutlass_workspace_selections(item: Mapping[str, Any]) -> list[Mapping[str, Any]]:

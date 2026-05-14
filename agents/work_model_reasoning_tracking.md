@@ -1,0 +1,18 @@
+# Work Model / Reasoning Tracking
+
+Track the model and reasoning effort assigned to committed work so future PM
+loops can choose the right capability level for similar tasks.
+
+Format:
+
+```text
+{commit_id}, {title}, {model}, {reasoning_effort}
+```
+
+## Entries
+
+- bff8139, Document rotary apply exploration and next slice, gpt-5.4, medium
+- 3bb83a8, Add helper-only 1D rotary table generation, gpt-5.4, medium
+- 191e1d9, Harden CUTLASS conv scaffold transform plans, gpt-5.4, medium
+- 7f839d0, Tighten CUTLASS conv scaffold provenance validation, gpt-5.4, medium
+- bda4377, Register generated get_timestep_embedding op, gpt-5.4, high

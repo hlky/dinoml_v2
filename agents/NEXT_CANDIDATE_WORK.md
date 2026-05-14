@@ -4,36 +4,29 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Advanced the bounded `conv2d_bias`/`cutlass_conv` runtime lane with
-  v1-inspired fp16 TensorOp candidates for small semantic input channels:
-  `IteratorAlgorithm::kFewChannels` is selected for `C=3`, and explicit
-  `IteratorAlgorithm::kFixedChannels` candidates are selected for natural
-  aligned `C=4` and `C=8`, while public graph semantics remain NCHW
-  activations, OIHW weights, and bias `[O]`. Candidate metadata records the
-  SIMT fallback plus the three small-channel TensorOp predicates explicitly,
-  manifest selection records the chosen candidate in `cutlass_conv_plan`, and
-  generated wrapper stages call that selected launcher after the existing
-  NCHW -> NHWC activation pack, OIHW -> OHWI weight pack, and before NHWC ->
-  NCHW output unpack. The support cache compiles all launcher exports in
-  `lib/libdinoml_cutlass_conv.so`; CUDA runtime parity against Torch covers the
-  selected C=3 few-channel path and the selected C=4 fixed-channel path, while
-  manifest/source tests prove C=8 is admitted without hidden padding and
-  non-3/4/8 shapes stay on the SIMT fallback. This is still not
-  provider-mature Conv: regular Optimized TensorOp candidates, Conv profiler
-  execution, execution-plan consumption, dynamic Conv profiling,
-  grouped/depthwise/transposed/3D, C=8 runtime parity, and public NHWC
-  semantics remain unsupported.
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` provider-maturity lane with
+  an fp16 TensorOp `IteratorAlgorithm::kOptimized` candidate for naturally
+  aligned non-small-channel NHWC/OHWI shapes. Manifest selection now uses the
+  explicit predicate order C=3 FewChannels, C=4/C=8 FixedChannels, regular
+  Optimized for `C >= 16` with input/output channels divisible by 8, then the
+  SIMT fallback; the predicate keeps `channel_pad_multiple=1` and does not hide
+  padding. The same Conv predicate evaluator now filters profile workload
+  construction, so C=3 emits only SIMT+FewChannels, C=4 emits SIMT+Fixed C4,
+  and C=16/O=16 emits SIMT+Optimized. CUDA runtime parity against Torch now
+  covers the selected optimized C=16/O=16 path in addition to the existing C=3
+  and C=4 paths. This is still not provider-mature Conv: Conv profiler
+  execution, profile reports/cache keys, execution-plan consumption, dynamic
+  Conv profiling, grouped/depthwise/transposed/3D, C=8 runtime parity, and
+  public NHWC semantics remain unsupported.
 
 ## Next Recommended Lane
 
 - Continue `cutlass_conv` toward GEMM/BMM-style provider maturity without
-  broadening public ConvNd surface: add a regular CUTLASS TensorOp
-  `IteratorAlgorithm::kOptimized` candidate for fp16 NHWC/OHWI `conv2d_bias`
-  where its predicate is honest for non-small-channel shapes, then make Conv
-  profiling real and predicate-filtered so only candidates compatible with the
-  semantic channel count/layout contract produce workloads. The profiling lane
-  should follow the mature GEMM/BMM pattern: support-library profiler ABI,
-  profile reports/cache keys with candidate/config provenance, confident
+  broadening public ConvNd surface: the regular Optimized candidate and
+  predicate-filtered workload construction are now in place, but Conv profiling
+  still needs the real mature loop. The remaining profiling lane should follow
+  the mature GEMM/BMM pattern: support-library profiler ABI, profile
+  reports/cache keys with candidate/config provenance, confident
   execution-plan selections, manifest overlays or guarded dispatch, generated
   lowering that visibly consumes the selected Conv candidate, and explicit
   rejection for unsupported Conv profiler/execution-plan payloads.

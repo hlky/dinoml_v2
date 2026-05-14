@@ -14,6 +14,7 @@ from dinoml.kernels.bmm import bmm_op_spec
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
+    cutlass_conv_candidate_compatible_with_plan,
     cutlass_conv_candidates,
     cutlass_conv_layout_plan,
 )
@@ -245,29 +246,27 @@ def _select_cutlass_conv_manifest_candidate(
     cutlass_conv_plan: Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any]:
-    weight_shape = [int(dim) for dim in cutlass_conv_plan.get("weight_shape", ())]
-    conv_config = dict(cutlass_conv_plan.get("conv_config", {}))
-    dtype = str(cutlass_conv_plan.get("dtype", ""))
-    groups = int(conv_config.get("groups", 1))
-    semantic_input_channels = int(weight_shape[1]) if len(weight_shape) == 4 else -1
+    compatible = [
+        candidate
+        for candidate in candidates
+        if cutlass_conv_candidate_compatible_with_plan(candidate, cutlass_conv_plan)
+    ]
+    for predicate_kind in ("semantic_input_channels", "natural_alignment"):
+        for candidate in compatible:
+            predicate = candidate.get("selection_predicate", {})
+            if isinstance(predicate, Mapping) and predicate.get("kind") == predicate_kind:
+                return candidate
     for candidate in candidates:
         predicate = candidate.get("selection_predicate", {})
-        if not isinstance(predicate, Mapping):
-            continue
         if (
-            predicate.get("kind") == "semantic_input_channels"
-            and int(predicate.get("input_channels", -1)) == semantic_input_channels
-            and str(predicate.get("dtype", dtype)) == dtype
-            and int(predicate.get("groups", groups)) == groups
+            isinstance(predicate, Mapping)
+            and predicate.get("kind") == "fallback"
+            and cutlass_conv_candidate_compatible_with_plan(candidate, cutlass_conv_plan)
         ):
-            return candidate
-    for candidate in candidates:
-        predicate = candidate.get("selection_predicate", {})
-        if isinstance(predicate, Mapping) and predicate.get("kind") == "fallback":
             return candidate
     if not candidates:
         raise ValueError("CUTLASS Conv manifest candidate selection requires at least one candidate")
-    return candidates[0]
+    raise ValueError("CUTLASS Conv manifest candidate selection found no candidate compatible with the transform plan")
 
 
 def _session_resource_plan(required_kernels: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

@@ -351,22 +351,26 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   support library, and the artifact manifest carries
   `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is
   either the SIMT implicit-GEMM fallback, the C=3 TensorOp FewChannels
-  Fprop+bias call, or the C=4/C=8 TensorOp FixedChannels Fprop+bias call,
-  selected from artifact-visible candidate predicates. No regular Optimized
-  TensorOp candidate, Conv profiler execution, execution-plan consumption,
+  Fprop+bias call, the C=4/C=8 TensorOp FixedChannels Fprop+bias call, or the
+  regular TensorOp Optimized Fprop+bias call for naturally aligned
+  non-small-channel shapes (`C >= 16`, input/output channels divisible by 8),
+  selected from artifact-visible candidate predicates. The same predicate
+  evaluator now filters Conv profile workload construction so incompatible
+  small-channel and optimized candidates are not emitted for a node's
+  shape/layout/dtype contract. CUDA runtime parity covers C=3 FewChannels,
+  C=4 FixedChannels, and optimized C=16/O=16 against Torch. No Conv profiler
+  execution, profile report/cache-key path, execution-plan consumption,
   dynamic Conv profiling, grouped/depthwise/transposed/3D coverage, runtime-set
-  packed weights, or public NHWC semantics are claimed.
+  packed weights, C=8 runtime parity, or public NHWC semantics are claimed.
 
 ## Next Provider-Maturity Lane
 
 The next `cutlass_conv` slice should use GEMM/BMM profiling as the maturity
-reference rather than adding more unprofiled launchers. Add a regular fp16
-NHWC/OHWI TensorOp `IteratorAlgorithm::kOptimized` candidate for
-`conv2d_bias` with an explicit predicate for non-small-channel shapes, then
-make Conv profiling real and predicate-filtered:
+reference rather than adding more unprofiled launchers. The regular fp16
+NHWC/OHWI TensorOp `IteratorAlgorithm::kOptimized` candidate and
+predicate-filtered workload construction are now landed; next make Conv
+profiling real without broadening public ConvNd semantics:
 
-- workload construction should profile only candidates compatible with the
-  semantic input channel count, dtype, groups, and explicit pack/unpack plan;
 - the support library should expose real Conv profiler exports with the same
   candidate/config/source provenance standards as GEMM/BMM;
 - `dinoml profile` should write Conv profile reports and confident

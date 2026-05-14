@@ -249,7 +249,10 @@ porting. It intentionally excludes the op inventory, which lives in
   v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` fp16 launcher selected
   only for semantic input `C=3`, v1-inspired TensorOp
   `IteratorAlgorithm::kFixedChannels` fp16 launchers selected only for semantic
-  input `C=4` or `C=8`, and an unsupported profiler stub. The shared
+  input `C=4` or `C=8`, a regular TensorOp
+  `IteratorAlgorithm::kOptimized` fp16 launcher selected only for naturally
+  aligned non-small-channel shapes (`C >= 16` with input/output channels
+  divisible by 8), and an unsupported profiler stub. The shared
   Conv scaffold transform plan is now also validated for internal coherence
   before profiling/codegen/support-cache consumers can reuse it, so layout
   drift, incorrect temporary byte counts, and inconsistent padded-channel
@@ -263,10 +266,13 @@ porting. It intentionally excludes the op inventory, which lives in
   plan enough to allocate the per-session Conv pack/unpack temporaries, call
   the support-library transform helpers, call the selected provider launcher
   symbol, and unpack outputs back to NCHW. Focused CUDA runtime parity covers
-  the bounded fp16 C=3 few-channel path and C=4 fixed-channel path against
-  Torch, while manifest/source tests keep C=8 artifact-visible and keep
-  non-3/4/8 shapes on the SIMT fallback with no hidden channel padding.
-  Regular Optimized TensorOp candidates, profiler execution, execution-plan
+  the bounded fp16 C=3 few-channel path, C=4 fixed-channel path, and optimized
+  C=16/O=16 path against Torch, while manifest/source tests keep C=8
+  artifact-visible and keep unaligned non-small-channel shapes on the SIMT
+  fallback with no hidden channel padding. Conv profile workload construction
+  now filters candidates through the same shape/layout/dtype predicate used by
+  manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer
+  emitted. Profiler execution, profile reports/cache keys, execution-plan
   consumption, dynamic Conv profiling, and general channel-last runtime layout
   remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original

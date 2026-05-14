@@ -27,7 +27,11 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.providers.cutlass.conv import CONV_OPS, validate_cutlass_conv_scaffold_plan
+from dinoml.kernels.providers.cutlass.conv import (
+    CONV_OPS,
+    cutlass_conv_candidate_compatible_with_plan,
+    validate_cutlass_conv_scaffold_plan,
+)
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
@@ -415,16 +419,26 @@ def _append_conv_profile_workloads(
         return
     conv_plan = required_item.get("cutlass_conv_plan")
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
+    normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
+        conv_plan,
+        node_id=str(node["id"]),
+    )
+    profile_candidates = [
+        candidate
+        for candidate in _profile_candidates(required_item)
+        if cutlass_conv_candidate_compatible_with_plan(candidate, normalized_conv_plan)
+    ]
+    if not profile_candidates:
+        raise ValueError(
+            "CUTLASS Conv profile workload construction found no candidate compatible with "
+            f"node {node.get('id')!r} shape/layout/dtype contract"
+        )
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
         weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
-        for candidate in _profile_candidates(required_item):
-            normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
-                conv_plan,
-                node_id=str(node["id"]),
-            )
+        for candidate in profile_candidates:
             workloads.append(
                 ConvProfileWorkload(
                     node_id=str(node["id"]),

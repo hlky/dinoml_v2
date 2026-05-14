@@ -567,18 +567,22 @@ behavior.
   v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` candidate selected
   only for semantic input `C=3`, plus v1-inspired TensorOp
   `IteratorAlgorithm::kFixedChannels` candidates selected only for semantic
-  input `C=4` or `C=8`; all use bias as CUTLASS C with
+  input `C=4` or `C=8`, plus a regular TensorOp
+  `IteratorAlgorithm::kOptimized` candidate selected only for naturally aligned
+  non-small-channel shapes (`C >= 16` and input/output channels divisible by
+  8); all use bias as CUTLASS C with
   `TensorNHWC::Stride(0)` and no hidden channel padding. Focused CUDA runtime
-  parity compares the selected C=3 few-channel and C=4 fixed-channel public
-  NCHW/OIHW results against Torch, and manifest/source tests prove C=8 is
-  artifact-visible while non-3/4/8 shapes stay on the SIMT fallback. CPU
-  compile still rejects. The profile path records the same artifact-visible
-  layout translation, weight transform, and candidate metadata but still rejects
-  before Conv profiler/cache/result or execution-plan logic can claim support.
-  Regular Optimized TensorOp candidates, profile-selected Conv, dynamic Conv
-  profiling, hidden channel padding, runtime-persistent packed weights,
-  grouped/depthwise/transposed/3D Conv, and public NHWC semantics remain
-  unported.
+  parity compares the selected C=3 few-channel, C=4 fixed-channel, and
+  optimized C=16/O=16 public NCHW/OIHW results against Torch, and
+  manifest/source tests prove C=8 is artifact-visible while unaligned shapes
+  stay on the SIMT fallback. CPU compile still rejects. The profile workload
+  path records the same artifact-visible layout translation, weight transform,
+  and candidate metadata and now filters out predicate-incompatible Conv
+  candidates, but profiler execution still rejects before Conv
+  profiler/cache/result or execution-plan logic can claim support.
+  Profile-selected Conv, dynamic Conv profiling, hidden channel padding,
+  runtime-persistent packed weights, grouped/depthwise/transposed/3D Conv, and
+  public NHWC semantics remain unported.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

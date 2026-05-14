@@ -16,6 +16,7 @@ _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS = {
     4: "tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c4",
     8: "tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c8",
 }
+_CUTLASS_CONV_OPTIMIZED_SYMBOL_ID = "tensorop_sm80_nhwc_ohwi_bias_optimized_align8"
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = _CUTLASS_CONV_SIMT_SYMBOL_ID
 _CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
 _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
@@ -190,7 +191,118 @@ def cutlass_conv_candidates(
                     optional=True,
                 )
             )
+        candidates.append(
+            _cutlass_conv_candidate(
+                op_name,
+                normalized_dtype,
+                symbol_id=_CUTLASS_CONV_OPTIMIZED_SYMBOL_ID,
+                target_policy=normalized_target,
+                status=status,
+                accumulator_dtype="float32",
+                cutlass={
+                    "opclass": "tensorop",
+                    "arch": "sm80",
+                    "iterator_algorithm": "optimized",
+                    "instruction_shape": [16, 8, 16],
+                    "threadblock": [128, 128, 64],
+                    "warp": [64, 64, 64],
+                    "stages": 3,
+                    "align_a": 8,
+                    "align_b": 8,
+                    "math_operator": "multiply_add",
+                    "kind": "implicit_gemm_runtime_launcher",
+                    "v1_inspiration": {
+                        "iterator_algorithm": "Optimized",
+                        "min_semantic_input_channels": 16,
+                        "input_channels_multiple": 8,
+                        "output_channels_multiple": 8,
+                        "align_a": 8,
+                        "align_b": 8,
+                        "stages": 3,
+                    },
+                },
+                selection_predicate={
+                    "kind": "natural_alignment",
+                    "dtype": "float16",
+                    "groups": 1,
+                    "min_input_channels": 16,
+                    "input_channels_multiple": 8,
+                    "output_channels_multiple": 8,
+                    "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+                    "padding_policy": "none",
+                },
+                optional=True,
+            )
+        )
     return candidates
+
+
+def cutlass_conv_candidate_compatible_with_plan(
+    candidate: Mapping[str, Any],
+    cutlass_conv_plan: Mapping[str, Any],
+) -> bool:
+    dtype = str(cutlass_conv_plan.get("dtype", ""))
+    if str(candidate.get("dtype", "")) != dtype:
+        return False
+    candidate_layouts = dict(candidate.get("layouts", {}))
+    semantic_layout = dict(cutlass_conv_plan.get("semantic_layout", {}))
+    provider_layout = dict(cutlass_conv_plan.get("provider_layout", {}))
+    expected_layouts = {
+        "activation_semantic": semantic_layout.get("activation"),
+        "weight_semantic": semantic_layout.get("weight"),
+        "output_semantic": semantic_layout.get("output"),
+        "activation_provider": provider_layout.get("activation"),
+        "weight_provider": provider_layout.get("weight"),
+        "output_provider": provider_layout.get("output"),
+    }
+    if candidate_layouts != expected_layouts:
+        return False
+    conv_config = dict(cutlass_conv_plan.get("conv_config", {}))
+    groups = int(conv_config.get("groups", -1) or -1)
+    if groups != 1:
+        return False
+    weight_shape = cutlass_conv_plan.get("weight_shape", ())
+    input_shape = cutlass_conv_plan.get("input_shape", ())
+    if not isinstance(weight_shape, (list, tuple)) or len(weight_shape) != 4:
+        return False
+    if not isinstance(input_shape, (list, tuple)) or len(input_shape) != 4:
+        return False
+    input_channels = int(weight_shape[1])
+    output_channels = int(weight_shape[0])
+    if int(input_shape[1]) != input_channels:
+        return False
+    predicate = candidate.get("selection_predicate", {})
+    if not isinstance(predicate, Mapping):
+        return False
+    if str(predicate.get("dtype", dtype)) != dtype or int(predicate.get("groups", groups)) != groups:
+        return False
+    if predicate.get("requires_layout_translation") not in (None, "nchw_oihw_to_nhwc_ohwi"):
+        return False
+    if str(predicate.get("padding_policy", "none")) == "none":
+        weight_transform = dict(cutlass_conv_plan.get("weight_transform", {}))
+        if int(weight_transform.get("channel_pad_multiple", -1) or -1) != 1:
+            return False
+        if int(weight_transform.get("padded_input_channels", -1) or -1) != input_channels:
+            return False
+        if int(weight_transform.get("padded_output_channels", -1) or -1) != output_channels:
+            return False
+    kind = str(predicate.get("kind", ""))
+    if kind == "fallback":
+        return True
+    if kind == "semantic_input_channels":
+        return int(predicate.get("input_channels", -1) or -1) == input_channels
+    if kind == "natural_alignment":
+        min_input_channels = int(predicate.get("min_input_channels", 1) or 1)
+        input_multiple = int(predicate.get("input_channels_multiple", 1) or 1)
+        output_multiple = int(predicate.get("output_channels_multiple", 1) or 1)
+        return (
+            input_channels >= min_input_channels
+            and input_multiple > 0
+            and output_multiple > 0
+            and input_channels % input_multiple == 0
+            and output_channels % output_multiple == 0
+        )
+    return False
 
 
 def _cutlass_conv_candidate(
@@ -1243,6 +1355,8 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
         if input_channels not in _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS:
             raise ValueError(f"Unsupported CUTLASS Conv fixed-channel launcher input channel count {input_channels}")
         launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c{input_channels}_bias"
+    elif iterator_algorithm == "optimized":
+        launch_function = "dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias"
     else:
         launch_function = "dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias"
     return f"""extern "C" int {symbol}(
@@ -1604,6 +1718,39 @@ using DinomlCutlassConvFp16FixedChannelsKernel = typename cutlass::conv::kernel:
     ChannelCount,
     ChannelCount>::Kernel;
 
+using DinomlCutlassConvFp16OptimizedMmaOp = cutlass::arch::OpClassTensorOp;
+using DinomlCutlassConvFp16OptimizedThreadblockShape = cutlass::gemm::GemmShape<128, 128, 64>;
+using DinomlCutlassConvFp16OptimizedWarpShape = cutlass::gemm::GemmShape<64, 64, 64>;
+using DinomlCutlassConvFp16OptimizedInstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+using DinomlCutlassConvFp16OptimizedEpilogue = cutlass::epilogue::thread::LinearCombination<
+    DinomlCutlassConvFp16Element,
+    1,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16OptimizedKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16OptimizedMmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16OptimizedThreadblockShape,
+    DinomlCutlassConvFp16OptimizedWarpShape,
+    DinomlCutlassConvFp16OptimizedInstructionShape,
+    DinomlCutlassConvFp16OptimizedEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    3,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kOptimized,
+    cutlass::conv::StrideSupport::kStrided,
+    8,
+    8>::Kernel;
+using DinomlCutlassConvFp16OptimizedImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16OptimizedKernel>;
+
 template <typename ImplicitGemm>
 int dinoml_cutlass_conv_launch_fp16_kernel_bias(
     const void* activation_nhwc,
@@ -1909,6 +2056,53 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c8_bias(
       stream);
 }
 
+int dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c < 16 || (c % 8) != 0 || (out_c % 8) != 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias<DinomlCutlassConvFp16OptimizedImplicitGemm>(
+      activation_nhwc,
+      weight_ohwi,
+      bias,
+      output_nhwc,
+      n,
+      h,
+      w,
+      c,
+      out_h,
+      out_w,
+      out_c,
+      kernel_h,
+      kernel_w,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      dilation_h,
+      dilation_w,
+      stream);
+}
+
 }  // namespace"""
 
 
@@ -2009,6 +2203,7 @@ __all__ = [
     "CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "cutlass_conv_candidate_set",
     "cutlass_conv_candidate_set_id",
+    "cutlass_conv_candidate_compatible_with_plan",
     "cutlass_conv_candidates",
     "cutlass_conv_input_pack_symbol",
     "cutlass_conv_layout_plan",

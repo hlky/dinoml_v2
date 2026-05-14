@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 6077e16, Clarify CUTLASS conv support source boundary, gpt-5.5, high
 - aac81a6, Add bounded CUTLASS conv2d bias launcher, gpt-5.5, high
 - 3a32757, Scope CUTLASS conv provider status names, gpt-5.5, high
 - 629d793, Build guarded CUTLASS conv CUDA wrapper, gpt-5.5, high

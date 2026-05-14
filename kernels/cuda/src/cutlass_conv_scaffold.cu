@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 // CUTLASS Conv support stub boundary.
 //

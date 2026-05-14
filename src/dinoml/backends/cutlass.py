@@ -169,6 +169,7 @@ def ensure_cutlass_conv_support_scaffold(
         source_id="cutlass_conv_scaffold_default",
         build_unit_id="cutlass_conv_scaffold",
         library_file_name="libdinoml_cutlass_conv.so",
+        extra_symbols=_cutlass_conv_source_symbols(used_candidate_plan),
     )
     provenance = _cutlass_conv_scaffold_provenance(
         target=target,
@@ -471,6 +472,24 @@ def _cutlass_conv_scaffold_provenance(
 
 def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status: str) -> list[dict[str, Any]]:
     exports = []
+    for helper in used_candidate_plan.get("transform_helpers", ()):
+        if not isinstance(helper, Mapping):
+            continue
+        exports.append(
+            {
+                "kind": "transform_helper",
+                "symbol": str(helper["symbol"]),
+                "helper_abi": str(helper["helper_abi"]),
+                "tensor_role": str(helper["tensor_role"]),
+                "transform": str(helper["transform"]),
+                "dtype": str(helper["dtype"]),
+                "layout_from": str(helper["layout_from"]),
+                "layout_to": str(helper["layout_to"]),
+                "shape_order": list(helper["shape_order"]),
+                "status": status,
+                "success_return_code": 0,
+            }
+        )
     for symbol in used_candidate_plan.get("kernel_symbols", ()):
         symbol_name = str(symbol)
         if not symbol_name:
@@ -498,6 +517,27 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status
             }
         )
     return exports
+
+
+def _cutlass_conv_source_symbols(used_candidate_plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    symbols = []
+    for helper in used_candidate_plan.get("transform_helpers", ()):
+        if not isinstance(helper, Mapping):
+            continue
+        symbols.append(
+            {
+                "kind": "transform_helper",
+                "name": str(helper["symbol"]),
+                "helper_abi": str(helper["helper_abi"]),
+                "tensor_role": str(helper["tensor_role"]),
+                "transform": str(helper["transform"]),
+                "dtype": str(helper["dtype"]),
+                "layout_from": str(helper["layout_from"]),
+                "layout_to": str(helper["layout_to"]),
+                "shape_order": list(helper["shape_order"]),
+            }
+        )
+    return symbols
 
 
 def _file_sha256(path: Path) -> str:
@@ -742,6 +782,7 @@ def _support_source_metrics(source_text: str, used_candidate_plan: Mapping[str, 
     candidate_sets = [item for item in used_candidate_plan.get("candidate_sets", []) if isinstance(item, Mapping)]
     kernel_symbols = {str(symbol) for symbol in used_candidate_plan.get("kernel_symbols", [])}
     profiler_symbols = {str(symbol) for symbol in used_candidate_plan.get("profiler_symbols", [])}
+    transform_helper_symbols = {str(symbol) for symbol in used_candidate_plan.get("transform_helper_symbols", [])}
     return {
         "source_nbytes": len(source_text.encode("utf-8")),
         "source_line_count": len(source_text.splitlines()),
@@ -750,7 +791,8 @@ def _support_source_metrics(source_text: str, used_candidate_plan: Mapping[str, 
         "candidate_set_count": len(candidate_sets),
         "kernel_symbol_count": len(kernel_symbols),
         "profiler_symbol_count": len(profiler_symbols),
-        "symbol_count": len(kernel_symbols | profiler_symbols),
+        "transform_helper_symbol_count": len(transform_helper_symbols),
+        "symbol_count": len(kernel_symbols | profiler_symbols | transform_helper_symbols),
     }
 
 
@@ -771,6 +813,7 @@ def _write_source_manifest(
     source_id: str,
     build_unit_id: str,
     library_file_name: str,
+    extra_symbols: Sequence[Mapping[str, Any]] = (),
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     candidate_sets = [dict(item) for item in used_candidate_plan.get("candidate_sets", [])]
@@ -813,7 +856,7 @@ def _write_source_manifest(
                 "source_metrics": dict(source_metrics),
                 "candidate_set_keys": sorted({item["candidate_set_key"] for item in candidate_sets}),
                 "candidate_config_keys": sorted({item["candidate_config_key"] for item in candidates}),
-                "symbols": _source_symbols(candidates),
+                "symbols": _source_symbols(candidates, extra_symbols=extra_symbols),
             }
         ],
         "candidate_sets": candidate_sets,
@@ -838,8 +881,12 @@ def _write_source_manifest(
     path.write_text(canonical_json(manifest), encoding="utf-8")
 
 
-def _source_symbols(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
-    symbols = []
+def _source_symbols(
+    candidates: Sequence[Mapping[str, Any]],
+    *,
+    extra_symbols: Sequence[Mapping[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    symbols: list[dict[str, Any]] = []
     for candidate in candidates:
         config_key = str(candidate["candidate_config_key"])
         symbols.append(
@@ -856,7 +903,18 @@ def _source_symbols(candidates: Sequence[Mapping[str, Any]]) -> list[dict[str, s
                 "candidate_config_key": config_key,
             }
         )
-    return sorted(symbols, key=lambda item: (item["kind"], item["name"], item["candidate_config_key"]))
+    for item in extra_symbols:
+        if not isinstance(item, Mapping):
+            continue
+        symbols.append({str(key): value for key, value in item.items()})
+    return sorted(
+        symbols,
+        key=lambda item: (
+            str(item.get("kind", "")),
+            str(item.get("name", "")),
+            str(item.get("candidate_config_key", "")),
+        ),
+    )
 
 
 def _flat_candidate_sets(families: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

@@ -139,6 +139,7 @@ def _external_support_libraries(
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "transform_helper_symbols": list(used_candidate_plan.get("transform_helper_symbols", [])),
                 }
             )
     return tuple(result)

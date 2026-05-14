@@ -16,8 +16,11 @@ from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidates,
+    cutlass_conv_input_pack_symbol,
     cutlass_conv_layout_plan,
+    cutlass_conv_output_unpack_symbol,
     cutlass_conv_used_candidate_plan,
+    cutlass_conv_weight_pack_symbol,
 )
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.passes import validate_ir
@@ -96,6 +99,51 @@ def _torch_conv2d_bias_reference(x, weight, bias, *, stride, padding, dilation):
         .cpu()
         .numpy()
     )
+
+
+def _expected_transform_helper_exports(layout_plan, *, status):
+    dtype = layout_plan["dtype"]
+    return [
+        {
+            "kind": "transform_helper",
+            "symbol": layout_plan["layout_translation"]["input_pack_symbol"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+            "tensor_role": "activation",
+            "transform": "nchw_to_nhwc_temporary",
+            "dtype": dtype,
+            "layout_from": "nchw",
+            "layout_to": "nhwc",
+            "shape_order": ["n", "c", "h", "w"],
+            "status": status,
+            "success_return_code": 0,
+        },
+        {
+            "kind": "transform_helper",
+            "symbol": layout_plan["layout_translation"]["output_unpack_symbol"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+            "tensor_role": "output",
+            "transform": "nhwc_to_nchw_temporary",
+            "dtype": dtype,
+            "layout_from": "nhwc",
+            "layout_to": "nchw",
+            "shape_order": ["n", "c", "h", "w"],
+            "status": status,
+            "success_return_code": 0,
+        },
+        {
+            "kind": "transform_helper",
+            "symbol": layout_plan["weight_transform"]["pack_symbol"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+            "tensor_role": "weight",
+            "transform": "oihw_to_ohwi_temporary",
+            "dtype": dtype,
+            "layout_from": "oihw",
+            "layout_to": "ohwi",
+            "shape_order": ["o", "i", "h", "w"],
+            "status": status,
+            "success_return_code": 0,
+        },
+    ]
 
 
 def test_conv2d_bias_frontend_ir_preserves_nchw_oihw_attrs_and_dtype():
@@ -261,8 +309,11 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert layout_plan["provider_layout"]["activation"] == "nhwc"
     assert layout_plan["layout_translation"]["input_pack"] == "nchw_to_nhwc_temporary"
     assert layout_plan["layout_translation"]["output_unpack"] == "nhwc_to_nchw_temporary"
+    assert layout_plan["layout_translation"]["input_pack_symbol"] == cutlass_conv_input_pack_symbol("float16")
+    assert layout_plan["layout_translation"]["output_unpack_symbol"] == cutlass_conv_output_unpack_symbol("float16")
     assert layout_plan["weight_transform"]["from"] == "oihw"
     assert layout_plan["weight_transform"]["to"] == "ohwi"
+    assert layout_plan["weight_transform"]["pack_symbol"] == cutlass_conv_weight_pack_symbol("float16")
     assert layout_plan["weight_transform"]["channel_pad_multiple"] == 1
 
     required = {
@@ -292,12 +343,22 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert used_plan["entries"][0]["candidates"] == candidates
     assert used_plan["entries"][0]["node_id"] == node["id"]
     assert len(used_plan["entries"][0]["cutlass_conv_plan_key"]) == 64
+    assert [item["symbol"] for item in used_plan["transform_helpers"]] == [
+        cutlass_conv_input_pack_symbol("float16"),
+        cutlass_conv_output_unpack_symbol("float16"),
+        cutlass_conv_weight_pack_symbol("float16"),
+    ]
 
     codegen_plan = create_codegen_plan(manifest, tmp_path / "cache")
     [support_lib] = codegen_plan.external_support_libraries
     assert support_lib["name"] == "cutlass_conv"
     assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
     assert support_lib["used_candidate_plan_key"] == used_plan["used_candidate_plan_key"]
+    assert support_lib["transform_helper_symbols"] == [
+        cutlass_conv_input_pack_symbol("float16"),
+        cutlass_conv_output_unpack_symbol("float16"),
+        cutlass_conv_weight_pack_symbol("float16"),
+    ]
 
 
 def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transforms():
@@ -447,6 +508,7 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
     export_status = support_manifest["status"]
     assert support_manifest["exports"] == [
+        *_expected_transform_helper_exports(required["cutlass_conv_plan"], status=export_status),
         {
             "kind": "launcher",
             "symbol": required["kernel_symbol"],
@@ -475,8 +537,20 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert source_manifest["sources"][0]["candidate_set_keys"] == [required["candidate_set_key"]]
     assert source_manifest["sources"][0]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
     source_symbols = {item["name"] for item in source_manifest["sources"][0]["symbols"]}
+    helper_symbols = {
+        required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"],
+        required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"],
+        required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"],
+    }
+    assert helper_symbols.issubset(source_symbols)
     assert required["kernel_symbol"] in source_symbols
     assert required["profiler_symbol"] in source_symbols
+    helper_entries = [item for item in source_manifest["sources"][0]["symbols"] if item["kind"] == "transform_helper"]
+    assert [(item["tensor_role"], item["name"]) for item in helper_entries] == [
+        ("activation", required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"]),
+        ("output", required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"]),
+        ("weight", required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"]),
+    ]
     if shutil.which("nvcc") is None:
         assert support_manifest["status"] == "source_scaffold_only"
         assert support_manifest["compile"]["status"] == "source_scaffold_only"
@@ -585,6 +659,7 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
     assert "library_sha256" not in support_manifest
     assert not stale_library.exists()
     assert support_manifest["exports"] == [
+        *_expected_transform_helper_exports(required["cutlass_conv_plan"], status="source_scaffold_only"),
         {
             "kind": "launcher",
             "symbol": required["kernel_symbol"],
@@ -600,3 +675,103 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
             "return_value_ms": -1.0,
         },
     ]
+
+
+@pytest.mark.parametrize("dtype", ["float16", "float32"])
+def test_cutlass_conv_support_scaffold_runtime_transform_helpers_match_torch(tmp_path, monkeypatch, dtype):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("CUDA runtime transform helper parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias(
+        dtype,
+        x_shape=(2, 3, 4, 5),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        stride=(1, 1),
+        padding=(0, 0),
+        dilation=(1, 1),
+    )
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    [required] = kernel_manifest["required_kernels"]
+    used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    scaffold = ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
+    support_library = Path(scaffold.manifest).parent / "libdinoml_cutlass_conv.so"
+    stub = ctypes.CDLL(str(support_library))
+    stream = ctypes.c_void_p(torch.cuda.current_stream().cuda_stream)
+
+    x = torch.arange(2 * 3 * 4 * 5, device="cuda", dtype=getattr(torch, dtype)).reshape(2, 3, 4, 5)
+    x_nhwc = torch.empty((2, 4, 5, 3), device="cuda", dtype=x.dtype)
+    input_pack = getattr(stub, required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"])
+    input_pack.restype = ctypes.c_int
+    input_pack.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_void_p,
+    ]
+    assert input_pack(
+        ctypes.c_void_p(x.data_ptr()),
+        ctypes.c_void_p(x_nhwc.data_ptr()),
+        2,
+        3,
+        4,
+        5,
+        stream,
+    ) == 0
+    torch.cuda.synchronize()
+    assert torch.equal(x_nhwc, x.permute(0, 2, 3, 1).contiguous())
+
+    weight = torch.arange(4 * 3 * 2 * 3, device="cuda", dtype=getattr(torch, dtype)).reshape(4, 3, 2, 3)
+    weight_ohwi = torch.empty((4, 2, 3, 3), device="cuda", dtype=weight.dtype)
+    weight_pack = getattr(stub, required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"])
+    weight_pack.restype = ctypes.c_int
+    weight_pack.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_void_p,
+    ]
+    assert weight_pack(
+        ctypes.c_void_p(weight.data_ptr()),
+        ctypes.c_void_p(weight_ohwi.data_ptr()),
+        4,
+        3,
+        2,
+        3,
+        stream,
+    ) == 0
+    torch.cuda.synchronize()
+    assert torch.equal(weight_ohwi, weight.permute(0, 2, 3, 1).contiguous())
+
+    provider_output = torch.arange(2 * 3 * 4 * 4, device="cuda", dtype=getattr(torch, dtype)).reshape(2, 3, 4, 4)
+    output_nchw = torch.empty((2, 4, 3, 4), device="cuda", dtype=provider_output.dtype)
+    output_unpack = getattr(stub, required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"])
+    output_unpack.restype = ctypes.c_int
+    output_unpack.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_void_p,
+    ]
+    assert output_unpack(
+        ctypes.c_void_p(provider_output.data_ptr()),
+        ctypes.c_void_p(output_nchw.data_ptr()),
+        2,
+        4,
+        3,
+        4,
+        stream,
+    ) == 0
+    torch.cuda.synchronize()
+    assert torch.equal(output_nchw, provider_output.permute(0, 3, 1, 2).contiguous())

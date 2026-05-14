@@ -120,6 +120,8 @@ least:
   requirements
 - `weight_transform` metadata describing source layout permutation and any
   provider-required channel padding
+- helper symbols or equivalent support-library export metadata for each
+  recorded activation pack, weight pack, and output unpack transform
 - dtype and accumulator dtype
 - stride, padding, dilation, groups
 - candidate set key and per-candidate metadata
@@ -152,6 +154,14 @@ Like CUTLASS GEMM/BMM, cache reuse should depend on:
 The source manifest should map rendered source/build units to the used ConvNd
 candidate plan so stale embedded payloads are rejected instead of silently
 reused.
+
+The current scaffold status is narrower but should still stay explicit:
+support-source generation and `nvcc` builds may compile reusable CUDA layout
+transform helpers for the bounded NCHW -> NHWC, OIHW -> OHWI, and NHWC -> NCHW
+contract before the real CUTLASS launcher exists. Those helpers should remain
+artifact-visible through `cutlass_conv_plan` symbol metadata plus support
+manifest/source-manifest export records rather than becoming hidden runtime
+helpers.
 
 ## Execution-plan expectations
 

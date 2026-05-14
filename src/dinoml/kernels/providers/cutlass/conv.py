@@ -14,6 +14,7 @@ _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "scaffold_sm80_nhwc_ohwi_bias"
 _CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
 _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
 _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON = "cutlass_conv_runtime_launcher_not_implemented"
+_CUTLASS_CONV_TRANSFORM_ABI = "dinoml_cutlass_layout_transform_v1"
 _CUTLASS_CONV_STUB_RETURN_CODE = 901
 _CUTLASS_CONV_STUB_PROFILE_MS = -1.0
 _CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT = {
@@ -40,6 +41,21 @@ def cutlass_conv_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None
     normalized_dtype = _normalize_conv_dtype(dtype)
     symbol_suffix = symbol_id or _CUTLASS_CONV_DEFAULT_SYMBOL_ID
     return f"dinoml_profile_cutlass_{op_name}_{normalized_dtype}_{symbol_suffix}"
+
+
+def cutlass_conv_input_pack_symbol(dtype: str) -> str:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    return f"dinoml_cutlass_conv_input_pack_nchw_to_nhwc_{normalized_dtype}_v1"
+
+
+def cutlass_conv_weight_pack_symbol(dtype: str) -> str:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    return f"dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_{normalized_dtype}_v1"
+
+
+def cutlass_conv_output_unpack_symbol(dtype: str) -> str:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    return f"dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_{normalized_dtype}_v1"
 
 
 def cutlass_conv_candidate_set_id(op_name: str, dtype: str) -> str:
@@ -174,6 +190,7 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
     entries = sorted(entries, key=lambda entry: (entry["op"], entry["candidate_set_id"], entry["kernel_symbol"]))
     candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
     candidates = _unique_by_key((candidate for entry in entries for candidate in entry["candidates"]), "candidate_config_key")
+    transform_helpers = _cutlass_conv_transform_helpers(entries)
     payload = {
         "schema_version": CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
         "provider": "cutlass",
@@ -190,6 +207,8 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
         "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
         "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
         "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
+        "transform_helpers": transform_helpers,
+        "transform_helper_symbols": [str(item["symbol"]) for item in transform_helpers],
     }
     payload["used_candidate_plan_key"] = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
     return payload
@@ -216,6 +235,7 @@ def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str,
     entries = sorted(entries, key=lambda entry: (entry["op"], entry["candidate_set_id"], entry["kernel_symbol"]))
     candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
     candidates = _unique_by_key((candidate for entry in entries for candidate in entry["candidates"]), "candidate_config_key")
+    transform_helpers = _cutlass_conv_transform_helpers(entries)
     payload = {
         "schema_version": CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
         "provider": "cutlass",
@@ -232,6 +252,8 @@ def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str,
         "candidate_config_keys": [str(item.get("candidate_config_key", "")) for item in candidates],
         "kernel_symbols": sorted({entry["kernel_symbol"] for entry in entries if entry["kernel_symbol"]}),
         "profiler_symbols": sorted({entry["profiler_symbol"] for entry in entries if entry["profiler_symbol"]}),
+        "transform_helpers": transform_helpers,
+        "transform_helper_symbols": [str(item["symbol"]) for item in transform_helpers],
     }
     payload["used_candidate_plan_key"] = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
     return payload
@@ -278,12 +300,15 @@ def cutlass_conv_layout_plan(
             "bias": "direct_per_output_channel",
             "input_pack_nbytes": _nbytes(x_shape, dtype_size),
             "output_unpack_nbytes": _nbytes(output_shape, dtype_size),
+            "input_pack_symbol": cutlass_conv_input_pack_symbol(dtype),
+            "output_unpack_symbol": cutlass_conv_output_unpack_symbol(dtype),
         },
         "weight_transform": {
             "from": "oihw",
             "to": "ohwi",
             "pack": "oihw_to_ohwi_temporary",
             "temporary_nbytes": _nbytes(weight_shape, dtype_size),
+            "pack_symbol": cutlass_conv_weight_pack_symbol(dtype),
             "runtime_persistent": False,
             "channel_pad_multiple": 1,
             "padded_input_channels": int(weight_shape[1]),
@@ -381,10 +406,20 @@ def validate_cutlass_conv_scaffold_plan(
             "CUTLASS Conv scaffold input_pack_nbytes mismatch: "
             f"expected {expected_input_nbytes}, got {layout_translation.get('input_pack_nbytes')!r}"
         )
+    if str(layout_translation.get("input_pack_symbol")) != cutlass_conv_input_pack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv scaffold layout_translation.input_pack_symbol mismatch: "
+            f"expected {cutlass_conv_input_pack_symbol(dtype)!r}, got {layout_translation.get('input_pack_symbol')!r}"
+        )
     if int(layout_translation.get("output_unpack_nbytes", -1)) != expected_output_nbytes:
         raise ValueError(
             "CUTLASS Conv scaffold output_unpack_nbytes mismatch: "
             f"expected {expected_output_nbytes}, got {layout_translation.get('output_unpack_nbytes')!r}"
+        )
+    if str(layout_translation.get("output_unpack_symbol")) != cutlass_conv_output_unpack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv scaffold layout_translation.output_unpack_symbol mismatch: "
+            f"expected {cutlass_conv_output_unpack_symbol(dtype)!r}, got {layout_translation.get('output_unpack_symbol')!r}"
         )
     weight_transform = dict(payload.get("weight_transform", {}))
     expected_weight_nbytes = _nbytes(weight_shape, dtype_size)
@@ -394,6 +429,11 @@ def validate_cutlass_conv_scaffold_plan(
         raise ValueError("CUTLASS Conv scaffold weight_transform.to must be 'ohwi'")
     if weight_transform.get("pack") != "oihw_to_ohwi_temporary":
         raise ValueError("CUTLASS Conv scaffold weight_transform.pack must be 'oihw_to_ohwi_temporary'")
+    if str(weight_transform.get("pack_symbol")) != cutlass_conv_weight_pack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv scaffold weight_transform.pack_symbol mismatch: "
+            f"expected {cutlass_conv_weight_pack_symbol(dtype)!r}, got {weight_transform.get('pack_symbol')!r}"
+        )
     if int(weight_transform.get("temporary_nbytes", -1)) != expected_weight_nbytes:
         raise ValueError(
             "CUTLASS Conv scaffold weight temporary_nbytes mismatch: "
@@ -732,9 +772,71 @@ def _normalize_target_policy(target: Mapping[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _cutlass_conv_transform_helpers(entries) -> list[dict[str, Any]]:
+    helpers_by_symbol: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        conv_plan = dict(entry["cutlass_conv_plan"])
+        dtype = str(conv_plan["dtype"])
+        layout_translation = dict(conv_plan["layout_translation"])
+        weight_transform = dict(conv_plan["weight_transform"])
+        for helper in (
+            {
+                "symbol": str(layout_translation["input_pack_symbol"]),
+                "dtype": dtype,
+                "tensor_role": "activation",
+                "transform": str(layout_translation["input_pack"]),
+                "layout_from": "nchw",
+                "layout_to": "nhwc",
+                "shape_order": ["n", "c", "h", "w"],
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            },
+            {
+                "symbol": str(weight_transform["pack_symbol"]),
+                "dtype": dtype,
+                "tensor_role": "weight",
+                "transform": str(weight_transform["pack"]),
+                "layout_from": "oihw",
+                "layout_to": "ohwi",
+                "shape_order": ["o", "i", "h", "w"],
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            },
+            {
+                "symbol": str(layout_translation["output_unpack_symbol"]),
+                "dtype": dtype,
+                "tensor_role": "output",
+                "transform": str(layout_translation["output_unpack"]),
+                "layout_from": "nhwc",
+                "layout_to": "nchw",
+                "shape_order": ["n", "c", "h", "w"],
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            },
+        ):
+            existing = helpers_by_symbol.get(helper["symbol"])
+            if existing is not None and existing != helper:
+                raise ValueError(
+                    "CUTLASS Conv transform helper metadata drifted for symbol "
+                    f"{helper['symbol']!r}: expected {existing!r}, got {helper!r}"
+                )
+            helpers_by_symbol[helper["symbol"]] = helper
+    return sorted(helpers_by_symbol.values(), key=lambda item: (item["dtype"], item["tensor_role"], item["symbol"]))
+
+
 def _cutlass_conv_stub_source_exports(used_candidate_plan: Mapping[str, Any]) -> str:
     lines: list[str] = []
     emitted: set[str] = set()
+    transform_helpers = [
+        dict(item)
+        for item in used_candidate_plan.get("transform_helpers", ())
+        if isinstance(item, Mapping)
+    ]
+    if transform_helpers:
+        lines.append(_cutlass_conv_transform_runtime_support_source())
+    for helper in transform_helpers:
+        symbol_name = str(helper.get("symbol", ""))
+        if not symbol_name or symbol_name in emitted:
+            continue
+        emitted.add(symbol_name)
+        lines.append(_cutlass_conv_transform_source(helper))
     for symbol in used_candidate_plan.get("kernel_symbols", ()):
         symbol_name = str(symbol)
         if not symbol_name or symbol_name in emitted:
@@ -844,6 +946,200 @@ def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
 }}"""
 
 
+def _cutlass_conv_transform_runtime_support_source() -> str:
+    return """namespace {
+
+template <typename T>
+__global__ void dinoml_cutlass_conv_nchw_to_nhwc_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int c,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * c * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int channel = tmp % c;
+  int batch = tmp / c;
+  int dst_index = ((batch * h + y) * w + x) * c + channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename T>
+__global__ void dinoml_cutlass_conv_nhwc_to_nchw_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int c,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * c * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int channel = tmp % c;
+  int batch = tmp / c;
+  int src_index = ((batch * h + y) * w + x) * c + channel;
+  dst[linear] = src[src_index];
+}
+
+template <typename T>
+__global__ void dinoml_cutlass_conv_oihw_to_ohwi_kernel(
+    const T* src,
+    T* dst,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = out_c * in_c * kernel_h * kernel_w;
+  if (linear >= total) {
+    return;
+  }
+  int kw = linear % kernel_w;
+  int tmp = linear / kernel_w;
+  int kh = tmp % kernel_h;
+  tmp /= kernel_h;
+  int in_channel = tmp % in_c;
+  int out_channel = tmp / in_c;
+  int dst_index = ((out_channel * kernel_h + kh) * kernel_w + kw) * in_c + in_channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename T>
+int dinoml_cutlass_conv_launch_nchw_to_nhwc(
+    const void* src,
+    void* dst,
+    int n,
+    int c,
+    int h,
+    int w,
+    cudaStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || c <= 0 || h <= 0 || w <= 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int total = n * c * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  dinoml_cutlass_conv_nchw_to_nhwc_kernel<<<blocks, threads, 0, stream>>>(
+      static_cast<const T*>(src),
+      static_cast<T*>(dst),
+      n,
+      c,
+      h,
+      w);
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <typename T>
+int dinoml_cutlass_conv_launch_nhwc_to_nchw(
+    const void* src,
+    void* dst,
+    int n,
+    int c,
+    int h,
+    int w,
+    cudaStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || c <= 0 || h <= 0 || w <= 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int total = n * c * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  dinoml_cutlass_conv_nhwc_to_nchw_kernel<<<blocks, threads, 0, stream>>>(
+      static_cast<const T*>(src),
+      static_cast<T*>(dst),
+      n,
+      c,
+      h,
+      w);
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <typename T>
+int dinoml_cutlass_conv_launch_oihw_to_ohwi(
+    const void* src,
+    void* dst,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w,
+    cudaStream_t stream) {
+  if (src == nullptr || dst == nullptr || out_c <= 0 || in_c <= 0 || kernel_h <= 0 || kernel_w <= 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int total = out_c * in_c * kernel_h * kernel_w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  dinoml_cutlass_conv_oihw_to_ohwi_kernel<<<blocks, threads, 0, stream>>>(
+      static_cast<const T*>(src),
+      static_cast<T*>(dst),
+      out_c,
+      in_c,
+      kernel_h,
+      kernel_w);
+  return static_cast<int>(cudaGetLastError());
+}
+
+}  // namespace"""
+
+
+def _cutlass_conv_transform_source(helper: Mapping[str, Any]) -> str:
+    symbol = str(helper["symbol"])
+    dtype = str(helper["dtype"])
+    transform = str(helper["transform"])
+    ctype = "__half" if dtype == "float16" else "float"
+    if transform == "nchw_to_nhwc_temporary":
+        return f"""extern "C" int {symbol}(
+    const void* src_nchw,
+    void* dst_nhwc,
+    int n,
+    int c,
+    int h,
+    int w,
+    cudaStream_t stream) {{
+  return dinoml_cutlass_conv_launch_nchw_to_nhwc<{ctype}>(
+      src_nchw, dst_nhwc, n, c, h, w, stream);
+}}"""
+    if transform == "nhwc_to_nchw_temporary":
+        return f"""extern "C" int {symbol}(
+    const void* src_nhwc,
+    void* dst_nchw,
+    int n,
+    int c,
+    int h,
+    int w,
+    cudaStream_t stream) {{
+  return dinoml_cutlass_conv_launch_nhwc_to_nchw<{ctype}>(
+      src_nhwc, dst_nchw, n, c, h, w, stream);
+}}"""
+    if transform == "oihw_to_ohwi_temporary":
+        return f"""extern "C" int {symbol}(
+    const void* src_oihw,
+    void* dst_ohwi,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w,
+    cudaStream_t stream) {{
+  return dinoml_cutlass_conv_launch_oihw_to_ohwi<{ctype}>(
+      src_oihw, dst_ohwi, out_c, in_c, kernel_h, kernel_w, stream);
+}}"""
+    raise ValueError(f"Unsupported CUTLASS Conv transform helper {transform!r}")
+
+
 def _validate_conv_op_name(op_name: str) -> None:
     if op_name not in CONV_OPS:
         supported = ", ".join(CONV_OPS)
@@ -878,10 +1174,13 @@ __all__ = [
     "cutlass_conv_candidate_set",
     "cutlass_conv_candidate_set_id",
     "cutlass_conv_candidates",
+    "cutlass_conv_input_pack_symbol",
     "cutlass_conv_layout_plan",
+    "cutlass_conv_output_unpack_symbol",
     "cutlass_conv_profiler_symbol",
     "cutlass_conv_symbol",
     "cutlass_conv_used_candidate_plan",
+    "cutlass_conv_weight_pack_symbol",
     "normalize_cutlass_conv_used_candidate_plan",
     "render_cutlass_conv_scaffold_source",
     "validate_cutlass_conv_plan",

@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` support-library lane by
+  compiling the next honest prerequisite for a real launcher without widening
+  the runtime claim: the CUTLASS Conv scaffold now emits exported CUDA layout
+  transform helpers for the manifest-recorded NCHW -> NHWC activation pack,
+  OIHW -> OHWI weight pack, and NHWC -> NCHW output unpack contract, with
+  helper symbols threaded back into `cutlass_conv_plan`
+  `layout_translation`/`weight_transform` metadata for both `float16` and
+  `float32`. The support manifest, source manifest, and codegen support-library
+  metadata now all expose those helper exports/symbols explicitly, and focused
+  tests prove the scaffold compiles, exports the helper ABI coherently, still
+  preserves the launcher/profiler stub contract, and optionally matches Torch
+  layout permutations on real CUDA for both supported dtypes. CUDA model
+  compile still rejects before final manifest/module build, so no generated
+  wrapper lowering, CUTLASS implicit-GEMM conv launch, profiler execution, or
+  `conv2d_bias` model runtime is claimed yet.
 - Advanced the bounded `conv2d_bias`/`cutlass_conv` runtime-maturity lane
   without enabling a model runtime claim: the support-cache scaffold now renders
   concrete launcher/profiler stub exports for the planned

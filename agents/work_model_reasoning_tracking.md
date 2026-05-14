@@ -21,3 +21,4 @@ Format:
 - 3d05806, Repair named permute specializations, gpt-5.4, high
 - bd0ea2a, Align specialized permute schema attrs, gpt-5.4, high
 - 34eff08, Extract where frontend module, gpt-5.4, medium
+- 0d73929, Compile CUTLASS conv support stubs, gpt-5.5, high

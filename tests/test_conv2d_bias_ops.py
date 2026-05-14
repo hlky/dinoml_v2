@@ -23,6 +23,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_used_candidate_plan,
     cutlass_conv_weight_pack_symbol,
 )
+from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops.conv import render_scaffold_wrapper_source, render_scaffold_wrapper_stages
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.passes import validate_ir
@@ -52,6 +53,13 @@ class Conv2dBiasModule(dml.Module):
         )
 
 
+class TwoConv2dBiasModule(dml.Module):
+    def forward(self, x0, weight0, bias0, x1, weight1, bias1):
+        y0 = dml.ops.output(dml.ops.conv2d_bias(x0, weight0, bias0, stride=(2, 1), padding=(1, 0)), "out0")
+        y1 = dml.ops.output(dml.ops.conv2d_bias(x1, weight1, bias1, stride=(2, 1), padding=(1, 0)), "out1")
+        return y0, y1
+
+
 def _trace_conv2d_bias(
     dtype="float32",
     x_shape=(2, 3, 7, 8),
@@ -70,6 +78,21 @@ def _trace_conv2d_bias(
             "bias": dml.TensorSpec(bias_shape, dtype),
         },
         name=f"conv2d_bias_{dtype}",
+    )
+
+
+def _trace_two_conv2d_bias(dtype="float16"):
+    return dml.trace(
+        TwoConv2dBiasModule(),
+        inputs={
+            "x0": dml.TensorSpec((2, 3, 7, 8), dtype),
+            "weight0": dml.TensorSpec((4, 3, 3, 2), dtype),
+            "bias0": dml.TensorSpec((4,), dtype),
+            "x1": dml.TensorSpec((2, 3, 7, 8), dtype),
+            "weight1": dml.TensorSpec((4, 3, 3, 2), dtype),
+            "bias1": dml.TensorSpec((4,), dtype),
+        },
+        name=f"two_conv2d_bias_{dtype}",
     )
 
 
@@ -462,6 +485,18 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "}\n"
         "#endif\n"
     )
+
+
+def test_cutlass_conv2d_bias_cuda_runtime_provider_status_names_are_node_scoped(tmp_path, monkeypatch):
+    spec = _trace_two_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    module_source = render_cuda_module(spec.ir, kernel_manifest=kernel_manifest)
+
+    assert "int status_n0_provider_launch =" in module_source
+    assert "int status_n1_provider_launch =" in module_source
+    assert module_source.count("int status_provider_launch =") == 0
 
 
 def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transforms():

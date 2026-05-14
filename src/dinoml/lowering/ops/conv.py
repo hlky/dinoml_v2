@@ -118,7 +118,9 @@ def _render_runtime_stage(stage: Mapping[str, Any], *, roles: Mapping[str, str])
         output = _runtime_descriptor_expr(stage.get("output"), roles=roles, node_id=stage.get("node_id"))
         shape_args = _runtime_shape_args(stage, roles=roles)
         op_name = str(stage.get("op") or "conv2d_bias")
-        status_name = f"status_{_c_ident(str(stage.get('stage_name', 'provider_launch')))}"
+        node_scope = _c_ident(str(stage.get("node_id") or "conv"))
+        stage_scope = _c_ident(str(stage.get("stage_name", "provider_launch")))
+        status_name = f"status_{node_scope}_{stage_scope}"
         return [
             f"int {status_name} = {symbol}({', '.join([*pointer_args, output, *shape_args, 'session->stream'])});",
             f"if ({status_name} != 0) {{",

@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- e7b11bf, Harden rms_norm helper runtime regressions, gpt-5.4, high
 - edfa639, Emit CUTLASS conv scaffold wrapper debug sources, gpt-5.4, high
 - def4984, Record CUTLASS conv wrapper staging metadata, gpt-5.4, high
 - 61c5a0f, Add native GGUF runtime-dequant reload regression, gpt-5.4, high

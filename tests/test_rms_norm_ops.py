@@ -149,6 +149,44 @@ def test_rms_norm_frontend_rejects_dynamic_hidden_bad_rank_dtype_and_weight_cont
             dml.ops.rms_norm(x, weight)
 
 
+@pytest.mark.parametrize("use_weight", [True, False])
+def test_cpu_artifact_runs_generated_rms_norm_with_dynamic_leading_dims(tmp_path, use_weight):
+    batch = dml.Dim("batch", min=1, max=4)
+    inputs = {"x": dml.TensorSpec([batch, 8], "float32")}
+    if use_weight:
+        inputs["weight"] = dml.TensorSpec([8], "float32")
+    spec = dml.trace(
+        RMSNormModule(use_weight=use_weight, eps=1e-5),
+        inputs=inputs,
+        name=f"rms_norm_dynamic_cpu_{'weighted' if use_weight else 'unweighted'}",
+    )
+    artifact_name = "rms_norm_dynamic_weighted_cpu.dinoml" if use_weight else "rms_norm_dynamic_unweighted_cpu.dinoml"
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / artifact_name)
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "t5_layer_norm_" in generated
+    assert "sum_sq" in generated
+    assert "sqrtf" in generated
+
+    rng = np.random.default_rng(321 if use_weight else 654)
+    weight = None
+    if use_weight:
+        weight = (rng.standard_normal((8,)).astype(np.float32) * 0.25) + 1.0
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    for rows in (2, 4):
+        x = (rng.standard_normal((rows, 8)).astype(np.float32) * 2.0) - 0.75
+        expected = _reference_rms_norm(x, weight, eps=1e-5, dtype="float32")
+        runtime_inputs = {"x": x}
+        if weight is not None:
+            runtime_inputs["weight"] = weight
+        actual = session.run_numpy(runtime_inputs)["out"]
+        assert actual.shape == (rows, 8)
+        np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+    session.close()
+    module.close()
+
+
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 @pytest.mark.parametrize("use_weight", [True, False])
 def test_cuda_artifact_runs_generated_rms_norm(tmp_path, use_weight):
@@ -180,3 +218,48 @@ def test_cuda_artifact_runs_generated_rms_norm(tmp_path, use_weight):
 
     assert actual.dtype == torch.float32
     np.testing.assert_allclose(actual.cpu().numpy(), expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize("use_weight", [True, False])
+@pytest.mark.parametrize(
+    ("dtype", "torch_dtype", "atol", "rtol"),
+    [("float16", "float16", 2e-3, 2e-3), ("bfloat16", "bfloat16", 2e-2, 2e-2)],
+)
+def test_rms_norm_reduced_precision_cuda_runtime_matches_reference_and_uses_fp32_accumulation(
+    tmp_path, use_weight, dtype, torch_dtype, atol, rtol
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    spec = _trace_rms_norm(dtype=dtype, x_shape=(8, 33), weight_shape=(33,), use_weight=use_weight, eps=1e-5)
+    artifact_name = f"rms_norm_{'weighted' if use_weight else 'unweighted'}_{dtype}_cuda.dinoml"
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / artifact_name)
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    storage_type = "half" if dtype == "float16" else "__nv_bfloat16"
+    assert f"const {storage_type}* DINO_RESTRICT x" in generated
+    assert f"{storage_type}* DINO_RESTRICT y" in generated
+    assert "float thread_sum_sq" in generated
+    assert "dinoml::math::cast<float>(x[base + col])" in generated
+    assert f"dinoml::math::cast<{storage_type}>" in generated
+    if use_weight:
+        assert f"const {storage_type}* DINO_RESTRICT weight" in generated
+
+    rng = np.random.default_rng(456 if use_weight else 654)
+    x = (rng.standard_normal((8, 33)).astype(np.float32) * 1.25) - 0.4
+    weight = None
+    runtime_inputs = {"x": torch.tensor(x, device="cuda", dtype=getattr(torch, torch_dtype))}
+    if use_weight:
+        weight = (rng.standard_normal((33,)).astype(np.float32) * 0.2) + 1.0
+        runtime_inputs["weight"] = torch.tensor(weight, device="cuda", dtype=getattr(torch, torch_dtype))
+    expected = _reference_rms_norm(x, weight, eps=1e-5, dtype=dtype)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_torch(runtime_inputs)["out"]
+    session.close()
+    module.close()
+
+    assert actual.dtype == getattr(torch, torch_dtype)
+    np.testing.assert_allclose(actual.float().cpu().numpy(), expected.astype(np.float32), atol=atol, rtol=rtol)

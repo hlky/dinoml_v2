@@ -618,10 +618,13 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   `[hidden]` and then delegates to that same bounded T5/RMS kernel path. It
   inherits the existing fp32 accumulation semantics, dynamic leading-dimension
   support, CPU reference execution, and generated CPU/CUDA lowering from
-  `t5_layer_norm`. Out of scope for this bounded helper slice: dynamic hidden
-  size, non-rank-1 weights, mixed builder/dtype inputs, full LayerNorm
-  mean/bias semantics, grouped/batched/fused variants, and any new provider or
-  profiler surface.
+  `t5_layer_norm`; helper-level regressions now explicitly cover weighted and
+  unweighted dynamic-leading-dimension CPU artifact execution plus reduced-
+  precision (`float16`/`bfloat16`) CUDA runtime parity with fp32 accumulation
+  in `tests/test_rms_norm_ops.py`. Out of scope for this bounded helper slice:
+  dynamic hidden size, non-rank-1 weights, mixed builder/dtype inputs, full
+  LayerNorm mean/bias semantics, grouped/batched/fused variants, and any new
+  provider or profiler surface.
 - [x] `t5_layer_norm`: bounded public `dml.ops.t5_layer_norm(x, weight,
   eps=1e-6)` port for rank >= 1 dense tensors with a positive static last
   dimension and required rank-1 affine weight `[hidden]`, across `float32`,

@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Hardened the bounded helper-only `rms_norm` contract without widening the
+  op surface: helper-level regressions now prove that both weighted and
+  unweighted `dml.ops.rms_norm(...)` inherit the admitted `t5_layer_norm`
+  runtime behavior instead of only claiming it in docs. Added focused coverage
+  for dynamic-leading-dimension CPU artifact execution and reduced-precision
+  (`float16`/`bfloat16`) CUDA runtime parity with fp32 accumulation, while
+  preserving the helper-only lowering contract that still emits only
+  `t5_layer_norm` nodes/kernels plus the synthetic ones constant for the
+  weightless path.
 - Advanced the bounded `conv2d_bias`/`cutlass_conv` wrapper-source lane
   without weakening the current compile rejection: rejected CUDA artifacts now
   emit `debug/generated_src/scaffold_source_manifest.json` plus a guarded
@@ -425,9 +434,9 @@ This file should be updated after each major loop.
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the
-   bounded helper-only `rms_norm` slice in place, prefer the next half-finished
-   surface that either needs promotion out of helper-only status or a small
-   contract hardening pass before revisiting
+   newly runtime-hardened helper-only `rms_norm` slice in place, prefer the
+   next half-finished surface that either needs promotion out of helper-only
+   status or a small contract hardening pass before revisiting
    broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
    normalized-dimension work. RoPE exploration/planning is now recorded in
    `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a

@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded CLIP text MLP / quick_gelu composition slice without
+  adding a new public helper or model: focused regressions now prove
+  `gemm_rcr_bias_fast_gelu` as the first projection and `gemm_rcr_bias` as the
+  second projection for a tiny CLIP-style text MLP, with CPU NumPy parity and
+  manifest/lowering checks confirming the first projection uses the CUTLASS
+  `bias_fast_gelu` family while the second stays on `gemm_rcr_bias`. This is
+  still a composition proof, not `CLIPTextModel`, not an encoder block, and not
+  a new `quick_gelu` public op.
 - Landed a bounded CLIP text dense-attention composition slice without adding a
   public attention op or FlashAttention/provider surface: focused regressions
   now prove a tiny static CLIP-style text self-attention path built from

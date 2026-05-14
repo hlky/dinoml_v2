@@ -242,14 +242,18 @@ porting. It intentionally excludes the op inventory, which lives in
   rejects missing transform metadata; downstream profiling now also rejects
   scaffold-only Conv workloads explicitly before GEMM/BMM cache-key, result, or
   execution-plan logic can consume them. CUDA compile now also materializes a
-  support-cache/source-manifest scaffold for `cutlass_conv` so provider
-  transform provenance is visible before runtime launchers exist. The shared
+  support-cache/source-manifest boundary for `cutlass_conv` so provider
+  transform provenance is visible before runtime launchers exist; with `nvcc`
+  available that boundary compiles a `libdinoml_cutlass_conv.so` stub library
+  exporting the planned launcher/profiler symbols and recording
+  `compiled_stub_only` status. The shared
   Conv scaffold transform plan is now also validated for internal coherence
   before profiling/codegen/support-cache consumers can reuse it, so layout
   drift, incorrect temporary byte counts, and inconsistent padded-channel
   metadata fail explicitly instead of silently propagating through artifact
-  provenance. Compiled ConvNd lowering, profiler execution, compiled support-
-  library build, and general channel-last runtime layout remain unimplemented.
+  provenance. Generated ConvNd pack/unpack lowering, profiler execution, real
+  CUTLASS Conv runtime launch, and general channel-last runtime layout remain
+  unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

@@ -286,12 +286,16 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
 - The profile workload builder now has a scaffold-only `cutlass_conv` workload
   that preserves the same layout translation and weight-transform metadata, and
   refuses manifests that omit that transform plan.
-- CUDA compile now also materializes a manifest-only `cutlass_conv` support
-  cache scaffold under the advertised support `cache_dir`, including
-  `lib/cutlass_conv_manifest.json` and `src/source_manifest.json` with the used
-  candidate plan, candidate/config keys, and explicit layout/weight-transform
-  provenance. This is still scaffold-only metadata: no ConvNd profiler
-  execution, compiled support library, or runtime launcher exists yet.
+- CUDA compile now materializes a `cutlass_conv` support-cache boundary under
+  the advertised support `cache_dir`, including `lib/cutlass_conv_manifest.json`
+  and `src/source_manifest.json` with the used candidate plan,
+  candidate/config keys, and explicit layout/weight-transform provenance. When
+  `nvcc` is available, the support cache also builds
+  `lib/libdinoml_cutlass_conv.so` with concrete launcher/profiler export stubs
+  for the selected `dinoml_cutlass_conv2d_bias_v1` ABI. Those stubs return an
+  explicit unsupported status/profile value and do not implement Conv runtime
+  execution; if `nvcc` is unavailable, the manifest records
+  `source_scaffold_only`.
 - The shared `cutlass_conv_plan` scaffold metadata is now validated before
   profile workload generation, codegen-plan support-library enumeration, and
   support-cache/source-manifest emission consume it. The current bounded
@@ -307,3 +311,8 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   caller-side mutations to selected-candidate layout or dtype metadata now fail
   before support manifests are emitted, so the scaffold does not become a
   side-door for stale candidate provenance.
+- Model CUDA compile still rejects before writing the final artifact manifest or
+  building the generated module while the kernel manifest remains
+  `manifest_scaffold_only`; no generated pack/unpack lowering, CUTLASS
+  implicit-GEMM launcher, profiler execution, execution-plan consumption, or
+  CUDA runtime parity is claimed yet.

@@ -188,8 +188,9 @@ def register_conv_ops(registry: OpRegistry) -> None:
             description=(
                 "Bounded conv2d_bias frontend with public NCHW/OIHW semantics, "
                 "groups=1 only, static rank-4 shapes, and CPU reference execution. "
-                "CUDA compile emits manifest/codegen scaffold metadata and then rejects "
-                "before module build until a provider-backed launcher is real."
+                "CUDA compile emits manifest/codegen scaffold metadata, materializes "
+                "an explicit CUTLASS Conv support stub boundary when possible, and "
+                "then rejects before module build until a provider-backed launcher is real."
             ),
         )
     )

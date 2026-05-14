@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` runtime-maturity lane
+  without enabling a model runtime claim: the support-cache scaffold now renders
+  concrete launcher/profiler stub exports for the planned
+  `dinoml_cutlass_conv2d_bias_v1` ABI and, when `nvcc` is available, compiles
+  them into `lib/libdinoml_cutlass_conv.so` with `compiled_stub_only` status,
+  library hash, build command, source-manifest symbols, and explicit export
+  metadata. CUDA model compile still rejects before final manifest/module build
+  while the kernel manifest remains `manifest_scaffold_only`, so no generated
+  pack/unpack lowering, CUTLASS implicit-GEMM launcher, profiler execution, or
+  CUDA runtime parity is claimed. Focused conv tests now prove the compiled
+  support stub exists, exports the expected symbols, returns the documented
+  unsupported status, preserves NHWC/OHWI transform provenance, and still
+  rejects module compile honestly.
 - Started the `src/dinoml/ops/__init__.py` decomposition without widening the
   op surface: public `dml.ops.where(...)` now lives in
   `src/dinoml/ops/where.py`, while the small broadcast shape-spec inference
@@ -359,10 +372,12 @@ This file should be updated after each major loop.
    `manifest_scaffold_only` compile metadata, and profile workload scaffold to
    the next honest provider step. The support-cache/source-manifest scaffold is
    now in place and its transform metadata is validated for internal
-   coherence, so prefer the next small artifact-visible increment such as
-   execution-plan/schema hardening for Conv scaffold provenance or a generated
-   pack/unpack lowering metadata/test slice before attempting a full CUTLASS
-   runtime.
+   coherence, and the support-cache boundary now compiles explicit launcher and
+   profiler stubs when `nvcc` is available. Prefer the next small
+   artifact-visible increment such as generated NCHW/OIHW pack/unpack lowering
+   metadata plus guarded module-source tests, or a real CUTLASS implicit-GEMM
+   launcher only if it can include runtime parity without weakening the current
+   honest rejection behavior.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.

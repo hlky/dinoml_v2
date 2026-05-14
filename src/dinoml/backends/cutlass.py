@@ -20,6 +20,7 @@ from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_used_candidate_plan,
     normalize_cutlass_conv_used_candidate_plan,
+    render_cutlass_conv_scaffold_source,
     validate_cutlass_conv_scaffold_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
@@ -113,10 +114,11 @@ def ensure_cutlass_conv_support_scaffold(
     repo_source_text = repo_source.read_text(encoding="utf-8")
     repo_source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
     source = src_dir / "dinoml_cutlass_conv_scaffold.cu"
-    source.write_text(repo_source_text, encoding="utf-8")
-    source_hash = hashlib.sha256(repo_source_text.encode("utf-8")).hexdigest()
+    rendered_source = render_cutlass_conv_scaffold_source(repo_source_text, used_candidate_plan)
+    source_hash = hashlib.sha256(rendered_source.encode("utf-8")).hexdigest()
     source_manifest = src_dir / "source_manifest.json"
     manifest = lib_dir / "cutlass_conv_manifest.json"
+    library = lib_dir / "libdinoml_cutlass_conv.so"
     for entry in used_candidate_plan.get("entries", ()):
         validate_cutlass_conv_scaffold_plan(
             entry.get("cutlass_conv_plan"),
@@ -130,13 +132,25 @@ def ensure_cutlass_conv_support_scaffold(
             ),
             node_id=(None if entry.get("node_id") is None else str(entry.get("node_id"))),
         )
-    source_metrics = _support_source_metrics(repo_source_text, used_candidate_plan)
+    source_metrics = _support_source_metrics(rendered_source, used_candidate_plan)
     family_cache_key = _cutlass_conv_family_cache_key(target, used_candidate_plan)
     external_kernel_plan_cache_key = _cutlass_conv_external_kernel_plan_cache_key(
         target,
         family_cache_key=family_cache_key,
         used_candidate_plan=used_candidate_plan,
     )
+    source.write_text(rendered_source, encoding="utf-8")
+    compile_flags = _compile_flags(arch_num)
+    compile_command = ["nvcc", *compile_flags, str(source), "-o", str(library)]
+    compile_duration_ms = None
+    library_hash = None
+    compile_status = "source_scaffold_only"
+    if shutil.which("nvcc") is not None:
+        compile_started = time.perf_counter()
+        _run_nvcc(compile_command, cwd=support_root)
+        compile_duration_ms = round((time.perf_counter() - compile_started) * 1000.0, 3)
+        library_hash = _file_sha256(library)
+        compile_status = "compiled_stub_only"
     _write_source_manifest(
         source_manifest,
         target=target,
@@ -160,7 +174,20 @@ def ensure_cutlass_conv_support_scaffold(
         external_kernel_plan_cache_key=external_kernel_plan_cache_key,
         source_hash=source_hash,
         used_candidate_plan_key=str(used_candidate_plan["used_candidate_plan_key"]),
+        compile_flags=compile_flags,
+        compile_status=compile_status,
     )
+    compile_payload = {
+        "status": compile_status,
+        "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+        "flags": compile_flags,
+        "source_metrics": source_metrics,
+    }
+    if compile_status == "compiled_stub_only":
+        compile_payload["command"] = compile_command
+        compile_payload["duration_ms"] = compile_duration_ms
+    else:
+        compile_payload["blocked_reason"] = "nvcc_unavailable"
     write_json(
         manifest,
         {
@@ -169,7 +196,7 @@ def ensure_cutlass_conv_support_scaffold(
             "provider": "cutlass",
             "library_name": "cutlass_conv",
             "family": "conv2d_fprop",
-            "library": "libdinoml_cutlass_conv.so",
+            "library": library.name,
             "source": source.name,
             "source_sha256": source_hash,
             "source_manifest": "../src/source_manifest.json",
@@ -180,14 +207,11 @@ def ensure_cutlass_conv_support_scaffold(
             "build_fingerprint": provenance["provenance_key"],
             "provenance_key": provenance["provenance_key"],
             "provenance": provenance,
-            "compile": {
-                "status": "manifest_scaffold_only",
-                "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
-                "flags": [],
-                "source_metrics": source_metrics,
-            },
+            "exports": _cutlass_conv_stub_exports(used_candidate_plan),
+            "compile": compile_payload,
             "cache_key": manifest_key,
-            "status": "manifest_scaffold_only",
+            **({"library_sha256": library_hash} if library_hash is not None else {}),
+            "status": compile_status,
             "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
         },
     )
@@ -422,23 +446,56 @@ def _cutlass_conv_scaffold_provenance(
     external_kernel_plan_cache_key: str,
     source_hash: str,
     used_candidate_plan_key: str,
+    compile_flags: Sequence[str],
+    compile_status: str,
 ) -> dict[str, Any]:
     payload = {
         "schema_version": 1,
         "kind": "cutlass_conv_support_scaffold",
-        "status": "manifest_scaffold_only",
+        "status": compile_status,
         "target": dict(target),
         "family_cache_key": family_cache_key,
         "external_kernel_plan_cache_key": external_kernel_plan_cache_key,
         "source_sha256": source_hash,
         "used_candidate_plan_key": used_candidate_plan_key,
+        "compile_flags": compile_flags,
         "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
     }
     return {
         **payload,
-        "compile_flags": [],
         "provenance_key": hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest(),
     }
+
+
+def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+    exports = []
+    for symbol in used_candidate_plan.get("kernel_symbols", ()):
+        symbol_name = str(symbol)
+        if not symbol_name:
+            continue
+        exports.append(
+            {
+                "kind": "launcher",
+                "symbol": symbol_name,
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": "compiled_stub_only",
+                "return_code": 901,
+            }
+        )
+    for symbol in used_candidate_plan.get("profiler_symbols", ()):
+        symbol_name = str(symbol)
+        if not symbol_name:
+            continue
+        exports.append(
+            {
+                "kind": "profiler",
+                "symbol": symbol_name,
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": "compiled_stub_only",
+                "return_value_ms": -1.0,
+            }
+        )
+    return exports
 
 
 def _file_sha256(path: Path) -> str:

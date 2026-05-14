@@ -14,6 +14,8 @@ _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "scaffold_sm80_nhwc_ohwi_bias"
 _CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
 _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
 _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON = "cutlass_conv_runtime_launcher_not_implemented"
+_CUTLASS_CONV_STUB_RETURN_CODE = 901
+_CUTLASS_CONV_STUB_PROFILE_MS = -1.0
 _CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT = {
     "activation": "nchw",
     "weight": "oihw",
@@ -191,6 +193,14 @@ def cutlass_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict
     }
     payload["used_candidate_plan_key"] = hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
     return payload
+
+
+def render_cutlass_conv_scaffold_source(source_text: str, used_candidate_plan: Mapping[str, Any]) -> str:
+    exports = _cutlass_conv_stub_source_exports(used_candidate_plan)
+    marker = "// DINOML_CUTLASS_CONV_STUB_EXPORTS"
+    if marker not in source_text:
+        raise ValueError("CUTLASS Conv scaffold source is missing the stub export marker")
+    return source_text.replace(marker, exports)
 
 
 def normalize_cutlass_conv_used_candidate_plan(used_candidate_plan: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -722,6 +732,118 @@ def _normalize_target_policy(target: Mapping[str, Any] | None) -> dict[str, Any]
     }
 
 
+def _cutlass_conv_stub_source_exports(used_candidate_plan: Mapping[str, Any]) -> str:
+    lines: list[str] = []
+    emitted: set[str] = set()
+    for symbol in used_candidate_plan.get("kernel_symbols", ()):
+        symbol_name = str(symbol)
+        if not symbol_name or symbol_name in emitted:
+            continue
+        emitted.add(symbol_name)
+        lines.append(_cutlass_conv_stub_launcher_source(symbol_name))
+    for symbol in used_candidate_plan.get("profiler_symbols", ()):
+        symbol_name = str(symbol)
+        if not symbol_name or symbol_name in emitted:
+            continue
+        emitted.add(symbol_name)
+        lines.append(_cutlass_conv_stub_profiler_source(symbol_name))
+    return "\n\n".join(lines) if lines else "// no CUTLASS Conv stub exports requested"
+
+
+def _cutlass_conv_stub_launcher_source(symbol: str) -> str:
+    return f"""extern "C" int {symbol}(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {{
+  (void)activation_nhwc;
+  (void)weight_ohwi;
+  (void)bias;
+  (void)output_nhwc;
+  (void)n;
+  (void)h;
+  (void)w;
+  (void)c;
+  (void)out_h;
+  (void)out_w;
+  (void)out_c;
+  (void)kernel_h;
+  (void)kernel_w;
+  (void)stride_h;
+  (void)stride_w;
+  (void)pad_h;
+  (void)pad_w;
+  (void)dilation_h;
+  (void)dilation_w;
+  (void)stream;
+  return {_CUTLASS_CONV_STUB_RETURN_CODE};
+}}"""
+
+
+def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
+    return f"""extern "C" float {symbol}(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    cudaStream_t stream) {{
+  (void)activation_nhwc;
+  (void)weight_ohwi;
+  (void)bias;
+  (void)output_nhwc;
+  (void)n;
+  (void)h;
+  (void)w;
+  (void)c;
+  (void)out_h;
+  (void)out_w;
+  (void)out_c;
+  (void)kernel_h;
+  (void)kernel_w;
+  (void)stride_h;
+  (void)stride_w;
+  (void)pad_h;
+  (void)pad_w;
+  (void)dilation_h;
+  (void)dilation_w;
+  (void)iterations;
+  (void)stream;
+  return {_CUTLASS_CONV_STUB_PROFILE_MS}f;
+}}"""
+
+
 def _validate_conv_op_name(op_name: str) -> None:
     if op_name not in CONV_OPS:
         supported = ", ".join(CONV_OPS)
@@ -761,6 +883,7 @@ __all__ = [
     "cutlass_conv_symbol",
     "cutlass_conv_used_candidate_plan",
     "normalize_cutlass_conv_used_candidate_plan",
+    "render_cutlass_conv_scaffold_source",
     "validate_cutlass_conv_plan",
     "validate_cutlass_conv_scaffold_plan",
 ]

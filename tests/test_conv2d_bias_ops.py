@@ -1,3 +1,5 @@
+import ctypes
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -440,10 +442,25 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
     source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
-    assert support_manifest["status"] == "manifest_scaffold_only"
     assert support_manifest["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
-    assert support_manifest["compile"]["status"] == "manifest_scaffold_only"
+    assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
+    assert support_manifest["exports"] == [
+        {
+            "kind": "launcher",
+            "symbol": required["kernel_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": "compiled_stub_only",
+            "return_code": 901,
+        },
+        {
+            "kind": "profiler",
+            "symbol": required["profiler_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": "compiled_stub_only",
+            "return_value_ms": -1.0,
+        },
+    ]
     assert support_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
     assert support_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
     assert support_manifest["used_candidate_plan"]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
@@ -456,5 +473,58 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert source_manifest["sources"][0]["source_role"] == "support_library"
     assert source_manifest["sources"][0]["candidate_set_keys"] == [required["candidate_set_key"]]
     assert source_manifest["sources"][0]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
+    source_symbols = {item["name"] for item in source_manifest["sources"][0]["symbols"]}
+    assert required["kernel_symbol"] in source_symbols
+    assert required["profiler_symbol"] in source_symbols
+    if shutil.which("nvcc") is None:
+        assert support_manifest["status"] == "source_scaffold_only"
+        assert support_manifest["compile"]["status"] == "source_scaffold_only"
+        assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
+        assert "library_sha256" not in support_manifest
+        assert not (support_cache_dir / "lib" / "libdinoml_cutlass_conv.so").exists()
+        assert not (artifact_dir / "manifest.json").exists()
+        assert not (artifact_dir / "module.so").exists()
+        return
+    assert support_manifest["status"] == "compiled_stub_only"
+    assert len(support_manifest["library_sha256"]) == 64
+    assert support_manifest["compile"]["status"] == "compiled_stub_only"
+    assert support_manifest["compile"]["command"][0] == "nvcc"
+    support_library = support_cache_dir / "lib" / "libdinoml_cutlass_conv.so"
+    assert support_library.exists()
+    stub = ctypes.CDLL(str(support_library))
+    stub.dinoml_cutlass_conv_stub_status.restype = ctypes.c_int
+    assert stub.dinoml_cutlass_conv_stub_status() == 901
+    launcher = getattr(stub, required["kernel_symbol"])
+    launcher.restype = ctypes.c_int
+    launcher.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        *([ctypes.c_int] * 15),
+        ctypes.c_void_p,
+    ]
+    assert launcher(
+        None,
+        None,
+        None,
+        None,
+        2,
+        7,
+        8,
+        3,
+        4,
+        6,
+        4,
+        3,
+        2,
+        2,
+        1,
+        1,
+        0,
+        1,
+        2,
+        None,
+    ) == 901
     assert not (artifact_dir / "manifest.json").exists()
     assert not (artifact_dir / "module.so").exists()

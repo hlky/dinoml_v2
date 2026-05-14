@@ -1,6 +1,13 @@
-// CUTLASS Conv support scaffold template.
+#include <cuda_runtime.h>
+
+// CUTLASS Conv support stub boundary.
 //
-// This source is intentionally not compiled yet. The bounded ConvNd maturity
-// slice writes it into the support cache so source-manifest and provenance
-// artifacts can record explicit NCHW/OIHW -> NHWC/OHWI transform intent before
-// a real runtime launcher exists.
+// This file is rendered into the support cache with concrete exported symbols
+// from the manifest's used-candidate plan. The symbols intentionally return
+// unsupported stub values until the real CUTLASS implicit-GEMM launcher lands.
+
+extern "C" int dinoml_cutlass_conv_stub_status() {
+  return 901;
+}
+
+// DINOML_CUTLASS_CONV_STUB_EXPORTS

@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first real affine LayerNorm primitive needed for the CLIP/ViT/BERT
+  first-model sprint without widening beyond the bounded static-hidden slice:
+  public `dml.ops.layer_norm(x, weight, bias, eps=...)` is now a registered op
+  with dedicated validation plus generated CPU/CUDA lowering rather than a
+  helper composition, preserving dynamic leading dims while requiring a
+  positive static last dimension and matching rank-1 affine tensors
+  `[hidden]`. Focused regressions now cover traced/lowered IR ownership, shape
+  and dtype validation, kernel-manifest/generated-source provenance, CPU
+  artifact runtime across dynamic leading dims, CUDA compile/runtime parity,
+  and reduced-precision (`float16`/`bfloat16`) fp32-accumulation behavior.
 - Closed the remaining bounded CUDA runtime-validation gap around
   `get_1d_rotary_pos_embed` tensor-position dynamics without widening the op
   surface: focused regressions now compile one dynamic `float32` CUDA artifact
@@ -459,11 +469,13 @@ This file should be updated after each major loop.
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the
-   newly runtime-hardened helper-only `rms_norm` slice in place, prefer the
-   next half-finished surface that either needs promotion out of helper-only
-   status or a small contract hardening pass before revisiting
-   broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
-   normalized-dimension work. RoPE exploration/planning is now recorded in
+   newly runtime-hardened helper-only `rms_norm` slice in place, and the now-
+   registered generated `layer_norm` primitive unblocking CLIP/ViT/BERT hidden-
+   state normalization, prefer the next first-model enabling surface that is
+   still half-finished: standard transformer embedding/masking/attention
+   support or a small contract hardening pass around those paths before
+   revisiting grouped/fused normalization variants or dynamic normalized-
+   dimension work. RoPE exploration/planning is now recorded in
    `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is a
    downstream consumer of the landed 1D tables, such as a bounded one-tensor
    real-pair application helper or a 2D/3D table-preparation helper, not a

@@ -52,7 +52,7 @@ from dinoml.ops.conv import (
 from dinoml.ops.elementwise import CAST_ELEMENTWISE_DTYPES, ELEMENTWISE_BY_NAME, elementwise_output_dtype
 from dinoml.ops._frontend_utils import infer_shape_spec as _infer_shape_spec
 from dinoml.ops.gemm import GEMM_FRONTEND_OPS
-from dinoml.ops.normalization import t5_layer_norm as _t5_layer_norm_frontend
+from dinoml.ops.normalization import layer_norm as _layer_norm_frontend, t5_layer_norm as _t5_layer_norm_frontend
 from dinoml.ops.positional import (
     GET_1D_ROTARY_POS_EMBED_DTYPES,
     emit_get_1d_rotary_pos_embed_component as _emit_get_1d_rotary_pos_embed_component,
@@ -1024,6 +1024,7 @@ globals()["conv2d_bias"] = _conv2d_bias_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
 globals()["permute"] = _permute_frontend
+globals()["layer_norm"] = _layer_norm_frontend
 globals()["t5_layer_norm"] = _t5_layer_norm_frontend
 globals()["permute021"] = _permute021_frontend
 globals()["permute0213"] = _permute0213_frontend

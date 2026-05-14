@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- b8c6488, Add generated affine layer_norm op, gpt-5.4, high
 - 9a9eac2, Harden dynamic get_1d_rotary_pos_embed CUDA runtime, gpt-5.4, medium
 - 625b25c, Harden dynamic get_timestep_embedding CUDA runtime, gpt-5.4, medium
 - 6742bd7, Harden named permute runtime regressions, gpt-5.4, medium

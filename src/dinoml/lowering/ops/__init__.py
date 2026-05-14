@@ -24,6 +24,7 @@ from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_
 from dinoml.lowering.ops.get_timestep_embedding import GET_TIMESTEP_EMBEDDING_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
+from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
@@ -55,6 +56,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FULL_LOWERING.op_name: FULL_LOWERING,
     GET_TIMESTEP_EMBEDDING_LOWERING.op_name: GET_TIMESTEP_EMBEDDING_LOWERING,
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
+    LAYER_NORM_LOWERING.op_name: LAYER_NORM_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,

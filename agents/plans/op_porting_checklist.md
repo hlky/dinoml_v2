@@ -640,7 +640,22 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   mean/bias semantics, grouped/batched/fused variants, and provider/library
   claims. Reduced-precision CUDA runtime parity is now covered by a numeric
   `float16`/`bfloat16` regression in `tests/test_t5_layer_norm_ops.py`.
-- [ ] Remaining LayerNorm family: `layernorm`, `group_layernorm`,
+- [x] `layer_norm`: bounded public `dml.ops.layer_norm(x, weight, bias,
+  eps=1e-5)` port for rank >= 1 dense tensors with a positive static last
+  dimension and required rank-1 affine weight/bias tensors `[hidden]`, across
+  `float32`, `float16`, and `bfloat16` input/output storage. CPU reference plus
+  generated CPU/CUDA kernels use fp32 accumulation and preserve dynamic
+  leading-dimension shape metadata while flattening those leading dims into
+  rows at runtime. Semantics match standard affine LayerNorm over the last
+  dimension with mean subtraction and variance normalization:
+  `(x - mean(x)) * rsqrt(var(x) + eps) * weight + bias`. Focused regressions in
+  `tests/test_layer_norm_ops.py` cover traced/lowered IR ownership, validation,
+  generated-source/kernel-manifest provenance, CPU artifact runtime across
+  dynamic leading dims, CUDA compile/runtime parity, and reduced-precision
+  (`float16`/`bfloat16`) fp32-accumulation behavior. Out of scope for this
+  bounded slice: optional affine tensors, dynamic hidden size, grouped/batched/
+  fused normalization variants, and provider/library claims.
+- [ ] Remaining LayerNorm family: `group_layernorm`,
   `batch_layernorm_sigmoid_mul`, `layernorm_sigmoid_mul`,
   `group_layernorm_sigmoid_mul`.
 

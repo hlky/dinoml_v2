@@ -330,6 +330,18 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert candidates[0]["profiler_status"] == "unsupported_stub"
     assert candidates[0]["cutlass"]["opclass"] == "simt"
     assert candidates[0]["cutlass"]["kind"] == "implicit_gemm_runtime_launcher"
+    assert candidates[1]["status"] == "bounded_runtime"
+    assert candidates[1]["cutlass"]["opclass"] == "tensorop"
+    assert candidates[1]["cutlass"]["iterator_algorithm"] == "few_channels"
+    assert candidates[1]["selection_predicate"] == {
+        "kind": "semantic_input_channels",
+        "input_channels": 3,
+        "dtype": "float16",
+        "groups": 1,
+        "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+        "padding_policy": "none",
+    }
+    selected = candidates[1]
 
     layout_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
     assert layout_plan["status"] == "bounded_runtime"
@@ -350,10 +362,10 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     required = {
         "op": "conv2d_bias",
         "node_id": node["id"],
-        "kernel_symbol": candidates[0]["kernel_symbol"],
+        "kernel_symbol": selected["kernel_symbol"],
         "kernel_library": "cutlass_conv",
-        "profiler_symbol": candidates[0]["profiler_symbol"],
-        "selected_candidate_id": candidates[0]["candidate_id"],
+        "profiler_symbol": selected["profiler_symbol"],
+        "selected_candidate_id": selected["candidate_id"],
         "candidates": candidates,
         "candidate_set_id": candidate_set["candidate_set_id"],
         "candidate_set_key": candidate_set["candidate_set_key"],
@@ -369,7 +381,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     used_plan = cutlass_conv_used_candidate_plan(manifest)
     assert used_plan["library_name"] == "cutlass_conv"
     assert used_plan["candidates"] == candidates
-    assert used_plan["candidate_config_keys"] == [candidates[0]["candidate_config_key"]]
+    assert used_plan["candidate_config_keys"] == [candidate["candidate_config_key"] for candidate in candidates]
     assert used_plan["entries"][0]["cutlass_conv_plan"] == layout_plan
     assert used_plan["entries"][0]["candidates"] == candidates
     assert used_plan["entries"][0]["node_id"] == node["id"]
@@ -385,6 +397,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     assert support_lib["name"] == "cutlass_conv"
     assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
     assert support_lib["used_candidate_plan_key"] == used_plan["used_candidate_plan_key"]
+    assert support_lib["candidate_config_keys"] == [candidate["candidate_config_key"] for candidate in candidates]
     assert support_lib["transform_helper_symbols"] == [
         cutlass_conv_input_pack_symbol("float16"),
         cutlass_conv_output_unpack_symbol("float16"),
@@ -409,7 +422,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     }
     assert codegen_plan.wrapper_stages[1]["destination"]["name"] == "weight_ohwi"
     assert codegen_plan.wrapper_stages[2]["stage_kind"] == "provider_launcher"
-    assert codegen_plan.wrapper_stages[2]["symbol"] == candidates[0]["kernel_symbol"]
+    assert codegen_plan.wrapper_stages[2]["symbol"] == selected["kernel_symbol"]
     assert [arg["placeholder"] for arg in codegen_plan.wrapper_stages[2]["shape_args"]] == [
         "activation_n",
         "activation_h",
@@ -437,6 +450,7 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
 def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_path):
     spec = _trace_conv2d_bias("float16")
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    [required] = kernel_manifest["required_kernels"]
 
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache")
     rendered = render_scaffold_wrapper_stages(codegen_plan.wrapper_stages)
@@ -450,7 +464,7 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "ptr_weight, tmp_weight_ohwi, weight_o, weight_i, kernel_h, kernel_w, stream));"
     )
     assert rendered[2] == (
-        "int status_provider_launch = dinoml_cutlass_conv2d_bias_float16_scaffold_sm80_nhwc_ohwi_bias("
+        f"int status_provider_launch = {required['kernel_symbol']}("
         "tmp_activation_nhwc, tmp_weight_ohwi, ptr_bias, tmp_output_nhwc, activation_n, activation_h, "
         "activation_w, activation_c, output_h, output_w, output_c, kernel_h, kernel_w, stride_h, stride_w, "
         "pad_h, pad_w, dilation_h, dilation_w, stream);\n"
@@ -478,7 +492,7 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "ptr_activation, tmp_activation_nhwc, activation_n, activation_c, activation_h, activation_w, stream));\n"
         "  DINO_CUDA_CHECK(dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_float16_v1("
         "ptr_weight, tmp_weight_ohwi, weight_o, weight_i, kernel_h, kernel_w, stream));\n"
-        "  int status_provider_launch = dinoml_cutlass_conv2d_bias_float16_scaffold_sm80_nhwc_ohwi_bias("
+        f"  int status_provider_launch = {required['kernel_symbol']}("
         "tmp_activation_nhwc, tmp_weight_ohwi, ptr_bias, tmp_output_nhwc, activation_n, activation_h, "
         "activation_w, activation_c, output_h, output_w, output_c, kernel_h, kernel_w, stride_h, stride_w, "
         "pad_h, pad_w, dilation_h, dilation_w, stream);\n"
@@ -491,6 +505,38 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "}\n"
         "#endif\n"
     )
+
+
+def test_cutlass_conv2d_bias_manifest_selects_few_channel_tensorop_only_for_c3():
+    few_spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+    )
+    fallback_spec = _trace_conv2d_bias(
+        "float16",
+        x_shape=(2, 5, 7, 8),
+        weight_shape=(4, 5, 3, 2),
+        bias_shape=(4,),
+    )
+
+    [few_required] = build_kernel_manifest(few_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
+    [fallback_required] = build_kernel_manifest(fallback_spec.ir, {"name": "cuda", "arch": "sm_86"})["required_kernels"]
+
+    assert few_required["selected_candidate_id"].endswith("few_channels_c3")
+    assert few_required["kernel_symbol"].endswith("tensorop_sm80_nhwc_ohwi_bias_few_channels_c3")
+    assert few_required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert few_required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
+    assert few_required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert few_required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 3
+
+    assert fallback_required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert fallback_required["kernel_symbol"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert fallback_required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
+    assert fallback_required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "analytic"
+    assert fallback_required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert fallback_required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 5
 
 
 def test_cutlass_conv2d_bias_cuda_runtime_provider_status_names_are_node_scoped(tmp_path, monkeypatch):
@@ -520,8 +566,9 @@ def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transfor
 
     workloads = build_profile_workloads(spec.ir, kernel_manifest)
 
-    assert len(workloads) == 1
-    workload = workloads[0]
+    assert len(workloads) == 2
+    assert {workload.candidate["cutlass"]["opclass"] for workload in workloads} == {"simt", "tensorop"}
+    workload = next(item for item in workloads if item.candidate["cutlass"]["opclass"] == "tensorop")
     assert workload.kernel_library == "cutlass_conv"
     assert workload.op == "conv2d_bias"
     assert workload.dtype == "float16"
@@ -546,6 +593,7 @@ def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transfor
     assert payload["temporary_buffers"]
     assert payload["candidate"]["status"] == "bounded_runtime"
     assert payload["candidate"]["profiler_status"] == "unsupported_stub"
+    assert payload["candidate"]["cutlass"]["iterator_algorithm"] == "few_channels"
 
 
 def test_cutlass_conv2d_bias_profile_workload_requires_manifest_transform_metadata():
@@ -569,7 +617,13 @@ def test_cutlass_conv2d_bias_profile_workload_rejects_incoherent_transform_nbyte
 def test_cutlass_conv2d_bias_codegen_plan_rejects_candidate_layout_drift(tmp_path):
     spec = _trace_conv2d_bias("float16")
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
-    kernel_manifest["required_kernels"][0]["candidates"][0]["layouts"]["activation_provider"] = "nchw"
+    required = kernel_manifest["required_kernels"][0]
+    selected = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] == required["selected_candidate_id"]
+    )
+    selected["layouts"]["activation_provider"] = "nchw"
 
     with pytest.raises(ValueError, match="candidate layouts do not match transform plan"):
         create_codegen_plan(kernel_manifest, tmp_path / "cache")
@@ -579,12 +633,12 @@ def test_cutlass_conv2d_bias_codegen_plan_rejects_candidate_layout_drift(tmp_pat
     ("mutator", "error_match"),
     [
         (
-            lambda used_plan: used_plan["entries"][0]["candidates"][0]["layouts"].__setitem__("activation_provider", "nchw"),
+            lambda used_plan: used_plan["entries"][0]["candidates"][1]["layouts"].__setitem__("activation_provider", "nchw"),
             r"candidate\.layouts mismatch",
         ),
         (
-            lambda used_plan: used_plan["entries"][0]["candidates"][0].__setitem__("dtype", "float32"),
-            r"candidate\.(candidate_config_key|kernel_symbol|profiler_symbol|dtype) mismatch",
+            lambda used_plan: used_plan["entries"][0]["candidates"][1].__setitem__("dtype", "float32"),
+            r"(candidate\.(candidate_config_key|kernel_symbol|profiler_symbol|dtype) mismatch|selected candidate_id is not emitted)",
         ),
     ],
 )
@@ -642,6 +696,10 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert required["kernel_library"] == "cutlass_conv"
     assert required["candidate_set"]["status"] == "bounded_runtime"
     assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
+    assert required["selected_candidate_id"].endswith("few_channels_c3")
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == required["kernel_symbol"]
     assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
     assert required["cutlass_conv_plan"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
@@ -697,16 +755,20 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
     export_status = support_manifest["status"]
-    assert support_manifest["exports"] == [
+    expected_candidate_config_keys = [candidate["candidate_config_key"] for candidate in required["candidates"]]
+    expected_exports = [
         *_expected_transform_helper_exports(required["cutlass_conv_plan"], status=export_status),
-        {
-            "kind": "launcher",
-            "symbol": required["kernel_symbol"],
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": export_status,
-            "candidate_status": "bounded_runtime",
-            "success_return_code": 0,
-        },
+        *[
+            {
+                "kind": "launcher",
+                "symbol": candidate["kernel_symbol"],
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": export_status,
+                "candidate_status": "bounded_runtime",
+                "success_return_code": 0,
+            }
+            for candidate in required["candidates"]
+        ],
         {
             "kind": "profiler",
             "symbol": required["profiler_symbol"],
@@ -715,18 +777,19 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
             "return_value_ms": -1.0,
         },
     ]
+    assert support_manifest["exports"] == expected_exports
     assert support_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
     assert support_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
-    assert support_manifest["used_candidate_plan"]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
+    assert support_manifest["used_candidate_plan"]["candidate_config_keys"] == expected_candidate_config_keys
     assert source_manifest["kind"] == "dinoml.support_source_manifest"
     assert source_manifest["provider"] == "cutlass"
     assert source_manifest["library"] == "cutlass_conv"
     assert source_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
     assert source_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
-    assert source_manifest["used_candidate_plan"]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
+    assert source_manifest["used_candidate_plan"]["candidate_config_keys"] == expected_candidate_config_keys
     assert source_manifest["sources"][0]["source_role"] == "support_library"
     assert source_manifest["sources"][0]["candidate_set_keys"] == [required["candidate_set_key"]]
-    assert source_manifest["sources"][0]["candidate_config_keys"] == [required["candidates"][0]["candidate_config_key"]]
+    assert source_manifest["sources"][0]["candidate_config_keys"] == expected_candidate_config_keys
     source_symbols = {item["name"] for item in source_manifest["sources"][0]["symbols"]}
     helper_symbols = {
         required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"],
@@ -734,7 +797,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
         required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"],
     }
     assert helper_symbols.issubset(source_symbols)
-    assert required["kernel_symbol"] in source_symbols
+    assert {candidate["kernel_symbol"] for candidate in required["candidates"]}.issubset(source_symbols)
     assert required["profiler_symbol"] in source_symbols
     helper_entries = [item for item in source_manifest["sources"][0]["symbols"] if item["kind"] == "transform_helper"]
     assert [(item["tensor_role"], item["name"]) for item in helper_entries] == [
@@ -886,14 +949,17 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
     assert not stale_library.exists()
     assert support_manifest["exports"] == [
         *_expected_transform_helper_exports(required["cutlass_conv_plan"], status="source_bounded_runtime"),
-        {
-            "kind": "launcher",
-            "symbol": required["kernel_symbol"],
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "source_bounded_runtime",
-            "candidate_status": "bounded_runtime",
-            "success_return_code": 0,
-        },
+        *[
+            {
+                "kind": "launcher",
+                "symbol": candidate["kernel_symbol"],
+                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "status": "source_bounded_runtime",
+                "candidate_status": "bounded_runtime",
+                "success_return_code": 0,
+            }
+            for candidate in required["candidates"]
+        ],
         {
             "kind": "profiler",
             "symbol": required["profiler_symbol"],

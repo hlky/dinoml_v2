@@ -160,7 +160,8 @@ def _conv2d_bias_profile_workload():
         name="profile_conv2d_bias_scaffold",
     )
     kernel_manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
-    [workload] = build_profile_workloads(spec.ir, kernel_manifest)
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+    workload = next(item for item in workloads if item.candidate_id == kernel_manifest["required_kernels"][0]["selected_candidate_id"])
     return workload, kernel_manifest
 
 

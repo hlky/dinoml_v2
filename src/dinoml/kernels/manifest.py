@@ -94,12 +94,23 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         elif resolved.library == "cutlass_conv":
             candidates = [dict(candidate) for candidate in cutlass_conv_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_conv_candidate_set(str(node["op"]), dtype, target=target)
-            selected_candidate = candidates[0]
+            cutlass_conv_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
+            selected_candidate = _select_cutlass_conv_manifest_candidate(cutlass_conv_plan, candidates)
+            cutlass_conv_plan = {
+                **cutlass_conv_plan,
+                "selected_candidate": {
+                    "candidate_id": str(selected_candidate["candidate_id"]),
+                    "symbol_id": str(selected_candidate.get("symbol_id", "")),
+                    "kernel_symbol": str(selected_candidate["kernel_symbol"]),
+                    "opclass": str(selected_candidate.get("cutlass", {}).get("opclass", "")),
+                    "iterator_algorithm": str(selected_candidate.get("cutlass", {}).get("iterator_algorithm", "")),
+                    "selection_predicate": dict(selected_candidate.get("selection_predicate", {})),
+                },
+            }
             kernel_symbol = str(selected_candidate["kernel_symbol"])
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
-            cutlass_conv_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
         else:
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
@@ -228,6 +239,35 @@ def _gguf_runtime_dequant_gemm_rhs_plan(
     if blocked_reason is not None:
         plan["blocked_reason"] = blocked_reason
     return plan
+
+
+def _select_cutlass_conv_manifest_candidate(
+    cutlass_conv_plan: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    weight_shape = [int(dim) for dim in cutlass_conv_plan.get("weight_shape", ())]
+    conv_config = dict(cutlass_conv_plan.get("conv_config", {}))
+    dtype = str(cutlass_conv_plan.get("dtype", ""))
+    groups = int(conv_config.get("groups", 1))
+    semantic_input_channels = int(weight_shape[1]) if len(weight_shape) == 4 else -1
+    for candidate in candidates:
+        predicate = candidate.get("selection_predicate", {})
+        if not isinstance(predicate, Mapping):
+            continue
+        if (
+            predicate.get("kind") == "semantic_input_channels"
+            and int(predicate.get("input_channels", -1)) == semantic_input_channels
+            and str(predicate.get("dtype", dtype)) == dtype
+            and int(predicate.get("groups", groups)) == groups
+        ):
+            return candidate
+    for candidate in candidates:
+        predicate = candidate.get("selection_predicate", {})
+        if isinstance(predicate, Mapping) and predicate.get("kind") == "fallback":
+            return candidate
+    if not candidates:
+        raise ValueError("CUTLASS Conv manifest candidate selection requires at least one candidate")
+    return candidates[0]
 
 
 def _session_resource_plan(required_kernels: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:

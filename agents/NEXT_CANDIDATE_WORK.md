@@ -4,18 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Advanced the bounded `conv2d_bias`/`cutlass_conv` runtime lane to a real
-  correctness-first CUTLASS launcher for the narrow `float16`, static rank-4,
-  groups=1 slice: public semantics remain NCHW activations, OIHW weights, and
-  bias `[O]`, while generated CUDA still records and executes the manifest
-  NCHW -> NHWC activation pack, OIHW -> OHWI weight pack, provider launch, and
-  NHWC -> NCHW output unpack. The support cache now requires CUTLASS headers
-  and compiles `lib/libdinoml_cutlass_conv.so` with a SIMT
-  `device::ImplicitGemmConvolution` Fprop+bias launcher plus the existing
-  transform helpers, and CUDA runtime parity against Torch covers the bounded
-  fp16 case. This is not optimized/provider-mature Conv: TensorOp candidate
-  admission hit an alignment-1 CUTLASS cp.async compile constraint and remains
-  next work, and Conv profiler execution, execution-plan consumption,
+- Advanced the bounded `conv2d_bias`/`cutlass_conv` runtime lane with a
+  v1-inspired fp16 TensorOp `FewChannels` candidate for semantic input
+  `C=3`, while keeping public graph semantics NCHW activations, OIHW weights,
+  and bias `[O]`. Candidate metadata now records the SIMT fallback and the
+  TensorOp few-channel path explicitly, manifest selection records the selected
+  candidate in `cutlass_conv_plan`, and generated wrapper stages call the
+  selected launcher after the existing NCHW -> NHWC activation pack,
+  OIHW -> OHWI weight pack, and before NHWC -> NCHW output unpack. The support
+  cache compiles both launcher exports in `lib/libdinoml_cutlass_conv.so`;
+  CUDA runtime parity against Torch covers the selected C=3 few-channel path,
+  and manifest tests prove non-C=3 shapes stay on the SIMT fallback with no
+  hidden channel padding. This is still not provider-mature Conv: `FixedChannels`
+  for natural C=4/8, Conv profiler execution, execution-plan consumption,
   grouped/depthwise/transposed/3D, dynamic Conv profiling, and public NHWC
   semantics remain unsupported.
 - Landed a bounded CLIP text encoder-layer composition slice without adding
@@ -587,14 +588,15 @@ This file should be updated after each major loop.
    support or claim broader CLIP pooling parity before non-2 EOS matching and
    the pooled hidden-state gather path are actually covered.
 2. Continue the first bounded ConvNd provider slice described in
-   `agents/plans/conv_cutlass_plan.md` by promoting the correctness-first
-   `float16` SIMT implicit-GEMM launcher toward provider maturity without
-   widening public semantics. The next valuable slice is TensorOp candidate
-   admission with explicit alignment/channel constraints or manifest-visible
-   padding policy, followed by real Conv profiler execution and execution-plan
-   consumption. Do not describe the current runtime launcher as optimized Conv
-   provider parity: it is a narrow SIMT CUTLASS runtime slice with pack/unpack
-   provenance and Torch parity only for static rank-4 groups=1 fp16.
+   `agents/plans/conv_cutlass_plan.md` by promoting the now-runnable
+   `float16` SIMT fallback plus C=3 TensorOp `FewChannels` launcher toward
+   provider maturity without widening public semantics. The next valuable
+   slices are either a similarly explicit `FixedChannels` C=4/8 admission if it
+   compiles and validates cleanly, or real Conv profiler execution and
+   execution-plan consumption. Do not describe the current runtime launcher set
+   as optimized/provider-mature Conv parity: it is a narrow static rank-4,
+   groups=1 fp16 slice with pack/unpack provenance, C=3 few-channel Torch
+   parity, and SIMT fallback coverage.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.

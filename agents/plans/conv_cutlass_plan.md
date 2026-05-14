@@ -294,12 +294,15 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   CUDA lowering records explicit NHWC/OHWI provider transforms in
   `cutlass_conv` manifest/codegen metadata.
 - The `float16`, static rank-4, groups=1 CUDA path now has a correctness-first
-  CUTLASS runtime launcher. Generated code allocates per-session NHWC/OHWI/NHWC
-  temporaries, calls the support-library NCHW -> NHWC activation pack helper,
-  OIHW -> OHWI weight pack helper, a SIMT
-  `cutlass::conv::device::ImplicitGemmConvolution` Fprop+bias launcher, and
-  NHWC -> NCHW output unpack helper. Focused CUDA runtime parity validates that
-  bounded path against Torch. This is intentionally not a TensorOp-optimized or
+  CUTLASS runtime launcher set. Generated code allocates per-session
+  NHWC/OHWI/NHWC temporaries, calls the support-library NCHW -> NHWC activation
+  pack helper, OIHW -> OHWI weight pack helper, the manifest-selected provider
+  launcher, and NHWC -> NCHW output unpack helper. The candidate set now records
+  both the SIMT fallback and a v1-inspired TensorOp
+  `IteratorAlgorithm::kFewChannels` candidate selected only for semantic input
+  `C=3`, with no channel padding. Focused CUDA runtime parity validates that
+  selected C=3 few-channel path against Torch, while manifest tests keep
+  non-C=3 shapes on the SIMT fallback. This is intentionally not a
   profile-selected Conv provider yet.
 - The profile workload builder still emits an unsupported-profiler
   `cutlass_conv` workload that preserves the same layout translation and
@@ -312,7 +315,8 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   candidate/config keys, and explicit layout/weight-transform provenance. When
   `nvcc` is available, the support cache also builds
   `lib/libdinoml_cutlass_conv.so` with concrete transform helper exports, the
-  fp16 SIMT implicit-GEMM launcher export, and a profiler stub for the selected
+  fp16 SIMT fallback launcher export, the fp16 TensorOp FewChannels C=3
+  launcher export, and a profiler stub for the selected
   `dinoml_cutlass_conv2d_bias_v1` ABI. If `nvcc` is unavailable, the manifest
   records source-only status.
 - The shared `cutlass_conv_plan` scaffold metadata is now validated before
@@ -342,11 +346,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   side-door for stale candidate provenance.
 - Model CUDA compile now builds a generated module when `nvcc` can compile the
   support library, and the artifact manifest carries
-  `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is a
-  real CUTLASS SIMT implicit-GEMM Conv2d Fprop+bias call, but the TensorOp path
-  is not admitted yet: an alignment-1 TensorOp attempt hits CUTLASS' SM80
-  `cp.async` size constraint, so TensorOp needs explicit alignment/channel
-  guards or manifest-visible padding policy before it can be called supported.
-  No Conv profiler execution, execution-plan consumption, dynamic Conv
-  profiling, grouped/depthwise/transposed/3D coverage, runtime-set packed
-  weights, or public NHWC semantics are claimed.
+  `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is
+  either the SIMT implicit-GEMM fallback or the C=3 TensorOp FewChannels
+  Fprop+bias call, selected from artifact-visible candidate predicates. The
+  FixedChannels C=4/8 path is not admitted yet. No Conv profiler execution,
+  execution-plan consumption, dynamic Conv profiling,
+  grouped/depthwise/transposed/3D coverage, runtime-set packed weights, or
+  public NHWC semantics are claimed.

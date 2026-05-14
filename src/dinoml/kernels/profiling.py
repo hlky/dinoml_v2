@@ -423,7 +423,6 @@ def _append_conv_profile_workloads(
         for candidate in _profile_candidates(required_item):
             normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
                 conv_plan,
-                candidate=candidate,
                 node_id=str(node["id"]),
             )
             workloads.append(

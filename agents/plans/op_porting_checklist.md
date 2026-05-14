@@ -562,16 +562,20 @@ behavior.
   kernel-manifest/codegen metadata, keeps the NCHW -> NHWC activation pack,
   OIHW -> OHWI weight pack, provider launch, and NHWC -> NCHW output unpack
   stages artifact-visible, and links `libdinoml_cutlass_conv.so` from the
-  support cache. The fp16 launcher is a correctness-first CUTLASS SIMT
-  `device::ImplicitGemmConvolution` Fprop+bias call using bias as CUTLASS C
-  with `TensorNHWC::Stride(0)`, and focused CUDA runtime parity compares the
-  public NCHW/OIHW result against Torch. CPU compile still rejects. The profile
-  path records the same artifact-visible layout translation and weight
-  transform metadata but still rejects before Conv profiler/cache/result or
-  execution-plan logic can claim support. TensorOp Conv, profile-selected Conv,
-  dynamic Conv profiling, hidden channel padding, runtime-persistent packed
-  weights, grouped/depthwise/transposed/3D Conv, and public NHWC semantics
-  remain unported.
+  support cache. The fp16 launcher set now includes the correctness-first
+  CUTLASS SIMT `device::ImplicitGemmConvolution` Fprop+bias fallback plus a
+  v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` candidate selected
+  only for semantic input `C=3`; both use bias as CUTLASS C with
+  `TensorNHWC::Stride(0)`. Focused CUDA runtime parity compares the selected
+  C=3 public NCHW/OIHW result against Torch, and manifest tests prove non-C=3
+  shapes stay on the SIMT fallback with no hidden channel padding. CPU compile
+  still rejects. The profile path records the same artifact-visible layout
+  translation, weight transform, and candidate metadata but still rejects
+  before Conv profiler/cache/result or execution-plan logic can claim support.
+  Fixed-channel TensorOp C=4/8, profile-selected Conv, dynamic Conv profiling,
+  hidden channel padding, runtime-persistent packed weights,
+  grouped/depthwise/transposed/3D Conv, and public NHWC semantics remain
+  unported.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

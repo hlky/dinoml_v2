@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened CUTLASS support-cache/source-manifest reuse with another bounded
+  compile-visible robustness slice: cache hits now also reject
+  `src/source_manifest.json` payloads whose embedded `used_candidate_plan`
+  content no longer hashes to the stored `used_candidate_plan_key`, even when
+  the top-level manifest key remains self-consistent. Added a focused
+  backend-registry regression in the existing source-manifest test area that
+  mutates the embedded selected-candidate payload, recomputes the outer
+  `source_manifest_key`, and proves the support library rebuilds instead of
+  reusing stale provider provenance.
 - Tightened the CUTLASS profile-cache persistence contract with a small
   compile-visible robustness slice: cache reads now reject entries whose
   embedded key payload no longer hashes to the stored `profile_key` or whose
@@ -153,9 +162,9 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Revisit CUTLASS/provider maturity only for another bounded compile-visible
-   robustness slice, such as support-cache/source-manifest stale-key rejection
-   in another existing test area, if it directly affects provider selection or
-   compile/profile correctness.
+   robustness slice if a new concrete stale-payload edge appears in an existing
+   cache/test area; otherwise keep provider-cache work paused and avoid
+   speculative broadening.
 2. Add one more bounded native regression only if another GGUF loader edge
    appears, preferably around encoded-runtime-dequant native reload behavior
    rather than broadening the runtime surface.

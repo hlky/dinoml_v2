@@ -423,6 +423,52 @@ def test_cutlass_gemm_support_library_rebuilds_when_source_manifest_plan_key_is_
     assert source_manifest["used_candidate_plan_key"] == used_candidate_plan["used_candidate_plan_key"]
 
 
+def test_cutlass_gemm_support_library_rebuilds_when_source_manifest_embedded_plan_payload_is_stale(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(
+        cutlass_backend,
+        "require_cuda_library",
+        lambda name: _fake_cuda_library(name),
+    )
+    build_calls = []
+
+    def fake_run_nvcc(cmd, *, cwd):
+        build_calls.append((list(cmd), cwd))
+        output = Path(cmd[cmd.index("-o") + 1])
+        output.write_bytes(f"fake cutlass build {len(build_calls)}".encode("utf-8"))
+
+    monkeypatch.setattr(cutlass_backend, "_run_nvcc", fake_run_nvcc)
+    used_candidate_plan = _tiny_cutlass_used_candidate_plan()
+
+    support = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-stale-source-manifest-embedded-plan",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 1
+    stale_manifest = read_json(support.source_manifest)
+    stale_manifest["used_candidate_plan"]["entries"][0]["selected_candidate_id"] = "stale-selected-candidate"
+    stale_manifest["source_manifest_key"] = _source_manifest_key(stale_manifest)
+    support.source_manifest.write_text(canonical_json(stale_manifest), encoding="utf-8")
+
+    rebuilt = ensure_cutlass_gemm_support_lib(
+        "sm_86",
+        cache_key="test-cutlass-stale-source-manifest-embedded-plan",
+        used_candidate_plan=used_candidate_plan,
+    )
+
+    assert len(build_calls) == 2
+    source_manifest = read_json(rebuilt.source_manifest)
+    assert source_manifest["used_candidate_plan_key"] == used_candidate_plan["used_candidate_plan_key"]
+    assert (
+        source_manifest["used_candidate_plan"]["entries"][0]["selected_candidate_id"]
+        == used_candidate_plan["entries"][0]["selected_candidate_id"]
+    )
+
+
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 def test_cutlass_gemm_support_library_builds_once(tmp_path, monkeypatch):
     libraries = discover_cuda_libraries()

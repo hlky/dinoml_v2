@@ -330,6 +330,13 @@ def _cached_source_manifest_matches(
         or used_candidate_plan.get("used_candidate_plan_key") != used_candidate_plan_key
     ):
         return False
+    expected_used_candidate_plan_key = hashlib.sha256(
+        canonical_json(
+            {key: value for key, value in used_candidate_plan.items() if key != "used_candidate_plan_key"}
+        ).encode("utf-8")
+    ).hexdigest()
+    if used_candidate_plan_key != expected_used_candidate_plan_key:
+        return False
     sources = payload.get("sources")
     if not isinstance(sources, Sequence):
         return False

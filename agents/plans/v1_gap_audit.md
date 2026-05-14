@@ -200,7 +200,9 @@ porting. It intentionally excludes the op inventory, which lives in
   stale writer preserves entries added by another profiling process while still
   replacing its own profile keys. CUTLASS support-cache reuse now also rejects
   malformed or stale `src/source_manifest.json` payloads instead of treating
-  mere file presence as a cache hit. The CUDA artifact profiler now scopes
+  mere file presence as a cache hit, including embedded `used_candidate_plan`
+  payloads that no longer hash to the stored `used_candidate_plan_key`. The
+  CUDA artifact profiler now scopes
   allocator/copy/free helper errors to the CUDA runtime helper library before
   falling back to common runtime errors, and profiler cleanup retains failed
   device pointers for retry instead of dropping them before a successful free.

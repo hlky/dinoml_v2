@@ -289,23 +289,32 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
 
 ## Current status
 
-- A reference/scaffold-only `conv2d_bias` surface exists in v2: public semantics
-  are NCHW/OIHW, CPU reference execution validates against PyTorch, CUDA compile
-  emits `cutlass_conv` manifest/codegen metadata with NHWC/OHWI transform plans,
-  and then rejects before module build.
-- The profile workload builder now has a scaffold-only `cutlass_conv` workload
-  that preserves the same layout translation and weight-transform metadata, and
-  refuses manifests that omit that transform plan.
+- A bounded `conv2d_bias` surface exists in v2: public semantics are still
+  NCHW/OIHW/bias `[O]`, CPU reference execution validates against PyTorch, and
+  CUDA lowering records explicit NHWC/OHWI provider transforms in
+  `cutlass_conv` manifest/codegen metadata.
+- The `float16`, static rank-4, groups=1 CUDA path now has a correctness-first
+  CUTLASS runtime launcher. Generated code allocates per-session NHWC/OHWI/NHWC
+  temporaries, calls the support-library NCHW -> NHWC activation pack helper,
+  OIHW -> OHWI weight pack helper, a SIMT
+  `cutlass::conv::device::ImplicitGemmConvolution` Fprop+bias launcher, and
+  NHWC -> NCHW output unpack helper. Focused CUDA runtime parity validates that
+  bounded path against Torch. This is intentionally not a TensorOp-optimized or
+  profile-selected Conv provider yet.
+- The profile workload builder still emits an unsupported-profiler
+  `cutlass_conv` workload that preserves the same layout translation and
+  weight-transform metadata, and refuses manifests that omit that transform
+  plan. Conv profiler execution and execution-plan generation remain explicit
+  future work.
 - CUDA compile now materializes a `cutlass_conv` support-cache boundary under
   the advertised support `cache_dir`, including `lib/cutlass_conv_manifest.json`
   and `src/source_manifest.json` with the used candidate plan,
   candidate/config keys, and explicit layout/weight-transform provenance. When
   `nvcc` is available, the support cache also builds
-  `lib/libdinoml_cutlass_conv.so` with concrete launcher/profiler export stubs
-  for the selected `dinoml_cutlass_conv2d_bias_v1` ABI. Those stubs return an
-  explicit unsupported status/profile value and do not implement Conv runtime
-  execution; if `nvcc` is unavailable, the manifest records
-  `source_scaffold_only`.
+  `lib/libdinoml_cutlass_conv.so` with concrete transform helper exports, the
+  fp16 SIMT implicit-GEMM launcher export, and a profiler stub for the selected
+  `dinoml_cutlass_conv2d_bias_v1` ABI. If `nvcc` is unavailable, the manifest
+  records source-only status.
 - The shared `cutlass_conv_plan` scaffold metadata is now validated before
   profile workload generation, codegen-plan support-library enumeration, and
   support-cache/source-manifest emission consume it. The current bounded
@@ -332,13 +341,12 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   before support manifests are emitted, so the scaffold does not become a
   side-door for stale candidate provenance.
 - Model CUDA compile now builds a generated module when `nvcc` can compile the
-  support stub library. The generated wrapper allocates the manifest-recorded
-  per-session NHWC/OHWI/NHWC temporaries, calls the exported support-library
-  NCHW -> NHWC activation pack helper, OIHW -> OHWI weight pack helper, selected
-  provider launcher symbol, and NHWC -> NCHW output unpack helper in order, and
-  the artifact manifest carries `lib/libdinoml_cutlass_conv.so`. The selected
-  provider launcher is still the scaffold export and returns the documented
-  unsupported status, so runtime execution now fails at an honest generated
-  provider-call boundary instead of rejecting before module build. No CUTLASS
-  implicit-GEMM launcher, profiler execution, execution-plan consumption, or
-  CUDA runtime parity is claimed yet.
+  support library, and the artifact manifest carries
+  `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is a
+  real CUTLASS SIMT implicit-GEMM Conv2d Fprop+bias call, but the TensorOp path
+  is not admitted yet: an alignment-1 TensorOp attempt hits CUTLASS' SM80
+  `cp.async` size constraint, so TensorOp needs explicit alignment/channel
+  guards or manifest-visible padding policy before it can be called supported.
+  No Conv profiler execution, execution-plan consumption, dynamic Conv
+  profiling, grouped/depthwise/transposed/3D coverage, runtime-set packed
+  weights, or public NHWC semantics are claimed.

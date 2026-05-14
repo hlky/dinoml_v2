@@ -121,10 +121,14 @@ def _render_runtime_stage(stage: Mapping[str, Any], *, roles: Mapping[str, str])
         node_scope = _c_ident(str(stage.get("node_id") or "conv"))
         stage_scope = _c_ident(str(stage.get("stage_name", "provider_launch")))
         status_name = f"status_{node_scope}_{stage_scope}"
+        if str(stage.get("status", "")) == "bounded_runtime":
+            failure_message = f"{op_name} CUTLASS Conv provider launcher failed"
+        else:
+            failure_message = f"{op_name} CUTLASS Conv provider launcher is unsupported by the current scaffold"
         return [
             f"int {status_name} = {symbol}({', '.join([*pointer_args, output, *shape_args, 'session->stream'])});",
             f"if ({status_name} != 0) {{",
-            f'  return dinoml::module::fail("{op_name} CUTLASS Conv provider launcher is unsupported by the current scaffold");',
+            f'  return dinoml::module::fail("{failure_message}");',
             "}",
         ]
     raise ValueError(f"Unsupported CUTLASS Conv wrapper stage kind {stage_kind!r}")

@@ -495,7 +495,7 @@ def test_cutlass_conv_profile_scaffold_rejects_profile_key_and_result_paths(tmp_
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
     context = {"fingerprint": {"hardware_key": "hardware-key", "support_libraries_key": "support-key"}}
 
-    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads are scaffold only"):
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads do not have a real profiler yet"):
         _profile_key_payload(
             workload,
             {"target": DEFAULT_CUDA_TARGET},
@@ -504,7 +504,7 @@ def test_cutlass_conv_profile_scaffold_rejects_profile_key_and_result_paths(tmp_
             context=context,
         )
 
-    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads are scaffold only"):
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile workloads do not have a real profiler yet"):
         _profile_result(
             workload,
             0.25,
@@ -569,7 +569,7 @@ def test_cutlass_conv_profile_scaffold_rejects_execution_plan_generation():
         "problems": [problem],
     }
 
-    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile results are scaffold only"):
+    with pytest.raises(NotImplementedError, match="CUTLASS Conv profile results do not have a real profiler yet"):
         build_execution_plan(report)
 
 

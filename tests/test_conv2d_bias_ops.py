@@ -312,7 +312,8 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
 
     candidate_set = cutlass_conv_candidate_set("conv2d_bias", "float16", target=target)
     candidates = cutlass_conv_candidates("conv2d_bias", "float16", target=target)
-    assert candidate_set["status"] == "manifest_scaffold_only"
+    assert candidate_set["status"] == "bounded_runtime"
+    assert candidate_set["profiler_status"] == "unsupported_stub"
     assert candidate_set["semantic_layout"] == {
         "activation": "nchw",
         "weight": "oihw",
@@ -325,11 +326,16 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
         "bias": "o",
         "output": "nhwc",
     }
-    assert candidates[0]["status"] == "manifest_scaffold_only"
+    assert candidates[0]["status"] == "bounded_runtime"
+    assert candidates[0]["profiler_status"] == "unsupported_stub"
+    assert candidates[0]["cutlass"]["opclass"] == "simt"
+    assert candidates[0]["cutlass"]["kind"] == "implicit_gemm_runtime_launcher"
 
     layout_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
-    assert layout_plan["status"] == "manifest_scaffold_only"
-    assert layout_plan["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert layout_plan["status"] == "bounded_runtime"
+    assert layout_plan["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
+    assert layout_plan["profiler_status"] == "unsupported_stub"
+    assert layout_plan["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
     assert layout_plan["semantic_layout"]["activation"] == "nchw"
     assert layout_plan["provider_layout"]["activation"] == "nhwc"
     assert layout_plan["layout_translation"]["input_pack"] == "nchw_to_nhwc_temporary"
@@ -534,11 +540,12 @@ def test_cutlass_conv2d_bias_profile_workload_scaffold_records_provider_transfor
     assert workload.shape_source == "graph_max_shape"
     assert workload.shape_case_id == "max"
     payload = workload.to_json()
-    assert payload["profile_variant"] == {"kind": "manifest_scaffold_only"}
+    assert payload["profile_variant"] == {"kind": "bounded_runtime", "profiler_status": "unsupported_stub"}
     assert payload["inputs"] == {"x": [2, 3, 7, 8], "weight": [4, 3, 3, 2], "bias": [4]}
     assert payload["output"] == {workload.output_tensor: [2, 4, 4, 6]}
     assert payload["temporary_buffers"]
-    assert payload["candidate"]["status"] == "manifest_scaffold_only"
+    assert payload["candidate"]["status"] == "bounded_runtime"
+    assert payload["candidate"]["profiler_status"] == "unsupported_stub"
 
 
 def test_cutlass_conv2d_bias_profile_workload_requires_manifest_transform_metadata():
@@ -616,7 +623,7 @@ def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_pa
         dml.compile(spec, dml.Target("cpu"), tmp_path / "conv2d_bias_cpu.dinoml")
 
 
-def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtime_boundary(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_boundary(tmp_path, monkeypatch):
     spec = _trace_conv2d_bias("float16")
     artifact_dir = tmp_path / "conv2d_bias_cuda.dinoml"
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
@@ -633,9 +640,11 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
     expected_node_id = spec.ir["nodes"][0]["id"]
     assert required["op"] == "conv2d_bias"
     assert required["kernel_library"] == "cutlass_conv"
-    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
-    assert required["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
-    assert required["cutlass_conv_plan"]["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert required["candidate_set"]["status"] == "bounded_runtime"
+    assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
+    assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
+    assert required["cutlass_conv_plan"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
 
     codegen_plan = read_json(artifact_dir / "kernel_codegen_plan.json")
     [support_lib] = codegen_plan["external_support_libraries"]
@@ -683,7 +692,8 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
     source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
-    assert support_manifest["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert support_manifest["profiler_status"] == "unsupported_stub"
+    assert support_manifest["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
     export_status = support_manifest["status"]
@@ -694,7 +704,8 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
             "symbol": required["kernel_symbol"],
             "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
             "status": export_status,
-            "return_code": 901,
+            "candidate_status": "bounded_runtime",
+            "success_return_code": 0,
         },
         {
             "kind": "profiler",
@@ -732,17 +743,18 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
         ("weight", required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"]),
     ]
     if shutil.which("nvcc") is None:
-        assert support_manifest["status"] == "source_scaffold_only"
-        assert support_manifest["compile"]["status"] == "source_scaffold_only"
+        assert support_manifest["status"] == "source_bounded_runtime"
+        assert support_manifest["compile"]["status"] == "source_bounded_runtime"
         assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
         assert "library_sha256" not in support_manifest
         assert not (support_cache_dir / "lib" / "libdinoml_cutlass_conv.so").exists()
         assert not (artifact_dir / "module.so").exists()
         return
-    assert support_manifest["status"] == "compiled_stub_only"
+    assert support_manifest["status"] == "compiled_bounded_runtime"
     assert len(support_manifest["library_sha256"]) == 64
-    assert support_manifest["compile"]["status"] == "compiled_stub_only"
+    assert support_manifest["compile"]["status"] == "compiled_bounded_runtime"
     assert support_manifest["compile"]["command"][0] == "nvcc"
+    assert any("cutlass/include" in root for root in support_manifest["compile"]["include_roots"])
     support_library = support_cache_dir / "lib" / "libdinoml_cutlass_conv.so"
     assert support_library.exists()
     stub = ctypes.CDLL(str(support_library))
@@ -779,7 +791,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
         1,
         2,
         None,
-    ) == 901
+    ) != 0
     profiler = getattr(stub, required["profiler_symbol"])
     profiler.restype = ctypes.c_float
     profiler.argtypes = [
@@ -826,16 +838,27 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_unsupported_runtim
     assert required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"] in module_source
     assert required["kernel_symbol"] in module_source
     assert required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"] in module_source
-    assert "CUTLASS Conv provider launcher is unsupported by the current scaffold" in module_source
+    assert "CUTLASS Conv provider launcher failed" in module_source
     if torch.cuda.is_available():
         module = runtime.load(artifact_dir, load_constants=False)
         session = module.create_session()
         try:
-            x = np.ones((2, 3, 7, 8), dtype=np.float16)
-            weight = np.ones((4, 3, 3, 2), dtype=np.float16)
-            bias = np.ones((4,), dtype=np.float16)
-            with pytest.raises(RuntimeError, match="CUTLASS Conv provider launcher is unsupported"):
-                session.run_numpy({"x": x, "weight": weight, "bias": bias})
+            x = _input((2, 3, 7, 8), "float16", -1.0, 1.0)
+            weight = _input((4, 3, 3, 2), "float16", -0.5, 0.5)
+            bias = _input((4,), "float16", -0.25, 0.25)
+            actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+            expected = _storage_roundtrip(
+                _torch_conv2d_bias_reference(
+                    x,
+                    weight,
+                    bias,
+                    stride=(2, 1),
+                    padding=(1, 0),
+                    dilation=(1, 2),
+                ),
+                "float16",
+            )
+            np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
         finally:
             session.close()
             module.close()
@@ -856,25 +879,26 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
     scaffold = ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
 
     support_manifest = read_json(scaffold.manifest)
-    assert support_manifest["status"] == "source_scaffold_only"
-    assert support_manifest["compile"]["status"] == "source_scaffold_only"
+    assert support_manifest["status"] == "source_bounded_runtime"
+    assert support_manifest["compile"]["status"] == "source_bounded_runtime"
     assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
     assert "library_sha256" not in support_manifest
     assert not stale_library.exists()
     assert support_manifest["exports"] == [
-        *_expected_transform_helper_exports(required["cutlass_conv_plan"], status="source_scaffold_only"),
+        *_expected_transform_helper_exports(required["cutlass_conv_plan"], status="source_bounded_runtime"),
         {
             "kind": "launcher",
             "symbol": required["kernel_symbol"],
             "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "source_scaffold_only",
-            "return_code": 901,
+            "status": "source_bounded_runtime",
+            "candidate_status": "bounded_runtime",
+            "success_return_code": 0,
         },
         {
             "kind": "profiler",
             "symbol": required["profiler_symbol"],
             "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "source_scaffold_only",
+            "status": "source_bounded_runtime",
             "return_value_ms": -1.0,
         },
     ]

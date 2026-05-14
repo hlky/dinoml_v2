@@ -99,6 +99,8 @@ def ensure_cutlass_conv_support_scaffold(
     if used_candidate_plan is None:
         raise ValueError("CUTLASS Conv support scaffold requires an explicit used candidate plan")
     used_candidate_plan = normalize_cutlass_conv_used_candidate_plan(used_candidate_plan)
+    has_runtime_launcher = _cutlass_conv_has_runtime_launcher(used_candidate_plan)
+    cutlass = require_cuda_library("cutlass")
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_num = _cmake_arch(arch)
     target = dict(used_candidate_plan.get("target", {"name": "cuda", "arch": f"sm_{arch_num}"}))
@@ -141,16 +143,21 @@ def ensure_cutlass_conv_support_scaffold(
     )
     source.write_text(rendered_source, encoding="utf-8")
     compile_flags = _compile_flags(arch_num)
-    compile_command = ["nvcc", *compile_flags, str(source), "-o", str(library)]
+    include_roots = (
+        *cutlass.include_roots,
+        *(root.parent / "tools" / "util" / "include" for root in cutlass.include_roots if root.name == "include"),
+    )
+    include_args = [f"-I{root}" for root in include_roots if root.exists()]
+    compile_command = ["nvcc", *compile_flags, *include_args, str(source), "-o", str(library)]
     compile_duration_ms = None
     library_hash = None
-    compile_status = "source_scaffold_only"
+    compile_status = "source_bounded_runtime" if has_runtime_launcher else "source_scaffold_only"
     if shutil.which("nvcc") is not None:
         compile_started = time.perf_counter()
         _run_nvcc(compile_command, cwd=support_root)
         compile_duration_ms = round((time.perf_counter() - compile_started) * 1000.0, 3)
         library_hash = _file_sha256(library)
-        compile_status = "compiled_stub_only"
+        compile_status = "compiled_bounded_runtime" if has_runtime_launcher else "compiled_stub_only"
     else:
         library.unlink(missing_ok=True)
     _write_source_manifest(
@@ -179,14 +186,18 @@ def ensure_cutlass_conv_support_scaffold(
         used_candidate_plan_key=str(used_candidate_plan["used_candidate_plan_key"]),
         compile_flags=compile_flags,
         compile_status=compile_status,
+        cutlass=cutlass,
+        include_roots=include_roots,
     )
     compile_payload = {
         "status": compile_status,
-        "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
         "flags": compile_flags,
+        "include_roots": [str(root) for root in include_roots if root.exists()],
         "source_metrics": source_metrics,
+        "profiler_status": "unsupported_stub",
+        "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
     }
-    if compile_status == "compiled_stub_only":
+    if compile_status in {"compiled_stub_only", "compiled_bounded_runtime"}:
         compile_payload["command"] = compile_command
         compile_payload["duration_ms"] = compile_duration_ms
     else:
@@ -215,7 +226,8 @@ def ensure_cutlass_conv_support_scaffold(
             "cache_key": manifest_key,
             **({"library_sha256": library_hash} if library_hash is not None else {}),
             "status": compile_status,
-            "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+            "profiler_status": "unsupported_stub",
+            "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
         },
     )
     return CutlassSupportScaffold(
@@ -451,7 +463,10 @@ def _cutlass_conv_scaffold_provenance(
     used_candidate_plan_key: str,
     compile_flags: Sequence[str],
     compile_status: str,
+    cutlass: Any | None = None,
+    include_roots: Sequence[Path] = (),
 ) -> dict[str, Any]:
+    dependencies = {"cutlass": _library_provenance(cutlass)} if cutlass is not None else {}
     payload = {
         "schema_version": 1,
         "kind": "cutlass_conv_support_scaffold",
@@ -462,7 +477,10 @@ def _cutlass_conv_scaffold_provenance(
         "source_sha256": source_hash,
         "used_candidate_plan_key": used_candidate_plan_key,
         "compile_flags": compile_flags,
-        "blocked_reason": "cutlass_conv_runtime_launcher_not_implemented",
+        "include_roots": [str(root) for root in include_roots if root.exists()],
+        "dependencies": dependencies,
+        "profiler_status": "unsupported_stub",
+        "profiler_blocked_reason": "cutlass_conv_profiler_not_implemented",
     }
     return {
         **payload,
@@ -490,19 +508,24 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status
                 "success_return_code": 0,
             }
         )
-    for symbol in used_candidate_plan.get("kernel_symbols", ()):
-        symbol_name = str(symbol)
+    for candidate in used_candidate_plan.get("candidates", ()):
+        if not isinstance(candidate, Mapping):
+            continue
+        symbol_name = str(candidate.get("kernel_symbol", ""))
         if not symbol_name:
             continue
-        exports.append(
-            {
-                "kind": "launcher",
-                "symbol": symbol_name,
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-                "status": status,
-                "return_code": 901,
-            }
-        )
+        export = {
+            "kind": "launcher",
+            "symbol": symbol_name,
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": status,
+            "candidate_status": str(candidate.get("status", "")),
+        }
+        if str(candidate.get("status", "")) == "bounded_runtime":
+            export["success_return_code"] = 0
+        else:
+            export["return_code"] = 901
+        exports.append(export)
     for symbol in used_candidate_plan.get("profiler_symbols", ()):
         symbol_name = str(symbol)
         if not symbol_name:
@@ -538,6 +561,13 @@ def _cutlass_conv_source_symbols(used_candidate_plan: Mapping[str, Any]) -> list
             }
         )
     return symbols
+
+
+def _cutlass_conv_has_runtime_launcher(used_candidate_plan: Mapping[str, Any]) -> bool:
+    return any(
+        isinstance(candidate, Mapping) and str(candidate.get("status", "")) == "bounded_runtime"
+        for candidate in used_candidate_plan.get("candidates", ())
+    )
 
 
 def _file_sha256(path: Path) -> str:

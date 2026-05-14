@@ -13,7 +13,9 @@ CONV_SUPPORTED_DTYPES = ("float16", "float32")
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "scaffold_sm80_nhwc_ohwi_bias"
 _CUTLASS_CONV_SCAFFOLD_KIND = "cutlass_conv2d_bias_manifest_scaffold"
 _CUTLASS_CONV_SCAFFOLD_STATUS = "manifest_scaffold_only"
+_CUTLASS_CONV_RUNTIME_STATUS = "bounded_runtime"
 _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON = "cutlass_conv_runtime_launcher_not_implemented"
+_CUTLASS_CONV_PROFILER_BLOCKED_REASON = "cutlass_conv_profiler_not_implemented"
 _CUTLASS_CONV_TRANSFORM_ABI = "dinoml_cutlass_layout_transform_v1"
 _CUTLASS_CONV_STUB_RETURN_CODE = 901
 _CUTLASS_CONV_STUB_PROFILE_MS = -1.0
@@ -74,6 +76,7 @@ def cutlass_conv_candidates(
     normalized_target = _normalize_target_policy(target)
     accumulator_dtype = "float32"
     symbol_id = _CUTLASS_CONV_DEFAULT_SYMBOL_ID
+    status = _conv_candidate_status(normalized_dtype)
     candidate = {
         "candidate_id": f"cutlass_{symbol_id}",
         "candidate_config_key": hashlib.sha256(
@@ -103,14 +106,16 @@ def cutlass_conv_candidates(
             "output_provider": "nhwc",
         },
         "cutlass": {
-            "opclass": "tensorop" if normalized_dtype == "float16" else "simt",
+            "opclass": "simt",
             "arch": "sm80",
             "iterator_algorithm": "analytic",
-            "kind": "manifest_scaffold_only",
+            "kind": "implicit_gemm_runtime_launcher" if status == _CUTLASS_CONV_RUNTIME_STATUS else "manifest_scaffold_only",
         },
         "optional": False,
         "target_policy": normalized_target,
-        "status": "manifest_scaffold_only",
+        "status": status,
+        "profiler_status": "unsupported_stub",
+        "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
     }
     return [candidate]
 
@@ -141,7 +146,9 @@ def cutlass_conv_candidate_set(
         "candidate_count": len(candidates),
         "candidate_config_keys": [str(candidate["candidate_config_key"]) for candidate in candidates],
         "target_policy": normalized_target,
-        "status": "manifest_scaffold_only",
+        "status": _conv_candidate_status(normalized_dtype),
+        "profiler_status": "unsupported_stub",
+        "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
     }
     return {
         **config,
@@ -296,8 +303,8 @@ def cutlass_conv_layout_plan(
         {
         "schema_version": 1,
         "kind": _CUTLASS_CONV_SCAFFOLD_KIND,
-        "status": _CUTLASS_CONV_SCAFFOLD_STATUS,
-        "blocked_reason": _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON,
+        "status": _conv_candidate_status(dtype),
+        **_conv_plan_status_payload(dtype),
         "node_id": str(node.get("id", "")),
         "op_family": "conv2d_bias",
         "dtype": dtype,
@@ -353,13 +360,9 @@ def validate_cutlass_conv_scaffold_plan(
     payload = dict(plan)
     if str(payload.get("kind")) != _CUTLASS_CONV_SCAFFOLD_KIND:
         raise ValueError(f"Unsupported CUTLASS Conv scaffold kind {payload.get('kind')!r}")
-    if str(payload.get("status")) != _CUTLASS_CONV_SCAFFOLD_STATUS:
+    status = str(payload.get("status"))
+    if status not in {_CUTLASS_CONV_SCAFFOLD_STATUS, _CUTLASS_CONV_RUNTIME_STATUS}:
         raise ValueError(f"Unsupported CUTLASS Conv scaffold status {payload.get('status')!r}")
-    if str(payload.get("blocked_reason")) != _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON:
-        raise ValueError(
-            "CUTLASS Conv scaffold blocked_reason must record "
-            f"{_CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON!r}"
-        )
     if str(payload.get("op_family")) != "conv2d_bias":
         raise ValueError(f"Unsupported CUTLASS Conv scaffold op family {payload.get('op_family')!r}")
     if node_id is not None and str(payload.get("node_id", "")) != node_id:
@@ -367,6 +370,30 @@ def validate_cutlass_conv_scaffold_plan(
             f"CUTLASS Conv scaffold node_id mismatch: expected {node_id!r}, got {payload.get('node_id')!r}"
         )
     dtype = _normalize_conv_dtype(str(payload.get("dtype")))
+    expected_status = _conv_candidate_status(dtype)
+    if status != expected_status:
+        raise ValueError(
+            f"CUTLASS Conv scaffold status for dtype {dtype!r} must be {expected_status!r}, got {status!r}"
+        )
+    if status == _CUTLASS_CONV_SCAFFOLD_STATUS:
+        if str(payload.get("blocked_reason")) != _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON:
+            raise ValueError(
+                "CUTLASS Conv scaffold blocked_reason must record "
+                f"{_CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON!r}"
+            )
+    else:
+        runtime = payload.get("runtime")
+        if not isinstance(runtime, Mapping):
+            raise ValueError("CUTLASS Conv bounded runtime plan requires runtime metadata")
+        if str(runtime.get("status")) != _CUTLASS_CONV_RUNTIME_STATUS:
+            raise ValueError("CUTLASS Conv bounded runtime metadata has an unexpected status")
+        if str(payload.get("profiler_status")) != "unsupported_stub":
+            raise ValueError("CUTLASS Conv bounded runtime plan must keep profiler_status='unsupported_stub'")
+        if str(payload.get("profiler_blocked_reason")) != _CUTLASS_CONV_PROFILER_BLOCKED_REASON:
+            raise ValueError(
+                "CUTLASS Conv bounded runtime plan must record profiler_blocked_reason "
+                f"{_CUTLASS_CONV_PROFILER_BLOCKED_REASON!r}"
+            )
     semantic_layout = dict(payload.get("semantic_layout", {}))
     provider_layout = dict(payload.get("provider_layout", {}))
     expected_semantic_layout = dict(_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT)
@@ -551,6 +578,15 @@ def validate_cutlass_conv_scaffold_plan(
     payload["temporary_buffers"] = normalized_buffers
     payload["workspace_nbytes"] = 0
     payload["temporary_nbytes"] = expected_temporary_nbytes
+    payload["status"] = status
+    if status == _CUTLASS_CONV_RUNTIME_STATUS:
+        payload["runtime"] = dict(payload["runtime"])
+        payload["profiler_status"] = "unsupported_stub"
+        payload["profiler_blocked_reason"] = _CUTLASS_CONV_PROFILER_BLOCKED_REASON
+        payload.pop("blocked_reason", None)
+    else:
+        payload["blocked_reason"] = _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON
+        payload.pop("runtime", None)
     return payload
 
 
@@ -561,7 +597,7 @@ def validate_cutlass_conv_plan(
     node_id: str | None = None,
 ) -> dict[str, Any]:
     # Compatibility alias for existing callers; this validator remains scoped to
-    # the current NHWC/OHWI manifest-only scaffold.
+    # the current NHWC/OHWI Conv2d bias provider plan.
     return validate_cutlass_conv_scaffold_plan(plan, candidate=candidate, node_id=node_id)
 
 
@@ -678,6 +714,8 @@ def _normalize_cutlass_conv_candidate_set(
         "candidate_config_keys",
         "target_policy",
         "status",
+        "profiler_status",
+        "profiler_blocked_reason",
     ):
         if payload.get(field) != expected.get(field):
             raise ValueError(
@@ -724,6 +762,8 @@ def _validate_cutlass_conv_selected_candidate(op_name: str, candidate: Mapping[s
         "optional",
         "target_policy",
         "status",
+        "profiler_status",
+        "profiler_blocked_reason",
     ):
         if candidate_payload.get(field) != expected.get(field):
             raise ValueError(
@@ -762,7 +802,7 @@ def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str,
         "kernel_library": "cutlass_conv",
         "dtype": str(conv_plan["dtype"]),
         "status": str(conv_plan["status"]),
-        "blocked_reason": str(conv_plan["blocked_reason"]),
+        **({"blocked_reason": str(conv_plan["blocked_reason"])} if conv_plan.get("blocked_reason") else {}),
     }
     return [
         {
@@ -991,12 +1031,17 @@ def _cutlass_conv_stub_source_exports(used_candidate_plan: Mapping[str, Any]) ->
             continue
         emitted.add(symbol_name)
         lines.append(_cutlass_conv_transform_source(helper))
-    for symbol in used_candidate_plan.get("kernel_symbols", ()):
-        symbol_name = str(symbol)
+    for candidate in used_candidate_plan.get("candidates", ()):
+        if not isinstance(candidate, Mapping):
+            continue
+        symbol_name = str(candidate.get("kernel_symbol", ""))
         if not symbol_name or symbol_name in emitted:
             continue
         emitted.add(symbol_name)
-        lines.append(_cutlass_conv_stub_launcher_source(symbol_name))
+        if str(candidate.get("status", "")) == _CUTLASS_CONV_RUNTIME_STATUS:
+            lines.append(_cutlass_conv_runtime_launcher_source(symbol_name))
+        else:
+            lines.append(_cutlass_conv_stub_launcher_source(symbol_name))
     for symbol in used_candidate_plan.get("profiler_symbols", ()):
         symbol_name = str(symbol)
         if not symbol_name or symbol_name in emitted:
@@ -1052,6 +1097,60 @@ def _cutlass_conv_stub_launcher_source(symbol: str) -> str:
 }}"""
 
 
+def _cutlass_conv_runtime_launcher_source(symbol: str) -> str:
+    return f"""extern "C" int {symbol}(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {{
+  if (activation_nhwc == nullptr || weight_ohwi == nullptr || bias == nullptr || output_nhwc == nullptr) {{
+    return static_cast<int>(cudaErrorInvalidValue);
+  }}
+  if (n <= 0 || h <= 0 || w <= 0 || c <= 0 || out_h <= 0 || out_w <= 0 || out_c <= 0 ||
+      kernel_h <= 0 || kernel_w <= 0 || stride_h <= 0 || stride_w <= 0 || dilation_h <= 0 || dilation_w <= 0 ||
+      pad_h < 0 || pad_w < 0) {{
+    return static_cast<int>(cudaErrorInvalidValue);
+  }}
+  return dinoml_cutlass_conv_launch_fp16_implicit_gemm_bias(
+      activation_nhwc,
+      weight_ohwi,
+      bias,
+      output_nhwc,
+      n,
+      h,
+      w,
+      c,
+      out_h,
+      out_w,
+      out_c,
+      kernel_h,
+      kernel_w,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      dilation_h,
+      dilation_w,
+      stream);
+}}"""
+
+
 def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
     return f"""extern "C" float {symbol}(
     const void* activation_nhwc,
@@ -1101,7 +1200,14 @@ def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
 
 
 def _cutlass_conv_transform_runtime_support_source() -> str:
-    return """namespace {
+    return """#include "cutlass/cutlass.h"
+#include "cutlass/half.h"
+#include "cutlass/conv/kernel/default_conv2d_fprop.h"
+#include "cutlass/conv/device/implicit_gemm_convolution.h"
+#include "cutlass/epilogue/thread/linear_combination.h"
+#include "cutlass/layout/tensor.h"
+
+namespace {
 
 template <typename T>
 __global__ void dinoml_cutlass_conv_nchw_to_nhwc_kernel(
@@ -1247,6 +1353,120 @@ int dinoml_cutlass_conv_launch_oihw_to_ohwi(
   return static_cast<int>(cudaGetLastError());
 }
 
+using DinomlCutlassConvFp16Element = cutlass::half_t;
+using DinomlCutlassConvFp16Accumulator = float;
+using DinomlCutlassConvFp16Compute = float;
+using DinomlCutlassConvFp16Layout = cutlass::layout::TensorNHWC;
+using DinomlCutlassConvFp16MmaOp = cutlass::arch::OpClassSimt;
+using DinomlCutlassConvFp16SmArch = cutlass::arch::Sm80;
+using DinomlCutlassConvFp16ThreadblockShape = cutlass::gemm::GemmShape<128, 64, 8>;
+using DinomlCutlassConvFp16WarpShape = cutlass::gemm::GemmShape<32, 64, 8>;
+using DinomlCutlassConvFp16InstructionShape = cutlass::gemm::GemmShape<1, 1, 1>;
+using DinomlCutlassConvFp16Swizzle = cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<>;
+using DinomlCutlassConvFp16Epilogue = cutlass::epilogue::thread::LinearCombination<
+    DinomlCutlassConvFp16Element,
+    1,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16Kernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16MmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16ThreadblockShape,
+    DinomlCutlassConvFp16WarpShape,
+    DinomlCutlassConvFp16InstructionShape,
+    DinomlCutlassConvFp16Epilogue,
+    DinomlCutlassConvFp16Swizzle,
+    2,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kAnalytic,
+    cutlass::conv::StrideSupport::kStrided,
+    1,
+    1>::Kernel;
+using DinomlCutlassConvFp16ImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16Kernel>;
+
+int dinoml_cutlass_conv_launch_fp16_implicit_gemm_bias(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  cutlass::conv::Conv2dProblemSize problem_size(
+      n,
+      h,
+      w,
+      c,
+      out_c,
+      kernel_h,
+      kernel_w,
+      out_h,
+      out_w,
+      pad_h,
+      pad_w,
+      stride_h,
+      stride_w,
+      dilation_h,
+      dilation_w,
+      cutlass::conv::Mode::kCrossCorrelation,
+      1,
+      1);
+  DinomlCutlassConvFp16Layout activation_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(n, h, w, c));
+  DinomlCutlassConvFp16Layout weight_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(out_c, kernel_h, kernel_w, c));
+  DinomlCutlassConvFp16Layout output_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(n, out_h, out_w, out_c));
+  typename DinomlCutlassConvFp16ImplicitGemm::Arguments arguments{
+      problem_size,
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(activation_nhwc)),
+       activation_layout},
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(weight_ohwi)),
+       weight_layout},
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(bias)),
+       DinomlCutlassConvFp16Layout::Stride(0)},
+      {static_cast<DinomlCutlassConvFp16Element*>(output_nhwc), output_layout},
+      {DinomlCutlassConvFp16Compute(1), DinomlCutlassConvFp16Compute(1)}};
+  DinomlCutlassConvFp16ImplicitGemm implicit_gemm;
+  cutlass::Status status = implicit_gemm.can_implement(arguments);
+  if (status != cutlass::Status::kSuccess) {
+    return 1000 + static_cast<int>(status);
+  }
+  status = implicit_gemm.initialize(arguments, nullptr, stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1100 + static_cast<int>(status);
+  }
+  status = implicit_gemm.run(stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1200 + static_cast<int>(status);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
 }  // namespace"""
 
 
@@ -1298,6 +1518,26 @@ def _validate_conv_op_name(op_name: str) -> None:
     if op_name not in CONV_OPS:
         supported = ", ".join(CONV_OPS)
         raise ValueError(f"Unsupported CUTLASS conv op {op_name!r}; supported ops: {supported}")
+
+
+def _conv_candidate_status(dtype: str) -> str:
+    normalized = _normalize_conv_dtype(dtype)
+    if normalized == "float16":
+        return _CUTLASS_CONV_RUNTIME_STATUS
+    return _CUTLASS_CONV_SCAFFOLD_STATUS
+
+
+def _conv_plan_status_payload(dtype: str) -> dict[str, Any]:
+    if _conv_candidate_status(dtype) == _CUTLASS_CONV_RUNTIME_STATUS:
+        return {
+            "runtime": {
+                "status": _CUTLASS_CONV_RUNTIME_STATUS,
+                "launcher": "cutlass_implicit_gemm_conv2d_fprop_bias",
+            },
+            "profiler_status": "unsupported_stub",
+            "profiler_blocked_reason": _CUTLASS_CONV_PROFILER_BLOCKED_REASON,
+        }
+    return {"blocked_reason": _CUTLASS_CONV_SCAFFOLD_BLOCKED_REASON}
 
 
 def _unique_by_key(items, key: str) -> list[dict[str, Any]]:

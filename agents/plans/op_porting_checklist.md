@@ -556,29 +556,22 @@ behavior.
   `cutlass_conv` slice with source-faithful public NCHW semantics,
   artifact-visible NHWC/OHWI provider transforms, groups=`1`, static
   channel/kernel attrs, and CPU/PyTorch reference validation. The first
-  reference/scaffold slice now exists as a public `conv2d_bias` frontend plus
-  CPU reference execution. CUDA compile emits `manifest_scaffold_only`
-  `cutlass_conv` kernel manifest/codegen metadata and then rejects before module
-  build until a real provider launcher is wired; CPU compile still rejects. The
-  profile path now has a scaffold-only `cutlass_conv` workload that records the
-  same artifact-visible layout translation and weight transform metadata, and it
-  rejects manifests missing that transform plan. Downstream profiling now also
-  fails explicitly before GEMM/BMM-only cache-key, result, or execution-plan
-  logic can consume those scaffold workloads. CUDA compile now also writes a
-  `cutlass_conv` support-cache/source-manifest boundary with the used candidate
-  plan and transform provenance under the advertised support `cache_dir`; when
-  `nvcc` is available this boundary builds `libdinoml_cutlass_conv.so` with
-  explicit launcher/profiler stub exports for the planned Conv ABI. CUDA model
-  compile now links that support stub library and emits generated wrapper
-  lowering that allocates the manifest-recorded NHWC/OHWI/NHWC temporaries,
-  packs activation/weight inputs, calls the selected provider launcher symbol,
-  and unpacks the provider output back to NCHW. The provider launcher is still
-  a guarded unsupported scaffold export, so runtime fails clearly at that
-  boundary rather than claiming Conv parity. `kernel_codegen_plan.json` still
-  exposes wrapper-stage metadata plus debug wrapper scaffold sources for
-  guarded inspection. No ConvNd profiler execution, real CUTLASS runtime
-  launcher, execution-plan consumption, or CUDA runtime parity is implemented
-  yet.
+  reference/runtime slice now exists as a public `conv2d_bias` frontend plus
+  CPU reference execution and a CUDA `float16` groups=1 static rank-4 runtime
+  path. CUDA compile emits `bounded_runtime` `cutlass_conv`
+  kernel-manifest/codegen metadata, keeps the NCHW -> NHWC activation pack,
+  OIHW -> OHWI weight pack, provider launch, and NHWC -> NCHW output unpack
+  stages artifact-visible, and links `libdinoml_cutlass_conv.so` from the
+  support cache. The fp16 launcher is a correctness-first CUTLASS SIMT
+  `device::ImplicitGemmConvolution` Fprop+bias call using bias as CUTLASS C
+  with `TensorNHWC::Stride(0)`, and focused CUDA runtime parity compares the
+  public NCHW/OIHW result against Torch. CPU compile still rejects. The profile
+  path records the same artifact-visible layout translation and weight
+  transform metadata but still rejects before Conv profiler/cache/result or
+  execution-plan logic can claim support. TensorOp Conv, profile-selected Conv,
+  dynamic Conv profiling, hidden channel padding, runtime-persistent packed
+  weights, grouped/depthwise/transposed/3D Conv, and public NHWC semantics
+  remain unported.
   Keep all other ConvNd families unported until that bounded slice is real.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,

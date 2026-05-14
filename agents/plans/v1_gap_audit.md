@@ -235,18 +235,18 @@ porting. It intentionally excludes the op inventory, which lives in
   source-faithful NCHW/NCDHW, treat NHWC/NDHWC as guarded provider-internal
   islands only, and require generated pack/unpack temporaries plus manifest
   metadata instead of relying on ABI strides for layout translation. The first
-  `conv2d_bias` reference/scaffold slice now lets CUDA compile emit intended
-  NHWC/OHWI provider transforms as kernel-manifest/codegen metadata before
-  rejecting ahead of module build. The profile workload builder can now emit a
-  scaffold-only `cutlass_conv` workload from that explicit transform plan and
-  rejects missing transform metadata; downstream profiling now also rejects
-  scaffold-only Conv workloads explicitly before GEMM/BMM cache-key, result, or
-  execution-plan logic can consume them. CUDA compile now also materializes a
-  support-cache/source-manifest boundary for `cutlass_conv` so provider
-  transform provenance is visible before runtime launchers exist; with `nvcc`
-  available that boundary compiles a `libdinoml_cutlass_conv.so` stub library
-  exporting the planned launcher/profiler symbols and recording
-  `compiled_stub_only` status. The shared
+  `conv2d_bias` slice now lets CUDA compile emit intended NHWC/OHWI provider
+  transforms as kernel-manifest/codegen metadata and runs a bounded fp16
+  groups=1 static rank-4 provider path. The profile workload builder can emit a
+  `cutlass_conv` workload from that explicit transform plan and rejects missing
+  transform metadata, but downstream profiling still rejects Conv workloads
+  before GEMM/BMM-only cache-key, result, or execution-plan logic can consume
+  them. CUDA compile now also materializes a support-cache/source-manifest
+  boundary for `cutlass_conv` so provider transform provenance is visible; with
+  `nvcc` available that boundary compiles `libdinoml_cutlass_conv.so` with
+  transform helpers, a correctness-first SIMT CUTLASS
+  `device::ImplicitGemmConvolution` Fprop+bias launcher for fp16, and an
+  unsupported profiler stub. The shared
   Conv scaffold transform plan is now also validated for internal coherence
   before profiling/codegen/support-cache consumers can reuse it, so layout
   drift, incorrect temporary byte counts, and inconsistent padded-channel
@@ -259,11 +259,11 @@ porting. It intentionally excludes the op inventory, which lives in
   for artifact-side inspection. Generated CUDA modules now consume that same
   plan enough to allocate the per-session Conv pack/unpack temporaries, call
   the support-library transform helpers, call the selected provider launcher
-  symbol, and unpack outputs back to NCHW. The selected provider launcher is
-  still the unsupported scaffold export, so runtime fails clearly at that
-  boundary; profiler execution, real CUTLASS Conv runtime launch,
-  execution-plan consumption, and general channel-last runtime layout remain
-  unimplemented.
+  symbol, and unpack outputs back to NCHW. Focused CUDA runtime parity covers
+  the bounded fp16 path against Torch. TensorOp Conv remains future work because
+  the initial alignment-1 TensorOp attempt hits CUTLASS' SM80 `cp.async` size
+  constraint; profiler execution, execution-plan consumption, dynamic Conv
+  profiling, and general channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

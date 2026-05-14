@@ -210,7 +210,10 @@ class ConvProfileWorkload:
             "weight_transform": dict(self.weight_transform),
             "temporary_buffers": [dict(buffer) for buffer in self.temporary_buffers],
             "workspace_nbytes": self.workspace_nbytes,
-            "profile_variant": {"kind": "manifest_scaffold_only"},
+            "profile_variant": {
+                "kind": str(self.candidate.get("status", "manifest_scaffold_only")),
+                "profiler_status": str(self.candidate.get("profiler_status", "unsupported_stub")),
+            },
             "shape_case": {
                 "source": self.shape_source,
                 "case_id": self.shape_case_id,
@@ -369,7 +372,7 @@ def _unsupported_profile_workload_reason(workload: GemmProfileWorkload | ConvPro
     if workload.kernel_library != "cutlass_conv":
         return None
     return (
-        "CUTLASS Conv profile workloads are scaffold only; profiler execution, "
+        "CUTLASS Conv profile workloads do not have a real profiler yet; profiler execution, "
         "profile cache keys/results, and execution-plan generation are not "
         f"implemented yet for {workload.op}."
     )
@@ -1701,7 +1704,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
             continue
         if problem.get("kernel_library") == "cutlass_conv":
             raise NotImplementedError(
-                "CUTLASS Conv profile results are scaffold only; execution-plan generation is not "
+                "CUTLASS Conv profile results do not have a real profiler yet; execution-plan generation is not "
                 f"implemented yet for {problem.get('op')}."
             )
     groups: dict[tuple[str, str, str, str, int, int, int, int], list[Mapping[str, Any]]] = {}

@@ -1665,6 +1665,141 @@ def test_cuda_cutlass_gemm_rcr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
     torch.testing.assert_close(actual, expected, atol=2e-2, rtol=2e-2)
 
 
+def test_cuda_cutlass_multi_gemm_runtime_dequant_shares_session_scratch(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    libgguf = pytest.importorskip("libgguf")
+    pytest.importorskip("libgguf.libgguf_cuda")
+    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
+        pytest.skip("libgguf CUDA native dequantize ABI is not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class MultiEncodedRhsGemm(dml.Module):
+        def __init__(self):
+            self.small_weight = dml.Parameter([24, 32], dtype="float32")
+            self.large_weight = dml.Parameter([64, 64], dtype="float32")
+
+        def forward(self, x_small, x_large):
+            small_y = dml.ops.output(dml.ops.gemm_rcr(x_small, self.small_weight), "small_y")
+            large_y = dml.ops.output(dml.ops.gemm_rrr(x_large, self.large_weight), "large_y")
+            return small_y, large_y
+
+    qtype = libgguf.GGMLQuantizationType.Q4_0
+    small_rows = np.linspace(-1.0, 1.0, 24 * 32, dtype=np.float32).reshape(24, 32)
+    large_rows = np.linspace(-1.5, 1.5, 64 * 64, dtype=np.float32).reshape(64, 64)
+    small_encoded = libgguf.quantize_rows(small_rows, qtype)
+    large_encoded = libgguf.quantize_rows(large_rows, qtype)
+    expected_small_weight = libgguf.dequantize_rows(small_encoded, qtype, n_per_row=32).reshape(24, 32)
+    expected_large_weight = libgguf.dequantize_rows(large_encoded, qtype, n_per_row=64).reshape(64, 64)
+    small_path = tmp_path / "small_weights.gguf"
+    large_path = tmp_path / "large_weights.gguf"
+    _write_minimal_gguf_tensor(
+        small_path,
+        name="blk.0.ffn.small_weight",
+        gguf_shape=(32, 24),
+        qtype_value=int(qtype),
+        payload=small_encoded.tobytes(order="C"),
+    )
+    _write_minimal_gguf_tensor(
+        large_path,
+        name="blk.0.ffn.large_weight",
+        gguf_shape=(64, 64),
+        qtype_value=int(qtype),
+        payload=large_encoded.tobytes(order="C"),
+    )
+    small_source = dml.gguf_constant(
+        small_path,
+        "blk.0.ffn.small_weight",
+        qtype="Q4_0",
+        encoded_nbytes=small_encoded.nbytes,
+        n_per_row=32,
+        materialization="dequantize_on_gpu_before_launch",
+        residency="manual_runtime_load",
+    )
+    large_source = dml.gguf_constant(
+        large_path,
+        "blk.0.ffn.large_weight",
+        qtype="Q4_0",
+        encoded_nbytes=large_encoded.nbytes,
+        n_per_row=64,
+        materialization="dequantize_on_gpu_before_launch",
+        residency="manual_runtime_load",
+    )
+    traced = dml.trace(
+        MultiEncodedRhsGemm(),
+        inputs={
+            "x_small": dml.TensorSpec([2, 32], "float32"),
+            "x_large": dml.TensorSpec([2, 64], "float32"),
+        },
+        constants={"small_weight": small_source, "large_weight": large_source},
+        name="multi_gguf_q4_0_runtime_dequant_shared_scratch",
+    )
+    spec = ModelSpec(
+        name=traced.name,
+        ir=traced.ir,
+        constants={"small_weight": small_source, "large_weight": large_source},
+    )
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "multi_gguf_q4_0_runtime_dequant_shared_scratch.dinoml",
+        constant_load_policy="deferred",
+    )
+
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    assert kernel_manifest["session_resources"] == [
+        {
+            "schema_version": 1,
+            "kind": "gguf_runtime_dequant_scratch",
+            "name": "gguf_runtime_dequant_dense_rhs",
+            "allocation": "per_session",
+            "residency": "cuda_device",
+            "reuse": "shared_max_sized",
+            "nbytes": 64 * 64 * 4,
+            "source_plans": [
+                {
+                    "node_id": "n0",
+                    "op": "gemm_rcr",
+                    "constant": "small_weight",
+                    "scratch_nbytes": 24 * 32 * 4,
+                },
+                {
+                    "node_id": "n1",
+                    "op": "gemm_rrr",
+                    "constant": "large_weight",
+                    "scratch_nbytes": 64 * 64 * 4,
+                },
+            ],
+        }
+    ]
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert generated.count("void* gguf_dequant_scratch = nullptr;") == 1
+    assert "cudaMalloc(&session->gguf_dequant_scratch, 16384)" in generated
+    assert generated.count("session->gguf_dequant_scratch, session->stream") == 2
+
+    x_small = np.linspace(-0.25, 0.75, 64, dtype=np.float32).reshape(2, 32)
+    x_large = np.linspace(0.125, 1.125, 128, dtype=np.float32).reshape(2, 64)
+    expected_small = x_small @ expected_small_weight.T
+    expected_large = x_large @ expected_large_weight
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        assert module.constant_load_state() == {"small_weight": False, "large_weight": False}
+        module.load_encoded_constants(["small_weight", "large_weight"])
+        assert module.constant_load_state() == {"small_weight": True, "large_weight": True}
+        actual = session.run_numpy({"x_small": x_small, "x_large": x_large})
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual["small_y"], expected_small, atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(actual["large_y"], expected_large, atol=1e-4, rtol=1e-4)
+
+
 def test_cuda_cutlass_gemm_rrr_runtime_dequant_lifecycle_cleanup(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

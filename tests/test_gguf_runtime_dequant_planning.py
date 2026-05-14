@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import numpy as np
 import pytest
 
@@ -5,7 +7,7 @@ import dinoml as dml
 from dinoml.compiler import _validate_gguf_runtime_dequant_admission
 from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import array_to_storage
-from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.manifest import _with_kernel_manifest_cache_keys, build_kernel_manifest
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.lowering.cuda import render_cuda_module
 
@@ -518,6 +520,33 @@ def test_cuda_gemm_lowering_shares_max_sized_runtime_gguf_dequant_scratch():
         'if (session->gguf_dequant_scratch_nbytes < 16384) return dinoml::module::fail("gemm_rrr GGUF runtime dequant scratch is too small");'
         in source
     )
+    assert source.count("session->gguf_dequant_scratch, session->stream") == 2
+
+
+def test_gguf_dequant_session_resources_do_not_churn_support_cache_key():
+    spec = _multi_runtime_dequant_spec()
+    manifest = build_kernel_manifest(spec.ir, CUDA_TARGET)
+    mutated = deepcopy(manifest)
+    mutated["session_resources"][0]["nbytes"] += 4096
+
+    rekeyed = _with_kernel_manifest_cache_keys(mutated)
+
+    assert rekeyed["cache_key"] != manifest["cache_key"]
+    assert rekeyed["support_cache_key"] == manifest["support_cache_key"]
+
+
+def test_cuda_gemm_lowering_falls_back_to_scanning_legacy_gguf_dequant_plans():
+    spec = _multi_runtime_dequant_spec()
+    ir = _renderable_ir(spec)
+    manifest = build_kernel_manifest(ir, CUDA_TARGET)
+    legacy_manifest = deepcopy(manifest)
+    legacy_manifest.pop("session_resources")
+
+    source = render_cuda_module(ir, kernel_manifest=legacy_manifest)
+
+    assert source.count("void* gguf_dequant_scratch = nullptr;") == 1
+    assert "size_t gguf_dequant_scratch_nbytes = 16384;" in source
+    assert "cudaMalloc(&session->gguf_dequant_scratch, 16384)" in source
     assert source.count("session->gguf_dequant_scratch, session->stream") == 2
 
 

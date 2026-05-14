@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the skeptical-reviewer follow-ups on the bounded GGUF
+  runtime-dequant scratch-resource slice without widening policy: support
+  library cache keys no longer churn from generated-module/runtime
+  `session_resources`, while the full manifest `cache_key` still tracks that
+  runtime allocation metadata; CUDA lowering now has an explicit legacy-manifest
+  regression proving it falls back to scanning lowered
+  `gguf_runtime_dequant` plans when top-level `session_resources` is absent;
+  and the shared-scratch claim now has CUDA-gated runtime coverage with two
+  GGUF RHS GEMM nodes sharing one max-sized session scratch allocation and
+  matching dense dequantized references.
 - Made the bounded GGUF runtime-dequant -> CUTLASS GEMM scratch policy more
   artifact-visible without widening the runtime surface: `kernel_manifest.json`
   now records a `session_resources` entry for the shared per-session

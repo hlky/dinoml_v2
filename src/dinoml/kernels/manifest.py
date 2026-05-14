@@ -798,6 +798,8 @@ def _with_kernel_manifest_cache_keys(manifest: Mapping[str, Any]) -> dict[str, A
     result.pop("support_cache_key", None)
     result["cache_key"] = hashlib.sha256(canonical_json(result).encode("utf-8")).hexdigest()
     support_manifest = dict(result)
+    support_manifest.pop("cache_key", None)
+    support_manifest.pop("session_resources", None)
     support_manifest["required_kernels"] = [
         item for item in result.get("required_kernels", []) if item["kernel_library"] != "model"
     ]

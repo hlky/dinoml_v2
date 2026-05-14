@@ -651,7 +651,23 @@ when compile-time constants make that practical.
 
 - [ ] Embedding/model helpers: `bert_embeddings`, `relative_attention_bias`,
   `sinusoidal_positional_embedding`, `gaussian_fourier_projection`,
-  `gelu_new`, `cropped_pos_embed`, `get_timestep_embedding`.
+  `cropped_pos_embed`.
+- [x] `gelu_new` - bounded public frontend helper aliasing the existing tanh
+  `gelu` op; see the V2 MVP activation notes above for the helper-only
+  contract.
+- [x] `get_timestep_embedding` - bounded public frontend helper composing
+  existing primitives for rank-1 dense `float32`/`float16`/`bfloat16`
+  timesteps with static length `N`, positive static `embedding_dim`, finite
+  `downscale_freq_shift`/`scale`, positive finite `max_period`, and a non-zero
+  `half_dim - downscale_freq_shift` denominator. The helper precomputes the
+  static frequency vector as a traced constant, performs the sinusoid math in
+  fp32 when practical, preserves the input float storage dtype on the public
+  output, swaps halves for `flip_sin_to_cos`, and appends the odd-dimension
+  zero column through existing helpers. Current bound: dynamic `N` is not
+  admitted because `concatenate` still requires static shapes, and the composed
+  CUDA lowering is not yet claimed because current generated CUDA hits existing
+  standalone-cast admission and multi-output fused-elementwise ->
+  `concatenate` codegen gaps.
 - [ ] Rotary/sincos helpers: `get_1d_rotary_pos_embed`,
   `get_2d_rotary_pos_embed`, `get_2d_rotary_pos_embed_lumina`,
   `get_2d_sincos_pos_embed`, `get_2d_sincos_pos_embed_cogview3plus`,

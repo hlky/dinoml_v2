@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import builtins
+import math
 from math import isfinite, prod
 from typing import Any, Callable, Mapping, Sequence
+
+import numpy as np
 
 from dinoml.frontend import GraphBuilder, Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
@@ -62,6 +65,8 @@ from dinoml.ops.pooling import (
 from dinoml.ops.reductions import argmax as _argmax_frontend, reduce_max, reduce_mean, reduce_min, reduce_sum, topk as _topk_frontend, var, vector_norm
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
+
+GET_TIMESTEP_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
 
 
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
@@ -133,6 +138,71 @@ def _cast_frontend(x: Any, dtype: str) -> Tensor:
 
 def _gelu_new_frontend(x: Any) -> Tensor:
     return emit_registered_op("gelu", x)
+
+
+def _get_timestep_embedding_frontend(
+    timesteps: Any,
+    embedding_dim: int,
+    flip_sin_to_cos: bool = False,
+    downscale_freq_shift: float = 1.0,
+    scale: float = 1.0,
+    max_period: int = 10000,
+) -> Tensor:
+    timestep_tensor = as_tensor(timesteps, dtype_hint="float32")
+    if timestep_tensor.dtype not in GET_TIMESTEP_EMBEDDING_DTYPES:
+        raise ValueError(f"get_timestep_embedding does not support dtype {timestep_tensor.dtype}")
+    if timestep_tensor.rank != 1:
+        raise ValueError(f"get_timestep_embedding expects rank-1 timesteps, got rank {timestep_tensor.rank}")
+    if timestep_tensor.dynamic:
+        raise ValueError("get_timestep_embedding currently requires a static timesteps length")
+    if not isinstance(embedding_dim, int) or isinstance(embedding_dim, bool) or embedding_dim <= 0:
+        raise ValueError(f"get_timestep_embedding embedding_dim must be a positive integer, got {embedding_dim!r}")
+    if not isinstance(flip_sin_to_cos, bool):
+        raise ValueError(f"get_timestep_embedding flip_sin_to_cos must be bool, got {flip_sin_to_cos!r}")
+    if not isinstance(downscale_freq_shift, (int, float)) or isinstance(downscale_freq_shift, bool):
+        raise ValueError("get_timestep_embedding downscale_freq_shift must be finite")
+    if not isinstance(scale, (int, float)) or isinstance(scale, bool):
+        raise ValueError("get_timestep_embedding scale must be finite")
+    if not isinstance(max_period, (int, float)) or isinstance(max_period, bool):
+        raise ValueError("get_timestep_embedding max_period must be a positive finite number")
+    normalized_shift = float(downscale_freq_shift)
+    normalized_scale = float(scale)
+    normalized_max_period = float(max_period)
+    if not isfinite(normalized_shift):
+        raise ValueError("get_timestep_embedding downscale_freq_shift must be finite")
+    if not isfinite(normalized_scale):
+        raise ValueError("get_timestep_embedding scale must be finite")
+    if not isfinite(normalized_max_period) or normalized_max_period <= 0.0:
+        raise ValueError("get_timestep_embedding max_period must be a positive finite number")
+
+    batch = int(timestep_tensor.shape[0])
+    half_dim = embedding_dim // 2
+    if half_dim == 0:
+        return _full_frontend([batch, 1], 0.0, dtype=timestep_tensor.dtype)
+
+    denominator = float(half_dim) - normalized_shift
+    if denominator == 0.0:
+        raise ValueError("get_timestep_embedding requires half_dim - downscale_freq_shift to be non-zero")
+
+    work_timesteps = timestep_tensor if timestep_tensor.dtype == "float32" else _cast_frontend(timestep_tensor, "float32")
+    frequency_values = np.asarray(
+        [math.exp((-math.log(normalized_max_period) * float(index)) / denominator) for index in range(half_dim)],
+        dtype=np.float32,
+    )
+    frequencies = as_tensor(Parameter(frequency_values), dtype_hint="float32")
+    args = unsqueeze(work_timesteps, -1) * unsqueeze(frequencies, 0)
+    if normalized_scale != 1.0:
+        args = args * normalized_scale
+
+    sin_part = sin(args)
+    cos_part = cos(args)
+    pieces = [cos_part, sin_part] if flip_sin_to_cos else [sin_part, cos_part]
+    embedding = _concatenate_frontend(pieces, dim=1)
+    if embedding_dim % 2 == 1:
+        embedding = _concatenate_frontend([embedding, _full_frontend([batch, 1], 0.0, dtype="float32")], dim=1)
+    if timestep_tensor.dtype != "float32":
+        embedding = _cast_frontend(embedding, timestep_tensor.dtype)
+    return embedding
 
 
 def _full_frontend(shape: Any, fill_value: Any, dtype: str = "float32") -> Tensor:
@@ -897,6 +967,7 @@ for _frontend_name in OP_REGISTRY.frontend_names():
 globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
 globals()["gelu_new"] = _gelu_new_frontend
+globals()["get_timestep_embedding"] = _get_timestep_embedding_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
 globals()["randn"] = _randn_frontend
@@ -948,6 +1019,7 @@ __all__ = list(dict.fromkeys([
     "flip",
     "flatten",
     "gelu_new",
+    "get_timestep_embedding",
     "identity",
     "make_frontend_op",
     "meshgrid",

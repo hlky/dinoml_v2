@@ -4,6 +4,23 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the next bounded small/custom helper slice around
+  `get_timestep_embedding`: public `dml.ops.get_timestep_embedding(...)` is now
+  a helper-only composition over existing v2 primitives instead of a new
+  registered op, provider, or custom kernel family. The helper keeps the
+  Diffusers/v1 sinusoid contract for rank-1 dense floating timesteps with
+  finite attrs, precomputes the static frequency vector as a traced constant,
+  does the internal trig/frequency math in fp32 when practical, preserves the
+  input float storage dtype on the public output, swaps sin/cos halves when
+  requested, and appends the odd-width zero column. Focused tests now pin even
+  and odd embedding widths, `flip_sin_to_cos`, `downscale_freq_shift`, `scale`,
+  `max_period`, dtype preservation, the `embedding_dim == 1` zero-column edge,
+  and rejection of dynamic timestep length, bad rank/dtype, and invalid
+  parameter combinations. The honest current bounds are documented in the
+  checklist: dynamic `N` is still out because `concatenate` remains static-only,
+  and compiled CUDA parity is not claimed yet because the composed path still
+  runs into existing standalone-cast admission and fused-elementwise-output to
+  `concatenate` codegen gaps outside this helper slice.
 - Landed the smallest honest v1/HuggingFace custom-op helper slice around
   `gelu_new`: public `dml.ops.gelu_new(x)` is now a bounded frontend helper
   that rewrites directly to the existing tanh-approximation `gelu` op instead
@@ -216,10 +233,14 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
-   with `gelu_new` closed, prefer the next smallest candidate such as
-   `get_timestep_embedding`, a bounded weight-optional RMS helper, or
-   pack/unpack/rotary helpers before revisiting broader LayerNorm, GroupNorm,
-   fused sigmoid/swish variants, or dynamic normalized-dimension work.
+   with `gelu_new` and `get_timestep_embedding` closed, prefer the next
+   smallest candidate such as a bounded weight-optional RMS helper,
+   `cropped_pos_embed`, or pack/unpack/rotary helpers before revisiting
+   broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
+   normalized-dimension work. If the next helper needs dynamic concatenation or
+   compiled CUDA parity, first decide whether that belongs in the helper slice
+   or in the existing collection/codegen gaps called out by
+   `get_timestep_embedding`.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

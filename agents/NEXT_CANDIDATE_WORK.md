@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded CLIP text-embedding composition slice without adding any
+  new public op: focused regressions now prove
+  `token_embedding(input_ids) + position_embedding(position_ids)` for both
+  rank-1 broadcast `position_ids [S]` and explicit batched `position_ids
+  [B, S]`, with CPU NumPy parity plus generated CPU and CUDA kernel/runtime
+  coverage on the existing embedding and fused-add contracts. The slice keeps
+  the honest limits explicit: it does not add `CLIPTextModel`, it does not
+  widen `arange`, and it relies on the current embedding/add composition rather
+  than a CLIP-specific embedding op.
 - Closed the bounded CLIP text-tower pooling slice without adding a new public
   pooling op: focused regressions now prove the legacy OpenAI CLIP
   highest-token-id path as

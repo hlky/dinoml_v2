@@ -445,19 +445,20 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     assert support_manifest["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
+    export_status = support_manifest["status"]
     assert support_manifest["exports"] == [
         {
             "kind": "launcher",
             "symbol": required["kernel_symbol"],
             "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "compiled_stub_only",
+            "status": export_status,
             "return_code": 901,
         },
         {
             "kind": "profiler",
             "symbol": required["profiler_symbol"],
             "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-            "status": "compiled_stub_only",
+            "status": export_status,
             "return_value_ms": -1.0,
         },
     ]
@@ -528,3 +529,41 @@ def test_conv2d_bias_cuda_compile_emits_manifest_scaffold_then_rejects(tmp_path,
     ) == 901
     assert not (artifact_dir / "manifest.json").exists()
     assert not (artifact_dir / "module.so").exists()
+
+
+def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tmp_path, monkeypatch):
+    spec = _trace_conv2d_bias("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    [required] = kernel_manifest["required_kernels"]
+    used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    support_root = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / str(used_plan["support_cache_key"])[:16]
+    stale_library = support_root / "lib" / "libdinoml_cutlass_conv.so"
+    stale_library.parent.mkdir(parents=True)
+    stale_library.write_bytes(b"stale compiled stub")
+
+    scaffold = ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
+
+    support_manifest = read_json(scaffold.manifest)
+    assert support_manifest["status"] == "source_scaffold_only"
+    assert support_manifest["compile"]["status"] == "source_scaffold_only"
+    assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
+    assert "library_sha256" not in support_manifest
+    assert not stale_library.exists()
+    assert support_manifest["exports"] == [
+        {
+            "kind": "launcher",
+            "symbol": required["kernel_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": "source_scaffold_only",
+            "return_code": 901,
+        },
+        {
+            "kind": "profiler",
+            "symbol": required["profiler_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "status": "source_scaffold_only",
+            "return_value_ms": -1.0,
+        },
+    ]

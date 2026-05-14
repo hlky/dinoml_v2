@@ -151,6 +151,8 @@ def ensure_cutlass_conv_support_scaffold(
         compile_duration_ms = round((time.perf_counter() - compile_started) * 1000.0, 3)
         library_hash = _file_sha256(library)
         compile_status = "compiled_stub_only"
+    else:
+        library.unlink(missing_ok=True)
     _write_source_manifest(
         source_manifest,
         target=target,
@@ -207,7 +209,7 @@ def ensure_cutlass_conv_support_scaffold(
             "build_fingerprint": provenance["provenance_key"],
             "provenance_key": provenance["provenance_key"],
             "provenance": provenance,
-            "exports": _cutlass_conv_stub_exports(used_candidate_plan),
+            "exports": _cutlass_conv_stub_exports(used_candidate_plan, status=compile_status),
             "compile": compile_payload,
             "cache_key": manifest_key,
             **({"library_sha256": library_hash} if library_hash is not None else {}),
@@ -467,7 +469,7 @@ def _cutlass_conv_scaffold_provenance(
     }
 
 
-def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status: str) -> list[dict[str, Any]]:
     exports = []
     for symbol in used_candidate_plan.get("kernel_symbols", ()):
         symbol_name = str(symbol)
@@ -478,7 +480,7 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any]) -> list[d
                 "kind": "launcher",
                 "symbol": symbol_name,
                 "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-                "status": "compiled_stub_only",
+                "status": status,
                 "return_code": 901,
             }
         )
@@ -491,7 +493,7 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any]) -> list[d
                 "kind": "profiler",
                 "symbol": symbol_name,
                 "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
-                "status": "compiled_stub_only",
+                "status": status,
                 "return_value_ms": -1.0,
             }
         )

@@ -11,7 +11,7 @@ Format:
 
 ## Entries
 
-- 0000000, Add bounded integer argmax input support, gpt-5.5, high
+- f709c15, Add bounded integer argmax input support, gpt-5.5, high
 - e69c2cc, Add generated embedding lookup op, gpt-5.4, high
 - b059c91, Add generated affine layer_norm op, gpt-5.4, high
 - 9a9eac2, Harden dynamic get_1d_rotary_pos_embed CUDA runtime, gpt-5.4, medium

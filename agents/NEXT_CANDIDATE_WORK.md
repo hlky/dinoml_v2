@@ -4,6 +4,24 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first bounded rotary table-generation slice as a helper-only
+  public `dml.ops.get_1d_rotary_pos_embed(...)`, deliberately without adding a
+  new op/provider/kernel family or any fused `apply_rotary_emb` ABI. The new
+  helper stays out of `OP_REGISTRY`, composes existing `arange`, fp32 trig,
+  `repeat_interleave`, `concatenate`, and `cast` primitives, and returns a
+  public `(cos, sin)` tensor pair rather than a coupled Q/K apply result.
+  The admitted contract is explicit: positive even static `dim`; `pos` as
+  either a positive integer sequence length or a rank-1 dense
+  `float32`/`float16`/`bfloat16` tensor with static positive length; positive
+  finite `theta`/`linear_factor`/`ntk_factor`; explicit duplicated-real output
+  variants through `repeat_interleave_real=True` (repeat-interleave pairs) or
+  `False` (concat/split-half style); and explicit output `dtype` across the
+  same float surface with internal fp32 math. Focused tests now pin helper-only
+  admission, reference parity against the v1/diffusers-style formula for both
+  duplication conventions and reduced-precision outputs, static tensor-position
+  parity, and clear frontend rejection for odd dims, `use_real=False`, dynamic
+  lengths, bad dtypes, and non-finite scaling parameters. No standalone CUDA
+  parity is claimed yet for this helper-only slice.
 - Captured the recent RoPE/apply-rotary exploration as durable project memory
   before any implementation starts. Added `agents/plans/rotary_apply_plan.md`
   to pin the old `/workspace/apply_rotary_emb` prototype's real ABI and limits:
@@ -291,16 +309,18 @@ This file should be updated after each major loop.
 
 1. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, `get_timestep_embedding`, and the bounded helper-only
-   `rms_norm` slice closed, prefer the next smallest candidate such as
-   `cropped_pos_embed` or a bounded rotary table helper before revisiting
+   `rms_norm` plus `get_1d_rotary_pos_embed` slices closed, prefer the next
+   smallest candidate such as `cropped_pos_embed` or the next bounded rotary
+   follow-up before revisiting
    broader LayerNorm, GroupNorm, fused sigmoid/swish variants, or dynamic
    normalized-dimension work. RoPE exploration/planning is now recorded in
-   `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is the
-   small `get_1d_rotary_pos_embed` table-generation lane with explicit real
-   duplication variants, not a speculative fused public `apply_rotary_emb`
-   CUDA ABI. If the next helper needs dynamic concatenation or compiled CUDA
-   parity, first decide whether that belongs in the helper slice or in the
-   existing collection/codegen gaps called out by `get_timestep_embedding`.
+   `agents/plans/rotary_apply_plan.md`; the next honest rotary slice is now a
+   downstream consumer of the landed 1D tables, such as a bounded one-tensor
+   real-pair application helper or a 2D/3D table-preparation helper, not a
+   speculative fused public `apply_rotary_emb` CUDA ABI. If the next rotary
+   helper needs dynamic concatenation or compiled CUDA parity, first decide
+   whether that belongs in the helper slice or in the existing
+   collection/codegen gaps called out by `get_timestep_embedding`.
 2. Continue the first bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` by connecting the existing
    `conv2d_bias` public/reference surface, `cutlass_conv`

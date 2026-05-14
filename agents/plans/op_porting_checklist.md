@@ -685,8 +685,8 @@ when compile-time constants make that practical.
   covers even-width plus odd-width/`flip_sin_to_cos` helper compositions, and
   representative runtime regressions cover float32 plus reduced-precision
   output-dtype preservation on the composed helper path.
-- [ ] Rotary/sincos helpers: `get_1d_rotary_pos_embed`,
-  `get_2d_rotary_pos_embed`, `get_2d_rotary_pos_embed_lumina`,
+- [ ] Rotary/sincos helpers: `get_2d_rotary_pos_embed`,
+  `get_2d_rotary_pos_embed_lumina`,
   `get_2d_sincos_pos_embed`, `get_2d_sincos_pos_embed_cogview3plus`,
   `get_3d_rotary_pos_embed`, `get_3d_rotary_pos_embed_allegro`,
   `get_3d_sincos_pos_embed`, `get_3d_sincos_pos_embed_cogvideox`,
@@ -694,9 +694,22 @@ when compile-time constants make that practical.
   `agents/plans/rotary_apply_plan.md` before implementing this lane: planning
   is complete, the old `/workspace/apply_rotary_emb` prototype is documented as
   a CUDA-only coupled Q/K Torch ABI with limited real-pair modes, and the
-  recommended first bounded v2 slice is `get_1d_rotary_pos_embed` table
-  generation with explicit duplicated-real variants rather than a broad fused
-  public `apply_rotary_emb`.
+  broader application lane should still start from explicit table-generation
+  helpers rather than a broad fused public `apply_rotary_emb`.
+- [x] `get_1d_rotary_pos_embed` - bounded public frontend helper composing
+  existing primitives for real-table-only 1D rotary cos/sin generation. The
+  admitted slice supports positive even static `dim`, positive integer
+  sequence-length `pos` or rank-1 dense `float32`/`float16`/`bfloat16`
+  position tensors with static length `S`, positive finite
+  `theta`/`linear_factor`/`ntk_factor`, explicit duplicated-real outputs via
+  `repeat_interleave_real=True` (repeat-interleave pairs) or `False`
+  (concat/split-half style), and explicit output storage `dtype` across the
+  same float surface. The helper keeps `get_1d_rotary_pos_embed` out of the
+  op registry, performs the trig/frequency math in fp32, and returns a pair of
+  public tensors `(cos, sin)` each with shape `[S, dim]`. Current bounds:
+  `use_real=False` complex-style output is rejected, dynamic `S` is not
+  admitted, and no standalone CUDA parity is claimed yet for this helper-only
+  slice.
 
 Library hints: no major external kernel library is expected to own these. Use
 common primitive composition for CPU/CUDA first; add fused kernels only if these

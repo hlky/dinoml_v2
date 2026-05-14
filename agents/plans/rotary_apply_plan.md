@@ -263,6 +263,30 @@ integration:
 - Docs:
   - update checklist and model plans that depend on 1D RoPE tables
 
+### Landed Bounded Contract
+
+The first v2 slice is now landed as a helper-only public
+`dml.ops.get_1d_rotary_pos_embed(...)` composition, not a registered op.
+
+- Admitted inputs:
+  - positive even static `dim`
+  - `pos` as either a positive integer sequence length or a rank-1 dense
+    `float32`/`float16`/`bfloat16` tensor with static positive length `S`
+  - positive finite `theta`, `linear_factor`, and `ntk_factor`
+  - explicit output `dtype` on that same float surface
+- Output:
+  - tuple `(cos, sin)` with both tensors shaped `[S, dim]`
+  - duplicated-real style is explicit:
+    - `repeat_interleave_real=True` for adjacent-pair duplication
+    - `repeat_interleave_real=False` for concat/split-half duplication
+- Internal behavior:
+  - helper stays out of `OP_REGISTRY`
+  - math runs in fp32, then casts to the requested output dtype
+- Current bounds:
+  - `use_real=False` / complex-style output remains rejected
+  - dynamic `S` is still out
+  - no standalone CUDA parity claim is recorded yet for this helper-only slice
+
 ### Later Application Slices
 
 - Layout parity:

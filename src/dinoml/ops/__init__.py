@@ -67,6 +67,7 @@ from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueez
 from dinoml.ops.softmax import softmax
 
 GET_TIMESTEP_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
+GET_1D_ROTARY_POS_EMBED_DTYPES = ("float16", "float32", "bfloat16")
 
 
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
@@ -224,6 +225,95 @@ def _get_timestep_embedding_frontend(
     if timestep_tensor.dtype != "float32":
         embedding = _cast_frontend(embedding, timestep_tensor.dtype)
     return embedding
+
+
+def _get_1d_rotary_pos_embed_frontend(
+    dim: int,
+    pos: Any,
+    theta: float = 10000.0,
+    use_real: bool = True,
+    linear_factor: float = 1.0,
+    ntk_factor: float = 1.0,
+    repeat_interleave_real: bool = True,
+    dtype: str = "float32",
+) -> tuple[Tensor, Tensor]:
+    output_dtype = normalize_dtype(dtype)
+    if output_dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
+        raise ValueError(f"get_1d_rotary_pos_embed does not support dtype {output_dtype}")
+    if not isinstance(dim, int) or isinstance(dim, bool) or dim <= 0:
+        raise ValueError(f"get_1d_rotary_pos_embed dim must be a positive integer, got {dim!r}")
+    if dim % 2 != 0:
+        raise ValueError("get_1d_rotary_pos_embed requires an even dim")
+    if not isinstance(use_real, bool):
+        raise ValueError(f"get_1d_rotary_pos_embed use_real must be bool, got {use_real!r}")
+    if not use_real:
+        raise ValueError("get_1d_rotary_pos_embed currently supports only use_real=True")
+    if not isinstance(repeat_interleave_real, bool):
+        raise ValueError(
+            f"get_1d_rotary_pos_embed repeat_interleave_real must be bool, got {repeat_interleave_real!r}"
+        )
+    if not isinstance(theta, (int, float)) or isinstance(theta, bool):
+        raise ValueError("get_1d_rotary_pos_embed theta must be a positive finite number")
+    if not isinstance(linear_factor, (int, float)) or isinstance(linear_factor, bool):
+        raise ValueError("get_1d_rotary_pos_embed linear_factor must be a positive finite number")
+    if not isinstance(ntk_factor, (int, float)) or isinstance(ntk_factor, bool):
+        raise ValueError("get_1d_rotary_pos_embed ntk_factor must be a positive finite number")
+    normalized_theta = float(theta)
+    normalized_linear_factor = float(linear_factor)
+    normalized_ntk_factor = float(ntk_factor)
+    if not isfinite(normalized_theta) or normalized_theta <= 0.0:
+        raise ValueError("get_1d_rotary_pos_embed theta must be a positive finite number")
+    if not isfinite(normalized_linear_factor) or normalized_linear_factor <= 0.0:
+        raise ValueError("get_1d_rotary_pos_embed linear_factor must be a positive finite number")
+    if not isfinite(normalized_ntk_factor) or normalized_ntk_factor <= 0.0:
+        raise ValueError("get_1d_rotary_pos_embed ntk_factor must be a positive finite number")
+
+    if isinstance(pos, int) and not isinstance(pos, bool):
+        sequence_length = int(pos)
+        if sequence_length <= 0:
+            raise ValueError("get_1d_rotary_pos_embed integer pos must be a positive sequence length")
+        pos_tensor = _arange_frontend(sequence_length, dtype="float32")
+    else:
+        pos_tensor = as_tensor(pos, dtype_hint="float32")
+        if pos_tensor.dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
+            raise ValueError(f"get_1d_rotary_pos_embed does not support pos dtype {pos_tensor.dtype}")
+        if pos_tensor.rank != 1:
+            raise ValueError(f"get_1d_rotary_pos_embed expects rank-1 pos tensor, got rank {pos_tensor.rank}")
+        if pos_tensor.dynamic:
+            raise ValueError("get_1d_rotary_pos_embed currently requires a static pos length")
+        if int(pos_tensor.shape[0]) <= 0:
+            raise ValueError("get_1d_rotary_pos_embed pos length must be positive")
+        if pos_tensor.dtype != "float32":
+            pos_tensor = _cast_frontend(pos_tensor, "float32")
+
+    rotary_dim = dim // 2
+    scaled_theta = normalized_theta * normalized_ntk_factor
+    inv_freq_values = np.asarray(
+        [
+            1.0
+            / ((scaled_theta ** (float(index) / float(dim))) * normalized_linear_factor)
+            for index in range(0, dim, 2)
+        ],
+        dtype=np.float32,
+    )
+    inv_freqs = as_tensor(Parameter(inv_freq_values), dtype_hint="float32")
+    freqs = unsqueeze(pos_tensor, -1) * unsqueeze(inv_freqs, 0)
+    if int(freqs.shape[-1]) != rotary_dim:
+        raise ValueError("get_1d_rotary_pos_embed internal frequency shape mismatch")
+
+    cos_base = cos(freqs)
+    sin_base = sin(freqs)
+    if repeat_interleave_real:
+        cos_out = _repeat_interleave_frontend(cos_base, repeats=2, dim=1)
+        sin_out = _repeat_interleave_frontend(sin_base, repeats=2, dim=1)
+    else:
+        cos_out = _concatenate_frontend([cos_base, cos_base], dim=1)
+        sin_out = _concatenate_frontend([sin_base, sin_base], dim=1)
+
+    if output_dtype != "float32":
+        cos_out = _cast_frontend(cos_out, output_dtype)
+        sin_out = _cast_frontend(sin_out, output_dtype)
+    return cos_out, sin_out
 
 
 def _full_frontend(shape: Any, fill_value: Any, dtype: str = "float32") -> Tensor:
@@ -989,6 +1079,7 @@ globals()["where"] = _where_frontend
 globals()["cast"] = _cast_frontend
 globals()["gelu_new"] = _gelu_new_frontend
 globals()["rms_norm"] = _rms_norm_frontend
+globals()["get_1d_rotary_pos_embed"] = _get_1d_rotary_pos_embed_frontend
 globals()["get_timestep_embedding"] = _get_timestep_embedding_frontend
 globals()["full"] = _full_frontend
 globals()["arange"] = _arange_frontend
@@ -1041,6 +1132,7 @@ __all__ = list(dict.fromkeys([
     "flip",
     "flatten",
     "gelu_new",
+    "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
     "identity",
     "make_frontend_op",

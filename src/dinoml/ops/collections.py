@@ -713,7 +713,10 @@ def register_collection_ops(registry: OpRegistry) -> None:
         registry.register(
             OpDef(
                 name=op_name,
-                schema=OpSchema(inputs=("x",), attrs=()),
+                schema=OpSchema(
+                    inputs=("x",),
+                    attrs=(AttrDef("dims", "ints", default=tuple(dims)),),
+                ),
                 infer_shape=infer_permute_shape,
                 infer_shape_with_attrs=lambda input_shapes, attrs, *, _op_name=op_name: infer_specialized_permute_shape_with_attrs(
                     input_shapes,

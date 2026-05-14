@@ -14,7 +14,8 @@ This file should be updated after each major loop.
   intentionally reuses the existing generated dense permute-copy strategy with
   compile-time dims/strides, so it is truthful about being a bounded generated
   specialization rather than v1 tiled kernel parity. Focused regressions now
-  cover specialized frontend/IR emission, fixed-dims validation against attr
+  cover specialized frontend/IR emission, registry default-attr/schema
+  coherence for the fixed `dims` contract, fixed-dims validation against attr
   drift, CPU reference parity, artifact-level CPU manifest/source-manifest
   provenance, and optional CUDA compile coverage for a representative named
   specialization.

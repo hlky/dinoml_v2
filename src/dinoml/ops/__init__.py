@@ -83,7 +83,12 @@ def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None
     if attrs is not None:
         op_attrs.update(attrs)
     out_shape = op_def.infer_shape_for([tensor.shape for tensor in tensors], op_attrs)
-    out_shape_spec = _infer_shape_spec([tensor.shape_spec for tensor in tensors], out_shape)
+    out_shape_spec = _infer_registered_shape_spec(
+        op_name,
+        [tensor.shape_spec for tensor in tensors],
+        out_shape,
+        op_attrs,
+    )
     out_dtype = elementwise_output_dtype(op_name, dtype, op_attrs) if op_name in ELEMENTWISE_BY_NAME else dtype
     return builder.emit(op_name, tensors, out_shape, out_dtype, op_attrs, shape_spec=out_shape_spec)
 
@@ -990,6 +995,27 @@ def _infer_shape_spec(shape_specs: list[list[Any]], out_shape: list[int]) -> lis
                 return list(out_shape)
         result.append(chosen)
     return result
+
+
+def _infer_registered_shape_spec(
+    op_name: str,
+    shape_specs: list[list[Any]],
+    out_shape: list[int],
+    attrs: Mapping[str, Any],
+) -> list[Any]:
+    if len(shape_specs) == 1 and (op_name == "permute" or op_name in SPECIALIZED_PERMUTE_DIMS):
+        dims = attrs.get("dims")
+        if dims is None and op_name in SPECIALIZED_PERMUTE_DIMS:
+            dims = SPECIALIZED_PERMUTE_DIMS[op_name]
+        if dims is not None:
+            normalized_dims = normalize_permute_dims(dims, len(shape_specs[0]))
+            input_shape_spec = shape_specs[0]
+            return [_copy_shape_dim(input_shape_spec[axis]) for axis in normalized_dims]
+    return _infer_shape_spec(shape_specs, out_shape)
+
+
+def _copy_shape_dim(dim: Any) -> Any:
+    return dict(dim) if isinstance(dim, Mapping) else dim
 
 
 def _dim_is_one(dim: Any) -> bool:

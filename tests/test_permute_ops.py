@@ -50,6 +50,14 @@ class SpecializedPermuteModule(dml.Module):
         return dml.ops.output(op(x), "out")
 
 
+class RegisteredSpecializedPermuteModule(dml.Module):
+    def __init__(self, op_name):
+        self.op_name = op_name
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.emit_registered_op(self.op_name, x), "out")
+
+
 def _trace_permute(dtype="float32", dims=(2, 0, 1), shape=(2, 3, 4)):
     return dml.trace(PermuteModule(dims), inputs={"x": dml.TensorSpec(shape, dtype)}, name=f"permute_{dtype}")
 
@@ -59,6 +67,14 @@ def _trace_specialized_permute(op_name, dtype="float32", shape=(2, 3, 4)):
         SpecializedPermuteModule(op_name),
         inputs={"x": dml.TensorSpec(shape, dtype)},
         name=f"{op_name}_{dtype}",
+    )
+
+
+def _trace_registered_specialized_permute(op_name, dtype="float32", shape=(2, 3, 4)):
+    return dml.trace(
+        RegisteredSpecializedPermuteModule(op_name),
+        inputs={"x": dml.TensorSpec(shape, dtype)},
+        name=f"{op_name}_registered_{dtype}",
     )
 
 
@@ -122,6 +138,26 @@ def test_specialized_permute_frontends_emit_specialized_ir(op_name, shape, dims,
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     assert [lowered_node["op"] for lowered_node in lowered["nodes"]] == [op_name]
+
+
+@pytest.mark.parametrize(("op_name", "shape", "dims", "out_shape"), SPECIALIZED_PERMUTE_CASES)
+def test_specialized_permute_registry_defaults_match_schema(op_name, shape, dims, out_shape):
+    op_def = OP_REGISTRY.get(op_name)
+
+    [dims_attr] = op_def.schema.attrs
+    assert dims_attr.name == "dims"
+    assert dims_attr.type_name == "ints"
+    assert tuple(dims_attr.default) == dims
+    assert dims_attr.required is False
+    assert op_def.frontend is not None
+    assert op_def.frontend.default_attrs == {"dims": list(dims)}
+
+    spec = _trace_registered_specialized_permute(op_name, shape=shape)
+    assert spec.ir["outputs"][0]["shape"] == out_shape
+    assert spec.ir["outputs"][0]["shape_spec"] == out_shape
+    node = spec.ir["nodes"][0]
+    assert node["op"] == op_name
+    assert node["attrs"] == {"dims": list(dims)}
 
 
 @pytest.mark.parametrize(("op_name", "shape", "dims", "_out_shape"), SPECIALIZED_PERMUTE_CASES)

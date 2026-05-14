@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the bounded CLIP text-tower pooling slice without adding a new public
+  pooling op: focused regressions now prove the legacy OpenAI CLIP
+  highest-token-id path as
+  `input_ids.argmax(dim=-1, keepdim=True) -> batch_gather(hidden_states, indices)
+  -> squeeze(axis=1)` through CPU reference, generated CPU artifact runtime,
+  and CUDA source/runtime smoke. The slice keeps the honest limits explicit:
+  it only proves the legacy highest-token-id pooling composition and still does
+  not solve non-2 EOS equality matching or the broader text-tower
+  attention/masking path.
 - Landed the next narrow CLIP text-tower blocker without broadening general
   integer tensor support: public/generated `dml.ops.argmax` now admits
   `int32`/`int64` input tensors alongside the existing

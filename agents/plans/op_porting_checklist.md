@@ -203,7 +203,10 @@ epilogues where possible.
   contract exception. The integer-input admission is intentionally narrow: it
   unblocks legacy OpenAI CLIP text EOT pooling via `input_ids.argmax(dim=-1)`
   only, and does not cover non-2 EOS equality matching or the full pooled
-  hidden-state gather flow by itself.
+  hidden-state gather flow by itself. The composed legacy CLIP pooling slice is
+  now covered end to end through `argmax(..., keepdim=True) ->
+  batch_gather(hidden_states, indices) -> squeeze(axis=1)` without adding a new
+  public pooling op.
   Public `topk(x, k, dim=-1, largest=True, sorted=True)` is available as two
   internal single-output ops (`topk_values`, `topk_indices`) for one
   static-shape ranked dense tensor over a positive static last dimension only,

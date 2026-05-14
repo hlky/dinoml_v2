@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- 70a199c, Add CLIP text pooling composition tests, gpt-5.4, medium
 - 0d460e3, Add bounded integer argmax input support, gpt-5.4, medium
 - e69c2cc, Add generated embedding lookup op, gpt-5.4, high
 - b059c91, Add generated affine layer_norm op, gpt-5.4, high

@@ -22,6 +22,17 @@ This file should be updated after each major loop.
 
 ## Next Recommended Lane
 
+- 2026-05-15 kickoff: shift from the now-reviewed Conv provider hardening back
+  to the CLIP first-model sprint. Start by pinning the exact CLIP reference
+  source/audit inputs, then land the smallest real `CLIPTextModel` or
+  text-feature wrapper slice that reuses the existing CLIP text composition
+  tests instead of adding a broad wrapper surface. If that reveals an op,
+  provider, runtime, or artifact gap, finish that gap completely or as far as
+  safely possible before returning to the model.
+- Use worktrees for independent branches if running parallel agents. Keep
+  feature write sets disjoint, keep shared queue/tracking doc reconciliation on
+  the main line when possible, and require PM review plus validation before
+  merge and push.
 - Keep `cutlass_conv` bounded while tightening the now-static profiled path:
   add C=8 runtime parity if useful, decide whether dynamic Conv buckets/guarded
   dispatch need admission, and keep rejecting grouped/depthwise/transposed/3D,

@@ -101,3 +101,26 @@ Keep this sprint isolated from queue-tracking churn:
   after merge in the main line.
 - Keep the plan bounded to the first-model slice so later branches can add the
   vision side, wrapper models, and provider optimizations without conflict.
+
+## 2026-05-15 kickoff
+
+The next workday should start with a model-facing slice again, not another
+open-ended provider sweep:
+
+- Pin the exact CLIP reference source used for implementation. The audit in
+  `agents/plans/transformers/clip/report.md` is the project-memory starting
+  point; record any installed or vendored Transformers source version used for
+  behavior details.
+- Prefer the smallest real `CLIPTextModel` or `get_text_features` wrapper slice
+  that can reuse the already landed text composition coverage: token/position
+  embeddings, LayerNorm, dense causal attention, MLP/quick-gelu composition,
+  legacy EOS pooling, projection, and contrastive-head math.
+- If the wrapper slice exposes a concrete missing op/provider/runtime contract,
+  pause the model work and finish that gap completely or as far as safely
+  possible before returning to CLIP.
+- For vision-side work, keep modeling code semantic NCHW. The CUTLASS Conv
+  provider should own NHWC/OHWI transforms through manifest-visible
+  `cutlass_conv_plan` metadata, static profiling, and generated wrapper stages.
+- Do not start FlashAttention as the semantic baseline. Dense attention parity
+  remains the acceptance gate; FlashAttention-style provider work should follow
+  only after the dense CLIP path is pinned.

@@ -16,6 +16,36 @@ Launch the main autonomous engineering agent repeatedly using:
 
 `agents/PROMPT.md`
 
+## Worktree policy
+
+Use Codex/Git worktrees when multiple independent workers can make progress in
+parallel without colliding.
+
+- Create feature branches with the `codex/` prefix and separate worktree paths,
+  for example `/workspace/dinoml_v2_<short-task-slug>`.
+- Assign each worker a disjoint write set and remind it that other agents may be
+  active in nearby branches.
+- Prefer keeping shared queue/tracking docs (`agents/NEXT_CANDIDATE_WORK.md`,
+  model/reasoning tracking, broad plan files) reconciled by the PM on `main`
+  after feature branches are reviewed and merged. Let workers update focused
+  plan/checklist docs only when behavior changes in their branch.
+- Review each worktree branch before merge: inspect commits, run or confirm
+  targeted validation, use a skeptical reviewer for risky provider/runtime
+  changes, then fast-forward or otherwise intentionally merge to `main`.
+- Push `main` after every accepted merge or closeout commit. Do not leave
+  completed committed work only in a local worktree.
+- If a worker starts a new op/provider surface, require a completed slice:
+  frontend/admission, lowering/provider path, tests, docs/checklist updates, and
+  honest unsupported fences. If that cannot be finished, stop and either revert
+  the partial surface or record a precise follow-up before moving on.
+
+## Automation note
+
+If the Codex app exposes an automation/reminder tool, use it for the 8-hour end
+timer, hourly VC pressure wakeups, and external-developer check-ins. If that
+tool is unavailable in the current environment, track elapsed time manually and
+treat early/late helper responses as advisory rather than steering authority.
+
 ## Time-box policy
 
 Work for approximately 8 hour of wall-clock time. Launch a timer subagent to help.

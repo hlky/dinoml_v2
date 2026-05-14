@@ -716,17 +716,56 @@ def _required_profile_item(
                 "gguf_runtime_dequant GEMM nodes; generated CUDA lowering "
                 "rejects them before profile workload generation"
             )
+        node_scoped_items = False
+        for item in required_items:
+            item_node_ids = _required_profile_item_node_ids(item)
+            if not item_node_ids:
+                continue
+            node_scoped_items = True
+            if str(node_id) in item_node_ids and _required_profile_item_matches(item, dtype, fallback_symbol):
+                return item
+        if node_scoped_items:
+            return None
     for item in required_items:
-        candidates = item.get("candidates", [])
-        if any(str(candidate.get("dtype")) == dtype for candidate in candidates):
-            return item
-        candidate_set = item.get("candidate_set", {})
-        if isinstance(candidate_set, Mapping) and str(candidate_set.get("dtype")) == dtype:
+        if _required_profile_item_matches(item, dtype, fallback_symbol, include_fallback=False):
             return item
     for item in required_items:
-        if str(item.get("kernel_symbol")) == fallback_symbol:
+        if _required_profile_item_matches(item, dtype, fallback_symbol, include_dtype=False):
             return item
     return None
+
+
+def _required_profile_item_node_ids(item: Mapping[str, Any]) -> set[str]:
+    node_ids = {str(item["node_id"])} if item.get("node_id") is not None else set()
+    cutlass_conv_plan = item.get("cutlass_conv_plan")
+    if isinstance(cutlass_conv_plan, Mapping) and cutlass_conv_plan.get("node_id") is not None:
+        node_ids.add(str(cutlass_conv_plan["node_id"]))
+    alignment_context = item.get("cutlass_alignment")
+    if isinstance(alignment_context, Mapping):
+        nodes = alignment_context.get("nodes")
+        if isinstance(nodes, Sequence) and not isinstance(nodes, (str, bytes)):
+            for node in nodes:
+                if isinstance(node, Mapping) and node.get("node_id") is not None:
+                    node_ids.add(str(node["node_id"]))
+    return node_ids
+
+
+def _required_profile_item_matches(
+    item: Mapping[str, Any],
+    dtype: str,
+    fallback_symbol: str,
+    *,
+    include_dtype: bool = True,
+    include_fallback: bool = True,
+) -> bool:
+    if include_dtype:
+        candidates = item.get("candidates", [])
+        if any(str(candidate.get("dtype")) == dtype for candidate in candidates):
+            return True
+        candidate_set = item.get("candidate_set", {})
+        if isinstance(candidate_set, Mapping) and str(candidate_set.get("dtype")) == dtype:
+            return True
+    return include_fallback and str(item.get("kernel_symbol")) == fallback_symbol
 
 
 def _selected_profile_candidate(required_item: Mapping[str, Any]) -> dict[str, Any]:

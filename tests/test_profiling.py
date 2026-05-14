@@ -130,6 +130,13 @@ class Conv2dBiasModule(dml.Module):
         )
 
 
+class TwoConv2dBiasModule(dml.Module):
+    def forward(self, x0, weight0, bias0, x1, weight1, bias1):
+        y0 = dml.ops.output(dml.ops.conv2d_bias(x0, weight0, bias0, stride=(2, 1), padding=(1, 0)), "out0")
+        y1 = dml.ops.output(dml.ops.conv2d_bias(x1, weight1, bias1, stride=(2, 1), padding=(1, 0)), "out1")
+        return y0, y1
+
+
 class GemmBiasModule(dml.Module):
     def __init__(self, op_name: str):
         self.op_name = op_name
@@ -726,6 +733,40 @@ def test_compile_consumes_static_cutlass_conv_execution_plan_for_lowering(tmp_pa
     assert codegen_plan["wrapper_stages"][2]["symbol"] == selected_candidate["kernel_symbol"]
     assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
+
+
+def test_cutlass_conv_profile_workloads_select_node_specific_manifest_item():
+    spec = dml.trace(
+        TwoConv2dBiasModule(),
+        inputs={
+            "x0": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight0": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias0": dml.TensorSpec([4], "float16"),
+            "x1": dml.TensorSpec([2, 4, 7, 8], "float16"),
+            "weight1": dml.TensorSpec([5, 4, 3, 2], "float16"),
+            "bias1": dml.TensorSpec([5], "float16"),
+        },
+        name="profile_two_conv2d_bias_scaffold",
+    )
+    kernel_manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    required_by_node = {
+        str(item["cutlass_conv_plan"]["node_id"]): item
+        for item in kernel_manifest["required_kernels"]
+        if item.get("kernel_library") == "cutlass_conv"
+    }
+
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+    workloads_by_node = {node_id: [] for node_id in required_by_node}
+    for workload in workloads:
+        workloads_by_node[workload.node_id].append(workload)
+
+    assert set(required_by_node) == {"n0", "n1"}
+    assert all(workloads_by_node.values())
+    for node_id, node_workloads in workloads_by_node.items():
+        conv_plan = required_by_node[node_id]["cutlass_conv_plan"]
+        assert {workload.x_shape for workload in node_workloads} == {tuple(conv_plan["input_shape"])}
+        assert {workload.weight_shape for workload in node_workloads} == {tuple(conv_plan["weight_shape"])}
+        assert {workload.output_shape for workload in node_workloads} == {tuple(conv_plan["output_shape"])}
 
 
 def test_build_profile_workloads_expands_dim_buckets():

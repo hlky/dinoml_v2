@@ -4,6 +4,32 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded zero-layer CLIP vision wrapper/projection slice. DinoML now
+  matches local Transformers `CLIPVisionModelWithProjection` for the admitted
+  zero-encoder-layer surface: fixed-size vision embeddings, `pre_layrnorm`, CLS
+  pool, `post_layernorm`, and bias-free visual projection. Focused tests pin
+  `last_hidden_state`, `pooler_output`, and projected `image_features` against
+  local Transformers and keep CUDA provider/model ownership visible without
+  broadening Conv runtime claims. Remaining limits: `num_hidden_layers == 0`
+  only, fixed square NCHW inputs, no positional interpolation, no real vision
+  encoder block, no full `CLIPModel`/processor plumbing, and CPU artifact
+  compilation still stops at the existing `conv2d_bias` backend boundary.
+
+## Next Recommended Lane
+
+- Continue CLIP parity only with a concrete surface that moves toward a real
+  end-to-end product story. The highest-value next slice is likely the first
+  actual CLIP vision encoder layer using the already-landed dense attention/MLP
+  primitives, if it can be parity-tested against local Transformers without new
+  provider surface. A bounded contrastive two-tower workflow can follow once a
+  meaningful vision tower surface exists.
+- If the next vision step is blocked by Conv runtime maturity rather than model
+  graph coverage, make the Conv blocker explicit and keep any provider work
+  tied to a CLIP artifact/runtime test. Do not broaden Conv claims for their own
+  sake.
+- Keep libgguf follow-up limited to concrete direct-link failures or validation
+  gaps; do not broaden GGUF offload policy, quantized GEMM families, epilogue
+  coverage, or public provider surface as part of that lane.
 - Landed the first bounded CLIP vision-side parity slice: fixed-size
   `LegacyCLIPVisionEmbeddings` now matches local Transformers
   `CLIPVisionEmbeddings` for semantic NCHW pixel input, bias-free patch
@@ -16,22 +42,6 @@ This file should be updated after each major loop.
   square image size only, no positional interpolation, no vision encoder or
   projection head, no full `CLIPVisionModel`, no widened Conv claims, and no
   compiled CPU artifact support for the Conv-backed wrapper path.
-
-## Next Recommended Lane
-
-- Continue CLIP vision parity with a bounded next slice. Good candidates:
-  compose a tiny vision encoder layer on top of the landed embeddings if it can
-  reuse existing dense attention/MLP primitives, or add the vision CLS
-  pool/post-LayerNorm/projection path only if the reference parity test stays
-  small. Keep the acceptance bar pinned/local Transformers behavior for the
-  admitted surface.
-- CUTLASS Conv/provider follow-up is legitimate only when it removes a concrete
-  blocker for CLIP vision runtime artifacts; otherwise do not broaden Conv
-  provider claims while model parity can advance through trace/CPU-reference
-  and artifact-visible manifest tests.
-- Keep libgguf follow-up limited to concrete direct-link failures or validation
-  gaps; do not broaden GGUF offload policy, quantized GEMM families, epilogue
-  coverage, or public provider surface as part of that lane.
 - Landed the bounded CLIP text-wrapper default-position slice. Callers may now
   omit `position_ids`; the wrapper falls back to a traced static int64
   `[0, 1, ..., S-1]` position sequence for the current static sequence length,

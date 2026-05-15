@@ -13,12 +13,18 @@ from dinoml.backends.cutlass import (
     ensure_cutlass_conv_support_scaffold,
     ensure_cutlass_gemm_support_lib,
 )
-from dinoml.ir import write_json
+from dinoml.ir import read_json, write_json
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
 from dinoml.kernels.manifest import build_support_manifest
-from dinoml.libgguf_cuda import libgguf_submodule_source_root, resolve_libgguf_cuda_direct_link_library
+from dinoml.libgguf_cuda import (
+    file_sha256,
+    libgguf_provenance_key,
+    libgguf_source_provenance,
+    libgguf_submodule_source_root,
+    resolve_libgguf_cuda_direct_link_library,
+)
 from dinoml.lowering.cuda import render_cuda_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
 
@@ -32,6 +38,7 @@ class SupportLibs:
     cutlass_bmm_lib: Path | None
     cutlass_conv_lib: Path | None
     gguf_cuda_native_lib: Path | None
+    gguf_cuda_native_manifest: Path | None
     runtime_include: Path
     common_include: Path
     kernels_include: Path
@@ -57,6 +64,11 @@ def build_cuda_module(
     gguf_cuda_native_lib = (
         None if support_libs.gguf_cuda_native_lib is None else artifact_lib_dir / support_libs.gguf_cuda_native_lib.name
     )
+    gguf_cuda_native_manifest = (
+        None
+        if support_libs.gguf_cuda_native_manifest is None
+        else artifact_lib_dir / support_libs.gguf_cuda_native_manifest.name
+    )
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.cuda_runtime_lib, cuda_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
@@ -68,6 +80,8 @@ def build_cuda_module(
         shutil.copy2(support_libs.cutlass_conv_lib, cutlass_conv_lib)
     if support_libs.gguf_cuda_native_lib is not None and gguf_cuda_native_lib is not None:
         shutil.copy2(support_libs.gguf_cuda_native_lib, gguf_cuda_native_lib)
+    if support_libs.gguf_cuda_native_manifest is not None and gguf_cuda_native_manifest is not None:
+        shutil.copy2(support_libs.gguf_cuda_native_manifest, gguf_cuda_native_manifest)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
@@ -126,7 +140,10 @@ def build_cuda_module(
     _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
     if gguf_cuda_native_lib is None:
         return None
-    return {"gguf_cuda_native_library": f"lib/{gguf_cuda_native_lib.name}"}
+    files = {"gguf_cuda_native_library": f"lib/{gguf_cuda_native_lib.name}"}
+    if gguf_cuda_native_manifest is not None:
+        files["gguf_cuda_native_manifest"] = f"lib/{gguf_cuda_native_manifest.name}"
+    return files
 
 
 def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | None = None) -> SupportLibs:
@@ -143,6 +160,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     cutlass_bmm_lib = None
     cutlass_conv_lib = None
     gguf_cuda_native_lib = None
+    gguf_cuda_native_manifest = None
 
     lib_dir.mkdir(parents=True, exist_ok=True)
     _run_cmake(
@@ -201,7 +219,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
                 "nvcc is required before generated CUDA module build can link the guarded Conv wrapper"
             )
     if _requires_gguf_cuda_native_library(kernel_manifest):
-        gguf_cuda_native_lib = _ensure_libgguf_cuda_native_library(
+        gguf_cuda_native_lib, gguf_cuda_native_manifest = _ensure_libgguf_cuda_native_library(
             arch,
             cache_root=cache_root,
             cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
@@ -236,6 +254,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         cutlass_bmm_lib=cutlass_bmm_lib,
         cutlass_conv_lib=cutlass_conv_lib,
         gguf_cuda_native_lib=gguf_cuda_native_lib,
+        gguf_cuda_native_manifest=gguf_cuda_native_manifest,
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "cuda" / "include",
@@ -290,16 +309,26 @@ def _ensure_libgguf_cuda_native_library(
     cache_root: Path,
     cache_key: str,
     repo_root: Path,
-) -> Path | None:
+) -> tuple[Path | None, Path | None]:
     explicit_library = resolve_libgguf_cuda_direct_link_library()
     if explicit_library is not None:
-        return explicit_library
+        return explicit_library, None
     source_root = libgguf_submodule_source_root(repo_root)
     if source_root is None:
-        return None
-    support_root = cache_root / "support" / f"cuda-{_cmake_arch(arch)}" / "libgguf-cuda-native" / cache_key
+        return None, None
+    source_provenance = libgguf_source_provenance(source_root)
+    source_key = libgguf_provenance_key(source_provenance)
+    support_root = (
+        cache_root
+        / "support"
+        / f"cuda-{_cmake_arch(arch)}"
+        / "libgguf-cuda-native"
+        / cache_key
+        / source_key[:16]
+    )
     build_dir = support_root / "build"
     lib_dir = support_root / "lib"
+    manifest_path = lib_dir / "libgguf_cuda_native_manifest.json"
     lib_dir.mkdir(parents=True, exist_ok=True)
     cached = _first_existing(
         (
@@ -308,8 +337,13 @@ def _ensure_libgguf_cuda_native_library(
             lib_dir / "libgguf_cuda_native.so",
         )
     )
-    if cached is not None:
-        return cached
+    if cached is not None and _libgguf_native_cache_manifest_valid(
+        manifest_path,
+        library=cached,
+        source_provenance=source_provenance,
+        source_key=source_key,
+    ):
+        return cached, manifest_path
     _run_cmake(
         [
             "cmake",
@@ -335,13 +369,54 @@ def _ensure_libgguf_cuda_native_library(
         ],
         cwd=source_root,
     )
-    return _first_existing(
+    built = _first_existing(
         (
             lib_dir / "libgguf_cuda_native.a",
             lib_dir / "gguf_cuda_native.so",
             lib_dir / "libgguf_cuda_native.so",
         )
     )
+    if built is None:
+        return None, None
+    write_json(
+        manifest_path,
+        {
+            "schema_version": 1,
+            "name": "gguf_cuda_native",
+            "link_mode": "direct",
+            "library": built.name,
+            "library_path": str(built),
+            "library_kind": "static" if built.suffix == ".a" else "shared",
+            "library_sha256": file_sha256(built),
+            "source_provenance_key": source_key,
+            "source_provenance": source_provenance,
+        },
+    )
+    return built, manifest_path
+
+
+def _libgguf_native_cache_manifest_valid(
+    manifest_path: Path,
+    *,
+    library: Path,
+    source_provenance: dict[str, object],
+    source_key: str,
+) -> bool:
+    if not manifest_path.exists():
+        return False
+    try:
+        manifest = read_json(manifest_path)
+    except Exception:
+        return False
+    if str(manifest.get("source_provenance_key", "")) != source_key:
+        return False
+    if manifest.get("source_provenance") != source_provenance:
+        return False
+    if str(manifest.get("library", "")) != library.name:
+        return False
+    if str(manifest.get("library_sha256", "")) != file_sha256(library):
+        return False
+    return True
 
 
 def _repo_root() -> Path:

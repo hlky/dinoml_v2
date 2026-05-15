@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml import libgguf_cuda
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.constant_sources import MaterializedConstant
@@ -2387,6 +2388,20 @@ def test_libgguf_cuda_native_dequantize_rows_on_stream_caches_cdll(monkeypatch):
     assert first is not None
     assert second == first
     assert call_count == 1
+
+
+def test_libgguf_cuda_symbol_resolver_ignores_static_archive_for_runtime_fallback(monkeypatch, tmp_path):
+    extension = tmp_path / "_C_gguf.so"
+    archive = tmp_path / "libgguf_cuda_native.a"
+    extension.write_bytes(b"dynamic")
+    archive.write_bytes(b"static")
+    monkeypatch.setenv("LIBGGUF_CUDA_EXTENSION", str(extension))
+    monkeypatch.delenv("LIBGGUF_CUDA_NATIVE_LIBRARY", raising=False)
+
+    assert libgguf_cuda.resolve_libgguf_cuda_symbol_library() == extension
+
+    monkeypatch.setenv("LIBGGUF_CUDA_NATIVE_LIBRARY", str(archive))
+    assert libgguf_cuda.resolve_libgguf_cuda_symbol_library() == extension
 
 
 def test_runtime_load_encoded_constants_resolves_artifact_relative_gguf_path(monkeypatch, tmp_path):

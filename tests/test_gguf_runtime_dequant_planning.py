@@ -4,9 +4,10 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml.backends import cuda as cuda_backend
 from dinoml.compiler import _validate_gguf_runtime_dequant_admission
 from dinoml.constant_sources import MaterializedConstant
-from dinoml.ir import array_to_storage
+from dinoml.ir import array_to_storage, write_json
 from dinoml.kernels import codegen as kernel_codegen
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import _with_kernel_manifest_cache_keys, build_kernel_manifest
@@ -462,6 +463,80 @@ def test_codegen_plan_records_direct_linked_libgguf_cuda_native(monkeypatch, tmp
     assert support_entries[0]["origin_path"] == str(native_library)
     assert support_entries[0]["library"] == f"lib/{native_library.name}"
     assert support_entries[0]["link_mode"] == "direct"
+    assert support_entries[0]["source_kind"] == "env_override"
+
+
+def test_codegen_plan_records_vendored_libgguf_provenance(monkeypatch, tmp_path):
+    spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
+    manifest = build_kernel_manifest(_renderable_ir(spec), CUDA_TARGET)
+    manifest = _with_kernel_manifest_cache_keys(deepcopy(manifest))
+    source_root = tmp_path / "third_party" / "libgguf"
+    source_root.mkdir(parents=True)
+    source_provenance = {
+        "schema_version": 1,
+        "source_kind": "vendored_submodule",
+        "git_revision": "abc123",
+        "tracked_source_hash": "def456",
+    }
+    source_key = "feedfacecafebeef0011223344556677"
+    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: None)
+    monkeypatch.setattr(kernel_codegen, "libgguf_submodule_source_root", lambda _repo_root: source_root)
+    monkeypatch.setattr(kernel_codegen, "libgguf_source_provenance", lambda _source_root: source_provenance)
+    monkeypatch.setattr(kernel_codegen, "libgguf_provenance_key", lambda _provenance: source_key)
+
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    support_entries = [entry for entry in plan.external_support_libraries if entry["name"] == "gguf_cuda_native"]
+    assert len(support_entries) == 1
+    assert support_entries[0]["source_kind"] == "vendored_submodule"
+    assert support_entries[0]["source_provenance"] == source_provenance
+    assert support_entries[0]["source_provenance_key"] == source_key
+    support_key = manifest.get("support_cache_key", manifest["cache_key"])[:16]
+    assert support_entries[0]["cache_dir"].endswith(f"libgguf-cuda-native/{support_key}/{source_key[:16]}")
+    assert support_entries[0]["manifest"] == "lib/libgguf_cuda_native_manifest.json"
+
+
+def test_libgguf_native_cache_manifest_rejects_stale_library_or_source(tmp_path):
+    library = tmp_path / "libgguf_cuda_native.a"
+    manifest_path = tmp_path / "libgguf_cuda_native_manifest.json"
+    library.write_bytes(b"first")
+    source_provenance = {
+        "schema_version": 1,
+        "source_kind": "vendored_submodule",
+        "git_revision": "abc123",
+    }
+    source_key = "source-key"
+    write_json(
+        manifest_path,
+        {
+            "source_provenance_key": source_key,
+            "source_provenance": source_provenance,
+            "library": library.name,
+            "library_sha256": cuda_backend.file_sha256(library),
+        },
+    )
+
+    assert cuda_backend._libgguf_native_cache_manifest_valid(
+        manifest_path,
+        library=library,
+        source_provenance=source_provenance,
+        source_key=source_key,
+    )
+
+    library.write_bytes(b"second")
+    assert not cuda_backend._libgguf_native_cache_manifest_valid(
+        manifest_path,
+        library=library,
+        source_provenance=source_provenance,
+        source_key=source_key,
+    )
+    library.write_bytes(b"first")
+    assert not cuda_backend._libgguf_native_cache_manifest_valid(
+        manifest_path,
+        library=library,
+        source_provenance={**source_provenance, "git_revision": "new"},
+        source_key=source_key,
+    )
 
 
 @pytest.mark.parametrize(

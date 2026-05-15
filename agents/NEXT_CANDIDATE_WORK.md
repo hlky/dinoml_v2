@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Admitted zero-layer CLIP text parity after verifying local
+  `/workspace/transformers` supports `num_hidden_layers=0` for
+  `CLIPTextModelWithProjection` and `CLIPModel`. `LegacyCLIPTextConfig` now
+  accepts non-negative text layer counts, zero-layer text wrapper tests cover
+  both supported EOS pooling branches with explicit/default traced
+  `position_ids`, and the two-tower suite includes a zero-text/zero-vision
+  `LegacyCLIPModel` parity case. No tokenizer/processor plumbing, positional
+  interpolation, FlashAttention, or provider claims were added.
 - Proved multi-layer CLIP text parity without changing source. Focused tests
   now exercise a deterministic two-layer `LegacyCLIPTextModelWithProjection`
   against local `/workspace/transformers` for both supported EOS pooling
@@ -51,7 +59,8 @@ This file should be updated after each major loop.
   with one concrete, test-backed gap at a time. Good next slices: close the
   smallest remaining gap that blocks a compiled artifact/runtime smoke for the
   admitted CLIPModel workflow, or pick a new narrow Transformers parity gap
-  that is not already covered by the text/vision depth proofs. Keep local
+  that is not already covered by the text/vision depth and zero-layer proofs.
+  Keep local
   `/workspace/transformers` parity as the acceptance bar and keep all
   non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test

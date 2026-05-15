@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Proved the already-emitted fp16 CUTLASS Conv FixedChannels `C=8` runtime
+  path end to end for the admitted static rank-4, `groups=1` public
+  `conv2d_bias` contract. The new CUDA-gated regression compiles a real artifact
+  for semantic `NCHW/OIHW` shape `x=[2,8,7,8]`, `weight=[8,8,3,2]`,
+  `bias=[8]`, asserts that manifest selection pins the
+  `fixed_channels_c8` candidate with no hidden channel padding, and checks
+  runtime output parity against Torch. This closes the earlier gap where `C=8`
+  was only artifact-visible in manifests/source manifests; the provider/runtime
+  story for the admitted fixed-channel families now has explicit parity proofs
+  for `C=4` and `C=8` alongside `C=3`, optimized `C>=16`, and float32 SIMT.
 - Landed the first fused Conv epilogue slice as a bounded extension of the
   existing `cutlass_conv` path: public `conv2d_bias_relu`. This loop did not
   broaden Conv semantics beyond the admitted static rank-4, `groups=1`,

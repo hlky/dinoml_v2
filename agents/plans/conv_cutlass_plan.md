@@ -424,22 +424,20 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   evaluator now filters Conv profile workload construction so incompatible
   small-channel and optimized candidates are not emitted for a node's
   shape/layout/dtype contract. CUDA runtime parity covers C=3 FewChannels,
-  C=4 FixedChannels, optimized C=16/O=16, the CLIP float32 patch-projection
-  SIMT path, and a non-CLIP float32 stride/padding/dilation SIMT path against
-  Torch/local Transformers; CUDA-gated profile smoke validates the real Conv
+  C=4 FixedChannels, C=8 FixedChannels, optimized C=16/O=16, the CLIP float32
+  patch-projection SIMT path, and a non-CLIP float32 stride/padding/dilation
+  SIMT path against Torch/local Transformers; CUDA-gated profile smoke validates the real Conv
   profiler exports through
   `profile_artifact`.
   No dynamic Conv profiling, guarded Conv dispatch,
-  grouped/depthwise/transposed/3D coverage, runtime-set packed weights, C=8
-  runtime parity, or public NHWC semantics are claimed.
+  grouped/depthwise/transposed/3D coverage, runtime-set packed weights, or
+  public NHWC semantics are claimed.
 
 ## Next Provider-Maturity Lane
 
 The next `cutlass_conv` slice should keep tightening maturity without
 broadening public ConvNd semantics:
 
-- add C=8 runtime parity if useful for the already-emitted FixedChannels
-  candidate;
 - decide whether dynamic spatial/profile buckets and guarded Conv dispatch need
   admission, or keep rejecting them explicitly;
 - keep profile/cache/execution-plan schemas stable as Conv gains more shapes or

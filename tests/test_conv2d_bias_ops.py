@@ -1174,7 +1174,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
             {
                 "kind": "launcher",
                 "symbol": candidate["kernel_symbol"],
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "launch_abi": candidate["launch_abi"],
                 "status": export_status,
                 "candidate_status": "bounded_runtime",
                 "success_return_code": 0,
@@ -1185,7 +1185,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
             {
                 "kind": "profiler",
                 "symbol": candidate["profiler_symbol"],
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "launch_abi": candidate["launch_abi"],
                 "status": export_status,
                 "profiler_status": "bounded_runtime_profiler",
                 "success_return_min_ms": 0.0,
@@ -1637,7 +1637,7 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
             {
                 "kind": "launcher",
                 "symbol": candidate["kernel_symbol"],
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "launch_abi": candidate["launch_abi"],
                 "status": "source_bounded_runtime",
                 "candidate_status": "bounded_runtime",
                 "success_return_code": 0,
@@ -1648,13 +1648,54 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
             {
                 "kind": "profiler",
                 "symbol": candidate["profiler_symbol"],
-                "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+                "launch_abi": candidate["launch_abi"],
                 "status": "source_bounded_runtime",
                 "profiler_status": "bounded_runtime_profiler",
                 "success_return_min_ms": 0.0,
             }
             for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
         ],
+    ]
+
+
+def test_cutlass_conv2d_bias_relu_support_scaffold_exports_relu_abi_without_nvcc(tmp_path, monkeypatch):
+    spec = _trace_conv2d_bias_relu("float16")
+    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    [required] = kernel_manifest["required_kernels"]
+    used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+
+    scaffold = ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
+
+    support_manifest = read_json(scaffold.manifest)
+    assert support_manifest["status"] == "source_bounded_runtime"
+    assert support_manifest["used_candidate_plan"]["entries"][0]["candidate_set"]["launch_abi"] == (
+        "dinoml_cutlass_conv2d_bias_relu_v1"
+    )
+    launcher_exports = [export for export in support_manifest["exports"] if export["kind"] == "launcher"]
+    profiler_exports = [export for export in support_manifest["exports"] if export["kind"] == "profiler"]
+    assert launcher_exports == [
+        {
+            "kind": "launcher",
+            "symbol": candidate["kernel_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_relu_v1",
+            "status": "source_bounded_runtime",
+            "candidate_status": "bounded_runtime",
+            "success_return_code": 0,
+        }
+        for candidate in required["candidates"]
+    ]
+    assert profiler_exports == [
+        {
+            "kind": "profiler",
+            "symbol": candidate["profiler_symbol"],
+            "launch_abi": "dinoml_cutlass_conv2d_bias_relu_v1",
+            "status": "source_bounded_runtime",
+            "profiler_status": "bounded_runtime_profiler",
+            "success_return_min_ms": 0.0,
+        }
+        for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
     ]
 
 

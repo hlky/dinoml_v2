@@ -540,7 +540,7 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status
         export = {
             "kind": "launcher",
             "symbol": symbol_name,
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "launch_abi": str(candidate["launch_abi"]),
             "status": status,
             "candidate_status": str(candidate.get("status", "")),
         }
@@ -565,7 +565,7 @@ def _cutlass_conv_stub_exports(used_candidate_plan: Mapping[str, Any], *, status
         export = {
             "kind": "profiler",
             "symbol": symbol_name,
-            "launch_abi": "dinoml_cutlass_conv2d_bias_v1",
+            "launch_abi": str(candidate["launch_abi"]),
             "status": status,
             "profiler_status": profiler_status,
         }

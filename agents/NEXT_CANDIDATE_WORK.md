@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the last explicit runtime-parity gap in the current bounded fused
+  Conv ReLU TensorOp family by proving `conv2d_bias_relu` on the admitted fp16
+  CUTLASS FixedChannels `C=4` candidate. The CUDA-gated regression compiles a
+  real artifact for semantic `NCHW/OIHW` shape
+  `x=[2,4,7,8], weight=[8,4,3,2], bias=[8]`, asserts the fused
+  `bias_relu` epilogue and `fixed_channels_c4` TensorOp candidate with no
+  hidden channel padding, and checks runtime output parity against Torch. The
+  bounded ReLU Conv path now has focused runtime proofs for float32 SIMT, fp16
+  FewChannels `C=3`, fp16 FixedChannels `C=4`/`C=8`, and fp16 optimized aligned
+  `C=16`; broader epilogues, bfloat16, broader float32 TensorOp, grouped/
+  depthwise/transposed/3D Conv, and dynamic dispatch remain out of scope.
 - Added an opt-in cached OpenAI CLIP base checkpoint compiled-CPU artifact
   parity smoke for the PM-refreshed `/workspace/.cache/huggingface`
   checkpoint. The new smoke is gated by
@@ -41,9 +52,8 @@ This file should be updated after each major loop.
   `few_channels_c3` and `optimized_align8` TensorOp candidates with no hidden
   channel padding, and check runtime output parity against Torch. The bounded
   fused ReLU path now has real CUDA runtime proofs on float32 SIMT, fp16
-  FewChannels `C=3`, fp16 FixedChannels `C=8`, and fp16 optimized aligned
-  `C=16`; the remaining admitted ReLU TensorOp runtime gap is the
-  FixedChannels `C=4` lane.
+  FewChannels `C=3`, fp16 FixedChannels `C=4`/`C=8`, and fp16 optimized aligned
+  `C=16`.
 - Added an opt-in cached-checkpoint admission smoke for the new Transformers
   CLIP adapter. The smoke is gated by
   `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1`, uses
@@ -76,9 +86,8 @@ This file should be updated after each major loop.
   closes the immediate anti-drift gap called out after the `conv2d_bias_relu`
   merge: ReLU now has at least one real fp16 TensorOp runtime proof in
   addition to the existing float32 SIMT smoke. Follow-on loops have since
-  proved the `C=3` few-channels and optimized `C>=16` lanes too, leaving only
-  the admitted FixedChannels `C=4` TensorOp path without explicit fused-ReLU
-  runtime coverage.
+  proved the `C=3` few-channels, FixedChannels `C=4`, and optimized `C>=16`
+  lanes too.
 - Proved the already-emitted fp16 CUTLASS Conv FixedChannels `C=8` runtime
   path end to end for the admitted static rank-4, `groups=1` public
   `conv2d_bias` contract. The new CUDA-gated regression compiles a real artifact
@@ -310,9 +319,8 @@ This file should be updated after each major loop.
   plumbing. Highest-value follow-ons are: one additional fused epilogue with
   clear v1 demand (`conv2d_bias_add` or `conv2d_bias_sigmoid`) only if it can
   satisfy the same manifest/profile/runtime visibility end to end; broader
-  runtime coverage for the current epilogues, especially the remaining
-  FixedChannels `C=4` fused-ReLU TensorOp lane plus any bfloat16/float32 gaps
-  beyond the admitted SIMT float32 path; or deeper
+  runtime coverage for the current epilogues, especially any bfloat16/float32
+  gaps beyond the admitted SIMT float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. Keep the exact coverage honest: today only `conv2d_bias`,
   explicit-zero `conv2d`, and fused `conv2d_bias_relu` are admitted on the

@@ -595,6 +595,59 @@ def test_cutlass_conv_static_execution_plan_updates_manifest_and_conv_plan():
     assert required["cutlass_conv_plan"]["selected_candidate"]["profiler_symbol"] == simt.profiler_symbol
 
 
+def test_apply_execution_plan_rejects_incompatible_cutlass_conv_candidate_in_strict_mode():
+    spec = dml.trace(
+        Conv2dBiasModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="conv2d_bias_incompatible_execution_plan",
+    )
+    manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    incompatible_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["candidate_id"] != required["selected_candidate_id"]
+        and candidate["selection_predicate"]["kind"] == "semantic_input_channels"
+        and candidate["selection_predicate"]["input_channels"] == 4
+    )
+    execution_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [
+            {
+                "selection_key": "incompatible-conv-static-selection",
+                "kernel_library": "cutlass_conv",
+                "op": "conv2d_bias",
+                "dtype": "float16",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": incompatible_candidate["candidate_id"],
+                "candidate_config_key": incompatible_candidate["candidate_config_key"],
+                "kernel_symbol": incompatible_candidate["kernel_symbol"],
+                "profiler_symbol": incompatible_candidate["profiler_symbol"],
+                "shape": {"n": 2, "c": 3, "h": 7, "w": 8, "out_n": 2, "out_c": 4, "out_h": 4, "out_w": 6},
+                "confidence": {"confident": True, "level": "high"},
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="incompatible with the manifest transform plan"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+
+    assert relaxed["required_kernels"][0]["selected_candidate_id"] == required["selected_candidate_id"]
+    assert relaxed["required_kernels"][0]["kernel_symbol"] == required["kernel_symbol"]
+    assert relaxed["required_kernels"][0]["profiler_symbol"] == required["profiler_symbol"]
+    assert "execution_plan_selection" not in relaxed["required_kernels"][0]
+    assert relaxed["required_kernels"][0]["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == required["selected_candidate_id"]
+
+
 def test_profile_artifact_writes_cutlass_conv_report_cache_and_execution_plan(tmp_path, monkeypatch):
     spec = dml.trace(
         Conv2dBiasModule(),
@@ -721,6 +774,8 @@ def test_compile_consumes_static_cutlass_conv_execution_plan_for_lowering(tmp_pa
     )
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    compile_config = read_json(artifact.path / "compile_config.json")
+    manifest = read_json(artifact.path / "manifest.json")
     required = kernel_manifest["required_kernels"][0]
 
     assert calls[0]["kernel_manifest"] == kernel_manifest
@@ -733,6 +788,45 @@ def test_compile_consumes_static_cutlass_conv_execution_plan_for_lowering(tmp_pa
     assert codegen_plan["wrapper_stages"][2]["symbol"] == selected_candidate["kernel_symbol"]
     assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
+    assert compile_config["execution_plan"]["execution_plan_key"] == execution_plan["execution_plan_key"]
+    assert manifest["execution_plan"] == compile_config["execution_plan"]
+    assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan
+
+
+def test_compile_rejects_stale_cutlass_conv_execution_plan(tmp_path, monkeypatch):
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: lambda **kwargs: None)
+    spec = dml.trace(
+        Conv2dBiasModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="compile_stale_conv_execution_plan",
+    )
+    target = dml.Target("cuda", arch="sm_86")
+    stale_plan = {
+        "schema_version": 1,
+        "kind": "dinoml.execution_plan",
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": "stale-kernel-manifest-key",
+        "static_selections": [
+            {
+                "op": "conv2d_bias",
+                "dtype": "float16",
+                "candidate_set_key": "unused",
+                "selected_candidate_id": "unused",
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="different kernel manifest"):
+        dml.compile(
+            spec,
+            target,
+            tmp_path / "compile_stale_conv_execution_plan.dinoml",
+            execution_plan=stale_plan,
+        )
 
 
 def test_cutlass_conv_profile_workloads_select_node_specific_manifest_item():

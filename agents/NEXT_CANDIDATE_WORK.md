@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened CUTLASS Conv execution-plan discipline to match the established
+  GEMM/BMM flow instead of treating Conv as a special happy-path case. Conv now
+  keeps the same visible profile-selection path end to end: candidate sets in
+  the manifest, profile workloads/report/cache, static execution-plan
+  selections, compile-time execution-plan summaries in artifact metadata, and
+  generated lowering/codegen visibly consuming the selected Conv kernel symbol.
+  The concrete gap closed in this loop was stale/incompatible plan handling:
+  strict execution-plan application still rejects an incompatible Conv
+  candidate, while relaxed application now skips that bad selection and keeps
+  the manifest default instead of partially mutating or hard-failing. Focused
+  regressions cover the relaxed-vs-strict Conv behavior, stale compile-time
+  plan rejection, and compile artifacts preserving the selected Conv execution
+  plan in `compile_config.json`, top-level `manifest.json`, and generated
+  `debug/execution_plan.json`.
 - Landed the bounded public no-bias `conv2d` bridge without pretending a new
   provider family exists. `dml.ops.conv2d(x, weight, ...)` now performs its own
   static NCHW/OIHW/groups=1 validation, computes the no-bias output shape in
@@ -200,11 +214,14 @@ This file should be updated after each major loop.
 - Conv next steps should prioritize GEMM-like provider maturity for the existing
   `conv2d_bias`/explicit-zero `conv2d` path: candidate sets, profile workloads,
   profile reports, execution-plan selections, and generated lowering visibly
-  consuming the selected Conv candidate. Stay in the bias/no-bias lane only when
-  the work deepens that core rather than polishing aliases; after the profiling
-  and execution-plan loop is boring, move to bounded fused epilogues or broader
-  TensorOp/runtime selection coverage. Keep grouped/depthwise/transposed/3D and
-  dynamic/guarded dispatch deferred until a separate admission slice.
+  consuming the selected Conv candidate. The stale/incompatible static-plan
+  rejection path is now covered; next work in this lane should stay bounded to
+  deeper profile-assisted Conv selection maturity rather than alias polish, such
+  as more node/shape-specific evidence around static-selection conflicts or the
+  next narrow runtime candidate gap. After the profiling and execution-plan loop
+  is boring, move to bounded fused epilogues or broader TensorOp/runtime
+  selection coverage. Keep grouped/depthwise/transposed/3D and dynamic/guarded
+  dispatch deferred until a separate admission slice.
 - Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
   as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
   as a blocker for CLIP artifact smoke work, but keep any naive CPU bridge small,

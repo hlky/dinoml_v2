@@ -435,6 +435,12 @@ def apply_execution_plan(
                 selection,
                 strict=strict,
             ):
+                if kernel_library == "cutlass_conv" and not _apply_cutlass_conv_static_selection(
+                    item,
+                    selected_candidate,
+                    strict=strict,
+                ):
+                    continue
                 applied_keys.add(key)
                 selected_id = str(selection.get("selected_candidate_id", ""))
                 item["selected_candidate_id"] = selected_id
@@ -446,8 +452,6 @@ def apply_execution_plan(
                     selection,
                     selected_candidate,
                 )
-                if kernel_library == "cutlass_conv":
-                    _apply_cutlass_conv_static_selection(item, selected_candidate)
         dispatch_group = guarded_selections.get(key, ())
         if dispatch_group and kernel_library == "cutlass_conv" and (key in conflict_keys or key not in selections):
             if strict:
@@ -747,16 +751,23 @@ def _execution_plan_selection_payload(
     }
 
 
-def _apply_cutlass_conv_static_selection(item: dict[str, Any], selected_candidate: Mapping[str, Any]) -> None:
+def _apply_cutlass_conv_static_selection(
+    item: dict[str, Any],
+    selected_candidate: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
     conv_plan = validate_cutlass_conv_scaffold_plan(
         item.get("cutlass_conv_plan"),
         node_id=str(item.get("node_id", "")) if item.get("node_id") is not None else None,
     )
     if not cutlass_conv_candidate_compatible_with_plan(selected_candidate, conv_plan):
-        raise ValueError(
-            "Execution plan selected CUTLASS Conv candidate "
-            f"{selected_candidate.get('candidate_id')!r} that is incompatible with the manifest transform plan"
-        )
+        if strict:
+            raise ValueError(
+                "Execution plan selected CUTLASS Conv candidate "
+                f"{selected_candidate.get('candidate_id')!r} that is incompatible with the manifest transform plan"
+            )
+        return False
     item["cutlass_conv_plan"] = {
         **conv_plan,
         "selected_candidate": {
@@ -770,6 +781,7 @@ def _apply_cutlass_conv_static_selection(item: dict[str, Any], selected_candidat
             "candidate_config_key": str(selected_candidate.get("candidate_config_key", "")),
         },
     }
+    return True
 
 
 def _execution_plan_static_selections(execution_plan: Mapping[str, Any]) -> dict[tuple[str, str, str], Mapping[str, Any]]:

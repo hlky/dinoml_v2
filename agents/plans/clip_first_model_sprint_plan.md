@@ -135,8 +135,9 @@ A bounded text-only wrapper path is now in-tree at `src/dinoml/models/clip.py`.
   LayerNorm, legacy `eos_token_id == 2` argmax pooling, and bias-free text
   projection.
 - The wrapper keeps the current honest limits explicit: explicit
-  `position_ids` input, static traced sequence length, text-only scope, and no
-  non-2 EOS first-match branch yet.
+  `position_ids` input, static traced sequence length bounded by
+  `max_position_embeddings`, text-only scope, and no non-2 EOS first-match
+  branch yet.
 - Focused wrapper-level tests compare the DinoML path against the pinned local
   Transformers CLIP source and keep manifest ownership honest by proving that no
   new public op or provider surface was introduced for this slice.

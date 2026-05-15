@@ -499,7 +499,9 @@ Stage 2: independent text encoder parity.
 - A narrow DinoML wrapper now covers the legacy text-only
   `get_text_features` path with explicit `position_ids`, causal + padding-mask
   behavior, final LayerNorm, legacy argmax pooling, and text projection through
-  existing DinoML ops only.
+  existing DinoML ops only. The wrapper now slices a precomputed causal-mask
+  constant so traced `seq_len` can be less than or equal to
+  `max_position_embeddings` without widening the public op surface.
 - Wrapper-level parity is now pinned against the local Transformers
   `CLIPModel.get_text_features(...)` implementation for a tiny one-layer config
   with weights flowing through the wrapper API.

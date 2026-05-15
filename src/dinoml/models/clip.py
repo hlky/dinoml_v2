@@ -175,7 +175,7 @@ class _LegacyCLIPTextEncoderLayer(dml.Module):
         )
 
     def _attention(self, hidden_states, attention_mask, causal_mask):
-        seq_len = _last_static_dim(hidden_states.shape)
+        seq_len = _hidden_sequence_length(hidden_states.shape)
         batch = _first_static_dim(hidden_states.shape)
         hidden = self.config.hidden_size
         num_heads = self.config.num_attention_heads
@@ -292,18 +292,33 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
             value=build_clip_causal_mask(config.max_position_embeddings, config.mask_fill_value),
         )
 
+    def _causal_mask_for_sequence(self, seq_len: int):
+        if seq_len <= 0:
+            raise ValueError("seq_len must be positive")
+        if seq_len > self.config.max_position_embeddings:
+            raise ValueError(
+                "traced seq_len must be less than or equal to max_position_embeddings"
+            )
+        return dml.ops.dynamic_slice(
+            self.causal_mask,
+            start_indices=(0, 0, 0),
+            slice_sizes=(1, seq_len, seq_len),
+        )
+
     def _pool_hidden_state(self, input_ids, hidden_states):
         indices = dml.ops.argmax(input_ids, dim=-1, keepdim=True)
         pooled = dml.ops.batch_gather(hidden_states, indices)
         return dml.ops.squeeze(pooled, 1)
 
     def encode_text(self, input_ids, attention_mask, position_ids):
+        seq_len = _sequence_length(input_ids.shape)
         token_embeddings = dml.ops.embedding(self.token_embedding_weight, input_ids)
         position_embeddings = dml.ops.embedding(self.position_embedding_weight, position_ids)
         hidden_states = dml.ops.add(token_embeddings, position_embeddings)
+        causal_mask = self._causal_mask_for_sequence(seq_len)
 
         for layer in self.layers:
-            hidden_states = layer(hidden_states, attention_mask, self.causal_mask)
+            hidden_states = layer(hidden_states, attention_mask, causal_mask)
 
         last_hidden_state = dml.ops.layer_norm(
             hidden_states,
@@ -337,9 +352,18 @@ def _first_static_dim(shape: list[int]) -> int:
     return batch
 
 
-def _last_static_dim(shape: list[int]) -> int:
+def _sequence_length(shape: list[int]) -> int:
     if not shape:
         raise ValueError("expected rank >= 1 tensor")
+    dim = int(shape[-1])
+    if dim <= 0:
+        raise ValueError("expected positive static sequence dimension")
+    return dim
+
+
+def _hidden_sequence_length(shape: list[int]) -> int:
+    if len(shape) < 2:
+        raise ValueError("expected rank >= 2 tensor")
     dim = int(shape[-2])
     if dim <= 0:
         raise ValueError("expected positive static sequence dimension")

@@ -1,9 +1,13 @@
+import os
+import shutil
+
 import numpy as np
 import pytest
 
 import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPTextConfig, LegacyCLIPTextModelWithProjection
 from dinoml.passes import PassManager, validate_ir
 
@@ -16,12 +20,13 @@ NUM_HEADS = 2
 INTERMEDIATE = 8
 PROJECTION = 5
 EPS = 1.0e-5
+MAX_POSITION_EMBEDDINGS = 6
 
 
 def _config():
     return LegacyCLIPTextConfig(
         vocab_size=VOCAB_SIZE,
-        max_position_embeddings=SEQ_LEN,
+        max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_size=HIDDEN,
         intermediate_size=INTERMEDIATE,
         num_attention_heads=NUM_HEADS,
@@ -118,7 +123,7 @@ def _reference_outputs():
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
         num_hidden_layers=1,
-        max_position_embeddings=SEQ_LEN,
+        max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_act="quick_gelu",
         attention_dropout=0.0,
         layer_norm_eps=EPS,
@@ -164,6 +169,7 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers():
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops.count("embedding") == 2
+    assert node_ops.count("dynamic_slice") == 1
     assert node_ops.count("layer_norm") == 3
     assert node_ops.count("gemm_rcr_bias") == 5
     assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
@@ -172,6 +178,8 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers():
     assert node_ops.count("bmm_rrr") == 1
     assert node_ops.count("argmax") == 1
     assert node_ops.count("batch_gather") == 1
+    dynamic_slice_node = next(node for node in spec.ir["nodes"] if node["op"] == "dynamic_slice")
+    assert dynamic_slice_node["attrs"] == {"start_indices": [0, 0, 0], "slice_sizes": [1, SEQ_LEN, SEQ_LEN]}
     assert spec.ir["outputs"][0]["name"] == "text_features"
     assert spec.ir["outputs"][0]["shape"] == [BATCH, PROJECTION]
 
@@ -199,6 +207,8 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     spec = _trace()
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    cuda_sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
 
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     required = manifest["required_kernels"]
@@ -225,3 +235,48 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     assert any(entry["op"] == "gemm_rcr_bias_fast_gelu" for entry in provider_entries)
     assert model_entries
     assert all(entry["kernel_library"] == "model" for entry in model_entries)
+    assert len(cuda_sources["kernels"]) >= 7
+    assert any("static int dynamic_slice_" in source for source in cuda_sources["kernels"])
+    assert any("static int embedding_" in source for source in cuda_sources["kernels"])
+    assert any("static int layer_norm_" in source for source in cuda_sources["kernels"])
+    assert any("static int softmax_" in source for source in cuda_sources["kernels"])
+    assert any("static int argmax_" in source for source in cuda_sources["kernels"])
+    assert any("static int batch_gather_" in source for source in cuda_sources["kernels"])
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER") != "1",
+    reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER=1 to run the expensive CUDA wrapper runtime smoke",
+)
+def test_clip_text_wrapper_generated_cuda_runtime_matches_local_transformers(tmp_path, monkeypatch):
+    from dinoml import runtime
+
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace()
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86", no_tf32=True),
+        tmp_path / "clip_text_wrapper_cuda.dinoml",
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "attention_mask": _attention_mask(),
+                "position_ids": _position_ids(),
+            }
+        )["text_features"]
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs()
+    np.testing.assert_allclose(actual, expected, atol=5e-4, rtol=2e-3)

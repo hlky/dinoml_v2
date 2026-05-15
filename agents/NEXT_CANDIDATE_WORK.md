@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Proved multi-layer CLIP text parity without changing source. Focused tests
+  now exercise a deterministic two-layer `LegacyCLIPTextModelWithProjection`
+  against local `/workspace/transformers` for both supported EOS pooling
+  branches and for both explicit and default traced `position_ids`. The tiny
+  two-tower `LegacyCLIPModel` parity test now uses two text layers plus the
+  already-admitted two-layer vision path, comparing helper features,
+  normalized embeds, and logits against local Transformers while keeping
+  tokenizer/processor plumbing, positional interpolation, FlashAttention, and
+  new provider claims out of scope.
 - Admitted stacked CLIP vision encoder blocks for the bounded vision wrapper.
   `LegacyCLIPVisionConfig` now accepts non-negative `num_hidden_layers`, and
   the wrapper reuses the existing dense noncausal attention + quick-gelu MLP
@@ -39,12 +48,12 @@ This file should be updated after each major loop.
 ## Next Recommended Lane
 
 - Keep converting the bounded CLIPModel surface toward local Transformers parity
-  with one concrete, test-backed gap at a time. Good next slices: prove the
-  text tower and top-level `LegacyCLIPModel` with more than one text encoder
-  layer if the existing composition supports it cleanly, or close the smallest
-  remaining gap that blocks a compiled artifact/runtime smoke for the admitted
-  CLIPModel workflow. Keep local `/workspace/transformers` parity as the
-  acceptance bar and keep all non-parity limits explicit.
+  with one concrete, test-backed gap at a time. Good next slices: close the
+  smallest remaining gap that blocks a compiled artifact/runtime smoke for the
+  admitted CLIPModel workflow, or pick a new narrow Transformers parity gap
+  that is not already covered by the text/vision depth proofs. Keep local
+  `/workspace/transformers` parity as the acceptance bar and keep all
+  non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

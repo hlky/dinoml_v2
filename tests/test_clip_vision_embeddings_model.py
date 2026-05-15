@@ -1,7 +1,10 @@
+import shutil
+
 import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -226,3 +229,41 @@ def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_h
     assert any("expand_" in source for source in cuda_sources["kernels"])
     assert any("concatenate_" in source for source in cuda_sources["kernels"])
     assert any("dinoml::math::add" in source for source in cuda_sources["kernels"])
+
+
+def test_clip_vision_patch_projection_exact_float32_cuda_boundary_stays_scaffold_only(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace_patch_projection()
+
+    manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
+    [required] = manifest["required_kernels"]
+
+    assert required["op"] == "conv2d_bias"
+    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
+    assert required["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert required["cutlass_conv_plan"]["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert required["cutlass_conv_plan"]["input_shape"] == [BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE]
+    assert required["cutlass_conv_plan"]["weight_shape"] == [HIDDEN, NUM_CHANNELS, PATCH_SIZE, PATCH_SIZE]
+    assert required["cutlass_conv_plan"]["output_shape"] == [BATCH, HIDDEN, IMAGE_SIZE // PATCH_SIZE, IMAGE_SIZE // PATCH_SIZE]
+    assert required["cutlass_conv_plan"]["conv_config"] == {
+        "stride": [PATCH_SIZE, PATCH_SIZE],
+        "padding": [0, 0],
+        "dilation": [1, 1],
+        "groups": 1,
+    }
+
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        return
+
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "clip_vision_patch_projection_cuda.dinoml")
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        with pytest.raises(RuntimeError, match="provider launcher is unsupported by the current scaffold"):
+            session.run_numpy({"pixel_values": _pixel_values()})
+    finally:
+        session.close()
+        module.close()

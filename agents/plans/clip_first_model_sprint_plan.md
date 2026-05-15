@@ -176,6 +176,15 @@ A bounded CLIP vision-embeddings path is now in-tree at `src/dinoml/models/clip.
   boundary. CUDA manifest checks keep ownership visible: the Conv node stays on
   the existing CUTLASS Conv scaffold plan while sequence assembly and position
   add remain model-generated kernels.
+- For the exact CLIP patch-projection shape already used by
+  `LegacyCLIPVisionEmbeddings` (`float32` NCHW input `[B,3,4,4]`,
+  OIHW weights `[6,3,2,2]`, stride 2, padding 0, groups 1), CUDA planning still
+  selects the float32 SIMT CUTLASS Conv scaffold with
+  `blocked_reason: cutlass_conv_runtime_launcher_not_implemented`. The artifact
+  can remain provider-visible, but runtime execution still fails through the
+  generated scaffold boundary until a real float32 launcher is added or the
+  admitted CLIP path is intentionally retargeted to a separately validated fp16
+  runtime slice.
 - Focused wrapper-level tests compare both the full embeddings output and the
   zero-bias patch-projection substep against the pinned local Transformers CLIP
   implementation.

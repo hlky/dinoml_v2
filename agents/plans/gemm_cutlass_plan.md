@@ -135,9 +135,10 @@ column-major-logical `B[B, N, K]` for `bmm_rcr`, row-major-logical
 `B[B, K, N]` for `bmm_rrr`, row-major `C[B, M, N]`, and v1-style batch
 broadcast through zero batch strides. This now covers the CLIP attention
 context matmul as a compiled CPU artifact. With the matching
-`gemm_rcr_bias_fast_gelu` CPU bridge, deeper CLIP text CPU artifacts now run,
-and the remaining full two-tower CPU boundary moves honestly to
-`conv2d_bias`. The base `bmm_*` ops now
+`gemm_rcr_bias_fast_gelu` CPU bridge, deeper CLIP text CPU artifacts now run.
+With the matching bounded naive `conv2d_bias` CPU bridge for static groups=1
+NCHW/OIHW `float32`/`float16`, bounded CLIP vision and full two-tower CPU
+artifacts now also run against local Transformers. The base `bmm_*` ops now
 register a separate `cutlass_bmm`
 external library with a real batched GEMM ABI carrying batch count,
 per-operand batch strides, leading dimensions, C-layout-aware output handling,

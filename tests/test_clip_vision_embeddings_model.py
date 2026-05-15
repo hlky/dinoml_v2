@@ -186,11 +186,24 @@ def test_clip_vision_patch_projection_zero_bias_matches_transformers_bias_free_c
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
 
 
-def test_clip_vision_embeddings_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+def test_clip_vision_embeddings_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_embeddings_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_embeddings_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"pixel_values": _pixel_values()})["embeddings"]
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_embeddings()
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_honest():

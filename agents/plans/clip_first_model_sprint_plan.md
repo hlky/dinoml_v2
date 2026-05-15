@@ -171,11 +171,12 @@ A bounded CLIP vision-embeddings path is now in-tree at `src/dinoml/models/clip.
 - The wrapper keeps the current honest limits explicit: no position
   interpolation, no arbitrary image sizes, no vision encoder/projection head,
   no grouped/depthwise/transposed/3D Conv claims, and no new provider surface.
-  CPU reference execution proves parity for the admitted slice, while compiled
-  CPU artifacts still stop honestly at the existing `conv2d_bias` backend
-  boundary. CUDA manifest checks keep ownership visible: the Conv node stays on
-  the existing CUTLASS Conv scaffold plan while sequence assembly and position
-  add remain model-generated kernels.
+  CPU reference execution proves parity for the admitted slice, and compiled
+  CPU artifacts now also run through a bounded generated naive `conv2d_bias`
+  bridge for the admitted static groups=1 float32 path. CUDA manifest checks
+  keep ownership visible: the Conv node stays on the existing CUTLASS Conv
+  scaffold plan while sequence assembly and position add remain model-generated
+  kernels.
 - For the exact CLIP patch-projection shape already used by
   `LegacyCLIPVisionEmbeddings` (`float32` NCHW input `[B,3,4,4]`,
   OIHW weights `[6,3,2,2]`, stride 2, padding 0, groups 1), CUDA planning still

@@ -362,9 +362,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   and run naive loops for `float32`, `float16`, and `bfloat16`. This is enough
   for the compiled CLIP attention context matmul path. The same bounded CPU
   bridge pattern now also covers `gemm_rcr_bias_fast_gelu` with the existing
-  `fast_gelu(x) = x * sigmoid(1.702 * x)` semantics, so deeper CLIP text CPU
-  artifacts can run and the remaining full two-tower CPU boundary now stops
-  honestly at `conv2d_bias`. Other compiled CPU BMM layouts remain
+  `fast_gelu(x) = x * sigmoid(1.702 * x)` semantics, and `conv2d_bias` with a
+  static-shape groups=1 naive NCHW/OIHW loop for `float32` and `float16`, so
+  bounded CLIP vision and full two-tower CPU artifacts can now compile and run
+  against local Transformers. Other compiled CPU BMM layouts remain
   intentionally unsupported.
 - [x] First BMM add epilogue:
   `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}_add` now registers CUTLASS candidate
@@ -596,7 +597,12 @@ behavior.
   parity compares the selected C=3 few-channel, C=4 fixed-channel, and
   optimized C=16/O=16 public NCHW/OIHW results against Torch, and
   manifest/source tests prove C=8 is artifact-visible while unaligned shapes
-  stay on the SIMT fallback. CPU compile still rejects. The static profile
+  stay on the SIMT fallback. Compiled CPU artifacts now also have a bounded
+  generated naive `conv2d_bias` path for the admitted public contract: static
+  rank-4 NCHW activations, OIHW weights, rank-1 bias, groups=1, and
+  `float32`/`float16` only. That bridge is intentionally a temporary CLIP
+  artifact unblocker rather than a library-backed CPU provider path. The static
+  profile
   workload path records the same artifact-visible layout translation, weight
   transform, Conv config, candidate/config, and support provenance; real
   support-library profiler exports now time compatible runtime candidates on

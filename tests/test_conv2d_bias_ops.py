@@ -227,6 +227,50 @@ def test_cpu_reference_conv2d_bias_matches_torch(dtype, atol, rtol):
     np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
 
 
+@pytest.mark.parametrize("dtype,atol,rtol", [("float32", 1e-6, 1e-6), ("float16", 1e-3, 1e-3)])
+def test_cpu_artifact_runs_generated_naive_conv2d_bias(dtype, atol, rtol, tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace_conv2d_bias(
+        dtype,
+        x_shape=(2, 3, 6, 7),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        stride=(1, 2),
+        padding=(1, 1),
+        dilation=(2, 1),
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"conv2d_bias_{dtype}_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+
+    x = _input((2, 3, 6, 7), dtype, -1.5, 2.5)
+    weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
+    bias = _input((4,), dtype, -0.5, 0.5)
+    expected = _storage_roundtrip(
+        _torch_conv2d_bias_reference(
+            x,
+            weight,
+            bias,
+            stride=(1, 2),
+            padding=(1, 1),
+            dilation=(2, 1),
+        ),
+        dtype,
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+    finally:
+        session.close()
+        module.close()
+
+    assert actual.shape == expected.shape
+    np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
+
+
 def test_conv2d_bias_frontend_rejects_dynamic_shapes_bad_ranks_dtype_and_groups():
     class DynamicConv(dml.Module):
         def forward(self, x, weight, bias):
@@ -512,7 +556,7 @@ def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_p
         "// op: conv2d_bias\n"
         "// node_id: conv_node_0\n"
         "#if 0\n"
-        "extern \"C\" int dinoml_cutlass_conv_wrapper_scaffold_conv_node_0(cudaStream_t stream) {\n"
+        "extern \"C\" int dinoml_cutlass_conv_wrapper_scaffold_conv_node__0(cudaStream_t stream) {\n"
         "  DINO_CUDA_CHECK(dinoml_cutlass_conv_input_pack_nchw_to_nhwc_float16_v1("
         "ptr_activation, tmp_activation_nhwc, activation_n, activation_c, activation_h, activation_w, stream));\n"
         "  DINO_CUDA_CHECK(dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_float16_v1("
@@ -812,11 +856,12 @@ def test_cutlass_conv_support_scaffold_rejects_mutated_used_plan_candidate_befor
     assert not (support_root / "src" / "source_manifest.json").exists()
 
 
-def test_conv2d_bias_cpu_compile_rejects_unlowered_reference_only_surface(tmp_path):
+def test_conv2d_bias_cpu_compile_builds_generated_bridge(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_conv2d_bias("float32")
-
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "conv2d_bias_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "conv2d_bias_cpu.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
 
 
 def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_boundary(tmp_path, monkeypatch):

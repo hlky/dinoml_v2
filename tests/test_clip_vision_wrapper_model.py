@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -192,11 +193,29 @@ def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
     np.testing.assert_allclose(actual["image_features"], expected["image_features"], atol=1e-5, rtol=1e-5)
 
 
-def test_clip_vision_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+def test_clip_vision_wrapper_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(1)
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_model_with_projection_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_model_with_projection_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int bmm_rcr_" in generated
+    assert "static int bmm_rrr_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"pixel_values": _pixel_values()})
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs(1)
+    np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["pooler_output"], expected["pooler_output"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_features"], expected["image_features"], atol=1e-5, rtol=1e-5)
 
 
 def test_clip_vision_wrapper_manifest_keeps_provider_and_model_kernels_honest():

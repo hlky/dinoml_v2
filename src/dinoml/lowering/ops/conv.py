@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any, Mapping
 
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
+from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
+from dinoml.ops.conv import CONV2D_BIAS_DTYPES, normalize_conv2d_bias_attrs, resolve_conv2d_bias_shape
 
 
-def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _render_cpu_template("conv_cpu.cpp.j2", _cpu_context(node, tensor_map))
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported Conv lowering target: {target}")
 
 
 def render_launch(
@@ -18,9 +27,20 @@ def render_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
-    if target != "cuda":
-        raise ValueError(f"{node['op']} lowering is currently CUDA-only")
     op_name = str(node["op"])
+    if target == "cpu":
+        func = _cpu_function_name(node, tensor_map)
+        x_ident = _c_ident(str(node["inputs"][0]))
+        weight_ident = _c_ident(str(node["inputs"][1]))
+        bias_ident = _c_ident(str(node["inputs"][2]))
+        out_ident = _c_ident(str(node["outputs"][0]))
+        return (
+            "if (int err = "
+            f"{func}(ptr_{x_ident}, runtime_numel_{x_ident}, ptr_{weight_ident}, runtime_numel_{weight_ident}, "
+            f"ptr_{bias_ident}, runtime_numel_{bias_ident}, ptr_{out_ident}, runtime_numel_{out_ident})) return err;"
+        )
+    if target != "cuda":
+        raise ValueError(f"Unsupported Conv lowering target: {target}")
     if op_name != "conv2d_bias":
         raise NotImplementedError(f"{op_name} CUDA Conv lowering is not implemented")
     item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")))
@@ -57,14 +77,131 @@ def render_launch(
     return "\n".join(lines)
 
 
-def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return f"{target}:{generated_function_name(target, node, tensor_map)}"
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported Conv lowering target: {target}")
 
 
-def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _cpu_function_name(node, tensor_map)
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported Conv lowering target: {target}")
+
+
+def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    x_name, weight_name, bias_name = (str(name) for name in node["inputs"])
+    out_name = str(node["outputs"][0])
+    x = tensor_map[x_name]
+    weight = tensor_map[weight_name]
+    bias = tensor_map[bias_name]
+    output = tensor_map[out_name]
+    attrs = _validate_cpu_contract(node, x, weight, bias, output)
+    batch, in_channels, in_height, in_width = [int(dim) for dim in x["shape"]]
+    out_channels, _weight_in_channels, kernel_h, kernel_w = [int(dim) for dim in weight["shape"]]
+    out_batch, out_channels_out, out_height, out_width = [int(dim) for dim in output["shape"]]
+    return {
+        "func": _cpu_function_name(node, tensor_map),
+        "storage_type": cpu_storage_type(str(output["dtype"])),
+        "input_numel": batch * in_channels * in_height * in_width,
+        "weight_numel": out_channels * in_channels * kernel_h * kernel_w,
+        "bias_numel": out_channels,
+        "output_numel": out_batch * out_channels_out * out_height * out_width,
+        "batch": batch,
+        "in_channels": in_channels,
+        "in_height": in_height,
+        "in_width": in_width,
+        "out_channels": out_channels,
+        "kernel_h": kernel_h,
+        "kernel_w": kernel_w,
+        "out_height": out_height,
+        "out_width": out_width,
+        "stride_h": attrs["stride"][0],
+        "stride_w": attrs["stride"][1],
+        "pad_h": attrs["padding"][0],
+        "pad_w": attrs["padding"][1],
+        "dilation_h": attrs["dilation"][0],
+        "dilation_w": attrs["dilation"][1],
+    }
+
+
+def _cpu_function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    x_name, weight_name, bias_name = (str(name) for name in node["inputs"])
+    out_name = str(node["outputs"][0])
+    x = tensor_map[x_name]
+    weight = tensor_map[weight_name]
+    bias = tensor_map[bias_name]
+    output = tensor_map[out_name]
+    attrs = _validate_cpu_contract(node, x, weight, bias, output)
+    signature = {
+        "op": str(node["op"]),
+        "input_shape": [int(dim) for dim in x["shape"]],
+        "weight_shape": [int(dim) for dim in weight["shape"]],
+        "bias_shape": [int(dim) for dim in bias["shape"]],
+        "output_shape": [int(dim) for dim in output["shape"]],
+        "stride": attrs["stride"],
+        "padding": attrs["padding"],
+        "dilation": attrs["dilation"],
+        "groups": attrs["groups"],
+        "dtype": str(output["dtype"]),
+    }
+    digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return f"conv2d_bias_{digest}"
+
+
+def _validate_cpu_contract(
+    node: Mapping[str, Any],
+    x: Mapping[str, Any],
+    weight: Mapping[str, Any],
+    bias: Mapping[str, Any],
+    output: Mapping[str, Any],
+) -> dict[str, Any]:
+    if str(node["op"]) != "conv2d_bias":
+        raise ValueError(f"Unsupported Conv op for CPU lowering: {node['op']}")
+    dtype = str(output["dtype"])
+    if dtype not in CONV2D_BIAS_DTYPES:
+        raise NotImplementedError(f"conv2d_bias CPU lowering does not support dtype {dtype!r}")
+    if str(x["dtype"]) != dtype or str(weight["dtype"]) != dtype or str(bias["dtype"]) != dtype:
+        raise ValueError("conv2d_bias CPU lowering requires matching activation, weight, bias, and output dtypes")
+    attrs = node.get("attrs", {})
+    stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
+        attrs.get("stride", (1, 1)),
+        attrs.get("padding", (0, 0)),
+        attrs.get("dilation", (1, 1)),
+        attrs.get("groups", 1),
+    )
+    expected_shape = resolve_conv2d_bias_shape(
+        x["shape"],
+        weight["shape"],
+        bias["shape"],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+    if [int(dim) for dim in output["shape"]] != expected_shape:
+        raise ValueError("conv2d_bias CPU lowering output shape does not match attrs")
+    return {
+        "stride": stride,
+        "padding": padding,
+        "dilation": dilation,
+        "groups": groups,
+    }
+
+
+def _render_cpu_template(name: str, context: Mapping[str, Any]) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
+    return env.get_template(name).render(**context)
 
 
 def render_scaffold_wrapper_stage(stage: Mapping[str, Any]) -> str:

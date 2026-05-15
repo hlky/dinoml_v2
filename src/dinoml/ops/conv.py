@@ -188,11 +188,13 @@ def register_conv_ops(registry: OpRegistry) -> None:
             description=(
                 "Bounded conv2d_bias frontend with public NCHW/OIHW semantics, "
                 "groups=1 only, static rank-4 shapes, and CPU reference execution. "
-                "CUDA compile emits artifact-visible CUTLASS Conv pack/launch/unpack "
-                "metadata, materializes the support boundary when possible, and runs "
-                "a correctness-first float16 groups=1 static-shape CUTLASS SIMT "
-                "launcher while profiler/execution-plan and TensorOp maturity remain "
-                "future work."
+                "Compiled CPU artifacts now also have a bounded generated naive "
+                "runtime for the admitted float16/float32 contract. CUDA compile "
+                "emits artifact-visible CUTLASS Conv pack/launch/unpack metadata, "
+                "materializes the support boundary when possible, and runs a "
+                "correctness-first float16 groups=1 static-shape CUTLASS SIMT "
+                "launcher while profiler/execution-plan and TensorOp maturity "
+                "remain future work."
             ),
         )
     )
@@ -200,6 +202,11 @@ def register_conv_ops(registry: OpRegistry) -> None:
 
 def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
     return {
+        "cpu": KernelBinding(
+            symbol="generated_conv2d_bias",
+            library="model",
+            source_template="conv_cpu.cpp.j2",
+        ),
         "cuda": KernelBinding(
             cutlass_conv_symbol(op_name, "float32"),
             "cutlass_conv",

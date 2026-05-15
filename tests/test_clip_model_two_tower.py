@@ -12,6 +12,7 @@ if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
@@ -413,7 +414,7 @@ def test_clip_model_zero_layer_text_tower_matches_local_transformers():
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
 
-def test_clip_model_two_tower_zero_text_zero_vision_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+def test_clip_model_two_tower_zero_text_zero_vision_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = dml.trace(
         LegacyCLIPModel(_text_config(num_hidden_layers=0), _vision_config(num_hidden_layers=0), WEIGHTS),
@@ -424,15 +425,62 @@ def test_clip_model_two_tower_zero_text_zero_vision_cpu_compile_boundary_stays_h
         },
         name="clip_model_two_tower_zero_text_zero_vision",
     )
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_zero_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_zero_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "pixel_values": _pixel_values(),
+                "attention_mask": _attention_mask(),
+            }
+        )
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs(text_num_hidden_layers=0, vision_num_hidden_layers=0)
+    np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
 
-def test_clip_model_two_tower_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_model()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int bmm_rcr_" in generated
+    assert "static int bmm_rrr_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "pixel_values": _pixel_values(),
+                "attention_mask": _attention_mask(),
+            }
+        )
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs()
+    np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
 
 def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():

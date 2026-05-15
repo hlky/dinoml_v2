@@ -4,6 +4,33 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added a visible CLIP text workflow proof without adding new CLIP behavior,
+  ops, providers, tokenizer/processor plumbing, FlashAttention, or expensive
+  CUDA runtime requirements. `examples/clip_text_workflow.py` traces the
+  current `LegacyCLIPTextModelWithProjection`, runs the CPU reference path, and
+  prints JSON summarizing the node counts, EOS pooling branch, generated CUDA
+  kernel coverage, and provider/model split. Focused tests prove both
+  `eos_token_id == 2` and non-2 EOS branches, assert CUTLASS ownership for
+  GEMM/BMM pieces, assert model-generated ownership for embedding/LayerNorm/
+  softmax/pooling-side kernels, and smoke the runnable example script. Remaining
+  limits: text-only proof, no compiled CPU wrapper support, explicit
+  `position_ids`, static traced sequence length, no vision tower, and no full
+  contrastive artifact workflow yet.
+
+## Next Recommended Lane
+
+- Continue the CLIP first-model sprint with a bounded behavior-backed slice:
+  either reduce the explicit `position_ids` requirement for the text wrapper or
+  begin the vision patch path. Prefer the text cleanup if it unlocks a simpler
+  end-to-end example without new provider surface; prefer vision patch only if
+  the slice stays semantic NCHW and artifact-visible around Conv/provider
+  choices.
+- Keep libgguf follow-up limited to concrete direct-link failures or validation
+  gaps: add a CUDA builder smoke using the initialized submodule only if the
+  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
+  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
+  families, epilogue coverage, or public provider surface as part of this
+  lane.
 - Landed the bounded CLIP non-2 EOS pooling branch without adding a new pooling
   op, vision tower, tokenizer/processor plumbing, or FlashAttention/provider
   surface. `LegacyCLIPTextModelWithProjection` now matches both Transformers
@@ -19,19 +46,6 @@ This file should be updated after each major loop.
   limits: text-only wrapper, explicit `position_ids`, static traced sequence
   length, tokenizer-prepared EOS presence assumption, no vision tower, and no
   full contrastive wrapper artifact workflow yet.
-
-## Next Recommended Lane
-
-- Add a small, visible CLIP text workflow proof in a separate bounded branch:
-  prefer an example or focused artifact-inspection test that compiles or traces
-  the current text-feature wrapper, inspects the provider/model split in
-  artifact-visible state, and makes the first-model sprint discoverable without
-  reading internal plans. Keep it behavior-backed; do not spend a loop on
-  README wording alone.
-- CLIP model follow-up after the visible workflow proof: reduce the explicit
-  `position_ids` requirement or begin the vision patch path only if the slice
-  remains narrow and test-backed. Vision patch work remains the next larger
-  CLIP model step now that text pooling/config handling is honest.
 - Replaced the GGUF CUDA runtime-dequant native boundary with a reproducible
   direct-link default: the repo now vendors `third_party/libgguf` as a pinned
   submodule from `https://github.com/hlky/libgguf`, CUDA module builds compile
@@ -48,12 +62,6 @@ This file should be updated after each major loop.
   regressions cover the direct-link default, forced fallback compatibility, and
   stale-cache/static-archive guardrails without widening GGUF policy, epilogue
   coverage, or public provider admission.
-- Keep libgguf follow-up limited to concrete direct-link failures or validation
-  gaps: add a CUDA builder smoke using the initialized submodule only if the
-  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
-  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
-  families, epilogue coverage, or public op/provider surface as part of this
-  lane.
 - Use worktrees for independent branches if running parallel agents. Keep
   feature write sets disjoint, keep shared queue/tracking doc reconciliation on
   the main line when possible, and require PM review plus validation before

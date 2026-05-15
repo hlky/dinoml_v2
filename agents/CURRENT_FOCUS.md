@@ -40,10 +40,8 @@
 
 ## Preferred Next Work
 
-- On 2026-05-15, the bounded CLIP text-feature wrapper exists and covers both
-  source EOS pooling branches. Preferred next slice: make that model path more
-  visible with a small example or artifact-inspection test that proves the
-  text-wrapper workflow and provider/model split without relying on the
-  expensive CUDA smoke. After that, continue with either reducing the explicit
-  `position_ids` requirement or beginning the vision patch path, keeping each
-  slice narrow and parity-backed.
+- On 2026-05-15, the bounded CLIP text-feature wrapper exists, covers both
+  source EOS pooling branches, and has a visible text workflow proof. Preferred
+  next slice: either reduce the explicit `position_ids` requirement for the text
+  wrapper or begin the vision patch path, keeping each slice narrow,
+  parity-backed, and artifact-visible around provider/model ownership.

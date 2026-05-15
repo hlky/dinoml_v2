@@ -4,6 +4,34 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first bounded CLIP vision-side parity slice: fixed-size
+  `LegacyCLIPVisionEmbeddings` now matches local Transformers
+  `CLIPVisionEmbeddings` for semantic NCHW pixel input, bias-free patch
+  projection modeled as `conv2d_bias(..., zero_bias)`, spatial flatten +
+  sequence transpose, CLS prepend, and learned absolute position add. Focused
+  tests compare full embeddings and the zero-bias patch-projection substep
+  against local Transformers, keep CPU compile failure honest at the existing
+  `conv2d_bias` backend boundary, and verify CUDA manifest/generated-source
+  ownership without broadening Conv provider maturity. Remaining limits: fixed
+  square image size only, no positional interpolation, no vision encoder or
+  projection head, no full `CLIPVisionModel`, no widened Conv claims, and no
+  compiled CPU artifact support for the Conv-backed wrapper path.
+
+## Next Recommended Lane
+
+- Continue CLIP vision parity with a bounded next slice. Good candidates:
+  compose a tiny vision encoder layer on top of the landed embeddings if it can
+  reuse existing dense attention/MLP primitives, or add the vision CLS
+  pool/post-LayerNorm/projection path only if the reference parity test stays
+  small. Keep the acceptance bar pinned/local Transformers behavior for the
+  admitted surface.
+- CUTLASS Conv/provider follow-up is legitimate only when it removes a concrete
+  blocker for CLIP vision runtime artifacts; otherwise do not broaden Conv
+  provider claims while model parity can advance through trace/CPU-reference
+  and artifact-visible manifest tests.
+- Keep libgguf follow-up limited to concrete direct-link failures or validation
+  gaps; do not broaden GGUF offload policy, quantized GEMM families, epilogue
+  coverage, or public provider surface as part of that lane.
 - Landed the bounded CLIP text-wrapper default-position slice. Callers may now
   omit `position_ids`; the wrapper falls back to a traced static int64
   `[0, 1, ..., S-1]` position sequence for the current static sequence length,
@@ -14,24 +42,6 @@ This file should be updated after each major loop.
   traced sequence length, no tokenizer/processor plumbing, no vision tower, and
   default positions are traced constants rather than runtime-generated dynamic
   indices.
-
-## Next Recommended Lane
-
-- Continue the CLIP first-model sprint with a bounded behavior-backed vision
-  patch or contrastive-artifact slice. Prefer the vision patch path only if it
-  stays semantic NCHW and artifact-visible around Conv/provider choices; defer
-  grouped/depthwise/transposed/3D and unsupported Conv claims. A full
-  contrastive wrapper artifact workflow is also reasonable if it can reuse the
-  existing text-feature and contrastive-head coverage without new op/provider
-  surface. For either path, treat pinned/local Transformers behavior as the
-  acceptance bar for the admitted surface, and record any remaining non-parity
-  limits explicitly.
-- Keep libgguf follow-up limited to concrete direct-link failures or validation
-  gaps: add a CUDA builder smoke using the initialized submodule only if the
-  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
-  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
-  families, epilogue coverage, or public provider surface as part of this
-  lane.
 - Added a visible CLIP text workflow proof without adding new CLIP behavior,
   ops, providers, tokenizer/processor plumbing, FlashAttention, or expensive
   CUDA runtime requirements. `examples/clip_text_workflow.py` traces the

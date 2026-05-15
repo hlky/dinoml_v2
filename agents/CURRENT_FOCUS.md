@@ -46,7 +46,8 @@
 ## Preferred Next Work
 
 - On 2026-05-15, the bounded CLIP text-feature wrapper exists, covers both
-  source EOS pooling branches, and has a visible text workflow proof. Preferred
-  next slice: either reduce the explicit `position_ids` requirement for the text
-  wrapper or begin the vision patch path, keeping each slice narrow,
-  parity-backed, and artifact-visible around provider/model ownership.
+  source EOS pooling branches, has a visible text workflow proof, and no longer
+  requires explicit `position_ids`. The first vision-side slice also exists for
+  fixed-size CLIP vision embeddings. Preferred next slice: continue vision
+  parity with a tiny encoder/pool/projection step, or address Conv/provider
+  runtime maturity only if it is a concrete blocker to CLIP vision artifacts.

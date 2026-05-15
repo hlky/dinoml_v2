@@ -11,6 +11,7 @@ Format:
 
 ## Entries
 
+- fbf2556, Fix CUDA vector_norm partial reduction, gpt-5, high
 - aabaaf4, tests: pin CLIP CUDA contrastive-head blocker, gpt-5.4, high
 - 262fbe5, Fix Conv profiling node-specific manifest lookup, gpt-5.5, xhigh
 - 4eb7c8c, Add static CUTLASS conv profiling loop, gpt-5.5, high

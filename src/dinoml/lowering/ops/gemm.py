@@ -15,7 +15,7 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 
 
-_CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu"}
+_CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr_bias_quick_gelu"}
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
@@ -234,8 +234,10 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
     spec = gemm_op_spec(op_name)
     has_bias = spec.epilogue.has_bias
     activation = spec.epilogue.activation
-    if activation not in {None, "fast_gelu"}:
-        raise ValueError(f"{op_name} CPU lowering only supports the fast_gelu activation epilogue, got {activation!r}")
+    if activation not in {None, "fast_gelu", "quick_gelu"}:
+        raise ValueError(
+            f"{op_name} CPU lowering only supports the fast_gelu or quick_gelu activation epilogue, got {activation!r}"
+        )
     if has_bias:
         bias_tensor = tensor_map[node["inputs"][2]]
         bias_rank = len(bias_tensor["shape"])

@@ -223,7 +223,7 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers(
     assert node_ops.count("dynamic_slice") == 1
     assert node_ops.count("layer_norm") == (2 * num_hidden_layers) + 1
     assert node_ops.count("gemm_rcr_bias") == 5 * num_hidden_layers
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == num_hidden_layers
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == num_hidden_layers
     assert node_ops.count("gemm_rcr") == 1
     assert node_ops.count("bmm_rcr") == num_hidden_layers
     assert node_ops.count("bmm_rrr") == num_hidden_layers
@@ -278,7 +278,7 @@ def test_clip_text_wrapper_zero_layer_matches_local_transformers(
     assert node_ops.count("layer_norm") == 1
     assert node_ops.count("gemm_rcr") == 1
     assert node_ops.count("gemm_rcr_bias") == 0
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 0
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == 0
     assert node_ops.count("bmm_rcr") == 0
     assert node_ops.count("bmm_rrr") == 0
     for op_name, expected_count in expected_counts.items():
@@ -334,7 +334,7 @@ def test_clip_text_wrapper_cpu_artifact_with_encoder_layers_matches_local_transf
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
 
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
-    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int gemm_rcr_bias_quick_gelu_" in generated
     assert "static int bmm_rcr_" in generated
     assert "static int bmm_rrr_" in generated
 
@@ -375,19 +375,19 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest(eos_
     if eos_token_id != 2:
         assert "fused_elementwise" in ops
     assert "gemm_rcr_bias" in ops
-    assert "gemm_rcr_bias_fast_gelu" in ops
+    assert "gemm_rcr_bias_quick_gelu" in ops
     assert "gemm_rcr" in ops
     assert "bmm_rcr" in ops
     assert "bmm_rrr" in ops
 
-    provider_ops = {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr", "bmm_rcr", "bmm_rrr"}
+    provider_ops = {"gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "gemm_rcr", "bmm_rcr", "bmm_rrr"}
     provider_entries = [entry for entry in required if entry["op"] in provider_ops]
     model_entries = [entry for entry in required if entry["op"] not in provider_ops]
 
     assert provider_entries
     assert all(entry["kernel_library"] in {"cutlass_gemm", "cutlass_bmm"} for entry in provider_entries)
     assert any(entry["op"] == "gemm_rcr" for entry in provider_entries)
-    assert any(entry["op"] == "gemm_rcr_bias_fast_gelu" for entry in provider_entries)
+    assert any(entry["op"] == "gemm_rcr_bias_quick_gelu" for entry in provider_entries)
     assert model_entries
     assert all(entry["kernel_library"] == "model" for entry in model_entries)
     assert len(cuda_sources["kernels"]) >= 7

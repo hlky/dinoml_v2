@@ -332,7 +332,8 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `gemm_rrr_bias_relu` use CUTLASS `LinearCombinationRelu` with the same bias
   shape/dtype/runtime/profiler contracts as the bias-only GEMM ops.
 - [x] v1-style bias activation epilogue names:
-  `gemm_{rcr,rrr}_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish,elup1}`
+  `gemm_{rcr,rrr}_bias_{gelu,fast_gelu,sigmoid,tanh,swish,hardswish,elup1}` plus
+  the distinct CLIP-focused `gemm_rcr_bias_quick_gelu`
   are registered as explicit GEMM family ops with CUTLASS candidate metadata,
   CUDA support-library symbols, candidate profiling coverage, and CPU reference
   execution through CUTLASS thread epilogue functors.
@@ -362,11 +363,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
   and run naive loops for `float32`, `float16`, and `bfloat16`. This is enough
   for the compiled CLIP attention context matmul path. The same bounded CPU
   bridge pattern now also covers `gemm_rcr_bias_fast_gelu` with the existing
-  `fast_gelu(x) = x * sigmoid(1.702 * x)` semantics, and `conv2d_bias` with a
-  static-shape groups=1 naive NCHW/OIHW loop for `float32` and `float16`, so
-  bounded CLIP vision and full two-tower CPU artifacts can now compile and run
-  against local Transformers. Other compiled CPU BMM layouts remain
-  intentionally unsupported.
+  `fast_gelu` semantics, `gemm_rcr_bias_quick_gelu` with CLIP QuickGELU
+  semantics `x * sigmoid(1.702 * x)`, and `conv2d_bias` with a static-shape
+  groups=1 naive NCHW/OIHW loop for `float32` and `float16`, so bounded CLIP
+  vision and full two-tower CPU artifacts can now compile and run against
+  local Transformers. Other compiled CPU BMM layouts remain intentionally
+  unsupported.
 - [x] First BMM add epilogue:
   `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}_add` now registers CUTLASS candidate
   sets and a `dinoml_cutlass_bmm_add_v1` launcher/profiler ABI for full-output

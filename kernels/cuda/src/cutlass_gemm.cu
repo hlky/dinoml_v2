@@ -49,6 +49,29 @@ struct ELUp1<Array<T, N>> {
   }
 };
 
+template <typename T>
+struct QuickGELU {
+  CUTLASS_HOST_DEVICE
+  T operator()(T const& scalar) const {
+    float x = static_cast<float>(scalar);
+    return T(x / (1.0f + cutlass::fast_exp(-1.702f * x)));
+  }
+};
+
+template <typename T, int N>
+struct QuickGELU<Array<T, N>> {
+  CUTLASS_HOST_DEVICE
+  Array<T, N> operator()(Array<T, N> const& value) const {
+    Array<T, N> result;
+    QuickGELU<T> quick_gelu;
+    CUTLASS_PRAGMA_UNROLL
+    for (int i = 0; i < N; ++i) {
+      result[i] = quick_gelu(value[i]);
+    }
+    return result;
+  }
+};
+
 template <
     typename ElementOutput,
     int Count,
@@ -58,6 +81,23 @@ template <
     FloatRoundStyle Round = FloatRoundStyle::round_to_nearest>
 using LinearCombinationELUp1 = LinearCombinationGeneric<
     ELUp1,
+    ElementOutput,
+    Count,
+    ElementAccumulator,
+    ElementCompute,
+    Scale,
+    Round,
+    false>;
+
+template <
+    typename ElementOutput,
+    int Count,
+    typename ElementAccumulator = ElementOutput,
+    typename ElementCompute = ElementOutput,
+    ScaleType::Kind Scale = ScaleType::Default,
+    FloatRoundStyle Round = FloatRoundStyle::round_to_nearest>
+using LinearCombinationQuickGELU = LinearCombinationGeneric<
+    QuickGELU,
     ElementOutput,
     Count,
     ElementAccumulator,
@@ -369,6 +409,14 @@ using BiasFastGeluEpilogue = cutlass::epilogue::thread::LinearCombinationGeneric
     cutlass::epilogue::thread::ScaleType::NoBetaScaling,
     cutlass::FloatRoundStyle::round_to_nearest,
     true>;
+
+template <typename Element, typename ElementAccumulator = float>
+using BiasQuickGeluEpilogue = cutlass::epilogue::thread::LinearCombinationQuickGELU<
+    Element,
+    1,
+    ElementAccumulator,
+    float,
+    cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
 
 template <typename Element, typename ElementAccumulator = float>
 using BiasSigmoidEpilogue = cutlass::epilogue::thread::LinearCombinationSigmoid<

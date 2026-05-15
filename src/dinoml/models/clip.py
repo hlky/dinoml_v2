@@ -329,7 +329,7 @@ class _LegacyCLIPTextEncoderLayer(dml.Module):
             self.layer_norm2_bias,
             eps=self.config.layer_norm_eps,
         )
-        hidden_states = dml.ops.gemm_rcr_bias_fast_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
+        hidden_states = dml.ops.gemm_rcr_bias_quick_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
         hidden_states = dml.ops.gemm_rcr_bias(hidden_states, self.fc2_weight, self.fc2_bias)
         return dml.ops.add(residual, hidden_states)
 
@@ -667,7 +667,7 @@ class _LegacyCLIPVisionEncoderLayer(dml.Module):
             self.layer_norm2_bias,
             eps=self.config.layer_norm_eps,
         )
-        hidden_states = dml.ops.gemm_rcr_bias_fast_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
+        hidden_states = dml.ops.gemm_rcr_bias_quick_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
         hidden_states = dml.ops.gemm_rcr_bias(hidden_states, self.fc2_weight, self.fc2_bias)
         return dml.ops.add(residual, hidden_states)
 

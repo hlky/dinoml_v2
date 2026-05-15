@@ -205,7 +205,7 @@ def test_clip_vision_wrapper_cpu_artifact_matches_local_transformers(tmp_path, m
 
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "static int conv2d_bias_" in generated
-    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int gemm_rcr_bias_quick_gelu_" in generated
     assert "static int bmm_rcr_" in generated
     assert "static int bmm_rrr_" in generated
 
@@ -278,7 +278,7 @@ def test_clip_vision_wrapper_one_layer_matches_local_transformers():
     assert node_ops.count("embedding") == 1
     assert node_ops.count("layer_norm") == 4
     assert node_ops.count("gemm_rcr_bias") == 5
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == 1
     assert node_ops.count("permute0213") == 4
     assert node_ops.count("bmm_rcr") == 1
     assert node_ops.count("bmm_rrr") == 1
@@ -313,7 +313,7 @@ def test_clip_vision_wrapper_two_layer_matches_local_transformers():
     assert node_ops.count("embedding") == 1
     assert node_ops.count("layer_norm") == 6
     assert node_ops.count("gemm_rcr_bias") == 10
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 2
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == 2
     assert node_ops.count("permute0213") == 8
     assert node_ops.count("bmm_rcr") == 2
     assert node_ops.count("bmm_rrr") == 2
@@ -360,16 +360,16 @@ def test_clip_vision_wrapper_one_layer_manifest_keeps_provider_and_model_kernels
     assert "bmm_rcr" in ops
     assert "bmm_rrr" in ops
     assert "gemm_rcr_bias" in ops
-    assert "gemm_rcr_bias_fast_gelu" in ops
+    assert "gemm_rcr_bias_quick_gelu" in ops
     assert "dynamic_slice" in ops
     assert "gemm_rcr" in ops
 
-    provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
+    provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
     provider_entries = [entry for entry in required if entry["op"] in provider_ops]
     model_entries = [entry for entry in required if entry["op"] not in provider_ops]
 
     assert len([entry for entry in provider_entries if entry["op"] == "conv2d_bias"]) == 1
-    assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr_bias_fast_gelu"]) == 1
+    assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr_bias_quick_gelu"]) == 1
     assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr_bias"]) >= 1
     assert len([entry for entry in provider_entries if entry["op"] == "bmm_rcr"]) == 1
     assert len([entry for entry in provider_entries if entry["op"] == "bmm_rrr"]) == 1
@@ -380,7 +380,7 @@ def test_clip_vision_wrapper_one_layer_manifest_keeps_provider_and_model_kernels
     assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == conv_entry["kernel_symbol"]
     assert conv_entry["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
-    assert all(entry["kernel_library"] == "cutlass_gemm" for entry in provider_entries if entry["op"] in {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr"})
+    assert all(entry["kernel_library"] == "cutlass_gemm" for entry in provider_entries if entry["op"] in {"gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "gemm_rcr"})
     assert all(entry["kernel_library"] == "cutlass_bmm" for entry in provider_entries if entry["op"] in {"bmm_rcr", "bmm_rrr"})
 
     assert model_entries

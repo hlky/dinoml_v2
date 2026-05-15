@@ -1014,6 +1014,18 @@ def test_gemm_bias_activation_frontend_emits_epilogue_ops(layout, b_shape, activ
     assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
 
 
+def test_gemm_rcr_bias_quick_gelu_frontend_emits_epilogue_op():
+    spec = dml.trace(
+        GemmBiasOpModule("gemm_rcr_bias_quick_gelu"),
+        inputs={"a": dml.TensorSpec([4, 8]), "b": dml.TensorSpec([6, 8]), "bias": dml.TensorSpec([6])},
+        name="gemm_rcr_bias_quick_gelu_frontend",
+    )
+
+    assert spec.ir["nodes"][0]["op"] == "gemm_rcr_bias_quick_gelu"
+    assert spec.ir["outputs"][0]["shape"] == [4, 6]
+    assert spec.ir["outputs"][0]["shape_spec"] == [4, 6]
+
+
 @pytest.mark.parametrize(
     ("layout", "b_shape", "suffix", "epilogue_inputs"),
     [

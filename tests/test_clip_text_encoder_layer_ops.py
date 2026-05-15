@@ -215,7 +215,7 @@ class _ClipTextEncoderLayerBase(dml.Module):
 
         residual = hidden_states
         hidden_states = dml.ops.layer_norm(hidden_states, self.ln2_weight, self.ln2_bias, eps=EPS)
-        hidden_states = dml.ops.gemm_rcr_bias_fast_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
+        hidden_states = dml.ops.gemm_rcr_bias_quick_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
         hidden_states = dml.ops.gemm_rcr_bias(hidden_states, self.fc2_weight, self.fc2_bias)
         return dml.ops.add(residual, hidden_states)
 
@@ -256,7 +256,7 @@ def test_clip_text_encoder_layer_static_causal_mask_cpu_reference():
     node_ops = [node["op"] for node in spec.ir["nodes"]]
     assert node_ops.count("layer_norm") == 2
     assert node_ops.count("gemm_rcr_bias") == 5
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == 1
     assert node_ops.count("permute0213") == 4
     assert node_ops.count("bmm_rcr") == 1
     assert node_ops.count("bmm_rrr") == 1
@@ -279,7 +279,7 @@ def test_clip_text_encoder_layer_bool_padding_mask_cpu_reference():
     node_ops = [node["op"] for node in spec.ir["nodes"]]
     assert node_ops.count("layer_norm") == 2
     assert node_ops.count("gemm_rcr_bias") == 5
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
+    assert node_ops.count("gemm_rcr_bias_quick_gelu") == 1
     assert node_ops.count("permute0213") == 4
     assert node_ops.count("bmm_rcr") == 1
     assert node_ops.count("bmm_rrr") == 1
@@ -307,20 +307,20 @@ def test_clip_text_encoder_layer_manifest_keeps_provider_and_model_kernels_hones
 
     layer_norm_entries = [entry for entry in required if entry["op"] == "layer_norm"]
     gemm_bias_entries = [entry for entry in required if entry["op"] == "gemm_rcr_bias"]
-    fast_gelu_entries = [entry for entry in required if entry["op"] == "gemm_rcr_bias_fast_gelu"]
+    quick_gelu_entries = [entry for entry in required if entry["op"] == "gemm_rcr_bias_quick_gelu"]
     bmm_entries = [entry for entry in required if entry["op"] in {"bmm_rcr", "bmm_rrr"}]
     softmax_entries = [entry for entry in required if entry["op"] == "softmax"]
 
     assert "layer_norm" in ops
     assert "gemm_rcr_bias" in ops
-    assert "gemm_rcr_bias_fast_gelu" in ops
+    assert "gemm_rcr_bias_quick_gelu" in ops
     assert "bmm_rcr" in ops
     assert "bmm_rrr" in ops
     assert "softmax" in ops
 
     assert len(layer_norm_entries) >= 1
     assert len(gemm_bias_entries) >= 1
-    assert len(fast_gelu_entries) == 1
+    assert len(quick_gelu_entries) == 1
     assert len(softmax_entries) == 1
     assert len(bmm_entries) == 2
 
@@ -328,10 +328,10 @@ def test_clip_text_encoder_layer_manifest_keeps_provider_and_model_kernels_hones
     assert all(entry["kernel_symbol"] == "generated_layer_norm" for entry in layer_norm_entries)
     assert all(entry["kernel_library"] == "cutlass_gemm" for entry in gemm_bias_entries)
     assert all(entry["kernel_symbol"].startswith("dinoml_cutlass_gemm_rcr_bias_float32_") for entry in gemm_bias_entries)
-    [fast_gelu_entry] = fast_gelu_entries
-    assert fast_gelu_entry["kernel_library"] == "cutlass_gemm"
-    assert fast_gelu_entry["kernel_symbol"].startswith("dinoml_cutlass_gemm_rcr_bias_fast_gelu_float32_")
-    assert fast_gelu_entry["candidate_set"]["epilogue_config"]["activation"] == "fast_gelu"
+    [quick_gelu_entry] = quick_gelu_entries
+    assert quick_gelu_entry["kernel_library"] == "cutlass_gemm"
+    assert quick_gelu_entry["kernel_symbol"].startswith("dinoml_cutlass_gemm_rcr_bias_quick_gelu_float32_")
+    assert quick_gelu_entry["candidate_set"]["epilogue_config"]["activation"] == "quick_gelu"
     assert all(entry["kernel_library"] == "cutlass_bmm" for entry in bmm_entries)
     assert any(entry["kernel_symbol"].startswith("dinoml_cutlass_bmm_rcr_float32_") for entry in bmm_entries)
     assert any(entry["kernel_symbol"].startswith("dinoml_cutlass_bmm_rrr_float32_") for entry in bmm_entries)

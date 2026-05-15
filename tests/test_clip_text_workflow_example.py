@@ -44,7 +44,7 @@ def test_clip_text_workflow_example_proves_wrapper_and_artifact_state(
     assert summary["node_op_counts"]["embedding"] == 2
     assert summary["node_op_counts"]["layer_norm"] == 3
     assert summary["node_op_counts"]["gemm_rcr_bias"] == 5
-    assert summary["node_op_counts"]["gemm_rcr_bias_fast_gelu"] == 1
+    assert summary["node_op_counts"]["gemm_rcr_bias_quick_gelu"] == 1
     assert summary["node_op_counts"]["gemm_rcr"] == 1
     assert summary["node_op_counts"]["bmm_rcr"] == 1
     assert summary["node_op_counts"]["bmm_rrr"] == 1
@@ -55,7 +55,7 @@ def test_clip_text_workflow_example_proves_wrapper_and_artifact_state(
         "bmm_rrr",
         "gemm_rcr",
         "gemm_rcr_bias",
-        "gemm_rcr_bias_fast_gelu",
+        "gemm_rcr_bias_quick_gelu",
     ]
     assert summary["provider_kernel_libraries"] == ["cutlass_bmm", "cutlass_gemm"]
     assert "model" in summary["required_kernel_libraries"]

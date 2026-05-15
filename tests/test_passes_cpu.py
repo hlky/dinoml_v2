@@ -2353,6 +2353,28 @@ def test_cutlass_gemm_source_renderer_emits_elup1_epilogue_export():
     assert required["candidate_set"]["epilogue_config"]["activation"] == "elup1"
 
 
+def test_cutlass_gemm_source_renderer_emits_quick_gelu_epilogue_export():
+    spec = _trace_gemm_bias_activation("gemm_rcr_bias_quick_gelu", "rcr")
+    lowered, _ = PassManager().run(spec.ir)
+    manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
+    support = cutlass_gemm_used_candidate_plan(manifest)
+    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
+        encoding="utf-8"
+    )
+
+    rendered = render_cutlass_gemm_source(source, support)
+
+    required = manifest["required_kernels"][0]
+    candidate = required["candidates"][0]
+    assert "DINOML_CUTLASS_GENERATED_EXPORTS" in rendered
+    assert "DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT(gemm_rcr_bias_quick_gelu, float32" in rendered
+    assert "BiasQuickGeluEpilogue" in rendered
+    assert "LinearCombinationQuickGELU" in rendered
+    assert candidate["symbol_id"] in rendered
+    assert candidate["cutlass_policy"] in rendered
+    assert required["candidate_set"]["epilogue_config"]["activation"] == "quick_gelu"
+
+
 @pytest.mark.parametrize(("op_name", "layout", "epilogue", "epilogue_inputs"), GEMM_BIAS_RESIDUAL_EPILOGUES)
 def test_cutlass_gemm_source_renderer_emits_residual_epilogue_exports(op_name, layout, epilogue, epilogue_inputs):
     spec = _trace_gemm_bias_residual(op_name, layout)

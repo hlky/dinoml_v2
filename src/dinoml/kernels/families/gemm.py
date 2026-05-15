@@ -145,6 +145,14 @@ BIAS_ACTIVATION_EPILOGUES: dict[str, GemmEpilogue] = {
         bias_axis="n",
         launch_abi="dinoml_cutlass_gemm_bias_v1",
     ),
+    "quick_gelu": GemmEpilogue(
+        name="bias_quick_gelu",
+        cutlass_functor="cutlass::epilogue::thread::LinearCombinationQuickGELU",
+        inputs=("bias",),
+        activation="quick_gelu",
+        bias_axis="n",
+        launch_abi="dinoml_cutlass_gemm_bias_v1",
+    ),
     "sigmoid": GemmEpilogue(
         name="bias_sigmoid",
         cutlass_functor="cutlass::epilogue::thread::LinearCombinationSigmoid",
@@ -277,6 +285,7 @@ GEMM_OP_SPECS: dict[str, GemmOpSpec] = {
         f"gemm_{layout}_bias_{activation}": _gemm_op_spec(f"gemm_{layout}_bias_{activation}", layout, epilogue)
         for activation, epilogue in BIAS_ACTIVATION_EPILOGUES.items()
         for layout in ("rcr", "rrr")
+        if activation != "quick_gelu" or layout == "rcr"
     },
     **{
         f"gemm_{layout}_bias_{name}": _gemm_op_spec(f"gemm_{layout}_bias_{name}", layout, epilogue)

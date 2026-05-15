@@ -178,7 +178,7 @@ def inspect_workflow(*, eos_token_id: int = 2) -> dict[str, object]:
     cuda_sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
     manifest = build_kernel_manifest(lowered, CUDA_TARGET)
     required = manifest["required_kernels"]
-    provider_ops = {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr", "bmm_rcr", "bmm_rrr"}
+    provider_ops = {"gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "gemm_rcr", "bmm_rcr", "bmm_rrr"}
     provider_entries = [entry for entry in required if entry["op"] in provider_ops]
     model_entries = [entry for entry in required if entry["op"] not in provider_ops]
     return {

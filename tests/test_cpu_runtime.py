@@ -4142,6 +4142,8 @@ def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_sha
         result = 0.5 * result * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (result + 0.044715 * result * result * result)))
     elif activation == "fast_gelu":
         result = result / (1.0 + np.exp(-1.702 * result))
+    elif activation == "quick_gelu":
+        result = result / (1.0 + np.exp(-1.702 * result))
     elif activation == "sigmoid":
         result = 1.0 / (1.0 + np.exp(-result))
     elif activation == "tanh":
@@ -4156,6 +4158,27 @@ def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_sha
 
     actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+def test_cpu_reference_gemm_rcr_bias_quick_gelu_matches_numpy():
+    spec = dml.trace(
+        GemmBiasModule("gemm_rcr_bias_quick_gelu"),
+        inputs={
+            "a": dml.TensorSpec((4, 8), "float32"),
+            "b": dml.TensorSpec((6, 8), "float32"),
+            "bias": dml.TensorSpec([6], "float32"),
+        },
+        name="gemm_rcr_bias_quick_gelu_float32_reference",
+    )
+    rng = np.random.default_rng(1991)
+    a = rng.standard_normal((4, 8)).astype(np.float32)
+    b = rng.standard_normal((6, 8)).astype(np.float32)
+    bias = rng.standard_normal((6,)).astype(np.float32)
+    expected = a @ b.T + bias
+    expected = expected / (1.0 + np.exp(-1.702 * expected))
+
+    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
+    np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
 def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
@@ -4256,6 +4279,67 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_fast_gelu_with_dynamic_fold
     session = module.create_session()
     try:
         rng = np.random.default_rng(1337)
+        b = rng.standard_normal((6, 8)).astype(np.float32)
+        bias = rng.standard_normal((1, 6)).astype(np.float32)
+        b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+        bias_reference = array_from_storage(array_to_storage(bias, dtype), dtype).astype(np.float32)
+        for tokens in (2, 5):
+            a = rng.standard_normal((2, tokens, 8)).astype(np.float32)
+            a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+            expected = a_reference @ b_reference.T + bias_reference.reshape(1, 1, 6)
+            expected = expected / (1.0 + np.exp(-1.702 * expected))
+            expected = array_from_storage(array_to_storage(expected, dtype), dtype)
+            actual = session.run_numpy({"a": a, "b": b, "bias": bias})["y"]
+            assert actual.shape == (2, tokens, 6)
+            np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+    finally:
+        session.close()
+        module.close()
+
+
+@pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [
+        ("float32", 1e-5, 1e-5),
+        ("float16", 2e-3, 2e-3),
+        ("bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_artifact_runs_generated_naive_gemm_bias_quick_gelu_with_dynamic_folded_m(
+    tmp_path,
+    monkeypatch,
+    dtype,
+    atol,
+    rtol,
+):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class DynamicQuickGeluGemmModule(dml.Module):
+        def forward(self, a, b, bias):
+            return dml.ops.output(dml.ops.gemm_rcr_bias_quick_gelu(a, b, bias), "y")
+
+    token_dim = dml.Dim("tokens", min=1, max=8)
+    spec = dml.trace(
+        DynamicQuickGeluGemmModule(),
+        inputs={
+            "a": dml.TensorSpec([2, token_dim, 8], dtype),
+            "b": dml.TensorSpec([6, 8], dtype),
+            "bias": dml.TensorSpec([1, 6], dtype),
+        },
+        name=f"gemm_rcr_bias_quick_gelu_dynamic_{dtype}_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"gemm_rcr_bias_quick_gelu_dynamic_{dtype}_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int gemm_rcr_bias_quick_gelu_" in generated
+    assert "1.702f" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        rng = np.random.default_rng(2337)
         b = rng.standard_normal((6, 8)).astype(np.float32)
         bias = rng.standard_normal((1, 6)).astype(np.float32)
         b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)

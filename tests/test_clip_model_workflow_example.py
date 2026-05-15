@@ -95,7 +95,7 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
         "conv2d_bias",
         "gemm_rcr",
         "gemm_rcr_bias",
-        "gemm_rcr_bias_fast_gelu",
+        "gemm_rcr_bias_quick_gelu",
     ]
     assert summary["provider_kernel_libraries"] == ["cutlass_bmm", "cutlass_conv", "cutlass_gemm"]
     assert "model" in summary["required_kernel_libraries"]
@@ -111,7 +111,7 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
         "conv2d_bias",
         "gemm_rcr",
         "gemm_rcr_bias",
-        "gemm_rcr_bias_fast_gelu",
+        "gemm_rcr_bias_quick_gelu",
         "bmm_rcr",
         "bmm_rrr",
     ]

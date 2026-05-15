@@ -63,10 +63,11 @@ T5 is deferred for this sprint:
 
 Keep the line between helper wiring and admitted model math explicit:
 
-- Honest helper composition: `quick_gelu` only if it is a true alias of the
-  existing `fast_gelu` approximation; otherwise keep it as a shared helper, not
-  a new public op. Pooling should stay helper-level only when it is just the
-  admitted EOS-selection logic.
+- Honest helper composition: `quick_gelu` is not a silent alias of the
+  existing `fast_gelu` approximation for CLIP. Keep `fast_gelu` as its own
+  admitted surface and use a distinct fused `quick_gelu` GEMM op when the model
+  contract requires `x * sigmoid(1.702 * x)`. Pooling should stay helper-level
+  only when it is just the admitted EOS-selection logic.
 - Registered/generated ops: `layer_norm`, embeddings, and any other tower
   primitive that cannot be expressed honestly through already-admitted
   backend-visible ops.
@@ -220,9 +221,9 @@ The bounded CLIP vision wrapper now also admits stacked real encoder blocks.
   pooling, `post_layernorm`, and bias-free visual projection. The encoder path
   matches the local Transformers `CLIPVisionModelWithProjection` contract as
   `layer_norm -> dense noncausal self-attention -> residual -> layer_norm ->
-  quick_gelu MLP -> residual`, reusing the already landed GEMM/BMM/softmax and
-  `gemm_rcr_bias_fast_gelu` composition rather than introducing a new public
-  attention or activation op.
+  quick_gelu MLP -> residual`, reusing the landed GEMM/BMM/softmax families and
+  the distinct fused `gemm_rcr_bias_quick_gelu` slice rather than introducing a
+  new public attention op.
 - The honest limits stay explicit: `num_hidden_layers` is admitted only for
   non-negative integers, there is still no positional interpolation, no
   arbitrary image sizes, no padding/causal mask handling in the vision block,
@@ -255,7 +256,7 @@ The smallest real CLIPModel-style assembly is now in-tree at
   or provider surface. The top-level
   model remains a proof for the admitted tiny CLIPConfig surface, not a broad
   CLIP checkpoint claim. With the bounded naive compiled CPU `bmm_rcr`,
-  `bmm_rrr`, `gemm_rcr_bias_fast_gelu`, and `conv2d_bias` bridges, the bounded
+  `bmm_rrr`, `gemm_rcr_bias_quick_gelu`, and `conv2d_bias` bridges, the bounded
   full-model CPU artifact now matches local `/workspace/transformers`. CUDA
   artifact planning/codegen now exposes the single Conv node honestly as a
   bounded-runtime `cutlass_conv` entry with visible activation/weight pack,
@@ -304,16 +305,17 @@ The smallest real CLIPModel-style assembly is now in-tree at
   `q_proj` `gemm_rcr_bias`, and vision `q_proj` `gemm_rcr_bias`. Those rows all
   stayed within about `5e-6` max absolute error, with the patch projection
   matching exactly on the bounded audit input.
-- The first drifty row is text-layer
+- The first drifty row was text-layer
   `gemm_rcr_bias_fast_gelu` at the cached checkpoint `fc1` site
   (`[1, 4, 512] -> [1, 4, 2048]`), which currently shows about `2.07e-2`
   max absolute error on CUDA. A side probe showed that magnitude matches the
   gap between CLIP QuickGELU (`x * sigmoid(1.702x)`) and Torch GELU on the same
   captured `fc1` activations, which strongly suggests the CUTLASS
   `fast_gelu` epilogue is not semantically matching the admitted DinoML
-  `fast_gelu` / CLIP QuickGELU contract.
-- Until that boundary is fixed or deliberately decomposed, keep the next CUDA
-  tower audit focused on `gemm_rcr_bias_fast_gelu` before widening to later
+  `fast_gelu` contract for CLIP QuickGELU. The fix is a distinct
+  `gemm_rcr_bias_quick_gelu` path, not changing `fast_gelu`.
+- After that boundary is fixed, keep the next CUDA tower audit focused on
+  proving the `gemm_rcr_bias_quick_gelu` row clean before widening to later
   BMM/softmax/helper rows.
 
 ## 2026-05-15 landed cached checkpoint adapter admission smoke
@@ -350,8 +352,8 @@ Transformers `CLIPModel` / `CLIPConfig` plus its `state_dict()`.
   position interpolation, loss, FlashAttention dispatch, or new op/provider
   surface.
 - Admission remains honest about the current inference contract. The adapter
-  rejects non-`quick_gelu` CLIP configs because the admitted MLP path still
-  relies on the existing `fast_gelu`/quick-gelu approximation used by the
+  rejects non-`quick_gelu` CLIP configs because the admitted MLP path now
+  explicitly depends on the CLIP `quick_gelu` fused GEMM slice used by the
   local Transformers CLIP source.
 - Focused validation now includes a deterministic tiny parity test that
   constructs a local Transformers `CLIPModel`, loads the existing tiny

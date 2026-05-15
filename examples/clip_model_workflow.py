@@ -48,8 +48,8 @@ _GENERATED_HELPER_PATTERNS = {
     "conv2d_bias": re.compile(r"\bstatic int conv2d_bias_[0-9a-f]{12}\s*\("),
     "gemm_rcr": re.compile(r"\bstatic int gemm_rcr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
     "gemm_rcr_bias": re.compile(r"\bstatic int gemm_rcr_bias_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
-    "gemm_rcr_bias_fast_gelu": re.compile(
-        r"\bstatic int gemm_rcr_bias_fast_gelu_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("
+    "gemm_rcr_bias_quick_gelu": re.compile(
+        r"\bstatic int gemm_rcr_bias_quick_gelu_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("
     ),
     "bmm_rcr": re.compile(r"\bstatic int bmm_rcr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
     "bmm_rrr": re.compile(r"\bstatic int bmm_rrr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
@@ -344,7 +344,7 @@ def inspect_workflow() -> dict[str, object]:
     cuda_sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
     manifest = build_kernel_manifest(lowered, CUDA_TARGET)
     required = manifest["required_kernels"]
-    provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
+    provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
     provider_entries = [entry for entry in required if entry["op"] in provider_ops]
     model_entries = [entry for entry in required if entry["op"] not in provider_ops]
     conv_entries = [entry for entry in required if entry["op"] == "conv2d_bias" and entry["kernel_library"] == "cutlass_conv"]

@@ -791,6 +791,8 @@ def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
         return 0.5 * value * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (value + 0.044715 * value * value * value)))
     if activation == "fast_gelu":
         return value / (1.0 + np.exp(-1.702 * value))
+    if activation == "quick_gelu":
+        return value / (1.0 + np.exp(-1.702 * value))
     if activation == "sigmoid":
         return 1.0 / (1.0 + np.exp(-value))
     if activation == "tanh":

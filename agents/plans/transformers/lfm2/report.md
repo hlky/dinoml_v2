@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: LiquidAI/LFM2-1.2B as the docstring/default representative; config sweep includes 350M, 700M, 1.2B, 2.6B, and LFM2.5 variants.
 Config source: HF `config.json` files fetched from raw `main` on 2026-05-13 plus `Lfm2Config` defaults.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/lfm2/configuration_lfm2.py
-- X:/H/transformers/src/transformers/models/lfm2/modeling_lfm2.py
-- X:/H/transformers/src/transformers/models/lfm2/modular_lfm2.py
-- X:/H/transformers/src/transformers/cache_utils.py for hybrid KV/conv cache behavior
-- X:/H/transformers/src/transformers/configuration_utils.py and modeling_rope_utils.py for RoPE config normalization
+- transformers/src/transformers/models/lfm2/configuration_lfm2.py
+- transformers/src/transformers/models/lfm2/modeling_lfm2.py
+- transformers/src/transformers/models/lfm2/modular_lfm2.py
+- transformers/src/transformers/cache_utils.py for hybrid KV/conv cache behavior
+- transformers/src/transformers/configuration_utils.py and modeling_rope_utils.py for RoPE config normalization
 Any missing files or assumptions: tokenizer/generation configs, safetensors metadata, remote-code variants, GGUF/ONNX/MLX conversions, and `lfm2_moe`/`lfm2_vl` are out of scope.
 ```
 

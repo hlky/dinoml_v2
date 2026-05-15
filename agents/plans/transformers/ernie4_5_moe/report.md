@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: baidu/ERNIE-4.5-21B-A3B-PT, baidu/ERNIE-4.5-300B-A47B-PT, related Base/Thinking variants
 Config source: official Hugging Face config.json from Baidu repos, fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/ernie4_5_moe/configuration_ernie4_5_moe.py
-  X:/H/transformers/src/transformers/models/ernie4_5_moe/modular_ernie4_5_moe.py
-  X:/H/transformers/src/transformers/models/ernie4_5_moe/modeling_ernie4_5_moe.py
-  X:/H/transformers/src/transformers/integrations/moe.py
+  transformers/src/transformers/models/ernie4_5_moe/configuration_ernie4_5_moe.py
+  transformers/src/transformers/models/ernie4_5_moe/modular_ernie4_5_moe.py
+  transformers/src/transformers/models/ernie4_5_moe/modeling_ernie4_5_moe.py
+  transformers/src/transformers/integrations/moe.py
 Any missing files or assumptions:
   Tokenizer and weights were not downloaded.
   modeling_ernie4_5_moe.py is generated from modular_ernie4_5_moe.py; modular is authoritative for future source edits.

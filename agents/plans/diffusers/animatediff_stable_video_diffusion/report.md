@@ -6,7 +6,7 @@ Candidate slug: `animatediff_stable_video_diffusion`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   AnimateDiff motion adapter examples:
@@ -45,36 +45,36 @@ Config sources:
     stabilityai/stable-video-diffusion-img2vid-xt/{unet,vae,scheduler,image_encoder}/config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff.py
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_sdxl.py
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_video2video.py
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_video2video_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_sparsectrl.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_video_diffusion/pipeline_stable_video_diffusion.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_sdxl.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_video2video.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_controlnet.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_video2video_controlnet.py
+  diffusers/src/diffusers/pipelines/animatediff/pipeline_animatediff_sparsectrl.py
+  diffusers/src/diffusers/pipelines/stable_video_diffusion/pipeline_stable_video_diffusion.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_motion_model.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_spatio_temporal_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_3d_blocks.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_temporal.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_temporal_decoder.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_motion_model.py
+  diffusers/src/diffusers/models/unets/unet_spatio_temporal_condition.py
+  diffusers/src/diffusers/models/unets/unet_3d_blocks.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/transformers/transformer_temporal.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_temporal_decoder.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lcm.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/pipelines/free_noise_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_lcm.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/pipelines/free_noise_utils.py
 
 External component configs inspected:
   SVD CLIPVisionModelWithProjection config from official image_encoder.

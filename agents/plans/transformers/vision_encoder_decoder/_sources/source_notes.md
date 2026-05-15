@@ -2,9 +2,9 @@
 
 Source basis:
 
-- Local Transformers checkout: `X:/H/transformers`
+- Local Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family source directory: `X:/H/transformers/src/transformers/models/vision_encoder_decoder`
+- Family source directory: `transformers/src/transformers/models/vision_encoder_decoder`
 
 Local files inspected:
 
@@ -14,12 +14,12 @@ Local files inspected:
 
 Supporting local files inspected for representative delegated bodies:
 
-- `X:/H/transformers/src/transformers/models/vit/modeling_vit.py`
-- `X:/H/transformers/src/transformers/models/vit/image_processing_vit.py`
-- `X:/H/transformers/src/transformers/models/trocr/modeling_trocr.py`
-- `X:/H/transformers/src/transformers/models/trocr/processing_trocr.py`
-- `X:/H/transformers/src/transformers/models/gpt2/modeling_gpt2.py`
-- `X:/H/transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/models/vit/modeling_vit.py`
+- `transformers/src/transformers/models/vit/image_processing_vit.py`
+- `transformers/src/transformers/models/trocr/modeling_trocr.py`
+- `transformers/src/transformers/models/trocr/processing_trocr.py`
+- `transformers/src/transformers/models/gpt2/modeling_gpt2.py`
+- `transformers/src/transformers/generation/utils.py`
 
 Wrapper-owned behavior confirmed from source:
 

@@ -8,13 +8,13 @@ Model id: google/owlv2-base-patch16, google/owlv2-base-patch16-ensemble, google/
 Config source: official Hugging Face config/preprocessor/tokenizer JSON files downloaded from resolve/main into this folder.
 Primary runtime target: Owlv2ForObjectDetection text-conditioned zero-shot object detection.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/owlv2/modeling_owlv2.py
-- X:/H/transformers/src/transformers/models/owlv2/configuration_owlv2.py
-- X:/H/transformers/src/transformers/models/owlv2/processing_owlv2.py
-- X:/H/transformers/src/transformers/models/owlv2/image_processing_owlv2.py
-- X:/H/transformers/src/transformers/models/owlv2/image_processing_pil_owlv2.py
-- X:/H/transformers/src/transformers/models/owlv2/modular_owlv2.py
-- X:/H/transformers/src/transformers/activations.py
+- transformers/src/transformers/models/owlv2/modeling_owlv2.py
+- transformers/src/transformers/models/owlv2/configuration_owlv2.py
+- transformers/src/transformers/models/owlv2/processing_owlv2.py
+- transformers/src/transformers/models/owlv2/image_processing_owlv2.py
+- transformers/src/transformers/models/owlv2/image_processing_pil_owlv2.py
+- transformers/src/transformers/models/owlv2/modular_owlv2.py
+- transformers/src/transformers/activations.py
 Any missing files or assumptions: no gated official configs were encountered. Modeling is copied/generated-style from OWL-ViT; `modeling_owlv2.py` is the import-time inference authority, while `modular_owlv2.py` is useful for future source edits to image processing.
 ```
 

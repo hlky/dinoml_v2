@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: Cohere2 model_type; primary public bases appear to be CohereLabs/c4ai-command-r7b-12-2024 and CohereLabs/c4ai-command-a-03-2025, but official configs were gated from this environment.
 Config source: pinned Transformers config source plus open HF mirror config.json files listed below.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/cohere2/configuration_cohere2.py
-- X:/H/transformers/src/transformers/models/cohere2/modeling_cohere2.py
-- X:/H/transformers/src/transformers/models/cohere2/modular_cohere2.py
-- X:/H/transformers/src/transformers/models/cohere/modeling_cohere.py, for Cohere differences
-- X:/H/transformers/src/transformers/masking_utils.py and cache_utils.py, for sliding masks/cache behavior
+- transformers/src/transformers/models/cohere2/configuration_cohere2.py
+- transformers/src/transformers/models/cohere2/modeling_cohere2.py
+- transformers/src/transformers/models/cohere2/modular_cohere2.py
+- transformers/src/transformers/models/cohere/modeling_cohere.py, for Cohere differences
+- transformers/src/transformers/masking_utils.py and cache_utils.py, for sliding masks/cache behavior
 Any missing files or assumptions: official CohereLabs config.json downloads returned 401; representative checkpoint facts below use open mirrors and are labeled as such.
 ```
 

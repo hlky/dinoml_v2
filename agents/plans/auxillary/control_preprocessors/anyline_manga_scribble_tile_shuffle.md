@@ -29,6 +29,6 @@ Represent deterministic preprocessors as declarative image transforms with param
 - `H:/controlnet_aux/src/controlnet_aux/anyline/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/lineart_standard/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/shuffle/__init__.py`
-- `H:/uis/vladmandic/sdnext/modules/control/proc/anyline/__init__.py:10`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
+- `vladmandic/sdnext/modules/control/proc/anyline/__init__.py:10`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
 - `agents/plans/auxiliary/control_preprocessors.md`

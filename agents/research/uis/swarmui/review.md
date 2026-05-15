@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/mcmonkeyprojects/SwarmUI`
+- UI clone: `mcmonkeyprojects/SwarmUI`
 
 ## Summary
 
@@ -62,60 +62,60 @@ model catalog and workflow synthesis layer in addition to raw model execution.
 
 ## Code Anchors
 
-- `H:/uis/mcmonkeyprojects/SwarmUI/README.md:7` states image/video model scope.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:499`
+- `mcmonkeyprojects/SwarmUI/README.md:7` states image/video model scope.
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:499`
   registers Stable-Diffusion model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:501`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:501`
   registers VAE model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:503`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:503`
   registers LoRA model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:505`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:505`
   registers Embedding model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:507`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:507`
   registers ControlNet model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:509`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:509`
   registers Clip model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Program.cs:511`
+- `mcmonkeyprojects/SwarmUI/src/Core/Program.cs:511`
   registers ClipVision model set.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Settings.cs:540`
+- `mcmonkeyprojects/SwarmUI/src/Core/Settings.cs:540`
   starts default VAE settings per model family.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/Settings.cs:566`
+- `mcmonkeyprojects/SwarmUI/src/Core/Settings.cs:566`
   defines default Mochi text-to-video VAE.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:29`
+- `mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:29`
   registers ControlNet preprocessors.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:31`
+- `mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:31`
   registers GIMM video frame interpolator.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:32`
+- `mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:32`
   registers TensorRT support.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:35`
+- `mcmonkeyprojects/SwarmUI/src/Core/InstallableFeatures.cs:35`
   registers GGUF support.
-- `H:/uis/mcmonkeyprojects/SwarmUI/README.md:150` documents ComfyUI
+- `mcmonkeyprojects/SwarmUI/README.md:150` documents ComfyUI
   auto-install.
-- `H:/uis/mcmonkeyprojects/SwarmUI/README.md:154` lists optional packages
+- `mcmonkeyprojects/SwarmUI/README.md:154` lists optional packages
   including `spandrel`, `rembg`, `kornia`, and OpenCV.
-- `H:/uis/mcmonkeyprojects/SwarmUI/README.md:155` lists `ultralytics` for
+- `mcmonkeyprojects/SwarmUI/README.md:155` lists `ultralytics` for
   YOLOv8 face detection and `SwarmYoloDetection`.
-- `H:/uis/mcmonkeyprojects/SwarmUI/docs/Audio Model Support.md:10` describes
+- `mcmonkeyprojects/SwarmUI/docs/Audio Model Support.md:10` describes
   audio model categories.
-- `H:/uis/mcmonkeyprojects/SwarmUI/docs/Audio Model Support.md:17` names
+- `mcmonkeyprojects/SwarmUI/docs/Audio Model Support.md:17` names
   ACE-Step support.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Accounts/Permissions.cs:68` defines
+- `mcmonkeyprojects/SwarmUI/src/Accounts/Permissions.cs:68` defines
   control model refresh permission.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Accounts/Permissions.cs:70` defines
+- `mcmonkeyprojects/SwarmUI/src/Accounts/Permissions.cs:70` defines
   TensorRT creation permission.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmMasks.py:3`
+- `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmMasks.py:3`
   implements mask helpers.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmUnsampler.py:24`
+- `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmUnsampler.py:24`
   describes reverse sampling/unsampling.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmKSampler.py:36`
+- `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmKSampler.py:36`
   handles video latent frame iteration.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmInternalUtil.py:43`
+- `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/ExtraNodes/SwarmComfyCommon/SwarmInternalUtil.py:43`
   defines an internal "just load" model/clip/vae node.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:594`
+- `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:594`
   detects `.gguf` model names.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:698`
+- `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:698`
   stores usage hints in model metadata.
-- `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:711`
+- `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelHandler.cs:711`
   stores special model format metadata.
 
 ## DinoML Gaps
@@ -135,29 +135,29 @@ model catalog and workflow synthesis layer in addition to raw model execution.
   models, T2I, basic, grid, Comfy, image-batch APIs, WebSocket generation,
   model download/edit/list, workflow extraction, Comfy feature install, LoRA
   extraction, and TensorRT creation.
-  Anchors: `H:/uis/mcmonkeyprojects/SwarmUI/docs/API.md:5`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/docs/APIRoutes/ModelsAPI.md:69`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/docs/APIRoutes/ComfyUIWebAPI.md:61`.
+  Anchors: `mcmonkeyprojects/SwarmUI/docs/API.md:5`,
+  `mcmonkeyprojects/SwarmUI/docs/APIRoutes/ModelsAPI.md:69`,
+  `mcmonkeyprojects/SwarmUI/docs/APIRoutes/ComfyUIWebAPI.md:61`.
 - Workflow generator supports modern families including Nunchaku formats, Wan,
   Nvidia Cosmos, Hunyuan Image Refiner, Hunyuan Video 1.5 SR, Flux2, OmniGen,
   Qwen, ZImage, Chroma, Ernie, HiDreamO1, Wan Phantom, LTXv2, Cosmos I2V, and
   Qwen Image Edit Plus.
   Anchors:
-  `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:391`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:1026`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:2336`.
+  `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:391`,
+  `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:1026`,
+  `mcmonkeyprojects/SwarmUI/src/BuiltinExtensions/ComfyUIBackend/WorkflowGenerator.cs:2336`.
 - Common model catalog includes Z-Image Turbo FP8Mix, Flux.2 VAE, Cosmos VAE,
   LTX-2 Video/Audio VAE, Qwen Image VAE, and Hunyuan Image 2.1 VAE.
-  Anchor: `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/CommonModels.cs:76`.
+  Anchor: `mcmonkeyprojects/SwarmUI/src/Text2Image/CommonModels.cs:76`.
 - ACE-Step exposes audio parameters as T2I controls: style, BPM, time
   signature, language, and key scale.
-  Anchors: `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:423`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:436`.
+  Anchors: `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:423`,
+  `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:436`.
 - Text encoder settings include CLIP-L/G, T5-XXL, LLaVA, LLaMA, Qwen LLM, and
   Mistral LLM across SD3/Flux/Wan/Hunyuan/HiDream/OmniGen/Qwen/Flux2.
-  Anchors: `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:691`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:712`.
+  Anchors: `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:691`,
+  `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IParamTypes.cs:712`.
 - TensorRT engine support includes SDXL 0.9/1.0, SD3 Medium, SDXL Turbo, SDXL
   Refiner, and SVD engine classes, with reduced flexibility noted in docs.
-  Anchors: `H:/uis/mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelClassSorter.cs:824`,
-  `H:/uis/mcmonkeyprojects/SwarmUI/docs/Model Support.md:676`.
+  Anchors: `mcmonkeyprojects/SwarmUI/src/Text2Image/T2IModelClassSorter.cs:824`,
+  `mcmonkeyprojects/SwarmUI/docs/Model Support.md:676`.

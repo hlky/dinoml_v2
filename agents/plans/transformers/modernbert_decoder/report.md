@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: modernbert-decoder family; representative checkpoints include jhu-clsp/ettin-decoder-{17m,32m,68m,150m,400m,1b}, blab-jhu/test-32m-dec, and onnx-internal-testing/tiny-random-ModernBertDecoderForCausalLM.
 Config source: local Transformers configuration source plus HF Hub config.json files listed in config_sweep.md.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/modernbert_decoder/modeling_modernbert_decoder.py
-- X:/H/transformers/src/transformers/models/modernbert_decoder/configuration_modernbert_decoder.py
-- X:/H/transformers/src/transformers/models/modernbert_decoder/modular_modernbert_decoder.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/models/modernbert_decoder/modeling_modernbert_decoder.py
+- transformers/src/transformers/models/modernbert_decoder/configuration_modernbert_decoder.py
+- transformers/src/transformers/models/modernbert_decoder/modular_modernbert_decoder.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
 Any missing files or assumptions: no remote-code neural body is required for in-library ModernBertDecoderForCausalLM. `modeling_modernbert_decoder.py` and `configuration_modernbert_decoder.py` are generated from `modular_modernbert_decoder.py`; future source edits should target the modular file. No DinoML tests were run by request.
 ```
 

@@ -3,13 +3,13 @@
 ## 1. Source basis
 
 Transformers commit/version:
-`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id:
 Primary production checkpoint `facebook/nllb-moe-54b`; debug/test checkpoints and community quantized mirrors are listed in `config_sweep.md`.
 
 Config source:
-`X:/H/transformers/src/transformers/models/nllb_moe/configuration_nllb_moe.py`, plus Hugging Face raw configs fetched on 2026-05-13:
+`transformers/src/transformers/models/nllb_moe/configuration_nllb_moe.py`, plus Hugging Face raw configs fetched on 2026-05-13:
 `facebook/nllb-moe-54b`, `hf-internal-testing/random-nllb-moe-2-experts`,
 `hf-tiny-model-private/tiny-random-NllbMoeForConditionalGeneration`,
 `hf-tiny-model-private/tiny-random-NllbMoeModel`,

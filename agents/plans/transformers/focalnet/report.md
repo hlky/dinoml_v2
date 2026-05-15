@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/focalnet-tiny, microsoft/focalnet-tiny-lrf, microsoft/focalnet-small, microsoft/focalnet-small-lrf, microsoft/focalnet-base, microsoft/focalnet-base-lrf
 Config source: HF config.json and preprocessor_config.json snapshots under _sources/hf_configs/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/focalnet/configuration_focalnet.py
-  X:/H/transformers/src/transformers/models/focalnet/modeling_focalnet.py
-  X:/H/transformers/src/transformers/models/focalnet/convert_focalnet_to_hf_format.py
-  X:/H/transformers/src/transformers/models/bit/image_processing_bit.py
-  X:/H/transformers/src/transformers/models/bit/image_processing_pil_bit.py
-  X:/H/transformers/src/transformers/image_processing_backends.py
+  transformers/src/transformers/models/focalnet/configuration_focalnet.py
+  transformers/src/transformers/models/focalnet/modeling_focalnet.py
+  transformers/src/transformers/models/focalnet/convert_focalnet_to_hf_format.py
+  transformers/src/transformers/models/bit/image_processing_bit.py
+  transformers/src/transformers/models/bit/image_processing_pil_bit.py
+  transformers/src/transformers/image_processing_backends.py
 Any missing files or assumptions:
   No family-specific image processor exists; AutoImageProcessor maps focalnet to BitImageProcessor.
   microsoft/focalnet-base-simmim-window6-192 returned 401 for config/preprocessor snapshots, so SimMIM checkpoint-specific values are not confirmed.

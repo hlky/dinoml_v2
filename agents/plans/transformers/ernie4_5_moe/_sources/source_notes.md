@@ -2,7 +2,7 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - `git log -1 --oneline`: `b75feb2af6 fix(minicpmv4_6): skip invalid failing tests (#45836)`
 - DinoML report target: `H:/dinoml_v2/agents/plans/transformers/ernie4_5_moe/report.md`

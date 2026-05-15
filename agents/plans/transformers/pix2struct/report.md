@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/pix2struct-base as the source-default reference; sweep also covers google/pix2struct-large, google/pix2struct-textcaps-base, google/pix2struct-docvqa-base, google/pix2struct-screen2words-base, and google/deplot.
 Config source: Hugging Face raw config.json, preprocessor_config.json, tokenizer_config.json, and model repo metadata fetched 2026-05-13.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pix2struct/configuration_pix2struct.py
-- X:/H/transformers/src/transformers/models/pix2struct/modeling_pix2struct.py
-- X:/H/transformers/src/transformers/models/pix2struct/processing_pix2struct.py
-- X:/H/transformers/src/transformers/models/pix2struct/image_processing_pix2struct.py
-- X:/H/transformers/src/transformers/models/pix2struct/image_processing_pil_pix2struct.py
+- transformers/src/transformers/models/pix2struct/configuration_pix2struct.py
+- transformers/src/transformers/models/pix2struct/modeling_pix2struct.py
+- transformers/src/transformers/models/pix2struct/processing_pix2struct.py
+- transformers/src/transformers/models/pix2struct/image_processing_pix2struct.py
+- transformers/src/transformers/models/pix2struct/image_processing_pil_pix2struct.py
 Any missing files or assumptions: no remote code is required for the inspected checkpoints. No generation_config.json is present in the sampled repos; generation defaults come from model/config/generation mixin behavior. Tokenizer is T5Tokenizer with SentencePiece files in the repos.
 ```
 

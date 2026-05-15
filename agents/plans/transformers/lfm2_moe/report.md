@@ -7,7 +7,7 @@ or imports were run, and no commit was made.
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: lfm2_moe
 Primary task: causal LM prefill/decode/generation
 Config source: local Lfm2MoeConfig plus HF config.json snapshots saved under _sources/
@@ -15,9 +15,9 @@ Config source: local Lfm2MoeConfig plus HF config.json snapshots saved under _so
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/lfm2_moe/configuration_lfm2_moe.py`
-- `X:/H/transformers/src/transformers/models/lfm2_moe/modeling_lfm2_moe.py`
-- `X:/H/transformers/src/transformers/models/lfm2_moe/modular_lfm2_moe.py`
+- `transformers/src/transformers/models/lfm2_moe/configuration_lfm2_moe.py`
+- `transformers/src/transformers/models/lfm2_moe/modeling_lfm2_moe.py`
+- `transformers/src/transformers/models/lfm2_moe/modular_lfm2_moe.py`
 - Cross-checks: `src/transformers/models/lfm2/modeling_lfm2.py`,
   `src/transformers/cache_utils.py`, `docs/source/en/model_doc/lfm2_moe.md`,
   `tests/models/lfm2_moe/test_modeling_lfm2_moe.py`

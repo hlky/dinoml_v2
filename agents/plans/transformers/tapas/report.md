@@ -5,7 +5,7 @@
 ```text
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: tapas
-Primary source checkout: X:/H/transformers
+Primary source checkout: transformers
 Report path: H:/dinoml_v2/agents/plans/transformers/tapas/report.md
 Config snapshot: H:/dinoml_v2/agents/plans/transformers/tapas/hf_config_snapshot.json
 ```

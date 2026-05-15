@@ -8,7 +8,7 @@ Status: focused Sana-family audit report.
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Efficient-Large-Model/Sana_1600M_1024px_diffusers
@@ -32,25 +32,25 @@ Config sources:
   `huggingface_hub.hf_hub_download` and saved under H:/configs.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/sana/pipeline_sana.py
-  X:/H/diffusers/src/diffusers/pipelines/sana/pipeline_sana_sprint.py
-  X:/H/diffusers/src/diffusers/pipelines/sana/pipeline_sana_sprint_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/sana/pipeline_sana_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sana.py
+  diffusers/src/diffusers/pipelines/sana/pipeline_sana.py
+  diffusers/src/diffusers/pipelines/sana/pipeline_sana_sprint.py
+  diffusers/src/diffusers/pipelines/sana/pipeline_sana_sprint_img2img.py
+  diffusers/src/diffusers/pipelines/sana/pipeline_sana_controlnet.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sana.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/sana_transformer.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_sana.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_dc.py
+  diffusers/src/diffusers/models/transformers/sana_transformer.py
+  diffusers/src/diffusers/models/controlnets/controlnet_sana.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_dc.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_scm.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_scm.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   Gemma2Model text encoder configs and GemmaTokenizer/GemmaTokenizerFast

@@ -6,16 +6,16 @@ Candidate slug: `schedulers`
 
 ```text
 Diffusers checkout:
-  X:/H/diffusers
+  diffusers
 
 Commit inspected:
   b3a515080752a3ba7ca92161e25530c7f280f629
 
 Primary source files inspected:
-  X:/H/diffusers/src/diffusers/schedulers/__init__.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_utils.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_*.py
-  X:/H/diffusers/src/diffusers/schedulers/deprecated/scheduling_*.py
+  diffusers/src/diffusers/schedulers/__init__.py
+  diffusers/src/diffusers/schedulers/scheduling_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_*.py
+  diffusers/src/diffusers/schedulers/deprecated/scheduling_*.py
 
 Project staging context:
   agents/plans/diffusers/scheduler_matrix/report.md

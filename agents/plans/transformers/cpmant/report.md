@@ -11,11 +11,11 @@ Dinoml assumptions: inference-only first, CUDA GPU target, preserve Transformers
 
 Source files inspected:
 
-- Local: `X:/H/transformers/src/transformers/models/cpmant/configuration_cpmant.py`
-- Local: `X:/H/transformers/src/transformers/models/cpmant/modeling_cpmant.py`
-- Local: `X:/H/transformers/src/transformers/models/cpmant/tokenization_cpmant.py`
-- Local shared utilities: `X:/H/transformers/src/transformers/cache_utils.py`, `X:/H/transformers/src/transformers/generation/utils.py`
-- Auto mappings: `X:/H/transformers/src/transformers/models/auto/modeling_auto.py`, `X:/H/transformers/src/transformers/models/auto/tokenization_auto.py`
+- Local: `transformers/src/transformers/models/cpmant/configuration_cpmant.py`
+- Local: `transformers/src/transformers/models/cpmant/modeling_cpmant.py`
+- Local: `transformers/src/transformers/models/cpmant/tokenization_cpmant.py`
+- Local shared utilities: `transformers/src/transformers/cache_utils.py`, `transformers/src/transformers/generation/utils.py`
+- Auto mappings: `transformers/src/transformers/models/auto/modeling_auto.py`, `transformers/src/transformers/models/auto/tokenization_auto.py`
 - Upstream source URL pattern at the pinned commit: `https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/cpmant/...`
 
 Model configs and snapshots inspected:

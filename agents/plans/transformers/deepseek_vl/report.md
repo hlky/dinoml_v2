@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-- Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+- Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 - Representative configs report transformers_version 4.53.0.dev0
 
 Model id:
@@ -20,12 +20,12 @@ Config source:
 - Matching files for deepseek-community/deepseek-vl-7b-chat, used only to identify the hybrid family boundary.
 
 Source files inspected:
-- X:/H/transformers/src/transformers/models/deepseek_vl/configuration_deepseek_vl.py
-- X:/H/transformers/src/transformers/models/deepseek_vl/modeling_deepseek_vl.py
-- X:/H/transformers/src/transformers/models/deepseek_vl/processing_deepseek_vl.py
-- X:/H/transformers/src/transformers/models/deepseek_vl/image_processing_deepseek_vl.py
-- X:/H/transformers/src/transformers/models/deepseek_vl/image_processing_pil_deepseek_vl.py
-- X:/H/transformers/src/transformers/models/deepseek_vl/modular_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/configuration_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/modeling_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/processing_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/image_processing_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/image_processing_pil_deepseek_vl.py
+- transformers/src/transformers/models/deepseek_vl/modular_deepseek_vl.py
 - Supporting backbone source: siglip/modeling_siglip.py, siglip/configuration_siglip.py, llama/modeling_llama.py, llama/configuration_llama.py
 - Boundary check only: deepseek_vl_hybrid/modeling_deepseek_vl_hybrid.py, image_processing_deepseek_vl_hybrid.py, processing_deepseek_vl_hybrid.py
 

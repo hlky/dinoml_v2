@@ -8,7 +8,7 @@ Runtime scope: non-deprecated `LattePipeline` text-to-video generation with exte
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   maxin-cn/Latte-1
@@ -31,22 +31,22 @@ Config sources:
     maxin-cn/Latte-1 README and API metadata
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/latte/pipeline_latte.py
-  X:/H/diffusers/src/diffusers/pipelines/latte/__init__.py
+  diffusers/src/diffusers/pipelines/latte/pipeline_latte.py
+  diffusers/src/diffusers/pipelines/latte/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/latte_transformer_3d.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_temporal_decoder.py, by config inventory only
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/latte_transformer_3d.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_temporal_decoder.py, by config inventory only
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/video_processor.py
 
 External component configs inspected:
   T5EncoderModel and T5Tokenizer configs from maxin-cn/Latte-1.

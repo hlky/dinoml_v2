@@ -20,4 +20,4 @@ Treat Canny as CPU/data-pipeline preprocessing first. If moved into DinoML runti
 
 - `agents/plans/auxiliary/control_preprocessors.md`
 - `H:/controlnet_aux/src/controlnet_aux/canny/__init__.py`
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py:310`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py:310`

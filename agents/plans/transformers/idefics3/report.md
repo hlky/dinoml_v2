@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: HuggingFaceM4/Idefics3-8B-Llama3, plus tiny/debug, fine-tune, and quantized config variants
 Config source: Hugging Face Hub raw config/preprocessor/tokenizer files, May 13 2026
 Source files inspected:
-  X:/H/transformers/src/transformers/models/idefics3/modeling_idefics3.py
-  X:/H/transformers/src/transformers/models/idefics3/configuration_idefics3.py
-  X:/H/transformers/src/transformers/models/idefics3/processing_idefics3.py
-  X:/H/transformers/src/transformers/models/idefics3/image_processing_idefics3.py
-  X:/H/transformers/src/transformers/models/idefics3/image_processing_pil_idefics3.py
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-  X:/H/transformers/src/transformers/models/llama/configuration_llama.py
-  X:/H/transformers/src/transformers/models/idefics2/modeling_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/configuration_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/processing_idefics2.py
+  transformers/src/transformers/models/idefics3/modeling_idefics3.py
+  transformers/src/transformers/models/idefics3/configuration_idefics3.py
+  transformers/src/transformers/models/idefics3/processing_idefics3.py
+  transformers/src/transformers/models/idefics3/image_processing_idefics3.py
+  transformers/src/transformers/models/idefics3/image_processing_pil_idefics3.py
+  transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/llama/configuration_llama.py
+  transformers/src/transformers/models/idefics2/modeling_idefics2.py
+  transformers/src/transformers/models/idefics2/configuration_idefics2.py
+  transformers/src/transformers/models/idefics2/processing_idefics2.py
 Any missing files or assumptions:
   Native source is authoritative for this report; no modular_idefics3.py exists in this checkout.
   The production config carries legacy/remote-code fields such as text_config.perceiver_config and text_config.use_resampler, but the inspected native Idefics3 source does not read them.

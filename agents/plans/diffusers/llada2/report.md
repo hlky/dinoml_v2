@@ -6,7 +6,7 @@ Candidate slug: `llada2`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   inclusionAI/LLaDA2.1-mini
@@ -33,8 +33,8 @@ Config sources:
   The official repos are public and not gated. No authenticated retry was needed.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/llada2/pipeline_llada2.py
-  X:/H/diffusers/src/diffusers/pipelines/llada2/__init__.py
+  diffusers/src/diffusers/pipelines/llada2/pipeline_llada2.py
+  diffusers/src/diffusers/pipelines/llada2/__init__.py
 
 Model files inspected:
   No Diffusers model file exists for this target. The pipeline expects an
@@ -44,13 +44,13 @@ Model files inspected:
     inclusionAI/*/modeling_llada2_moe.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_block_refinement.py
-  X:/H/diffusers/src/diffusers/schedulers/__init__.py
-  X:/H/diffusers/docs/source/en/api/pipelines/llada2.md
-  X:/H/diffusers/docs/source/en/api/schedulers/block_refinement.md
-  X:/H/diffusers/examples/discrete_diffusion/sample_llada2.py
-  X:/H/diffusers/tests/pipelines/llada2/test_llada2.py
-  X:/H/diffusers/tests/schedulers/test_scheduler_block_refinement.py
+  diffusers/src/diffusers/schedulers/scheduling_block_refinement.py
+  diffusers/src/diffusers/schedulers/__init__.py
+  diffusers/docs/source/en/api/pipelines/llada2.md
+  diffusers/docs/source/en/api/schedulers/block_refinement.md
+  diffusers/examples/discrete_diffusion/sample_llada2.py
+  diffusers/tests/pipelines/llada2/test_llada2.py
+  diffusers/tests/schedulers/test_scheduler_block_refinement.py
 
 External component configs inspected:
   `PreTrainedTokenizerFast` tokenizer configs and `LLaDA2MoeConfig` /

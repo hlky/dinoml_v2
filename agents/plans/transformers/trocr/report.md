@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/trocr-base-handwritten as the common OCR reference; sweep also covers small/base/large printed and large handwritten.
 Config source: official Hugging Face config.json, preprocessor_config.json, tokenizer_config.json, generation_config.json snapshots under _sources/hf_configs/.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/trocr/modeling_trocr.py
-- X:/H/transformers/src/transformers/models/trocr/configuration_trocr.py
-- X:/H/transformers/src/transformers/models/trocr/processing_trocr.py
-- X:/H/transformers/src/transformers/models/vision_encoder_decoder/modeling_vision_encoder_decoder.py for wrapper ownership boundary.
+- transformers/src/transformers/models/trocr/modeling_trocr.py
+- transformers/src/transformers/models/trocr/configuration_trocr.py
+- transformers/src/transformers/models/trocr/processing_trocr.py
+- transformers/src/transformers/models/vision_encoder_decoder/modeling_vision_encoder_decoder.py for wrapper ownership boundary.
 Any missing files or assumptions: no gated/401/403 gaps found for sampled Microsoft checkpoints. Vision encoder operator coverage composes existing ViT/DeiT audits rather than being re-owned by this TrOCR decoder audit.
 ```
 

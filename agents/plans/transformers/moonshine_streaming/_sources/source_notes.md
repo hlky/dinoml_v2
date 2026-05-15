@@ -2,7 +2,7 @@
 
 ## Transformers source basis
 
-- Local source checkout: `X:/H/transformers`
+- Local source checkout: `transformers`
 - Inspected commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Generated runtime source:
   - `src/transformers/models/moonshine_streaming/modeling_moonshine_streaming.py`

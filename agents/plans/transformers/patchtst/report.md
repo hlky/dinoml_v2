@@ -10,11 +10,11 @@ Primary DinoML runtime target: `PatchTSTForPrediction` deterministic time-series
 
 Files inspected:
 
-- `X:/H/transformers/src/transformers/models/patchtst/configuration_patchtst.py`
-- `X:/H/transformers/src/transformers/models/patchtst/modeling_patchtst.py`
-- `X:/H/transformers/src/transformers/time_series_utils.py`
-- `X:/H/transformers/tests/models/patchtst/test_modeling_patchtst.py`
-- `X:/H/transformers/docs/source/en/model_doc/patchtst.md`
+- `transformers/src/transformers/models/patchtst/configuration_patchtst.py`
+- `transformers/src/transformers/models/patchtst/modeling_patchtst.py`
+- `transformers/src/transformers/time_series_utils.py`
+- `transformers/tests/models/patchtst/test_modeling_patchtst.py`
+- `transformers/docs/source/en/model_doc/patchtst.md`
 
 Pinned URLs:
 

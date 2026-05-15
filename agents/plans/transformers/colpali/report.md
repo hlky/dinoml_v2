@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers.
+  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers.
 
 Model id:
   Primary native checkpoints: vidore/colpali-v1.2-hf, vidore/colpali-v1.3-hf.
@@ -17,17 +17,17 @@ Config source:
   agents/plans/transformers/colpali/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/colpali/configuration_colpali.py
-  X:/H/transformers/src/transformers/models/colpali/modeling_colpali.py
-  X:/H/transformers/src/transformers/models/colpali/processing_colpali.py
-  X:/H/transformers/src/transformers/models/colpali/modular_colpali.py
-  X:/H/transformers/src/transformers/models/paligemma/configuration_paligemma.py
-  X:/H/transformers/src/transformers/models/paligemma/modeling_paligemma.py
-  X:/H/transformers/src/transformers/models/paligemma/processing_paligemma.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/gemma/modeling_gemma.py
-  X:/H/transformers/tests/models/colpali/test_modeling_colpali.py
-  X:/H/transformers/tests/models/colpali/test_processing_colpali.py
+  transformers/src/transformers/models/colpali/configuration_colpali.py
+  transformers/src/transformers/models/colpali/modeling_colpali.py
+  transformers/src/transformers/models/colpali/processing_colpali.py
+  transformers/src/transformers/models/colpali/modular_colpali.py
+  transformers/src/transformers/models/paligemma/configuration_paligemma.py
+  transformers/src/transformers/models/paligemma/modeling_paligemma.py
+  transformers/src/transformers/models/paligemma/processing_paligemma.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/gemma/modeling_gemma.py
+  transformers/tests/models/colpali/test_modeling_colpali.py
+  transformers/tests/models/colpali/test_processing_colpali.py
 
 Any missing files or assumptions:
   processing_colpali.py is generated from modular_colpali.py; future source

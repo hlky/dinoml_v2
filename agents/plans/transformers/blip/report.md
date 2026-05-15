@@ -12,13 +12,13 @@ Model id:
 Config source:
   Hugging Face config.json, preprocessor_config.json, tokenizer_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/blip/modeling_blip.py
-  X:/H/transformers/src/transformers/models/blip/modeling_blip_text.py
-  X:/H/transformers/src/transformers/models/blip/configuration_blip.py
-  X:/H/transformers/src/transformers/models/blip/processing_blip.py
-  X:/H/transformers/src/transformers/models/blip/image_processing_blip.py
-  X:/H/transformers/src/transformers/image_processing_backends.py
-  X:/H/transformers/tests/models/blip/test_modeling_blip.py
+  transformers/src/transformers/models/blip/modeling_blip.py
+  transformers/src/transformers/models/blip/modeling_blip_text.py
+  transformers/src/transformers/models/blip/configuration_blip.py
+  transformers/src/transformers/models/blip/processing_blip.py
+  transformers/src/transformers/models/blip/image_processing_blip.py
+  transformers/src/transformers/image_processing_backends.py
+  transformers/tests/models/blip/test_modeling_blip.py
 Any missing files or assumptions:
   No remote-code files are required for the inspected Salesforce and internal-testing BLIP checkpoints. Local source is authoritative. Official HF configs were fetched from public model repos on 2026-05-13.
 ```

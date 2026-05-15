@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/rag-token-base, facebook/rag-token-nq, facebook/rag-sequence-base, facebook/rag-sequence-nq
 Config source: raw Hugging Face Hub config.json files; see config_sweep.md
 Source files inspected:
-- X:/H/transformers/src/transformers/models/rag/configuration_rag.py
-- X:/H/transformers/src/transformers/models/rag/modeling_rag.py
-- X:/H/transformers/src/transformers/models/rag/retrieval_rag.py
-- X:/H/transformers/src/transformers/models/rag/tokenization_rag.py
-- X:/H/transformers/src/transformers/models/rag/__init__.py
+- transformers/src/transformers/models/rag/configuration_rag.py
+- transformers/src/transformers/models/rag/modeling_rag.py
+- transformers/src/transformers/models/rag/retrieval_rag.py
+- transformers/src/transformers/models/rag/tokenization_rag.py
+- transformers/src/transformers/models/rag/__init__.py
 Any missing files or assumptions:
 - RAG delegates neural bodies to AutoModel DPR question encoder and AutoModelForSeq2SeqLM generator. This report owns the RAG wrapper/retrieval/scoring/marginalization ABI, not full DPR or BART operator audits.
 - Representative configs were public. No gated model repo was encountered.

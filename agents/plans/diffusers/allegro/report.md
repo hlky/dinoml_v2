@@ -6,7 +6,7 @@ Candidate slug: `allegro`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   rhymes-ai/Allegro
@@ -28,26 +28,26 @@ Config sources:
     rhymes-ai/Allegro-TI2V/tokenizer/tokenizer_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/allegro/pipeline_allegro.py
-  X:/H/diffusers/src/diffusers/pipelines/allegro/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/allegro/__init__.py
+  diffusers/src/diffusers/pipelines/allegro/pipeline_allegro.py
+  diffusers/src/diffusers/pipelines/allegro/pipeline_output.py
+  diffusers/src/diffusers/pipelines/allegro/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_allegro.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_allegro.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/downsampling.py
-  X:/H/diffusers/src/diffusers/models/upsampling.py
+  diffusers/src/diffusers/models/transformers/transformer_allegro.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_allegro.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/downsampling.py
+  diffusers/src/diffusers/models/upsampling.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   T5EncoderModel and T5Tokenizer configs from the two official repos.

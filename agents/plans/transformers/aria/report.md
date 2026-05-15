@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: rhymes-ai/Aria, plus representative public variants listed below
 Config source: HF config/preprocessor/tokenizer/generation files saved under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/aria/configuration_aria.py
-- X:/H/transformers/src/transformers/models/aria/modeling_aria.py
-- X:/H/transformers/src/transformers/models/aria/modular_aria.py
-- X:/H/transformers/src/transformers/models/aria/processing_aria.py
-- X:/H/transformers/src/transformers/models/aria/image_processing_aria.py
-- X:/H/transformers/src/transformers/models/aria/image_processing_pil_aria.py
-- X:/H/transformers/src/transformers/models/idefics3/configuration_idefics3.py
-- X:/H/transformers/src/transformers/models/idefics3/modeling_idefics3.py
+- transformers/src/transformers/models/aria/configuration_aria.py
+- transformers/src/transformers/models/aria/modeling_aria.py
+- transformers/src/transformers/models/aria/modular_aria.py
+- transformers/src/transformers/models/aria/processing_aria.py
+- transformers/src/transformers/models/aria/image_processing_aria.py
+- transformers/src/transformers/models/aria/image_processing_pil_aria.py
+- transformers/src/transformers/models/idefics3/configuration_idefics3.py
+- transformers/src/transformers/models/idefics3/modeling_idefics3.py
 Any missing files or assumptions: no gated or 401/403 checkpoints encountered; older Aria repos are remote-code-era configs and must be distinguished from the current in-library implementation.
 ```
 

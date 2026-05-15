@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model family:
   xlm
@@ -23,9 +23,9 @@ Config source:
   Snapshots are under agents/plans/transformers/xlm/_sources/configs/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/xlm/configuration_xlm.py
-  X:/H/transformers/src/transformers/models/xlm/modeling_xlm.py
-  X:/H/transformers/src/transformers/models/xlm/tokenization_xlm.py
+  transformers/src/transformers/models/xlm/configuration_xlm.py
+  transformers/src/transformers/models/xlm/modeling_xlm.py
+  transformers/src/transformers/models/xlm/tokenization_xlm.py
 
 Any missing files or assumptions:
   No remote code is required for native XLM. No DinoML imports, model execution,

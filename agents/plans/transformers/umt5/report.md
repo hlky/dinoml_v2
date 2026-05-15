@@ -8,10 +8,10 @@ Model id: google/umt5-small, google/umt5-base, google/umt5-xl, google/umt5-xxl
 Config source: Hugging Face config.json snapshots under
   agents/plans/transformers/umt5/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/umt5/configuration_umt5.py
-  X:/H/transformers/src/transformers/models/umt5/modeling_umt5.py
-  X:/H/transformers/src/transformers/models/t5/tokenization_t5.py
-  X:/H/transformers/src/transformers/models/auto/tokenization_auto.py
+  transformers/src/transformers/models/umt5/configuration_umt5.py
+  transformers/src/transformers/models/umt5/modeling_umt5.py
+  transformers/src/transformers/models/t5/tokenization_t5.py
+  transformers/src/transformers/models/auto/tokenization_auto.py
 Any missing files or assumptions:
   No remote-code files are required for official UMT5 checkpoints. Official
   configs were accessible; no gated/401 gaps were encountered. UMT5 has no

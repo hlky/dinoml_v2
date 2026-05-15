@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: BAAI/AltCLIP family
 Config source: HF config/preprocessor/tokenizer JSON snapshots under agents/plans/transformers/altclip/_sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/altclip/modeling_altclip.py
-- X:/H/transformers/src/transformers/models/altclip/configuration_altclip.py
-- X:/H/transformers/src/transformers/models/altclip/modular_altclip.py
-- X:/H/transformers/src/transformers/models/altclip/processing_altclip.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/activations.py
-- X:/H/transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py
+- transformers/src/transformers/models/altclip/modeling_altclip.py
+- transformers/src/transformers/models/altclip/configuration_altclip.py
+- transformers/src/transformers/models/altclip/modular_altclip.py
+- transformers/src/transformers/models/altclip/processing_altclip.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/activations.py
+- transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py
 Any missing files or assumptions:
 - modeling_altclip.py and configuration_altclip.py are generated from modular_altclip.py. Treat generated files as runtime source basis and modular_altclip.py as future source-edit basis.
 - No remote code is required for the inspected public BAAI checkpoints.

@@ -8,12 +8,12 @@ Model family: cohere
 Primary runtime target: causal LM prefill/decode for text generation
 Config source: local Transformers source defaults plus HF config snapshots; production CohereForAI repos were gated from this environment.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/cohere/configuration_cohere.py
-- X:/H/transformers/src/transformers/models/cohere/modeling_cohere.py
-- X:/H/transformers/src/transformers/models/cohere/modular_cohere.py
-- X:/H/transformers/src/transformers/models/cohere/tokenization_cohere.py
-- X:/H/transformers/src/transformers/models/cohere2/configuration_cohere2.py
-- X:/H/transformers/src/transformers/models/cohere2/modeling_cohere2.py
+- transformers/src/transformers/models/cohere/configuration_cohere.py
+- transformers/src/transformers/models/cohere/modeling_cohere.py
+- transformers/src/transformers/models/cohere/modular_cohere.py
+- transformers/src/transformers/models/cohere/tokenization_cohere.py
+- transformers/src/transformers/models/cohere2/configuration_cohere2.py
+- transformers/src/transformers/models/cohere2/modeling_cohere2.py
 Snapshots written under: agents/plans/transformers/cohere/_sources/
 Any missing files or assumptions: official production `CohereForAI/*` config URLs returned 401; open HF mirrors/quant repos are labeled as mirrors below. `modeling_cohere.py` is generated from `modular_cohere.py`; future source edits should target the modular file.
 ```

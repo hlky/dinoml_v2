@@ -2,9 +2,9 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/lfm2`
+- Family directory: `transformers/src/transformers/models/lfm2`
 - Generated implementation: `modeling_lfm2.py` says it is generated from `modular_lfm2.py`; future source edits should inspect `modular_lfm2.py` first and use `modeling_lfm2.py` as the concrete generated runtime basis.
 
 ## Files inspected
@@ -22,11 +22,11 @@
   - Forward builds one `DynamicCache(config=...)` when `use_cache` is true. Full-attention layers update KV cache; conv layers update `conv_states` through cache utilities.
 - `modular_lfm2.py`
   - Authoritative modular file; imports pieces from Llama/Gemma2/Bamba before generation.
-- `X:/H/transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/cache_utils.py`
   - `layer_types` map `"full_attention"` to `DynamicLayer` and `"conv"` to `LinearAttentionLayer`.
   - Linear/conv cache owns `conv_states`; shape is initialized from the first conv-state tensor and updated in place to preserve static address for cudagraphs.
   - `reorder_cache` handles `conv_states` with `index_select(0, beam_idx)`; LFM2 does not use recurrent states.
-- `X:/H/transformers/src/transformers/configuration_utils.py` and `modeling_rope_utils.py`
+- `transformers/src/transformers/configuration_utils.py` and `modeling_rope_utils.py`
   - Legacy `rope_theta` is standardized into `rope_parameters`.
   - Default RoPE validation/standardization should be treated as source-owned config normalization, not an LFM2 modeling op.
 

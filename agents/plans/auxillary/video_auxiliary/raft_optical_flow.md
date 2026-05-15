@@ -23,7 +23,7 @@ RAFT is loop/state heavy. First integration should keep it as an external prepro
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/raft/raft.py`
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/flow.py:19`
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_void.py:15`
+- `deepbeepmeep/Wan2GP/preprocessing/raft/raft.py`
+- `deepbeepmeep/Wan2GP/preprocessing/flow.py:19`
+- `Comfy-Org/ComfyUI/comfy_extras/nodes_void.py:15`
 

@@ -22,6 +22,6 @@ Do not treat VLM captioning as one model. Each selected VLM should compose its T
 
 ## Sources
 
-- `H:/uis/vladmandic/sdnext/modules/caption/vqa.py`
-- `H:/uis/vladmandic/sdnext/modules/caption/models_def.py`
+- `vladmandic/sdnext/modules/caption/vqa.py`
+- `vladmandic/sdnext/modules/caption/models_def.py`
 

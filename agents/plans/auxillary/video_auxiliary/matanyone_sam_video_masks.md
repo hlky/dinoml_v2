@@ -22,8 +22,8 @@ Use Transformers SAM reports for model graph coverage where possible, but model 
 
 ## Sources
 
-- `X:/H/transformers/src/transformers/models/sam`
-- `X:/H/transformers/src/transformers/models/sam2`
-- `X:/H/transformers/src/transformers/models/sam3`
+- `transformers/src/transformers/models/sam`
+- `transformers/src/transformers/models/sam2`
+- `transformers/src/transformers/models/sam3`
 - `agents/plans/auxiliary/video_auxiliary.md`
 

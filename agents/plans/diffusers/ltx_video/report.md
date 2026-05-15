@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Lightricks/LTX-Video
@@ -24,31 +24,31 @@ Config sources:
   this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_image2video.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_condition.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_i2v_long_multi_prompt.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_latent_upsample.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/modeling_latent_upsampler.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_output.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_image2video.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_condition.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_i2v_long_multi_prompt.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx_latent_upsample.py
+  diffusers/src/diffusers/pipelines/ltx/modeling_latent_upsampler.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_ltx.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_ltx2.py
+  diffusers/src/diffusers/models/transformers/transformer_ltx.py
+  diffusers/src/diffusers/models/transformers/transformer_ltx2.py
     (listed only to split LTX2 scope)
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
     (listed only to split LTX2 scope)
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ltx_euler_ancestral_rf.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_ltx_euler_ancestral_rf.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   T5EncoderModel and T5TokenizerFast configs from official LTX-Video repos.

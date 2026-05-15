@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary `facebook/m2m100_418M`; representative configs also inspected for `facebook/m2m100_1.2B`, `facebook/wmt21-dense-24-wide-en-x`, `facebook/wmt21-dense-24-wide-x-en`, `facebook/m2m100-12B-last-ckpt`, and `hf-internal-testing/tiny-random-M2M100ForConditionalGeneration`.
 

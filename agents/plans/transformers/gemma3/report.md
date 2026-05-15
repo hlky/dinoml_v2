@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model family / architecture:
@@ -15,15 +15,15 @@ Primary runtime target:
   Gemma3ForConditionalGeneration image+text generation.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/gemma3/modular_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/modeling_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/configuration_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/processing_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/image_processing_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/image_processing_pil_gemma3.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-  X:/H/transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/models/gemma3/modular_gemma3.py
+  transformers/src/transformers/models/gemma3/modeling_gemma3.py
+  transformers/src/transformers/models/gemma3/configuration_gemma3.py
+  transformers/src/transformers/models/gemma3/processing_gemma3.py
+  transformers/src/transformers/models/gemma3/image_processing_gemma3.py
+  transformers/src/transformers/models/gemma3/image_processing_pil_gemma3.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/cache_utils.py
 
 Pinned source URLs for future review:
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/gemma3/modular_gemma3.py

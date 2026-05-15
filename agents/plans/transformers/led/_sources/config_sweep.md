@@ -1,6 +1,6 @@
 # LED config sweep notes
 
-Source basis: raw `config.json` files fetched from Hugging Face on 2026-05-13, plus local Transformers source snapshots copied from `X:/H/transformers/src/transformers/models/led`.
+Source basis: raw `config.json` files fetched from Hugging Face on 2026-05-13, plus local Transformers source snapshots copied from `transformers/src/transformers/models/led`.
 
 | Model id | Config snapshot | Architecture | d_model | Encoder layers | Decoder layers | Heads | FFN | Max encoder | Max decoder | Attention window | Vocab | Generation notes |
 |---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|

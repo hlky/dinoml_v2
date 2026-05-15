@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: abeja/gpt-neox-japanese-2.7b
 Config source: HF config.json plus local configuration defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/gpt_neox_japanese/configuration_gpt_neox_japanese.py
-  X:/H/transformers/src/transformers/models/gpt_neox_japanese/modeling_gpt_neox_japanese.py
-  X:/H/transformers/src/transformers/models/gpt_neox_japanese/tokenization_gpt_neox_japanese.py
-  X:/H/transformers/tests/models/gpt_neox_japanese/test_modeling_gpt_neox_japanese.py
+  transformers/src/transformers/models/gpt_neox_japanese/configuration_gpt_neox_japanese.py
+  transformers/src/transformers/models/gpt_neox_japanese/modeling_gpt_neox_japanese.py
+  transformers/src/transformers/models/gpt_neox_japanese/tokenization_gpt_neox_japanese.py
+  transformers/tests/models/gpt_neox_japanese/test_modeling_gpt_neox_japanese.py
 Any missing files or assumptions:
   No modular source file was found for this family.
   The primary target is GPTNeoXJapaneseForCausalLM text generation.

@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local source checkout: `X:/H/transformers`
+- Local source checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - In-library source basis: `src/transformers/models/modernbert`
 - `modeling_modernbert.py` is generated from `modular_modernbert.py`; future upstream source edits should target the modular file.
@@ -22,14 +22,14 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/modernbert/configuration_modernbert.py`
-- `X:/H/transformers/src/transformers/models/modernbert/modeling_modernbert.py`
-- `X:/H/transformers/src/transformers/models/modernbert/modular_modernbert.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
-- `X:/H/transformers/src/transformers/modeling_flash_attention_utils.py`
-- `X:/H/transformers/src/transformers/integrations/flash_attention.py`
-- `X:/H/transformers/src/transformers/integrations/sdpa_attention.py`
-- `X:/H/transformers/tests/models/modernbert/test_modeling_modernbert.py`
+- `transformers/src/transformers/models/modernbert/configuration_modernbert.py`
+- `transformers/src/transformers/models/modernbert/modeling_modernbert.py`
+- `transformers/src/transformers/models/modernbert/modular_modernbert.py`
+- `transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/modeling_flash_attention_utils.py`
+- `transformers/src/transformers/integrations/flash_attention.py`
+- `transformers/src/transformers/integrations/sdpa_attention.py`
+- `transformers/tests/models/modernbert/test_modeling_modernbert.py`
 
 Local snapshots written under `_sources/`:
 

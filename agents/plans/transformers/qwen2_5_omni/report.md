@@ -12,10 +12,10 @@ Dinoml assumptions: inference-only first, CUDA GPU target, faithful PyTorch axes
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen2_5_omni/modeling_qwen2_5_omni.py`
-- `X:/H/transformers/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py`
-- `X:/H/transformers/src/transformers/models/qwen2_5_omni/configuration_qwen2_5_omni.py`
-- `X:/H/transformers/src/transformers/models/qwen2_5_omni/processing_qwen2_5_omni.py`
+- `transformers/src/transformers/models/qwen2_5_omni/modeling_qwen2_5_omni.py`
+- `transformers/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py`
+- `transformers/src/transformers/models/qwen2_5_omni/configuration_qwen2_5_omni.py`
+- `transformers/src/transformers/models/qwen2_5_omni/processing_qwen2_5_omni.py`
 - Comparison files: `qwen2_5_vl/modeling_qwen2_5_vl.py`, `qwen2_5_vl/processing_qwen2_5_vl.py`, `qwen2_audio/modeling_qwen2_audio.py`, `qwen2_audio/processing_qwen2_audio.py`
 
 Snapshots saved:

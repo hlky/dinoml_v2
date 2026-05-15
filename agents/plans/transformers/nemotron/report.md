@@ -12,12 +12,12 @@ DinoML assumptions: inference-only first, CUDA GPU target, faithful PyTorch axes
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/nemotron/configuration_nemotron.py`
-- `X:/H/transformers/src/transformers/models/nemotron/modeling_nemotron.py`
-- `X:/H/transformers/src/transformers/models/nemotron/convert_nemotron_nemo_to_hf.py`
-- `X:/H/transformers/src/transformers/models/nemotron_h/configuration_nemotron_h.py`
-- `X:/H/transformers/src/transformers/models/nemotron_h/modular_nemotron_h.py`
-- `X:/H/transformers/src/transformers/models/nemotron_h/modeling_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron/configuration_nemotron.py`
+- `transformers/src/transformers/models/nemotron/modeling_nemotron.py`
+- `transformers/src/transformers/models/nemotron/convert_nemotron_nemo_to_hf.py`
+- `transformers/src/transformers/models/nemotron_h/configuration_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron_h/modular_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron_h/modeling_nemotron_h.py`
 - Related owners for inherited behavior: `models/zamba2/modeling_zamba2.py`, `models/deepseek_v3/modeling_deepseek_v3.py`, and `cache_utils.py`.
 
 Pinned source URLs:

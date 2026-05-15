@@ -3,19 +3,19 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4, local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4, local checkout transformers
 Model id: HuggingFaceM4/idefics-9b, HuggingFaceM4/idefics-9b-instruct, HuggingFaceM4/idefics-80b, HuggingFaceM4/idefics-80b-instruct, HuggingFaceM4/tiny-random-idefics
 Config source: official Hugging Face config/preprocessor/tokenizer JSON files from main branches, fetched 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/idefics/configuration_idefics.py
-- X:/H/transformers/src/transformers/models/idefics/modeling_idefics.py
-- X:/H/transformers/src/transformers/models/idefics/vision.py
-- X:/H/transformers/src/transformers/models/idefics/perceiver.py
-- X:/H/transformers/src/transformers/models/idefics/processing_idefics.py
-- X:/H/transformers/src/transformers/models/idefics/image_processing_idefics.py
-- X:/H/transformers/src/transformers/models/idefics/image_processing_pil_idefics.py
-- X:/H/transformers/tests/models/idefics/test_modeling_idefics.py
-- X:/H/transformers/tests/models/idefics/test_processing_idefics.py
+- transformers/src/transformers/models/idefics/configuration_idefics.py
+- transformers/src/transformers/models/idefics/modeling_idefics.py
+- transformers/src/transformers/models/idefics/vision.py
+- transformers/src/transformers/models/idefics/perceiver.py
+- transformers/src/transformers/models/idefics/processing_idefics.py
+- transformers/src/transformers/models/idefics/image_processing_idefics.py
+- transformers/src/transformers/models/idefics/image_processing_pil_idefics.py
+- transformers/tests/models/idefics/test_modeling_idefics.py
+- transformers/tests/models/idefics/test_processing_idefics.py
 Any missing files or assumptions: tokenizer implementation is standard LlamaTokenizer; tokenizer coupling was inspected through tokenizer_config.json and special_tokens_map.json, not a family-local tokenizer file. No remote-code files are required for the in-library idefics family.
 ```
 

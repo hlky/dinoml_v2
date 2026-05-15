@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id:
 
@@ -22,13 +22,13 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/roberta/modeling_roberta.py`
-- `X:/H/transformers/src/transformers/models/roberta/modular_roberta.py`
-- `X:/H/transformers/src/transformers/models/roberta/configuration_roberta.py`
-- `X:/H/transformers/src/transformers/models/roberta/tokenization_roberta.py`
-- `X:/H/transformers/src/transformers/models/roberta/tokenization_roberta_old.py`
-- Shared helpers: `X:/H/transformers/src/transformers/masking_utils.py`, `X:/H/transformers/src/transformers/integrations/sdpa_attention.py`, `X:/H/transformers/src/transformers/integrations/flash_attention.py`.
-- BERT comparison points: `X:/H/transformers/src/transformers/models/bert/modeling_bert.py`, `configuration_bert.py`, `tokenization_bert.py`.
+- `transformers/src/transformers/models/roberta/modeling_roberta.py`
+- `transformers/src/transformers/models/roberta/modular_roberta.py`
+- `transformers/src/transformers/models/roberta/configuration_roberta.py`
+- `transformers/src/transformers/models/roberta/tokenization_roberta.py`
+- `transformers/src/transformers/models/roberta/tokenization_roberta_old.py`
+- Shared helpers: `transformers/src/transformers/masking_utils.py`, `transformers/src/transformers/integrations/sdpa_attention.py`, `transformers/src/transformers/integrations/flash_attention.py`.
+- BERT comparison points: `transformers/src/transformers/models/bert/modeling_bert.py`, `configuration_bert.py`, `tokenization_bert.py`.
 
 Any missing files or assumptions:
 

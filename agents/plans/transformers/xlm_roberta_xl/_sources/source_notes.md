@@ -4,7 +4,7 @@ Scope: `xlm_roberta_xl` only.
 
 Transformers source checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Local verification: `git rev-parse HEAD` returned the requested commit.
 

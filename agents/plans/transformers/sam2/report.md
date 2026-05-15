@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary image-path sizing reference: facebook/sam2.1-hiera-tiny.
@@ -23,12 +23,12 @@ Config source:
   downloaded where present.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/sam2/configuration_sam2.py
-  X:/H/transformers/src/transformers/models/sam2/modeling_sam2.py
-  X:/H/transformers/src/transformers/models/sam2/processing_sam2.py
-  X:/H/transformers/src/transformers/models/sam2/image_processing_sam2.py
-  X:/H/transformers/src/transformers/models/sam2/modular_sam2.py
-  X:/H/transformers/src/transformers/models/sam2/convert_sam2_to_hf.py
+  transformers/src/transformers/models/sam2/configuration_sam2.py
+  transformers/src/transformers/models/sam2/modeling_sam2.py
+  transformers/src/transformers/models/sam2/processing_sam2.py
+  transformers/src/transformers/models/sam2/image_processing_sam2.py
+  transformers/src/transformers/models/sam2/modular_sam2.py
+  transformers/src/transformers/models/sam2/convert_sam2_to_hf.py
 
 Any missing files or assumptions:
   The public Facebook SAM2/SAM2.1 checkpoints sampled are model_type

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,11 +23,11 @@ Config source:
   Snapshots saved under agents/plans/transformers/fnet/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/fnet/modeling_fnet.py
-  X:/H/transformers/src/transformers/models/fnet/configuration_fnet.py
-  X:/H/transformers/src/transformers/models/fnet/tokenization_fnet.py
-  X:/H/transformers/src/transformers/activations.py
-  X:/H/transformers/tests/models/fnet/test_modeling_fnet.py
+  transformers/src/transformers/models/fnet/modeling_fnet.py
+  transformers/src/transformers/models/fnet/configuration_fnet.py
+  transformers/src/transformers/models/fnet/tokenization_fnet.py
+  transformers/src/transformers/activations.py
+  transformers/tests/models/fnet/test_modeling_fnet.py
 
 Any missing files or assumptions:
   No remote-code files are required for the in-library FNet family. This report

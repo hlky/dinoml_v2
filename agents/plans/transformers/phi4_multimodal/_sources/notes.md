@@ -2,7 +2,7 @@
 
 Audit date: 2026-05-13
 
-Transformers checkout: `X:/H/transformers`
+Transformers checkout: `transformers`
 
 Transformers commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 

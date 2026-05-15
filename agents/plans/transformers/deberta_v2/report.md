@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`, local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`, local checkout `transformers`.
 
 Model family: `deberta_v2`, config `model_type="deberta-v2"`.
 
@@ -10,10 +10,10 @@ Primary runtime target: encoder/base and masked-LM inference on CUDA. Classifica
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/deberta_v2/modeling_deberta_v2.py`
-- `X:/H/transformers/src/transformers/models/deberta_v2/configuration_deberta_v2.py`
-- `X:/H/transformers/src/transformers/models/deberta_v2/tokenization_deberta_v2.py`
-- `X:/H/transformers/src/transformers/models/deberta_v2/__init__.py`
+- `transformers/src/transformers/models/deberta_v2/modeling_deberta_v2.py`
+- `transformers/src/transformers/models/deberta_v2/configuration_deberta_v2.py`
+- `transformers/src/transformers/models/deberta_v2/tokenization_deberta_v2.py`
+- `transformers/src/transformers/models/deberta_v2/__init__.py`
 
 Representative config sources fetched from Hugging Face raw config JSON:
 

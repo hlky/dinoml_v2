@@ -2,22 +2,22 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `transformers`.
 
 Model id: primary source examples point at `Zyphra/Zamba2-2.7B` and `Zyphra/Zamba2-7B-v1`; representative public configs inspected for `Zyphra/Zamba2-1.2B`, `Zyphra/Zamba2-2.7B`, `Zyphra/Zamba2-2.7B-instruct`, and `Zyphra/Zamba2-7B-Instruct`.
 
 Config source:
 
-- `X:/H/transformers/src/transformers/models/zamba2/configuration_zamba2.py`
+- `transformers/src/transformers/models/zamba2/configuration_zamba2.py`
 - Public HF config URLs listed in `evidence_configs.md`.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/zamba2/modeling_zamba2.py`
-- `X:/H/transformers/src/transformers/models/zamba2/modular_zamba2.py`
-- `X:/H/transformers/src/transformers/models/zamba2/configuration_zamba2.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/tests/models/zamba2/test_modeling_zamba2.py`
+- `transformers/src/transformers/models/zamba2/modeling_zamba2.py`
+- `transformers/src/transformers/models/zamba2/modular_zamba2.py`
+- `transformers/src/transformers/models/zamba2/configuration_zamba2.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/tests/models/zamba2/test_modeling_zamba2.py`
 
 Any missing files or assumptions:
 

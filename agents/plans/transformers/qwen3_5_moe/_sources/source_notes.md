@@ -2,16 +2,16 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
-- Commit verified with `git -C X:/H/transformers rev-parse HEAD`: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Source directory: `X:/H/transformers/src/transformers/models/qwen3_5_moe`
+- Transformers checkout: `transformers`
+- Commit verified with `git -C transformers rev-parse HEAD`: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
+- Source directory: `transformers/src/transformers/models/qwen3_5_moe`
 - Files inspected:
   - `configuration_qwen3_5_moe.py`
   - `modeling_qwen3_5_moe.py`
   - `modular_qwen3_5_moe.py`
   - `__init__.py`
 - Related cache ABI source inspected:
-  - `X:/H/transformers/src/transformers/cache_utils.py`
+  - `transformers/src/transformers/cache_utils.py`
 - The generated modeling file states it is generated from `src/transformers/models/qwen3_5_moe/modular_qwen3_5_moe.py`; use `modular_qwen3_5_moe.py` for future Transformers source edits, but use the generated file for exact in-library runtime behavior.
 
 ## Representative config fetches

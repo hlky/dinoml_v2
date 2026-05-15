@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: shi-labs/dinat-* official checkpoints
 Config source: downloaded config.json and preprocessor_config.json snapshots in this folder
 Source files inspected:
-- X:/H/transformers/src/transformers/models/dinat/configuration_dinat.py
-- X:/H/transformers/src/transformers/models/dinat/modeling_dinat.py
-- X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-- X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-- X:/H/transformers/src/transformers/backbone_utils.py
-- X:/H/transformers/docs/source/en/model_doc/dinat.md
+- transformers/src/transformers/models/dinat/configuration_dinat.py
+- transformers/src/transformers/models/dinat/modeling_dinat.py
+- transformers/src/transformers/models/vit/image_processing_vit.py
+- transformers/src/transformers/models/auto/image_processing_auto.py
+- transformers/src/transformers/backbone_utils.py
+- transformers/docs/source/en/model_doc/dinat.md
 - NATTEN operation docs: https://natten.org/operations/
 Any missing files or assumptions: no gated/401 checkpoints encountered. NATTEN runtime source was not locally installed; operator ABI is inferred from Transformers call sites plus NATTEN public operation docs.
 ```

@@ -5,16 +5,16 @@ Audit date: 2026-05-13
 ## Local Transformers
 
 ```text
-Checkout: X:/H/transformers
+Checkout: transformers
 Commit: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
-Family dir: X:/H/transformers/src/transformers/models/mpnet
+Family dir: transformers/src/transformers/models/mpnet
 Files:
   configuration_mpnet.py
   modeling_mpnet.py
   tokenization_mpnet.py
   __init__.py
 Shared source:
-  X:/H/transformers/src/transformers/modeling_utils.py
+  transformers/src/transformers/modeling_utils.py
 ```
 
 ## Hugging Face configs

@@ -10,12 +10,12 @@ Config source: Hugging Face `config.json` and `preprocessor_config.json` fetched
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/sew/modeling_sew.py`
-- `X:/H/transformers/src/transformers/models/sew/modular_sew.py`
-- `X:/H/transformers/src/transformers/models/sew/configuration_sew.py`
-- `X:/H/transformers/src/transformers/models/sew/convert_sew_original_pytorch_checkpoint_to_pytorch.py`
-- `X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py`
-- `X:/H/transformers/src/transformers/feature_extraction_sequence_utils.py`
+- `transformers/src/transformers/models/sew/modeling_sew.py`
+- `transformers/src/transformers/models/sew/modular_sew.py`
+- `transformers/src/transformers/models/sew/configuration_sew.py`
+- `transformers/src/transformers/models/sew/convert_sew_original_pytorch_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py`
+- `transformers/src/transformers/feature_extraction_sequence_utils.py`
 
 Any missing files or assumptions: `modeling_sew.py` is generated from `modular_sew.py`; future source edits should target `modular_sew.py`, while this audit uses the generated file as the exact runtime source. `asapp/sew-d-*` checkpoints are not covered by this report because they use `model_type="sew-d"` and `src/transformers/models/sew_d/`; they need a separate SEW-D audit.
 

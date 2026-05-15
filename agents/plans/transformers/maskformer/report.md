@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary target: MaskFormerForInstanceSegmentation for semantic, instance,
@@ -25,13 +25,13 @@ Config source:
   Matching preprocessor_config.json files were inspected for each checkpoint.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/maskformer/configuration_maskformer.py
-  X:/H/transformers/src/transformers/models/maskformer/configuration_maskformer_swin.py
-  X:/H/transformers/src/transformers/models/maskformer/modeling_maskformer.py
-  X:/H/transformers/src/transformers/models/maskformer/modeling_maskformer_swin.py
-  X:/H/transformers/src/transformers/models/maskformer/modular_maskformer.py
-  X:/H/transformers/src/transformers/models/maskformer/image_processing_maskformer.py
-  X:/H/transformers/src/transformers/models/maskformer/image_processing_pil_maskformer.py
+  transformers/src/transformers/models/maskformer/configuration_maskformer.py
+  transformers/src/transformers/models/maskformer/configuration_maskformer_swin.py
+  transformers/src/transformers/models/maskformer/modeling_maskformer.py
+  transformers/src/transformers/models/maskformer/modeling_maskformer_swin.py
+  transformers/src/transformers/models/maskformer/modular_maskformer.py
+  transformers/src/transformers/models/maskformer/image_processing_maskformer.py
+  transformers/src/transformers/models/maskformer/image_processing_pil_maskformer.py
 
 Any missing files or assumptions:
   No remote code is required for the inspected official checkpoints. Raw

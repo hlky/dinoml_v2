@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary `facebook/mbart-large-cc25`; representative sweep also used `facebook/mbart-large-en-ro`, `facebook/mbart-large-50`, `facebook/mbart-large-50-many-to-many-mmt`, and `sshleifer/tiny-mbart`.
 
@@ -17,12 +17,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/mbart/configuration_mbart.py`
-- `X:/H/transformers/src/transformers/models/mbart/modeling_mbart.py`
-- `X:/H/transformers/src/transformers/models/mbart/tokenization_mbart.py`
-- `X:/H/transformers/src/transformers/models/mbart50/tokenization_mbart50.py`
-- `X:/H/transformers/src/transformers/generation/utils.py`
-- `X:/H/transformers/src/transformers/generation/logits_process.py`
+- `transformers/src/transformers/models/mbart/configuration_mbart.py`
+- `transformers/src/transformers/models/mbart/modeling_mbart.py`
+- `transformers/src/transformers/models/mbart/tokenization_mbart.py`
+- `transformers/src/transformers/models/mbart50/tokenization_mbart50.py`
+- `transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/generation/logits_process.py`
 
 Local snapshots:
 

@@ -6,7 +6,7 @@ Candidate slug: `cogview3_4`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   THUDM/CogView3-Plus-3B and zai-org/CogView3-Plus-3B
@@ -23,27 +23,27 @@ Config sources:
     tokenizer/tokenizer_config.json.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/cogview3/pipeline_cogview3plus.py
-  X:/H/diffusers/src/diffusers/pipelines/cogview3/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/cogview4/pipeline_cogview4.py
-  X:/H/diffusers/src/diffusers/pipelines/cogview4/pipeline_cogview4_control.py
-  X:/H/diffusers/src/diffusers/pipelines/cogview4/pipeline_output.py
+  diffusers/src/diffusers/pipelines/cogview3/pipeline_cogview3plus.py
+  diffusers/src/diffusers/pipelines/cogview3/pipeline_output.py
+  diffusers/src/diffusers/pipelines/cogview4/pipeline_cogview4.py
+  diffusers/src/diffusers/pipelines/cogview4/pipeline_cogview4_control.py
+  diffusers/src/diffusers/pipelines/cogview4/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_cogview3plus.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_cogview4.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_cogview3plus.py
+  diffusers/src/diffusers/models/transformers/transformer_cogview4.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   T5EncoderModel/T5Tokenizer configs for CogView3Plus.

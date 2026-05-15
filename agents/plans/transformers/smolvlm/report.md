@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 Transformers commit/version:
-`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id:
 Primary native-source target is `HuggingFaceTB/SmolVLM2-2.2B-Instruct`; checkpoint sweep also inspected `HuggingFaceTB/SmolVLM2-256M-Video-Instruct`, `HuggingFaceTB/SmolVLM2-500M-Video-Instruct`, and historical `HuggingFaceTB/SmolVLM-{256M,500M,Instruct}` configs.

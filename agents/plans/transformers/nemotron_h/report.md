@@ -18,9 +18,9 @@ Config source: raw Hub `config.json` files saved beside this report. The NVIDIA 
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/nemotron_h/configuration_nemotron_h.py`
-- `X:/H/transformers/src/transformers/models/nemotron_h/modular_nemotron_h.py`
-- `X:/H/transformers/src/transformers/models/nemotron_h/modeling_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron_h/configuration_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron_h/modular_nemotron_h.py`
+- `transformers/src/transformers/models/nemotron_h/modeling_nemotron_h.py`
 - Delegated/generated source references: `models/zamba2/modeling_zamba2.py`, `models/jamba/modeling_jamba.py`, `models/deepseek_v3/modeling_deepseek_v3.py`, `models/nemotron/modeling_nemotron.py`, `cache_utils.py`, `activations.py`
 - Tests/docs: `tests/models/nemotron_h/test_modeling_nemotron_h.py`, `docs/source/en/model_doc/nemotron_h.md`
 

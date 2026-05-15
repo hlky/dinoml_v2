@@ -4,11 +4,11 @@ Audit date: 2026-05-13
 
 Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - `git status --short`: clean for the inspected checkout.
 
-Pinned source snapshots copied from `X:/H/transformers/src/transformers/models/sam3/`:
+Pinned source snapshots copied from `transformers/src/transformers/models/sam3/`:
 
 - `configuration_sam3.py`
 - `modeling_sam3.py`

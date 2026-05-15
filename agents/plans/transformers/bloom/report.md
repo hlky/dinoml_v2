@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: bigscience/bloom family, primary sweep: bloom-560m, bloom-1b1, bloom-3b, bloom-7b1, bloom
 Config source: Hugging Face repo config.json/tokenizer_config.json fetched from official bigscience repos
 Source files inspected:
-  X:/H/transformers/src/transformers/models/bloom/configuration_bloom.py
-  X:/H/transformers/src/transformers/models/bloom/modeling_bloom.py
-  X:/H/transformers/src/transformers/models/bloom/__init__.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/bloom/configuration_bloom.py
+  transformers/src/transformers/models/bloom/modeling_bloom.py
+  transformers/src/transformers/models/bloom/__init__.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
   Local __init__.py imports tokenization_bloom, but tokenization_bloom.py/tokenization_bloom_fast.py is missing in the pinned checkout.
   Tokenizer facts below come from official HF tokenizer_config.json/special_tokens_map.json/tokenizer.json metadata, not local source.

@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   black-forest-labs/FLUX.1-schnell
@@ -23,30 +23,30 @@ Config sources:
   Component configs were saved with authenticated `hf download`.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_fill.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_control.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_kontext.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_prior_redux.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/modeling_flux.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_img2img.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_inpaint.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_fill.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_control.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_controlnet.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_kontext.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_prior_redux.py
+  diffusers/src/diffusers/pipelines/flux/modeling_flux.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_flux.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/transformer_flux.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
-  X:/H/diffusers/src/diffusers/loaders/transformer_flux.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/ip_adapter.py
+  diffusers/src/diffusers/loaders/transformer_flux.py
 
 External component configs inspected:
   CLIPTextModel / CLIPTokenizer for `openai/clip-vit-large-patch14`.

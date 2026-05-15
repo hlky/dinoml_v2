@@ -8,9 +8,9 @@ Model family: xlnet
 Primary runtime target: XLNetModel encoder-style hidden states plus XLNetLMHeadModel masked/permutation LM. Sequence classification, token classification, multiple choice, and QA heads are optional first-follow targets.
 Config source: official Hugging Face config.json files listed below.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/xlnet/configuration_xlnet.py
-- X:/H/transformers/src/transformers/models/xlnet/modeling_xlnet.py
-- X:/H/transformers/src/transformers/models/xlnet/tokenization_xlnet.py
+- transformers/src/transformers/models/xlnet/configuration_xlnet.py
+- transformers/src/transformers/models/xlnet/modeling_xlnet.py
+- transformers/src/transformers/models/xlnet/tokenization_xlnet.py
 Any missing files or assumptions: no remote code is required for native XLNet. This report is inference-first and treats dropout/training losses as deferred except where they alter inference head shape.
 ```
 

@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: suno/bark, suno/bark-small, hf-internal-testing/tiny-random-BarkModel
 Config source: Hugging Face config.json/generation_config.json snapshots under _sources/hf/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/bark/modeling_bark.py
-- X:/H/transformers/src/transformers/models/bark/configuration_bark.py
-- X:/H/transformers/src/transformers/models/bark/generation_configuration_bark.py
-- X:/H/transformers/src/transformers/models/bark/processing_bark.py
-- X:/H/transformers/src/transformers/generation/logits_process.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/models/encodec/{configuration_encodec.py,modeling_encodec.py}
+- transformers/src/transformers/models/bark/modeling_bark.py
+- transformers/src/transformers/models/bark/configuration_bark.py
+- transformers/src/transformers/models/bark/generation_configuration_bark.py
+- transformers/src/transformers/models/bark/processing_bark.py
+- transformers/src/transformers/generation/logits_process.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/encodec/{configuration_encodec.py,modeling_encodec.py}
 Any missing files or assumptions: no Bark preprocessor_config.json exists in inspected repos; Bark uses a tokenizer-only processor plus optional speaker embedding npy assets. No 401/403/gated gaps were observed.
 ```
 

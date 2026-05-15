@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -22,9 +22,9 @@ Config source:
   https://huggingface.co/mrm8488/convbert-small-spanish/raw/main/config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/convbert/modeling_convbert.py
-  X:/H/transformers/src/transformers/models/convbert/configuration_convbert.py
-  X:/H/transformers/src/transformers/models/convbert/tokenization_convbert.py
+  transformers/src/transformers/models/convbert/modeling_convbert.py
+  transformers/src/transformers/models/convbert/configuration_convbert.py
+  transformers/src/transformers/models/convbert/tokenization_convbert.py
 
 Source snapshots:
   agents/plans/transformers/convbert/_sources/modeling_convbert.py

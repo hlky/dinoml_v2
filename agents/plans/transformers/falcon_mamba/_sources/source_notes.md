@@ -4,14 +4,14 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Model directory: `X:/H/transformers/src/transformers/models/falcon_mamba`
+- Model directory: `transformers/src/transformers/models/falcon_mamba`
 - Runtime source: `modeling_falcon_mamba.py`
 - Future edit source: `modular_falcon_mamba.py`
 - Config source: `configuration_falcon_mamba.py`
-- Shared cache source inspected for state ABI: `X:/H/transformers/src/transformers/cache_utils.py`
-- Shared generation source inspected for `logits_to_keep` and generation slicing: `X:/H/transformers/src/transformers/generation/utils.py`
+- Shared cache source inspected for state ABI: `transformers/src/transformers/cache_utils.py`
+- Shared generation source inspected for `logits_to_keep` and generation slicing: `transformers/src/transformers/generation/utils.py`
 
 `modeling_falcon_mamba.py` and `configuration_falcon_mamba.py` are generated from `modular_falcon_mamba.py`; future upstream source edits should be checked against the modular file, but the generated files are the import/runtime source basis for DinoML parity.
 

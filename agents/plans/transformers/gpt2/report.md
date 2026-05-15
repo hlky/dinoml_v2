@@ -11,10 +11,10 @@ Dinoml assumptions: inference-only first, CUDA GPU target, preserve PyTorch/Tran
 
 Source files inspected:
 
-- Local: `X:/H/transformers/src/transformers/models/gpt2/modeling_gpt2.py`
-- Local: `X:/H/transformers/src/transformers/models/gpt2/configuration_gpt2.py`
-- Local: `X:/H/transformers/src/transformers/models/gpt2/tokenization_gpt2.py`
-- Local shared utilities: `X:/H/transformers/src/transformers/pytorch_utils.py`, `X:/H/transformers/src/transformers/cache_utils.py`, `X:/H/transformers/src/transformers/masking_utils.py`, `X:/H/transformers/src/transformers/activations.py`
+- Local: `transformers/src/transformers/models/gpt2/modeling_gpt2.py`
+- Local: `transformers/src/transformers/models/gpt2/configuration_gpt2.py`
+- Local: `transformers/src/transformers/models/gpt2/tokenization_gpt2.py`
+- Local shared utilities: `transformers/src/transformers/pytorch_utils.py`, `transformers/src/transformers/cache_utils.py`, `transformers/src/transformers/masking_utils.py`, `transformers/src/transformers/activations.py`
 - Upstream source URL pattern at the pinned commit: `https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/gpt2/...`
 
 Representative Hugging Face configs fetched from official Hub raw files:

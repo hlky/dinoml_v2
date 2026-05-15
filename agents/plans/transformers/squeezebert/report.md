@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 Transformers commit/version:
-`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id:
 Primary source/config target is `squeezebert/squeezebert-uncased`; representative task configs include `squeezebert/squeezebert-mnli`, `squeezebert/squeezebert-mnli-headless`, `mrm8488/squeezebert-finetuned-squadv2`, and tiny random SqueezeBERT configs.
@@ -13,10 +13,10 @@ Local `SqueezeBertConfig` plus HF `config.json` snapshots under `agents/plans/tr
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/squeezebert/configuration_squeezebert.py`
-- `X:/H/transformers/src/transformers/models/squeezebert/modeling_squeezebert.py`
-- `X:/H/transformers/src/transformers/models/squeezebert/tokenization_squeezebert.py`
-- `X:/H/transformers/tests/models/squeezebert/test_modeling_squeezebert.py`
+- `transformers/src/transformers/models/squeezebert/configuration_squeezebert.py`
+- `transformers/src/transformers/models/squeezebert/modeling_squeezebert.py`
+- `transformers/src/transformers/models/squeezebert/tokenization_squeezebert.py`
+- `transformers/tests/models/squeezebert/test_modeling_squeezebert.py`
 
 Any missing files or assumptions:
 No modular source file exists for this family in the inspected checkout. Tokenization is an alias to BERT tokenization. This report targets inference/eval; dropout and losses are training/eval-head concerns, not first-runtime graph requirements. No DinoML tests/imports were run.

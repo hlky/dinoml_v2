@@ -4,7 +4,7 @@ Source date: 2026-05-13.
 
 Primary source files:
 
-- Local Transformers checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
+- Local Transformers checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Model source: `src/transformers/models/xlstm/configuration_xlstm.py`
 - Model source: `src/transformers/models/xlstm/modeling_xlstm.py`
 

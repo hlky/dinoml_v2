@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/hiera-* official HF checkpoints sampled
 Config source: official HF config.json and preprocessor_config.json snapshots saved in this folder
 Source files inspected:
-  X:/H/transformers/src/transformers/models/hiera/configuration_hiera.py
-  X:/H/transformers/src/transformers/models/hiera/modeling_hiera.py
-  X:/H/transformers/src/transformers/models/hiera/convert_hiera_to_hf.py
+  transformers/src/transformers/models/hiera/configuration_hiera.py
+  transformers/src/transformers/models/hiera/modeling_hiera.py
+  transformers/src/transformers/models/hiera/convert_hiera_to_hf.py
 Any missing files or assumptions: no Hiera-specific image_processing file exists; processors are BitImageProcessor configs. No sampled official repos were gated or 401.
 ```
 

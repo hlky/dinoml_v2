@@ -10,10 +10,10 @@ Config source: fetched public Hugging Face `config.json`, `tokenizer_config.json
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/mt5/configuration_mt5.py`
-- `X:/H/transformers/src/transformers/models/mt5/modeling_mt5.py`
-- `X:/H/transformers/src/transformers/models/t5/tokenization_t5.py`
-- `X:/H/transformers/src/transformers/models/auto/tokenization_auto.py`
+- `transformers/src/transformers/models/mt5/configuration_mt5.py`
+- `transformers/src/transformers/models/mt5/modeling_mt5.py`
+- `transformers/src/transformers/models/t5/tokenization_t5.py`
+- `transformers/src/transformers/models/auto/tokenization_auto.py`
 - comparison basis only: copied-from comments and source-equivalent mT5 classes from T5; this report does not assume T5 equivalence unless the mT5 source explicitly copies or maps to it.
 
 Source URLs:

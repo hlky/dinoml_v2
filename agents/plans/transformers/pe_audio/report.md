@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/pe-a-frame-small, facebook/pe-a-frame-base, facebook/pe-a-frame-large
 Config source: Hub config.json/preprocessor_config.json fetched 2026-05-13; source defaults from local checkout.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pe_audio/configuration_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/modeling_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/modular_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/feature_extraction_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/processing_pe_audio.py
-- X:/H/transformers/tests/models/pe_audio/test_modeling_pe_audio.py
-- X:/H/transformers/docs/source/en/model_doc/pe_audio.md
+- transformers/src/transformers/models/pe_audio/configuration_pe_audio.py
+- transformers/src/transformers/models/pe_audio/modeling_pe_audio.py
+- transformers/src/transformers/models/pe_audio/modular_pe_audio.py
+- transformers/src/transformers/models/pe_audio/feature_extraction_pe_audio.py
+- transformers/src/transformers/models/pe_audio/processing_pe_audio.py
+- transformers/tests/models/pe_audio/test_modeling_pe_audio.py
+- transformers/docs/source/en/model_doc/pe_audio.md
 Any missing files or assumptions: modeling_pe_audio.py is generated from modular_pe_audio.py; future source edits should target modular_pe_audio.py. Hub ids facebook/pe-a-base and facebook/pe-a-large returned HTTP 401. facebook/pe-av-* are pe_audio_video composite checkpoints, not native pe_audio.
 ```
 

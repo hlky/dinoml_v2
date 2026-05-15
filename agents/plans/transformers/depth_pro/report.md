@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: apple/DepthPro-hf
 Config source: https://huggingface.co/apple/DepthPro-hf/raw/main/config.json at repo sha de816c8ce7168afcb231f96d501d72b869d0beda
 Source files inspected:
-- X:/H/transformers/src/transformers/models/depth_pro/modeling_depth_pro.py
-- X:/H/transformers/src/transformers/models/depth_pro/configuration_depth_pro.py
-- X:/H/transformers/src/transformers/models/depth_pro/image_processing_depth_pro.py
-- X:/H/transformers/src/transformers/models/dinov2/modeling_dinov2.py, because DepthPro composes three AutoModel DINOv2 encoders by default/checkpoint config
-- X:/H/transformers/src/transformers/models/dinov2/configuration_dinov2.py
+- transformers/src/transformers/models/depth_pro/modeling_depth_pro.py
+- transformers/src/transformers/models/depth_pro/configuration_depth_pro.py
+- transformers/src/transformers/models/depth_pro/image_processing_depth_pro.py
+- transformers/src/transformers/models/dinov2/modeling_dinov2.py, because DepthPro composes three AutoModel DINOv2 encoders by default/checkpoint config
+- transformers/src/transformers/models/dinov2/configuration_dinov2.py
 Any missing files or assumptions:
 - No native `processing_depth_pro.py` or tokenizer files are relevant.
 - `image_processor_config.json` is absent for `apple/DepthPro-hf`; `preprocessor_config.json` is present.

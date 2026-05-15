@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: pixio family; public mirror LiheYoung/pixio-vith16; official gated facebook/pixio-{vitb16,vitl16,vith16,vit1b16,vit5b16}
 Config source: src/transformers/models/pixio/configuration_pixio.py, public LiheYoung config.json, converter size map
 Source files inspected: configuration_pixio.py, modeling_pixio.py, modular_pixio.py by generation notice, convert_pixio_to_pytorch.py, tests/models/pixio/test_modeling_pixio.py, docs/source/en/model_doc/pixio.md, BitImageProcessor files, masking_utils.py

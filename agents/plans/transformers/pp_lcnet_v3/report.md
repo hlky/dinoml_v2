@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: no released native Transformers checkpoint found; source docstring says PaddlePaddle/Not_yet_released
 Config source: source defaults in configuration_pp_lcnet_v3.py; no Hub config.json found for pp_lcnet_v3
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py
-  X:/H/transformers/src/transformers/models/pp_lcnet_v3/modeling_pp_lcnet_v3.py
-  X:/H/transformers/src/transformers/models/pp_lcnet_v3/modular_pp_lcnet_v3.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/image_processing_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/auto/auto_mappings.py
-  X:/H/transformers/src/transformers/models/auto/modeling_auto.py
+  transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py
+  transformers/src/transformers/models/pp_lcnet_v3/modeling_pp_lcnet_v3.py
+  transformers/src/transformers/models/pp_lcnet_v3/modular_pp_lcnet_v3.py
+  transformers/src/transformers/models/pp_lcnet/image_processing_pp_lcnet.py
+  transformers/src/transformers/models/auto/auto_mappings.py
+  transformers/src/transformers/models/auto/modeling_auto.py
 Any missing files or assumptions:
   No pp_lcnet_v3 image processor file exists. Auto image processor mapping only names pp_lcnet, not pp_lcnet_v3.
   No native classification head exists for pp_lcnet_v3 in this source; only PPLCNetV3Backbone is auto-mapped.

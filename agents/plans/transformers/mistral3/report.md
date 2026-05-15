@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary first target is `mistralai/Mistral-Small-3.1-24B-Instruct-2503`; representative sweep also checked 3.1 base, 3.2 instruct, `mistralai/Mistral-Medium-3.5-128B`, and `mistralai/Ministral-3-3B-Instruct-2512`.
 

@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: nystromformer family; primary checkpoints inspected include uw-madison/nystromformer-{512,1024,2048,4096}
 Config source: Hugging Face raw config.json endpoints plus source defaults in configuration_nystromformer.py
 Source files inspected:
-- X:/H/transformers/src/transformers/models/nystromformer/configuration_nystromformer.py
-- X:/H/transformers/src/transformers/models/nystromformer/modeling_nystromformer.py
-- X:/H/transformers/src/transformers/models/nystromformer/convert_nystromformer_original_pytorch_checkpoint_to_pytorch.py
-- X:/H/transformers/tests/models/nystromformer/test_modeling_nystromformer.py
+- transformers/src/transformers/models/nystromformer/configuration_nystromformer.py
+- transformers/src/transformers/models/nystromformer/modeling_nystromformer.py
+- transformers/src/transformers/models/nystromformer/convert_nystromformer_original_pytorch_checkpoint_to_pytorch.py
+- transformers/tests/models/nystromformer/test_modeling_nystromformer.py
 Any missing files or assumptions:
 - No tokenizer implementation is model-local; checkpoint tokenizer configs point to AlbertTokenizer.
 - No remote-code files are required for the native source path inspected here.

@@ -22,7 +22,7 @@ End-to-end output is structured semantic labels plus a rendered condition image.
 
 ## Sources
 
-- `X:/H/transformers/src/transformers/models/oneformer`
-- `X:/H/transformers/src/transformers/pipelines/image_segmentation.py`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:607`
+- `transformers/src/transformers/models/oneformer`
+- `transformers/src/transformers/pipelines/image_segmentation.py`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:607`
 

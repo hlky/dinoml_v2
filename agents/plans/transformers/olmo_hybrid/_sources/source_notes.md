@@ -4,9 +4,9 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Model directory: `X:/H/transformers/src/transformers/models/olmo_hybrid`
+- Model directory: `transformers/src/transformers/models/olmo_hybrid`
 - Generated files note: `configuration_olmo_hybrid.py` and `modeling_olmo_hybrid.py` are generated from `modular_olmo_hybrid.py`; report cites the generated runtime files because DinoML will need to match the actual imported implementation.
 
 ## Files inspected
@@ -19,11 +19,11 @@ Audit date: 2026-05-13
   - Source for the generated implementation.
 - `convert_olmo_hybrid_weights_to_hf.py`
   - OLMo-core-to-HF mapping, layer-type extraction, FLA weight names, dtype/config conversion behavior.
-- `X:/H/transformers/tests/models/olmo_hybrid/test_modeling_olmo_hybrid.py`
+- `transformers/tests/models/olmo_hybrid/test_modeling_olmo_hybrid.py`
   - Cache shape expectations, multi-token cached forward parity test, integration checkpoint id.
-- `X:/H/transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/generation/utils.py`
   - Generation cache admission comments for OLMoHybrid.
-- `X:/H/transformers/src/transformers/conversion_mapping.py`
+- `transformers/src/transformers/conversion_mapping.py`
   - Checkpoint key rename aliases for OLMo Hybrid layer norms.
 
 ## Hub/config sources

@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: Zetatech/pvt-tiny-224, Zetatech/pvt-small-224, Zetatech/pvt-medium-224, Zetatech/pvt-large-224, Xrenya/pvt-tiny-224
 Config source: HF config.json snapshots plus configuration_pvt.py defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pvt/configuration_pvt.py
-- X:/H/transformers/src/transformers/models/pvt/modeling_pvt.py
-- X:/H/transformers/src/transformers/models/pvt/image_processing_pvt.py
-- X:/H/transformers/src/transformers/models/pvt/image_processing_pil_pvt.py
-- X:/H/transformers/src/transformers/models/pvt/convert_pvt_to_pytorch.py
+- transformers/src/transformers/models/pvt/configuration_pvt.py
+- transformers/src/transformers/models/pvt/modeling_pvt.py
+- transformers/src/transformers/models/pvt/image_processing_pvt.py
+- transformers/src/transformers/models/pvt/image_processing_pil_pvt.py
+- transformers/src/transformers/models/pvt/convert_pvt_to_pytorch.py
 Any missing files or assumptions: no remote code required; no gated files observed. Source snapshots and HF JSON snapshots are under agents/plans/transformers/pvt/_sources/.
 ```
 

@@ -23,7 +23,7 @@ Represent temporal chunking and memory explicitly. This is a good small target f
 
 ## Sources
 
-- `H:/uis/Comfy-Org/ComfyUI/comfy/taesd/taehv.py`
-- `H:/uis/vladmandic/sdnext/modules/taesd/taehv.py`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py`
+- `Comfy-Org/ComfyUI/comfy/taesd/taehv.py`
+- `vladmandic/sdnext/modules/taesd/taehv.py`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py`
 

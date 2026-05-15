@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: representative official checkpoints under `OpenGVLab`: [`pvt_v2_b0`](https://huggingface.co/OpenGVLab/pvt_v2_b0), [`pvt_v2_b1`](https://huggingface.co/OpenGVLab/pvt_v2_b1), [`pvt_v2_b2`](https://huggingface.co/OpenGVLab/pvt_v2_b2), [`pvt_v2_b2_linear`](https://huggingface.co/OpenGVLab/pvt_v2_b2_linear), [`pvt_v2_b3`](https://huggingface.co/OpenGVLab/pvt_v2_b3), [`pvt_v2_b4`](https://huggingface.co/OpenGVLab/pvt_v2_b4), [`pvt_v2_b5`](https://huggingface.co/OpenGVLab/pvt_v2_b5).
 

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream source URLs use the same commit under
   https://github.com/huggingface/transformers/tree/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
@@ -27,18 +27,18 @@ Config source:
     unsloth_Llama-4-Scout-17B-16E-Instruct_tokenizer_special_tokens_summary.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/llama4/modeling_llama4.py
-  X:/H/transformers/src/transformers/models/llama4/configuration_llama4.py
-  X:/H/transformers/src/transformers/models/llama4/processing_llama4.py
-  X:/H/transformers/src/transformers/models/llama4/image_processing_llama4.py
-  X:/H/transformers/src/transformers/models/llama4/convert_llama4_weights_to_hf.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/docs/source/en/model_doc/llama4.md
-  X:/H/transformers/tests/models/llama4/test_modeling_llama4.py
-  X:/H/transformers/tests/models/llama4/test_processing_llama4.py
-  X:/H/transformers/tests/models/llama4/test_image_processing_llama4.py
+  transformers/src/transformers/models/llama4/modeling_llama4.py
+  transformers/src/transformers/models/llama4/configuration_llama4.py
+  transformers/src/transformers/models/llama4/processing_llama4.py
+  transformers/src/transformers/models/llama4/image_processing_llama4.py
+  transformers/src/transformers/models/llama4/convert_llama4_weights_to_hf.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/cache_utils.py
+  transformers/docs/source/en/model_doc/llama4.md
+  transformers/tests/models/llama4/test_modeling_llama4.py
+  transformers/tests/models/llama4/test_processing_llama4.py
+  transformers/tests/models/llama4/test_image_processing_llama4.py
 
 Any missing files or assumptions:
   The in-library source is authoritative for this report. Official Meta config

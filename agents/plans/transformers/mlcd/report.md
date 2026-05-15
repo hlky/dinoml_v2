@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: DeepGlint-AI/mlcd-vit-bigG-patch14-448 as primary; bigG 224/336 as in-family variants
 Config source: Hub config.json + preprocessor_config.json fetched 2026-05-13; source defaults from MLCDVisionConfig
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mlcd/modular_mlcd.py
-- X:/H/transformers/src/transformers/models/mlcd/modeling_mlcd.py
-- X:/H/transformers/src/transformers/models/mlcd/configuration_mlcd.py
-- X:/H/transformers/src/transformers/models/mlcd/convert_mlcd_weights_to_hf.py
-- X:/H/transformers/src/transformers/models/auto/configuration_auto.py
-- X:/H/transformers/src/transformers/models/auto/modeling_auto.py
-- X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-- X:/H/transformers/tests/models/mlcd/test_modeling_mlcd.py
+- transformers/src/transformers/models/mlcd/modular_mlcd.py
+- transformers/src/transformers/models/mlcd/modeling_mlcd.py
+- transformers/src/transformers/models/mlcd/configuration_mlcd.py
+- transformers/src/transformers/models/mlcd/convert_mlcd_weights_to_hf.py
+- transformers/src/transformers/models/auto/configuration_auto.py
+- transformers/src/transformers/models/auto/modeling_auto.py
+- transformers/src/transformers/models/auto/image_processing_auto.py
+- transformers/tests/models/mlcd/test_modeling_mlcd.py
 Any missing files or assumptions: no MLCD-specific processor file exists; AutoProcessor resolves to CLIP image processing. No gated repos were found in the representative sweep.
 ```
 

@@ -12,14 +12,14 @@ Model id:
 Config source:
   Hugging Face config.json, preprocessor_config.json, tokenizer_config.json, special_tokens_map.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/processing_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/image_processing_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/image_processing_pil_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/tokenization_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/convert_siglip_to_hf.py
-  X:/H/transformers/src/transformers/image_processing_backends.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/models/siglip/processing_siglip.py
+  transformers/src/transformers/models/siglip/image_processing_siglip.py
+  transformers/src/transformers/models/siglip/image_processing_pil_siglip.py
+  transformers/src/transformers/models/siglip/tokenization_siglip.py
+  transformers/src/transformers/models/siglip/convert_siglip_to_hf.py
+  transformers/src/transformers/image_processing_backends.py
 Any missing files or assumptions:
   No remote-code files are required for the inspected official SigLIP v1 checkpoints. The local in-library source is the authoritative implementation for this report. SigLIP2 checkpoint names appear in the converter but are not the primary scope here.
 ```

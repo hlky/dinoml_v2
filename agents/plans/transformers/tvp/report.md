@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary target `Intel/tvp-base`; sweep also inspected `Intel/tvp-base-ANet` and `Jiqing/tiny-random-tvp`.
 

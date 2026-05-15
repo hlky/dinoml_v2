@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/ijepa_vith14_1k, facebook/ijepa_vith14_22k, facebook/ijepa_vith16_1k, facebook/ijepa_vitg16_22k
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots
 Source files inspected:
-  - X:/H/transformers/src/transformers/models/ijepa/configuration_ijepa.py
-  - X:/H/transformers/src/transformers/models/ijepa/modeling_ijepa.py
-  - X:/H/transformers/src/transformers/models/ijepa/modular_ijepa.py
-  - X:/H/transformers/src/transformers/models/ijepa/convert_ijepa_to_hf.py
-  - X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-  - X:/H/transformers/src/transformers/masking_utils.py
+  - transformers/src/transformers/models/ijepa/configuration_ijepa.py
+  - transformers/src/transformers/models/ijepa/modeling_ijepa.py
+  - transformers/src/transformers/models/ijepa/modular_ijepa.py
+  - transformers/src/transformers/models/ijepa/convert_ijepa_to_hf.py
+  - transformers/src/transformers/models/vit/image_processing_vit.py
+  - transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
   - modeling_ijepa.py is generated from modular_ijepa.py; modular_ijepa.py is the future-edit source.
   - Official repos expose preprocessor_config.json, not image_processor_config.json.

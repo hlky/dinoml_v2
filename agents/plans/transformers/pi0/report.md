@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: source default targets lerobot/pi0_base; accessible Hub repos are LeRobot policy repos, not native Transformers PI0 configs.
 Config source: PI0Config source defaults plus LeRobot Hub policy config sweep.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pi0/configuration_pi0.py
-- X:/H/transformers/src/transformers/models/pi0/modeling_pi0.py
-- X:/H/transformers/src/transformers/models/pi0/processing_pi0.py
-- X:/H/transformers/src/transformers/models/pi0/image_processing_pi0.py
-- X:/H/transformers/src/transformers/models/pi0/modular_pi0.py
+- transformers/src/transformers/models/pi0/configuration_pi0.py
+- transformers/src/transformers/models/pi0/modeling_pi0.py
+- transformers/src/transformers/models/pi0/processing_pi0.py
+- transformers/src/transformers/models/pi0/image_processing_pi0.py
+- transformers/src/transformers/models/pi0/modular_pi0.py
 - Nested families: paligemma, gemma, siglip configuration/modeling files.
 Any missing files or assumptions:
 - `configuration_pi0.py`, `modeling_pi0.py`, `processing_pi0.py`, and `image_processing_pi0.py` are generated from `modular_pi0.py`; future source edits should target `modular_pi0.py`.

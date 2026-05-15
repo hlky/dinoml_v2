@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary upstream examples are [inceptionai/Jais-2-8B-Chat](https://huggingface.co/inceptionai/Jais-2-8B-Chat) and [inceptionai/Jais-2-70B-Chat](https://huggingface.co/inceptionai/Jais-2-70B-Chat). Both official dense repos, and the matching official GGUF repos, were gated for raw `config.json` access in this environment.
 

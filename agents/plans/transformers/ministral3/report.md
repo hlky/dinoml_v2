@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: source default is `mistralai/Ministral-3-8B-Base-2512`; official current checkpoints are mostly `mistralai/Ministral-3-{3B,8B,14B}-{Base,Instruct,Reasoning}-2512`. Those official repos use top-level `model_type="mistral3"` with nested `text_config.model_type="ministral3"`. This report owns the nested text decoder / `Ministral3ForCausalLM` surface. The multimodal wrapper, vision tower, projector, image packing, and image placeholder stitch belong to a separate `mistral3` audit.
 

@@ -22,8 +22,8 @@ Treat outputs as structured conditioning artifacts, not just images. Camera matr
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/scail/scail_pose_nlf.py:69`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/scail/nlf/multiperson_model.py:17`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/vista4d/preprocess.py:147`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/vista4d/runtime.py:6`
+- `deepbeepmeep/Wan2GP/models/wan/scail/scail_pose_nlf.py:69`
+- `deepbeepmeep/Wan2GP/models/wan/scail/nlf/multiperson_model.py:17`
+- `deepbeepmeep/Wan2GP/models/wan/vista4d/preprocess.py:147`
+- `deepbeepmeep/Wan2GP/models/wan/vista4d/runtime.py:6`
 

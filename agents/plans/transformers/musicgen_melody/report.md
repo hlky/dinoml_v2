@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote source basis: https://github.com/huggingface/transformers/tree/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Model id:
@@ -21,15 +21,15 @@ Config source:
   Fetched for EnCodec 32 kHz: config.json and preprocessor_config.json.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/musicgen_melody/modeling_musicgen_melody.py
-  X:/H/transformers/src/transformers/models/musicgen_melody/configuration_musicgen_melody.py
-  X:/H/transformers/src/transformers/models/musicgen_melody/feature_extraction_musicgen_melody.py
-  X:/H/transformers/src/transformers/models/musicgen_melody/processing_musicgen_melody.py
-  X:/H/transformers/src/transformers/models/musicgen_melody/convert_musicgen_melody_transformers.py
-  X:/H/transformers/src/transformers/models/encodec/modeling_encodec.py
-  X:/H/transformers/src/transformers/models/encodec/configuration_encodec.py
-  X:/H/transformers/src/transformers/models/t5/modeling_t5.py
-  X:/H/transformers/src/transformers/models/t5/configuration_t5.py
+  transformers/src/transformers/models/musicgen_melody/modeling_musicgen_melody.py
+  transformers/src/transformers/models/musicgen_melody/configuration_musicgen_melody.py
+  transformers/src/transformers/models/musicgen_melody/feature_extraction_musicgen_melody.py
+  transformers/src/transformers/models/musicgen_melody/processing_musicgen_melody.py
+  transformers/src/transformers/models/musicgen_melody/convert_musicgen_melody_transformers.py
+  transformers/src/transformers/models/encodec/modeling_encodec.py
+  transformers/src/transformers/models/encodec/configuration_encodec.py
+  transformers/src/transformers/models/t5/modeling_t5.py
+  transformers/src/transformers/models/t5/configuration_t5.py
 
 Any missing files or assumptions:
   No remote-code files were required for the inspected official checkpoints.

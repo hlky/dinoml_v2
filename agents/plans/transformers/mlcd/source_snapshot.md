@@ -1,6 +1,6 @@
 # MLCD Source Snapshot
 
-Source checkout: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source checkout: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Authoritative source-edit file: `src/transformers/models/mlcd/modular_mlcd.py`.
 

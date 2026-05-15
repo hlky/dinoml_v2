@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/layoutlmv2-base-uncased, microsoft/layoutlmv2-large-uncased
 Config source: HF config/preprocessor JSON snapshots plus local configuration defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/layoutlmv2/configuration_layoutlmv2.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/modeling_layoutlmv2.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/processing_layoutlmv2.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/image_processing_layoutlmv2.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/image_processing_pil_layoutlmv2.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/tokenization_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/configuration_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/modeling_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/processing_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/image_processing_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/image_processing_pil_layoutlmv2.py
+- transformers/src/transformers/models/layoutlmv2/tokenization_layoutlmv2.py
 Any missing files or assumptions: Detectron2 is a required runtime backend for native LayoutLMv2Model. Fine-tuned task checkpoints listed below returned 401 for raw files. Although docs annotate `bbox` as optional, the inspected forward path uses `bbox.dtype` before its fallback zero bbox assignment; DinoML should require `bbox` for parity or intentionally patch that behavior in a separate compatibility layer.
 ```
 

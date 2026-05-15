@@ -4,9 +4,9 @@ Audit target: `kyutai_speech_to_text` only.
 
 ## Local source basis
 
-- Transformers source repository: `X:/H/transformers`
+- Transformers source repository: `transformers`
 - Required commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Verified local HEAD with `git -C X:/H/transformers rev-parse HEAD`.
+- Verified local HEAD with `git -C transformers rev-parse HEAD`.
 - DinoML repository was not modified outside `H:/dinoml_v2/agents/plans/transformers/kyutai_speech_to_text/`.
 - No imports, tests, or model execution were run.
 

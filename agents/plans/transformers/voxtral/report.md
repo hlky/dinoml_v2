@@ -12,17 +12,17 @@ Model id:
 Config source:
   HF config.json, preprocessor_config.json, generation_config.json, HF model API search metadata
 Source files inspected:
-  X:/H/transformers/src/transformers/models/voxtral/configuration_voxtral.py
-  X:/H/transformers/src/transformers/models/voxtral/modular_voxtral.py
-  X:/H/transformers/src/transformers/models/voxtral/modeling_voxtral.py
-  X:/H/transformers/src/transformers/models/voxtral/processing_voxtral.py
-  X:/H/transformers/src/transformers/models/voxtral/convert_voxtral_weights_to_hf.py
-  X:/H/transformers/src/transformers/models/qwen2_audio/modeling_qwen2_audio.py
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-  X:/H/transformers/src/transformers/models/whisper/feature_extraction_whisper.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/modeling_utils.py
-  X:/H/transformers/src/transformers/integrations/{sdpa_attention,flash_attention,flex_attention}.py
+  transformers/src/transformers/models/voxtral/configuration_voxtral.py
+  transformers/src/transformers/models/voxtral/modular_voxtral.py
+  transformers/src/transformers/models/voxtral/modeling_voxtral.py
+  transformers/src/transformers/models/voxtral/processing_voxtral.py
+  transformers/src/transformers/models/voxtral/convert_voxtral_weights_to_hf.py
+  transformers/src/transformers/models/qwen2_audio/modeling_qwen2_audio.py
+  transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/whisper/feature_extraction_whisper.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/modeling_utils.py
+  transformers/src/transformers/integrations/{sdpa_attention,flash_attention,flex_attention}.py
 Any missing files or assumptions:
   processor_config.json was not present for the official Mini repo. Processor behavior is taken from source plus preprocessor_config.json. Voxtral Realtime and Voxtral TTS repos are adjacent families and out of scope for this native model_type=voxtral report.
 ```

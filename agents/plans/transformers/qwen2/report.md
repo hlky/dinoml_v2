@@ -8,7 +8,7 @@ Primary target: `Qwen2ForCausalLM` inference and generation on CUDA. This is a s
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: qwen2
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:

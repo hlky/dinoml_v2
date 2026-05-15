@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: OpenGVLab/InternVL3-1B-hf, plus 2B/8B/14B/38B official -hf variants
 Config source: HF config/tokenizer/preprocessor/generation snapshots saved under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/internvl/configuration_internvl.py
-- X:/H/transformers/src/transformers/models/internvl/modeling_internvl.py
-- X:/H/transformers/src/transformers/models/internvl/modular_internvl.py
-- X:/H/transformers/src/transformers/models/internvl/processing_internvl.py
-- X:/H/transformers/src/transformers/models/internvl/video_processing_internvl.py
-- X:/H/transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
-- X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
-- X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
+- transformers/src/transformers/models/internvl/configuration_internvl.py
+- transformers/src/transformers/models/internvl/modeling_internvl.py
+- transformers/src/transformers/models/internvl/modular_internvl.py
+- transformers/src/transformers/models/internvl/processing_internvl.py
+- transformers/src/transformers/models/internvl/video_processing_internvl.py
+- transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
+- transformers/src/transformers/models/qwen2/modeling_qwen2.py
+- transformers/src/transformers/models/qwen2/configuration_qwen2.py
 Any missing files or assumptions: no gated official -hf configs encountered. Qwen2 decoder internals are composed from the separately owned `qwen2` family and should share that audit for full text-only coverage.
 ```
 

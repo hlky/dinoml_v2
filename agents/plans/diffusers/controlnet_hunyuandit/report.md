@@ -6,7 +6,7 @@ Target slug: `controlnet_hunyuandit`
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Tencent-Hunyuan/HunyuanDiT-v1.1-Diffusers
@@ -31,22 +31,22 @@ Config sources:
     https://huggingface.co/Tencent-Hunyuan/HunyuanDiT-v1.2-ControlNet-Diffusers-{Canny,Pose}/raw/main/config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/controlnet_hunyuandit/pipeline_hunyuandit_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuandit/pipeline_hunyuandit.py
+  diffusers/src/diffusers/pipelines/controlnet_hunyuandit/pipeline_hunyuandit_controlnet.py
+  diffusers/src/diffusers/pipelines/hunyuandit/pipeline_hunyuandit.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_hunyuan.py
-  X:/H/diffusers/src/diffusers/models/transformers/hunyuan_transformer_2d.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/controlnets/controlnet_hunyuan.py
+  diffusers/src/diffusers/models/transformers/hunyuan_transformer_2d.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 External component configs inspected:
   BertModel / BertTokenizer configs for HunyuanDiT bilingual text encoder.

@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openai/imagegpt-small, openai/imagegpt-medium, openai/imagegpt-large
 Config source: official HF config.json and preprocessor_config.json, plus in-source ImageGPTConfig defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/imagegpt/modeling_imagegpt.py
-- X:/H/transformers/src/transformers/models/imagegpt/configuration_imagegpt.py
-- X:/H/transformers/src/transformers/models/imagegpt/image_processing_imagegpt.py
-- X:/H/transformers/src/transformers/models/imagegpt/image_processing_pil_imagegpt.py
-- X:/H/transformers/src/transformers/pytorch_utils.py for Conv1D ABI
-- X:/H/transformers/src/transformers/activations.py for quick_gelu
+- transformers/src/transformers/models/imagegpt/modeling_imagegpt.py
+- transformers/src/transformers/models/imagegpt/configuration_imagegpt.py
+- transformers/src/transformers/models/imagegpt/image_processing_imagegpt.py
+- transformers/src/transformers/models/imagegpt/image_processing_pil_imagegpt.py
+- transformers/src/transformers/pytorch_utils.py for Conv1D ABI
+- transformers/src/transformers/activations.py for quick_gelu
 Any missing files or assumptions: no tokenizer file; image tokenization is owned by ImageGPTImageProcessor. openai/imagegpt-small-32x32 and openai/imagegpt-small-cifar10 raw URLs returned 401 and are treated as gaps.
 ```
 

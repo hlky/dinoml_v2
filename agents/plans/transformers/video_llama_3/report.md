@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: lkhl/VideoLLaMA3-2B-Image-HF, lkhl/VideoLLaMA3-7B-Image-HF
 Config source: HF raw config/preprocessor JSON snapshots saved beside this report
 Source files inspected:
-- X:/H/transformers/src/transformers/models/video_llama_3/configuration_video_llama_3.py
-- X:/H/transformers/src/transformers/models/video_llama_3/modeling_video_llama_3.py
-- X:/H/transformers/src/transformers/models/video_llama_3/modular_video_llama_3.py
-- X:/H/transformers/src/transformers/models/video_llama_3/processing_video_llama_3.py
-- X:/H/transformers/src/transformers/models/video_llama_3/image_processing_video_llama_3.py
-- X:/H/transformers/src/transformers/models/video_llama_3/video_processing_video_llama_3.py
-- X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
-- X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
+- transformers/src/transformers/models/video_llama_3/configuration_video_llama_3.py
+- transformers/src/transformers/models/video_llama_3/modeling_video_llama_3.py
+- transformers/src/transformers/models/video_llama_3/modular_video_llama_3.py
+- transformers/src/transformers/models/video_llama_3/processing_video_llama_3.py
+- transformers/src/transformers/models/video_llama_3/image_processing_video_llama_3.py
+- transformers/src/transformers/models/video_llama_3/video_processing_video_llama_3.py
+- transformers/src/transformers/models/qwen2/modeling_qwen2.py
+- transformers/src/transformers/models/qwen2/configuration_qwen2.py
 Any missing files or assumptions:
 - Generated video_llama_3 files state they are generated from modular_video_llama_3.py; future source edits should inspect the modular file first.
 - The native in-library report target is VideoLlama3ForConditionalGeneration with Qwen2 text_config.

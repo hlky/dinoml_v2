@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary `facebook/xlm-roberta-xl`; same in-library family also covers `facebook/xlm-roberta-xxl`.
 
@@ -14,11 +14,11 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/xlm_roberta_xl/configuration_xlm_roberta_xl.py`
-- `X:/H/transformers/src/transformers/models/xlm_roberta_xl/modeling_xlm_roberta_xl.py`
-- `X:/H/transformers/src/transformers/models/xlm_roberta_xl/modular_xlm_roberta_xl.py`
-- `X:/H/transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/models/xlm_roberta_xl/configuration_xlm_roberta_xl.py`
+- `transformers/src/transformers/models/xlm_roberta_xl/modeling_xlm_roberta_xl.py`
+- `transformers/src/transformers/models/xlm_roberta_xl/modular_xlm_roberta_xl.py`
+- `transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py`
+- `transformers/src/transformers/masking_utils.py`
 
 Any missing files or assumptions: `modeling_xlm_roberta_xl.py` is generated from `modular_xlm_roberta_xl.py`; the generated file is the import/runtime basis, while future Transformers source edits should inspect the modular file. There is no `tokenization_xlm_roberta_xl.py`; official configs set `tokenizer_class: "XLMRobertaTokenizer"`, so tokenizer coupling belongs to the base XLM-R tokenizer implementation. Only two official `model_type: "xlm-roberta-xl"` configs were found; adjacent XLM-R base/large configs are out of scope for this family.
 

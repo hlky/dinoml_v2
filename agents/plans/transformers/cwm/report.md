@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/cwm
 Config source: native CwmConfig defaults plus gated Hub metadata; open mirror snapshots used only where labeled
 Source files inspected:
-- X:/H/transformers/src/transformers/models/cwm/configuration_cwm.py
-- X:/H/transformers/src/transformers/models/cwm/modeling_cwm.py
-- X:/H/transformers/src/transformers/models/cwm/modular_cwm.py
-- X:/H/transformers/tests/models/cwm/test_modeling_cwm.py
-- X:/H/transformers/tests/models/cwm/test_configuration_cwm.py
-- X:/H/transformers/docs/source/en/model_doc/cwm.md
+- transformers/src/transformers/models/cwm/configuration_cwm.py
+- transformers/src/transformers/models/cwm/modeling_cwm.py
+- transformers/src/transformers/models/cwm/modular_cwm.py
+- transformers/tests/models/cwm/test_modeling_cwm.py
+- transformers/tests/models/cwm/test_configuration_cwm.py
+- transformers/docs/source/en/model_doc/cwm.md
 Any missing files or assumptions:
 - Official facebook/cwm, facebook/cwm-sft, and facebook/cwm-pretrain config.json files are gated and returned 403 for the authenticated CLI.
 - dnakov/cwm-mlx is an open mirror snapshot with CWM-sized dimensions but model_type/architecture set to llama; use it as dimensional evidence only.

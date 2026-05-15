@@ -6,7 +6,7 @@ Target slug: `helios`
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   BestWishYsh/Helios-Base
@@ -33,26 +33,26 @@ Config sources:
     Base/Mid transformer_init indexes and Distilled transformer_ode index.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/helios/pipeline_helios.py
-  X:/H/diffusers/src/diffusers/pipelines/helios/pipeline_helios_pyramid.py
-  X:/H/diffusers/src/diffusers/pipelines/helios/pipeline_output.py
-  X:/H/diffusers/docs/source/en/api/pipelines/helios.md
-  X:/H/diffusers/docs/source/en/using-diffusers/helios.md
+  diffusers/src/diffusers/pipelines/helios/pipeline_helios.py
+  diffusers/src/diffusers/pipelines/helios/pipeline_helios_pyramid.py
+  diffusers/src/diffusers/pipelines/helios/pipeline_output.py
+  diffusers/docs/source/en/api/pipelines/helios.md
+  diffusers/docs/source/en/using-diffusers/helios.md
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_helios.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/transformers/transformer_helios.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_helios.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_helios_dmd.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_helios.py
+  diffusers/src/diffusers/schedulers/scheduling_helios_dmd.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
   Tests:
-    X:/H/diffusers/tests/pipelines/helios/test_helios.py
-    X:/H/diffusers/tests/models/transformers/test_models_transformer_helios.py
+    diffusers/tests/pipelines/helios/test_helios.py
+    diffusers/tests/models/transformers/test_models_transformer_helios.py
 
 External component configs inspected:
   UMT5EncoderModel / T5TokenizerFast configs from official Helios repos.

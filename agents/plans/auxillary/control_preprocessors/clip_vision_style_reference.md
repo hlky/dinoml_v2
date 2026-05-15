@@ -22,8 +22,8 @@ Reuse Transformers CLIP/SigLIP model coverage, but keep image-embed cache keys a
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/loaders/ip_adapter.py`
-- `X:/H/diffusers/src/diffusers/models/attention_processor.py`
-- `X:/H/transformers/src/transformers/models/clip`
-- `X:/H/transformers/src/transformers/models/siglip`
+- `diffusers/src/diffusers/loaders/ip_adapter.py`
+- `diffusers/src/diffusers/models/attention_processor.py`
+- `transformers/src/transformers/models/clip`
+- `transformers/src/transformers/models/siglip`
 

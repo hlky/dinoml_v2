@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openai/privacy-filter
 Config source: https://huggingface.co/openai/privacy-filter/raw/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/openai_privacy_filter/configuration_openai_privacy_filter.py
-- X:/H/transformers/src/transformers/models/openai_privacy_filter/modeling_openai_privacy_filter.py
-- X:/H/transformers/src/transformers/models/openai_privacy_filter/modular_openai_privacy_filter.py
-- X:/H/transformers/src/transformers/models/openai_privacy_filter/convert_openai_privacy_filter_weights_to_hf.py
-- X:/H/transformers/src/transformers/modeling_layers.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/openai_privacy_filter/configuration_openai_privacy_filter.py
+- transformers/src/transformers/models/openai_privacy_filter/modeling_openai_privacy_filter.py
+- transformers/src/transformers/models/openai_privacy_filter/modular_openai_privacy_filter.py
+- transformers/src/transformers/models/openai_privacy_filter/convert_openai_privacy_filter_weights_to_hf.py
+- transformers/src/transformers/modeling_layers.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
 - `modeling_openai_privacy_filter.py` and `configuration_openai_privacy_filter.py` are generated from `modular_openai_privacy_filter.py`; the generated files are the shipped runtime source, while the modular file is authoritative for future Transformers edits.
 - The official Hub repo is public, not gated. No remote-code files are required.

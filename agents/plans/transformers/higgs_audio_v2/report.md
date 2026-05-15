@@ -12,15 +12,15 @@ DinoML assumptions: inference-only first, CUDA target, prioritize generator pref
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/higgs_audio_v2/configuration_higgs_audio_v2.py`
-- `X:/H/transformers/src/transformers/models/higgs_audio_v2/modeling_higgs_audio_v2.py`
-- `X:/H/transformers/src/transformers/models/higgs_audio_v2/generation_higgs_audio_v2.py`
-- `X:/H/transformers/src/transformers/models/higgs_audio_v2/processing_higgs_audio_v2.py`
-- `X:/H/transformers/src/transformers/models/higgs_audio_v2/modular_higgs_audio_v2.py`
+- `transformers/src/transformers/models/higgs_audio_v2/configuration_higgs_audio_v2.py`
+- `transformers/src/transformers/models/higgs_audio_v2/modeling_higgs_audio_v2.py`
+- `transformers/src/transformers/models/higgs_audio_v2/generation_higgs_audio_v2.py`
+- `transformers/src/transformers/models/higgs_audio_v2/processing_higgs_audio_v2.py`
+- `transformers/src/transformers/models/higgs_audio_v2/modular_higgs_audio_v2.py`
 - Coupled tokenizer/codec files:
-  - `X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/configuration_higgs_audio_v2_tokenizer.py`
-  - `X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py`
-  - `X:/H/transformers/src/transformers/models/dac/feature_extraction_dac.py`
+  - `transformers/src/transformers/models/higgs_audio_v2_tokenizer/configuration_higgs_audio_v2_tokenizer.py`
+  - `transformers/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py`
+  - `transformers/src/transformers/models/dac/feature_extraction_dac.py`
 
 HF configs inspected:
 

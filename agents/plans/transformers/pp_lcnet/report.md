@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/PP-LCNet_x1_0_doc_ori_safetensors plus variants below
 Config source: local Transformers config defaults plus public Hugging Face config.json/preprocessor_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pp_lcnet/modular_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/configuration_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/image_processing_pp_lcnet.py
-  X:/H/transformers/tests/models/pp_lcnet/test_modeling_pp_lcnet.py
-  X:/H/transformers/tests/models/pp_lcnet/test_image_processing_pp_lcnet.py
-  X:/H/transformers/docs/source/en/model_doc/pp_lcnet.md
+  transformers/src/transformers/models/pp_lcnet/modular_pp_lcnet.py
+  transformers/src/transformers/models/pp_lcnet/configuration_pp_lcnet.py
+  transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py
+  transformers/src/transformers/models/pp_lcnet/image_processing_pp_lcnet.py
+  transformers/tests/models/pp_lcnet/test_modeling_pp_lcnet.py
+  transformers/tests/models/pp_lcnet/test_image_processing_pp_lcnet.py
+  transformers/docs/source/en/model_doc/pp_lcnet.md
 Any missing files or assumptions: no gated repos found; Hub repos are public. Generated files state that modular_pp_lcnet.py is authoritative for future edits.
 ```
 

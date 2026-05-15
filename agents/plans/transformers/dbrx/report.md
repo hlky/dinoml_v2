@@ -5,17 +5,17 @@ Primary target: `DbrxForCausalLM` inference and generation on CUDA. This is a so
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: dbrx
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/dbrx/configuration_dbrx.py`
-- `X:/H/transformers/src/transformers/models/dbrx/modeling_dbrx.py`
-- `X:/H/transformers/src/transformers/models/dbrx/modular_dbrx.py`
+- `transformers/src/transformers/models/dbrx/configuration_dbrx.py`
+- `transformers/src/transformers/models/dbrx/modeling_dbrx.py`
+- `transformers/src/transformers/models/dbrx/modular_dbrx.py`
 - Cross-checks: `src/transformers/cache_utils.py`, `src/transformers/masking_utils.py`, and existing DinoML audits for `mixtral` and `qwen3_moe`.
 
 Source URLs at the inspected commit:

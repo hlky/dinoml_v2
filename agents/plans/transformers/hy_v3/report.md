@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: tencent/Hy3-preview
 Config source: raw Hugging Face Hub config.json snapshots, saved beside this report
 Source files inspected:
-  X:/H/transformers/src/transformers/models/hy_v3/configuration_hy_v3.py
-  X:/H/transformers/src/transformers/models/hy_v3/modeling_hy_v3.py
-  X:/H/transformers/src/transformers/models/hy_v3/modular_hy_v3.py
-  X:/H/transformers/src/transformers/models/hy_v3/__init__.py
-  X:/H/transformers/src/transformers/conversion_mapping.py
-  X:/H/transformers/tests/models/hy_v3/test_modeling_hy_v3.py
+  transformers/src/transformers/models/hy_v3/configuration_hy_v3.py
+  transformers/src/transformers/models/hy_v3/modeling_hy_v3.py
+  transformers/src/transformers/models/hy_v3/modular_hy_v3.py
+  transformers/src/transformers/models/hy_v3/__init__.py
+  transformers/src/transformers/conversion_mapping.py
+  transformers/tests/models/hy_v3/test_modeling_hy_v3.py
 Any missing files or assumptions: no processor/image/audio files exist for this family; tokenizer work is CPU/generation-controller ABI, not neural graph work.
 ```
 

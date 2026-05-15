@@ -12,17 +12,17 @@ DinoML assumptions: inference-only first, CUDA GPU target, faithful PyTorch axes
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/modernvbert/modular_modernvbert.py`
-- `X:/H/transformers/src/transformers/models/modernvbert/configuration_modernvbert.py`
-- `X:/H/transformers/src/transformers/models/modernvbert/modeling_modernvbert.py`
-- `X:/H/transformers/src/transformers/models/modernbert/configuration_modernbert.py`
-- `X:/H/transformers/src/transformers/models/modernbert/modeling_modernbert.py`
-- `X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py`
-- `X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py`
-- `X:/H/transformers/src/transformers/models/idefics3/processing_idefics3.py`
-- `X:/H/transformers/src/transformers/models/idefics3/image_processing_idefics3.py`
-- `X:/H/transformers/tests/models/modernvbert/test_modeling_modernvbert.py`
-- `X:/H/transformers/docs/source/en/model_doc/modernvbert.md`
+- `transformers/src/transformers/models/modernvbert/modular_modernvbert.py`
+- `transformers/src/transformers/models/modernvbert/configuration_modernvbert.py`
+- `transformers/src/transformers/models/modernvbert/modeling_modernvbert.py`
+- `transformers/src/transformers/models/modernbert/configuration_modernbert.py`
+- `transformers/src/transformers/models/modernbert/modeling_modernbert.py`
+- `transformers/src/transformers/models/siglip/configuration_siglip.py`
+- `transformers/src/transformers/models/siglip/modeling_siglip.py`
+- `transformers/src/transformers/models/idefics3/processing_idefics3.py`
+- `transformers/src/transformers/models/idefics3/image_processing_idefics3.py`
+- `transformers/tests/models/modernvbert/test_modeling_modernvbert.py`
+- `transformers/docs/source/en/model_doc/modernvbert.md`
 
 Source URLs at the pinned commit:
 

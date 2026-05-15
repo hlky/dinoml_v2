@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `transformers`.
 
 Model family: `dinov2_with_registers`
 
@@ -10,18 +10,18 @@ Primary runtime target: DINOv2-with-registers vision encoder/backbone inference.
 
 Config source:
 
-- Source defaults: `X:/H/transformers/src/transformers/models/dinov2_with_registers/configuration_dinov2_with_registers.py`
+- Source defaults: `transformers/src/transformers/models/dinov2_with_registers/configuration_dinov2_with_registers.py`
 - Official Hugging Face configs saved under `agents/plans/transformers/dinov2_with_registers/_sources/`
 - Representative model URLs: [small](https://huggingface.co/facebook/dinov2-with-registers-small), [base](https://huggingface.co/facebook/dinov2-with-registers-base), [large](https://huggingface.co/facebook/dinov2-with-registers-large), [giant](https://huggingface.co/facebook/dinov2-with-registers-giant), and ImageNet 1-layer classifier variants for each size.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/dinov2_with_registers/modeling_dinov2_with_registers.py`
-- `X:/H/transformers/src/transformers/models/dinov2_with_registers/configuration_dinov2_with_registers.py`
-- `X:/H/transformers/src/transformers/models/dinov2_with_registers/modular_dinov2_with_registers.py`
-- `X:/H/transformers/src/transformers/models/dinov2_with_registers/convert_dinov2_with_registers_to_hf.py`
-- `X:/H/transformers/src/transformers/models/dinov2/modeling_dinov2.py`, for delegation/difference checks
-- `X:/H/transformers/src/transformers/models/bit/image_processing_bit.py`, because checkpoints use `BitImageProcessor`
+- `transformers/src/transformers/models/dinov2_with_registers/modeling_dinov2_with_registers.py`
+- `transformers/src/transformers/models/dinov2_with_registers/configuration_dinov2_with_registers.py`
+- `transformers/src/transformers/models/dinov2_with_registers/modular_dinov2_with_registers.py`
+- `transformers/src/transformers/models/dinov2_with_registers/convert_dinov2_with_registers_to_hf.py`
+- `transformers/src/transformers/models/dinov2/modeling_dinov2.py`, for delegation/difference checks
+- `transformers/src/transformers/models/bit/image_processing_bit.py`, because checkpoints use `BitImageProcessor`
 - Auto mappings for model, backbone, classifier, and image processor registration.
 
 Pinned source URLs:

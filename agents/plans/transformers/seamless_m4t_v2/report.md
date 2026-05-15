@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/seamless-m4t-v2-large, with tiny/derivative configs for variation checks
 Config source: local configuration file plus HF config/preprocessor/tokenizer snapshots under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/seamless_m4t_v2/configuration_seamless_m4t_v2.py
-  X:/H/transformers/src/transformers/models/seamless_m4t_v2/modeling_seamless_m4t_v2.py
-  X:/H/transformers/src/transformers/models/seamless_m4t_v2/convert_fairseq2_to_hf.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/processing_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/tokenization_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t_v2/configuration_seamless_m4t_v2.py
+  transformers/src/transformers/models/seamless_m4t_v2/modeling_seamless_m4t_v2.py
+  transformers/src/transformers/models/seamless_m4t_v2/convert_fairseq2_to_hf.py
+  transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/processing_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/tokenization_seamless_m4t.py
 Any missing files or assumptions:
   v2 has no separate processor/tokenizer files; it reuses SeamlessM4T feature extractor, processor, and tokenizer.
   Large generation_config.json files were accessible but not retained because language maps make them about 10 MB.

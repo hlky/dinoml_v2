@@ -11,10 +11,10 @@ Config source: official Hugging Face config.json files, snapshotted under agents
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/olmo2/modeling_olmo2.py`
-- `X:/H/transformers/src/transformers/models/olmo2/configuration_olmo2.py`
-- `X:/H/transformers/src/transformers/models/olmo2/modular_olmo2.py`
-- `X:/H/transformers/src/transformers/models/olmo2/convert_olmo2_weights_to_hf.py`
+- `transformers/src/transformers/models/olmo2/modeling_olmo2.py`
+- `transformers/src/transformers/models/olmo2/configuration_olmo2.py`
+- `transformers/src/transformers/models/olmo2/modular_olmo2.py`
+- `transformers/src/transformers/models/olmo2/convert_olmo2_weights_to_hf.py`
 - OLMo comparison basis: `src/transformers/models/olmo/modeling_olmo.py`, `configuration_olmo.py`
 - Shared infrastructure: `cache_utils.py`, `masking_utils.py`, `integrations/sdpa_attention.py`, `integrations/flash_attention.py`, `integrations/flex_attention.py`, `modeling_layers.py`, `modeling_rope_utils.py`, `configuration_utils.py`
 

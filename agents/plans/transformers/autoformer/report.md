@@ -12,7 +12,7 @@ Any missing files or assumptions: no processor/tokenizer file is model-coupled f
 
 Primary source links:
 
-- Transformers source: `X:/H/transformers/src/transformers/models/autoformer/` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
+- Transformers source: `transformers/src/transformers/models/autoformer/` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Official config: [huggingface/autoformer-tourism-monthly config.json](https://huggingface.co/huggingface/autoformer-tourism-monthly/blob/main/config.json)
 - Docs: [Transformers Autoformer docs](https://huggingface.co/docs/transformers/model_doc/autoformer)
 - Snapshots: `_sources/source_hotspots.md`, `_sources/config_sweep.md`

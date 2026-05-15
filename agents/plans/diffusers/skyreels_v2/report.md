@@ -6,7 +6,7 @@ Candidate slug: `skyreels_v2`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Skywork/SkyReels-V2-T2V-14B-540P-Diffusers
@@ -35,26 +35,26 @@ Config sources:
     DF 14B 720P: 3d2ebd783060183743ef1d0ff884049aca4fe4f0
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_i2v.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing_i2v.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing_v2v.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/skyreels_v2/__init__.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_i2v.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing_i2v.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_skyreels_v2_diffusion_forcing_v2v.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/pipeline_output.py
+  diffusers/src/diffusers/pipelines/skyreels_v2/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_skyreels_v2.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_skyreels_v2.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   UMT5EncoderModel and T5TokenizerFast configs for text conditioning.

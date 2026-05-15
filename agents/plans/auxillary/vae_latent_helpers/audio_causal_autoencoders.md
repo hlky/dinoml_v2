@@ -23,7 +23,7 @@ Audio codec contracts need sample rate, channel count, temporal scale, chunk siz
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_audio_autoencoder.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py`
+- `Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_audio_autoencoder.py`
+- `Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`
 

@@ -23,7 +23,7 @@ For inference generation, decode-only may be enough in some paths. If encode is 
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/ace_step15/models/autoencoder_oobleck.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py`
+- `Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`
+- `deepbeepmeep/Wan2GP/models/TTS/ace_step15/models/autoencoder_oobleck.py`
 

@@ -8,11 +8,11 @@ Model id: microsoft/Phi-3.5-MoE-instruct
 Config source: HF config.json plus native PhimoeConfig defaults
 Primary runtime target: causal LM prefill/decode for text generation
 Source files inspected:
-  X:/H/transformers/src/transformers/models/phimoe/configuration_phimoe.py
-  X:/H/transformers/src/transformers/models/phimoe/modeling_phimoe.py
-  X:/H/transformers/src/transformers/models/phimoe/modular_phimoe.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/configuration_utils.py
+  transformers/src/transformers/models/phimoe/configuration_phimoe.py
+  transformers/src/transformers/models/phimoe/modeling_phimoe.py
+  transformers/src/transformers/models/phimoe/modular_phimoe.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/configuration_utils.py
 Any missing files or assumptions:
   No DinoML code or tests were run. No commits were made.
 ```

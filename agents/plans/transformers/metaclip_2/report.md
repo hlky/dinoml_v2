@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/metaclip-2-worldwide-huge-quickgelu, plus representative public Hub configs listed below
 Config source: local configuration_metaclip_2.py and Hugging Face Hub config.json files
 Source files inspected:
-  X:/H/transformers/src/transformers/models/metaclip_2/configuration_metaclip_2.py
-  X:/H/transformers/src/transformers/models/metaclip_2/modeling_metaclip_2.py
-  X:/H/transformers/src/transformers/models/metaclip_2/modular_metaclip_2.py
-  X:/H/transformers/src/transformers/models/metaclip_2/convert_metaclip_2_to_hf.py
-  X:/H/transformers/src/transformers/models/auto/{auto_mappings,modeling_auto,processing_auto,tokenization_auto,image_processing_auto}.py
+  transformers/src/transformers/models/metaclip_2/configuration_metaclip_2.py
+  transformers/src/transformers/models/metaclip_2/modeling_metaclip_2.py
+  transformers/src/transformers/models/metaclip_2/modular_metaclip_2.py
+  transformers/src/transformers/models/metaclip_2/convert_metaclip_2_to_hf.py
+  transformers/src/transformers/models/auto/{auto_mappings,modeling_auto,processing_auto,tokenization_auto,image_processing_auto}.py
 Any missing files or assumptions:
   No remote-code files are required for the audited native source path.
   The generated configuration/modeling files say future source edits should be made in modular_metaclip_2.py.

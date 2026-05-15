@@ -1,6 +1,6 @@
 # SuperPoint Source Notes
 
-Scope: Transformers `superpoint` family only, inspected from `X:/H/transformers`
+Scope: Transformers `superpoint` family only, inspected from `transformers`
 at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## Local source files

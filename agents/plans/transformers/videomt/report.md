@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 in local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 in local checkout transformers
 Model id: tue-mps/videomt-dinov2-large-ytvis2019 as the main shape reference; sweep also covers small/base YTVIS, large OVIS, and large VSPW.
 Config source: public Hugging Face config.json files, source defaults from VideomtConfig, and conversion registry in convert_videomt_to_hf.py.
 Source files inspected: src/transformers/models/videomt/{modular_videomt.py,modeling_videomt.py,configuration_videomt.py,video_processing_videomt.py,convert_videomt_to_hf.py}; src/transformers/video_processing_utils.py for inherited video processor layout/sampling.

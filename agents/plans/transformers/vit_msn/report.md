@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/vit-msn-small, facebook/vit-msn-base, facebook/vit-msn-large, facebook/vit-msn-base-4, facebook/vit-msn-large-7
 Config source: official Hugging Face config.json and preprocessor_config.json, summarized in config_sweep.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vit_msn/configuration_vit_msn.py
-  X:/H/transformers/src/transformers/models/vit_msn/modeling_vit_msn.py
-  X:/H/transformers/src/transformers/models/vit_msn/modular_vit_msn.py
-  X:/H/transformers/src/transformers/models/vit_msn/convert_msn_to_pytorch.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/tests/models/vit_msn/test_modeling_vit_msn.py
+  transformers/src/transformers/models/vit_msn/configuration_vit_msn.py
+  transformers/src/transformers/models/vit_msn/modeling_vit_msn.py
+  transformers/src/transformers/models/vit_msn/modular_vit_msn.py
+  transformers/src/transformers/models/vit_msn/convert_msn_to_pytorch.py
+  transformers/src/transformers/models/vit/image_processing_vit.py
+  transformers/src/transformers/masking_utils.py
+  transformers/tests/models/vit_msn/test_modeling_vit_msn.py
 Any missing files or assumptions: no remote code required; no gated files observed. modeling_vit_msn.py is generated from modular_vit_msn.py, but it is the runtime file inspected for exact operators.
 ```
 

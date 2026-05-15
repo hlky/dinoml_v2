@@ -2,11 +2,11 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: backbone source is `vitpose_backbone`; representative parent checkpoints use `VitPoseForPoseEstimation`, especially `usyd-community/vitpose-base-simple`, `usyd-community/vitpose-base`, `usyd-community/vitpose-plus-small`, `usyd-community/vitpose-plus-large`, and `usyd-community/vitpose-plus-huge`.
 
-Config source: `X:/H/transformers/src/transformers/models/vitpose_backbone/configuration_vitpose_backbone.py`; parent config and consumer path from `X:/H/transformers/src/transformers/models/vitpose/configuration_vitpose.py` and `modeling_vitpose.py`; representative `config.json` and `preprocessor_config.json` fetched from public Hugging Face repos.
+Config source: `transformers/src/transformers/models/vitpose_backbone/configuration_vitpose_backbone.py`; parent config and consumer path from `transformers/src/transformers/models/vitpose/configuration_vitpose.py` and `modeling_vitpose.py`; representative `config.json` and `preprocessor_config.json` fetched from public Hugging Face repos.
 
 Source files inspected:
 

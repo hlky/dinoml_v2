@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/vaultgemma-1b
 Config source: official HF repo metadata + gated config URL; open mirrors listed below
 Source files inspected:
-- X:/H/transformers/src/transformers/models/vaultgemma/configuration_vaultgemma.py
-- X:/H/transformers/src/transformers/models/vaultgemma/modeling_vaultgemma.py
-- X:/H/transformers/src/transformers/models/vaultgemma/modular_vaultgemma.py
-- X:/H/transformers/tests/models/vaultgemma/test_modeling_vaultgemma.py
-- X:/H/transformers/docs/source/en/model_doc/vaultgemma.md
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/integrations/{sdpa_attention.py,flash_attention.py,flex_attention.py}
+- transformers/src/transformers/models/vaultgemma/configuration_vaultgemma.py
+- transformers/src/transformers/models/vaultgemma/modeling_vaultgemma.py
+- transformers/src/transformers/models/vaultgemma/modular_vaultgemma.py
+- transformers/tests/models/vaultgemma/test_modeling_vaultgemma.py
+- transformers/docs/source/en/model_doc/vaultgemma.md
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/integrations/{sdpa_attention.py,flash_attention.py,flex_attention.py}
 Any missing files or assumptions:
 - https://huggingface.co/google/vaultgemma-1b/raw/main/config.json returned 401 Unauthorized; license access is required to inspect the official raw config.
 - HF API metadata for google/vaultgemma-1b was visible: gated="manual", model sha f9624dafc1760cb2f6039e86e12055d6559d7abb, BF16 safetensors parameter count 1,038,741,120.

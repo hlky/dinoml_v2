@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -22,12 +22,12 @@ Config source:
   Additional configs and preprocessors fetched from the Hugging Face repos listed above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/swin/configuration_swin.py
-  X:/H/transformers/src/transformers/models/swin/modeling_swin.py
-  X:/H/transformers/src/transformers/models/swin/modular_swin.py
-  X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_pil_vit.py
+  transformers/src/transformers/models/swin/configuration_swin.py
+  transformers/src/transformers/models/swin/modeling_swin.py
+  transformers/src/transformers/models/swin/modular_swin.py
+  transformers/src/transformers/models/auto/image_processing_auto.py
+  transformers/src/transformers/models/vit/image_processing_vit.py
+  transformers/src/transformers/models/vit/image_processing_pil_vit.py
 
 Any missing files or assumptions:
   modeling_swin.py is generated from modular_swin.py; future source edits should inspect

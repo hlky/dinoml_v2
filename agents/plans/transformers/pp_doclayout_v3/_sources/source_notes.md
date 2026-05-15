@@ -4,11 +4,11 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Primary family directory: `X:/H/transformers/src/transformers/models/pp_doclayout_v3`
-- Adjacent delta reference: `X:/H/transformers/src/transformers/models/pp_doclayout_v2`
-- Delegated backbone directory: `X:/H/transformers/src/transformers/models/hgnet_v2`
+- Primary family directory: `transformers/src/transformers/models/pp_doclayout_v3`
+- Adjacent delta reference: `transformers/src/transformers/models/pp_doclayout_v2`
+- Delegated backbone directory: `transformers/src/transformers/models/hgnet_v2`
 
 Important source files:
 

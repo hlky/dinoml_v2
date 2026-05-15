@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -20,10 +20,10 @@ Config source:
   mostly AutoModelForMaskedLM/fill-mask; Bio_ClinicalBERT advertises AutoModel.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/bert/modeling_bert.py
-  X:/H/transformers/src/transformers/models/bert/configuration_bert.py
-  X:/H/transformers/src/transformers/models/bert/tokenization_bert.py
-  X:/H/transformers/src/transformers/models/bert/tokenization_bert_legacy.py was
+  transformers/src/transformers/models/bert/modeling_bert.py
+  transformers/src/transformers/models/bert/configuration_bert.py
+  transformers/src/transformers/models/bert/tokenization_bert.py
+  transformers/src/transformers/models/bert/tokenization_bert_legacy.py was
   present but not needed for operator coverage.
 
 Any missing files or assumptions:

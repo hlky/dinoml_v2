@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openai/gpt-oss-20b, openai/gpt-oss-120b; tiny-random/gpt-oss as debug-sized config only
 Config source: HF config.json snapshots saved under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/gpt_oss/configuration_gpt_oss.py
-- X:/H/transformers/src/transformers/models/gpt_oss/modular_gpt_oss.py
-- X:/H/transformers/src/transformers/models/gpt_oss/modeling_gpt_oss.py
-- X:/H/transformers/src/transformers/models/gpt_oss/convert_gpt_oss_weights_to_hf.py
-- X:/H/transformers/src/transformers/integrations/mxfp4.py
-- X:/H/transformers/src/transformers/quantizers/quantizer_mxfp4.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/models/gpt_oss/configuration_gpt_oss.py
+- transformers/src/transformers/models/gpt_oss/modular_gpt_oss.py
+- transformers/src/transformers/models/gpt_oss/modeling_gpt_oss.py
+- transformers/src/transformers/models/gpt_oss/convert_gpt_oss_weights_to_hf.py
+- transformers/src/transformers/integrations/mxfp4.py
+- transformers/src/transformers/quantizers/quantizer_mxfp4.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
 Any missing files or assumptions: no remote-code model file is required for the official OpenAI configs. The generated modeling file is runtime-authoritative, but its header says future source edits must be made in modular_gpt_oss.py.
 ```
 

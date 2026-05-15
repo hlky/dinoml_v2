@@ -18,32 +18,32 @@ special load keys, preview formats, tiling, or temporal chunking.
 
 ## Code Anchors
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_approx.py:10`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_approx.py:10`
   approximate VAE path.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_taesd.py:108`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_taesd.py:108`
   TAESD path.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/models/sd3/other_impls.py:314`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/models/sd3/other_impls.py:314`
   custom SD3 T5 tokenizer/layers, adjacent to nonstandard model helper paths.
-- `H:/uis/Comfy-Org/ComfyUI/nodes.py:729`
+- `Comfy-Org/ComfyUI/nodes.py:729`
   `VAELoader`.
-- `H:/uis/Comfy-Org/ComfyUI/nodes.py:755`
+- `Comfy-Org/ComfyUI/nodes.py:755`
   `load_taesd`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/taesd/taesd.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/taesd/taehv.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/modules/temporal_ae.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_video_autoencoder.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_audio_autoencoder.py`.
-- `H:/uis/vladmandic/sdnext/modules/vae/sd_vae_taesd.py:139`
+- `Comfy-Org/ComfyUI/comfy/taesd/taesd.py`.
+- `Comfy-Org/ComfyUI/comfy/taesd/taehv.py`.
+- `Comfy-Org/ComfyUI/comfy/ldm/modules/temporal_ae.py`.
+- `Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_video_autoencoder.py`.
+- `Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_audio_autoencoder.py`.
+- `vladmandic/sdnext/modules/vae/sd_vae_taesd.py:139`
   TAESD/AutoencoderSmall handling.
-- `H:/uis/vladmandic/sdnext/modules/upscaler_vae.py:29`
+- `vladmandic/sdnext/modules/upscaler_vae.py:29`
   asymmetric VAE upscaler.
-- `H:/uis/vladmandic/sdnext/modules/upscaler_vae.py:68`
+- `vladmandic/sdnext/modules/upscaler_vae.py:68`
   Wan VAE upscale.
-- `H:/uis/vladmandic/sdnext/modules/video_models/video_load.py:213`
+- `vladmandic/sdnext/modules/video_models/video_load.py:213`
   Wan upscale VAE load.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/modules/vae.py:928`
+- `deepbeepmeep/Wan2GP/models/wan/modules/vae.py:928`
   Wan VAE.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py:170`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py:170`
   TAEHV temporal/spatial decoder.
 
 ## DinoML Gap

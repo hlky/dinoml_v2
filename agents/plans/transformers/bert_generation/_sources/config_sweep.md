@@ -1,7 +1,7 @@
 # bert_generation config sweep
 
 Source basis:
-- Transformers checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Transformers checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - HF API search `filter=bert-generation` returned one official Google checkpoint plus small/community derivatives.
 - Raw configs were fetched from Hugging Face `raw/main/config.json` URLs on 2026-05-13.
 

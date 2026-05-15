@@ -11,13 +11,13 @@ Primary model id: facebook/hubert-large-ls960-ft
 Primary task: raw waveform -> encoder frames -> CTC logits
 Config source: Hugging Face config.json and preprocessor_config.json files fetched from model repos listed below.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/hubert/configuration_hubert.py
-- X:/H/transformers/src/transformers/models/hubert/modular_hubert.py
-- X:/H/transformers/src/transformers/models/hubert/modeling_hubert.py
-- X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/processing_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/tokenization_wav2vec2.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/hubert/configuration_hubert.py
+- transformers/src/transformers/models/hubert/modular_hubert.py
+- transformers/src/transformers/models/hubert/modeling_hubert.py
+- transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/processing_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/tokenization_wav2vec2.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions: no remote-code files are needed for the inspected checkpoints. `modeling_hubert.py` is generated from `modular_hubert.py`; future Transformers source edits should target the modular file, while DinoML should inspect/import the generated file behavior. HuBERT uses `Wav2Vec2FeatureExtractor`, `Wav2Vec2Processor`, and `Wav2Vec2CTCTokenizer` for processor/tokenizer coupling.
 ```
 

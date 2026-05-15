@@ -3,13 +3,13 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: LED family, primary target LEDForConditionalGeneration for long-document seq2seq summarization/generation
 Config source: local configuration_led.py defaults plus representative Hugging Face config.json snapshots under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/led/modeling_led.py
-- X:/H/transformers/src/transformers/models/led/configuration_led.py
-- X:/H/transformers/src/transformers/models/led/__init__.py
+- transformers/src/transformers/models/led/modeling_led.py
+- transformers/src/transformers/models/led/configuration_led.py
+- transformers/src/transformers/models/led/__init__.py
 Any missing files or assumptions:
 - No tokenizer source is LED-specific; __init__.py aliases RobertaTokenizer as LEDTokenizer.
 - No processor/preprocessor is model-coupled.

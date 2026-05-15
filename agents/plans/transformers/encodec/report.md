@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/encodec_24khz, facebook/encodec_48khz, facebook/encodec_32khz
 Config source: Hugging Face config.json and preprocessor_config.json for the three model ids above
 Source files inspected:
-  X:/H/transformers/src/transformers/models/encodec/configuration_encodec.py
-  X:/H/transformers/src/transformers/models/encodec/feature_extraction_encodec.py
-  X:/H/transformers/src/transformers/models/encodec/modeling_encodec.py
+  transformers/src/transformers/models/encodec/configuration_encodec.py
+  transformers/src/transformers/models/encodec/feature_extraction_encodec.py
+  transformers/src/transformers/models/encodec/modeling_encodec.py
 Any missing files or assumptions:
   No remote code is required for the audited in-library EncodecModel path.
   This report targets inference encode/decode parity, not training losses or discriminator code from the original project.

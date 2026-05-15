@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Diffusers commit/version: local checkout `X:/H/diffusers` at `b3a515080752a3ba7ca92161e25530c7f280f629`.
+Diffusers commit/version: local checkout `diffusers` at `b3a515080752a3ba7ca92161e25530c7f280f629`.
 
 Model id(s):
 

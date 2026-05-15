@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/dinov3-convnext-tiny-pretrain-lvd1689m and size variants from the official conversion script
 Config source: configuration_dinov3_convnext.py defaults plus convert_dinov3_convnext_to_hf.py variant table
 Source files inspected:
-- X:/H/transformers/src/transformers/models/dinov3_convnext/configuration_dinov3_convnext.py
-- X:/H/transformers/src/transformers/models/dinov3_convnext/modeling_dinov3_convnext.py
-- X:/H/transformers/src/transformers/models/dinov3_convnext/convert_dinov3_convnext_to_hf.py
-- X:/H/transformers/src/transformers/models/dinov3_vit/image_processing_dinov3_vit.py
+- transformers/src/transformers/models/dinov3_convnext/configuration_dinov3_convnext.py
+- transformers/src/transformers/models/dinov3_convnext/modeling_dinov3_convnext.py
+- transformers/src/transformers/models/dinov3_convnext/convert_dinov3_convnext_to_hf.py
+- transformers/src/transformers/models/dinov3_vit/image_processing_dinov3_vit.py
 Any missing files or assumptions:
 - Official raw config/preprocessor files for tiny/small/base/large returned 401, so checkpoint JSON snapshots are unavailable until HF access is granted.
 - No remote code is required by the in-library source.

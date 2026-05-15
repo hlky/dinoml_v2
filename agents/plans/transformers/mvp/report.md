@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: RUCAIBox/mvp plus task variants
 Config source: local MvpConfig plus public RUCAIBox config.json files
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mvp/configuration_mvp.py
-  X:/H/transformers/src/transformers/models/mvp/modeling_mvp.py
-  X:/H/transformers/src/transformers/models/mvp/__init__.py
+  transformers/src/transformers/models/mvp/configuration_mvp.py
+  transformers/src/transformers/models/mvp/modeling_mvp.py
+  transformers/src/transformers/models/mvp/__init__.py
 Any missing files or assumptions:
   No family-local tokenizer files. MvpTokenizer resolves to RobertaTokenizer.
   No generation_config.json observed for sampled RUCAIBox checkpoints.

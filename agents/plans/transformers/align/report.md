@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: kakaobrain/align-base
 Config source: https://huggingface.co/kakaobrain/align-base/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/align/configuration_align.py
-  X:/H/transformers/src/transformers/models/align/modeling_align.py
-  X:/H/transformers/src/transformers/models/align/processing_align.py
-  X:/H/transformers/src/transformers/models/align/convert_align_tf_to_hf.py
-  X:/H/transformers/src/transformers/models/efficientnet/image_processing_efficientnet.py
-  X:/H/transformers/src/transformers/models/bert/tokenization_bert.py
+  transformers/src/transformers/models/align/configuration_align.py
+  transformers/src/transformers/models/align/modeling_align.py
+  transformers/src/transformers/models/align/processing_align.py
+  transformers/src/transformers/models/align/convert_align_tf_to_hf.py
+  transformers/src/transformers/models/efficientnet/image_processing_efficientnet.py
+  transformers/src/transformers/models/bert/tokenization_bert.py
 Snapshots:
   agents/plans/transformers/align/_sources/
 Any missing files or assumptions:

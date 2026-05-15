@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/vjepa2-vitl-fpc64-256 primary; sweep also covers vjepa2-vith-fpc64-256, vjepa2-vitg-fpc64-256, vjepa2-vitg-fpc64-384, vjepa2-vitl-fpc16-256-ssv2, vjepa2-vitg-fpc64-384-ssv2
 Config source: official Hugging Face config.json and video_preprocessor_config.json files
 Source files inspected:
-- X:/H/transformers/src/transformers/models/vjepa2/configuration_vjepa2.py
-- X:/H/transformers/src/transformers/models/vjepa2/modeling_vjepa2.py
-- X:/H/transformers/src/transformers/models/vjepa2/video_processing_vjepa2.py
-- X:/H/transformers/src/transformers/models/vjepa2/__init__.py
+- transformers/src/transformers/models/vjepa2/configuration_vjepa2.py
+- transformers/src/transformers/models/vjepa2/modeling_vjepa2.py
+- transformers/src/transformers/models/vjepa2/video_processing_vjepa2.py
+- transformers/src/transformers/models/vjepa2/__init__.py
 Any missing files or assumptions: no modular source file found for this family. Conversion scripts were not used as behavioral source. Model cards were read only for sampling/preprocessor context, not operator claims.
 ```
 

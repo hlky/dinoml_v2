@@ -12,13 +12,13 @@ DinoML assumptions: inference-only first, CUDA GPU target, prefill/decode parity
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/glm4_moe_lite/configuration_glm4_moe_lite.py`
-- `X:/H/transformers/src/transformers/models/glm4_moe_lite/modeling_glm4_moe_lite.py`
-- `X:/H/transformers/src/transformers/models/glm4_moe_lite/modular_glm4_moe_lite.py`
-- `X:/H/transformers/src/transformers/integrations/moe.py`
-- `X:/H/transformers/src/transformers/integrations/sdpa_attention.py`
-- `X:/H/transformers/src/transformers/configuration_utils.py`
-- `X:/H/transformers/src/transformers/modeling_rope_utils.py`
+- `transformers/src/transformers/models/glm4_moe_lite/configuration_glm4_moe_lite.py`
+- `transformers/src/transformers/models/glm4_moe_lite/modeling_glm4_moe_lite.py`
+- `transformers/src/transformers/models/glm4_moe_lite/modular_glm4_moe_lite.py`
+- `transformers/src/transformers/integrations/moe.py`
+- `transformers/src/transformers/integrations/sdpa_attention.py`
+- `transformers/src/transformers/configuration_utils.py`
+- `transformers/src/transformers/modeling_rope_utils.py`
 
 Authoritative source note: `configuration_glm4_moe_lite.py` and `modeling_glm4_moe_lite.py` are generated from `modular_glm4_moe_lite.py`; future source edits should target the modular file, but DinoML should audit the generated modeling file because it is the concrete runtime implementation.
 

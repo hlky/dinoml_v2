@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/speecht5_asr, microsoft/speecht5_tts, microsoft/speecht5_vc, microsoft/speecht5_hifigan
 Config source: local snapshots under agents/plans/transformers/speecht5/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/speecht5/modeling_speecht5.py
-  X:/H/transformers/src/transformers/models/speecht5/configuration_speecht5.py
-  X:/H/transformers/src/transformers/models/speecht5/feature_extraction_speecht5.py
-  X:/H/transformers/src/transformers/models/speecht5/processing_speecht5.py
-  X:/H/transformers/src/transformers/models/speecht5/tokenization_speecht5.py
-  X:/H/transformers/src/transformers/models/speecht5/number_normalizer.py
+  transformers/src/transformers/models/speecht5/modeling_speecht5.py
+  transformers/src/transformers/models/speecht5/configuration_speecht5.py
+  transformers/src/transformers/models/speecht5/feature_extraction_speecht5.py
+  transformers/src/transformers/models/speecht5/processing_speecht5.py
+  transformers/src/transformers/models/speecht5/tokenization_speecht5.py
+  transformers/src/transformers/models/speecht5/number_normalizer.py
 Any missing files or assumptions:
   The official SpeechT5 tokenizer vocab is a SentencePiece file named spm_char.model, not vocab.json. I did not snapshot the binary tokenizer model because the runtime graph audit only needs token id contracts.
   SpeechT5HifiGanConfig in source declares model_type="speecht5_hifigan", while microsoft/speecht5_hifigan config.json has model_type="hifigan"; route by architecture/config class rather than only model_type.

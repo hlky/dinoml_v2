@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local source checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local source checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Model implementation inspected at that commit.
 - Representative checkpoint configs fetched from official Hugging Face repos on 2026-05-13.
 
@@ -22,12 +22,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen2_vl/configuration_qwen2_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen2_vl/modeling_qwen2_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen2_vl/processing_qwen2_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen2_vl/video_processing_qwen2_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen2_vl/image_processing_pil_qwen2_vl.py` was present but not deeply inspected because the torch/torchvision image processor is the processor path used by current `Qwen2VLProcessor`.
+- `transformers/src/transformers/models/qwen2_vl/configuration_qwen2_vl.py`
+- `transformers/src/transformers/models/qwen2_vl/modeling_qwen2_vl.py`
+- `transformers/src/transformers/models/qwen2_vl/processing_qwen2_vl.py`
+- `transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py`
+- `transformers/src/transformers/models/qwen2_vl/video_processing_qwen2_vl.py`
+- `transformers/src/transformers/models/qwen2_vl/image_processing_pil_qwen2_vl.py` was present but not deeply inspected because the torch/torchvision image processor is the processor path used by current `Qwen2VLProcessor`.
 
 Any missing files or assumptions:
 

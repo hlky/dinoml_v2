@@ -1,6 +1,6 @@
 # BioGPT Source Notes
 
-- Transformers source checkout: `X:/H/transformers`
+- Transformers source checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Authoritative modular source for future edits: `src/transformers/models/biogpt/modular_biogpt.py`
 - Generated concrete modeling source inspected for lowering details: `src/transformers/models/biogpt/modeling_biogpt.py`

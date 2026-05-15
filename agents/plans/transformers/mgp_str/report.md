@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: alibaba-damo/mgp-str-base
 Config source: Hugging Face Hub config.json and preprocessor_config.json; see config_snapshots.md
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mgp_str/configuration_mgp_str.py
-- X:/H/transformers/src/transformers/models/mgp_str/modeling_mgp_str.py
-- X:/H/transformers/src/transformers/models/mgp_str/processing_mgp_str.py
-- X:/H/transformers/src/transformers/models/mgp_str/tokenization_mgp_str.py
-- X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-- X:/H/transformers/tests/models/mgp_str/test_modeling_mgp_str.py
-- X:/H/transformers/tests/models/mgp_str/test_processing_mgp_str.py
+- transformers/src/transformers/models/mgp_str/configuration_mgp_str.py
+- transformers/src/transformers/models/mgp_str/modeling_mgp_str.py
+- transformers/src/transformers/models/mgp_str/processing_mgp_str.py
+- transformers/src/transformers/models/mgp_str/tokenization_mgp_str.py
+- transformers/src/transformers/models/vit/image_processing_vit.py
+- transformers/tests/models/mgp_str/test_modeling_mgp_str.py
+- transformers/tests/models/mgp_str/test_processing_mgp_str.py
 Any missing files or assumptions: no family-local image processor exists; AutoImageProcessor maps mgp-str to ViT image processors. No gated official links were encountered. Only one official production checkpoint was found; tiny/random and ONNX mirrors were used only to expose dimension variation.
 ```
 

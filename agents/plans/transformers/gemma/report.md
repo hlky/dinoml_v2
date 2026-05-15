@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model family / architecture:
@@ -14,14 +14,14 @@ Primary runtime target:
   Text-only decoder-only causal language-model generation.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/gemma/modular_gemma.py
-  X:/H/transformers/src/transformers/models/gemma/modeling_gemma.py
-  X:/H/transformers/src/transformers/models/gemma/configuration_gemma.py
-  X:/H/transformers/src/transformers/models/gemma/tokenization_gemma.py
-  X:/H/transformers/src/transformers/models/gemma/convert_gemma_weights_to_hf.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/gemma/modular_gemma.py
+  transformers/src/transformers/models/gemma/modeling_gemma.py
+  transformers/src/transformers/models/gemma/configuration_gemma.py
+  transformers/src/transformers/models/gemma/tokenization_gemma.py
+  transformers/src/transformers/models/gemma/convert_gemma_weights_to_hf.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/modeling_rope_utils.py
 
 Pinned source URLs for future review:
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/gemma/modular_gemma.py

@@ -11,11 +11,11 @@ Config source: Transformers Mistral4Config plus representative Hub config.json f
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/mistral4/configuration_mistral4.py`
-- `X:/H/transformers/src/transformers/models/mistral4/modular_mistral4.py`
-- `X:/H/transformers/src/transformers/models/mistral4/modeling_mistral4.py`
-- `X:/H/transformers/src/transformers/models/mistral4/convert_mistral4_weight_to_hf.py`
-- `X:/H/transformers/tests/models/mistral4/test_modeling_mistral4.py`
+- `transformers/src/transformers/models/mistral4/configuration_mistral4.py`
+- `transformers/src/transformers/models/mistral4/modular_mistral4.py`
+- `transformers/src/transformers/models/mistral4/modeling_mistral4.py`
+- `transformers/src/transformers/models/mistral4/convert_mistral4_weight_to_hf.py`
+- `transformers/tests/models/mistral4/test_modeling_mistral4.py`
 
 `modeling_mistral4.py` is generated from `modular_mistral4.py`; future source edits should target the modular file, but this report uses the generated file as the runtime source of truth.
 

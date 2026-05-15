@@ -6,7 +6,7 @@
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: ernie4_5_vl_moe
 Primary runtime target: multimodal image/video-to-text conditional generation
-Source root: X:/H/transformers/src/transformers/models/ernie4_5_vl_moe
+Source root: transformers/src/transformers/models/ernie4_5_vl_moe
 ```
 
 Source files inspected:

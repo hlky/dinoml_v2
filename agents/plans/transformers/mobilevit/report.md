@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: apple/mobilevit-small as primary image-classification target; apple/deeplabv3-mobilevit-small for segmentation head coverage
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mobilevit/configuration_mobilevit.py
-- X:/H/transformers/src/transformers/models/mobilevit/modeling_mobilevit.py
-- X:/H/transformers/src/transformers/models/mobilevit/image_processing_mobilevit.py
-- X:/H/transformers/src/transformers/models/mobilevit/image_processing_pil_mobilevit.py
-- X:/H/transformers/src/transformers/models/mobilevit/convert_mlcvnets_to_pytorch.py
+- transformers/src/transformers/models/mobilevit/configuration_mobilevit.py
+- transformers/src/transformers/models/mobilevit/modeling_mobilevit.py
+- transformers/src/transformers/models/mobilevit/image_processing_mobilevit.py
+- transformers/src/transformers/models/mobilevit/image_processing_pil_mobilevit.py
+- transformers/src/transformers/models/mobilevit/convert_mlcvnets_to_pytorch.py
 Any missing files or assumptions: no gated or 401/403 gaps encountered; no Transformers import/execution; source/config inspection only.
 ```
 

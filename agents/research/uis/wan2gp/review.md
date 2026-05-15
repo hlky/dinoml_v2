@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/deepbeepmeep/Wan2GP`
+- UI clone: `deepbeepmeep/Wan2GP`
 
 ## Summary
 
@@ -67,53 +67,53 @@ video/audio auxiliary contracts beyond diffusers/transformers model execution.
 
 ## Code Anchors
 
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:8` lists supported video/image/audio
+- `deepbeepmeep/Wan2GP/README.md:8` lists supported video/image/audio
   model families.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:14` lists quantized checkpoint formats.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:16` lists integrated video tools.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:40`
+- `deepbeepmeep/Wan2GP/README.md:14` lists quantized checkpoint formats.
+- `deepbeepmeep/Wan2GP/README.md:16` lists integrated video tools.
+- `deepbeepmeep/Wan2GP/README.md:40`
   describes Omnivoice TTS.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:42`
+- `deepbeepmeep/Wan2GP/README.md:42`
   describes ScenemeAI LTX-derived TTS.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:48` announces FlashVSR video upsampler.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:65`
+- `deepbeepmeep/Wan2GP/README.md:48` announces FlashVSR video upsampler.
+- `deepbeepmeep/Wan2GP/README.md:65`
   describes Vista4D.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:71` describes Magic Mask powered by
+- `deepbeepmeep/Wan2GP/README.md:71` describes Magic Mask powered by
   SAM3.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:73` describes video mask generator with
+- `deepbeepmeep/Wan2GP/README.md:73` describes video mask generator with
   SAM3 support.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:75`
+- `deepbeepmeep/Wan2GP/README.md:75`
   describes LTX-2 video-to-audio.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:111` describes human motion transfer
+- `deepbeepmeep/Wan2GP/README.md:111` describes human motion transfer
   with pose alignment.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:153`
+- `deepbeepmeep/Wan2GP/README.md:153`
   describes LTX 2 Id LoRA/talking-head workflow.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:167`
+- `deepbeepmeep/Wan2GP/README.md:167`
   describes Deepy image/video/audio generation and media tools.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:203`
+- `deepbeepmeep/Wan2GP/README.md:203`
   describes Deepy Qwen3VL/GGUF requirements.
-- `H:/uis/deepbeepmeep/Wan2GP/README.md:406`
+- `deepbeepmeep/Wan2GP/README.md:406`
   links VACE ControlNet docs.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:36` imports `mmgp` offload/profile/quant
+- `deepbeepmeep/Wan2GP/wgp.py:36` imports `mmgp` offload/profile/quant
   router helpers.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:166` registers scaled fp8 qtype handler.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:167` registers NVFP4 qtype handler.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:168` registers Nunchaku int4 qtype
+- `deepbeepmeep/Wan2GP/wgp.py:166` registers scaled fp8 qtype handler.
+- `deepbeepmeep/Wan2GP/wgp.py:167` registers NVFP4 qtype handler.
+- `deepbeepmeep/Wan2GP/wgp.py:168` registers Nunchaku int4 qtype
   handler.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:169` registers Nunchaku fp4 qtype handler.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:170` registers GGUF qtype handler.
-- `H:/uis/deepbeepmeep/Wan2GP/wgp.py:177` imports quanto int8 kernel injection.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/bigvgan/bigvgan.py:12`
+- `deepbeepmeep/Wan2GP/wgp.py:169` registers Nunchaku fp4 qtype handler.
+- `deepbeepmeep/Wan2GP/wgp.py:170` registers GGUF qtype handler.
+- `deepbeepmeep/Wan2GP/wgp.py:177` imports quanto int8 kernel injection.
+- `deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/bigvgan/bigvgan.py:12`
   defines BigVGAN wrapper.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/bigvgan/models.py:169`
+- `deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/bigvgan/models.py:169`
   defines BigVGAN vocoder.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/autoencoder/autoencoder.py:12`
+- `deepbeepmeep/Wan2GP/models/wan/ovi/modules/mmaudio/ext/autoencoder/autoencoder.py:12`
   connects MMAudio autoencoder to BigVGAN.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:64`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:64`
   defines IndexTTS2 pipeline.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:148`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:148`
   requires BigVGAN assets for IndexTTS2.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/utils/maskgct/models/codec/facodec/facodec_trainer.py:246`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/utils/maskgct/models/codec/facodec/facodec_trainer.py:246`
   references Wav2Vec2 phoneme/semantic features.
 
 ## DinoML Gaps
@@ -133,56 +133,56 @@ video/audio auxiliary contracts beyond diffusers/transformers model execution.
   RGBA video, Animate, Chrono Edit, Fun InP, Phantom, ReCamMaster, Stand-In,
   Lynx, Ditto, Multitalk/Infinitalk/Fantasy talking, Ovi, MoCha, SCAIL,
   SteadyDancer, WanMove, SVI2Pro, Lucy/Kiwi edit.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/models/wan/wan_handler.py:53`,
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/alpha.json:6`,
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/multitalk.json:11`.
+  Anchors: `deepbeepmeep/Wan2GP/models/wan/wan_handler.py:53`,
+  `deepbeepmeep/Wan2GP/defaults/alpha.json:6`,
+  `deepbeepmeep/Wan2GP/defaults/multitalk.json:11`.
 - Hunyuan 1.5 coverage includes t2v/i2v 480p/720p, Lightx2v, dedicated
   upsamplers, avatar, custom-audio, and custom-edit.
   Anchors:
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/hunyuan_1_5_480_t2v_lightx2v.json:5`,
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/hunyuan_avatar.json:6`.
+  `deepbeepmeep/Wan2GP/defaults/hunyuan_1_5_480_t2v_lightx2v.json:5`,
+  `deepbeepmeep/Wan2GP/defaults/hunyuan_avatar.json:6`.
 - LTX-2 support includes ID-LoRA, union control, outpaint, HDR IC-LoRA, audio
   VAE, video-to-audio, audio-window slicing, video length not limited by audio,
   and frame injection.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/models/ltx2/ltx2_handler.py:18`,
-  `H:/uis/deepbeepmeep/Wan2GP/models/ltx2/ltx2_handler.py:476`.
+  Anchors: `deepbeepmeep/Wan2GP/models/ltx2/ltx2_handler.py:18`,
+  `deepbeepmeep/Wan2GP/models/ltx2/ltx2_handler.py:476`.
 - Process Full Video plugin supports chunked full-video processing,
   continuation/resume metadata, outpaint, detailer, HDR conversion, refocus,
   ungrade, uncompress, and FlashVSR system handling.
   Anchors:
-  `H:/uis/deepbeepmeep/Wan2GP/plugins/wan2gp-process-full-video/settings/FlashVSR Upscale.json:2`,
-  `H:/uis/deepbeepmeep/Wan2GP/plugins/wan2gp-process-full-video/process_runner.py:287`.
+  `deepbeepmeep/Wan2GP/plugins/wan2gp-process-full-video/settings/FlashVSR Upscale.json:2`,
+  `deepbeepmeep/Wan2GP/plugins/wan2gp-process-full-video/process_runner.py:287`.
 - Audio/music model coverage includes ACE-Step v1/v1.5/v1.5 XL, KugelAudio,
   YuE, HeartMuLa RL, Qwen3 TTS variants, and OmniVoice/Whisper dependency.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/defaults/ace_step_v1.json:5`,
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/ace_step_v1_5_xl.json:5`,
-  `H:/uis/deepbeepmeep/Wan2GP/models/TTS/yue_handler.py:6`.
+  Anchors: `deepbeepmeep/Wan2GP/defaults/ace_step_v1.json:5`,
+  `deepbeepmeep/Wan2GP/defaults/ace_step_v1_5_xl.json:5`,
+  `deepbeepmeep/Wan2GP/models/TTS/yue_handler.py:6`.
 - Flux coverage includes Flux Chroma/Radiance, SRPO, UMO, USO, DreamOmni2,
   and Flux.2 Dev/Klein/NVFP4.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/defaults/flux_chroma.json:5`,
-  `H:/uis/deepbeepmeep/Wan2GP/defaults/flux2_dev_nvfp4.json:5`.
+  Anchors: `deepbeepmeep/Wan2GP/defaults/flux_chroma.json:5`,
+  `deepbeepmeep/Wan2GP/defaults/flux2_dev_nvfp4.json:5`.
 - Kandinsky should be tracked as Kandinsky 5 Lite/Pro T2V/I2V with MagCache/
   sparse config handling.
-  Anchor: `H:/uis/deepbeepmeep/Wan2GP/models/kandinsky5/kandinsky_handler.py:81`.
+  Anchor: `deepbeepmeep/Wan2GP/models/kandinsky5/kandinsky_handler.py:81`.
 - LongCat and Magi Human are distinct model families, including LongCat video/
   avatar handlers and Magi Human base/distill/SR 1080p talking-head pipeline.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/models/longcat/longcat_handler.py:9`,
-  `H:/uis/deepbeepmeep/Wan2GP/models/magi_human/magi_human_handler.py:32`.
+  Anchors: `deepbeepmeep/Wan2GP/models/longcat/longcat_handler.py:9`,
+  `deepbeepmeep/Wan2GP/models/magi_human/magi_human_handler.py:32`.
 - Preprocess/mask stack includes MatAnyone, Magic Mask negative masks, SAM3.1
   assets, Depth Anything v3, NLFPose/SCAIL, and pose alignment.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/plugins/wan2gp-video-mask-creator/plugin.py:10`,
-  `H:/uis/deepbeepmeep/Wan2GP/shared/magic_mask.py:20`,
-  `H:/uis/deepbeepmeep/Wan2GP/models/wan/wan_handler.py:829`.
+  Anchors: `deepbeepmeep/Wan2GP/plugins/wan2gp-video-mask-creator/plugin.py:10`,
+  `deepbeepmeep/Wan2GP/shared/magic_mask.py:20`,
+  `deepbeepmeep/Wan2GP/models/wan/wan_handler.py:829`.
 - Runtime/kernel rows should include GGUF llama.cpp CUDA linear/embedding fast
   paths, GGUF qtypes Q2_K through Q8_0, Nunchaku SVDQ/AWQ kernels, NVFP4
   validation, Sage3/radial attention, MPS early support, and torch compile
   hooks.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/shared/qtypes/gguf.py:787`,
-  `H:/uis/deepbeepmeep/Wan2GP/shared/qtypes/nunchaku_int4.py:113`,
-  `H:/uis/deepbeepmeep/Wan2GP/shared/attention.py:193`.
+  Anchors: `deepbeepmeep/Wan2GP/shared/qtypes/gguf.py:787`,
+  `deepbeepmeep/Wan2GP/shared/qtypes/nunchaku_int4.py:113`,
+  `deepbeepmeep/Wan2GP/shared/attention.py:193`.
 - Plugin ecosystem includes Gallery, LoRA Manager/Merger/Organizer/Multipliers
   UI, Multi-Angle Prompt Helper, Queue Editor, downloads/models/config/plugin
   manager/guides/motion designer/process full video/video mask creator.
-  Anchors: `H:/uis/deepbeepmeep/Wan2GP/plugins.json:3`,
-  `H:/uis/deepbeepmeep/Wan2GP/plugins.json:57`,
-  `H:/uis/deepbeepmeep/Wan2GP/shared/utils/plugins.py:199`.
+  Anchors: `deepbeepmeep/Wan2GP/plugins.json:3`,
+  `deepbeepmeep/Wan2GP/plugins.json:57`,
+  `deepbeepmeep/Wan2GP/shared/utils/plugins.py:199`.

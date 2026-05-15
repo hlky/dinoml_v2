@@ -6,7 +6,7 @@ Primary target: open-vocabulary object detection with `OwlViTForObjectDetection`
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary: google/owlvit-base-patch32.
@@ -23,14 +23,14 @@ Config source:
   https://huggingface.co/google/owlvit-large-patch14/resolve/main/preprocessor_config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/owlvit/modeling_owlvit.py
-  X:/H/transformers/src/transformers/models/owlvit/configuration_owlvit.py
-  X:/H/transformers/src/transformers/models/owlvit/processing_owlvit.py
-  X:/H/transformers/src/transformers/models/owlvit/image_processing_owlvit.py
-  X:/H/transformers/src/transformers/models/owlvit/image_processing_pil_owlvit.py
-  X:/H/transformers/tests/models/owlvit/test_modeling_owlvit.py
-  X:/H/transformers/tests/models/owlvit/test_processing_owlvit.py
-  X:/H/transformers/tests/models/owlvit/test_image_processing_owlvit.py
+  transformers/src/transformers/models/owlvit/modeling_owlvit.py
+  transformers/src/transformers/models/owlvit/configuration_owlvit.py
+  transformers/src/transformers/models/owlvit/processing_owlvit.py
+  transformers/src/transformers/models/owlvit/image_processing_owlvit.py
+  transformers/src/transformers/models/owlvit/image_processing_pil_owlvit.py
+  transformers/tests/models/owlvit/test_modeling_owlvit.py
+  transformers/tests/models/owlvit/test_processing_owlvit.py
+  transformers/tests/models/owlvit/test_image_processing_owlvit.py
 
 Any missing files or assumptions:
   No remote code is required for the official open Google checkpoints. The

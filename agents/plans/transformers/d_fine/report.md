@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: d_fine family; representative public checkpoints from ustc-community
 Config source: local Transformers defaults plus fetched HF config/preprocessor JSON snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/d_fine/configuration_d_fine.py
-- X:/H/transformers/src/transformers/models/d_fine/modeling_d_fine.py
-- X:/H/transformers/src/transformers/models/d_fine/convert_d_fine_original_pytorch_checkpoint_to_hf.py
-- X:/H/transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
-- X:/H/transformers/src/transformers/backbone_utils.py
-- X:/H/transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
-- X:/H/transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+- transformers/src/transformers/models/d_fine/configuration_d_fine.py
+- transformers/src/transformers/models/d_fine/modeling_d_fine.py
+- transformers/src/transformers/models/d_fine/convert_d_fine_original_pytorch_checkpoint_to_hf.py
+- transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
+- transformers/src/transformers/backbone_utils.py
+- transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
+- transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
 Any missing files or assumptions: D-FINE has no local image processor; it uses RTDetrImageProcessor. PekingU/DFine_r50vd returned 401 in this environment.
 ```
 

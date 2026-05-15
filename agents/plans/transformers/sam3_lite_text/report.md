@@ -12,12 +12,12 @@ Any missing files or assumptions: weights and safetensors metadata were not down
 
 Primary local files:
 
-- `X:/H/transformers/src/transformers/models/sam3_lite_text/configuration_sam3_lite_text.py`
-- `X:/H/transformers/src/transformers/models/sam3_lite_text/modeling_sam3_lite_text.py`
-- `X:/H/transformers/src/transformers/models/sam3_lite_text/modular_sam3_lite_text.py`
-- `X:/H/transformers/src/transformers/models/sam3_lite_text/convert_sam3_lite_text_to_hf.py`
-- `X:/H/transformers/src/transformers/models/sam3/configuration_sam3.py`
-- `X:/H/transformers/src/transformers/models/sam3/modeling_sam3.py`
+- `transformers/src/transformers/models/sam3_lite_text/configuration_sam3_lite_text.py`
+- `transformers/src/transformers/models/sam3_lite_text/modeling_sam3_lite_text.py`
+- `transformers/src/transformers/models/sam3_lite_text/modular_sam3_lite_text.py`
+- `transformers/src/transformers/models/sam3_lite_text/convert_sam3_lite_text_to_hf.py`
+- `transformers/src/transformers/models/sam3/configuration_sam3.py`
+- `transformers/src/transformers/models/sam3/modeling_sam3.py`
 
 Snapshot notes and reduced config snapshots are in `_sources/`.
 

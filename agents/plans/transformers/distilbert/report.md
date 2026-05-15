@@ -8,10 +8,10 @@ Model family: distilbert
 Primary runtime target: base bidirectional text encoder, then masked-LM/classification heads
 Config source: DistilBertConfig plus representative Hugging Face config.json files
 Source files inspected:
-- X:/H/transformers/src/transformers/models/distilbert/modeling_distilbert.py
-- X:/H/transformers/src/transformers/models/distilbert/configuration_distilbert.py
-- X:/H/transformers/src/transformers/models/distilbert/tokenization_distilbert.py
-- X:/H/transformers/src/transformers/masking_utils.py for create_bidirectional_mask
+- transformers/src/transformers/models/distilbert/modeling_distilbert.py
+- transformers/src/transformers/models/distilbert/configuration_distilbert.py
+- transformers/src/transformers/models/distilbert/tokenization_distilbert.py
+- transformers/src/transformers/masking_utils.py for create_bidirectional_mask
 Source snapshots:
 - agents/plans/transformers/distilbert/_sources/modeling_distilbert.py
 - agents/plans/transformers/distilbert/_sources/configuration_distilbert.py

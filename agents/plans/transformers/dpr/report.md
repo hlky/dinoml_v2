@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id:
   facebook/dpr-question_encoder-single-nq-base
   facebook/dpr-ctx_encoder-single-nq-base
@@ -14,14 +14,14 @@ Model id:
 Config source:
   Hugging Face resolve/main config.json snapshots under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/dpr/configuration_dpr.py
-  X:/H/transformers/src/transformers/models/dpr/modeling_dpr.py
-  X:/H/transformers/src/transformers/models/dpr/tokenization_dpr.py
-  X:/H/transformers/src/transformers/models/dpr/tokenization_dpr_fast.py
-  X:/H/transformers/src/transformers/models/dpr/convert_dpr_original_checkpoint_to_pytorch.py
-  X:/H/transformers/src/transformers/models/bert/modeling_bert.py
-  X:/H/transformers/src/transformers/models/bert/configuration_bert.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/dpr/configuration_dpr.py
+  transformers/src/transformers/models/dpr/modeling_dpr.py
+  transformers/src/transformers/models/dpr/tokenization_dpr.py
+  transformers/src/transformers/models/dpr/tokenization_dpr_fast.py
+  transformers/src/transformers/models/dpr/convert_dpr_original_checkpoint_to_pytorch.py
+  transformers/src/transformers/models/bert/modeling_bert.py
+  transformers/src/transformers/models/bert/configuration_bert.py
+  transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
   No remote-code files are required for the sampled official checkpoints.
   special_tokens_map.json returned 404 for sampled repos; tokenizer behavior is

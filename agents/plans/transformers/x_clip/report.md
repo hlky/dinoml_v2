@@ -9,12 +9,12 @@ Model id: primary `microsoft/xclip-base-patch32`; sweep also inspected `microsof
 Config source: official Hugging Face raw `config.json`, `preprocessor_config.json`, tokenizer metadata snapshots under `_sources/`.
 
 Source files inspected:
-- `X:/H/transformers/src/transformers/models/x_clip/modeling_x_clip.py`
-- `X:/H/transformers/src/transformers/models/x_clip/modular_x_clip.py`
-- `X:/H/transformers/src/transformers/models/x_clip/configuration_x_clip.py`
-- `X:/H/transformers/src/transformers/models/x_clip/processing_x_clip.py`
-- `X:/H/transformers/src/transformers/models/x_clip/convert_x_clip_original_pytorch_to_hf.py`
-- `X:/H/transformers/src/transformers/models/videomae/image_processing_videomae.py`
+- `transformers/src/transformers/models/x_clip/modeling_x_clip.py`
+- `transformers/src/transformers/models/x_clip/modular_x_clip.py`
+- `transformers/src/transformers/models/x_clip/configuration_x_clip.py`
+- `transformers/src/transformers/models/x_clip/processing_x_clip.py`
+- `transformers/src/transformers/models/x_clip/convert_x_clip_original_pytorch_to_hf.py`
+- `transformers/src/transformers/models/videomae/image_processing_videomae.py`
 - auto mappings for model, processor, tokenizer, and image processor.
 
 `modeling_x_clip.py` is generated from `modular_x_clip.py`; runtime behavior was read from generated modeling code, while future upstream edits should target modular source. No official config was gated, 401, or 404 during this audit.

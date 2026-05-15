@@ -2,9 +2,9 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family source directory: `X:/H/transformers/src/transformers/models/higgs_audio_v2`
+- Family source directory: `transformers/src/transformers/models/higgs_audio_v2`
 - Authoritative generated-file note: `modeling_higgs_audio_v2.py` and `configuration_higgs_audio_v2.py` both state they are generated from `modular_higgs_audio_v2.py`; future source edits should inspect/update the modular file first.
 
 ## Files inspected

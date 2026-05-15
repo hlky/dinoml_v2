@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream source corresponds to https://github.com/huggingface/transformers.
 
 Model id:
@@ -22,14 +22,14 @@ Config source:
   Local snapshots: H:/dinoml_v2/agents/plans/transformers/seamless_m4t/_sources/
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/seamless_m4t/modeling_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/configuration_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/processing_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/tokenization_seamless_m4t.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/convert_fairseq2_to_hf.py
-  X:/H/transformers/tests/models/seamless_m4t/test_modeling_seamless_m4t.py
-  X:/H/transformers/tests/models/seamless_m4t/test_feature_extraction_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/modeling_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/configuration_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/processing_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/tokenization_seamless_m4t.py
+  transformers/src/transformers/models/seamless_m4t/convert_fairseq2_to_hf.py
+  transformers/tests/models/seamless_m4t/test_modeling_seamless_m4t.py
+  transformers/tests/models/seamless_m4t/test_feature_extraction_seamless_m4t.py
 
 Any missing files or assumptions:
   No trust_remote_code files are needed for the two official HF checkpoints.

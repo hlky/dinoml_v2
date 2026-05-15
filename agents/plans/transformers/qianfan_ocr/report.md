@@ -16,13 +16,13 @@ Config source:
   https://huggingface.co/baidu/Qianfan-OCR/raw/main/generation_config.json
   https://huggingface.co/api/models/baidu/Qianfan-OCR
 Source files inspected:
-  X:/H/transformers/src/transformers/models/qianfan_ocr/configuration_qianfan_ocr.py
-  X:/H/transformers/src/transformers/models/qianfan_ocr/modeling_qianfan_ocr.py
-  X:/H/transformers/src/transformers/models/qianfan_ocr/modular_qianfan_ocr.py
-  X:/H/transformers/src/transformers/models/qianfan_ocr/processing_qianfan_ocr.py
-  X:/H/transformers/src/transformers/models/qwen3/modeling_qwen3.py
-  X:/H/transformers/src/transformers/models/qwen3/configuration_qwen3.py
-  X:/H/transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
+  transformers/src/transformers/models/qianfan_ocr/configuration_qianfan_ocr.py
+  transformers/src/transformers/models/qianfan_ocr/modeling_qianfan_ocr.py
+  transformers/src/transformers/models/qianfan_ocr/modular_qianfan_ocr.py
+  transformers/src/transformers/models/qianfan_ocr/processing_qianfan_ocr.py
+  transformers/src/transformers/models/qwen3/modeling_qwen3.py
+  transformers/src/transformers/models/qwen3/configuration_qwen3.py
+  transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
 Any missing files or assumptions:
   Public checkpoint was accessible. No weights were loaded and no imports/tests were run.
   The report treats Qwen3 text behavior as required because the representative config selects text_config.model_type=qwen3.

@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: representative official Hugging Face checkpoints under `microsoft/beit-*`.
 
@@ -17,12 +17,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/beit/configuration_beit.py`
-- `X:/H/transformers/src/transformers/models/beit/modular_beit.py`
-- `X:/H/transformers/src/transformers/models/beit/modeling_beit.py`
-- `X:/H/transformers/src/transformers/models/beit/image_processing_beit.py`
-- `X:/H/transformers/src/transformers/models/beit/image_processing_pil_beit.py`
-- `X:/H/transformers/src/transformers/masking_utils.py` for `create_bidirectional_mask`
+- `transformers/src/transformers/models/beit/configuration_beit.py`
+- `transformers/src/transformers/models/beit/modular_beit.py`
+- `transformers/src/transformers/models/beit/modeling_beit.py`
+- `transformers/src/transformers/models/beit/image_processing_beit.py`
+- `transformers/src/transformers/models/beit/image_processing_pil_beit.py`
+- `transformers/src/transformers/masking_utils.py` for `create_bidirectional_mask`
 
 `modeling_beit.py` is generated from `modular_beit.py`; future source edits should target `modular_beit.py`. Runtime behavior in this report is confirmed from the generated `modeling_beit.py`.
 

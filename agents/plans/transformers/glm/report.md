@@ -8,11 +8,11 @@ Model id: THUDM/glm-4-9b-hf and THUDM/glm-4-9b-chat-hf for native model_type="gl
 Config source: Hugging Face raw config.json snapshots saved in this folder
 Primary runtime target: causal language modeling, prefill + autoregressive decode
 Source files inspected:
-- X:/H/transformers/src/transformers/models/glm/modeling_glm.py
-- X:/H/transformers/src/transformers/models/glm/modular_glm.py
-- X:/H/transformers/src/transformers/models/glm/configuration_glm.py
-- X:/H/transformers/tests/models/glm/test_modeling_glm.py
-- X:/H/transformers/docs/source/en/model_doc/glm.md
+- transformers/src/transformers/models/glm/modeling_glm.py
+- transformers/src/transformers/models/glm/modular_glm.py
+- transformers/src/transformers/models/glm/configuration_glm.py
+- transformers/tests/models/glm/test_modeling_glm.py
+- transformers/docs/source/en/model_doc/glm.md
 Any missing files or assumptions:
 - modeling_glm.py is generated from modular_glm.py. Runtime facts below use generated modeling_glm.py; future Transformers source edits should target modular_glm.py.
 - Native in-library scope is model_type="glm". THUDM/glm-4-9b and THUDM/glm-4-9b-chat currently expose model_type="chatglm" and ChatGLMModel configs; treat them as remote-code/out-of-scope for this report.

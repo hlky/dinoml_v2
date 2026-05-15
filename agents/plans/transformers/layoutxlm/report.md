@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/layoutxlm-base plus accessible public fine-tunes/mirrors listed below
 Config source: local Transformers source defaults plus HF raw config/preprocessor/tokenizer JSON snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/layoutxlm/configuration_layoutxlm.py
-- X:/H/transformers/src/transformers/models/layoutxlm/modular_layoutxlm.py
-- X:/H/transformers/src/transformers/models/layoutxlm/processing_layoutxlm.py
-- X:/H/transformers/src/transformers/models/layoutxlm/tokenization_layoutxlm.py
-- X:/H/transformers/src/transformers/models/layoutxlm/__init__.py
-- X:/H/transformers/src/transformers/models/layoutlmv2/modeling_layoutlmv2.py, as source-proven neural reference
-- X:/H/transformers/src/transformers/models/layoutlmv2/image_processing_layoutlmv2.py, as source-proven image processor reference
+- transformers/src/transformers/models/layoutxlm/configuration_layoutxlm.py
+- transformers/src/transformers/models/layoutxlm/modular_layoutxlm.py
+- transformers/src/transformers/models/layoutxlm/processing_layoutxlm.py
+- transformers/src/transformers/models/layoutxlm/tokenization_layoutxlm.py
+- transformers/src/transformers/models/layoutxlm/__init__.py
+- transformers/src/transformers/models/layoutlmv2/modeling_layoutlmv2.py, as source-proven neural reference
+- transformers/src/transformers/models/layoutlmv2/image_processing_layoutlmv2.py, as source-proven image processor reference
 Any missing files or assumptions: There is no modeling_layoutxlm.py and no AutoModel mapping for model_type "layoutxlm" in this commit. LayoutXLM neural runtime facts below apply only when a checkpoint config routes to LayoutLMv2 source, which the official microsoft/layoutxlm-base config does.
 ```
 

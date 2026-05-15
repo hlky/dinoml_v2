@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
   Remote upstream available as https://github.com/huggingface/diffusers.git.
 
 Model id(s):
@@ -32,20 +32,20 @@ Config sources:
     masterful/gligen-1-4-generation-text-box unet/config.json.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/pipeline_stable_diffusion_gligen.py
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/pipeline_stable_diffusion_gligen_text_image.py
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/__init__.py
+  diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/pipeline_stable_diffusion_gligen.py
+  diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/pipeline_stable_diffusion_gligen_text_image.py
+  diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/image_processor.py
   Scheduler behavior inherited from SD1.5 report: PNDM sampled default,
   compatible KarrasDiffusionSchedulers surface.
 

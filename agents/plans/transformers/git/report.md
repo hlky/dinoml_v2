@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/git-base as base reference; sweep includes base/large, COCO, VQA/TextVQA, VATEX/video variants.
 Config source: Hugging Face config.json, preprocessor_config.json, generation_config.json fetched 2026-05-13 from microsoft/* GIT repos.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/git/configuration_git.py
-- X:/H/transformers/src/transformers/models/git/modeling_git.py
-- X:/H/transformers/src/transformers/models/git/processing_git.py
-- X:/H/transformers/src/transformers/models/git/convert_git_to_pytorch.py
+- transformers/src/transformers/models/git/configuration_git.py
+- transformers/src/transformers/models/git/modeling_git.py
+- transformers/src/transformers/models/git/processing_git.py
+- transformers/src/transformers/models/git/convert_git_to_pytorch.py
 Source URLs:
 - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/git/configuration_git.py
 - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/git/modeling_git.py

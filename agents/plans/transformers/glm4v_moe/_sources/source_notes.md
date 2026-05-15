@@ -4,7 +4,7 @@ Audit date: 2026-05-13
 
 ## Local Transformers source
 
-- Repository: `X:/H/transformers`
+- Repository: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Model directory: `src/transformers/models/glm4v_moe`
 - Generated source notice: `modeling_glm4v_moe.py` and `configuration_glm4v_moe.py` are generated from `modular_glm4v_moe.py`; future source edits should target the modular file.

@@ -12,15 +12,15 @@ Model id:
 Config source:
   Hugging Face config.json, preprocessor_config.json, processor_config.json, tokenizer_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vipllava/configuration_vipllava.py
-  X:/H/transformers/src/transformers/models/vipllava/modeling_vipllava.py
-  X:/H/transformers/src/transformers/models/vipllava/modular_vipllava.py
-  X:/H/transformers/src/transformers/models/llava/processing_llava.py
-  X:/H/transformers/src/transformers/models/clip/image_processing_clip.py
-  X:/H/transformers/src/transformers/models/clip/modeling_clip.py
-  X:/H/transformers/src/transformers/models/clip/configuration_clip.py
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-  X:/H/transformers/src/transformers/models/llama/configuration_llama.py
+  transformers/src/transformers/models/vipllava/configuration_vipllava.py
+  transformers/src/transformers/models/vipllava/modeling_vipllava.py
+  transformers/src/transformers/models/vipllava/modular_vipllava.py
+  transformers/src/transformers/models/llava/processing_llava.py
+  transformers/src/transformers/models/clip/image_processing_clip.py
+  transformers/src/transformers/models/clip/modeling_clip.py
+  transformers/src/transformers/models/clip/configuration_clip.py
+  transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/llama/configuration_llama.py
 Any missing files or assumptions:
   No remote-code files were needed for the native `vipllava` audit. `modeling_vipllava.py` is generated from `modular_vipllava.py`; runtime behavior was read from the generated file, while future source edits should target the modular file. HF configs were fetched from public model repos on 2026-05-13.
 ```

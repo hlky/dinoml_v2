@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
   Sampled checkpoint configs report transformers_version 4.56.0 or 4.57.0.dev0.
 
 Model id:
@@ -18,13 +18,13 @@ Config source:
   snapshots saved under agents/plans/transformers/qwen3_vl/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/qwen3_vl/configuration_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/modular_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py
-  X:/H/transformers/src/transformers/models/auto/{image_processing,processing,video_processing,modeling}_auto.py
+  transformers/src/transformers/models/qwen3_vl/configuration_qwen3_vl.py
+  transformers/src/transformers/models/qwen3_vl/modeling_qwen3_vl.py
+  transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py
+  transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py
+  transformers/src/transformers/models/qwen3_vl/modular_qwen3_vl.py
+  transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py
+  transformers/src/transformers/models/auto/{image_processing,processing,video_processing,modeling}_auto.py
 
 Any missing files or assumptions:
   No local qwen3_vl image processor exists; AutoImageProcessor maps qwen3_vl to

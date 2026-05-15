@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   VisualCloze/VisualClozePipeline-384
@@ -27,25 +27,25 @@ Config sources:
   The 384/512 JSON configs and index metadata were fetched with huggingface_hub.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/visualcloze/pipeline_visualcloze_combined.py
-  X:/H/diffusers/src/diffusers/pipelines/visualcloze/pipeline_visualcloze_generation.py
-  X:/H/diffusers/src/diffusers/pipelines/visualcloze/visualcloze_utils.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux_fill.py
+  diffusers/src/diffusers/pipelines/visualcloze/pipeline_visualcloze_combined.py
+  diffusers/src/diffusers/pipelines/visualcloze/pipeline_visualcloze_generation.py
+  diffusers/src/diffusers/pipelines/visualcloze/visualcloze_utils.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux_fill.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_flux.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/transformer_flux.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/docs/source/en/api/pipelines/visualcloze.md
-  X:/H/diffusers/tests/pipelines/visualcloze/test_pipeline_visualcloze_generation.py
-  X:/H/diffusers/tests/pipelines/visualcloze/test_pipeline_visualcloze_combined.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/docs/source/en/api/pipelines/visualcloze.md
+  diffusers/tests/pipelines/visualcloze/test_pipeline_visualcloze_generation.py
+  diffusers/tests/pipelines/visualcloze/test_pipeline_visualcloze_combined.py
 
 External component configs inspected:
   CLIPTextModel / CLIPTokenizer configs bundled in the VisualCloze repos.

@@ -4,9 +4,9 @@ Scope: docs-only audit for DinoML. No imports, no model execution, no DinoML tes
 
 ## Pinned local source
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/ernie4_5_vl_moe`
+- Family directory: `transformers/src/transformers/models/ernie4_5_vl_moe`
 - Generated source warning: `modeling_ernie4_5_vl_moe.py`, `configuration_ernie4_5_vl_moe.py`, and `image_processing_ernie4_5_vl_moe.py` are generated from `modular_ernie4_5_vl_moe.py`; future Transformers edits should target the modular file.
 
 ## Local files inspected

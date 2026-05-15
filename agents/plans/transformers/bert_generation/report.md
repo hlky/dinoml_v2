@@ -3,15 +3,15 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: google/bert_for_seq_generation_L-24_bbc_encoder plus public tiny/community bert-generation configs
 Config source: Hugging Face raw config.json URLs, fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/bert_generation/configuration_bert_generation.py
-  X:/H/transformers/src/transformers/models/bert_generation/modeling_bert_generation.py
-  X:/H/transformers/src/transformers/models/bert_generation/tokenization_bert_generation.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/models/bert_generation/configuration_bert_generation.py
+  transformers/src/transformers/models/bert_generation/modeling_bert_generation.py
+  transformers/src/transformers/models/bert_generation/tokenization_bert_generation.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/cache_utils.py
 Any missing files or assumptions:
   No processor/image/audio path exists. Tokenizer is SentencePiece-only and model-coupled only through token IDs.
   The only official public bert-generation checkpoint found by HF API search is the Google encoder checkpoint.

@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/bigbird-roberta-base primary; google/bigbird-roberta-large, google/bigbird-base-trivia-itc, l-yohai/bigbird-roberta-base-mnli representative configs
 Config source: Hugging Face config.json snapshots saved under agents/plans/transformers/big_bird/_sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/big_bird/configuration_big_bird.py
-- X:/H/transformers/src/transformers/models/big_bird/modeling_big_bird.py
-- X:/H/transformers/src/transformers/models/big_bird/tokenization_big_bird.py
-- X:/H/transformers/src/transformers/modeling_utils.py for full-attention mask helper behavior
+- transformers/src/transformers/models/big_bird/configuration_big_bird.py
+- transformers/src/transformers/models/big_bird/modeling_big_bird.py
+- transformers/src/transformers/models/big_bird/tokenization_big_bird.py
+- transformers/src/transformers/modeling_utils.py for full-attention mask helper behavior
 Any missing files or assumptions:
 - google/bigbird-base-natural-questions config fetch returned an authentication error, so it is not used in the sweep.
 - This report scopes DinoML first integration to encoder-style BigBird inference: base encoder, masked LM/pretraining heads, span QA, and sequence classification. `BigBirdForCausalLM` exists but should be a separate/full-attention decoder follow-up.

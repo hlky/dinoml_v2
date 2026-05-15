@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: arcee-ai/AFM-4.5B-Base, arcee-ai/AFM-4.5B, arcee-ai/AFM-4.5B-Preview, arcee-ai/AFM-4.5B-Base-Pre-Anneal
 Config source: raw Hugging Face config.json snapshots saved beside this report
 Source files inspected:
-- X:/H/transformers/src/transformers/models/arcee/modular_arcee.py
-- X:/H/transformers/src/transformers/models/arcee/configuration_arcee.py
-- X:/H/transformers/src/transformers/models/arcee/modeling_arcee.py
-- X:/H/transformers/tests/models/arcee/test_modeling_arcee.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/activations.py
+- transformers/src/transformers/models/arcee/modular_arcee.py
+- transformers/src/transformers/models/arcee/configuration_arcee.py
+- transformers/src/transformers/models/arcee/modeling_arcee.py
+- transformers/tests/models/arcee/test_modeling_arcee.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/activations.py
 Any missing files or assumptions:
 - modeling_arcee.py and configuration_arcee.py are generated from modular_arcee.py; future source edits should target modular_arcee.py.
 - No arcee tokenizer source is model-specific in Transformers. Tokenization is ordinary AutoTokenizer/repo metadata.

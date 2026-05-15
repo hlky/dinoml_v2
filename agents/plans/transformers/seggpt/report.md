@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary and only official in-library checkpoint found: `BAAI/seggpt-vit-large`.
 
@@ -14,14 +14,14 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/seggpt/configuration_seggpt.py`
-- `X:/H/transformers/src/transformers/models/seggpt/modeling_seggpt.py`
-- `X:/H/transformers/src/transformers/models/seggpt/image_processing_seggpt.py`
-- `X:/H/transformers/src/transformers/models/seggpt/image_processing_pil_seggpt.py`
-- `X:/H/transformers/src/transformers/models/seggpt/convert_seggpt_to_hf.py`
-- `X:/H/transformers/tests/models/seggpt/test_modeling_seggpt.py`
-- `X:/H/transformers/tests/models/seggpt/test_image_processing_seggpt.py`
-- `X:/H/transformers/docs/source/en/model_doc/seggpt.md`
+- `transformers/src/transformers/models/seggpt/configuration_seggpt.py`
+- `transformers/src/transformers/models/seggpt/modeling_seggpt.py`
+- `transformers/src/transformers/models/seggpt/image_processing_seggpt.py`
+- `transformers/src/transformers/models/seggpt/image_processing_pil_seggpt.py`
+- `transformers/src/transformers/models/seggpt/convert_seggpt_to_hf.py`
+- `transformers/tests/models/seggpt/test_modeling_seggpt.py`
+- `transformers/tests/models/seggpt/test_image_processing_seggpt.py`
+- `transformers/docs/source/en/model_doc/seggpt.md`
 
 Any missing files or assumptions:
 

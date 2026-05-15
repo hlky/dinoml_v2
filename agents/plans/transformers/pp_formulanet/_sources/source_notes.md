@@ -4,9 +4,9 @@ Audit target: Transformers model family `pp_formulanet`.
 
 ## Pinned source
 
-- Local Transformers checkout: `X:/H/transformers`
+- Local Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Source directory: `X:/H/transformers/src/transformers/models/pp_formulanet`
+- Source directory: `transformers/src/transformers/models/pp_formulanet`
 - Generated runtime files inspected:
   - `configuration_pp_formulanet.py`
   - `modeling_pp_formulanet.py`

@@ -8,9 +8,9 @@ Transformers describe: v4.50.3-DeepSeek-3-4398-gb75feb2af6
 Model id: google/pegasus-x-large as primary; google/pegasus-x-base and finetunes as config sweep
 Config source: local configuration_pegasus_x.py plus HF raw config snapshots under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pegasus_x/configuration_pegasus_x.py
-  X:/H/transformers/src/transformers/models/pegasus_x/modeling_pegasus_x.py
-  X:/H/transformers/src/transformers/models/pegasus_x/__init__.py
+  transformers/src/transformers/models/pegasus_x/configuration_pegasus_x.py
+  transformers/src/transformers/models/pegasus_x/modeling_pegasus_x.py
+  transformers/src/transformers/models/pegasus_x/__init__.py
 Any missing files or assumptions: no processor/image/audio files exist for this family; tokenizer is PegasusTokenizer from the Pegasus family, inspected only through tokenizer_config snapshots.
 ```
 

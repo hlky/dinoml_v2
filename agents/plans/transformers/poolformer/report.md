@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: sail/poolformer_s12, sail/poolformer_s24, sail/poolformer_s36, sail/poolformer_m36, sail/poolformer_m48
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots under _sources/hf_configs
 Source files inspected:
-- X:/H/transformers/src/transformers/models/poolformer/configuration_poolformer.py
-- X:/H/transformers/src/transformers/models/poolformer/modeling_poolformer.py
-- X:/H/transformers/src/transformers/models/poolformer/image_processing_poolformer.py
-- X:/H/transformers/src/transformers/models/poolformer/image_processing_pil_poolformer.py
+- transformers/src/transformers/models/poolformer/configuration_poolformer.py
+- transformers/src/transformers/models/poolformer/modeling_poolformer.py
+- transformers/src/transformers/models/poolformer/image_processing_poolformer.py
+- transformers/src/transformers/models/poolformer/image_processing_pil_poolformer.py
 Any missing files or assumptions: no remote code or gated files were required. The report targets image classification first. No segmentation or backbone-specific PoolFormer head is implemented in the inspected source.
 ```
 

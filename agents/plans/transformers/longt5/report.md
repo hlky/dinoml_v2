@@ -10,10 +10,10 @@ Model id: google/long-t5-local-base, google/long-t5-local-large,
 Config source: Hugging Face config.json snapshots under
   agents/plans/transformers/longt5/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/longt5/configuration_longt5.py
-  X:/H/transformers/src/transformers/models/longt5/modeling_longt5.py
-  X:/H/transformers/src/transformers/models/longt5/__init__.py
-  X:/H/transformers/src/transformers/masking_utils.py, for decoder causal mask call boundary
+  transformers/src/transformers/models/longt5/configuration_longt5.py
+  transformers/src/transformers/models/longt5/modeling_longt5.py
+  transformers/src/transformers/models/longt5/__init__.py
+  transformers/src/transformers/masking_utils.py, for decoder causal mask call boundary
 Any missing files or assumptions:
   No remote-code files are required for the in-library LongT5 family.
   Tokenizer files were not deeply audited; LongT5 uses T5/SentencePiece-style

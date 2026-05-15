@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Wan-AI/Wan2.1-T2V-1.3B-Diffusers
@@ -27,29 +27,29 @@ Config sources:
   owned write path is limited to this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_i2v.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_video2video.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_vace.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_animate.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/image_processor.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_output.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan_i2v.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan_video2video.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan_vace.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan_animate.py
+  diffusers/src/diffusers/pipelines/wan/image_processor.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_wan.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_wan_vace.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_wan_animate.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_wan.py
+  diffusers/src/diffusers/models/transformers/transformer_wan_vace.py
+  diffusers/src/diffusers/models/transformers/transformer_wan_animate.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   UMT5EncoderModel / T5TokenizerFast configs for Wan text encoders.

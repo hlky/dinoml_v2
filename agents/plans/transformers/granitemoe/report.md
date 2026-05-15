@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: granitemoe family; representative primary targets include ibm-research/PowerMoE-3b and ibm-granite Granite 3.0/3.1 MoE checkpoints.
 Config source: HF config.json snapshots saved under agents/plans/transformers/granitemoe/_sources/.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/granitemoe/configuration_granitemoe.py
-- X:/H/transformers/src/transformers/models/granitemoe/modeling_granitemoe.py
-- X:/H/transformers/src/transformers/models/granitemoe/modular_granitemoe.py
+- transformers/src/transformers/models/granitemoe/configuration_granitemoe.py
+- transformers/src/transformers/models/granitemoe/modeling_granitemoe.py
+- transformers/src/transformers/models/granitemoe/modular_granitemoe.py
 - Contrast only: granite/modeling_granite.py and granitemoehybrid/configuration_granitemoehybrid.py, modeling_granitemoehybrid.py
 Any missing files or assumptions: tokenizer files were not needed for the core GPU graph. Inference target is causal LM prefill/decode on CUDA. `modeling_granitemoe.py` is generated; future upstream edits should target `modular_granitemoe.py`, but DinoML parity should follow the generated file at this commit.
 ```

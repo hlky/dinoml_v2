@@ -23,6 +23,6 @@ Reuse Transformers Whisper report for canonical configs, but the Comfy feature e
 
 ## Sources
 
-- `X:/H/transformers/src/transformers/models/whisper`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py`
+- `transformers/src/transformers/models/whisper`
+- `Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py`
 

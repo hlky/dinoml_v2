@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: OFA-Sys/chinese-clip-vit-base-patch16 plus ViT-L/14, ViT-L/14-336px, ViT-H/14 variants
 Config source: Hugging Face config/preprocessor files snapshotted under agents/plans/transformers/chinese_clip/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/chinese_clip/modeling_chinese_clip.py
-  X:/H/transformers/src/transformers/models/chinese_clip/modular_chinese_clip.py
-  X:/H/transformers/src/transformers/models/chinese_clip/configuration_chinese_clip.py
-  X:/H/transformers/src/transformers/models/chinese_clip/processing_chinese_clip.py
-  X:/H/transformers/src/transformers/models/chinese_clip/image_processing_chinese_clip.py
-  X:/H/transformers/src/transformers/models/chinese_clip/image_processing_pil_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/modeling_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/modular_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/configuration_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/processing_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/image_processing_chinese_clip.py
+  transformers/src/transformers/models/chinese_clip/image_processing_pil_chinese_clip.py
 Any missing files or assumptions:
   No tokenizer implementation is specific to chinese_clip; official repos expose vocab.txt and rely on BERT-style tokenization through AutoTokenizer.
   The generated modeling/config files state they are generated from modular_chinese_clip.py. Runtime facts below use modeling_chinese_clip.py because it is the actual imported native PyTorch implementation at the pinned commit; future upstream source edits should target modular_chinese_clip.py.

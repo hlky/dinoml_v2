@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   nvidia/Cosmos-1.0-Diffusion-7B-Text2World
@@ -32,32 +32,32 @@ Config sources:
   task's owned workspace write path is only this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos_text2world.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos_video2world.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_text2image.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_video2world.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_5_predict.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_5_transfer.py
-  X:/H/diffusers/src/diffusers/pipelines/cosmos/pipeline_output.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos_text2world.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos_video2world.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_text2image.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_video2world.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_5_predict.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_cosmos2_5_transfer.py
+  diffusers/src/diffusers/pipelines/cosmos/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_cosmos.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cosmos.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_cosmos.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_cosmos.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cosmos.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/controlnets/controlnet_cosmos.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_edm_euler.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_model.py
+  diffusers/src/diffusers/schedulers/scheduling_edm_euler.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/loaders/single_file_model.py
 
 External component configs inspected:
   T5EncoderModel/T5TokenizerFast configs for Cosmos 1.0 and Predict2.

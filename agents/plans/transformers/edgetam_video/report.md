@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: yonigozlan/EdgeTAM-hf
 Config source: https://huggingface.co/yonigozlan/EdgeTAM-hf/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/edgetam_video/{configuration,modeling,modular}_edgetam_video.py
-  X:/H/transformers/src/transformers/models/edgetam/{configuration,modeling}_edgetam.py
-  X:/H/transformers/src/transformers/models/sam2_video/{processing,video_processing}_sam2_video.py
-  X:/H/transformers/src/transformers/models/sam2/image_processing_sam2.py
-  X:/H/transformers/src/transformers/models/timm_wrapper/{configuration,modeling}_timm_wrapper.py
+  transformers/src/transformers/models/edgetam_video/{configuration,modeling,modular}_edgetam_video.py
+  transformers/src/transformers/models/edgetam/{configuration,modeling}_edgetam.py
+  transformers/src/transformers/models/sam2_video/{processing,video_processing}_sam2_video.py
+  transformers/src/transformers/models/sam2/image_processing_sam2.py
+  transformers/src/transformers/models/timm_wrapper/{configuration,modeling}_timm_wrapper.py
 Any missing files or assumptions:
   modeling/configuration files are generated from modular source; generated modeling is the runtime basis.
   The vision backbone is delegated through AutoModel to edgetam_vision_model and then timm_wrapper/RepViT.

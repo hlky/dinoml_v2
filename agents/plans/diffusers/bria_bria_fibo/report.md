@@ -6,7 +6,7 @@ Target slug: `bria_bria_fibo`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   briaai/BRIA-3.2 (official repo referenced by docs/tests; unavailable during config read)
@@ -23,26 +23,26 @@ Config sources:
   briaai/Fibo-Edit model_info succeeded and showed component files, but raw config reads returned 403 with the token.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/bria/pipeline_bria.py
-  X:/H/diffusers/src/diffusers/pipelines/bria_fibo/pipeline_bria_fibo.py
-  X:/H/diffusers/src/diffusers/pipelines/bria_fibo/pipeline_bria_fibo_edit.py
+  diffusers/src/diffusers/pipelines/bria/pipeline_bria.py
+  diffusers/src/diffusers/pipelines/bria_fibo/pipeline_bria_fibo.py
+  diffusers/src/diffusers/pipelines/bria_fibo/pipeline_bria_fibo_edit.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_bria.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_bria_fibo.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/transformers/transformer_bria.py
+  diffusers/src/diffusers/models/transformers/transformer_bria_fibo.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   Bria 3.2 mirror T5EncoderModel/T5TokenizerFast configs.

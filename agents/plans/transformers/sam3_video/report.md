@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/sam3 for official docs/checkpoint references; official checkpoint is gated.
 Config source: source defaults plus open mirror config saved at _sources/bodhicitta_sam3_config_mirror.json.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/sam3_video/configuration_sam3_video.py
-- X:/H/transformers/src/transformers/models/sam3_video/modeling_sam3_video.py
-- X:/H/transformers/src/transformers/models/sam3_video/processing_sam3_video.py
-- X:/H/transformers/src/transformers/models/sam3/configuration_sam3.py
-- X:/H/transformers/src/transformers/models/sam3/modeling_sam3.py
-- X:/H/transformers/src/transformers/models/sam3/image_processing_sam3.py
-- X:/H/transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
-- X:/H/transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
+- transformers/src/transformers/models/sam3_video/configuration_sam3_video.py
+- transformers/src/transformers/models/sam3_video/modeling_sam3_video.py
+- transformers/src/transformers/models/sam3_video/processing_sam3_video.py
+- transformers/src/transformers/models/sam3/configuration_sam3.py
+- transformers/src/transformers/models/sam3/modeling_sam3.py
+- transformers/src/transformers/models/sam3/image_processing_sam3.py
+- transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
+- transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
 Any missing files or assumptions: official facebook/sam3 config/weights are gated; mirror config is not treated as authoritative for licensing or release metadata. No tests/imports were run.
 ```
 

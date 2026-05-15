@@ -10,7 +10,7 @@ Ignored per task scope: XLA/NPU/MPS, Flax/ONNX, safety/NSFW filtering, training/
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Base LCM pipeline examples:
@@ -56,30 +56,30 @@ Config sources:
     not pipeline model_index/component subfolders.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/latent_consistency_models/__init__.py
-  X:/H/diffusers/src/diffusers/pipelines/latent_consistency_models/pipeline_latent_consistency_text2img.py
-  X:/H/diffusers/src/diffusers/pipelines/latent_consistency_models/pipeline_latent_consistency_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/auto_pipeline.py
+  diffusers/src/diffusers/pipelines/latent_consistency_models/__init__.py
+  diffusers/src/diffusers/pipelines/latent_consistency_models/pipeline_latent_consistency_text2img.py
+  diffusers/src/diffusers/pipelines/latent_consistency_models/pipeline_latent_consistency_img2img.py
+  diffusers/src/diffusers/pipelines/auto_pipeline.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lcm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/textual_inversion.py
-  X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
+  diffusers/src/diffusers/schedulers/scheduling_lcm.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/textual_inversion.py
+  diffusers/src/diffusers/loaders/ip_adapter.py
 
 External component configs inspected:
   CLIPTextModel and CLIPTokenizer configs from the official LCM repos.

@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: official family ids are [`facebook/Perception-LM-1B`](https://huggingface.co/facebook/Perception-LM-1B), [`facebook/Perception-LM-3B`](https://huggingface.co/facebook/Perception-LM-3B), and [`facebook/Perception-LM-8B`](https://huggingface.co/facebook/Perception-LM-8B). All are manual-gated; raw `config.json` and processor files returned 401 without accepted access. Hub API metadata was readable and confirmed `model_type=perception_lm`, `PerceptionLMForConditionalGeneration`, file lists, manual gating, and BF16 parameter metadata. Detailed checkpoint dimensions below use open mirrors and are marked as mirror-derived.
 

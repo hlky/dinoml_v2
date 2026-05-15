@@ -8,14 +8,14 @@ Model family: starcoder2
 Primary runtime target: causal language modeling / code generation
 Config source: official Hugging Face config.json snapshots under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/starcoder2/configuration_starcoder2.py
-- X:/H/transformers/src/transformers/models/starcoder2/modeling_starcoder2.py
-- X:/H/transformers/src/transformers/models/starcoder2/modular_starcoder2.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/integrations/sdpa_attention.py
-- X:/H/transformers/src/transformers/integrations/flash_attention.py
+- transformers/src/transformers/models/starcoder2/configuration_starcoder2.py
+- transformers/src/transformers/models/starcoder2/modeling_starcoder2.py
+- transformers/src/transformers/models/starcoder2/modular_starcoder2.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/integrations/sdpa_attention.py
+- transformers/src/transformers/integrations/flash_attention.py
 Any missing files or assumptions:
 - `modeling_starcoder2.py` is generated from `modular_starcoder2.py`; inspect the generated file for exact pinned runtime behavior, but future source edits should target the modular file.
 - This report covers native in-library Transformers source, not remote code.

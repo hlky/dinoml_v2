@@ -3,14 +3,14 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: family-level audit for model_type="vision-text-dual-encoder"; representative checkpoints listed below
 Config source: local configuration source plus Hugging Face config.json snapshots in _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/vision_text_dual_encoder/modeling_vision_text_dual_encoder.py
-- X:/H/transformers/src/transformers/models/vision_text_dual_encoder/configuration_vision_text_dual_encoder.py
-- X:/H/transformers/src/transformers/models/vision_text_dual_encoder/processing_vision_text_dual_encoder.py
-- X:/H/transformers/src/transformers/processing_utils.py for inherited processor ABI
+- transformers/src/transformers/models/vision_text_dual_encoder/modeling_vision_text_dual_encoder.py
+- transformers/src/transformers/models/vision_text_dual_encoder/configuration_vision_text_dual_encoder.py
+- transformers/src/transformers/models/vision_text_dual_encoder/processing_vision_text_dual_encoder.py
+- transformers/src/transformers/processing_utils.py for inherited processor ABI
 Any missing files or assumptions: no remote-code body inspected; delegated vision/text backbones are owned by their own Transformers families and must be admitted through separate audits.
 ```
 

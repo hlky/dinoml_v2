@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: bosonai/higgs-audio-v2-tokenizer
 Config source: https://huggingface.co/bosonai/higgs-audio-v2-tokenizer/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/configuration_higgs_audio_v2_tokenizer.py
-  X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py
-  X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/modular_higgs_audio_v2_tokenizer.py
-  X:/H/transformers/src/transformers/models/higgs_audio_v2_tokenizer/convert_higgs_audio_v2_tokenizer_to_hf.py
-  X:/H/transformers/src/transformers/models/xcodec/*
-  X:/H/transformers/src/transformers/models/dac/configuration_dac.py
-  X:/H/transformers/src/transformers/models/dac/modeling_dac.py
-  X:/H/transformers/src/transformers/models/dac/feature_extraction_dac.py
-  X:/H/transformers/src/transformers/models/hubert/configuration_hubert.py
-  X:/H/transformers/src/transformers/models/hubert/modeling_hubert.py
+  transformers/src/transformers/models/higgs_audio_v2_tokenizer/configuration_higgs_audio_v2_tokenizer.py
+  transformers/src/transformers/models/higgs_audio_v2_tokenizer/modeling_higgs_audio_v2_tokenizer.py
+  transformers/src/transformers/models/higgs_audio_v2_tokenizer/modular_higgs_audio_v2_tokenizer.py
+  transformers/src/transformers/models/higgs_audio_v2_tokenizer/convert_higgs_audio_v2_tokenizer_to_hf.py
+  transformers/src/transformers/models/xcodec/*
+  transformers/src/transformers/models/dac/configuration_dac.py
+  transformers/src/transformers/models/dac/modeling_dac.py
+  transformers/src/transformers/models/dac/feature_extraction_dac.py
+  transformers/src/transformers/models/hubert/configuration_hubert.py
+  transformers/src/transformers/models/hubert/modeling_hubert.py
 Any missing files or assumptions:
   The in-tree modeling file is generated from modular_higgs_audio_v2_tokenizer.py.
   Public HF repo exposes one current official checkpoint and one legacy config revision; a docs example id was not fetchable.

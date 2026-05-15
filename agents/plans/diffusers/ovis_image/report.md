@@ -6,7 +6,7 @@ Candidate slug: `ovis_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   AIDC-AI/Ovis-Image-7B
@@ -31,7 +31,7 @@ Config sources:
   this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ovis_image/pipeline_ovis_image.py
+  diffusers/src/diffusers/pipelines/ovis_image/pipeline_ovis_image.py
     calculate_shift: line 56
     retrieve_timesteps: line 70
     OvisImagePipeline: line 129
@@ -39,10 +39,10 @@ Pipeline files inspected:
     encode prompt helpers: lines 182, 201, 240
     latent id/pack/unpack helpers: lines 320, 334, 342, 357
     __call__: line 414
-  X:/H/diffusers/src/diffusers/pipelines/ovis_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/ovis_image/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_ovis_image.py
+  diffusers/src/diffusers/models/transformers/transformer_ovis_image.py
     OvisImageAttnProcessor: line 68
     OvisImageAttention: line 135
     OvisImageSingleTransformerBlock: line 215
@@ -50,20 +50,20 @@ Model files inspected:
     OvisImagePosEmbed: line 356
     OvisImageTransformer2DModel: line 386
     forward: line 478
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/peft.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/peft.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs/source inspected:
   Official AIDC-AI/Ovis-Image-7B Qwen3 text encoder and Qwen2 tokenizer configs.

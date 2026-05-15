@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: MiniMaxAI/MiniMax-Text-01-hf
 Config source: Hugging Face raw config.json, downloaded 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/minimax/configuration_minimax.py
-- X:/H/transformers/src/transformers/models/minimax/modeling_minimax.py
-- X:/H/transformers/src/transformers/models/minimax/modular_minimax.py
-- X:/H/transformers/tests/models/minimax/test_modeling_minimax.py
-- X:/H/transformers/docs/source/en/model_doc/minimax.md
+- transformers/src/transformers/models/minimax/configuration_minimax.py
+- transformers/src/transformers/models/minimax/modeling_minimax.py
+- transformers/src/transformers/models/minimax/modular_minimax.py
+- transformers/tests/models/minimax/test_modeling_minimax.py
+- transformers/docs/source/en/model_doc/minimax.md
 Any missing files or assumptions:
 - modeling_minimax.py and configuration_minimax.py are generated from modular_minimax.py. Future source edits should target modular_minimax.py, but this report treats generated modeling_minimax.py as the runtime source basis.
 - MiniMaxAI/MiniMax-Text-01-hf is not gated. The full checkpoint is very large and sharded; this audit uses config/tokenizer metadata and source inspection, not weights.

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -21,9 +21,9 @@ Config source:
   or image-feature-extraction.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vit/modeling_vit.py
-  X:/H/transformers/src/transformers/models/vit/configuration_vit.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
+  transformers/src/transformers/models/vit/modeling_vit.py
+  transformers/src/transformers/models/vit/configuration_vit.py
+  transformers/src/transformers/models/vit/image_processing_vit.py
 
 Any missing files or assumptions:
   No remote-code files are required for standard ViT. This report prioritizes

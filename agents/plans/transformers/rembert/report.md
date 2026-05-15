@@ -3,14 +3,14 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/rembert, plus open fine-tuned/tiny/community RemBERT configs
 Config source: saved config snapshots under agents/plans/transformers/rembert/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/rembert/configuration_rembert.py
-  X:/H/transformers/src/transformers/models/rembert/modeling_rembert.py
-  X:/H/transformers/src/transformers/models/rembert/tokenization_rembert.py
-  X:/H/transformers/src/transformers/models/rembert/__init__.py
+  transformers/src/transformers/models/rembert/configuration_rembert.py
+  transformers/src/transformers/models/rembert/modeling_rembert.py
+  transformers/src/transformers/models/rembert/tokenization_rembert.py
+  transformers/src/transformers/models/rembert/__init__.py
 Any missing files or assumptions:
   No tokenization_rembert_fast.py exists in this checkout.
   google/rembert-ft-xnli, google/rembert-ft-squad, and google/rembert-ft-tydiqa raw config URLs were not accessible at the attempted locations.

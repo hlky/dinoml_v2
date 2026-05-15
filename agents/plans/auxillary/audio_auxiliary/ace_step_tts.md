@@ -24,6 +24,6 @@ Reuse `agents/plans/diffusers/ace_step/report.md` for base model coverage, then 
 ## Sources
 
 - `agents/plans/diffusers/ace_step/report.md`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/ace_step/pipeline_ace_step.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/ace_step15/pipeline_ace_step15.py`
+- `deepbeepmeep/Wan2GP/models/TTS/ace_step/pipeline_ace_step.py`
+- `deepbeepmeep/Wan2GP/models/TTS/ace_step15/pipeline_ace_step15.py`
 

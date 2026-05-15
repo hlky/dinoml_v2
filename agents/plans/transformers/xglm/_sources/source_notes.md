@@ -5,7 +5,7 @@ Audit scope: `xglm` only.
 Pinned Transformers checkout:
 
 ```text
-X:/H/transformers
+transformers
 commit b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 ```
 

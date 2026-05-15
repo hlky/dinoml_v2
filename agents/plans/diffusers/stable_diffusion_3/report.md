@@ -12,16 +12,16 @@ Ignored per project scope: XLA/NPU/MPS branches, callback mutation/interrupt pat
 
 ## Source Files
 
-- `X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py`
-- `X:/H/diffusers/src/diffusers/models/transformers/transformer_sd3.py`
-- `X:/H/diffusers/src/diffusers/models/attention.py`
-- `X:/H/diffusers/src/diffusers/models/attention_processor.py`
+- `diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py`
+- `diffusers/src/diffusers/models/transformers/transformer_sd3.py`
+- `diffusers/src/diffusers/models/attention.py`
+- `diffusers/src/diffusers/models/attention_processor.py`
 - Variant inventory:
-  - `X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3_img2img.py`
-  - `X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3_inpaint.py`
-  - `X:/H/diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet.py`
-  - `X:/H/diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet_inpainting.py`
-  - `X:/H/diffusers/src/diffusers/models/controlnets/controlnet_sd3.py`
+  - `diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3_img2img.py`
+  - `diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3_inpaint.py`
+  - `diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet.py`
+  - `diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet_inpainting.py`
+  - `diffusers/src/diffusers/models/controlnets/controlnet_sd3.py`
 
 ## Config Evidence
 

@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary `facebook/bart-large-cnn`; representative sweep also used `facebook/bart-base`, `facebook/bart-large`, `facebook/bart-large-xsum`, and `sshleifer/distilbart-cnn-12-6`.
 
@@ -18,13 +18,13 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/bart/configuration_bart.py`
-- `X:/H/transformers/src/transformers/models/bart/modeling_bart.py`
-- `X:/H/transformers/src/transformers/models/bart/tokenization_bart.py`
-- `X:/H/transformers/src/transformers/models/roberta/tokenization_roberta.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/models/bart/configuration_bart.py`
+- `transformers/src/transformers/models/bart/modeling_bart.py`
+- `transformers/src/transformers/models/bart/tokenization_bart.py`
+- `transformers/src/transformers/models/roberta/tokenization_roberta.py`
+- `transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/generation/utils.py`
 
 Any missing files or assumptions:
 

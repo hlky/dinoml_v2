@@ -11,7 +11,7 @@ Any missing files or assumptions: no model weights loaded; no imports/tests; onl
 ```
 
 Primary local source is under
-`X:/H/transformers/src/transformers/models/exaone_moe`. The generated
+`transformers/src/transformers/models/exaone_moe`. The generated
 `modeling_exaone_moe.py` and `configuration_exaone_moe.py` are the runtime basis;
 they are generated from `modular_exaone_moe.py`, which is authoritative for
 future upstream source edits. Config/source notes are in

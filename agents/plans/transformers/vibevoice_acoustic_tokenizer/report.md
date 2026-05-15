@@ -15,11 +15,11 @@ Config source:
   https://huggingface.co/microsoft/VibeVoice-1.5B/raw/main/config.json
   https://huggingface.co/microsoft/VibeVoice-1.5B/raw/main/preprocessor_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vibevoice_acoustic_tokenizer/configuration_vibevoice_acoustic_tokenizer.py
-  X:/H/transformers/src/transformers/models/vibevoice_acoustic_tokenizer/feature_extraction_vibevoice_acoustic_tokenizer.py
-  X:/H/transformers/src/transformers/models/vibevoice_acoustic_tokenizer/modeling_vibevoice_acoustic_tokenizer.py
-  X:/H/transformers/src/transformers/models/vibevoice_acoustic_tokenizer/modular_vibevoice_acoustic_tokenizer.py
-  X:/H/transformers/src/transformers/models/vibevoice_acoustic_tokenizer/convert_vibevoice_acoustic_tokenizer_to_hf.py
+  transformers/src/transformers/models/vibevoice_acoustic_tokenizer/configuration_vibevoice_acoustic_tokenizer.py
+  transformers/src/transformers/models/vibevoice_acoustic_tokenizer/feature_extraction_vibevoice_acoustic_tokenizer.py
+  transformers/src/transformers/models/vibevoice_acoustic_tokenizer/modeling_vibevoice_acoustic_tokenizer.py
+  transformers/src/transformers/models/vibevoice_acoustic_tokenizer/modular_vibevoice_acoustic_tokenizer.py
+  transformers/src/transformers/models/vibevoice_acoustic_tokenizer/convert_vibevoice_acoustic_tokenizer_to_hf.py
 Any missing files or assumptions:
   modeling_vibevoice_acoustic_tokenizer.py is generated from modular_vibevoice_acoustic_tokenizer.py; future upstream edits should target the modular file.
   No small/debug architectural variant was found. Available public configs are the same architecture or legacy-key mirrors.

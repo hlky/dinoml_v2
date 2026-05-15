@@ -10,13 +10,13 @@ Config source: HF `config.json`, `preprocessor_config.json`, `generation_config.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/pop2piano/modeling_pop2piano.py`
-- `X:/H/transformers/src/transformers/models/pop2piano/configuration_pop2piano.py`
-- `X:/H/transformers/src/transformers/models/pop2piano/feature_extraction_pop2piano.py`
-- `X:/H/transformers/src/transformers/models/pop2piano/tokenization_pop2piano.py`
-- `X:/H/transformers/src/transformers/models/pop2piano/processing_pop2piano.py`
-- `X:/H/transformers/tests/models/pop2piano/test_modeling_pop2piano.py`
-- `X:/H/transformers/docs/source/en/model_doc/pop2piano.md`
+- `transformers/src/transformers/models/pop2piano/modeling_pop2piano.py`
+- `transformers/src/transformers/models/pop2piano/configuration_pop2piano.py`
+- `transformers/src/transformers/models/pop2piano/feature_extraction_pop2piano.py`
+- `transformers/src/transformers/models/pop2piano/tokenization_pop2piano.py`
+- `transformers/src/transformers/models/pop2piano/processing_pop2piano.py`
+- `transformers/tests/models/pop2piano/test_modeling_pop2piano.py`
+- `transformers/docs/source/en/model_doc/pop2piano.md`
 
 Any missing files or assumptions: model source is native in-library PyTorch, copied mostly from T5 with Pop2Piano-specific audio conditioning and MIDI ABI. Feature extraction depends on `essentia`, `librosa`, `scipy`, and `torch`; MIDI postprocess depends on `pretty_midi`. The audit target is inference/generation from audio features to MIDI tokens and postprocessed MIDI notes/objects.
 

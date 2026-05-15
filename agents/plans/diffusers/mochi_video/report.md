@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   genmo/mochi-1-preview
@@ -25,22 +25,22 @@ Config sources:
     text_encoder index total_size 19049242624, 4 shards
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/mochi/pipeline_mochi.py
-  X:/H/diffusers/src/diffusers/pipelines/mochi/pipeline_output.py
+  diffusers/src/diffusers/pipelines/mochi/pipeline_mochi.py
+  diffusers/src/diffusers/pipelines/mochi/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_mochi.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_mochi.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_mochi.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_mochi.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_model.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/loaders/single_file_model.py
 
 External component configs inspected:
   T5EncoderModel and T5 tokenizer configs from the official Mochi repo.

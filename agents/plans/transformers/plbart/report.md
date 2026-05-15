@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary `uclanlp/plbart-base`; representative sweep also used `uclanlp/plbart-large`, `uclanlp/plbart-java-en_XX`, and `uclanlp/plbart-python-en_XX`.
 
@@ -15,12 +15,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/plbart/configuration_plbart.py`
-- `X:/H/transformers/src/transformers/models/plbart/modeling_plbart.py`
-- `X:/H/transformers/src/transformers/models/plbart/modular_plbart.py`
-- `X:/H/transformers/src/transformers/models/plbart/tokenization_plbart.py`
-- `X:/H/transformers/src/transformers/masking_utils.py` through source references
-- `X:/H/transformers/src/transformers/cache_utils.py` through source references
+- `transformers/src/transformers/models/plbart/configuration_plbart.py`
+- `transformers/src/transformers/models/plbart/modeling_plbart.py`
+- `transformers/src/transformers/models/plbart/modular_plbart.py`
+- `transformers/src/transformers/models/plbart/tokenization_plbart.py`
+- `transformers/src/transformers/masking_utils.py` through source references
+- `transformers/src/transformers/cache_utils.py` through source references
 
 Local snapshots:
 

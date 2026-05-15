@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/bitnet-b1.58-2B-4T
 Config source: HF config.json, tokenizer_config.json, generation_config.json, HF model API metadata
 Source files inspected:
-- X:/H/transformers/src/transformers/models/bitnet/configuration_bitnet.py
-- X:/H/transformers/src/transformers/models/bitnet/modeling_bitnet.py
-- X:/H/transformers/src/transformers/models/bitnet/modular_bitnet.py
-- X:/H/transformers/src/transformers/integrations/bitnet.py
-- X:/H/transformers/src/transformers/quantizers/quantizer_bitnet.py
-- X:/H/transformers/src/transformers/utils/quantization_config.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/activations.py
+- transformers/src/transformers/models/bitnet/configuration_bitnet.py
+- transformers/src/transformers/models/bitnet/modeling_bitnet.py
+- transformers/src/transformers/models/bitnet/modular_bitnet.py
+- transformers/src/transformers/integrations/bitnet.py
+- transformers/src/transformers/quantizers/quantizer_bitnet.py
+- transformers/src/transformers/utils/quantization_config.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/activations.py
 Any missing files or assumptions: GGUF repo has no config.json; report uses HF API GGUF metadata and official dense/quantized configs.
 ```
 

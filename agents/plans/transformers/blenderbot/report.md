@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary `facebook/blenderbot-400M-distill`; representative sweep also used `facebook/blenderbot-1B-distill`, `facebook/blenderbot-3B`, `hf-internal-testing/tiny-random-BlenderbotModel`, and `facebook/blenderbot-90M` only to confirm it belongs to the separate `blenderbot_small` family.
 
@@ -20,12 +20,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/blenderbot/configuration_blenderbot.py`
-- `X:/H/transformers/src/transformers/models/blenderbot/modeling_blenderbot.py`
-- `X:/H/transformers/src/transformers/models/blenderbot/tokenization_blenderbot.py`
-- `X:/H/transformers/src/transformers/models/blenderbot/convert_blenderbot_original_pytorch_checkpoint_to_pytorch.py`
-- `X:/H/transformers/src/transformers/masking_utils.py` by import contract only
-- `X:/H/transformers/src/transformers/cache_utils.py` by import contract only
+- `transformers/src/transformers/models/blenderbot/configuration_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/modeling_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/tokenization_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/convert_blenderbot_original_pytorch_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/masking_utils.py` by import contract only
+- `transformers/src/transformers/cache_utils.py` by import contract only
 
 Any missing files or assumptions:
 

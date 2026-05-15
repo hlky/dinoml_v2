@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openai-community/openai-gpt
 Config source: Hugging Face config.json snapshots saved beside this report
 Source files inspected:
-  X:/H/transformers/src/transformers/models/openai/configuration_openai.py
-  X:/H/transformers/src/transformers/models/openai/modeling_openai.py
-  X:/H/transformers/src/transformers/models/openai/tokenization_openai.py
-  X:/H/transformers/src/transformers/pytorch_utils.py (Conv1D weight layout)
+  transformers/src/transformers/models/openai/configuration_openai.py
+  transformers/src/transformers/models/openai/modeling_openai.py
+  transformers/src/transformers/models/openai/tokenization_openai.py
+  transformers/src/transformers/pytorch_utils.py (Conv1D weight layout)
 Any missing files or assumptions:
   No tokenization_openai_fast.py exists in this checkout.
   No processor/image/audio files apply.

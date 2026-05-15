@@ -4,9 +4,9 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Model directory: `X:/H/transformers/src/transformers/models/exaone_moe`
+- Model directory: `transformers/src/transformers/models/exaone_moe`
 - Files inspected:
   - `configuration_exaone_moe.py`
   - `modeling_exaone_moe.py`

@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `transformers`.
 
 Model family: `dinov2`
 
@@ -10,13 +10,13 @@ Primary runtime target: vision encoder/image feature extraction. `Dinov2ForImage
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/dinov2/configuration_dinov2.py`
-- `X:/H/transformers/src/transformers/models/dinov2/modeling_dinov2.py`
-- `X:/H/transformers/src/transformers/models/dinov2/convert_dinov2_to_hf.py` only for source inventory
-- `X:/H/transformers/src/transformers/models/bit/image_processing_bit.py`, because official configs use `BitImageProcessor`
-- `X:/H/transformers/src/transformers/image_processing_backends.py` and `image_processing_utils.py` for the shared processor tensor contract
-- `X:/H/transformers/src/transformers/models/auto/image_processing_auto.py`, confirming `dinov2 -> BitImageProcessor`
-- `X:/H/transformers/src/transformers/models/dinov2_with_registers/*`, as a sibling variant check only
+- `transformers/src/transformers/models/dinov2/configuration_dinov2.py`
+- `transformers/src/transformers/models/dinov2/modeling_dinov2.py`
+- `transformers/src/transformers/models/dinov2/convert_dinov2_to_hf.py` only for source inventory
+- `transformers/src/transformers/models/bit/image_processing_bit.py`, because official configs use `BitImageProcessor`
+- `transformers/src/transformers/image_processing_backends.py` and `image_processing_utils.py` for the shared processor tensor contract
+- `transformers/src/transformers/models/auto/image_processing_auto.py`, confirming `dinov2 -> BitImageProcessor`
+- `transformers/src/transformers/models/dinov2_with_registers/*`, as a sibling variant check only
 
 Representative configs/preprocessor configs fetched from official Hugging Face repos:
 

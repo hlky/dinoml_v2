@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/resnet-50 as the common reference; sweep includes microsoft/resnet-18, -34, -50, -101, and -152.
 Config source: official Hugging Face config.json and preprocessor_config.json files fetched from microsoft/* repos.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/resnet/modeling_resnet.py
-- X:/H/transformers/src/transformers/models/resnet/configuration_resnet.py
-- X:/H/transformers/src/transformers/models/resnet/convert_resnet_to_pytorch.py
-- X:/H/transformers/src/transformers/models/convnext/image_processing_convnext.py
-- X:/H/transformers/src/transformers/models/convnext/image_processing_pil_convnext.py
-- X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-- X:/H/transformers/src/transformers/backbone_utils.py
+- transformers/src/transformers/models/resnet/modeling_resnet.py
+- transformers/src/transformers/models/resnet/configuration_resnet.py
+- transformers/src/transformers/models/resnet/convert_resnet_to_pytorch.py
+- transformers/src/transformers/models/convnext/image_processing_convnext.py
+- transformers/src/transformers/models/convnext/image_processing_pil_convnext.py
+- transformers/src/transformers/models/auto/image_processing_auto.py
+- transformers/src/transformers/backbone_utils.py
 Any missing files or assumptions: no gated/401/403 gaps were observed for the sampled official Microsoft repos. ResNet has no family-local image processor; AutoImageProcessor maps `model_type="resnet"` to the shared ConvNext image processor classes. This report targets native in-library ResNet, not DETR/MaskFormer heads that may compose ResNet as a backbone.
 ```
 

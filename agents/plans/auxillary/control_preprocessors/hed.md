@@ -27,5 +27,5 @@ The neural part is simple conv inference, but the useful UI feature includes pre
 
 - `H:/controlnet_aux/src/controlnet_aux/hed/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/processor.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/hed.py`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:119`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/hed.py`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:119`

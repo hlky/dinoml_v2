@@ -11,7 +11,7 @@ Primary runtime target: offline ASR with ParakeetForCTC greedy CTC decoding
 
 Source files inspected:
 
-- Local pinned files under `X:/H/transformers/src/transformers/models/parakeet/`.
+- Local pinned files under `transformers/src/transformers/models/parakeet/`.
 - `configuration_parakeet.py`: `ParakeetEncoderConfig`, `ParakeetCTCConfig`.
 - `modeling_parakeet.py`: generated runtime source. The file header says it is generated from `modular_parakeet.py`.
 - `modular_parakeet.py`: authoritative source for future Transformers edits.

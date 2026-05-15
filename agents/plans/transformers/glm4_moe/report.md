@@ -22,9 +22,9 @@ Model ids / config sources inspected:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/glm4_moe/modular_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/modular_glm4_moe.py`)
-- `X:/H/transformers/src/transformers/models/glm4_moe/configuration_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/configuration_glm4_moe.py`)
-- `X:/H/transformers/src/transformers/models/glm4_moe/modeling_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/modeling_glm4_moe.py`)
+- `transformers/src/transformers/models/glm4_moe/modular_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/modular_glm4_moe.py`)
+- `transformers/src/transformers/models/glm4_moe/configuration_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/configuration_glm4_moe.py`)
+- `transformers/src/transformers/models/glm4_moe/modeling_glm4_moe.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4_moe/modeling_glm4_moe.py`)
 - Comparison files: `models/glm/modeling_glm.py`, `models/glm4/modeling_glm4.py`, `models/glm/configuration_glm.py`, `models/glm4/configuration_glm4.py`
 - Shared utilities: `modeling_rope_utils.py`, `masking_utils.py`, `cache_utils.py`, `modeling_utils.py`, `modeling_flash_attention_utils.py`
 

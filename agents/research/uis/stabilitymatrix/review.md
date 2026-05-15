@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/LykosAI/StabilityMatrix`
+- UI clone: `LykosAI/StabilityMatrix`
 
 ## Summary
 
@@ -50,39 +50,39 @@ as FaceDetailer.
 
 ## Code Anchors
 
-- `H:/uis/LykosAI/StabilityMatrix/README.md:54`
+- `LykosAI/StabilityMatrix/README.md:54`
   lists WebUI package support.
-- `H:/uis/LykosAI/StabilityMatrix/README.md:63`
+- `LykosAI/StabilityMatrix/README.md:63`
   lists FluxGym package support.
-- `H:/uis/LykosAI/StabilityMatrix/README.md:64`
+- `LykosAI/StabilityMatrix/README.md:64`
   lists CogVideo via CogStudio.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:14`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:14`
   lists CogVideoX base model type.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:17`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:17`
   lists Flux base model types.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:29`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:29`
   lists Hunyuan Video.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:107`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:107`
   lists SDXL base model variants.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:137`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/CivitBaseModelType.cs:137`
   lists Wan Video.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/ComfyUI.cs:118`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/ComfyUI.cs:118`
   maps ControlNet/T2IAdapter shared folders for ComfyUI.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Wan2GP.cs:16`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Wan2GP.cs:16`
   describes Wan2GP package support.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Wan2GP.cs:17`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Wan2GP.cs:17`
   lists Wan/Qwen/Hunyuan Video/LTX Video/Flux support.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/FluxGym.cs:36`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/FluxGym.cs:36`
   describes Flux LoRA training UI.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/ComfyUpscaler.cs:9`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/ComfyUpscaler.cs:9`
   defines Comfy upscaler API model.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:22`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:22`
   defines remote downloadable model catalog behavior.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:1160`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:1160`
   builds Comfy FaceDetailer workflow nodes.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/`
   contains package metadata/management types.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Avalonia/`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Avalonia/`
   contains desktop UI integration.
 
 ## DinoML Gaps
@@ -99,31 +99,31 @@ as FaceDetailer.
 
 - Shared folder taxonomy is broader than first pass: Ultralytics, SAMs, and
   PromptExpansion, plus Invoke-specific IP-Adapter and CLIP Vision splits.
-  Anchors: `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/SharedFolderType.cs:43`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/ComfyUI.cs:160`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/SharedFolders.cs:27`.
+  Anchors: `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/SharedFolderType.cs:43`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/ComfyUI.cs:160`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/SharedFolders.cs:27`.
 - Remote catalog includes ControlNet, prompt expansion, Ultralytics, SAM, CLIP,
   and CLIP Vision models, not only upscalers.
-  Anchors: `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:173`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:268`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:392`.
+  Anchors: `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:173`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:268`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:392`.
 - Prompt expansion is available through generated API types and Comfy node
   builder/node map.
   Anchors:
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Api/PromptGen/Generated/Refitter.g.cs:33`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:619`.
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Api/PromptGen/Generated/Refitter.g.cs:33`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:619`.
 - Ultralytics/SAM integration appears through downloadable catalogs and Comfy
   node builder support.
   Anchors:
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:698`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:268`.
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/Nodes/ComfyNodeBuilder.cs:698`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Helper/RemoteModels.cs:268`.
 - Installable runtime/provider helpers include SageAttention and Nunchaku for
   Comfy packages.
-  Anchors: `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Services/IPipWheelService.cs:28`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/PackageModification/InstallSageAttentionStep.cs:12`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/PackageModification/InstallNunchakuStep.cs:11`.
+  Anchors: `LykosAI/StabilityMatrix/StabilityMatrix.Core/Services/IPipWheelService.cs:28`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/PackageModification/InstallSageAttentionStep.cs:12`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/PackageModification/InstallNunchakuStep.cs:11`.
 - Extension management is a package-level product surface, including Comfy
   extension manager and Git-backed install/update APIs.
-  Anchors: `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/BasePackage.cs:278`,
-  `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Extensions/GitPackageExtensionManager.cs:14`,
-  `H:/uis/LykosAI/StabilityMatrix/README.md:65`.
+  Anchors: `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/BasePackage.cs:278`,
+  `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Packages/Extensions/GitPackageExtensionManager.cs:14`,
+  `LykosAI/StabilityMatrix/README.md:65`.

@@ -19,18 +19,18 @@ broader than the current bounded GGUF Q4_0 GEMM path.
 
 ## Code Anchors
 
-- `H:/uis/deepbeepmeep/Wan2GP/shared/qtypes/gguf.py:1`.
-- `H:/uis/deepbeepmeep/Wan2GP/shared/qtypes/nvfp4.py:1`.
-- `H:/uis/deepbeepmeep/Wan2GP/shared/qtypes/nunchaku_fp4.py:1`.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_sage/sparse_int8_attn.py:22`
+- `deepbeepmeep/Wan2GP/shared/qtypes/gguf.py:1`.
+- `deepbeepmeep/Wan2GP/shared/qtypes/nvfp4.py:1`.
+- `deepbeepmeep/Wan2GP/shared/qtypes/nunchaku_fp4.py:1`.
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_sage/sparse_int8_attn.py:22`
   Triton sparse INT8 attention.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_sage/quant_per_block.py:22`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_sage/quant_per_block.py:22`
   Triton per-block INT8 quantization.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/attention_backend.py:152`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/attention_backend.py:152`
   bundled sparse backend loader.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_backend_config.py`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/sparse_backend_config.py`
   sparse backend config helpers.
-- `H:/uis/deepbeepmeep/Wan2GP/plugins/wan2gp-configuration/plugin.py:275`
+- `deepbeepmeep/Wan2GP/plugins/wan2gp-configuration/plugin.py:275`
   FlashVSR sparse/upscale user configuration.
 
 ## DinoML Gap

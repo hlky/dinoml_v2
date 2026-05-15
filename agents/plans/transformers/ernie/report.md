@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: ernie family; representative open configs listed below
 Config source: local configuration_ernie.py plus raw Hugging Face config.json files
 Source files inspected:
-  X:/H/transformers/src/transformers/models/ernie/configuration_ernie.py
-  X:/H/transformers/src/transformers/models/ernie/modular_ernie.py
-  X:/H/transformers/src/transformers/models/ernie/modeling_ernie.py
-  X:/H/transformers/src/transformers/models/bert/modeling_bert.py for inheritance comparison
+  transformers/src/transformers/models/ernie/configuration_ernie.py
+  transformers/src/transformers/models/ernie/modular_ernie.py
+  transformers/src/transformers/models/ernie/modeling_ernie.py
+  transformers/src/transformers/models/bert/modeling_bert.py for inheritance comparison
 Any missing files or assumptions:
   No ERNIE tokenizer or processor source lives in this model directory. Tokenization is BERT-style and is treated as CPU/data-pipeline work.
   modeling_ernie.py is generated from modular_ernie.py; future source edits should target modular_ernie.py.

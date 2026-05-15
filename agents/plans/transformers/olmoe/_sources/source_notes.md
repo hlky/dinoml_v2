@@ -1,7 +1,7 @@
 # OLMoE Source Notes
 
 Source basis:
-- Transformers checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Transformers checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Main source: `src/transformers/models/olmoe/modeling_olmoe.py`.
 - Modular source: `src/transformers/models/olmoe/modular_olmoe.py`.
 - Config source: `src/transformers/models/olmoe/configuration_olmoe.py`.

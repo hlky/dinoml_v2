@@ -1,7 +1,7 @@
 # LFM2-MoE Source Notes
 
 Audit target: `lfm2_moe` at local Transformers checkout
-`X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+`transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## Local source files
 

@@ -7,7 +7,7 @@ Audit date: 2026-05-13
 Pinned checkout:
 
 ```text
-X:/H/transformers
+transformers
 commit b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 ```
 
@@ -22,8 +22,8 @@ Copied source snapshots:
 
 Delegated source inspected in-place but not copied:
 
-- `X:/H/transformers/src/transformers/models/granite/modeling_granite.py`
-- `X:/H/transformers/src/transformers/models/blip_2/modeling_blip_2.py`
+- `transformers/src/transformers/models/granite/modeling_granite.py`
+- `transformers/src/transformers/models/blip_2/modeling_blip_2.py`
 
 ## Hugging Face config snapshots
 

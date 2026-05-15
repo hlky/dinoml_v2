@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/mobilenet_v2_1.0_224 as primary image-classification checkpoint; google/deeplabv3_mobilenet_v2_1.0_513 for segmentation coverage.
 Config source: HF config.json/preprocessor_config.json snapshots under _sources/hf_configs.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mobilenet_v2/configuration_mobilenet_v2.py
-- X:/H/transformers/src/transformers/models/mobilenet_v2/modeling_mobilenet_v2.py
-- X:/H/transformers/src/transformers/models/mobilenet_v2/image_processing_mobilenet_v2.py
-- X:/H/transformers/src/transformers/models/mobilenet_v2/image_processing_pil_mobilenet_v2.py
+- transformers/src/transformers/models/mobilenet_v2/configuration_mobilenet_v2.py
+- transformers/src/transformers/models/mobilenet_v2/modeling_mobilenet_v2.py
+- transformers/src/transformers/models/mobilenet_v2/image_processing_mobilenet_v2.py
+- transformers/src/transformers/models/mobilenet_v2/image_processing_pil_mobilenet_v2.py
 Any missing files or assumptions: no gated/401/403 files observed for sampled official Google configs. No Transformers import/execution or DinoML tests were run.
 ```
 

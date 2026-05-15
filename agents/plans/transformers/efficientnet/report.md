@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/efficientnet-b0, google/efficientnet-b3, google/efficientnet-b7
 Config source: official HF config.json and preprocessor_config.json snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/efficientnet/configuration_efficientnet.py
-- X:/H/transformers/src/transformers/models/efficientnet/modeling_efficientnet.py
-- X:/H/transformers/src/transformers/models/efficientnet/image_processing_efficientnet.py
-- X:/H/transformers/src/transformers/models/efficientnet/image_processing_pil_efficientnet.py
+- transformers/src/transformers/models/efficientnet/configuration_efficientnet.py
+- transformers/src/transformers/models/efficientnet/modeling_efficientnet.py
+- transformers/src/transformers/models/efficientnet/image_processing_efficientnet.py
+- transformers/src/transformers/models/efficientnet/image_processing_pil_efficientnet.py
 Any missing files or assumptions:
 - Primary target is image classification with EfficientNetForImageClassification.
 - No attention, generation, tokenizer, cache, remote-code, or custom autoload path is required for the inspected in-library source.

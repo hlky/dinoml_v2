@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: primary in-library family `sam3_tracker`; open config mirror `onnx-community/sam3-tracker-ONNX`; gated upstream `facebook/sam3`
 Config source: local source defaults plus open ONNX mirror config; direct `facebook/sam3` config is gated
 Source files inspected:
-  X:/H/transformers/src/transformers/models/sam3_tracker/configuration_sam3_tracker.py
-  X:/H/transformers/src/transformers/models/sam3_tracker/modeling_sam3_tracker.py
-  X:/H/transformers/src/transformers/models/sam3_tracker/modular_sam3_tracker.py
-  X:/H/transformers/src/transformers/models/sam3_tracker/processing_sam3_tracker.py
-  X:/H/transformers/src/transformers/models/sam3/configuration_sam3.py
-  X:/H/transformers/src/transformers/models/sam3/modeling_sam3.py
-  X:/H/transformers/src/transformers/models/sam2/image_processing_sam2.py
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3_tracker/configuration_sam3_tracker.py
+  transformers/src/transformers/models/sam3_tracker/modeling_sam3_tracker.py
+  transformers/src/transformers/models/sam3_tracker/modular_sam3_tracker.py
+  transformers/src/transformers/models/sam3_tracker/processing_sam3_tracker.py
+  transformers/src/transformers/models/sam3/configuration_sam3.py
+  transformers/src/transformers/models/sam3/modeling_sam3.py
+  transformers/src/transformers/models/sam2/image_processing_sam2.py
+  transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
 Any missing files or assumptions:
   `facebook/sam3` and `danelcsb/sam3_tracker.1_hiera_tiny` configs were gated/401.
   `modeling_sam3_tracker.py`, `configuration_sam3_tracker.py`, and `processing_sam3_tracker.py` are generated; `modular_sam3_tracker.py` is authoritative for upstream source edits.

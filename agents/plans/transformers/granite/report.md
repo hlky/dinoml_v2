@@ -13,19 +13,19 @@ Primary runtime target:
   GraniteForCausalLM, text-only autoregressive causal LM.
 
 Config source:
-  X:/H/transformers/src/transformers/models/granite/configuration_granite.py
+  transformers/src/transformers/models/granite/configuration_granite.py
   Hugging Face config.json snapshots under agents/plans/transformers/granite/_sources/
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/granite/modular_granite.py
-  X:/H/transformers/src/transformers/models/granite/modeling_granite.py
-  X:/H/transformers/src/transformers/models/granite/configuration_granite.py
-  X:/H/transformers/src/transformers/models/granitemoe/modeling_granitemoe.py
-  X:/H/transformers/src/transformers/models/granitemoe/configuration_granitemoe.py
-  X:/H/transformers/src/transformers/models/granitemoehybrid/modeling_granitemoehybrid.py
-  X:/H/transformers/src/transformers/models/granitemoehybrid/configuration_granitemoehybrid.py
-  X:/H/transformers/src/transformers/configuration_utils.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/granite/modular_granite.py
+  transformers/src/transformers/models/granite/modeling_granite.py
+  transformers/src/transformers/models/granite/configuration_granite.py
+  transformers/src/transformers/models/granitemoe/modeling_granitemoe.py
+  transformers/src/transformers/models/granitemoe/configuration_granitemoe.py
+  transformers/src/transformers/models/granitemoehybrid/modeling_granitemoehybrid.py
+  transformers/src/transformers/models/granitemoehybrid/configuration_granitemoehybrid.py
+  transformers/src/transformers/configuration_utils.py
+  transformers/src/transformers/modeling_rope_utils.py
 
 Any missing files or assumptions:
   modeling_granite.py is generated from modular_granite.py. Future HF source

@@ -6,7 +6,7 @@ Candidate slug: `audioldm_musicldm`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   cvssp/audioldm
@@ -37,25 +37,25 @@ Config sources:
     feature_extractor/preprocessor_config.json where present
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/audioldm/pipeline_audioldm.py
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/musicldm/pipeline_musicldm.py
-  X:/H/diffusers/src/diffusers/pipelines/audioldm2/pipeline_audioldm2.py
-  X:/H/diffusers/src/diffusers/pipelines/audioldm2/__init__.py
+  diffusers/src/diffusers/pipelines/deprecated/audioldm/pipeline_audioldm.py
+  diffusers/src/diffusers/pipelines/deprecated/musicldm/pipeline_musicldm.py
+  diffusers/src/diffusers/pipelines/audioldm2/pipeline_audioldm2.py
+  diffusers/src/diffusers/pipelines/audioldm2/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/audioldm2/modeling_audioldm2.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_2d.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/pipelines/audioldm2/modeling_audioldm2.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/transformers/transformer_2d.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_utils.py
   Transformers SpeechT5 HiFi-GAN source from installed transformers package.
 
 External component configs inspected:

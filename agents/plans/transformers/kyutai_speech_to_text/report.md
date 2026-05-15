@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: kyutai/stt-2.6b-en-trfs
 Config source: HF config/preprocessor/tokenizer/generation JSON plus local Transformers defaults
 Source files inspected: kyutai_speech_to_text config/modeling/modular/processor/feature_extractor/converter; Mimi config/modeling; Moshi config/modeling neighbor source
@@ -12,7 +12,7 @@ Any missing files or assumptions: no weights were loaded; no model imports or ex
 
 Primary source links:
 
-- Transformers source basis: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
+- Transformers source basis: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - HF model: [kyutai/stt-2.6b-en-trfs](https://huggingface.co/kyutai/stt-2.6b-en-trfs)
 - Transformers docs: [Kyutai Speech-To-Text](https://huggingface.co/docs/transformers/model_doc/kyutai_speech_to_text)
 - Kyutai project page: [Kyutai STT](https://kyutai.org/stt)

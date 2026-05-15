@@ -1,12 +1,12 @@
 # BlenderBot Config Sweep Notes
 
-Transformers checkout: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers checkout: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Local source files inspected:
 
-- `X:/H/transformers/src/transformers/models/blenderbot/configuration_blenderbot.py`
-- `X:/H/transformers/src/transformers/models/blenderbot/modeling_blenderbot.py`
-- `X:/H/transformers/src/transformers/models/blenderbot/tokenization_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/configuration_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/modeling_blenderbot.py`
+- `transformers/src/transformers/models/blenderbot/tokenization_blenderbot.py`
 
 Remote config URLs fetched:
 

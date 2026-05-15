@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary target `nvidia/segformer-b0-finetuned-ade-512-512`; representative sweep also used `nvidia/segformer-b1-finetuned-cityscapes-1024-1024`, `nvidia/segformer-b5-finetuned-ade-640-640`, `nvidia/mit-b0`, and `nvidia/mit-b5`.
 
@@ -10,11 +10,11 @@ Config source: official Hugging Face raw `config.json` and `preprocessor_config.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/segformer/configuration_segformer.py`
-- `X:/H/transformers/src/transformers/models/segformer/modeling_segformer.py`
-- `X:/H/transformers/src/transformers/models/segformer/modular_segformer.py`
-- `X:/H/transformers/src/transformers/models/segformer/image_processing_segformer.py`
-- `X:/H/transformers/src/transformers/models/segformer/image_processing_pil_segformer.py`
+- `transformers/src/transformers/models/segformer/configuration_segformer.py`
+- `transformers/src/transformers/models/segformer/modeling_segformer.py`
+- `transformers/src/transformers/models/segformer/modular_segformer.py`
+- `transformers/src/transformers/models/segformer/image_processing_segformer.py`
+- `transformers/src/transformers/models/segformer/image_processing_pil_segformer.py`
 
 Any missing files or assumptions: `modeling_segformer.py`, `image_processing_segformer.py`, and `image_processing_pil_segformer.py` are generated from `modular_segformer.py`; future source edits should inspect the modular file first. This report targets inference for `SegformerForSemanticSegmentation`. Image classification via `SegformerForImageClassification` is documented as optional. Training losses, gradient checkpointing, and stochastic depth randomness are out of runtime scope.
 

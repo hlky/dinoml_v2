@@ -17,11 +17,11 @@ Config source: local snapshots under `agents/plans/transformers/oneformer/_sourc
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/oneformer/configuration_oneformer.py`
-- `X:/H/transformers/src/transformers/models/oneformer/modeling_oneformer.py`
-- `X:/H/transformers/src/transformers/models/oneformer/image_processing_oneformer.py`
-- `X:/H/transformers/src/transformers/models/oneformer/image_processing_pil_oneformer.py`
-- `X:/H/transformers/src/transformers/models/oneformer/processing_oneformer.py`
+- `transformers/src/transformers/models/oneformer/configuration_oneformer.py`
+- `transformers/src/transformers/models/oneformer/modeling_oneformer.py`
+- `transformers/src/transformers/models/oneformer/image_processing_oneformer.py`
+- `transformers/src/transformers/models/oneformer/image_processing_pil_oneformer.py`
+- `transformers/src/transformers/models/oneformer/processing_oneformer.py`
 
 Pinned source URLs:
 

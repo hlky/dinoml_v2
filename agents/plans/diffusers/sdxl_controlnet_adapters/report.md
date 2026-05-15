@@ -9,7 +9,7 @@ candidates: ControlNet SDXL, T2I-Adapter SDXL, and IP-Adapter SDXL.
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Base SDXL reference:
@@ -47,29 +47,29 @@ Config sources:
   without saving them, because this task owns only this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_inpaint_sd_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_xl_adapter.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_inpaint.py
+  diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl.py
+  diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_sd_xl_img2img.py
+  diffusers/src/diffusers/pipelines/controlnet/pipeline_controlnet_inpaint_sd_xl.py
+  diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_xl_adapter.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_img2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl_inpaint.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet.py
-  X:/H/diffusers/src/diffusers/models/controlnets/multicontrolnet.py
-  X:/H/diffusers/src/diffusers/models/adapter.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/controlnets/controlnet.py
+  diffusers/src/diffusers/models/controlnets/multicontrolnet.py
+  diffusers/src/diffusers/models/adapter.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
-  X:/H/diffusers/src/diffusers/loaders/unet.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/ip_adapter.py
+  diffusers/src/diffusers/loaders/unet.py
+  diffusers/src/diffusers/image_processor.py
   Existing reports:
     agents/plans/diffusers/stable_diffusion_xl/report.md
     agents/plans/diffusers/controlnet_sd/report.md

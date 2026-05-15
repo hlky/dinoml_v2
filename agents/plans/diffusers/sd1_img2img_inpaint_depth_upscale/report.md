@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
   Remote upstream present: https://github.com/huggingface/diffusers.git
 
 Model id(s):
@@ -25,30 +25,30 @@ Config sources:
   Local/raw sd2-community fetch: sd2-community/stable-diffusion-2-depth/{model_index.json,unet/config.json,vae/config.json,scheduler/scheduler_config.json,text_encoder/config.json,feature_extractor/preprocessor_config.json,depth_estimator/config.json}
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_depth2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_latent_upscale.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_depth2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_latent_upscale.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lms_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_lms_discrete.py
 
 External component configs inspected:
   CLIPTextModel configs for SD1.5 inpaint, SD2 depth, x4 upscaler, and latent upscaler.

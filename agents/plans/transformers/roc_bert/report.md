@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: weiweishi/roc-bert-base-zh, plus representative fine-tunes listed below
 Config source: Hugging Face config.json snapshots saved beside this report
 Source files inspected:
-- X:/H/transformers/src/transformers/models/roc_bert/configuration_roc_bert.py
-- X:/H/transformers/src/transformers/models/roc_bert/modeling_roc_bert.py
-- X:/H/transformers/src/transformers/models/roc_bert/tokenization_roc_bert.py
+- transformers/src/transformers/models/roc_bert/configuration_roc_bert.py
+- transformers/src/transformers/models/roc_bert/modeling_roc_bert.py
+- transformers/src/transformers/models/roc_bert/tokenization_roc_bert.py
 Any missing files or assumptions: no image/audio processor; tokenizer side dictionaries are runtime input-pipeline assets. No gated/401 config gaps were hit for the sampled repos.
 ```
 

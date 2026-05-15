@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: stabilityai/stablelm-3b-4e1t as primary; stablelm-zephyr-3b, stablelm-2-1_6b, tiny-random-stablelm-2 as config sweep
 Config source: Hugging Face raw config.json files, plus StableLmConfig defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/stablelm/configuration_stablelm.py
-  X:/H/transformers/src/transformers/models/stablelm/modeling_stablelm.py
-  X:/H/transformers/tests/models/stablelm/test_modeling_stablelm.py
-  X:/H/transformers/docs/source/en/model_doc/stablelm.md
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/modeling_layers.py
+  transformers/src/transformers/models/stablelm/configuration_stablelm.py
+  transformers/src/transformers/models/stablelm/modeling_stablelm.py
+  transformers/tests/models/stablelm/test_modeling_stablelm.py
+  transformers/docs/source/en/model_doc/stablelm.md
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/modeling_layers.py
 Any missing files or assumptions:
   No modular StableLM source exists in this checkout; modeling_stablelm.py is authoritative.
   Tokenizer coupling is light: docs/auto mappings identify GPTNeoXTokenizer/GPTNeoXTokenizerFast for StableLM 3B.

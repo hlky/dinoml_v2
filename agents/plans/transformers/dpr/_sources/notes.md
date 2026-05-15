@@ -2,7 +2,7 @@
 
 Fetched with Invoke-WebRequest on 2026-05-13 from Hugging Face `resolve/main` URLs.
 
-Transformers local checkout: X:/H/transformers, commit b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+Transformers local checkout: transformers, commit b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Representative configs fetched:
 - facebook/dpr-question_encoder-single-nq-base config/tokenizer_config

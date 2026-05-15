@@ -13,11 +13,11 @@ Dinoml assumptions: inference-only first, CUDA GPU target, preserve Transformers
 
 Source files inspected:
 
-- Local authoritative modular source: `X:/H/transformers/src/transformers/models/phi/modular_phi.py`
-- Local generated concrete source: `X:/H/transformers/src/transformers/models/phi/modeling_phi.py`
-- Local config source: `X:/H/transformers/src/transformers/models/phi/configuration_phi.py`
-- Local conversion helper: `X:/H/transformers/src/transformers/models/phi/convert_phi_weights_to_hf.py`
-- Shared source: `X:/H/transformers/src/transformers/cache_utils.py`, `X:/H/transformers/src/transformers/masking_utils.py`, `X:/H/transformers/src/transformers/modeling_rope_utils.py`, `X:/H/transformers/src/transformers/activations.py`
+- Local authoritative modular source: `transformers/src/transformers/models/phi/modular_phi.py`
+- Local generated concrete source: `transformers/src/transformers/models/phi/modeling_phi.py`
+- Local config source: `transformers/src/transformers/models/phi/configuration_phi.py`
+- Local conversion helper: `transformers/src/transformers/models/phi/convert_phi_weights_to_hf.py`
+- Shared source: `transformers/src/transformers/cache_utils.py`, `transformers/src/transformers/masking_utils.py`, `transformers/src/transformers/modeling_rope_utils.py`, `transformers/src/transformers/activations.py`
 - Upstream source URL pattern at pinned commit: `https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/phi/...`
 
 Authoritative source note:

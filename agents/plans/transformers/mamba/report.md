@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: state-spaces/mamba-130m-hf, 370m-hf, 790m-hf, 1.4b-hf, 2.8b-hf; hf-internal-testing/tiny-random-MambaForCausalLM
 Config source: Hugging Face config.json snapshots in agents/plans/transformers/mamba/_sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mamba/modeling_mamba.py
-- X:/H/transformers/src/transformers/models/mamba/configuration_mamba.py
-- X:/H/transformers/src/transformers/models/mamba/convert_mamba_ssm_checkpoint_to_pytorch.py
-- X:/H/transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/models/mamba/modeling_mamba.py
+- transformers/src/transformers/models/mamba/configuration_mamba.py
+- transformers/src/transformers/models/mamba/convert_mamba_ssm_checkpoint_to_pytorch.py
+- transformers/src/transformers/cache_utils.py
 Any missing files or assumptions: tokenizer is not model-coupled beyond normal input_ids; no remote code required for the in-library Mamba class. Report target is inference-only CUDA causal LM.
 ```
 

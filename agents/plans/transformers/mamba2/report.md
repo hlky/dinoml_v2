@@ -17,10 +17,10 @@ Config source: local Transformers `src/transformers/models/mamba2/configuration_
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/mamba2/modeling_mamba2.py`
-- `X:/H/transformers/src/transformers/models/mamba2/configuration_mamba2.py`
-- `X:/H/transformers/src/transformers/models/mamba2/convert_mamba2_ssm_checkpoint_to_pytorch.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`, around `LinearAttentionLayer`.
+- `transformers/src/transformers/models/mamba2/modeling_mamba2.py`
+- `transformers/src/transformers/models/mamba2/configuration_mamba2.py`
+- `transformers/src/transformers/models/mamba2/convert_mamba2_ssm_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/cache_utils.py`, around `LinearAttentionLayer`.
 - GitHub source URLs at the inspected commit:
   - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mamba2/modeling_mamba2.py
   - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mamba2/configuration_mamba2.py

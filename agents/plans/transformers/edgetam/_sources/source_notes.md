@@ -2,9 +2,9 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Inspected commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Primary model-family directory: `X:/H/transformers/src/transformers/models/edgetam`
+- Primary model-family directory: `transformers/src/transformers/models/edgetam`
 - Generated-file note: `configuration_edgetam.py` is generated from `modular_edgetam.py`; the generated warning says future source edits should be applied to the modular file.
 
 ## Files read

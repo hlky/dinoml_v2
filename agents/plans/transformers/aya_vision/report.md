@@ -8,16 +8,16 @@ Model family: aya_vision
 Primary runtime target: multimodal image+text conditional generation
 Config source: local Transformers source defaults plus HF config/processor snapshots. Official CohereForAI/aya-vision-* repos returned 401 from this environment, so production configs were inspected through open mirrors and one hf-internal-testing namespace mirror.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/aya_vision/configuration_aya_vision.py
-- X:/H/transformers/src/transformers/models/aya_vision/modeling_aya_vision.py
-- X:/H/transformers/src/transformers/models/aya_vision/modular_aya_vision.py
-- X:/H/transformers/src/transformers/models/aya_vision/processing_aya_vision.py
-- X:/H/transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
-- X:/H/transformers/src/transformers/models/got_ocr2/image_processing_pil_got_ocr2.py
-- X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-- X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-- X:/H/transformers/src/transformers/models/cohere/modeling_cohere.py
-- X:/H/transformers/src/transformers/models/cohere2/modeling_cohere2.py
+- transformers/src/transformers/models/aya_vision/configuration_aya_vision.py
+- transformers/src/transformers/models/aya_vision/modeling_aya_vision.py
+- transformers/src/transformers/models/aya_vision/modular_aya_vision.py
+- transformers/src/transformers/models/aya_vision/processing_aya_vision.py
+- transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
+- transformers/src/transformers/models/got_ocr2/image_processing_pil_got_ocr2.py
+- transformers/src/transformers/models/siglip/configuration_siglip.py
+- transformers/src/transformers/models/siglip/modeling_siglip.py
+- transformers/src/transformers/models/cohere/modeling_cohere.py
+- transformers/src/transformers/models/cohere2/modeling_cohere2.py
 Snapshots written under: agents/plans/transformers/aya_vision/_sources/
 Any missing files or assumptions: modeling_aya_vision.py is generated from modular_aya_vision.py; future source edits should target the modular file. No remote-code files were required for the inspected native source path.
 ```

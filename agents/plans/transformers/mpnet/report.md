@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary source/config target: microsoft/mpnet-base.
@@ -24,11 +24,11 @@ Config source:
   https://huggingface.co/sentence-transformers/paraphrase-mpnet-base-v2/raw/main/modules.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mpnet/configuration_mpnet.py
-  X:/H/transformers/src/transformers/models/mpnet/modeling_mpnet.py
-  X:/H/transformers/src/transformers/models/mpnet/tokenization_mpnet.py
-  X:/H/transformers/src/transformers/models/auto/modeling_auto.py
-  X:/H/transformers/src/transformers/modeling_utils.py
+  transformers/src/transformers/models/mpnet/configuration_mpnet.py
+  transformers/src/transformers/models/mpnet/modeling_mpnet.py
+  transformers/src/transformers/models/mpnet/tokenization_mpnet.py
+  transformers/src/transformers/models/auto/modeling_auto.py
+  transformers/src/transformers/modeling_utils.py
 
 Any missing files or assumptions:
   No MPNet remote code is required for the inspected checkpoints. The current

@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: granitemoeshared source family. No public production config with model_type=granitemoeshared was found.
 Config source: source defaults, upstream test fixture, and mismatch snapshots saved under _sources/.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/granitemoeshared/configuration_granitemoeshared.py
-- X:/H/transformers/src/transformers/models/granitemoeshared/modeling_granitemoeshared.py
-- X:/H/transformers/src/transformers/models/granitemoeshared/modular_granitemoeshared.py
-- X:/H/transformers/tests/models/granitemoeshared/test_modeling_granitemoeshared.py
+- transformers/src/transformers/models/granitemoeshared/configuration_granitemoeshared.py
+- transformers/src/transformers/models/granitemoeshared/modeling_granitemoeshared.py
+- transformers/src/transformers/models/granitemoeshared/modular_granitemoeshared.py
+- transformers/tests/models/granitemoeshared/test_modeling_granitemoeshared.py
 Any missing files or assumptions: tokenizer files are not needed for the core GPU graph. `modeling_granitemoeshared.py` is generated from `modular_granitemoeshared.py`; parity should follow the generated file, while future upstream edits should target the modular file. Public PowerMoE configs are `granitemoe`, not `granitemoeshared`; public speech configs wrap dense `granite`, not this class.
 ```
 

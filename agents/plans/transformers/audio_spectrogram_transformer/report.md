@@ -11,13 +11,13 @@ Primary model id: MIT/ast-finetuned-audioset-10-10-0.4593
 Primary task: raw mono waveform -> log-mel fbank -> AST encoder -> audio-classification logits
 Config source: Hugging Face config.json and preprocessor_config.json files fetched from model repos listed below.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/audio_spectrogram_transformer/configuration_audio_spectrogram_transformer.py
-- X:/H/transformers/src/transformers/models/audio_spectrogram_transformer/feature_extraction_audio_spectrogram_transformer.py
-- X:/H/transformers/src/transformers/models/audio_spectrogram_transformer/modeling_audio_spectrogram_transformer.py
-- X:/H/transformers/src/transformers/models/audio_spectrogram_transformer/modular_audio_spectrogram_transformer.py
-- X:/H/transformers/src/transformers/models/audio_spectrogram_transformer/convert_audio_spectrogram_transformer_original_to_pytorch.py
-- X:/H/transformers/tests/models/audio_spectrogram_transformer/test_modeling_audio_spectrogram_transformer.py
-- X:/H/transformers/tests/models/audio_spectrogram_transformer/test_feature_extraction_audio_spectrogram_transformer.py
+- transformers/src/transformers/models/audio_spectrogram_transformer/configuration_audio_spectrogram_transformer.py
+- transformers/src/transformers/models/audio_spectrogram_transformer/feature_extraction_audio_spectrogram_transformer.py
+- transformers/src/transformers/models/audio_spectrogram_transformer/modeling_audio_spectrogram_transformer.py
+- transformers/src/transformers/models/audio_spectrogram_transformer/modular_audio_spectrogram_transformer.py
+- transformers/src/transformers/models/audio_spectrogram_transformer/convert_audio_spectrogram_transformer_original_to_pytorch.py
+- transformers/tests/models/audio_spectrogram_transformer/test_modeling_audio_spectrogram_transformer.py
+- transformers/tests/models/audio_spectrogram_transformer/test_feature_extraction_audio_spectrogram_transformer.py
 Any missing files or assumptions: no remote-code files are needed for inspected MIT checkpoints. `modeling_audio_spectrogram_transformer.py` is generated from `modular_audio_spectrogram_transformer.py`; inspect the generated file for runtime behavior and edit the modular file for future Transformers source changes. Two apparent MIT repos (`MIT/ast-finetuned-esc50`, `MIT/ast-finetuned-audioset-10-10-0.4593-finetuned-speech-commands-v2`) returned 401 and are not included as primary configs.
 ```
 

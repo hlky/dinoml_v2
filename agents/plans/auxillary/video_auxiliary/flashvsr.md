@@ -23,7 +23,7 @@ This is not a simple image upscaler. Treat it as a video postprocess pipeline wi
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/wgp_bridge.py`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/wan_video_dit.py`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/wgp_bridge.py`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/wan_video_dit.py`
+- `deepbeepmeep/Wan2GP/postprocessing/flashvsr/tcdecoder.py`
 

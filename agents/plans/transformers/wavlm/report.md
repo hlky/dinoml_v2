@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   wavlm family. Primary DinoML target recommended here: WavLMModel encoder inference from raw waveform tensors.
@@ -15,11 +15,11 @@ Config source:
   H:/dinoml_v2/agents/plans/transformers/wavlm/_sources.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/wavlm/configuration_wavlm.py
-  X:/H/transformers/src/transformers/models/wavlm/modular_wavlm.py
-  X:/H/transformers/src/transformers/models/wavlm/modeling_wavlm.py
-  X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-  X:/H/transformers/tests/models/wavlm/test_modeling_wavlm.py
+  transformers/src/transformers/models/wavlm/configuration_wavlm.py
+  transformers/src/transformers/models/wavlm/modular_wavlm.py
+  transformers/src/transformers/models/wavlm/modeling_wavlm.py
+  transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+  transformers/tests/models/wavlm/test_modeling_wavlm.py
 
 Any missing files or assumptions:
   modeling_wavlm.py is generated from modular_wavlm.py. For future Transformers edits, modular_wavlm.py is authoritative;

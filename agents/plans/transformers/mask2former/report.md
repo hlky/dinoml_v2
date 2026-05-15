@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,13 +23,13 @@ Config source:
   Same raw paths for the sweep checkpoints above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mask2former/configuration_mask2former.py
-  X:/H/transformers/src/transformers/models/mask2former/modeling_mask2former.py
-  X:/H/transformers/src/transformers/models/mask2former/modular_mask2former.py
-  X:/H/transformers/src/transformers/models/mask2former/image_processing_mask2former.py
-  X:/H/transformers/src/transformers/models/mask2former/image_processing_pil_mask2former.py
-  X:/H/transformers/src/transformers/models/swin/modeling_swin.py
-  X:/H/transformers/src/transformers/backbone_utils.py
+  transformers/src/transformers/models/mask2former/configuration_mask2former.py
+  transformers/src/transformers/models/mask2former/modeling_mask2former.py
+  transformers/src/transformers/models/mask2former/modular_mask2former.py
+  transformers/src/transformers/models/mask2former/image_processing_mask2former.py
+  transformers/src/transformers/models/mask2former/image_processing_pil_mask2former.py
+  transformers/src/transformers/models/swin/modeling_swin.py
+  transformers/src/transformers/backbone_utils.py
 
 Any missing files or assumptions:
   No remote code is required for the inspected official checkpoints. The

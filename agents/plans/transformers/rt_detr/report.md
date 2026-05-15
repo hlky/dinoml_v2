@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -22,16 +22,16 @@ Config source:
   Same raw paths for the other PekingU sweep checkpoints above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/rt_detr/configuration_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/configuration_rt_detr_resnet.py
-  X:/H/transformers/src/transformers/models/rt_detr/modeling_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/modeling_rt_detr_resnet.py
-  X:/H/transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/image_processing_pil_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/modular_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/convert_rt_detr_original_pytorch_checkpoint_to_hf.py
-  X:/H/transformers/tests/models/rt_detr/test_modeling_rt_detr.py
-  X:/H/transformers/tests/models/rt_detr/test_image_processing_rt_detr.py
+  transformers/src/transformers/models/rt_detr/configuration_rt_detr.py
+  transformers/src/transformers/models/rt_detr/configuration_rt_detr_resnet.py
+  transformers/src/transformers/models/rt_detr/modeling_rt_detr.py
+  transformers/src/transformers/models/rt_detr/modeling_rt_detr_resnet.py
+  transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
+  transformers/src/transformers/models/rt_detr/image_processing_pil_rt_detr.py
+  transformers/src/transformers/models/rt_detr/modular_rt_detr.py
+  transformers/src/transformers/models/rt_detr/convert_rt_detr_original_pytorch_checkpoint_to_hf.py
+  transformers/tests/models/rt_detr/test_modeling_rt_detr.py
+  transformers/tests/models/rt_detr/test_image_processing_rt_detr.py
 
 Any missing files or assumptions:
   modeling_rt_detr.py, image_processing_rt_detr.py, and image_processing_pil_rt_detr.py

@@ -3,15 +3,15 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: pegasus family; representative checkpoints listed below
 Config source: local configuration_pegasus.py plus HF raw config.json snapshots
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pegasus/configuration_pegasus.py
-  X:/H/transformers/src/transformers/models/pegasus/modeling_pegasus.py
-  X:/H/transformers/src/transformers/models/pegasus/tokenization_pegasus.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/pegasus/configuration_pegasus.py
+  transformers/src/transformers/models/pegasus/modeling_pegasus.py
+  transformers/src/transformers/models/pegasus/tokenization_pegasus.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
   No remote-code source is required for the inspected in-library family.
   No tests/imports were run, per request.

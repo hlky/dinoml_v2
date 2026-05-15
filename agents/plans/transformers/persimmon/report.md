@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary open checkpoints [`adept/persimmon-8b-base`](https://huggingface.co/adept/persimmon-8b-base) and [`adept/persimmon-8b-chat`](https://huggingface.co/adept/persimmon-8b-chat). Both Hub API records were open/not gated on 2026-05-13.
 
@@ -10,11 +10,11 @@ Config source: raw Hub `config.json`, tokenizer/generation configs for the two A
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/persimmon/configuration_persimmon.py`
-- `X:/H/transformers/src/transformers/models/persimmon/modeling_persimmon.py`
-- `X:/H/transformers/src/transformers/models/persimmon/convert_persimmon_weights_to_hf.py`
-- `X:/H/transformers/src/transformers/activations.py` for `relu2`
-- `X:/H/transformers/src/transformers/modeling_rope_utils.py` and `configuration_utils.py` for legacy `rope_theta`/`rope_scaling` conversion into `rope_parameters`
+- `transformers/src/transformers/models/persimmon/configuration_persimmon.py`
+- `transformers/src/transformers/models/persimmon/modeling_persimmon.py`
+- `transformers/src/transformers/models/persimmon/convert_persimmon_weights_to_hf.py`
+- `transformers/src/transformers/activations.py` for `relu2`
+- `transformers/src/transformers/modeling_rope_utils.py` and `configuration_utils.py` for legacy `rope_theta`/`rope_scaling` conversion into `rope_parameters`
 
 Any missing files or assumptions: there is no Persimmon-specific tokenizer implementation in the model directory; the official tokenizer config selects `LlamaTokenizer` with a SentencePiece `tokenizer.model`. No modular Persimmon source file was present, so `modeling_persimmon.py` is the authoritative in-library modeling file. No remote-code files are required for the official Persimmon checkpoints.
 

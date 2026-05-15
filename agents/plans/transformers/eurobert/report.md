@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: EuroBERT/EuroBERT-210m primary; EuroBERT/EuroBERT-610m and EuroBERT/EuroBERT-2.1B swept
 Config source: HF Hub config.json snapshots saved in this folder
 Source files inspected:
-- X:/H/transformers/src/transformers/models/eurobert/configuration_eurobert.py
-- X:/H/transformers/src/transformers/models/eurobert/modeling_eurobert.py
-- X:/H/transformers/src/transformers/models/eurobert/modular_eurobert.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/eurobert/configuration_eurobert.py
+- transformers/src/transformers/models/eurobert/modeling_eurobert.py
+- transformers/src/transformers/models/eurobert/modular_eurobert.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
 - No processor/image/audio files; this is text-only.
 - Official Hub repos are public and not gated.

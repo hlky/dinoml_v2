@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: tau/splinter-base, tau/splinter-base-qass, tau/splinter-large, tau/splinter-large-qass
 Config source: official Hugging Face config.json files fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/splinter/modeling_splinter.py
-  X:/H/transformers/src/transformers/models/splinter/configuration_splinter.py
-  X:/H/transformers/src/transformers/models/splinter/tokenization_splinter.py
-  X:/H/transformers/docs/source/en/model_doc/splinter.md
-  X:/H/transformers/tests/models/splinter/test_modeling_splinter.py
+  transformers/src/transformers/models/splinter/modeling_splinter.py
+  transformers/src/transformers/models/splinter/configuration_splinter.py
+  transformers/src/transformers/models/splinter/tokenization_splinter.py
+  transformers/docs/source/en/model_doc/splinter.md
+  transformers/tests/models/splinter/test_modeling_splinter.py
 Any missing files or assumptions: no gated configs in the representative sweep; no remote-code path required.
 ```
 

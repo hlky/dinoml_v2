@@ -15,11 +15,11 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/reformer/configuration_reformer.py`
-- `X:/H/transformers/src/transformers/models/reformer/modeling_reformer.py`
-- `X:/H/transformers/src/transformers/models/reformer/tokenization_reformer.py`
-- `X:/H/transformers/docs/source/en/model_doc/reformer.md`
-- `X:/H/transformers/tests/models/reformer/test_modeling_reformer.py`
+- `transformers/src/transformers/models/reformer/configuration_reformer.py`
+- `transformers/src/transformers/models/reformer/modeling_reformer.py`
+- `transformers/src/transformers/models/reformer/tokenization_reformer.py`
+- `transformers/docs/source/en/model_doc/reformer.md`
+- `transformers/tests/models/reformer/test_modeling_reformer.py`
 
 Primary source URLs for future re-check:
 

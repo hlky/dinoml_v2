@@ -6,7 +6,7 @@ Target slug: `hunyuan_image`
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   hunyuanvideo-community/HunyuanImage-2.1-Diffusers
@@ -26,25 +26,25 @@ Config sources:
   H:/configs/Tencent-Hunyuan/HunyuanDiT-v1.2-Diffusers/*
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_hunyuanimage.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_hunyuanimage_refiner.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuandit/pipeline_hunyuandit.py
-  X:/H/diffusers/src/diffusers/pipelines/controlnet_hunyuandit/pipeline_hunyuandit_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_hunyuandit.py
+  diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_hunyuanimage.py
+  diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_hunyuanimage_refiner.py
+  diffusers/src/diffusers/pipelines/hunyuan_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/hunyuandit/pipeline_hunyuandit.py
+  diffusers/src/diffusers/pipelines/controlnet_hunyuandit/pipeline_hunyuandit_controlnet.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_hunyuandit.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_hunyuanimage.py
-  X:/H/diffusers/src/diffusers/models/transformers/hunyuan_transformer_2d.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanimage.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanimage_refiner.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_hunyuan.py
+  diffusers/src/diffusers/models/transformers/transformer_hunyuanimage.py
+  diffusers/src/diffusers/models/transformers/hunyuan_transformer_2d.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanimage.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanimage_refiner.py
+  diffusers/src/diffusers/models/controlnets/controlnet_hunyuan.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/guiders/adaptive_projected_guidance_mix.py
-  X:/H/diffusers/src/diffusers/guiders/guider_utils.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/guiders/adaptive_projected_guidance_mix.py
+  diffusers/src/diffusers/guiders/guider_utils.py
+  diffusers/src/diffusers/image_processor.py
   Shared attention/embedding/norm files through imports:
     attention.py, attention_processor.py, attention_dispatch.py, embeddings.py, normalization.py.
 

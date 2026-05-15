@@ -1,6 +1,6 @@
 {
   "basis": {
-    "transformers_checkout": "X:/H/transformers",
+    "transformers_checkout": "transformers",
     "transformers_commit": "b75feb2af64c3e29cbbc1bd859958c5432cc7ed4",
     "retrieved_utc": "2026-05-13",
     "notes": [

@@ -6,7 +6,7 @@ Candidate slug: `consistency_ddim_ddpm_latent_diffusion`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Pixel DDPM/DDIM examples:
@@ -52,36 +52,36 @@ Config sources:
       scheduler/scheduler_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ddpm/pipeline_ddpm.py
-  X:/H/diffusers/src/diffusers/pipelines/ddim/pipeline_ddim.py
-  X:/H/diffusers/src/diffusers/pipelines/consistency_models/pipeline_consistency_models.py
-  X:/H/diffusers/src/diffusers/pipelines/latent_diffusion/pipeline_latent_diffusion.py
-  X:/H/diffusers/src/diffusers/pipelines/latent_diffusion/pipeline_latent_diffusion_superresolution.py
+  diffusers/src/diffusers/pipelines/ddpm/pipeline_ddpm.py
+  diffusers/src/diffusers/pipelines/ddim/pipeline_ddim.py
+  diffusers/src/diffusers/pipelines/consistency_models/pipeline_consistency_models.py
+  diffusers/src/diffusers/pipelines/latent_diffusion/pipeline_latent_diffusion.py
+  diffusers/src/diffusers/pipelines/latent_diffusion/pipeline_latent_diffusion_superresolution.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/downsampling.py
-  X:/H/diffusers/src/diffusers/models/upsampling.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vq_model.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/downsampling.py
+  diffusers/src/diffusers/models/upsampling.py
+  diffusers/src/diffusers/models/autoencoders/vq_model.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_consistency_models.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lms_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_consistency_models.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_lms_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_ancestral_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   LDMBert local source/config in pipeline_latent_diffusion.py and

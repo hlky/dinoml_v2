@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers` (`2026-05-11`).
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers` (`2026-05-11`).
 
 Model id: primary checkpoint `microsoft/swinv2-tiny-patch4-window8-256`; representative sweep also covers small, base 22k, base 22k-to-1k fine-tune, and large 22k-to-1k fine-tune.
 

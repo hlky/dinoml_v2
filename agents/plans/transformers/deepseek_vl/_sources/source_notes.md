@@ -6,8 +6,8 @@ Local audit date: 2026-05-13
 
 - DinoML workspace commit: `e8303f2e7ef928cce59ff8a7a4da0e48f1ea2460`
 - Transformers checkout commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Primary family source directory: `X:/H/transformers/src/transformers/models/deepseek_vl`
-- Related variation inspected for checkpoint sweep only: `X:/H/transformers/src/transformers/models/deepseek_vl_hybrid`
+- Primary family source directory: `transformers/src/transformers/models/deepseek_vl`
+- Related variation inspected for checkpoint sweep only: `transformers/src/transformers/models/deepseek_vl_hybrid`
 
 ## Downloaded Hugging Face snapshots
 

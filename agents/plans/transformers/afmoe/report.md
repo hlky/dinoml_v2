@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary public representative `arcee-ai/Trinity-Mini`; additional official Arcee configs below.
 
@@ -16,7 +16,7 @@ Primary upstream URLs:
 
 Config source:
 
-- Source defaults: `X:/H/transformers/src/transformers/models/afmoe/configuration_afmoe.py`
+- Source defaults: `transformers/src/transformers/models/afmoe/configuration_afmoe.py`
 - Hub snapshots saved in this folder:
   - `config_trinity_nano_preview.json`
   - `config_trinity_mini.json`
@@ -27,12 +27,12 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/afmoe/modeling_afmoe.py`
-- `X:/H/transformers/src/transformers/models/afmoe/modular_afmoe.py`
-- `X:/H/transformers/src/transformers/models/afmoe/configuration_afmoe.py`
+- `transformers/src/transformers/models/afmoe/modeling_afmoe.py`
+- `transformers/src/transformers/models/afmoe/modular_afmoe.py`
+- `transformers/src/transformers/models/afmoe/configuration_afmoe.py`
 - Supporting common source touched for config interpretation:
-  - `X:/H/transformers/src/transformers/configuration_utils.py`
-  - `X:/H/transformers/src/transformers/modeling_rope_utils.py`
+  - `transformers/src/transformers/configuration_utils.py`
+  - `transformers/src/transformers/modeling_rope_utils.py`
 
 Any missing files or assumptions:
 

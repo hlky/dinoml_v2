@@ -3,9 +3,9 @@
 ## Scope
 
 - DinoML audit target: `qwen3_5`
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Inspected commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Local source directory: `X:/H/transformers/src/transformers/models/qwen3_5`
+- Local source directory: `transformers/src/transformers/models/qwen3_5`
 - Report output: `H:/dinoml_v2/agents/plans/transformers/qwen3_5/report.md`
 
 ## Local files inspected
@@ -14,9 +14,9 @@
 - `modeling_qwen3_5.py`
 - `modular_qwen3_5.py`
 - `tokenization_qwen3_5.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py`
-- `X:/H/transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py`
+- `transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py`
 
 The generated `configuration_qwen3_5.py` and `modeling_qwen3_5.py` both state that they are generated from `modular_qwen3_5.py`. Future upstream source edits should be checked against the modular file first, while DinoML parity should use the generated modeling file because that is the importable runtime implementation.
 

@@ -6,7 +6,7 @@ Candidate slug: `hunyuan_video`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   hunyuanvideo-community/HunyuanVideo
@@ -27,32 +27,32 @@ Config sources:
   were not saved because this task's owned write path is limited to this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video_image2video.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_skyreels_image2video.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video_framepack.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video1_5/pipeline_hunyuan_video1_5.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video1_5/pipeline_hunyuan_video1_5_image2video.py
-  X:/H/diffusers/src/diffusers/pipelines/hunyuan_video1_5/image_processor.py
+  diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video.py
+  diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video_image2video.py
+  diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_skyreels_image2video.py
+  diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_hunyuan_video_framepack.py
+  diffusers/src/diffusers/pipelines/hunyuan_video/pipeline_output.py
+  diffusers/src/diffusers/pipelines/hunyuan_video1_5/pipeline_hunyuan_video1_5.py
+  diffusers/src/diffusers/pipelines/hunyuan_video1_5/pipeline_hunyuan_video1_5_image2video.py
+  diffusers/src/diffusers/pipelines/hunyuan_video1_5/image_processor.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_hunyuan_video.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_hunyuan_video_framepack.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_hunyuan_video15.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuan_video.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanvideo15.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_hunyuan_video.py
+  diffusers/src/diffusers/models/transformers/transformer_hunyuan_video_framepack.py
+  diffusers/src/diffusers/models/transformers/transformer_hunyuan_video15.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuan_video.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_hunyuanvideo15.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/guiders/classifier_free_guidance.py indirectly
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/guiders/classifier_free_guidance.py indirectly
     through HunyuanVideo 1.5 model_index/guider config.
 
 External component configs inspected:

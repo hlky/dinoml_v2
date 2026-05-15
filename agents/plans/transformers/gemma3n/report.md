@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `transformers`.
 
 Model id: primary official targets are `google/gemma-3n-E2B-it` and `google/gemma-3n-E4B-it`. Both official repos are manually gated for raw files in unauthenticated access; Hugging Face model API metadata was readable and confirms `architectures=["Gemma3nForConditionalGeneration"]`, `model_type="gemma3n"`, `pipeline_tag="image-text-to-text"`, and processor/config files exist. Detailed checkpoint dimensions below use open mirrors labeled as such.
 

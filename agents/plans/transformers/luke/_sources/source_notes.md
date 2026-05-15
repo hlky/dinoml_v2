@@ -2,15 +2,15 @@
 
 Audit date: 2026-05-13
 
-Transformers checkout: `X:/H/transformers`
+Transformers checkout: `transformers`
 Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 
 Local source files:
 
-- `X:/H/transformers/src/transformers/models/luke/configuration_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/modeling_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/tokenization_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/convert_luke_original_pytorch_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/models/luke/configuration_luke.py`
+- `transformers/src/transformers/models/luke/modeling_luke.py`
+- `transformers/src/transformers/models/luke/tokenization_luke.py`
+- `transformers/src/transformers/models/luke/convert_luke_original_pytorch_checkpoint_to_pytorch.py`
 
 Representative HF snapshots saved here:
 

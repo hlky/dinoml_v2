@@ -3,10 +3,10 @@
 Local Transformers checkout:
 
 ```text
-Path: X:/H/transformers
+Path: transformers
 Commit: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Version describe: v4.50.3-DeepSeek-3-4398-gb75feb2af6
-Family dir: X:/H/transformers/src/transformers/models/qianfan_ocr
+Family dir: transformers/src/transformers/models/qianfan_ocr
 ```
 
 Inspected local files:
@@ -21,11 +21,11 @@ processing_qianfan_ocr.py
 Related local files used for inherited behavior:
 
 ```text
-X:/H/transformers/src/transformers/models/qwen3/configuration_qwen3.py
-X:/H/transformers/src/transformers/models/qwen3/modeling_qwen3.py
-X:/H/transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
-X:/H/transformers/src/transformers/models/internvl/modeling_internvl.py
-X:/H/transformers/src/transformers/models/internvl/processing_internvl.py
+transformers/src/transformers/models/qwen3/configuration_qwen3.py
+transformers/src/transformers/models/qwen3/modeling_qwen3.py
+transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
+transformers/src/transformers/models/internvl/modeling_internvl.py
+transformers/src/transformers/models/internvl/processing_internvl.py
 ```
 
 Representative checkpoint:

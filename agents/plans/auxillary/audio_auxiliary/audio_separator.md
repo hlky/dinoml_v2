@@ -22,5 +22,5 @@ Start as an external provider. If native support is selected, require an exact m
 ## Sources
 
 - `agents/plans/auxiliary/audio_auxiliary.md`
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
+- `deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
 

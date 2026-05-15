@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/SLANeXt_wired_safetensors, PaddlePaddle/SLANeXt_wireless_safetensors
 Config source: HF config.json and preprocessor_config.json for the two native safetensors checkpoints
 Source files inspected:
-- X:/H/transformers/src/transformers/models/slanext/modular_slanext.py
-- X:/H/transformers/src/transformers/models/slanext/configuration_slanext.py
-- X:/H/transformers/src/transformers/models/slanext/modeling_slanext.py
-- X:/H/transformers/src/transformers/models/slanext/image_processing_slanext.py
-- X:/H/transformers/tests/models/slanext/test_modeling_slanext.py
-- X:/H/transformers/tests/models/slanext/test_image_processing_slanext.py
-- X:/H/transformers/src/transformers/models/got_ocr2/modeling_got_ocr2.py, as modular inheritance source for the vision encoder pattern
+- transformers/src/transformers/models/slanext/modular_slanext.py
+- transformers/src/transformers/models/slanext/configuration_slanext.py
+- transformers/src/transformers/models/slanext/modeling_slanext.py
+- transformers/src/transformers/models/slanext/image_processing_slanext.py
+- transformers/tests/models/slanext/test_modeling_slanext.py
+- transformers/tests/models/slanext/test_image_processing_slanext.py
+- transformers/src/transformers/models/got_ocr2/modeling_got_ocr2.py, as modular inheritance source for the vision encoder pattern
 Any missing files or assumptions: only two native model_type=slanext safetensors checkpoints were found. Older PaddlePaddle/SLANeXt_wired and PaddlePaddle/SLANeXt_wireless repos are PaddleOCR inference artifacts, not native Transformers safetensors checkpoints.
 ```
 

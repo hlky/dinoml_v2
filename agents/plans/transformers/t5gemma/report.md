@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in local checkout `transformers`.
 
 Model id: primary examples are `google/t5gemma-2b-2b-prefixlm-it`, `google/t5gemma-2b-2b-ul2`, `google/t5gemma-9b-2b-ul2`, `google/t5gemma-9b-9b-ul2`, plus T5-sized `s/b/l/ml/xl` variants. First DinoML target for this report: `T5GemmaForConditionalGeneration` text-to-text generation.
 

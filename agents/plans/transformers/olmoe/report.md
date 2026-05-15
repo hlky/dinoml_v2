@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: allenai/OLMoE-1B-7B-0924, plus official instruct/SFT/DPO configs
 Config source: local configuration_olmoe.py plus HF config.json snapshots
 Source files inspected:
-  X:/H/transformers/src/transformers/models/olmoe/configuration_olmoe.py
-  X:/H/transformers/src/transformers/models/olmoe/modeling_olmoe.py
-  X:/H/transformers/src/transformers/models/olmoe/modular_olmoe.py
-  X:/H/transformers/src/transformers/models/olmoe/convert_olmoe_weights_to_hf.py
+  transformers/src/transformers/models/olmoe/configuration_olmoe.py
+  transformers/src/transformers/models/olmoe/modeling_olmoe.py
+  transformers/src/transformers/models/olmoe/modular_olmoe.py
+  transformers/src/transformers/models/olmoe/convert_olmoe_weights_to_hf.py
 Any missing files or assumptions: no gated source gaps found; no tokenizer internals audited because the runtime target is causal-LM tensor execution, not tokenizer parity.
 ```
 

@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/timesfm-2.5-200m-transformers
 Config source: official HF config.json at repo sha 5a9806b9b291fad9233b5249d88263f1846304d3
 Source files inspected:
-- X:/H/transformers/src/transformers/models/timesfm2_5/configuration_timesfm2_5.py
-- X:/H/transformers/src/transformers/models/timesfm2_5/modular_timesfm2_5.py
-- X:/H/transformers/src/transformers/models/timesfm2_5/modeling_timesfm2_5.py
-- X:/H/transformers/src/transformers/models/timesfm2_5/convert_timesfm2_5_original_to_hf.py
-- X:/H/transformers/tests/models/timesfm2_5/test_modeling_timesfm2_5.py
+- transformers/src/transformers/models/timesfm2_5/configuration_timesfm2_5.py
+- transformers/src/transformers/models/timesfm2_5/modular_timesfm2_5.py
+- transformers/src/transformers/models/timesfm2_5/modeling_timesfm2_5.py
+- transformers/src/transformers/models/timesfm2_5/convert_timesfm2_5_original_to_hf.py
+- transformers/tests/models/timesfm2_5/test_modeling_timesfm2_5.py
 Any missing files or assumptions:
 - No processor/preprocessor files exist for this family; preprocessing is Python code in the modeling file.
 - `modeling_timesfm2_5.py` and `configuration_timesfm2_5.py` are generated from `modular_timesfm2_5.py`. Runtime audit uses generated modeling source; upstream source edits should target modular.

@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/layoutlm-base-uncased, microsoft/layoutlm-large-uncased, microsoft/layoutlm-base-cased, impira/layoutlm-document-qa
 Config source: Hugging Face config/tokenizer JSON snapshots under _sources/hf_configs plus source defaults in configuration_layoutlm.py
 Source files inspected:
-  X:/H/transformers/src/transformers/models/layoutlm/modeling_layoutlm.py
-  X:/H/transformers/src/transformers/models/layoutlm/configuration_layoutlm.py
-  X:/H/transformers/src/transformers/models/layoutlm/__init__.py
-  X:/H/transformers/src/transformers/models/auto/tokenization_auto.py
-  X:/H/transformers/src/transformers/models/auto/modeling_auto.py
+  transformers/src/transformers/models/layoutlm/modeling_layoutlm.py
+  transformers/src/transformers/models/layoutlm/configuration_layoutlm.py
+  transformers/src/transformers/models/layoutlm/__init__.py
+  transformers/src/transformers/models/auto/tokenization_auto.py
+  transformers/src/transformers/models/auto/modeling_auto.py
 Any missing files or assumptions:
   LayoutLM has no family-local tokenization, processing, or image-processing file in this checkout. LayoutLMTokenizer aliases BERT tokenizer classes through __init__.py/auto mappings. Bbox alignment is caller/data-pipeline supplied.
 ```

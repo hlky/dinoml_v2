@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: LanguageBind/Video-LLaVA-7B-hf
 Config source: HF config/preprocessor/tokenizer snapshots under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/video_llava/modeling_video_llava.py
-- X:/H/transformers/src/transformers/models/video_llava/configuration_video_llava.py
-- X:/H/transformers/src/transformers/models/video_llava/processing_video_llava.py
-- X:/H/transformers/src/transformers/models/video_llava/image_processing_video_llava.py
-- X:/H/transformers/src/transformers/models/video_llava/video_processing_video_llava.py
-- X:/H/transformers/src/transformers/models/video_llava/convert_video_llava_weights_to_hf.py
-- X:/H/transformers/src/transformers/models/llama/modeling_llama.py and configuration_llama.py for delegated decoder behavior
-- X:/H/transformers/src/transformers/models/clip/modeling_clip.py and configuration_clip.py for delegated vision-tower behavior
-- X:/H/transformers/src/transformers/models/llava_next_video/* for comparison only
+- transformers/src/transformers/models/video_llava/modeling_video_llava.py
+- transformers/src/transformers/models/video_llava/configuration_video_llava.py
+- transformers/src/transformers/models/video_llava/processing_video_llava.py
+- transformers/src/transformers/models/video_llava/image_processing_video_llava.py
+- transformers/src/transformers/models/video_llava/video_processing_video_llava.py
+- transformers/src/transformers/models/video_llava/convert_video_llava_weights_to_hf.py
+- transformers/src/transformers/models/llama/modeling_llama.py and configuration_llama.py for delegated decoder behavior
+- transformers/src/transformers/models/clip/modeling_clip.py and configuration_clip.py for delegated vision-tower behavior
+- transformers/src/transformers/models/llava_next_video/* for comparison only
 Any missing files or assumptions: no native `video_llava` modular source file; `modeling_video_llava.py` is the source to audit. No gated/401/403 checkpoints were encountered.
 ```
 

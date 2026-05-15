@@ -1,6 +1,6 @@
 # MGP-STR config snapshots
 
-Source basis: Hugging Face Hub raw files fetched 2026-05-13; Transformers source checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source basis: Hugging Face Hub raw files fetched 2026-05-13; Transformers source checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## alibaba-damo/mgp-str-base
 

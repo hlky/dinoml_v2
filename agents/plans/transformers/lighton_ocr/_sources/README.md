@@ -4,12 +4,12 @@ Fetched on 2026-05-13 for the `lighton_ocr` Transformers family audit.
 
 Local source basis:
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family source: `X:/H/transformers/src/transformers/models/lighton_ocr`
+- Family source: `transformers/src/transformers/models/lighton_ocr`
 - Composed source read for delegated operators:
-  - `X:/H/transformers/src/transformers/models/pixtral`
-  - `X:/H/transformers/src/transformers/models/qwen3`
+  - `transformers/src/transformers/models/pixtral`
+  - `transformers/src/transformers/models/qwen3`
 
 HF snapshots saved here:
 

@@ -6,7 +6,7 @@ Candidate slug: `consisid`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   BestWishYsh/ConsisID-preview
@@ -23,24 +23,24 @@ Config sources:
     C:/Users/user/.cache/huggingface/hub/models--BestWishYsh--ConsisID-preview/snapshots/950bc3f0902db44799e223a12ad972f9c52b341d/*
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/consisid/pipeline_consisid.py
-  X:/H/diffusers/src/diffusers/pipelines/consisid/consisid_utils.py
-  X:/H/diffusers/src/diffusers/pipelines/consisid/pipeline_output.py
+  diffusers/src/diffusers/pipelines/consisid/pipeline_consisid.py
+  diffusers/src/diffusers/pipelines/consisid/consisid_utils.py
+  diffusers/src/diffusers/pipelines/consisid/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/consisid_transformer_3d.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/consisid_transformer_3d.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   T5EncoderModel / T5Tokenizer configs from the official ConsisID repo.

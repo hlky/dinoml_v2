@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: HuggingFaceM4/idefics2-8b, plus base/chatty/AWQ config variants
 Config source: Hugging Face Hub raw config/preprocessor/processor/tokenizer/generation files, May 13 2026
 Source files inspected:
-  X:/H/transformers/src/transformers/models/idefics2/modeling_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/configuration_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/processing_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/image_processing_idefics2.py
-  X:/H/transformers/src/transformers/models/idefics2/image_processing_pil_idefics2.py
-  X:/H/transformers/src/transformers/models/mistral/modeling_mistral.py
-  X:/H/transformers/src/transformers/models/mistral/configuration_mistral.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/generation/utils.py
+  transformers/src/transformers/models/idefics2/modeling_idefics2.py
+  transformers/src/transformers/models/idefics2/configuration_idefics2.py
+  transformers/src/transformers/models/idefics2/processing_idefics2.py
+  transformers/src/transformers/models/idefics2/image_processing_idefics2.py
+  transformers/src/transformers/models/idefics2/image_processing_pil_idefics2.py
+  transformers/src/transformers/models/mistral/modeling_mistral.py
+  transformers/src/transformers/models/mistral/configuration_mistral.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/generation/utils.py
 Any missing files or assumptions:
   No official small/debug Idefics2 checkpoint config was found in the local source scan. The report uses 8B production variants and source defaults.
   modeling_idefics2.py is the authoritative native implementation; no modular_idefics2.py exists in this checkout.

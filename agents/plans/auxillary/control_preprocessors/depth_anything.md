@@ -20,6 +20,6 @@ Do not duplicate the model implementation if Transformers support lands. Add an 
 
 ## Sources
 
-- `X:/H/transformers/src/transformers/models/depth_anything`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/depth_anything/depth_anything_pipeline.py`
+- `transformers/src/transformers/models/depth_anything`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/depth_anything/depth_anything_pipeline.py`
 

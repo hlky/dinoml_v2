@@ -1,12 +1,12 @@
 # bert_generation source notes
 
 Local source files inspected:
-- `X:/H/transformers/src/transformers/models/bert_generation/configuration_bert_generation.py`
-- `X:/H/transformers/src/transformers/models/bert_generation/modeling_bert_generation.py`
-- `X:/H/transformers/src/transformers/models/bert_generation/tokenization_bert_generation.py`
+- `transformers/src/transformers/models/bert_generation/configuration_bert_generation.py`
+- `transformers/src/transformers/models/bert_generation/modeling_bert_generation.py`
+- `transformers/src/transformers/models/bert_generation/tokenization_bert_generation.py`
 - Shared helpers inspected for ABI context:
-  - `X:/H/transformers/src/transformers/masking_utils.py`
-  - `X:/H/transformers/src/transformers/cache_utils.py`
+  - `transformers/src/transformers/masking_utils.py`
+  - `transformers/src/transformers/cache_utils.py`
 
 Important line anchors from `modeling_bert_generation.py`:
 - Embeddings: word + learned absolute position embeddings, LayerNorm, dropout at lines 394-425.

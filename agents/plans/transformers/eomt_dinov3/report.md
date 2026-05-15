@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: representative public converted checkpoints under `tue-mps/eomt-dinov3-*`; source docstring also names older conversion ids such as `tue-mps/coco_panoptic_eomt_large_640_dinov3`, but those returned 404 for `config.json`.
 

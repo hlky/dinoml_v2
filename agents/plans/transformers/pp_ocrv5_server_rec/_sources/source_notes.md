@@ -2,7 +2,7 @@
 
 ## Pinned source
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Model source directory: `src/transformers/models/pp_ocrv5_server_rec`
 - Nested backbone source: `src/transformers/models/hgnet_v2`

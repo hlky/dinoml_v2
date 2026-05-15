@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: gpt_neox family; primary checkpoint examples EleutherAI/gpt-neox-20b and EleutherAI/pythia-*
 Config source: local configuration_gpt_neox.py plus official/open Hugging Face config.json files
 Source files inspected:
-- X:/H/transformers/src/transformers/models/gpt_neox/configuration_gpt_neox.py
-- X:/H/transformers/src/transformers/models/gpt_neox/modeling_gpt_neox.py
-- X:/H/transformers/src/transformers/models/gpt_neox/modular_gpt_neox.py
-- X:/H/transformers/src/transformers/models/gpt_neox/tokenization_gpt_neox.py
-- X:/H/transformers/src/transformers/cache_utils.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/integrations/sdpa_attention.py
-- X:/H/transformers/src/transformers/integrations/flash_attention.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/activations.py
+- transformers/src/transformers/models/gpt_neox/configuration_gpt_neox.py
+- transformers/src/transformers/models/gpt_neox/modeling_gpt_neox.py
+- transformers/src/transformers/models/gpt_neox/modular_gpt_neox.py
+- transformers/src/transformers/models/gpt_neox/tokenization_gpt_neox.py
+- transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/integrations/sdpa_attention.py
+- transformers/src/transformers/integrations/flash_attention.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/activations.py
 Any missing files or assumptions: no remote-code model files are required for the inspected family. modeling_gpt_neox.py is generated from modular_gpt_neox.py; future source edits should target the modular file, while the generated file is the exact expanded runtime source audited here.
 ```
 

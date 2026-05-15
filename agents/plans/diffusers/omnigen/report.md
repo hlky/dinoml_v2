@@ -6,7 +6,7 @@ Candidate slug: `omnigen`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Shitao/OmniGen-v1-diffusers
@@ -38,25 +38,25 @@ Config sources:
   Local cache had model_index-only or empty JSON for several related OmniGen/OmniGen2 repos.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/omnigen/pipeline_omnigen.py
-  X:/H/diffusers/src/diffusers/pipelines/omnigen/processor_omnigen.py
-  X:/H/diffusers/src/diffusers/pipelines/omnigen/__init__.py
+  diffusers/src/diffusers/pipelines/omnigen/pipeline_omnigen.py
+  diffusers/src/diffusers/pipelines/omnigen/processor_omnigen.py
+  diffusers/src/diffusers/pipelines/omnigen/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_omnigen.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/transformer_omnigen.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/tests/pipelines/omnigen/test_pipeline_omnigen.py
-  X:/H/diffusers/tests/models/transformers/test_models_transformer_omnigen.py
-  X:/H/diffusers/docs/source/en/api/pipelines/omnigen.md
-  X:/H/diffusers/docs/source/en/using-diffusers/omnigen.md
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/tests/pipelines/omnigen/test_pipeline_omnigen.py
+  diffusers/tests/models/transformers/test_models_transformer_omnigen.py
+  diffusers/docs/source/en/api/pipelines/omnigen.md
+  diffusers/docs/source/en/using-diffusers/omnigen.md
 
 External component configs inspected:
   LlamaTokenizerFast tokenizer metadata from Shitao/OmniGen-v1-diffusers.

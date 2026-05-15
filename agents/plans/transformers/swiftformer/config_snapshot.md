@@ -1,7 +1,7 @@
 # SwiftFormer config snapshot
 
 Fetched from Hugging Face model repos on 2026-05-13. Source basis is
-Transformers checkout `X:/H/transformers` at
+Transformers checkout `transformers` at
 `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 | Model id | Architectures | Depths | Embed dims | MLP ratio | Labels | Dtype | Weights listed |

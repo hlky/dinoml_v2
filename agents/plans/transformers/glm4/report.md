@@ -24,10 +24,10 @@ HF config snapshots were fetched from the listed `main` raw URLs on 2026-05-13 u
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/glm4/modular_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/modular_glm4.py`)
-- `X:/H/transformers/src/transformers/models/glm4/modeling_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/modeling_glm4.py`)
-- `X:/H/transformers/src/transformers/models/glm4/configuration_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/configuration_glm4.py`)
-- `X:/H/transformers/src/transformers/models/glm4/convert_glm4_weights_to_hf.py`
+- `transformers/src/transformers/models/glm4/modular_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/modular_glm4.py`)
+- `transformers/src/transformers/models/glm4/modeling_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/modeling_glm4.py`)
+- `transformers/src/transformers/models/glm4/configuration_glm4.py` (`https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/glm4/configuration_glm4.py`)
+- `transformers/src/transformers/models/glm4/convert_glm4_weights_to_hf.py`
 - Comparison files: `models/glm/modeling_glm.py`, `models/glm/configuration_glm.py`, `models/glm4_moe/modeling_glm4_moe.py`, `models/glm4_moe/configuration_glm4_moe.py`
 - Shared utilities: `masking_utils.py`, `cache_utils.py`, `modeling_rope_utils.py`, `modeling_utils.py`
 

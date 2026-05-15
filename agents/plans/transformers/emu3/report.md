@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: native-source target is `BAAI/Emu3-Chat-hf` / `BAAI/Emu3-Gen-hf`, both `model_type="emu3"` and `architectures=["Emu3ForConditionalGeneration"]`. Remote-code repositories with `model_type="Emu3"` are listed as variation traps rather than folded into this native audit.
 

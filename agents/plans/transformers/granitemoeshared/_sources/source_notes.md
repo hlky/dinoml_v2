@@ -4,10 +4,10 @@ Audit target: `granitemoeshared` at Transformers commit `b75feb2af64c3e29cbbc1bd
 
 Local source inspected:
 
-- `X:/H/transformers/src/transformers/models/granitemoeshared/configuration_granitemoeshared.py`
-- `X:/H/transformers/src/transformers/models/granitemoeshared/modeling_granitemoeshared.py`
-- `X:/H/transformers/src/transformers/models/granitemoeshared/modular_granitemoeshared.py`
-- `X:/H/transformers/tests/models/granitemoeshared/test_modeling_granitemoeshared.py`
+- `transformers/src/transformers/models/granitemoeshared/configuration_granitemoeshared.py`
+- `transformers/src/transformers/models/granitemoeshared/modeling_granitemoeshared.py`
+- `transformers/src/transformers/models/granitemoeshared/modular_granitemoeshared.py`
+- `transformers/tests/models/granitemoeshared/test_modeling_granitemoeshared.py`
 - Contrast only: existing DinoML audits for `granitemoe`, `granitemoehybrid`, and `granite`.
 
 Important source facts:

@@ -8,11 +8,11 @@ Primary model id: naver-hyperclovax/HyperCLOVAX-SEED-Think-14B
 Config source: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Think-14B/raw/main/config.json
 Hub revision observed: ddcb423f12db90bf4a27f97028c4b3f8b6c3c25c
 Source files inspected:
-- X:/H/transformers/src/transformers/models/hyperclovax/configuration_hyperclovax.py
-- X:/H/transformers/src/transformers/models/hyperclovax/modeling_hyperclovax.py
-- X:/H/transformers/src/transformers/models/hyperclovax/modular_hyperclovax.py
-- X:/H/transformers/docs/source/en/model_doc/hyperclovax.md
-- X:/H/transformers/tests/models/hyperclovax/test_modeling_hyperclovax.py
+- transformers/src/transformers/models/hyperclovax/configuration_hyperclovax.py
+- transformers/src/transformers/models/hyperclovax/modeling_hyperclovax.py
+- transformers/src/transformers/models/hyperclovax/modular_hyperclovax.py
+- transformers/docs/source/en/model_doc/hyperclovax.md
+- transformers/tests/models/hyperclovax/test_modeling_hyperclovax.py
 Local snapshots:
 - config_hub.json
 - hub_model_api.json

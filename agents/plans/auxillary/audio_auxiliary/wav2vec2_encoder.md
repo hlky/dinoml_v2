@@ -23,7 +23,7 @@ Use Transformers coverage for standard checkpoints, but retain patched UI wrappe
 
 ## Sources
 
-- `X:/H/transformers/src/transformers/models/wav2vec2`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/audio_encoders/wav2vec2.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/multitalk/wav2vec2.py`
+- `transformers/src/transformers/models/wav2vec2`
+- `Comfy-Org/ComfyUI/comfy/audio_encoders/wav2vec2.py`
+- `deepbeepmeep/Wan2GP/models/wan/multitalk/wav2vec2.py`
 

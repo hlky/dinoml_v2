@@ -4,28 +4,28 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Candidate:
   video_autoencoders: video VAE/autoencoder codecs only, not full video
   pipelines or denoisers.
 
 Source files inspected:
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2_audio.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2_audio.py
     (listed only to separate audio scope)
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_mochi.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_mochi.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
 
 Pipeline files lightly inspected for VAE boundary formulas:
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox*.py
-  X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan*.py
-  X:/H/diffusers/src/diffusers/pipelines/ltx/pipeline_ltx*.py
-  X:/H/diffusers/src/diffusers/pipelines/mochi/pipeline_mochi.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox*.py
+  diffusers/src/diffusers/pipelines/wan/pipeline_wan*.py
+  diffusers/src/diffusers/pipelines/ltx/pipeline_ltx*.py
+  diffusers/src/diffusers/pipelines/mochi/pipeline_mochi.py
 
 Local config cache checked first:
   H:/configs/zai-org/CogVideoX-2b/model_index.json

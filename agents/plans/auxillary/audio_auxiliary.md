@@ -25,46 +25,46 @@ diffusion image model path.
 
 ## Code Anchors
 
-- `H:/uis/Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/audio_encoders/wav2vec2.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_audio_encoder.py:8`
+- `Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py`.
+- `Comfy-Org/ComfyUI/comfy/audio_encoders/wav2vec2.py`.
+- `Comfy-Org/ComfyUI/comfy_extras/nodes_audio_encoder.py:8`
   audio encoder nodes.
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_lt_audio.py:9`
+- `Comfy-Org/ComfyUI/comfy_extras/nodes_lt_audio.py:9`
   Lightricks audio helpers.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/mmaudio/vae/bigvgan.py`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/audio_vae.py`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/fantasytalking/model.py:7`
+- `Comfy-Org/ComfyUI/comfy/ldm/audio/autoencoder.py`.
+- `Comfy-Org/ComfyUI/comfy/ldm/mmaudio/vae/bigvgan.py`.
+- `Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/audio_vae.py`.
+- `deepbeepmeep/Wan2GP/models/wan/fantasytalking/model.py:7`
   `AudioProjModel`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/fantasytalking/model.py:19`
+- `deepbeepmeep/Wan2GP/models/wan/fantasytalking/model.py:19`
   audio cross-attention processor.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/fantasytalking/infer.py:10`
+- `deepbeepmeep/Wan2GP/models/wan/fantasytalking/infer.py:10`
   `parse_audio`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/multitalk/multitalk_model.py:353`
+- `deepbeepmeep/Wan2GP/models/wan/multitalk/multitalk_model.py:353`
   MultiTalk `AudioProjModel`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/multitalk/wav2vec2.py:9`
+- `deepbeepmeep/Wan2GP/models/wan/multitalk/wav2vec2.py:9`
   patched Wav2Vec2 model.
-- `H:/uis/deepbeepmeep/Wan2GP/models/ltx2/ltx_core/model/transformer/transformer.py:58`
+- `deepbeepmeep/Wan2GP/models/ltx2/ltx_core/model/transformer/transformer.py:58`
   `BasicAVTransformerBlock`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/ltx2/ltx_core/conditioning/types/latent_cond.py:47`
+- `deepbeepmeep/Wan2GP/models/ltx2/ltx_core/conditioning/types/latent_cond.py:47`
   `AudioConditionByLatent`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/ltx2/scenema_audio.py:938`
+- `deepbeepmeep/Wan2GP/models/ltx2/scenema_audio.py:938`
   `ScenemaAudioPipeline`.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/mmaudio/model/networks.py:27`
+- `deepbeepmeep/Wan2GP/postprocessing/mmaudio/model/networks.py:27`
   `MMAudio`.
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
+- `deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
   Pyannote pipeline.
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/seedvc/api.py:210`
+- `deepbeepmeep/Wan2GP/postprocessing/seedvc/api.py:210`
   SeedVC inference.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2_handler.py:178`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2_handler.py:178`
   IndexTTS2 handler.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:64`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py:64`
   `IndexTTS2Pipeline`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/chatterbox/pipeline.py:12`
+- `deepbeepmeep/Wan2GP/models/TTS/chatterbox/pipeline.py:12`
   `ChatterboxPipeline`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/ace_step/pipeline_ace_step.py:92`
+- `deepbeepmeep/Wan2GP/models/TTS/ace_step/pipeline_ace_step.py:92`
   `ACEStepPipeline`.
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/ace_step15/pipeline_ace_step15.py:101`
+- `deepbeepmeep/Wan2GP/models/TTS/ace_step15/pipeline_ace_step15.py:101`
   `ACEStep15Pipeline`.
 
 ## DinoML Gap

@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: westlake-repl/Evolla-10B-hf primary; westlake-repl/Evolla-10B-DPO-hf config sweep peer
 Config source: Hugging Face raw config.json and processor_config.json retrieved 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/evolla/configuration_evolla.py
-  X:/H/transformers/src/transformers/models/evolla/modeling_evolla.py
-  X:/H/transformers/src/transformers/models/evolla/processing_evolla.py
-  X:/H/transformers/src/transformers/models/evolla/modular_evolla.py
-  X:/H/transformers/docs/source/en/model_doc/evolla.md
-  X:/H/transformers/tests/models/evolla/test_modeling_evolla.py
-  X:/H/transformers/tests/models/evolla/test_processing_evolla.py
+  transformers/src/transformers/models/evolla/configuration_evolla.py
+  transformers/src/transformers/models/evolla/modeling_evolla.py
+  transformers/src/transformers/models/evolla/processing_evolla.py
+  transformers/src/transformers/models/evolla/modular_evolla.py
+  transformers/docs/source/en/model_doc/evolla.md
+  transformers/tests/models/evolla/test_modeling_evolla.py
+  transformers/tests/models/evolla/test_processing_evolla.py
 Snapshots:
   agents/plans/transformers/evolla/evolla_10b_config_snapshot.json
   agents/plans/transformers/evolla/hub_snapshot.md

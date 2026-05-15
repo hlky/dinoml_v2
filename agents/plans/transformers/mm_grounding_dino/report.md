@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openmmlab-community/mm_grounding_dino_tiny_o365v1_goldg_v3det, plus sweep below
 Config source: public Hugging Face config/preprocessor/tokenizer JSON fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mm_grounding_dino/configuration_mm_grounding_dino.py
-  X:/H/transformers/src/transformers/models/mm_grounding_dino/modeling_mm_grounding_dino.py
-  X:/H/transformers/src/transformers/models/mm_grounding_dino/modular_mm_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/processing_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/image_processing_grounding_dino.py
-  X:/H/transformers/src/transformers/models/swin/modeling_swin.py and configuration_swin.py for consumed backbone contract
-  X:/H/transformers/src/transformers/models/bert/modeling_bert.py and configuration_bert.py for text backbone contract
+  transformers/src/transformers/models/mm_grounding_dino/configuration_mm_grounding_dino.py
+  transformers/src/transformers/models/mm_grounding_dino/modeling_mm_grounding_dino.py
+  transformers/src/transformers/models/mm_grounding_dino/modular_mm_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/processing_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/image_processing_grounding_dino.py
+  transformers/src/transformers/models/swin/modeling_swin.py and configuration_swin.py for consumed backbone contract
+  transformers/src/transformers/models/bert/modeling_bert.py and configuration_bert.py for text backbone contract
 Source URLs:
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mm_grounding_dino/modeling_mm_grounding_dino.py
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mm_grounding_dino/modular_mm_grounding_dino.py

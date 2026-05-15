@@ -10,11 +10,11 @@ Config source: checkpoint `config.json` files fetched from Hugging Face raw URLs
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/lxmert/configuration_lxmert.py`
-- `X:/H/transformers/src/transformers/models/lxmert/modeling_lxmert.py`
-- `X:/H/transformers/src/transformers/models/lxmert/__init__.py`
-- `X:/H/transformers/src/transformers/models/auto/tokenization_auto.py` for tokenizer mapping
-- `X:/H/transformers/tests/models/lxmert/test_modeling_lxmert.py` for source-owned shape expectations
+- `transformers/src/transformers/models/lxmert/configuration_lxmert.py`
+- `transformers/src/transformers/models/lxmert/modeling_lxmert.py`
+- `transformers/src/transformers/models/lxmert/__init__.py`
+- `transformers/src/transformers/models/auto/tokenization_auto.py` for tokenizer mapping
+- `transformers/tests/models/lxmert/test_modeling_lxmert.py` for source-owned shape expectations
 
 Snapshots:
 

@@ -4,7 +4,7 @@ Scope: source and config audit only. No DinoML code edits, imports, tests, or mo
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Report spec: `H:/dinoml_v2/agents/plans/transformers/PROMPT.md`
 

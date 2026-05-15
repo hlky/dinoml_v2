@@ -6,7 +6,7 @@ Target slug: `stable_diffusion_2_x`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Family target: Stable Diffusion 2.x text-to-image.
@@ -29,39 +29,39 @@ Config sources:
   H:/configs/stabilityai/stable-diffusion-x4-upscaler/
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_depth2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_latent_upscale.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_unclip.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_unclip_img2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_inpaint.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_depth2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_latent_upscale.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_unclip.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_unclip_img2img.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
   Loader/extension anchors:
-    X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-    X:/H/diffusers/src/diffusers/loaders/textual_inversion.py
-    X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
-    X:/H/diffusers/src/diffusers/models/controlnets/controlnet.py
-    X:/H/diffusers/src/diffusers/models/adapter.py
-    X:/H/diffusers/src/diffusers/pipelines/controlnet/
-    X:/H/diffusers/src/diffusers/pipelines/t2i_adapter/
-    X:/H/diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/
+    diffusers/src/diffusers/loaders/lora_pipeline.py
+    diffusers/src/diffusers/loaders/textual_inversion.py
+    diffusers/src/diffusers/loaders/ip_adapter.py
+    diffusers/src/diffusers/models/controlnets/controlnet.py
+    diffusers/src/diffusers/models/adapter.py
+    diffusers/src/diffusers/pipelines/controlnet/
+    diffusers/src/diffusers/pipelines/t2i_adapter/
+    diffusers/src/diffusers/pipelines/deprecated/stable_diffusion_gligen/
 
 External component configs inspected:
   OpenCLIP CLIPTextModel/CLIPTokenizer configs from the sd2-community sources above.

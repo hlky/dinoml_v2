@@ -6,7 +6,7 @@ Candidate slug: `deepfloyd_if`
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   DeepFloyd/IF-I-M-v1.0
@@ -25,29 +25,29 @@ Config sources:
   H:/configs/stabilityai/stable-diffusion-x4-upscaler/
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_superresolution.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_img2img_superresolution.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_inpainting.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_inpainting_superresolution.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_superresolution.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_img2img.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_img2img_superresolution.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_inpainting.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/pipeline_if_inpainting_superresolution.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_upscale.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/pipelines/deepfloyd_if/timesteps.py
-  X:/H/diffusers/docs/source/en/api/pipelines/deepfloyd_if.md
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/pipelines/deepfloyd_if/timesteps.py
+  diffusers/docs/source/en/api/pipelines/deepfloyd_if.md
 
 External component configs inspected:
   T5EncoderModel/T5Tokenizer configs from DeepFloyd stage I and II repos.

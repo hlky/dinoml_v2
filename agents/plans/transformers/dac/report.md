@@ -12,7 +12,7 @@ Any missing files or assumptions: no gated official config gaps; source is in-li
 
 Primary runtime target for this report: inference audio codec encode/decode. The useful first DinoML target is `decode(audio_codes) -> waveform`, followed by `encode(waveform) -> audio_codes` and full reconstruction. Training losses, quantizer dropout, and checkpoint conversion are deferred.
 
-Exact local source is under `X:/H/transformers/src/transformers/models/dac` at the commit above. Hub config snapshots are recorded in `_sources/snapshots/hf_config_sweep.json`; source notes are in `_sources/source_notes.md`.
+Exact local source is under `transformers/src/transformers/models/dac` at the commit above. Hub config snapshots are recorded in `_sources/snapshots/hf_config_sweep.json`; source notes are in `_sources/source_notes.md`.
 
 ## 2. High-level architecture
 

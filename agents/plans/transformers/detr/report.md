@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -18,11 +18,11 @@ Config source:
   Same raw paths for the additional sweep checkpoints above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/detr/configuration_detr.py
-  X:/H/transformers/src/transformers/models/detr/modeling_detr.py
-  X:/H/transformers/src/transformers/models/detr/image_processing_detr.py
-  X:/H/transformers/src/transformers/models/detr/image_processing_pil_detr.py
-  X:/H/transformers/src/transformers/loss/loss_for_object_detection.py
+  transformers/src/transformers/models/detr/configuration_detr.py
+  transformers/src/transformers/models/detr/modeling_detr.py
+  transformers/src/transformers/models/detr/image_processing_detr.py
+  transformers/src/transformers/models/detr/image_processing_pil_detr.py
+  transformers/src/transformers/loss/loss_for_object_detection.py
   Conversion scripts were spot-checked for backbone naming/config history.
 
 Any missing files or assumptions:

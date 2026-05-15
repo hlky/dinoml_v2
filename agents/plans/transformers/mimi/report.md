@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary native checkpoint: kyutai/mimi.
@@ -18,12 +18,12 @@ Config source:
   Files fetched where available: config.json, preprocessor_config.json, README.md.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mimi/modeling_mimi.py
-  X:/H/transformers/src/transformers/models/mimi/configuration_mimi.py
-  X:/H/transformers/src/transformers/models/mimi/convert_mimi_checkpoint_to_pytorch.py
-  X:/H/transformers/docs/source/en/model_doc/mimi.md
-  X:/H/transformers/tests/models/mimi/test_modeling_mimi.py
-  X:/H/transformers/src/transformers/models/encodec/feature_extraction_encodec.py
+  transformers/src/transformers/models/mimi/modeling_mimi.py
+  transformers/src/transformers/models/mimi/configuration_mimi.py
+  transformers/src/transformers/models/mimi/convert_mimi_checkpoint_to_pytorch.py
+  transformers/docs/source/en/model_doc/mimi.md
+  transformers/tests/models/mimi/test_modeling_mimi.py
+  transformers/src/transformers/models/encodec/feature_extraction_encodec.py
 
 Any missing files or assumptions:
   There is no separate Mimi feature extractor in Transformers; Mimi examples load

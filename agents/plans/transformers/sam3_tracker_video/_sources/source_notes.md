@@ -2,7 +2,7 @@
 
 ## Basis
 
-- Repository: `X:/H/transformers`
+- Repository: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Family path: `src/transformers/models/sam3_tracker_video`
 - Generated files state they are generated from `modular_sam3_tracker_video.py`; future upstream edits should inspect the modular file first, while the generated modeling file is useful because it contains the expanded inherited SAM2-video body.

@@ -1,6 +1,6 @@
 # PI0 Source Defaults Snapshot
 
-Source basis: `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source basis: `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 These values are source defaults from `src/transformers/models/pi0/configuration_pi0.py`, not a downloaded checkpoint `config.json`.
 

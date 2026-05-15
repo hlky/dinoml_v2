@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: jinaai/jina-embeddings-v3-hf for native source; jinaai/jina-embeddings-v3 is a remote-code predecessor.
 Config source: raw Hub config snapshots saved in this folder.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/jina_embeddings_v3/configuration_jina_embeddings_v3.py
-- X:/H/transformers/src/transformers/models/jina_embeddings_v3/modeling_jina_embeddings_v3.py
-- X:/H/transformers/src/transformers/models/jina_embeddings_v3/modular_jina_embeddings_v3.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/models/jina_embeddings_v3/configuration_jina_embeddings_v3.py
+- transformers/src/transformers/models/jina_embeddings_v3/modeling_jina_embeddings_v3.py
+- transformers/src/transformers/models/jina_embeddings_v3/modular_jina_embeddings_v3.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/modeling_rope_utils.py
 - Hub snapshots in agents/plans/transformers/jina_embeddings_v3/
 Any missing files or assumptions: no gated links found. Native generated files are runtime source; modular_jina_embeddings_v3.py is authoritative for future Transformers edits.
 ```

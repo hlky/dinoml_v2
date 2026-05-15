@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/wav2vec2-conformer-rel-pos-large, facebook/wav2vec2-conformer-rel-pos-large-960h-ft, facebook/wav2vec2-conformer-rope-large, facebook/wav2vec2-conformer-rope-large-960h-ft, juliensimon/wav2vec2-conformer-rel-pos-large-finetuned-speech-commands
 Config source: Hugging Face config/preprocessor/tokenizer JSON snapshots saved beside this report.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/wav2vec2_conformer/modeling_wav2vec2_conformer.py
-- X:/H/transformers/src/transformers/models/wav2vec2_conformer/configuration_wav2vec2_conformer.py
-- X:/H/transformers/src/transformers/models/wav2vec2_conformer/modular_wav2vec2_conformer.py
-- X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-- X:/H/transformers/src/transformers/feature_extraction_sequence_utils.py
+- transformers/src/transformers/models/wav2vec2_conformer/modeling_wav2vec2_conformer.py
+- transformers/src/transformers/models/wav2vec2_conformer/configuration_wav2vec2_conformer.py
+- transformers/src/transformers/models/wav2vec2_conformer/modular_wav2vec2_conformer.py
+- transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+- transformers/src/transformers/feature_extraction_sequence_utils.py
 Any missing files or assumptions: no gated/401 model config links were encountered. tokenizer_config.json is absent/404 for the pretraining checkpoints and the Speech Commands classifier mirror; that is expected because the first two are not CTC tokenizers and the classifier does not tokenize text.
 ```
 

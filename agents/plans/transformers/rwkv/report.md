@@ -21,10 +21,10 @@ Config source:
   - `https://huggingface.co/RWKV/rwkv-4-7b-pile/raw/main/config.json`
 
 Source files inspected:
-- `X:/H/transformers/src/transformers/models/rwkv/configuration_rwkv.py`
-- `X:/H/transformers/src/transformers/models/rwkv/modeling_rwkv.py`
-- `X:/H/transformers/src/transformers/models/rwkv/convert_rwkv_checkpoint_to_hf.py`
-- `X:/H/transformers/src/transformers/generation/utils.py` for generation cache/state handling.
+- `transformers/src/transformers/models/rwkv/configuration_rwkv.py`
+- `transformers/src/transformers/models/rwkv/modeling_rwkv.py`
+- `transformers/src/transformers/models/rwkv/convert_rwkv_checkpoint_to_hf.py`
+- `transformers/src/transformers/generation/utils.py` for generation cache/state handling.
 
 Any missing files or assumptions:
 - The optimized WKV implementation is loaded from the external Hub kernel `kernels-community/rwkv` through `get_kernel(...)`; its CUDA source was not vendored in the Transformers checkout.

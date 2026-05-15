@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/data2vec-audio-base, facebook/data2vec-audio-base-960h, facebook/data2vec-audio-large-960h, facebook/data2vec-text-base, facebook/data2vec-vision-base, facebook/data2vec-vision-large, facebook/data2vec-vision-base-ft1k, facebook/data2vec-vision-large-ft1k
 Config source: local configuration_*.py plus public HF config/preprocessor/tokenizer JSON snapshots in _sources/hf_configs/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/data2vec/configuration_data2vec_audio.py
-- X:/H/transformers/src/transformers/models/data2vec/configuration_data2vec_text.py
-- X:/H/transformers/src/transformers/models/data2vec/configuration_data2vec_vision.py
-- X:/H/transformers/src/transformers/models/data2vec/modeling_data2vec_audio.py
-- X:/H/transformers/src/transformers/models/data2vec/modeling_data2vec_text.py
-- X:/H/transformers/src/transformers/models/data2vec/modeling_data2vec_vision.py
-- X:/H/transformers/src/transformers/models/data2vec/modular_data2vec_audio.py
-- X:/H/transformers/src/transformers/models/data2vec/modular_data2vec_text.py
+- transformers/src/transformers/models/data2vec/configuration_data2vec_audio.py
+- transformers/src/transformers/models/data2vec/configuration_data2vec_text.py
+- transformers/src/transformers/models/data2vec/configuration_data2vec_vision.py
+- transformers/src/transformers/models/data2vec/modeling_data2vec_audio.py
+- transformers/src/transformers/models/data2vec/modeling_data2vec_text.py
+- transformers/src/transformers/models/data2vec/modeling_data2vec_vision.py
+- transformers/src/transformers/models/data2vec/modular_data2vec_audio.py
+- transformers/src/transformers/models/data2vec/modular_data2vec_text.py
 Any missing files or assumptions: no gated/401/403 configs were encountered for the sampled official checkpoints. Audio and text have modular source files; generated modeling files are the direct runtime basis, while modular files are useful for future upstream source edits. Vision is copied/adapted from BEiT-style code and has no modular data2vec vision file in this directory.
 ```
 

@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: caidas/swin2SR-* family; primary target caidas/swin2SR-classical-sr-x2-64
 Config source: official HF raw config/preprocessor files, fetched 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/swin2sr/modeling_swin2sr.py
-- X:/H/transformers/src/transformers/models/swin2sr/configuration_swin2sr.py
-- X:/H/transformers/src/transformers/models/swin2sr/image_processing_swin2sr.py
-- X:/H/transformers/src/transformers/models/swin2sr/image_processing_pil_swin2sr.py
-- X:/H/transformers/src/transformers/models/swin2sr/convert_swin2sr_original_to_pytorch.py
-- X:/H/transformers/tests/models/swin2sr/test_modeling_swin2sr.py
+- transformers/src/transformers/models/swin2sr/modeling_swin2sr.py
+- transformers/src/transformers/models/swin2sr/configuration_swin2sr.py
+- transformers/src/transformers/models/swin2sr/image_processing_swin2sr.py
+- transformers/src/transformers/models/swin2sr/image_processing_pil_swin2sr.py
+- transformers/src/transformers/models/swin2sr/convert_swin2sr_original_to_pytorch.py
+- transformers/tests/models/swin2sr/test_modeling_swin2sr.py
 Any missing files or assumptions: no gated/401 configs encountered for the sampled caidas checkpoints. This report targets in-library Transformers source, not remote code or the original BasicSR implementation.
 ```
 

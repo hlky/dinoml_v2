@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `transformers`.
 
 Model id: primary official checkpoint [`microsoft/udop-large`](https://huggingface.co/microsoft/udop-large); official variants [`microsoft/udop-large-512`](https://huggingface.co/microsoft/udop-large-512) and [`microsoft/udop-large-512-300k`](https://huggingface.co/microsoft/udop-large-512-300k).
 

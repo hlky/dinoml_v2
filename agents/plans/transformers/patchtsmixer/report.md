@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary representative `ibm/patchtsmixer-etth1-forecasting`; additional inspected configs from `ibm-research/patchtsmixer-etth1-pretrain`, `ibm/patchtsmixer-etth1-generate`, `ibm-granite/granite-timeseries-patchtsmixer`, and `sujayC66/PatchTSMixer_Stock_Data`.
 
@@ -10,11 +10,11 @@ Config source: official Hugging Face `config.json` URLs were accessible for all 
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/patchtsmixer/configuration_patchtsmixer.py`
-- `X:/H/transformers/src/transformers/models/patchtsmixer/modeling_patchtsmixer.py`
-- `X:/H/transformers/tests/models/patchtsmixer/test_modeling_patchtsmixer.py`
-- `X:/H/transformers/src/transformers/time_series_utils.py` for distribution projection/domain-map behavior.
-- `X:/H/transformers/docs/source/en/model_doc/patchtsmixer.md` for task scope only; operator facts below are source-derived.
+- `transformers/src/transformers/models/patchtsmixer/configuration_patchtsmixer.py`
+- `transformers/src/transformers/models/patchtsmixer/modeling_patchtsmixer.py`
+- `transformers/tests/models/patchtsmixer/test_modeling_patchtsmixer.py`
+- `transformers/src/transformers/time_series_utils.py` for distribution projection/domain-map behavior.
+- `transformers/docs/source/en/model_doc/patchtsmixer.md` for task scope only; operator facts below are source-derived.
 
 Snapshots created:
 

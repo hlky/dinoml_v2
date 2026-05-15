@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: flaubert family; representative ids: flaubert/flaubert_small_cased, flaubert/flaubert_base_uncased, flaubert/flaubert_base_cased, flaubert/flaubert_large_cased
 Config source: official Hugging Face config.json URLs fetched 2026-05-13; compact snapshot in representative_configs.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/flaubert/modeling_flaubert.py
-  X:/H/transformers/src/transformers/models/flaubert/configuration_flaubert.py
-  X:/H/transformers/src/transformers/models/flaubert/tokenization_flaubert.py
+  transformers/src/transformers/models/flaubert/modeling_flaubert.py
+  transformers/src/transformers/models/flaubert/configuration_flaubert.py
+  transformers/src/transformers/models/flaubert/tokenization_flaubert.py
 Any missing files or assumptions:
   special_tokens_map.json returned 404 for the representative official repos; source tokenizer defaults are used for special-token behavior.
   No remote-code files are required for the in-library Flaubert source.

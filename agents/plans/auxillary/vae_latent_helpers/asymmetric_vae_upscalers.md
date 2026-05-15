@@ -22,6 +22,6 @@ Reuse Diffusers model coverage, but record UI scale/tiling contracts separately.
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_asym_kl.py`
-- `H:/uis/vladmandic/sdnext/modules/upscaler_vae.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_asym_kl.py`
+- `vladmandic/sdnext/modules/upscaler_vae.py`
 

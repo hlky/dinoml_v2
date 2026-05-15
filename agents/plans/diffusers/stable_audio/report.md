@@ -6,7 +6,7 @@ Candidate slug: `stable_audio`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   stabilityai/stable-audio-open-1.0, official repo gated for file contents.
@@ -31,20 +31,20 @@ Config sources:
     tokenizer/tokenizer_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_audio/pipeline_stable_audio.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_audio/modeling_stable_audio.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_audio/__init__.py
+  diffusers/src/diffusers/pipelines/stable_audio/pipeline_stable_audio.py
+  diffusers/src/diffusers/pipelines/stable_audio/modeling_stable_audio.py
+  diffusers/src/diffusers/pipelines/stable_audio/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/stable_audio_transformer.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py
+  diffusers/src/diffusers/models/transformers/stable_audio_transformer.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_cosine_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_edm_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py for get_1d_rotary_pos_embed/apply_rotary_emb
-  X:/H/diffusers/src/diffusers/models/attention.py for Attention and FeedForward
+  diffusers/src/diffusers/schedulers/scheduling_cosine_dpmsolver_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_edm_dpmsolver_multistep.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py for get_1d_rotary_pos_embed/apply_rotary_emb
+  diffusers/src/diffusers/models/attention.py for Attention and FeedForward
 
 External component configs inspected:
   T5EncoderModel/T5 tokenizer configs from the open mirror.

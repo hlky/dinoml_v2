@@ -2,7 +2,7 @@
 
 ## 1. Source Basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary sweep covers `jinho8345/bros-base-uncased`, `jinho8345/bros-large-uncased`, `naver-clova-ocr/bros-base-uncased`, `naver-clova-ocr/bros-large-uncased`, and `adamadam111/bros-funsd-finetuned`.
 
@@ -10,10 +10,10 @@ Config source: Hugging Face raw `config.json` files, captured in `_sources/confi
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/bros/configuration_bros.py`
-- `X:/H/transformers/src/transformers/models/bros/modeling_bros.py`
-- `X:/H/transformers/src/transformers/models/bros/processing_bros.py`
-- `X:/H/transformers/src/transformers/models/bros/__init__.py`
+- `transformers/src/transformers/models/bros/configuration_bros.py`
+- `transformers/src/transformers/models/bros/modeling_bros.py`
+- `transformers/src/transformers/models/bros/processing_bros.py`
+- `transformers/src/transformers/models/bros/__init__.py`
 
 Any missing files or assumptions: no BROS tokenizer implementation exists; `BrosProcessor` wraps a BERT tokenizer. No image processor or OCR pipeline exists in the source. The report target is encoder and token/relation classification inference. Training losses, document-classification checkpoints that name a non-existent in-library `BrosForDocumentClassification`, and optional decoder/cross-attention flags are out of scope.
 

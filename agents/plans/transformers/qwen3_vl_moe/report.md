@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Representative configs report transformers_version 4.57.0.dev0.
 
 Model id:
@@ -17,12 +17,12 @@ Config source:
   agents/plans/transformers/qwen3_vl_moe/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/qwen3_vl_moe/configuration_qwen3_vl_moe.py
-  X:/H/transformers/src/transformers/models/qwen3_vl_moe/modular_qwen3_vl_moe.py
-  X:/H/transformers/src/transformers/models/qwen3_vl_moe/modeling_qwen3_vl_moe.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py
-  X:/H/transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py
+  transformers/src/transformers/models/qwen3_vl_moe/configuration_qwen3_vl_moe.py
+  transformers/src/transformers/models/qwen3_vl_moe/modular_qwen3_vl_moe.py
+  transformers/src/transformers/models/qwen3_vl_moe/modeling_qwen3_vl_moe.py
+  transformers/src/transformers/models/qwen3_vl/processing_qwen3_vl.py
+  transformers/src/transformers/models/qwen3_vl/video_processing_qwen3_vl.py
+  transformers/src/transformers/models/qwen2_vl/image_processing_qwen2_vl.py
 
 Any missing files or assumptions:
   qwen3_vl_moe has no local processor file. Processor ABI comes from Qwen3VLProcessor,

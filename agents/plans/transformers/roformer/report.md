@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `transformers`.
 
 Model id: primary target `junnyu/roformer_chinese_base`; sweep also covered `junnyu/roformer_chinese_small`, `junnyu/roformer_chinese_char_small`, `junnyu/roformer_chinese_char_base`, and `junnyu/roformer_v2_chinese_char_base`.
 

@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: gpt_bigcode family; primary target GPTBigCodeForCausalLM generation.
 Config source: HF config.json snapshots under agents/plans/transformers/gpt_bigcode/_sources/.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/gpt_bigcode/configuration_gpt_bigcode.py
-  X:/H/transformers/src/transformers/models/gpt_bigcode/modeling_gpt_bigcode.py
-  X:/H/transformers/src/transformers/models/gpt_bigcode/__init__.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/integrations/sdpa_attention.py
-  X:/H/transformers/src/transformers/integrations/flash_attention.py
-  X:/H/transformers/src/transformers/modeling_utils.py
-  X:/H/transformers/tests/models/gpt_bigcode/test_modeling_gpt_bigcode.py
+  transformers/src/transformers/models/gpt_bigcode/configuration_gpt_bigcode.py
+  transformers/src/transformers/models/gpt_bigcode/modeling_gpt_bigcode.py
+  transformers/src/transformers/models/gpt_bigcode/__init__.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/integrations/sdpa_attention.py
+  transformers/src/transformers/integrations/flash_attention.py
+  transformers/src/transformers/modeling_utils.py
+  transformers/tests/models/gpt_bigcode/test_modeling_gpt_bigcode.py
 Any missing files or assumptions:
   No local tokenization_gpt_bigcode.py exists; AutoTokenizer maps model_type=gpt_bigcode to GPT2Tokenizer/GPT2TokenizerFast.
   Official bigcode/starcoder, bigcode/starcoderbase, and bigcode/starcoderplus configs are gated from this environment.

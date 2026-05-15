@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: allenai/longformer-base-4096, allenai/longformer-large-4096, allenai/longformer-large-4096-finetuned-triviaqa, hf-internal-testing/tiny-random-longformer, patrickvonplaten/longformer-random-tiny
 Config source: Hugging Face config.json snapshots under agents/plans/transformers/longformer/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/longformer/configuration_longformer.py
-  X:/H/transformers/src/transformers/models/longformer/modeling_longformer.py
-  X:/H/transformers/src/transformers/models/longformer/__init__.py
-  X:/H/transformers/src/transformers/modeling_utils.py, for get_extended_attention_mask semantics
+  transformers/src/transformers/models/longformer/configuration_longformer.py
+  transformers/src/transformers/models/longformer/modeling_longformer.py
+  transformers/src/transformers/models/longformer/__init__.py
+  transformers/src/transformers/modeling_utils.py, for get_extended_attention_mask semantics
 Any missing files or assumptions:
   No remote-code files are required for the in-library Longformer family.
   allenai/* tokenizer sidecar JSON files were not present at the raw URLs checked; the package aliases LongformerTokenizer to RobertaTokenizer.

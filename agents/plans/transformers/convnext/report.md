@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id sweep:
 
@@ -16,11 +16,11 @@ Config source: downloaded from `https://huggingface.co/<model-id>/resolve/main/c
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/convnext/modeling_convnext.py`
-- `X:/H/transformers/src/transformers/models/convnext/configuration_convnext.py`
-- `X:/H/transformers/src/transformers/models/convnext/image_processing_convnext.py`
-- `X:/H/transformers/src/transformers/models/convnext/image_processing_pil_convnext.py`
-- `X:/H/transformers/src/transformers/models/convnextv2/modeling_convnextv2.py`, only to verify that Global Response Normalization belongs to the separate `convnextv2` family, not this `convnext` target.
+- `transformers/src/transformers/models/convnext/modeling_convnext.py`
+- `transformers/src/transformers/models/convnext/configuration_convnext.py`
+- `transformers/src/transformers/models/convnext/image_processing_convnext.py`
+- `transformers/src/transformers/models/convnext/image_processing_pil_convnext.py`
+- `transformers/src/transformers/models/convnextv2/modeling_convnextv2.py`, only to verify that Global Response Normalization belongs to the separate `convnextv2` family, not this `convnext` target.
 
 Primary runtime target: image classification with `ConvNextForImageClassification`. `ConvNextModel` is required as the base encoder. `ConvNextBackbone` is optional but useful for future detection/segmentation integrations. Training loss paths, stochastic DropPath behavior, and gradients are deferred.
 

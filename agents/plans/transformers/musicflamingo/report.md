@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: nvidia/music-flamingo-2601-hf; nvidia/music-flamingo-think-2601-hf for representative variation
 Config source: public HF config/processor/tokenizer/generation JSON plus local source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/musicflamingo/configuration_musicflamingo.py
-  X:/H/transformers/src/transformers/models/musicflamingo/modeling_musicflamingo.py
-  X:/H/transformers/src/transformers/models/musicflamingo/processing_musicflamingo.py
-  X:/H/transformers/src/transformers/models/musicflamingo/modular_musicflamingo.py
-  X:/H/transformers/src/transformers/models/musicflamingo/convert_musicflamingo_to_hf.py
-  X:/H/transformers/docs/source/en/model_doc/musicflamingo.md
-  X:/H/transformers/src/transformers/models/audioflamingo3/configuration_audioflamingo3.py
-  X:/H/transformers/src/transformers/models/audioflamingo3/modeling_audioflamingo3.py
-  X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
-  X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
+  transformers/src/transformers/models/musicflamingo/configuration_musicflamingo.py
+  transformers/src/transformers/models/musicflamingo/modeling_musicflamingo.py
+  transformers/src/transformers/models/musicflamingo/processing_musicflamingo.py
+  transformers/src/transformers/models/musicflamingo/modular_musicflamingo.py
+  transformers/src/transformers/models/musicflamingo/convert_musicflamingo_to_hf.py
+  transformers/docs/source/en/model_doc/musicflamingo.md
+  transformers/src/transformers/models/audioflamingo3/configuration_audioflamingo3.py
+  transformers/src/transformers/models/audioflamingo3/modeling_audioflamingo3.py
+  transformers/src/transformers/models/qwen2/configuration_qwen2.py
+  transformers/src/transformers/models/qwen2/modeling_qwen2.py
 Any missing files or assumptions:
   No model imports, tests, weight loads, or model execution were run. Public HF repos are not gated, but the original
   source repository named by the converter is private. preprocessor_config.json is absent; processor_config.json

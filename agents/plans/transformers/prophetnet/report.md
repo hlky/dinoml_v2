@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: prophetnet
 Config source: local configuration source plus HF config.json snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/prophetnet/modeling_prophetnet.py
-- X:/H/transformers/src/transformers/models/prophetnet/configuration_prophetnet.py
-- X:/H/transformers/src/transformers/models/prophetnet/tokenization_prophetnet.py
-- X:/H/transformers/tests/models/prophetnet/test_modeling_prophetnet.py
+- transformers/src/transformers/models/prophetnet/modeling_prophetnet.py
+- transformers/src/transformers/models/prophetnet/configuration_prophetnet.py
+- transformers/src/transformers/models/prophetnet/tokenization_prophetnet.py
+- transformers/tests/models/prophetnet/test_modeling_prophetnet.py
 Any missing files or assumptions:
 - microsoft/prophetnet-large-uncased-wiki100-cased config returned 401 and is a gap.
 - No remote-code files are required for the in-library implementation.

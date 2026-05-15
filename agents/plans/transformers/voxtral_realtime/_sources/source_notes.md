@@ -4,9 +4,9 @@ Scope: `voxtral_realtime` only. No DinoML code edits, imports, tests, or model e
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/voxtral_realtime`
+- Family directory: `transformers/src/transformers/models/voxtral_realtime`
 - Generated file warning: `modeling_voxtral_realtime.py` is generated from `modular_voxtral_realtime.py`; future source edits should target the modular file.
 
 Files inspected:

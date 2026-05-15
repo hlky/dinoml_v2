@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary `jetmoe/jetmoe-8b`; representative configs also checked for `jetmoe/jetmoe-8b-sft`, `jetmoe/jetmoe-8b-chat`, `AndreaUnibo/JetMoE_base_full_trained`, and out-of-scope `thomasgauthier/expanded-jetmoe-untrained`.
 

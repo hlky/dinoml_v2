@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at
+Transformers commit/version: local checkout `transformers` at
 `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: source docstrings mention `zai-org/GLM-4.1V-9B-Thinking`; fetched

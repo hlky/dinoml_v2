@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Base family reference: stable-diffusion-v1-5/stable-diffusion-v1-5.
@@ -16,21 +16,21 @@ Config sources:
   No adapter checkpoint configs were required for this mutation-surface audit.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
 
 Loader/runtime mutation files inspected:
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/lora_base.py
-  X:/H/diffusers/src/diffusers/loaders/textual_inversion.py
-  X:/H/diffusers/src/diffusers/loaders/peft.py
-  X:/H/diffusers/src/diffusers/loaders/unet.py
-  X:/H/diffusers/src/diffusers/utils/peft_utils.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/lora_base.py
+  diffusers/src/diffusers/loaders/textual_inversion.py
+  diffusers/src/diffusers/loaders/peft.py
+  diffusers/src/diffusers/loaders/unet.py
+  diffusers/src/diffusers/utils/peft_utils.py
 
 Model and attention files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/lora.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/lora.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
 
 Any missing files or assumptions:
   PEFT internals are an external dependency and were inferred only through

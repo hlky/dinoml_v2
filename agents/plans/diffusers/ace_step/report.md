@@ -6,7 +6,7 @@ Candidate slug: `ace_step`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   ACE-Step/Ace-Step1.5
@@ -21,20 +21,20 @@ Config sources:
     ACE-Step/ACE-Step-v1-3.5B snapshot 82cd0d7b6322bd28cd4e830fe675ddb6180ce36c
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ace_step/pipeline_ace_step.py
-  X:/H/diffusers/src/diffusers/pipelines/ace_step/modeling_ace_step.py
-  X:/H/diffusers/src/diffusers/pipelines/ace_step/__init__.py
+  diffusers/src/diffusers/pipelines/ace_step/pipeline_ace_step.py
+  diffusers/src/diffusers/pipelines/ace_step/modeling_ace_step.py
+  diffusers/src/diffusers/pipelines/ace_step/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/ace_step_transformer.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py
+  diffusers/src/diffusers/models/transformers/ace_step_transformer.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_oobleck.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/guiders/adaptive_projected_guidance.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py for 1D RoPE and Timesteps
-  X:/H/diffusers/src/diffusers/models/normalization.py for RMSNorm
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/guiders/adaptive_projected_guidance.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py for 1D RoPE and Timesteps
+  diffusers/src/diffusers/models/normalization.py for RMSNorm
 
 External component configs inspected:
   ACE-Step/Ace-Step1.5 Qwen3-Embedding-0.6B config/tokenizer config.

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Representative official configs inspected from google/gemma-4-E2B,
@@ -17,15 +17,15 @@ Config source:
   Downloaded HF config snapshots are stored in _sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/gemma4/configuration_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/modeling_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/modular_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/processing_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/image_processing_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/image_processing_pil_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/video_processing_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/feature_extraction_gemma4.py
-  X:/H/transformers/src/transformers/models/gemma4/convert_gemma4_weights.py
+  transformers/src/transformers/models/gemma4/configuration_gemma4.py
+  transformers/src/transformers/models/gemma4/modeling_gemma4.py
+  transformers/src/transformers/models/gemma4/modular_gemma4.py
+  transformers/src/transformers/models/gemma4/processing_gemma4.py
+  transformers/src/transformers/models/gemma4/image_processing_gemma4.py
+  transformers/src/transformers/models/gemma4/image_processing_pil_gemma4.py
+  transformers/src/transformers/models/gemma4/video_processing_gemma4.py
+  transformers/src/transformers/models/gemma4/feature_extraction_gemma4.py
+  transformers/src/transformers/models/gemma4/convert_gemma4_weights.py
 
 Any missing files or assumptions:
   modeling_gemma4.py is the generated runtime source in this checkout.

@@ -6,7 +6,7 @@ Candidate slug: `chronoedit`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   nvidia/ChronoEdit-14B-Diffusers
@@ -27,28 +27,28 @@ Config sources:
   task is only this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/chronoedit/pipeline_chronoedit.py
-  X:/H/diffusers/src/diffusers/pipelines/chronoedit/pipeline_output.py
+  diffusers/src/diffusers/pipelines/chronoedit/pipeline_chronoedit.py
+  diffusers/src/diffusers/pipelines/chronoedit/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_chronoedit.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_wan.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_chronoedit.py
+  diffusers/src/diffusers/models/transformers/transformer_wan.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
     (used because the official commit/model_index and Diffusers docs still show
     UniPCMultistepScheduler examples despite current ChronoEditPipeline typing
     FlowMatchEulerDiscreteScheduler)
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   UMT5EncoderModel / T5TokenizerFast config fields from public commit diff.

@@ -3,19 +3,19 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: zai-org/GLM-OCR
 Config source: local snapshots in _sources plus https://huggingface.co/zai-org/GLM-OCR/blob/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/glm_ocr/configuration_glm_ocr.py
-  X:/H/transformers/src/transformers/models/glm_ocr/modeling_glm_ocr.py
-  X:/H/transformers/src/transformers/models/glm_ocr/modular_glm_ocr.py
-  X:/H/transformers/src/transformers/models/glm46v/processing_glm46v.py
-  X:/H/transformers/src/transformers/models/glm46v/image_processing_glm46v.py
-  X:/H/transformers/src/transformers/models/glm46v/video_processing_glm46v.py
-  X:/H/transformers/src/transformers/models/glm4v/processing_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/image_processing_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/video_processing_glm4v.py
+  transformers/src/transformers/models/glm_ocr/configuration_glm_ocr.py
+  transformers/src/transformers/models/glm_ocr/modeling_glm_ocr.py
+  transformers/src/transformers/models/glm_ocr/modular_glm_ocr.py
+  transformers/src/transformers/models/glm46v/processing_glm46v.py
+  transformers/src/transformers/models/glm46v/image_processing_glm46v.py
+  transformers/src/transformers/models/glm46v/video_processing_glm46v.py
+  transformers/src/transformers/models/glm4v/processing_glm4v.py
+  transformers/src/transformers/models/glm4v/image_processing_glm4v.py
+  transformers/src/transformers/models/glm4v/video_processing_glm4v.py
 Any missing files or assumptions:
   glm_ocr has no local processor file. The official preprocessor config routes to Glm46VProcessor / Glm46VImageProcessor.
   This report targets inference-only OCR/image-to-text generation on CUDA. Video support is documented but deferred.

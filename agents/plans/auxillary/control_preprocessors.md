@@ -48,71 +48,71 @@ checkpoint defaults, mode aliases, resize policy, and rendered condition image.
 
 ## Forge and reForge Anchors
 
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/scripts/legacy_preprocessors.py:40`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/scripts/legacy_preprocessors.py:40`
   `LegacyPreprocessor`.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/scripts/legacy_preprocessors.py:114`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/scripts/legacy_preprocessors.py:114`
   iterates/registers legacy preprocessors.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:119`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:119`
   HED.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:175`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:175`
   MLSD.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:199`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:199`
   Depth Anything.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:219`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:219`
   Depth Anything v2.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:232`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:232`
   MiDaS depth/normal.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:263`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:263`
   LeReS.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:308`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:308`
   OpenPose/DWPose route.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:456`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:456`
   lineart.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:577`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:577`
   ZoeDepth.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:607`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:607`
   OneFormer.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:700`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:700`
   DensePose.
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:715`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:715`
   TEED.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py:310`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py:310`
   ControlNet invokes selected preprocessors.
 
 ## SD.Next Anchors
 
-- `H:/uis/vladmandic/sdnext/modules/control/processor.py:34`
+- `vladmandic/sdnext/modules/control/processor.py:34`
   processor categories including TEED, Anyline, LeReS, OneFormer.
-- `H:/uis/vladmandic/sdnext/modules/control/proc/anyline/__init__.py:10`
+- `vladmandic/sdnext/modules/control/proc/anyline/__init__.py:10`
   Anyline via `controlnet_aux`.
-- `H:/uis/vladmandic/sdnext/modules/control/proc/dpt.py:25`
+- `vladmandic/sdnext/modules/control/proc/dpt.py:25`
   DPT depth using transformers.
-- `H:/uis/vladmandic/sdnext/modules/control/proc/glpn.py:17`
+- `vladmandic/sdnext/modules/control/proc/glpn.py:17`
   GLPN depth using transformers.
-- `H:/uis/vladmandic/sdnext/modules/control/proc/hed.py:63`
+- `vladmandic/sdnext/modules/control/proc/hed.py:63`
   custom HED.
-- `H:/uis/vladmandic/sdnext/modules/control/units/controlnet.py:16`
+- `vladmandic/sdnext/modules/control/units/controlnet.py:16`
   ControlNet unit load surface.
-- `H:/uis/vladmandic/sdnext/modules/control/units/t2iadapter.py:16`
+- `vladmandic/sdnext/modules/control/units/t2iadapter.py:16`
   T2I adapter unit.
-- `H:/uis/vladmandic/sdnext/modules/control/units/lite.py:19`
+- `vladmandic/sdnext/modules/control/units/lite.py:19`
   LLLite control unit.
 
 ## InvokeAI and StabilityMatrix Anchors
 
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/hed.py:12`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/hed.py:12`
   HED invocation.
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/mlsd.py:11`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/mlsd.py:11`
   MLSD invocation.
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/lineart.py:12`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/lineart.py:12`
   lineart invocation.
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/depth_anything.py:21`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/depth_anything.py:21`
   Depth Anything pipeline invocation.
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/dw_openpose.py:1`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/dw_openpose.py:1`
   ONNX DWPose invocation.
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/mediapipe_face.py:9`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/mediapipe_face.py:9`
   MediaPipe face detection.
-- `H:/uis/LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/ComfyAuxPreprocessor.cs:15`
+- `LykosAI/StabilityMatrix/StabilityMatrix.Core/Models/Api/Comfy/ComfyAuxPreprocessor.cs:15`
   broad Comfy preprocessor enum.
 
 ## DinoML Gap

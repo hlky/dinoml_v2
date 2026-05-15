@@ -6,7 +6,7 @@ Candidate slug: `longcat_audio_dit`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   ruixiangma/LongCat-AudioDiT-1B-Diffusers
@@ -25,18 +25,18 @@ Config sources:
   H:/configs/drbaph/LongCat-AudioDiT-3.5B-bf16/config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/longcat_audio_dit/pipeline_longcat_audio_dit.py
-  X:/H/diffusers/src/diffusers/pipelines/longcat_audio_dit/__init__.py
+  diffusers/src/diffusers/pipelines/longcat_audio_dit/pipeline_longcat_audio_dit.py
+  diffusers/src/diffusers/pipelines/longcat_audio_dit/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_longcat_audio_dit.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_longcat_audio_dit.py
-  X:/H/diffusers/src/diffusers/models/normalization.py for RMSNorm
+  diffusers/src/diffusers/models/transformers/transformer_longcat_audio_dit.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_longcat_audio_dit.py
+  diffusers/src/diffusers/models/normalization.py for RMSNorm
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/utils/constants.py for default attention backend
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/utils/constants.py for default attention backend
 
 External component configs inspected:
   UMT5EncoderModel/T5 tokenizer configs packaged in the Diffusers repo above.

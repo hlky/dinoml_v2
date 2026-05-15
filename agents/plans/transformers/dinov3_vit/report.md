@@ -19,11 +19,11 @@ Config source:
   Official raw config/preprocessor files returned 401 in this environment.
   Concrete variant dimensions below come from the pinned in-tree conversion script.
 Source files inspected:
-  - X:/H/transformers/src/transformers/models/dinov3_vit/configuration_dinov3_vit.py
-  - X:/H/transformers/src/transformers/models/dinov3_vit/modeling_dinov3_vit.py
-  - X:/H/transformers/src/transformers/models/dinov3_vit/modular_dinov3_vit.py
-  - X:/H/transformers/src/transformers/models/dinov3_vit/image_processing_dinov3_vit.py
-  - X:/H/transformers/src/transformers/models/dinov3_vit/convert_dinov3_vit_to_hf.py
+  - transformers/src/transformers/models/dinov3_vit/configuration_dinov3_vit.py
+  - transformers/src/transformers/models/dinov3_vit/modeling_dinov3_vit.py
+  - transformers/src/transformers/models/dinov3_vit/modular_dinov3_vit.py
+  - transformers/src/transformers/models/dinov3_vit/image_processing_dinov3_vit.py
+  - transformers/src/transformers/models/dinov3_vit/convert_dinov3_vit_to_hf.py
 Any missing files or assumptions:
   modeling_dinov3_vit.py is generated from modular_dinov3_vit.py; future source edits should target the modular file.
   Official raw checkpoint config/preprocessor files were inaccessible via 401, so exact saved config JSON defaults were not confirmed.

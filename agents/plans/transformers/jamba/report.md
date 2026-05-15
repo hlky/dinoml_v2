@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: ai21labs/Jamba-v0.1 as the primary in-library reference
 Config source: HF config.json files listed below, plus JambaConfig defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/jamba/configuration_jamba.py
-  X:/H/transformers/src/transformers/models/jamba/modeling_jamba.py
-  X:/H/transformers/src/transformers/models/jamba/modular_jamba.py
-  X:/H/transformers/src/transformers/cache_utils.py for hybrid cache classes
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py for inherited attention conventions
-  X:/H/transformers/src/transformers/models/mistral/modeling_mistral.py for dense SwiGLU MLP
-  X:/H/transformers/src/transformers/models/mixtral/modeling_mixtral.py for expert tensor layout
+  transformers/src/transformers/models/jamba/configuration_jamba.py
+  transformers/src/transformers/models/jamba/modeling_jamba.py
+  transformers/src/transformers/models/jamba/modular_jamba.py
+  transformers/src/transformers/cache_utils.py for hybrid cache classes
+  transformers/src/transformers/models/llama/modeling_llama.py for inherited attention conventions
+  transformers/src/transformers/models/mistral/modeling_mistral.py for dense SwiGLU MLP
+  transformers/src/transformers/models/mixtral/modeling_mixtral.py for expert tensor layout
 Any missing files or assumptions:
   Official AI21 Jamba 1.5 Mini/Large configs were gated when fetched unauthenticated.
   Their model cards were used only for repo/task context, not exact operator dimensions.

@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: dpt family; representative checkpoints listed below
 Config source: official Hugging Face config/preprocessor JSON from each model repo, main revision SHA recorded below
 Source files inspected:
-- X:/H/transformers/src/transformers/models/dpt/modeling_dpt.py
-- X:/H/transformers/src/transformers/models/dpt/configuration_dpt.py
-- X:/H/transformers/src/transformers/models/dpt/image_processing_dpt.py
-- X:/H/transformers/src/transformers/models/dpt/image_processing_pil_dpt.py
-- X:/H/transformers/src/transformers/models/dpt/modular_dpt.py
-- X:/H/transformers/tests/models/dpt/test_modeling_dpt.py
-- X:/H/transformers/tests/models/dpt/test_modeling_dpt_hybrid.py
-- X:/H/transformers/tests/models/dpt/test_modeling_dpt_auto_backbone.py
-- X:/H/transformers/tests/models/dpt/test_image_processing_dpt.py
+- transformers/src/transformers/models/dpt/modeling_dpt.py
+- transformers/src/transformers/models/dpt/configuration_dpt.py
+- transformers/src/transformers/models/dpt/image_processing_dpt.py
+- transformers/src/transformers/models/dpt/image_processing_pil_dpt.py
+- transformers/src/transformers/models/dpt/modular_dpt.py
+- transformers/tests/models/dpt/test_modeling_dpt.py
+- transformers/tests/models/dpt/test_modeling_dpt_hybrid.py
+- transformers/tests/models/dpt/test_modeling_dpt_auto_backbone.py
+- transformers/tests/models/dpt/test_image_processing_dpt.py
 Any missing files or assumptions: no remote-code files were required. AutoBackbone variants route into BEiT, SwinV2, DINOv2, or BiT implementations through Transformers backbone loading; this report treats those backbone internals as operator-significant variation but does not replace the separate family audits for those model bodies.
 ```
 

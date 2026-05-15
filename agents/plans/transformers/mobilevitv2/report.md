@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: apple/mobilevitv2-1.0-imagenet1k-256; apple/mobilevitv2-2.0-imagenet1k-256; apple/mobilevitv2-1.0-voc-deeplabv3; apple/mobilevitv2-1.5-voc-deeplabv3
 Config source: official HF config.json and preprocessor_config.json snapshots under _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mobilevitv2/modeling_mobilevitv2.py
-- X:/H/transformers/src/transformers/models/mobilevitv2/configuration_mobilevitv2.py
-- X:/H/transformers/src/transformers/models/mobilevitv2/convert_mlcvnets_to_pytorch.py
-- X:/H/transformers/src/transformers/models/mobilevit/image_processing_mobilevit.py
-- X:/H/transformers/docs/source/en/model_doc/mobilevitv2.md
+- transformers/src/transformers/models/mobilevitv2/modeling_mobilevitv2.py
+- transformers/src/transformers/models/mobilevitv2/configuration_mobilevitv2.py
+- transformers/src/transformers/models/mobilevitv2/convert_mlcvnets_to_pytorch.py
+- transformers/src/transformers/models/mobilevit/image_processing_mobilevit.py
+- transformers/docs/source/en/model_doc/mobilevitv2.md
 Source URLs:
 - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mobilevitv2/modeling_mobilevitv2.py
 - https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mobilevitv2/configuration_mobilevitv2.py

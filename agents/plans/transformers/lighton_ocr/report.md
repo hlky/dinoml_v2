@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary current-source target: lightonai/LightOnOCR-1B-1025.
@@ -19,15 +19,15 @@ Config source:
   agents/plans/transformers/lighton_ocr/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/lighton_ocr/configuration_lighton_ocr.py
-  X:/H/transformers/src/transformers/models/lighton_ocr/modeling_lighton_ocr.py
-  X:/H/transformers/src/transformers/models/lighton_ocr/modular_lighton_ocr.py
-  X:/H/transformers/src/transformers/models/lighton_ocr/processing_lighton_ocr.py
-  X:/H/transformers/src/transformers/models/pixtral/modeling_pixtral.py
-  X:/H/transformers/src/transformers/models/pixtral/configuration_pixtral.py
-  X:/H/transformers/src/transformers/models/pixtral/image_processing_pixtral.py
-  X:/H/transformers/src/transformers/models/qwen3/modeling_qwen3.py
-  X:/H/transformers/src/transformers/models/qwen3/configuration_qwen3.py
+  transformers/src/transformers/models/lighton_ocr/configuration_lighton_ocr.py
+  transformers/src/transformers/models/lighton_ocr/modeling_lighton_ocr.py
+  transformers/src/transformers/models/lighton_ocr/modular_lighton_ocr.py
+  transformers/src/transformers/models/lighton_ocr/processing_lighton_ocr.py
+  transformers/src/transformers/models/pixtral/modeling_pixtral.py
+  transformers/src/transformers/models/pixtral/configuration_pixtral.py
+  transformers/src/transformers/models/pixtral/image_processing_pixtral.py
+  transformers/src/transformers/models/qwen3/modeling_qwen3.py
+  transformers/src/transformers/models/qwen3/configuration_qwen3.py
 
 Any missing files or assumptions:
   modeling_lighton_ocr.py, configuration_lighton_ocr.py, and processing_lighton_ocr.py

@@ -7,17 +7,17 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/paligemma-3b-pt-224, google/paligemma-3b-mix-224, google/paligemma-3b-pt-448, google/paligemma2-3b/10b/28b-style variants by converter naming
 Config source: local Transformers config/converter defaults; direct google/* config fetches returned 401/gated
 Source files inspected:
-- X:/H/transformers/src/transformers/models/paligemma/configuration_paligemma.py
-- X:/H/transformers/src/transformers/models/paligemma/modeling_paligemma.py
-- X:/H/transformers/src/transformers/models/paligemma/processing_paligemma.py
-- X:/H/transformers/src/transformers/models/paligemma/convert_paligemma_weights_to_hf.py
-- X:/H/transformers/src/transformers/models/paligemma/convert_paligemma2_weights_to_hf.py
-- X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-- X:/H/transformers/src/transformers/models/siglip/image_processing_siglip.py
-- X:/H/transformers/src/transformers/models/gemma/modeling_gemma.py
-- X:/H/transformers/src/transformers/models/gemma/configuration_gemma.py
-- X:/H/transformers/src/transformers/models/gemma2/modeling_gemma2.py
-- X:/H/transformers/src/transformers/models/gemma2/configuration_gemma2.py
+- transformers/src/transformers/models/paligemma/configuration_paligemma.py
+- transformers/src/transformers/models/paligemma/modeling_paligemma.py
+- transformers/src/transformers/models/paligemma/processing_paligemma.py
+- transformers/src/transformers/models/paligemma/convert_paligemma_weights_to_hf.py
+- transformers/src/transformers/models/paligemma/convert_paligemma2_weights_to_hf.py
+- transformers/src/transformers/models/siglip/modeling_siglip.py
+- transformers/src/transformers/models/siglip/image_processing_siglip.py
+- transformers/src/transformers/models/gemma/modeling_gemma.py
+- transformers/src/transformers/models/gemma/configuration_gemma.py
+- transformers/src/transformers/models/gemma2/modeling_gemma2.py
+- transformers/src/transformers/models/gemma2/configuration_gemma2.py
 Any missing files or assumptions: official google checkpoint configs/processors are gated from this environment. Representative checkpoint dimensions below come from in-library converter/config defaults, not downloaded config.json.
 ```
 

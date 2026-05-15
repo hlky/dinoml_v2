@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: representative timm/* Hub checkpoints, not one fixed architecture
 Config source: HF config.json files that contain timm pretrained_cfg; sampled repos have no separate preprocessor_config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/timm_wrapper/configuration_timm_wrapper.py
-- X:/H/transformers/src/transformers/models/timm_wrapper/modeling_timm_wrapper.py
-- X:/H/transformers/src/transformers/models/timm_wrapper/image_processing_timm_wrapper.py
-- X:/H/transformers/src/transformers/configuration_utils.py, timm config detection path
-- X:/H/transformers/src/transformers/models/auto/image_processing_auto.py, timm config.json image-processor fallback
-- X:/H/transformers/src/transformers/conversion_mapping.py, timm_model prefix mapping
+- transformers/src/transformers/models/timm_wrapper/configuration_timm_wrapper.py
+- transformers/src/transformers/models/timm_wrapper/modeling_timm_wrapper.py
+- transformers/src/transformers/models/timm_wrapper/image_processing_timm_wrapper.py
+- transformers/src/transformers/configuration_utils.py, timm config detection path
+- transformers/src/transformers/models/auto/image_processing_auto.py, timm config.json image-processor fallback
+- transformers/src/transformers/conversion_mapping.py, timm_model prefix mapping
 Any missing files or assumptions:
 - This report audits the Transformers wrapper contract. The actual neural graph is owned by the external `timm` package selected by `config.architecture` and `config.model_args`.
 - No native Transformers implementation exists for the selected timm body. DinoML should not admit arbitrary `timm_wrapper` checkpoints without an explicit architecture/operator allowlist.

@@ -24,7 +24,7 @@ This is a core video codec target. Preserve causal temporal cache and frame grou
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/wan/vae.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/modules/vae.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py`
+- `Comfy-Org/ComfyUI/comfy/ldm/wan/vae.py`
+- `deepbeepmeep/Wan2GP/models/wan/modules/vae.py`
 

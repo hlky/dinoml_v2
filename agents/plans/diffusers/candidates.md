@@ -3,7 +3,7 @@
 Source basis:
 
 ```text
-Diffusers checkout: X:/H/diffusers
+Diffusers checkout: diffusers
 Commit inspected: b3a515080752a3ba7ca92161e25530c7f280f629
 Recent upstream context: post release 0.38.0 plus local fixes
 Primary scan paths:

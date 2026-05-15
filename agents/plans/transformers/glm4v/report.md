@@ -3,16 +3,16 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: primary zai-org/GLM-4.1V-9B-Thinking; small fixture tiny-random/glm-4v
 Config source: local source defaults plus downloaded HF raw config/preprocessor snapshots in _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/glm4v/configuration_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/modeling_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/modular_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/processing_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/image_processing_glm4v.py
-  X:/H/transformers/src/transformers/models/glm4v/video_processing_glm4v.py
+  transformers/src/transformers/models/glm4v/configuration_glm4v.py
+  transformers/src/transformers/models/glm4v/modeling_glm4v.py
+  transformers/src/transformers/models/glm4v/modular_glm4v.py
+  transformers/src/transformers/models/glm4v/processing_glm4v.py
+  transformers/src/transformers/models/glm4v/image_processing_glm4v.py
+  transformers/src/transformers/models/glm4v/video_processing_glm4v.py
 Any missing files or assumptions:
   processor_config.json was not present for the inspected official repos; preprocessor_config.json was available for GLM-4.1V and GLM-4.5V.
   modeling_glm4v.py is generated from modular_glm4v.py; future Transformers edits should target modular_glm4v.py, but runtime behavior here is taken from generated modeling_glm4v.py.

@@ -7,17 +7,17 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/shieldgemma-2-4b-it
 Config source: official Hub repo is gated/401 without license access; open mirror Nozim6690/hugging-face_shieldgemma-2-4b-it used for config/preprocessor snapshots and labeled as mirror evidence.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/shieldgemma2/configuration_shieldgemma2.py
-  X:/H/transformers/src/transformers/models/shieldgemma2/modeling_shieldgemma2.py
-  X:/H/transformers/src/transformers/models/shieldgemma2/processing_shieldgemma2.py
-  X:/H/transformers/src/transformers/models/shieldgemma2/convert_shieldgemma2_weights_orbax_to_hf.py
-  X:/H/transformers/src/transformers/models/gemma3/modeling_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/modular_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/configuration_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/processing_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/image_processing_gemma3.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/models/shieldgemma2/configuration_shieldgemma2.py
+  transformers/src/transformers/models/shieldgemma2/modeling_shieldgemma2.py
+  transformers/src/transformers/models/shieldgemma2/processing_shieldgemma2.py
+  transformers/src/transformers/models/shieldgemma2/convert_shieldgemma2_weights_orbax_to_hf.py
+  transformers/src/transformers/models/gemma3/modeling_gemma3.py
+  transformers/src/transformers/models/gemma3/modular_gemma3.py
+  transformers/src/transformers/models/gemma3/configuration_gemma3.py
+  transformers/src/transformers/models/gemma3/processing_gemma3.py
+  transformers/src/transformers/models/gemma3/image_processing_gemma3.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
 Any missing files or assumptions: only one ShieldGemma2 checkpoint was visible; no small/debug native checkpoint found. Gemma3 modeling/configuration files are generated from modular_gemma3.py; modular_gemma3.py is authoritative for future Transformers source edits.
 ```
 

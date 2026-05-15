@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: openmmlab/upernet-convnext-tiny as common reference; sweep includes OpenMMLab ConvNeXT and Swin variants.
 Config source: official Hugging Face config.json, preprocessor_config.json, and repo_info.json snapshots from openmmlab/* repos.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/upernet/modeling_upernet.py
-- X:/H/transformers/src/transformers/models/upernet/configuration_upernet.py
-- X:/H/transformers/src/transformers/backbone_utils.py
-- X:/H/transformers/src/transformers/models/segformer/image_processing_segformer.py
-- X:/H/transformers/tests/models/upernet/test_modeling_upernet.py
+- transformers/src/transformers/models/upernet/modeling_upernet.py
+- transformers/src/transformers/models/upernet/configuration_upernet.py
+- transformers/src/transformers/backbone_utils.py
+- transformers/src/transformers/models/segformer/image_processing_segformer.py
+- transformers/tests/models/upernet/test_modeling_upernet.py
 Any missing files or assumptions: UPerNet has no family-local image processor; official checkpoints use SegformerImageProcessor. No gated/401/403 gaps were observed for sampled official OpenMMLab UPerNet repos. This report owns the UPerNet decode/auxiliary heads and composes previously audited ConvNeXT/Swin backbone coverage.
 ```
 

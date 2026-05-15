@@ -2,7 +2,7 @@
 
 Transformers source checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Native family path: `src/transformers/models/hunyuan_v1_moe`
 

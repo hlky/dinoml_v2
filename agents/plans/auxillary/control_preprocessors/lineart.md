@@ -32,5 +32,5 @@ Lineart is separate from Canny/HED because the model weights and output polarity
 - `H:/controlnet_aux/src/controlnet_aux/lineart_anime/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/lineart_standard/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/processor.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/lineart.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/lineart_anime.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/lineart.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/lineart_anime.py`

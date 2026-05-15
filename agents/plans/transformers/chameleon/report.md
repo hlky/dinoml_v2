@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary target: facebook/chameleon-7b, scoped to ChameleonForConditionalGeneration
@@ -14,9 +14,9 @@ Model id:
 
 Config source:
   Source defaults from:
-    X:/H/transformers/src/transformers/models/chameleon/configuration_chameleon.py
+    transformers/src/transformers/models/chameleon/configuration_chameleon.py
   Local test/debug config from:
-    X:/H/transformers/tests/models/chameleon/test_modeling_chameleon.py
+    transformers/tests/models/chameleon/test_modeling_chameleon.py
   Official facebook/chameleon-7b and facebook/chameleon-30b repos are gated in
   this environment. Hugging Face repo file listings were visible, but direct
   config/preprocessor/tokenizer/generation config download returned 403.
@@ -31,16 +31,16 @@ Config source:
     H:/dinoml_v2/agents/plans/transformers/chameleon/_sources/alandao__open-chameleon/make_a_scene/img_config.yaml
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/chameleon/modeling_chameleon.py
-  X:/H/transformers/src/transformers/models/chameleon/configuration_chameleon.py
-  X:/H/transformers/src/transformers/models/chameleon/processing_chameleon.py
-  X:/H/transformers/src/transformers/models/chameleon/image_processing_chameleon.py
-  X:/H/transformers/src/transformers/models/chameleon/image_processing_pil_chameleon.py
-  X:/H/transformers/src/transformers/models/chameleon/convert_chameleon_weights_to_hf.py
-  X:/H/transformers/tests/models/chameleon/test_modeling_chameleon.py
-  X:/H/transformers/tests/models/chameleon/test_processing_chameleon.py
-  X:/H/transformers/tests/models/chameleon/test_image_processing_chameleon.py
-  X:/H/transformers/docs/source/en/model_doc/chameleon.md
+  transformers/src/transformers/models/chameleon/modeling_chameleon.py
+  transformers/src/transformers/models/chameleon/configuration_chameleon.py
+  transformers/src/transformers/models/chameleon/processing_chameleon.py
+  transformers/src/transformers/models/chameleon/image_processing_chameleon.py
+  transformers/src/transformers/models/chameleon/image_processing_pil_chameleon.py
+  transformers/src/transformers/models/chameleon/convert_chameleon_weights_to_hf.py
+  transformers/tests/models/chameleon/test_modeling_chameleon.py
+  transformers/tests/models/chameleon/test_processing_chameleon.py
+  transformers/tests/models/chameleon/test_image_processing_chameleon.py
+  transformers/docs/source/en/model_doc/chameleon.md
 
 Any missing files or assumptions:
   Official gated config.json/preprocessor_config.json/tokenizer_config.json were

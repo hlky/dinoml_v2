@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/biogpt family, with large and PubMedQA variants
 Config source: HF config.json files plus BioGptConfig source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/biogpt/modeling_biogpt.py
-  X:/H/transformers/src/transformers/models/biogpt/modular_biogpt.py
-  X:/H/transformers/src/transformers/models/biogpt/configuration_biogpt.py
-  X:/H/transformers/src/transformers/models/biogpt/tokenization_biogpt.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/models/biogpt/modeling_biogpt.py
+  transformers/src/transformers/models/biogpt/modular_biogpt.py
+  transformers/src/transformers/models/biogpt/configuration_biogpt.py
+  transformers/src/transformers/models/biogpt/tokenization_biogpt.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/cache_utils.py
 Any missing files or assumptions:
   BioGPT has no processor/image/audio files. Current modeling_biogpt.py is generated
   from modular_biogpt.py; future source edits should target modular_biogpt.py, while

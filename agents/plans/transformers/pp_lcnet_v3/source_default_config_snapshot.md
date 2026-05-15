@@ -1,6 +1,6 @@
 # PP-LCNetV3 Source Default Config Snapshot
 
-Source basis: `X:/H/transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source basis: `transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ```json
 {

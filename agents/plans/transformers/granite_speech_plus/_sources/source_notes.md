@@ -4,7 +4,7 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Inspected commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - `git rev-parse HEAD` at inspection time matched the requested commit.
 - Directory tree hashes at the inspected commit:
@@ -15,18 +15,18 @@ Audit date: 2026-05-13
 
 ## Files inspected
 
-- `X:/H/transformers/src/transformers/models/granite_speech_plus/configuration_granite_speech_plus.py`
-- `X:/H/transformers/src/transformers/models/granite_speech_plus/modeling_granite_speech_plus.py`
-- `X:/H/transformers/src/transformers/models/granite_speech_plus/modular_granite_speech_plus.py`
-- `X:/H/transformers/src/transformers/models/granite_speech_plus/__init__.py`
-- `X:/H/transformers/src/transformers/models/granite_speech/feature_extraction_granite_speech.py`
-- `X:/H/transformers/src/transformers/models/granite_speech/processing_granite_speech.py`
-- `X:/H/transformers/src/transformers/models/granite_speech/modeling_granite_speech.py`
-- `X:/H/transformers/src/transformers/models/granite_speech/configuration_granite_speech.py`
-- `X:/H/transformers/src/transformers/models/granite/modeling_granite.py`
-- `X:/H/transformers/src/transformers/models/granite/configuration_granite.py`
-- `X:/H/transformers/src/transformers/models/blip_2/modeling_blip_2.py`
-- `X:/H/transformers/src/transformers/models/blip_2/configuration_blip_2.py`
+- `transformers/src/transformers/models/granite_speech_plus/configuration_granite_speech_plus.py`
+- `transformers/src/transformers/models/granite_speech_plus/modeling_granite_speech_plus.py`
+- `transformers/src/transformers/models/granite_speech_plus/modular_granite_speech_plus.py`
+- `transformers/src/transformers/models/granite_speech_plus/__init__.py`
+- `transformers/src/transformers/models/granite_speech/feature_extraction_granite_speech.py`
+- `transformers/src/transformers/models/granite_speech/processing_granite_speech.py`
+- `transformers/src/transformers/models/granite_speech/modeling_granite_speech.py`
+- `transformers/src/transformers/models/granite_speech/configuration_granite_speech.py`
+- `transformers/src/transformers/models/granite/modeling_granite.py`
+- `transformers/src/transformers/models/granite/configuration_granite.py`
+- `transformers/src/transformers/models/blip_2/modeling_blip_2.py`
+- `transformers/src/transformers/models/blip_2/configuration_blip_2.py`
 
 ## Hugging Face files inspected
 

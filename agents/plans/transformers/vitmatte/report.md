@@ -8,12 +8,12 @@ Model id: hustvl/vitmatte-small-composition-1k, hustvl/vitmatte-base-composition
   hustvl/vitmatte-small-distinctions-646, hustvl/vitmatte-base-distinctions-646
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vitmatte/configuration_vitmatte.py
-  X:/H/transformers/src/transformers/models/vitmatte/modeling_vitmatte.py
-  X:/H/transformers/src/transformers/models/vitmatte/image_processing_vitmatte.py
-  X:/H/transformers/src/transformers/models/vitmatte/image_processing_pil_vitmatte.py
-  X:/H/transformers/src/transformers/models/vitdet/configuration_vitdet.py
-  X:/H/transformers/src/transformers/models/vitdet/modeling_vitdet.py
+  transformers/src/transformers/models/vitmatte/configuration_vitmatte.py
+  transformers/src/transformers/models/vitmatte/modeling_vitmatte.py
+  transformers/src/transformers/models/vitmatte/image_processing_vitmatte.py
+  transformers/src/transformers/models/vitmatte/image_processing_pil_vitmatte.py
+  transformers/src/transformers/models/vitdet/configuration_vitdet.py
+  transformers/src/transformers/models/vitdet/modeling_vitdet.py
 Any missing files or assumptions:
   VitMatte composes a nested backbone through load_backbone(config). The sampled public checkpoints use native
   VitDetBackbone; this report records the VitDet contract VitMatte consumes, but broader VitDet optimization can be

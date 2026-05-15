@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: adept/fuyu-8b
 Config source: https://huggingface.co/adept/fuyu-8b/raw/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/fuyu/configuration_fuyu.py
-- X:/H/transformers/src/transformers/models/fuyu/modeling_fuyu.py
-- X:/H/transformers/src/transformers/models/fuyu/image_processing_fuyu.py
-- X:/H/transformers/src/transformers/models/fuyu/image_processing_pil_fuyu.py
-- X:/H/transformers/src/transformers/models/fuyu/processing_fuyu.py
-- X:/H/transformers/src/transformers/models/persimmon/configuration_persimmon.py
-- X:/H/transformers/src/transformers/models/persimmon/modeling_persimmon.py
-- X:/H/transformers/src/transformers/activations.py
+- transformers/src/transformers/models/fuyu/configuration_fuyu.py
+- transformers/src/transformers/models/fuyu/modeling_fuyu.py
+- transformers/src/transformers/models/fuyu/image_processing_fuyu.py
+- transformers/src/transformers/models/fuyu/image_processing_pil_fuyu.py
+- transformers/src/transformers/models/fuyu/processing_fuyu.py
+- transformers/src/transformers/models/persimmon/configuration_persimmon.py
+- transformers/src/transformers/models/persimmon/modeling_persimmon.py
+- transformers/src/transformers/activations.py
 Local snapshots:
 - agents/plans/transformers/fuyu/_sources/adept_fuyu-8b_config.json
 - agents/plans/transformers/fuyu/_sources/adept_fuyu-8b_preprocessor_config.json

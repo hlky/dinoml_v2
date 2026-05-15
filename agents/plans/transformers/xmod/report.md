@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `transformers`.
 
 Model id: primary representative `facebook/xmod-base`; additional public configs `facebook/xmod-base-75-269k` and `facebook/xmod-large-prenorm`.
 
@@ -10,11 +10,11 @@ Config source: local `XmodConfig` defaults plus Hugging Face `config.json` snaps
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/xmod/configuration_xmod.py`
-- `X:/H/transformers/src/transformers/models/xmod/modeling_xmod.py`
-- `X:/H/transformers/src/transformers/models/xmod/convert_xmod_original_pytorch_checkpoint_to_pytorch.py`
-- `X:/H/transformers/src/transformers/models/auto/tokenization_auto.py`
-- `X:/H/transformers/src/transformers/models/auto/modeling_auto.py`
+- `transformers/src/transformers/models/xmod/configuration_xmod.py`
+- `transformers/src/transformers/models/xmod/modeling_xmod.py`
+- `transformers/src/transformers/models/xmod/convert_xmod_original_pytorch_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/models/auto/tokenization_auto.py`
+- `transformers/src/transformers/models/auto/modeling_auto.py`
 
 Primary source/config links:
 

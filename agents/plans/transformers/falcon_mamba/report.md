@@ -2,19 +2,19 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary reachable configs were `tiiuae/falcon-mamba-7b`, `tiiuae/falcon-mamba-7b-instruct`, and `tiiuae/falcon-mamba-7b-instruct-4bit`.
 
-Config source: `X:/H/transformers/src/transformers/models/falcon_mamba/configuration_falcon_mamba.py`, plus saved HF config snapshots in `_sources/`.
+Config source: `transformers/src/transformers/models/falcon_mamba/configuration_falcon_mamba.py`, plus saved HF config snapshots in `_sources/`.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/falcon_mamba/modeling_falcon_mamba.py`
-- `X:/H/transformers/src/transformers/models/falcon_mamba/configuration_falcon_mamba.py`
-- `X:/H/transformers/src/transformers/models/falcon_mamba/modular_falcon_mamba.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/models/falcon_mamba/modeling_falcon_mamba.py`
+- `transformers/src/transformers/models/falcon_mamba/configuration_falcon_mamba.py`
+- `transformers/src/transformers/models/falcon_mamba/modular_falcon_mamba.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/generation/utils.py`
 - Shared Mamba files only for inheritance/behavior comparison: `models/mamba/modeling_mamba.py`, `models/mamba/configuration_mamba.py`
 
 Any missing files or assumptions: `modeling_falcon_mamba.py` and `configuration_falcon_mamba.py` are generated from `modular_falcon_mamba.py`; generated files are the runtime source basis, modular is the future upstream edit source. `tiiuae/falcon-mamba-7b-base` and `hf-internal-testing/tiny-random-FalconMambaForCausalLM` config fetches returned 401. No DinoML tests/imports were run.

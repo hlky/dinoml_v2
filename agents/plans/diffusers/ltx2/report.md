@@ -22,22 +22,22 @@ Config sources checked:
 
 Pipeline files inspected:
 
-- `X:/H/diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2.py`: `LTX2Pipeline` at line 185, `_pack_latents` at line 530, `_unpack_audio_latents` at line 627, `prepare_latents` at line 645, `prepare_audio_latents` at line 692, `__call__` at line 810.
-- `X:/H/diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_image2video.py`: `LTX2ImageToVideoPipeline` variant.
-- `X:/H/diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_condition.py`: `LTX2VideoCondition` and `LTX2ConditionPipeline` variant.
-- `X:/H/diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_latent_upsample.py` and `latent_upsampler.py`: separate upsampling variant.
-- `X:/H/diffusers/src/diffusers/pipelines/ltx2/pipeline_output.py`, `connectors.py`, `vocoder.py`, `export_utils.py`, `utils.py`.
+- `diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2.py`: `LTX2Pipeline` at line 185, `_pack_latents` at line 530, `_unpack_audio_latents` at line 627, `prepare_latents` at line 645, `prepare_audio_latents` at line 692, `__call__` at line 810.
+- `diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_image2video.py`: `LTX2ImageToVideoPipeline` variant.
+- `diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_condition.py`: `LTX2VideoCondition` and `LTX2ConditionPipeline` variant.
+- `diffusers/src/diffusers/pipelines/ltx2/pipeline_ltx2_latent_upsample.py` and `latent_upsampler.py`: separate upsampling variant.
+- `diffusers/src/diffusers/pipelines/ltx2/pipeline_output.py`, `connectors.py`, `vocoder.py`, `export_utils.py`, `utils.py`.
 
 Model files inspected:
 
-- `X:/H/diffusers/src/diffusers/models/transformers/transformer_ltx2.py`: `LTX2AudioVideoAttnProcessor` at line 145, `LTX2Attention` at line 330, `LTX2VideoTransformerBlock` at line 412, `LTX2AudioVideoRotaryPosEmbed` at line 795, `LTX2VideoTransformer3DModel` at line 1062.
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py`: `AutoencoderKLLTX2Video` at line 1025, `encode` at line 1240, `decode` at line 1292.
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2_audio.py`: `AutoencoderKLLTX2Audio` at line 668, `encode` at line 760, `decode` at line 776.
+- `diffusers/src/diffusers/models/transformers/transformer_ltx2.py`: `LTX2AudioVideoAttnProcessor` at line 145, `LTX2Attention` at line 330, `LTX2VideoTransformerBlock` at line 412, `LTX2AudioVideoRotaryPosEmbed` at line 795, `LTX2VideoTransformer3DModel` at line 1062.
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py`: `AutoencoderKLLTX2Video` at line 1025, `encode` at line 1240, `decode` at line 1292.
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2_audio.py`: `AutoencoderKLLTX2Audio` at line 668, `encode` at line 760, `decode` at line 776.
 - Shared support: `attention_dispatch.py`, `embeddings.py`, `normalization.py`, `attention.py`, loader mixins in `loaders/lora_pipeline.py`.
 
 Scheduler/processors/helpers inspected:
 
-- `X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py`
+- `diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py`
 - `VideoProcessor` use through `diffusers.video_processor`
 - LTX2 local helper functions for prompt enhancement, latent packing, velocity/x0 conversion, vocoder, and connectors.
 

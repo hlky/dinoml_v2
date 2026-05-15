@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: clap family; representative checkpoints listed below
 Config source: local Transformers config defaults plus Hugging Face config/preprocessor/tokenizer JSON
 Source files inspected:
-- X:/H/transformers/src/transformers/models/clap/modeling_clap.py
-- X:/H/transformers/src/transformers/models/clap/configuration_clap.py
-- X:/H/transformers/src/transformers/models/clap/feature_extraction_clap.py
-- X:/H/transformers/src/transformers/models/clap/processing_clap.py
-- X:/H/transformers/docs/source/en/model_doc/clap.md
-- X:/H/transformers/tests/models/clap/test_modeling_clap.py
-- X:/H/transformers/tests/models/clap/test_feature_extraction_clap.py
+- transformers/src/transformers/models/clap/modeling_clap.py
+- transformers/src/transformers/models/clap/configuration_clap.py
+- transformers/src/transformers/models/clap/feature_extraction_clap.py
+- transformers/src/transformers/models/clap/processing_clap.py
+- transformers/docs/source/en/model_doc/clap.md
+- transformers/tests/models/clap/test_modeling_clap.py
+- transformers/tests/models/clap/test_feature_extraction_clap.py
 Any missing files or assumptions: tokenizer is RobertaTokenizer via AutoTokenizer; no clap-local tokenization file exists. No remote-code files were required.
 ```
 

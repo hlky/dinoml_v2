@@ -2,9 +2,9 @@
 
 Local source basis:
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family dir: `X:/H/transformers/src/transformers/models/florence2`
+- Family dir: `transformers/src/transformers/models/florence2`
 
 Files inspected:
 

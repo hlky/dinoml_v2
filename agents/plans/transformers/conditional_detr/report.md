@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/conditional-detr-resnet-50 for the primary object-detection target
 Config source: Hugging Face config.json/preprocessor_config.json plus local ConditionalDetrConfig defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/conditional_detr/configuration_conditional_detr.py
-- X:/H/transformers/src/transformers/models/conditional_detr/modeling_conditional_detr.py
-- X:/H/transformers/src/transformers/models/conditional_detr/modular_conditional_detr.py
-- X:/H/transformers/src/transformers/models/conditional_detr/image_processing_conditional_detr.py
-- X:/H/transformers/src/transformers/models/conditional_detr/image_processing_pil_conditional_detr.py
+- transformers/src/transformers/models/conditional_detr/configuration_conditional_detr.py
+- transformers/src/transformers/models/conditional_detr/modeling_conditional_detr.py
+- transformers/src/transformers/models/conditional_detr/modular_conditional_detr.py
+- transformers/src/transformers/models/conditional_detr/image_processing_conditional_detr.py
+- transformers/src/transformers/models/conditional_detr/image_processing_pil_conditional_detr.py
 Any missing files or assumptions:
 - modeling_conditional_detr.py and image_processing_conditional_detr.py are generated from modular_conditional_detr.py; future upstream edits should target the modular file, but DinoML parity should follow the generated runtime files.
 - No feature_extraction_conditional_detr.py or processing_conditional_detr.py exists in this checkout.

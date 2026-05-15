@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: hf-audio/xcodec-* representative checkpoints
 Config source: official Hugging Face config.json and preprocessor_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/xcodec/configuration_xcodec.py
-  X:/H/transformers/src/transformers/models/xcodec/modeling_xcodec.py
-  X:/H/transformers/src/transformers/models/xcodec/convert_xcodec_weights_to_hf.py
-  X:/H/transformers/src/transformers/models/dac/configuration_dac.py
-  X:/H/transformers/src/transformers/models/dac/modeling_dac.py
-  X:/H/transformers/src/transformers/models/dac/feature_extraction_dac.py
-  X:/H/transformers/src/transformers/models/hubert/modeling_hubert.py
-  X:/H/transformers/src/transformers/models/wavlm/modeling_wavlm.py
+  transformers/src/transformers/models/xcodec/configuration_xcodec.py
+  transformers/src/transformers/models/xcodec/modeling_xcodec.py
+  transformers/src/transformers/models/xcodec/convert_xcodec_weights_to_hf.py
+  transformers/src/transformers/models/dac/configuration_dac.py
+  transformers/src/transformers/models/dac/modeling_dac.py
+  transformers/src/transformers/models/dac/feature_extraction_dac.py
+  transformers/src/transformers/models/hubert/modeling_hubert.py
+  transformers/src/transformers/models/wavlm/modeling_wavlm.py
 Any missing files or assumptions:
   No tests/imports were run. Safetensors metadata and original ZhenYe234 YAML
   checkpoints were not downloaded. HuBERT, WavLM, and DAC are treated as

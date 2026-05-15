@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/mobilenet_v1_1.0_224; google/mobilenet_v1_0.75_192
 Config source: HF config.json/preprocessor_config.json snapshots plus MobileNetV1Config defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/mobilenet_v1/modeling_mobilenet_v1.py
-- X:/H/transformers/src/transformers/models/mobilenet_v1/configuration_mobilenet_v1.py
-- X:/H/transformers/src/transformers/models/mobilenet_v1/image_processing_mobilenet_v1.py
-- X:/H/transformers/src/transformers/models/mobilenet_v1/image_processing_pil_mobilenet_v1.py
-- X:/H/transformers/src/transformers/models/mobilenet_v1/convert_original_tf_checkpoint_to_pytorch.py
+- transformers/src/transformers/models/mobilenet_v1/modeling_mobilenet_v1.py
+- transformers/src/transformers/models/mobilenet_v1/configuration_mobilenet_v1.py
+- transformers/src/transformers/models/mobilenet_v1/image_processing_mobilenet_v1.py
+- transformers/src/transformers/models/mobilenet_v1/image_processing_pil_mobilenet_v1.py
+- transformers/src/transformers/models/mobilenet_v1/convert_original_tf_checkpoint_to_pytorch.py
 Any missing files or assumptions:
 - No remote code is required.
 - google/mobilenet_v1_0.5_160 and google/mobilenet_v1_0.25_128 returned 401 for raw config/preprocessor files:

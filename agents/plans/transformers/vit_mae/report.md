@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/vit-mae-base / facebook/vit-mae-large / facebook/vit-mae-huge, plus tiny random config
 Config source: Hugging Face raw config.json and preprocessor_config.json, fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vit_mae/configuration_vit_mae.py
-  X:/H/transformers/src/transformers/models/vit_mae/modular_vit_mae.py
-  X:/H/transformers/src/transformers/models/vit_mae/modeling_vit_mae.py
-  X:/H/transformers/src/transformers/models/vit/modeling_vit.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_pil_vit.py
-  X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-  X:/H/transformers/src/transformers/image_processing_backends.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/vit_mae/configuration_vit_mae.py
+  transformers/src/transformers/models/vit_mae/modular_vit_mae.py
+  transformers/src/transformers/models/vit_mae/modeling_vit_mae.py
+  transformers/src/transformers/models/vit/modeling_vit.py
+  transformers/src/transformers/models/vit/image_processing_vit.py
+  transformers/src/transformers/models/vit/image_processing_pil_vit.py
+  transformers/src/transformers/models/auto/image_processing_auto.py
+  transformers/src/transformers/image_processing_backends.py
+  transformers/src/transformers/masking_utils.py
 Any missing files or assumptions: no family-local image processor exists; AutoImageProcessor maps vit_mae to ViTImageProcessor / ViTImageProcessorPil. modeling_vit_mae.py is generated from modular_vit_mae.py; generated file is runtime source, modular file is authoritative for future source edits.
 ```
 

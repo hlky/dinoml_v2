@@ -27,6 +27,6 @@ Neural inference is feasible with common conv primitives, but end-to-end parity 
 ## Sources
 
 - `H:/controlnet_aux/src/controlnet_aux/mlsd/__init__.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/models/mbv2_mlsd_tiny.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/models/mbv2_mlsd_large.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/__init__.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/models/mbv2_mlsd_tiny.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/models/mbv2_mlsd_large.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/mlsd/__init__.py`

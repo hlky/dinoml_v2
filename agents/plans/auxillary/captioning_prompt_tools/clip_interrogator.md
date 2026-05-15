@@ -22,6 +22,6 @@ The model graph is only half the task. DinoML needs a category database/cache co
 
 ## Sources
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
-- `H:/uis/vladmandic/sdnext/modules/caption/openclip.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
+- `vladmandic/sdnext/modules/caption/openclip.py`
 

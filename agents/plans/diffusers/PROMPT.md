@@ -1,6 +1,6 @@
 # Diffusers pipeline and model assessment prompt
 
-Diffusers source is available in `X:/H/diffusers`.
+Diffusers source is available in `diffusers`.
 Local Hugging Face config cache is available in `H:/configs`. This cache often
 contains `model_index.json` files and may also contain component configs saved
 by prior audits.

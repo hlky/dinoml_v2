@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/bit-50
 Config source: https://huggingface.co/google/bit-50/resolve/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/bit/configuration_bit.py
-- X:/H/transformers/src/transformers/models/bit/modeling_bit.py
-- X:/H/transformers/src/transformers/models/bit/image_processing_bit.py
-- X:/H/transformers/src/transformers/models/bit/image_processing_pil_bit.py
-- X:/H/transformers/src/transformers/models/bit/convert_bit_to_pytorch.py
+- transformers/src/transformers/models/bit/configuration_bit.py
+- transformers/src/transformers/models/bit/modeling_bit.py
+- transformers/src/transformers/models/bit/image_processing_bit.py
+- transformers/src/transformers/models/bit/image_processing_pil_bit.py
+- transformers/src/transformers/models/bit/convert_bit_to_pytorch.py
 Any missing files or assumptions: no gated files encountered. Only one native public `model_type="bit"` checkpoint was found in the official Google namespace. `google/vit-hybrid-base-bit-384` was inspected as a BiT-backbone consumer, not as the primary `bit` runtime target.
 ```
 

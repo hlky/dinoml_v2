@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: deepmind/language-perceiver, deepmind/vision-perceiver-{learned,fourier,conv}, deepmind/optical-flow-perceiver, deepmind/multimodal-perceiver
 Config source: HF config.json/preprocessor/tokenizer snapshots under _sources/hf_configs
 Source files inspected:
-- X:/H/transformers/src/transformers/models/perceiver/modeling_perceiver.py
-- X:/H/transformers/src/transformers/models/perceiver/configuration_perceiver.py
-- X:/H/transformers/src/transformers/models/perceiver/image_processing_perceiver.py
-- X:/H/transformers/src/transformers/models/perceiver/image_processing_pil_perceiver.py
-- X:/H/transformers/src/transformers/models/perceiver/tokenization_perceiver.py
+- transformers/src/transformers/models/perceiver/modeling_perceiver.py
+- transformers/src/transformers/models/perceiver/configuration_perceiver.py
+- transformers/src/transformers/models/perceiver/image_processing_perceiver.py
+- transformers/src/transformers/models/perceiver/image_processing_pil_perceiver.py
+- transformers/src/transformers/models/perceiver/tokenization_perceiver.py
 Any missing files or assumptions: no gated/401/403 files found. Some official repos omit preprocessor/tokenizer files because that modality does not use them. Primary DinoML target recommended: image classification with conv/Fourier preprocessing, then language MLM and multimodal autoencoding as separate staged targets.
 ```
 

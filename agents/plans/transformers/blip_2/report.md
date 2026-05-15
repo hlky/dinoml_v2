@@ -12,12 +12,12 @@ Model id:
 Config source:
   Hugging Face config.json, preprocessor_config.json, processor_config.json, tokenizer_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/blip_2/modeling_blip_2.py
-  X:/H/transformers/src/transformers/models/blip_2/configuration_blip_2.py
-  X:/H/transformers/src/transformers/models/blip_2/processing_blip_2.py
-  X:/H/transformers/src/transformers/models/blip/image_processing_blip.py
-  X:/H/transformers/src/transformers/models/opt/modeling_opt.py
-  X:/H/transformers/src/transformers/models/t5/modeling_t5.py
+  transformers/src/transformers/models/blip_2/modeling_blip_2.py
+  transformers/src/transformers/models/blip_2/configuration_blip_2.py
+  transformers/src/transformers/models/blip_2/processing_blip_2.py
+  transformers/src/transformers/models/blip/image_processing_blip.py
+  transformers/src/transformers/models/opt/modeling_opt.py
+  transformers/src/transformers/models/t5/modeling_t5.py
 Any missing files or assumptions:
   No remote-code files are required for the inspected public BLIP-2 checkpoints. BLIP-2 delegates the language model through AutoModelForCausalLM or AutoModelForSeq2SeqLM, so this report covers the BLIP-2 wrapper and the representative OPT/T5 contracts, not every possible text_config family. HF configs were fetched from public model repos on 2026-05-13.
 ```

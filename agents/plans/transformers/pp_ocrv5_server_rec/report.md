@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/PP-OCRv5_server_rec_safetensors
 Config source: HF config.json and preprocessor_config.json, plus source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pp_ocrv5_server_rec/configuration_pp_ocrv5_server_rec.py
-  X:/H/transformers/src/transformers/models/pp_ocrv5_server_rec/image_processing_pp_ocrv5_server_rec.py
-  X:/H/transformers/src/transformers/models/pp_ocrv5_server_rec/modeling_pp_ocrv5_server_rec.py
-  X:/H/transformers/src/transformers/models/pp_ocrv5_server_rec/modular_pp_ocrv5_server_rec.py
-  X:/H/transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
-  X:/H/transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+  transformers/src/transformers/models/pp_ocrv5_server_rec/configuration_pp_ocrv5_server_rec.py
+  transformers/src/transformers/models/pp_ocrv5_server_rec/image_processing_pp_ocrv5_server_rec.py
+  transformers/src/transformers/models/pp_ocrv5_server_rec/modeling_pp_ocrv5_server_rec.py
+  transformers/src/transformers/models/pp_ocrv5_server_rec/modular_pp_ocrv5_server_rec.py
+  transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
+  transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
 Any missing files or assumptions:
   No code tests/imports were run. No safetensors weight metadata was inspected.
   The generated pp_ocrv5_server_rec files are derived from modular_pp_ocrv5_server_rec.py.

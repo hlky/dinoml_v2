@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: zju-community/efficientloftr
 Config source: https://huggingface.co/zju-community/efficientloftr/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/efficientloftr/configuration_efficientloftr.py
-  X:/H/transformers/src/transformers/models/efficientloftr/modeling_efficientloftr.py
-  X:/H/transformers/src/transformers/models/efficientloftr/modular_efficientloftr.py
-  X:/H/transformers/src/transformers/models/efficientloftr/image_processing_efficientloftr.py
-  X:/H/transformers/src/transformers/models/efficientloftr/image_processing_pil_efficientloftr.py
-  X:/H/transformers/src/transformers/models/efficientloftr/convert_efficientloftr_to_hf.py
+  transformers/src/transformers/models/efficientloftr/configuration_efficientloftr.py
+  transformers/src/transformers/models/efficientloftr/modeling_efficientloftr.py
+  transformers/src/transformers/models/efficientloftr/modular_efficientloftr.py
+  transformers/src/transformers/models/efficientloftr/image_processing_efficientloftr.py
+  transformers/src/transformers/models/efficientloftr/image_processing_pil_efficientloftr.py
+  transformers/src/transformers/models/efficientloftr/convert_efficientloftr_to_hf.py
 Any missing files or assumptions:
   No DinoML code was inspected or edited for this report.
   Only native Transformers EfficientLoFTR is in scope. Raw .ckpt/.pth/ONNX repos are not treated as native configs.

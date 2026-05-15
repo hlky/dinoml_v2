@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -19,12 +19,12 @@ Config source:
   Same raw paths for the additional sweep checkpoints above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/yolos/configuration_yolos.py
-  X:/H/transformers/src/transformers/models/yolos/modeling_yolos.py
-  X:/H/transformers/src/transformers/models/yolos/modular_yolos.py
-  X:/H/transformers/src/transformers/models/yolos/image_processing_yolos.py
-  X:/H/transformers/src/transformers/models/yolos/image_processing_pil_yolos.py
-  X:/H/transformers/src/transformers/models/yolos/convert_yolos_to_pytorch.py
+  transformers/src/transformers/models/yolos/configuration_yolos.py
+  transformers/src/transformers/models/yolos/modeling_yolos.py
+  transformers/src/transformers/models/yolos/modular_yolos.py
+  transformers/src/transformers/models/yolos/image_processing_yolos.py
+  transformers/src/transformers/models/yolos/image_processing_pil_yolos.py
+  transformers/src/transformers/models/yolos/convert_yolos_to_pytorch.py
 
 Any missing files or assumptions:
   No remote code is required for standard YOLOS. `image_processing_yolos.py`

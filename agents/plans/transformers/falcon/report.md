@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: Falcon family; representative sweep: tiiuae/falcon-rw-1b, tiiuae/falcon-rw-7b, tiiuae/falcon-7b, tiiuae/falcon-40b, tiiuae/falcon-11B
 Config source: Official Hugging Face config.json/tokenizer_config.json/generation_config.json where available
 Source files inspected:
-  X:/H/transformers/src/transformers/models/falcon/configuration_falcon.py
-  X:/H/transformers/src/transformers/models/falcon/modeling_falcon.py
-  X:/H/transformers/src/transformers/models/falcon/convert_custom_code_checkpoint.py
-  X:/H/transformers/tests/models/falcon/test_modeling_falcon.py
-  X:/H/transformers/src/transformers/configuration_utils.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/falcon/configuration_falcon.py
+  transformers/src/transformers/models/falcon/modeling_falcon.py
+  transformers/src/transformers/models/falcon/convert_custom_code_checkpoint.py
+  transformers/tests/models/falcon/test_modeling_falcon.py
+  transformers/src/transformers/configuration_utils.py
+  transformers/src/transformers/modeling_rope_utils.py
 Any missing files or assumptions:
   The pinned Falcon directory has no local tokenization_falcon.py; tokenizer facts below come from official HF tokenizer metadata.
   Older repo cards still mention trust_remote_code, but current in-library configs use model_type="falcon" and the inspected Falcon source.

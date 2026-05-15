@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: uw-madison/yoso-4096 is the official in-library checkpoint reference.
 Config source: Hugging Face config.json files listed below plus YosoConfig defaults.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/yoso/configuration_yoso.py
-- X:/H/transformers/src/transformers/models/yoso/modeling_yoso.py
-- X:/H/transformers/src/transformers/models/yoso/convert_yoso_pytorch_to_pytorch.py
-- X:/H/transformers/src/transformers/models/auto/tokenization_auto.py
-- X:/H/transformers/src/transformers/models/auto/modeling_auto.py
+- transformers/src/transformers/models/yoso/configuration_yoso.py
+- transformers/src/transformers/models/yoso/modeling_yoso.py
+- transformers/src/transformers/models/yoso/convert_yoso_pytorch_to_pytorch.py
+- transformers/src/transformers/models/auto/tokenization_auto.py
+- transformers/src/transformers/models/auto/modeling_auto.py
 - kernels-community/yoso snapshot 6534e64bb05ad8e025551a4bc61678c3ccff73a4 source samples
 Any missing files or assumptions:
 - No tokenizer source is owned by yoso; AutoTokenizer maps yoso to AlbertTokenizer.

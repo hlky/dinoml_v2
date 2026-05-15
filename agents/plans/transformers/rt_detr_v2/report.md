@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,16 +23,16 @@ Config source:
   Same raw paths for preprocessor_config.json.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/rt_detr_v2/configuration_rt_detr_v2.py
-  X:/H/transformers/src/transformers/models/rt_detr_v2/modeling_rt_detr_v2.py
-  X:/H/transformers/src/transformers/models/rt_detr_v2/modular_rt_detr_v2.py
-  X:/H/transformers/src/transformers/models/rt_detr_v2/convert_rt_detr_v2_weights_to_hf.py
-  X:/H/transformers/src/transformers/models/rt_detr/configuration_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/configuration_rt_detr_resnet.py
-  X:/H/transformers/src/transformers/models/rt_detr/modeling_rt_detr.py
-  X:/H/transformers/src/transformers/models/rt_detr/modeling_rt_detr_resnet.py
-  X:/H/transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
-  X:/H/transformers/tests/models/rt_detr_v2/test_modeling_rt_detr_v2.py
+  transformers/src/transformers/models/rt_detr_v2/configuration_rt_detr_v2.py
+  transformers/src/transformers/models/rt_detr_v2/modeling_rt_detr_v2.py
+  transformers/src/transformers/models/rt_detr_v2/modular_rt_detr_v2.py
+  transformers/src/transformers/models/rt_detr_v2/convert_rt_detr_v2_weights_to_hf.py
+  transformers/src/transformers/models/rt_detr/configuration_rt_detr.py
+  transformers/src/transformers/models/rt_detr/configuration_rt_detr_resnet.py
+  transformers/src/transformers/models/rt_detr/modeling_rt_detr.py
+  transformers/src/transformers/models/rt_detr/modeling_rt_detr_resnet.py
+  transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
+  transformers/tests/models/rt_detr_v2/test_modeling_rt_detr_v2.py
 
 Local snapshots:
   H:/dinoml_v2/agents/plans/transformers/rt_detr_v2/_sources/

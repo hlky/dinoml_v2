@@ -5,17 +5,17 @@ Primary target: `DeepseekV2ForCausalLM` inference and generation on CUDA. This i
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: deepseek_v2
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/deepseek_v2/configuration_deepseek_v2.py`
-- `X:/H/transformers/src/transformers/models/deepseek_v2/modeling_deepseek_v2.py`
-- `X:/H/transformers/src/transformers/models/deepseek_v2/modular_deepseek_v2.py`
+- `transformers/src/transformers/models/deepseek_v2/configuration_deepseek_v2.py`
+- `transformers/src/transformers/models/deepseek_v2/modeling_deepseek_v2.py`
+- `transformers/src/transformers/models/deepseek_v2/modular_deepseek_v2.py`
 - Cross-checks: `src/transformers/models/qwen2_moe/modeling_qwen2_moe.py`, `src/transformers/cache_utils.py`, `src/transformers/masking_utils.py`, `src/transformers/modeling_rope_utils.py`, `src/transformers/configuration_utils.py`
 
 Source URLs at the inspected commit:

@@ -5,17 +5,17 @@ Primary target: `Qwen2MoeForCausalLM` inference and generation on CUDA. This is 
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: qwen2_moe
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen2_moe/configuration_qwen2_moe.py`
-- `X:/H/transformers/src/transformers/models/qwen2_moe/modeling_qwen2_moe.py`
-- `X:/H/transformers/src/transformers/models/qwen2_moe/modular_qwen2_moe.py`
+- `transformers/src/transformers/models/qwen2_moe/configuration_qwen2_moe.py`
+- `transformers/src/transformers/models/qwen2_moe/modeling_qwen2_moe.py`
+- `transformers/src/transformers/models/qwen2_moe/modular_qwen2_moe.py`
 - Cross-checks: `src/transformers/models/mixtral/modeling_mixtral.py`, `src/transformers/models/qwen3_moe/modeling_qwen3_moe.py`, `src/transformers/cache_utils.py`, `src/transformers/masking_utils.py`, `src/transformers/modeling_rope_utils.py`
 
 Source URLs at the inspected commit:

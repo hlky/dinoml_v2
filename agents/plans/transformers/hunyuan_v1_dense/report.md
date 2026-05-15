@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary native checkpoints are `tencent/Hunyuan-0.5B-Pretrain`, `tencent/Hunyuan-1.8B-Instruct`, `tencent/Hunyuan-4B-Instruct`, `tencent/Hunyuan-7B-Instruct`, and `tencent/Hunyuan-MT-7B`.
 

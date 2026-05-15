@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Model id:
   CohereLabs/command-a-vision-07-2025, official repo listed on Hugging Face but gated for raw config access.
@@ -17,19 +17,19 @@ Config source:
   agents/plans/transformers/cohere2_vision/_sources/mlx-community_command-a-vision-07-2025-4bit_generation_config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/cohere2_vision/configuration_cohere2_vision.py
-  X:/H/transformers/src/transformers/models/cohere2_vision/modeling_cohere2_vision.py
-  X:/H/transformers/src/transformers/models/cohere2_vision/modular_cohere2_vision.py
-  X:/H/transformers/src/transformers/models/cohere2_vision/image_processing_cohere2_vision.py
-  X:/H/transformers/src/transformers/models/cohere2_vision/processing_cohere2_vision.py
-  X:/H/transformers/src/transformers/models/cohere2/configuration_cohere2.py
-  X:/H/transformers/src/transformers/models/cohere2/modeling_cohere2.py
-  X:/H/transformers/src/transformers/models/aya_vision/configuration_aya_vision.py
-  X:/H/transformers/src/transformers/models/aya_vision/modeling_aya_vision.py
-  X:/H/transformers/src/transformers/models/aya_vision/processing_aya_vision.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-  X:/H/transformers/src/transformers/models/siglip2/modeling_siglip2.py, for contrast only
+  transformers/src/transformers/models/cohere2_vision/configuration_cohere2_vision.py
+  transformers/src/transformers/models/cohere2_vision/modeling_cohere2_vision.py
+  transformers/src/transformers/models/cohere2_vision/modular_cohere2_vision.py
+  transformers/src/transformers/models/cohere2_vision/image_processing_cohere2_vision.py
+  transformers/src/transformers/models/cohere2_vision/processing_cohere2_vision.py
+  transformers/src/transformers/models/cohere2/configuration_cohere2.py
+  transformers/src/transformers/models/cohere2/modeling_cohere2.py
+  transformers/src/transformers/models/aya_vision/configuration_aya_vision.py
+  transformers/src/transformers/models/aya_vision/modeling_aya_vision.py
+  transformers/src/transformers/models/aya_vision/processing_aya_vision.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/models/siglip2/modeling_siglip2.py, for contrast only
 
 Any missing files or assumptions:
   Official CohereLabs raw config files returned 401 without credentials. The mirror config is a 4-bit MLX conversion, so quantization fields are mirror-specific unless confirmed elsewhere. Architecture dimensions match the public commit diff and model-card claims, but the report treats source code plus the open snapshot as the concrete basis.

@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: Zyphra/Zamba-7B-v1; Zyphra/Zamba-7B-v1-phase1
 Config source: Hugging Face config.json for both model ids, plus local configuration_zamba.py defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/zamba/configuration_zamba.py
-  X:/H/transformers/src/transformers/models/zamba/modeling_zamba.py
-  X:/H/transformers/tests/models/zamba/test_modeling_zamba.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/docs/source/en/model_doc/zamba.md
+  transformers/src/transformers/models/zamba/configuration_zamba.py
+  transformers/src/transformers/models/zamba/modeling_zamba.py
+  transformers/tests/models/zamba/test_modeling_zamba.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/docs/source/en/model_doc/zamba.md
 Any missing files or assumptions:
   No modular_zamba.py exists for this family at the inspected commit.
   Only official zamba checkpoints found were the 7B v1 and phase1 configs; Zamba2 is a separate model_type and out of scope.

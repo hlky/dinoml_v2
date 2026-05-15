@@ -11,12 +11,12 @@ Primary model id: facebook/wav2vec2-base-960h
 Primary task: raw waveform -> encoder frames -> CTC logits
 Config source: Hugging Face config.json and preprocessor_config.json files fetched from model repos listed below.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/wav2vec2/configuration_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/processing_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/tokenization_wav2vec2.py
-- X:/H/transformers/src/transformers/models/wav2vec2/modeling_wav2vec2.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/wav2vec2/configuration_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/processing_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/tokenization_wav2vec2.py
+- transformers/src/transformers/models/wav2vec2/modeling_wav2vec2.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions: no remote-code files are needed for the inspected checkpoints. Processor configs are usually absent; Wav2Vec2Processor is assembled from feature_extractor + tokenizer files.
 ```
 

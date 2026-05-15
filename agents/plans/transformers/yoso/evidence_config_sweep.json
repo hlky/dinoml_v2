@@ -1,6 +1,6 @@
 {
   "transformers_commit": "b75feb2af64c3e29cbbc1bd859958c5432cc7ed4",
-  "source_root": "X:/H/transformers",
+  "source_root": "transformers",
   "hf_configs": [
     {
       "model_id": "uw-madison/yoso-4096",

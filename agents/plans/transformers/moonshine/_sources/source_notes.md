@@ -4,7 +4,7 @@ Report target: `moonshine` only.
 
 ## Pinned Transformers source
 
-- Local checkout: `X:/H/transformers`
+- Local checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Commit snapshot: `transformers_commit.txt`
 - Authoritative source file: `src/transformers/models/moonshine/modular_moonshine.py`

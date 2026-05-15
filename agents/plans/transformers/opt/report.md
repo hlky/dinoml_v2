@@ -11,9 +11,9 @@ Dinoml assumptions: inference-only first, CUDA GPU target, preserve Transformers
 
 Source files inspected:
 
-- Local: `X:/H/transformers/src/transformers/models/opt/modeling_opt.py`
-- Local: `X:/H/transformers/src/transformers/models/opt/configuration_opt.py`
-- Local shared utilities: `X:/H/transformers/src/transformers/masking_utils.py`, `X:/H/transformers/src/transformers/cache_utils.py`
+- Local: `transformers/src/transformers/models/opt/modeling_opt.py`
+- Local: `transformers/src/transformers/models/opt/configuration_opt.py`
+- Local shared utilities: `transformers/src/transformers/masking_utils.py`, `transformers/src/transformers/cache_utils.py`
 - Upstream source URL pattern at the pinned commit: `https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/opt/...`
 
 Representative official Hugging Face configs fetched from Hub raw files:

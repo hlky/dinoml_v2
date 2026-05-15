@@ -15,7 +15,7 @@ context parallel paths.
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Photoroom/prx-512-t2i
@@ -36,19 +36,19 @@ Config sources:
   Official HF repo file listings inspected for safetensors shard/file sizes.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/prx/pipeline_prx.py
-  X:/H/diffusers/src/diffusers/pipelines/prx/pipeline_output.py
+  diffusers/src/diffusers/pipelines/prx/pipeline_prx.py
+  diffusers/src/diffusers/pipelines/prx/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_prx.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/transformer_prx.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
   C:/Users/user/AppData/Local/Programs/Python/Python312/Lib/site-packages/transformers/models/t5gemma/modeling_t5gemma.py
 
 Closest prior reports inspected:

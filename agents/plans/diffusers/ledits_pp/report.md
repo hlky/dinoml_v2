@@ -6,7 +6,7 @@ Target slug: `ledits_pp`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   No LEDITS++-specific checkpoint is required by the pipeline classes.
@@ -25,26 +25,26 @@ Config sources:
   fetched with `hf download` from the official repo during this audit.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ledits_pp/pipeline_leditspp_stable_diffusion.py
-  X:/H/diffusers/src/diffusers/pipelines/ledits_pp/pipeline_leditspp_stable_diffusion_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/ledits_pp/pipeline_output.py
+  diffusers/src/diffusers/pipelines/ledits_pp/pipeline_leditspp_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/ledits_pp/pipeline_leditspp_stable_diffusion_xl.py
+  diffusers/src/diffusers/pipelines/ledits_pp/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/tests/pipelines/ledits_pp/test_ledits_pp_stable_diffusion.py
-  X:/H/diffusers/tests/pipelines/ledits_pp/test_ledits_pp_stable_diffusion_xl.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/tests/pipelines/ledits_pp/test_ledits_pp_stable_diffusion.py
+  diffusers/tests/pipelines/ledits_pp/test_ledits_pp_stable_diffusion_xl.py
   Related reports: stable_diffusion_1_5, stable_diffusion_xl,
   sd1_img2img_inpaint_depth_upscale, scheduler_matrix.
 

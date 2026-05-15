@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: decision_transformer; representative public checkpoints under edbeeching/*
 Config source: local Transformers config class plus Hugging Face config.json snapshots saved beside this report
 Source files inspected:
-- X:/H/transformers/src/transformers/models/decision_transformer/modeling_decision_transformer.py
-- X:/H/transformers/src/transformers/models/decision_transformer/configuration_decision_transformer.py
-- X:/H/transformers/src/transformers/models/decision_transformer/__init__.py
-- X:/H/transformers/src/transformers/pytorch_utils.py for Conv1D weight layout
-- X:/H/transformers/src/transformers/masking_utils.py for causal/bidirectional mask construction
+- transformers/src/transformers/models/decision_transformer/modeling_decision_transformer.py
+- transformers/src/transformers/models/decision_transformer/configuration_decision_transformer.py
+- transformers/src/transformers/models/decision_transformer/__init__.py
+- transformers/src/transformers/pytorch_utils.py for Conv1D weight layout
+- transformers/src/transformers/masking_utils.py for causal/bidirectional mask construction
 Any missing files or assumptions:
 - No tokenizer, processor, feature extractor, or remote-code file is model-coupled for this family.
 - This report targets inference parity for DecisionTransformerModel action/state/return prediction, not training or language generation.

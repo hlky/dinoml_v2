@@ -2,7 +2,7 @@
 
 Audit date: 2026-05-13.
 
-Local Transformers checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Local Transformers checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 FastVLM files inspected:
 

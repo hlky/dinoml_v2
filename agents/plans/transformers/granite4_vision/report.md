@@ -11,12 +11,12 @@ Processor sources:
   https://huggingface.co/ibm-granite/granite-4.0-3b-vision/raw/main/preprocessor_config.json
   https://huggingface.co/ibm-granite/granite-4.0-3b-vision/raw/main/tokenizer_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/granite4_vision/configuration_granite4_vision.py
-  X:/H/transformers/src/transformers/models/granite4_vision/modeling_granite4_vision.py
-  X:/H/transformers/src/transformers/models/granite4_vision/processing_granite4_vision.py
-  X:/H/transformers/src/transformers/models/granite4_vision/modular_granite4_vision.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/blip_2/modeling_blip_2.py
+  transformers/src/transformers/models/granite4_vision/configuration_granite4_vision.py
+  transformers/src/transformers/models/granite4_vision/modeling_granite4_vision.py
+  transformers/src/transformers/models/granite4_vision/processing_granite4_vision.py
+  transformers/src/transformers/models/granite4_vision/modular_granite4_vision.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/blip_2/modeling_blip_2.py
 Any missing files or assumptions:
   Only one official granite4_vision checkpoint was found. No gated repos were encountered.
   The Hub repo is tagged custom_code and has auto_map entries, but this report scopes to the in-library source at the pinned commit.

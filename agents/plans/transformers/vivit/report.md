@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/vivit-b-16x2, google/vivit-b-16x2-kinetics400
 Config source: Hugging Face raw config/preprocessor JSON plus current VivitConfig defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/vivit/configuration_vivit.py
-- X:/H/transformers/src/transformers/models/vivit/modeling_vivit.py
-- X:/H/transformers/src/transformers/models/vivit/modular_vivit.py
-- X:/H/transformers/src/transformers/models/vivit/image_processing_vivit.py
-- X:/H/transformers/src/transformers/models/vivit/convert_vivit_flax_to_pytorch.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/vivit/configuration_vivit.py
+- transformers/src/transformers/models/vivit/modeling_vivit.py
+- transformers/src/transformers/models/vivit/modular_vivit.py
+- transformers/src/transformers/models/vivit/image_processing_vivit.py
+- transformers/src/transformers/models/vivit/convert_vivit_flax_to_pytorch.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions: no video_processing_vivit.py exists. modeling_vivit.py is generated from modular_vivit.py; future source edits should target modular_vivit.py, but runtime import behavior comes from generated modeling_vivit.py.
 ```
 

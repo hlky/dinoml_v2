@@ -6,7 +6,7 @@
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: granitemoehybrid
 Primary runtime target: causal language model generation
-Transformers source root: X:/H/transformers
+Transformers source root: transformers
 Config snapshots: agents/plans/transformers/granitemoehybrid/_sources/
 ```
 

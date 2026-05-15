@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers.
+  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers.
 
 Model id:
   Family: llava_onevision.
@@ -19,21 +19,21 @@ Config source:
   agents/plans/transformers/llava_onevision/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/llava_onevision/configuration_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/modeling_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/modular_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/processing_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/image_processing_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/image_processing_pil_llava_onevision.py
-  X:/H/transformers/src/transformers/models/llava_onevision/video_processing_llava_onevision.py
-  X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
-  X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/llava_next/modeling_llava_next.py
-  X:/H/transformers/src/transformers/models/llava_next/processing_llava_next.py
-  X:/H/transformers/src/transformers/models/vipllava/modeling_vipllava.py
-  X:/H/transformers/src/transformers/models/vipllava/configuration_vipllava.py
+  transformers/src/transformers/models/llava_onevision/configuration_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/modeling_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/modular_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/processing_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/image_processing_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/image_processing_pil_llava_onevision.py
+  transformers/src/transformers/models/llava_onevision/video_processing_llava_onevision.py
+  transformers/src/transformers/models/qwen2/configuration_qwen2.py
+  transformers/src/transformers/models/qwen2/modeling_qwen2.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/llava_next/modeling_llava_next.py
+  transformers/src/transformers/models/llava_next/processing_llava_next.py
+  transformers/src/transformers/models/vipllava/modeling_vipllava.py
+  transformers/src/transformers/models/vipllava/configuration_vipllava.py
 
 Any missing files or assumptions:
   modeling_llava_onevision.py and image_processing_llava_onevision.py are generated from

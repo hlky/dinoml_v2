@@ -11,11 +11,11 @@ Config source: native Deimv2Config defaults, one converted HF config, and offici
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/deimv2/modeling_deimv2.py`
-- `X:/H/transformers/src/transformers/models/deimv2/configuration_deimv2.py`
-- `X:/H/transformers/src/transformers/models/deimv2/modular_deimv2.py`
-- `X:/H/transformers/src/transformers/models/deimv2/convert_deimv2_original_pytorch_checkpoint_to_hf.py`
-- `X:/H/transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py`
+- `transformers/src/transformers/models/deimv2/modeling_deimv2.py`
+- `transformers/src/transformers/models/deimv2/configuration_deimv2.py`
+- `transformers/src/transformers/models/deimv2/modular_deimv2.py`
+- `transformers/src/transformers/models/deimv2/convert_deimv2_original_pytorch_checkpoint_to_hf.py`
+- `transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py`
 - Backbone source touched for ABI only: `models/hgnet_v2/*`, `models/dinov3_vit/*`, and `backbone_utils.load_backbone`.
 
 Local config snapshots written beside this report:

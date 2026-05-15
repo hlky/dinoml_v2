@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: blt family; primary accessible mirrors inspected: itazap/blt-1b-hf, itazap/blt-1b-testing, itazap/blt-7b-hf
 Config source: Hugging Face raw config snapshots saved in this folder
 Source files inspected:
-- X:/H/transformers/src/transformers/models/blt/configuration_blt.py
-- X:/H/transformers/src/transformers/models/blt/modeling_blt.py
-- X:/H/transformers/src/transformers/models/blt/modular_blt.py
-- X:/H/transformers/src/transformers/models/blt/convert_blt_weights_to_hf.py
+- transformers/src/transformers/models/blt/configuration_blt.py
+- transformers/src/transformers/models/blt/modeling_blt.py
+- transformers/src/transformers/models/blt/modular_blt.py
+- transformers/src/transformers/models/blt/convert_blt_weights_to_hf.py
 Any missing files or assumptions:
 - modeling_blt.py is generated from modular_blt.py; modular_blt.py is authoritative for upstream source edits.
 - Official facebook/blt-1b, facebook/blt-7b, facebook/blt, and facebook/blt-entropy are gated/manual-access Hub repos. Links: https://huggingface.co/facebook/blt-1b, https://huggingface.co/facebook/blt-7b, https://huggingface.co/facebook/blt-entropy.

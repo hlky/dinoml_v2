@@ -22,6 +22,6 @@ The neural graph can be treated as image classifier inference. Product parity re
 
 ## Sources
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru_model.py`
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru_model.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru.py`
 

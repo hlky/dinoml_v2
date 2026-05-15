@@ -22,6 +22,6 @@ Start as an ONNX external-provider or CPU-side auxiliary. Native DinoML support 
 
 ## Sources
 
-- `H:/uis/vladmandic/sdnext/modules/caption/waifudiffusion.py`
-- `H:/uis/vladmandic/sdnext/modules/caption/caption.py`
+- `vladmandic/sdnext/modules/caption/waifudiffusion.py`
+- `vladmandic/sdnext/modules/caption/caption.py`
 

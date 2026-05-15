@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -21,10 +21,10 @@ Config source:
   AutoModelForCausalLM text-generation models.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-  X:/H/transformers/src/transformers/models/llama/configuration_llama.py
-  X:/H/transformers/src/transformers/models/llama/tokenization_llama.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/llama/configuration_llama.py
+  transformers/src/transformers/models/llama/tokenization_llama.py
+  transformers/src/transformers/modeling_rope_utils.py
 
 Any missing files or assumptions:
   No remote-code files are required for standard Llama. Official Meta Llama 3.2

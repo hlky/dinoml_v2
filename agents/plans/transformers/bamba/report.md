@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: ibm-ai-platform/Bamba-9B family; primary production config ibm-ai-platform/Bamba-9B-v2
 Config source: public Hugging Face config.json snapshots under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/bamba/configuration_bamba.py
-  X:/H/transformers/src/transformers/models/bamba/modeling_bamba.py
-  X:/H/transformers/src/transformers/models/bamba/modular_bamba.py
-  X:/H/transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/models/bamba/configuration_bamba.py
+  transformers/src/transformers/models/bamba/modeling_bamba.py
+  transformers/src/transformers/models/bamba/modular_bamba.py
+  transformers/src/transformers/cache_utils.py
 Comparison files:
-  X:/H/transformers/src/transformers/models/mamba/modeling_mamba.py
-  X:/H/transformers/src/transformers/models/jamba/modeling_jamba.py
-  X:/H/transformers/src/transformers/models/granitemoehybrid/modeling_granitemoehybrid.py
+  transformers/src/transformers/models/mamba/modeling_mamba.py
+  transformers/src/transformers/models/jamba/modeling_jamba.py
+  transformers/src/transformers/models/granitemoehybrid/modeling_granitemoehybrid.py
 Any missing files or assumptions:
   No small/debug Bamba checkpoint was found in the public HF sweep. The sweep therefore uses public 9B training-stage and FP8/compressed variants.
 ```

@@ -2,9 +2,9 @@
 
 ## Local Transformers checkout
 
-- Checkout: `X:/H/transformers`
+- Checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/glm_ocr`
+- Family directory: `transformers/src/transformers/models/glm_ocr`
 - Main generated files:
   - `configuration_glm_ocr.py`
   - `modeling_glm_ocr.py`
@@ -20,9 +20,9 @@
 
 The audited processor/preprocessor behavior therefore comes from:
 
-- `X:/H/transformers/src/transformers/models/glm46v/processing_glm46v.py`
-- `X:/H/transformers/src/transformers/models/glm46v/image_processing_glm46v.py`
-- `X:/H/transformers/src/transformers/models/glm46v/video_processing_glm46v.py`
+- `transformers/src/transformers/models/glm46v/processing_glm46v.py`
+- `transformers/src/transformers/models/glm46v/image_processing_glm46v.py`
+- `transformers/src/transformers/models/glm46v/video_processing_glm46v.py`
 
 `glm4v` processor files were also inspected because `glm46v` is generated from the same GLM-V processor pattern and the `glm_ocr` generated modeling code shares that ABI.
 

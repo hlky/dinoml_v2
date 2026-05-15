@@ -12,12 +12,12 @@ Model id:
 Config source:
   Hugging Face config.json, preprocessor_config.json, tokenizer_config.json, special_tokens_map.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/clip/modeling_clip.py
-  X:/H/transformers/src/transformers/models/clip/configuration_clip.py
-  X:/H/transformers/src/transformers/models/clip/processing_clip.py
-  X:/H/transformers/src/transformers/models/clip/image_processing_clip.py
-  X:/H/transformers/src/transformers/models/clip/tokenization_clip.py
-  X:/H/transformers/src/transformers/image_processing_backends.py
+  transformers/src/transformers/models/clip/modeling_clip.py
+  transformers/src/transformers/models/clip/configuration_clip.py
+  transformers/src/transformers/models/clip/processing_clip.py
+  transformers/src/transformers/models/clip/image_processing_clip.py
+  transformers/src/transformers/models/clip/tokenization_clip.py
+  transformers/src/transformers/image_processing_backends.py
 Any missing files or assumptions:
   No remote-code files are required for the inspected OpenAI CLIP checkpoints. The local source is the authoritative implementation for this report.
 ```

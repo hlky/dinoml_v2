@@ -26,8 +26,8 @@ Treat model inference and condition rendering separately. DPT/GLPN should reuse 
 
 - `H:/controlnet_aux/src/controlnet_aux/midas/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/midas/api.py`
-- `X:/H/transformers/src/transformers/models/dpt`
-- `X:/H/transformers/src/transformers/models/glpn`
-- `H:/uis/vladmandic/sdnext/modules/control/proc/dpt.py:25`
-- `H:/uis/vladmandic/sdnext/modules/control/proc/glpn.py:17`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:232`
+- `transformers/src/transformers/models/dpt`
+- `transformers/src/transformers/models/glpn`
+- `vladmandic/sdnext/modules/control/proc/dpt.py:25`
+- `vladmandic/sdnext/modules/control/proc/glpn.py:17`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:232`

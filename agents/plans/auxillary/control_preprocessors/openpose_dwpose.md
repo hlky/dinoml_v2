@@ -35,5 +35,5 @@ First support should treat ONNXRuntime as an external detector provider or CPU p
 - `H:/controlnet_aux/src/controlnet_aux/dwpose/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/dwpose/wholebody.py`
 - `H:/controlnet_aux/src/controlnet_aux/processor.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/dw_openpose/__init__.py`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:308`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/dw_openpose/__init__.py`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:308`

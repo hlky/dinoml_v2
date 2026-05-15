@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Family path: `src/transformers/models/falcon_h1`
 - Report target: DinoML causal language-model inference for native `FalconH1ForCausalLM`.

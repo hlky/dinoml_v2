@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Model id:
   Primary: allenai/FlexOlmo-7x7B-1T
@@ -16,13 +16,13 @@ Config source:
   Raw Hub config.json files listed in config_sweep.md.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/flex_olmo/modular_flex_olmo.py
-  X:/H/transformers/src/transformers/models/flex_olmo/configuration_flex_olmo.py
-  X:/H/transformers/src/transformers/models/flex_olmo/modeling_flex_olmo.py
-  X:/H/transformers/src/transformers/integrations/moe.py
-  X:/H/transformers/src/transformers/conversion_mapping.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/flex_olmo/modular_flex_olmo.py
+  transformers/src/transformers/models/flex_olmo/configuration_flex_olmo.py
+  transformers/src/transformers/models/flex_olmo/modeling_flex_olmo.py
+  transformers/src/transformers/integrations/moe.py
+  transformers/src/transformers/conversion_mapping.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
 
 Any missing files or assumptions:
   No processor or image/audio preprocessor is involved. Tokenizer was inspected

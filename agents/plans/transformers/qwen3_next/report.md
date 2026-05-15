@@ -5,17 +5,17 @@ Primary target: `Qwen3NextForCausalLM` inference and generation on CUDA. This is
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: qwen3_next
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen3_next/configuration_qwen3_next.py`
-- `X:/H/transformers/src/transformers/models/qwen3_next/modeling_qwen3_next.py`
-- `X:/H/transformers/src/transformers/models/qwen3_next/modular_qwen3_next.py`
+- `transformers/src/transformers/models/qwen3_next/configuration_qwen3_next.py`
+- `transformers/src/transformers/models/qwen3_next/modeling_qwen3_next.py`
+- `transformers/src/transformers/models/qwen3_next/modular_qwen3_next.py`
 - Cross-checks: `src/transformers/cache_utils.py`, `src/transformers/models/qwen3_moe/modeling_qwen3_moe.py`, `src/transformers/models/qwen2_moe/modeling_qwen2_moe.py`, `src/transformers/models/gemma3/modeling_gemma3.py`, `src/transformers/models/bamba/modeling_bamba.py`, `src/transformers/models/mixtral/modeling_mixtral.py`
 
 Source URLs at the inspected commit:

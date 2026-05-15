@@ -7,18 +7,18 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/pe-av-large, with official sweep over pe-av-{small,base,large} and -16-frame variants
 Config source: Hugging Face raw config/preprocessor/tokenizer JSON, fetched from official facebook repos on 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pe_audio_video/configuration_pe_audio_video.py
-- X:/H/transformers/src/transformers/models/pe_audio_video/modeling_pe_audio_video.py
-- X:/H/transformers/src/transformers/models/pe_audio_video/modular_pe_audio_video.py
-- X:/H/transformers/src/transformers/models/pe_audio_video/processing_pe_audio_video.py
-- X:/H/transformers/src/transformers/models/pe_audio/configuration_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/modeling_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_audio/feature_extraction_pe_audio.py
-- X:/H/transformers/src/transformers/models/pe_video/configuration_pe_video.py
-- X:/H/transformers/src/transformers/models/pe_video/modeling_pe_video.py
-- X:/H/transformers/src/transformers/models/pe_video/video_processing_pe_video.py
-- X:/H/transformers/src/transformers/models/modernbert/configuration_modernbert.py
-- X:/H/transformers/src/transformers/models/modernbert/modeling_modernbert.py
+- transformers/src/transformers/models/pe_audio_video/configuration_pe_audio_video.py
+- transformers/src/transformers/models/pe_audio_video/modeling_pe_audio_video.py
+- transformers/src/transformers/models/pe_audio_video/modular_pe_audio_video.py
+- transformers/src/transformers/models/pe_audio_video/processing_pe_audio_video.py
+- transformers/src/transformers/models/pe_audio/configuration_pe_audio.py
+- transformers/src/transformers/models/pe_audio/modeling_pe_audio.py
+- transformers/src/transformers/models/pe_audio/feature_extraction_pe_audio.py
+- transformers/src/transformers/models/pe_video/configuration_pe_video.py
+- transformers/src/transformers/models/pe_video/modeling_pe_video.py
+- transformers/src/transformers/models/pe_video/video_processing_pe_video.py
+- transformers/src/transformers/models/modernbert/configuration_modernbert.py
+- transformers/src/transformers/models/modernbert/modeling_modernbert.py
 Any missing files or assumptions:
 - modeling_pe_audio_video.py is generated from modular_pe_audio_video.py; the modular file is authoritative for upstream source edits.
 - Video frame encoder is delegated to AutoModelForImageClassification over a timm_wrapper config, default architecture vit_pe_core_large_patch14_336. This report treats that neural body as externally owned and requires a separate timm/PE-core audit or allowlist.

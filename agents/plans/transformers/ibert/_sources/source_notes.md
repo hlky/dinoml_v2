@@ -4,9 +4,9 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Local commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/ibert`
+- Family directory: `transformers/src/transformers/models/ibert`
 
 Inspected files:
 

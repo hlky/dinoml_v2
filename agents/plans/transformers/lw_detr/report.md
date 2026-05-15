@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -25,14 +25,14 @@ Config source:
   Local snapshots are in agents/plans/transformers/lw_detr/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/lw_detr/configuration_lw_detr.py
-  X:/H/transformers/src/transformers/models/lw_detr/modeling_lw_detr.py
-  X:/H/transformers/src/transformers/models/lw_detr/modular_lw_detr.py
-  X:/H/transformers/src/transformers/models/lw_detr/convert_lw_detr_to_hf.py
-  X:/H/transformers/src/transformers/models/deformable_detr/image_processing_deformable_detr.py
-  X:/H/transformers/src/transformers/loss/loss_lw_detr.py
-  X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-  X:/H/transformers/src/transformers/models/auto/modeling_auto.py
+  transformers/src/transformers/models/lw_detr/configuration_lw_detr.py
+  transformers/src/transformers/models/lw_detr/modeling_lw_detr.py
+  transformers/src/transformers/models/lw_detr/modular_lw_detr.py
+  transformers/src/transformers/models/lw_detr/convert_lw_detr_to_hf.py
+  transformers/src/transformers/models/deformable_detr/image_processing_deformable_detr.py
+  transformers/src/transformers/loss/loss_lw_detr.py
+  transformers/src/transformers/models/auto/image_processing_auto.py
+  transformers/src/transformers/models/auto/modeling_auto.py
 
 Any missing files or assumptions:
   modeling_lw_detr.py and configuration_lw_detr.py are generated from

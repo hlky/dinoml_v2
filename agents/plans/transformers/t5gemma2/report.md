@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Model id:
   google/t5gemma-2-270m-270m, google/t5gemma-2-1b-1b, google/t5gemma-2-4b-4b
@@ -17,14 +17,14 @@ Config source:
   pipeline, and manual gating.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/t5gemma2/configuration_t5gemma2.py
-  X:/H/transformers/src/transformers/models/t5gemma2/modeling_t5gemma2.py
-  X:/H/transformers/src/transformers/models/t5gemma2/modular_t5gemma2.py
-  X:/H/transformers/src/transformers/models/siglip/configuration_siglip.py
-  X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-  X:/H/transformers/src/transformers/models/gemma3/processing_gemma3.py
-  X:/H/transformers/src/transformers/models/gemma3/image_processing_gemma3.py
-  X:/H/transformers/tests/models/t5gemma2/test_modeling_t5gemma2.py
+  transformers/src/transformers/models/t5gemma2/configuration_t5gemma2.py
+  transformers/src/transformers/models/t5gemma2/modeling_t5gemma2.py
+  transformers/src/transformers/models/t5gemma2/modular_t5gemma2.py
+  transformers/src/transformers/models/siglip/configuration_siglip.py
+  transformers/src/transformers/models/siglip/modeling_siglip.py
+  transformers/src/transformers/models/gemma3/processing_gemma3.py
+  transformers/src/transformers/models/gemma3/image_processing_gemma3.py
+  transformers/tests/models/t5gemma2/test_modeling_t5gemma2.py
 
 Any missing files or assumptions:
   `modeling_t5gemma2.py` and `configuration_t5gemma2.py` are generated from

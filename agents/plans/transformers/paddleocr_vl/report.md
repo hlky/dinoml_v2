@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Model ids:
   PaddlePaddle/PaddleOCR-VL
@@ -18,14 +18,14 @@ Config source:
   agents/plans/transformers/paddleocr_vl/_sources/hf_15_main_preprocessor_config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/paddleocr_vl/configuration_paddleocr_vl.py
-  X:/H/transformers/src/transformers/models/paddleocr_vl/modeling_paddleocr_vl.py
-  X:/H/transformers/src/transformers/models/paddleocr_vl/modular_paddleocr_vl.py
-  X:/H/transformers/src/transformers/models/paddleocr_vl/processing_paddleocr_vl.py
-  X:/H/transformers/src/transformers/models/paddleocr_vl/image_processing_paddleocr_vl.py
-  X:/H/transformers/src/transformers/models/paddleocr_vl/image_processing_pil_paddleocr_vl.py
-  X:/H/transformers/tests/models/paddleocr_vl/test_modeling_paddleocr_vl.py
-  X:/H/transformers/tests/models/paddleocr_vl/test_image_processing_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/configuration_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/modeling_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/modular_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/processing_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/image_processing_paddleocr_vl.py
+  transformers/src/transformers/models/paddleocr_vl/image_processing_pil_paddleocr_vl.py
+  transformers/tests/models/paddleocr_vl/test_modeling_paddleocr_vl.py
+  transformers/tests/models/paddleocr_vl/test_image_processing_paddleocr_vl.py
 
 Any missing files or assumptions:
   modeling/config/processor/image_processor files are generated from modular_paddleocr_vl.py; future source edits should target the modular file.

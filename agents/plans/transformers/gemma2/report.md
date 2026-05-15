@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: gemma2 family; primary target Gemma2ForCausalLM text generation
 Config source: local Transformers source defaults/conversion script, public tiny-random config, and open Unsloth mirror configs
 Source files inspected:
-- X:/H/transformers/src/transformers/models/gemma2/configuration_gemma2.py
-- X:/H/transformers/src/transformers/models/gemma2/modeling_gemma2.py
-- X:/H/transformers/src/transformers/models/gemma2/modular_gemma2.py
-- X:/H/transformers/src/transformers/models/gemma2/convert_gemma2_weights_to_hf.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
-- X:/H/transformers/src/transformers/modeling_flash_attention_utils.py
+- transformers/src/transformers/models/gemma2/configuration_gemma2.py
+- transformers/src/transformers/models/gemma2/modeling_gemma2.py
+- transformers/src/transformers/models/gemma2/modular_gemma2.py
+- transformers/src/transformers/models/gemma2/convert_gemma2_weights_to_hf.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/modeling_flash_attention_utils.py
 - comparison files: gemma/configuration_gemma.py, gemma/modeling_gemma.py, gemma3/configuration_gemma3.py, gemma3/modeling_gemma3.py
 Any missing files or assumptions: official google/gemma-2-* config.json fetches returned 401 Unauthorized. Open mirror configs are labeled as mirrors, not primary Google config authority.
 ```

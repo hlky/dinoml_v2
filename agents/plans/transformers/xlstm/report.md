@@ -7,8 +7,8 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: primarily NX-AI/xLSTM-7b; representative configs listed below
 Config source: local configuration_xlstm.py plus HF config.json files
 Source files inspected:
-- X:/H/transformers/src/transformers/models/xlstm/configuration_xlstm.py
-- X:/H/transformers/src/transformers/models/xlstm/modeling_xlstm.py
+- transformers/src/transformers/models/xlstm/configuration_xlstm.py
+- transformers/src/transformers/models/xlstm/modeling_xlstm.py
 Any missing files or assumptions:
 - No local checkpoint weights were inspected.
 - The source conditionally delegates block implementation to the external `xlstm` package when `is_xlstm_available()` is true. This report scopes DinoML operator planning to the pinned in-library fallback implementation, and flags external/Triton kernel configs as an admission trap.

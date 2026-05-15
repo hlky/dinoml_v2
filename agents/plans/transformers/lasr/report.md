@@ -12,15 +12,15 @@ Config source: local source defaults plus downloaded open Hub config snapshots
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/lasr/modular_lasr.py`
-- `X:/H/transformers/src/transformers/models/lasr/modeling_lasr.py`
-- `X:/H/transformers/src/transformers/models/lasr/configuration_lasr.py`
-- `X:/H/transformers/src/transformers/models/lasr/feature_extraction_lasr.py`
-- `X:/H/transformers/src/transformers/models/lasr/processing_lasr.py`
-- `X:/H/transformers/src/transformers/models/lasr/tokenization_lasr.py`
-- `X:/H/transformers/tests/models/lasr/test_modeling_lasr.py`
-- `X:/H/transformers/src/transformers/pipelines/automatic_speech_recognition.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/models/lasr/modular_lasr.py`
+- `transformers/src/transformers/models/lasr/modeling_lasr.py`
+- `transformers/src/transformers/models/lasr/configuration_lasr.py`
+- `transformers/src/transformers/models/lasr/feature_extraction_lasr.py`
+- `transformers/src/transformers/models/lasr/processing_lasr.py`
+- `transformers/src/transformers/models/lasr/tokenization_lasr.py`
+- `transformers/tests/models/lasr/test_modeling_lasr.py`
+- `transformers/src/transformers/pipelines/automatic_speech_recognition.py`
+- `transformers/src/transformers/masking_utils.py`
 
 Source URLs:
 

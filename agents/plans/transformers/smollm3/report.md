@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: HuggingFaceTB/SmolLM3-3B
 Config source: https://huggingface.co/HuggingFaceTB/SmolLM3-3B/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/smollm3/configuration_smollm3.py
-  X:/H/transformers/src/transformers/models/smollm3/modeling_smollm3.py
-  X:/H/transformers/src/transformers/models/smollm3/modular_smollm3.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/tests/models/smollm3/test_modeling_smollm3.py
+  transformers/src/transformers/models/smollm3/configuration_smollm3.py
+  transformers/src/transformers/models/smollm3/modeling_smollm3.py
+  transformers/src/transformers/models/smollm3/modular_smollm3.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/tests/models/smollm3/test_modeling_smollm3.py
 Any missing files or assumptions:
   No processor/image/audio files exist for this family. The report targets native
   in-library PyTorch SmolLM3ForCausalLM, not ONNX, GGUF, or remote-code variants.

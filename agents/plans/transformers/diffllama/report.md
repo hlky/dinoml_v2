@@ -6,7 +6,7 @@
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: native scope is model_type="diffllama"; representative configs from kajuma/DiffLlama-0.3B-handcut, kajuma/DiffLlama-1B, reyllama/DiffLlama-375M checkpoint-64434, reyllama/diffllama_300m checkpoint-12000.
 Config source: local Transformers configuration plus Hub config.json snapshots under agents/plans/transformers/diffllama/snapshots/.
-Source files inspected: X:/H/transformers/src/transformers/models/diffllama/configuration_diffllama.py, modeling_diffllama.py, modular_diffllama.py.
+Source files inspected: transformers/src/transformers/models/diffllama/configuration_diffllama.py, modeling_diffllama.py, modular_diffllama.py.
 Any missing files or assumptions: modeling_diffllama.py is generated from modular_diffllama.py; exact runtime behavior was read from the generated file, future upstream edits should target modular_diffllama.py. No gated model links were encountered. amazingvince/diff-llama uses model_type="diff_llama" plus remote code and is out-of-scope for native DiffLlama admission.
 ```
 

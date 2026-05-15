@@ -2,9 +2,9 @@
 
 Local source basis:
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family source directory: `X:/H/transformers/src/transformers/models/gemma4`
+- Family source directory: `transformers/src/transformers/models/gemma4`
 - Runtime source inspected: `modeling_gemma4.py`
 - Future-edit source inspected: `modular_gemma4.py`
 - Config/processor source inspected: `configuration_gemma4.py`, `processing_gemma4.py`, `image_processing_gemma4.py`, `video_processing_gemma4.py`, `feature_extraction_gemma4.py`, `convert_gemma4_weights.py`

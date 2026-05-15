@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: tencent/Hunyuan-A13B-Instruct
 Config source: Hugging Face config.json plus native HunYuanMoEV1Config defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/hunyuan_v1_moe/configuration_hunyuan_v1_moe.py
-  X:/H/transformers/src/transformers/models/hunyuan_v1_moe/modeling_hunyuan_v1_moe.py
-  X:/H/transformers/src/transformers/models/hunyuan_v1_moe/modular_hunyuan_v1_moe.py
-  X:/H/transformers/tests/models/hunyuan_v1_moe/test_modeling_hunyuan_v1_moe.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/hunyuan_v1_moe/configuration_hunyuan_v1_moe.py
+  transformers/src/transformers/models/hunyuan_v1_moe/modeling_hunyuan_v1_moe.py
+  transformers/src/transformers/models/hunyuan_v1_moe/modular_hunyuan_v1_moe.py
+  transformers/tests/models/hunyuan_v1_moe/test_modeling_hunyuan_v1_moe.py
+  transformers/src/transformers/modeling_rope_utils.py
 Any missing files or assumptions:
   modeling_hunyuan_v1_moe.py is generated; modular_hunyuan_v1_moe.py is authoritative for future source edits.
   This report scopes native in-library `hunyuan_v1_moe`, not remote-code `hunyuan` quantized variants.

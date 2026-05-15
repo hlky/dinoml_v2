@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/pe-av-large, facebook/pe-av-large-16-frame
 Config source: Hub config.json snapshots plus source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pe_video/configuration_pe_video.py
-  X:/H/transformers/src/transformers/models/pe_video/modeling_pe_video.py
-  X:/H/transformers/src/transformers/models/pe_video/modular_pe_video.py
-  X:/H/transformers/src/transformers/models/pe_video/video_processing_pe_video.py
-  X:/H/transformers/src/transformers/models/pe_video/processing_pe_video.py
-  X:/H/transformers/src/transformers/models/pe_audio_video/modeling_pe_audio_video.py
-  X:/H/transformers/src/transformers/models/timm_wrapper/{configuration,modeling}_timm_wrapper.py
-  X:/H/transformers/src/transformers/models/modernbert/{configuration,modeling}_modernbert.py
+  transformers/src/transformers/models/pe_video/configuration_pe_video.py
+  transformers/src/transformers/models/pe_video/modeling_pe_video.py
+  transformers/src/transformers/models/pe_video/modular_pe_video.py
+  transformers/src/transformers/models/pe_video/video_processing_pe_video.py
+  transformers/src/transformers/models/pe_video/processing_pe_video.py
+  transformers/src/transformers/models/pe_audio_video/modeling_pe_audio_video.py
+  transformers/src/transformers/models/timm_wrapper/{configuration,modeling}_timm_wrapper.py
+  transformers/src/transformers/models/modernbert/{configuration,modeling}_modernbert.py
 Any missing files or assumptions:
   modeling_pe_video.py is generated from modular_pe_video.py. Use modular_pe_video.py for future source edits, but use generated modeling_pe_video.py for exact runtime behavior.
   The Hub checkpoints are pe_audio_video checkpoints, not pure pe_video checkpoints, but their nested video_config is the representative in-library pe_video branch.

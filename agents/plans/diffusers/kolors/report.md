@@ -6,7 +6,7 @@ Target slug: `kolors`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Kwai-Kolors/Kolors-diffusers
@@ -32,31 +32,31 @@ Config sources:
     C:/Users/user/.cache/huggingface/hub/models--Kwai-Kolors--Kolors-Inpainting/snapshots/3bb98b424c9aa02d11164bf78904a3e7fba17c09/
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/kolors/pipeline_kolors.py
-  X:/H/diffusers/src/diffusers/pipelines/kolors/pipeline_kolors_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/kolors/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_kolors.py
+  diffusers/src/diffusers/pipelines/kolors/pipeline_kolors.py
+  diffusers/src/diffusers/pipelines/kolors/pipeline_kolors_img2img.py
+  diffusers/src/diffusers/pipelines/kolors/pipeline_output.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_kolors.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/kolors/text_encoder.py
-  X:/H/diffusers/src/diffusers/pipelines/kolors/tokenizer.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/pipelines/kolors/text_encoder.py
+  diffusers/src/diffusers/pipelines/kolors/tokenizer.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
-  X:/H/diffusers/src/diffusers/loaders/unet.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet.py
-  X:/H/diffusers/tests/pipelines/kolors/test_kolors.py
-  X:/H/diffusers/tests/pipelines/kolors/test_kolors_img2img.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/ip_adapter.py
+  diffusers/src/diffusers/loaders/unet.py
+  diffusers/src/diffusers/models/controlnets/controlnet.py
+  diffusers/tests/pipelines/kolors/test_kolors.py
+  diffusers/tests/pipelines/kolors/test_kolors_img2img.py
   Prior reports: stable_diffusion_xl, sdxl_controlnet_adapters,
   scheduler_matrix, stable_diffusion_1_5.
 

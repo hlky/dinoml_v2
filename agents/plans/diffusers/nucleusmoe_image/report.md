@@ -6,7 +6,7 @@ Candidate slug: `nucleusmoe_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   NucleusAI/NucleusMoE-Image from Diffusers docs/examples.
@@ -33,25 +33,25 @@ Config sources:
   This worker did not copy configs into H:/configs because the task owns only this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/nucleusmoe_image/pipeline_nucleusmoe_image.py
-  X:/H/diffusers/src/diffusers/pipelines/nucleusmoe_image/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/nucleusmoe_image/__init__.py
+  diffusers/src/diffusers/pipelines/nucleusmoe_image/pipeline_nucleusmoe_image.py
+  diffusers/src/diffusers/pipelines/nucleusmoe_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/nucleusmoe_image/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_nucleusmoe_image.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_qwenimage.py
+  diffusers/src/diffusers/models/transformers/transformer_nucleusmoe_image.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_qwenimage.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/hooks/text_kv_cache.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/tests/pipelines/nucleusmoe_image/test_nucleusmoe_image.py
-  X:/H/diffusers/tests/models/transformers/test_models_transformer_nucleusmoe_image.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/hooks/text_kv_cache.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/tests/pipelines/nucleusmoe_image/test_nucleusmoe_image.py
+  diffusers/tests/models/transformers/test_models_transformer_nucleusmoe_image.py
 
 External component configs inspected:
   Qwen3VLForConditionalGeneration / Qwen3VLProcessor configs from the official

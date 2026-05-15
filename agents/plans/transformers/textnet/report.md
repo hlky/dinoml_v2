@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: czczup/textnet-base as the primary public checkpoint; czczup/textnet-tiny and czczup/textnet-small for variation.
 Config source: Hugging Face config.json and preprocessor_config.json fetched with huggingface_hub; see evidence_config_sweep.json.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/textnet/configuration_textnet.py
-  X:/H/transformers/src/transformers/models/textnet/modeling_textnet.py
-  X:/H/transformers/src/transformers/models/textnet/image_processing_textnet.py
-  X:/H/transformers/src/transformers/models/textnet/image_processing_pil_textnet.py
-  X:/H/transformers/src/transformers/models/textnet/convert_textnet_to_hf.py
-  X:/H/transformers/tests/models/textnet/test_modeling_textnet.py
-  X:/H/transformers/tests/models/textnet/test_image_processing_textnet.py
-  X:/H/transformers/docs/source/en/model_doc/textnet.md
+  transformers/src/transformers/models/textnet/configuration_textnet.py
+  transformers/src/transformers/models/textnet/modeling_textnet.py
+  transformers/src/transformers/models/textnet/image_processing_textnet.py
+  transformers/src/transformers/models/textnet/image_processing_pil_textnet.py
+  transformers/src/transformers/models/textnet/convert_textnet_to_hf.py
+  transformers/tests/models/textnet/test_modeling_textnet.py
+  transformers/tests/models/textnet/test_image_processing_textnet.py
+  transformers/docs/source/en/model_doc/textnet.md
 Any missing files or assumptions: no remote code is required. Official czczup checkpoints are open. This report targets inference for TextNetBackbone first, with TextNetModel pooling and TextNetForImageClassification as small follow-ons.
 ```
 

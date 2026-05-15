@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: vinvino02/glpn-kitti, vinvino02/glpn-nyu
 Config source: Hugging Face config.json and preprocessor_config.json snapshots, plus GLPNConfig source defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/glpn/modeling_glpn.py
-- X:/H/transformers/src/transformers/models/glpn/configuration_glpn.py
-- X:/H/transformers/src/transformers/models/glpn/image_processing_glpn.py
-- X:/H/transformers/src/transformers/models/glpn/image_processing_pil_glpn.py
+- transformers/src/transformers/models/glpn/modeling_glpn.py
+- transformers/src/transformers/models/glpn/configuration_glpn.py
+- transformers/src/transformers/models/glpn/image_processing_glpn.py
+- transformers/src/transformers/models/glpn/image_processing_pil_glpn.py
 - comparison skim: dpt/modeling_dpt.py, depth_anything/modeling_depth_anything.py, zoedepth/modeling_zoedepth.py
 Any missing files or assumptions: no gated or missing official GLPN files were observed for vinvino02/glpn-kitti or vinvino02/glpn-nyu. This report targets native in-library GLPN depth estimation, not remote-code variants.
 ```

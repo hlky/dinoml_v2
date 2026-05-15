@@ -22,8 +22,8 @@ Keep them as external auxiliary providers until a specific target is selected. T
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/seedvc/api.py:210`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/seedvc/seed_vc_wrapper.py`
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
+- `deepbeepmeep/Wan2GP/postprocessing/seedvc/api.py:210`
+- `deepbeepmeep/Wan2GP/postprocessing/seedvc/seed_vc_wrapper.py`
+- `deepbeepmeep/Wan2GP/preprocessing/speakers_separator.py:36`
 - `agents/plans/auxiliary/audio_auxiliary.md`
 

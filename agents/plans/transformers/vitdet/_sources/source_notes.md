@@ -4,20 +4,20 @@ Audit date: 2026-05-13
 
 Pinned Transformers checkout:
 
-- `X:/H/transformers`
+- `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Verified with `git -C X:/H/transformers rev-parse HEAD`.
+- Verified with `git -C transformers rev-parse HEAD`.
 
 Local source files inspected:
 
-- `X:/H/transformers/src/transformers/models/vitdet/configuration_vitdet.py`
-- `X:/H/transformers/src/transformers/models/vitdet/modeling_vitdet.py`
-- `X:/H/transformers/src/transformers/models/vitdet/__init__.py`
-- `X:/H/transformers/src/transformers/models/auto/auto_mappings.py`
-- `X:/H/transformers/src/transformers/models/auto/modeling_auto.py`
-- `X:/H/transformers/src/transformers/models/auto/image_processing_auto.py`
-- `X:/H/transformers/docs/source/en/model_doc/vitdet.md`
-- `X:/H/transformers/tests/models/vitdet/test_modeling_vitdet.py`
+- `transformers/src/transformers/models/vitdet/configuration_vitdet.py`
+- `transformers/src/transformers/models/vitdet/modeling_vitdet.py`
+- `transformers/src/transformers/models/vitdet/__init__.py`
+- `transformers/src/transformers/models/auto/auto_mappings.py`
+- `transformers/src/transformers/models/auto/modeling_auto.py`
+- `transformers/src/transformers/models/auto/image_processing_auto.py`
+- `transformers/docs/source/en/model_doc/vitdet.md`
+- `transformers/tests/models/vitdet/test_modeling_vitdet.py`
 
 Remote/source documentation:
 

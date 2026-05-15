@@ -3,14 +3,14 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: primary kssteven/ibert-roberta-base; sweep includes base, large, large-mnli, and open fine-tunes
 Config source: Hugging Face config.json files plus current IBertConfig defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/ibert/configuration_ibert.py
-  X:/H/transformers/src/transformers/models/ibert/modeling_ibert.py
-  X:/H/transformers/src/transformers/models/ibert/quant_modules.py
-  X:/H/transformers/src/transformers/models/ibert/__init__.py
+  transformers/src/transformers/models/ibert/configuration_ibert.py
+  transformers/src/transformers/models/ibert/modeling_ibert.py
+  transformers/src/transformers/models/ibert/quant_modules.py
+  transformers/src/transformers/models/ibert/__init__.py
 Any missing files or assumptions: tokenizer coupling inspected from config/tokenizer_config only; no imports/tests run; base-mnli/base-squad2/large-squad2 config URLs returned 401 at checked paths.
 ```
 

@@ -1,6 +1,6 @@
 # Splinter Config Sweep
 
-Source checkout: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source checkout: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Fetched from official Hugging Face model repositories on 2026-05-13:
 

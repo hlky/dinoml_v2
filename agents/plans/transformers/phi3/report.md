@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,15 +23,15 @@ Config source:
   https://huggingface.co/microsoft/Phi-3-mini-4k-instruct/raw/main/generation_config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/phi3/modeling_phi3.py
-  X:/H/transformers/src/transformers/models/phi3/modular_phi3.py
-  X:/H/transformers/src/transformers/models/phi3/configuration_phi3.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/integrations/sdpa_attention.py
-  X:/H/transformers/src/transformers/integrations/flash_attention.py
-  X:/H/transformers/docs/source/en/model_doc/phi3.md
+  transformers/src/transformers/models/phi3/modeling_phi3.py
+  transformers/src/transformers/models/phi3/modular_phi3.py
+  transformers/src/transformers/models/phi3/configuration_phi3.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/integrations/sdpa_attention.py
+  transformers/src/transformers/integrations/flash_attention.py
+  transformers/docs/source/en/model_doc/phi3.md
 
 Any missing files or assumptions:
   modeling_phi3.py is generated from modular_phi3.py; the generated file is the

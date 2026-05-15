@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary worked example: google/mobilebert-uncased.
@@ -17,11 +17,11 @@ Config source:
   Additional raw config URLs are summarized in _sources/config_snapshots.md.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mobilebert/configuration_mobilebert.py
-  X:/H/transformers/src/transformers/models/mobilebert/modeling_mobilebert.py
-  X:/H/transformers/src/transformers/models/mobilebert/tokenization_mobilebert.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/tests/models/mobilebert/test_modeling_mobilebert.py
+  transformers/src/transformers/models/mobilebert/configuration_mobilebert.py
+  transformers/src/transformers/models/mobilebert/modeling_mobilebert.py
+  transformers/src/transformers/models/mobilebert/tokenization_mobilebert.py
+  transformers/src/transformers/masking_utils.py
+  transformers/tests/models/mobilebert/test_modeling_mobilebert.py
 
 Any missing files or assumptions:
   No remote-code files are required for the inspected standard MobileBERT

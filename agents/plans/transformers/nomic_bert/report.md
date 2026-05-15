@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: nomic-ai/nomic-embed-text-v1.5 as the native-source reference; older/variant configs swept separately.
 Config source: local Transformers config plus HF config.json snapshots in _sources/.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/nomic_bert/configuration_nomic_bert.py
-- X:/H/transformers/src/transformers/models/nomic_bert/modeling_nomic_bert.py
-- X:/H/transformers/src/transformers/models/nomic_bert/modular_nomic_bert.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/integrations/sdpa_attention.py
-- X:/H/transformers/src/transformers/integrations/flash_attention.py
+- transformers/src/transformers/models/nomic_bert/configuration_nomic_bert.py
+- transformers/src/transformers/models/nomic_bert/modeling_nomic_bert.py
+- transformers/src/transformers/models/nomic_bert/modular_nomic_bert.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/integrations/sdpa_attention.py
+- transformers/src/transformers/integrations/flash_attention.py
 Any missing files or assumptions: no tests/imports were run. The generated modeling file says future source edits should be made in modular_nomic_bert.py; this report treats the generated modeling file as the runtime truth and the modular file as the edit source.
 ```
 

@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/w2v-bert-2.0 as base; CTC finetunes sampled below
 Config source: HF config.json/preprocessor_config.json snapshots saved in this folder
 Source files inspected:
-  X:/H/transformers/src/transformers/models/wav2vec2_bert/modeling_wav2vec2_bert.py
-  X:/H/transformers/src/transformers/models/wav2vec2_bert/modular_wav2vec2_bert.py
-  X:/H/transformers/src/transformers/models/wav2vec2_bert/configuration_wav2vec2_bert.py
-  X:/H/transformers/src/transformers/models/wav2vec2_bert/processing_wav2vec2_bert.py
-  X:/H/transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
+  transformers/src/transformers/models/wav2vec2_bert/modeling_wav2vec2_bert.py
+  transformers/src/transformers/models/wav2vec2_bert/modular_wav2vec2_bert.py
+  transformers/src/transformers/models/wav2vec2_bert/configuration_wav2vec2_bert.py
+  transformers/src/transformers/models/wav2vec2_bert/processing_wav2vec2_bert.py
+  transformers/src/transformers/models/seamless_m4t/feature_extraction_seamless_m4t.py
 Any missing files or assumptions:
   modeling_wav2vec2_bert.py is generated from modular_wav2vec2_bert.py; future upstream source edits should use the modular file.
   No native raw-waveform conv frontend exists in Wav2Vec2BertModel. Raw audio is converted by SeamlessM4TFeatureExtractor.

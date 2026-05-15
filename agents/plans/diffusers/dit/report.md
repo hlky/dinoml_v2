@@ -15,7 +15,7 @@ generic loader/offload machinery except where it changes component contracts.
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   facebook/DiT-XL-2-256
@@ -37,21 +37,21 @@ Config sources:
     kashif/DiT-XL-2-512 transformer/config.json, scheduler/scheduler_config.json, vae/config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/dit/pipeline_dit.py
-  X:/H/diffusers/src/diffusers/pipelines/dit/__init__.py
+  diffusers/src/diffusers/pipelines/dit/pipeline_dit.py
+  diffusers/src/diffusers/pipelines/dit/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/dit_transformer_2d.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/dit_transformer_2d.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/image_processor.py indirectly through pipeline postprocess helpers.
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/image_processor.py indirectly through pipeline postprocess helpers.
 
 External component configs inspected:
   None. DiT has no tokenizer, text encoder, image encoder, or external prompt

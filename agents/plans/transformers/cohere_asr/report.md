@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: CohereLabs/cohere-transcribe-03-2026
 Config source: official repo files returned 401 gated access; config facts below use source defaults plus open mirrors of the same base model.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/cohere_asr/configuration_cohere_asr.py
-- X:/H/transformers/src/transformers/models/cohere_asr/feature_extraction_cohere_asr.py
-- X:/H/transformers/src/transformers/models/cohere_asr/processing_cohere_asr.py
-- X:/H/transformers/src/transformers/models/cohere_asr/modeling_cohere_asr.py
-- X:/H/transformers/src/transformers/models/cohere_asr/modular_cohere_asr.py
-- X:/H/transformers/src/transformers/models/parakeet/configuration_parakeet.py
-- X:/H/transformers/src/transformers/models/parakeet/modeling_parakeet.py
-- X:/H/transformers/docs/source/en/model_doc/cohere_asr.md
+- transformers/src/transformers/models/cohere_asr/configuration_cohere_asr.py
+- transformers/src/transformers/models/cohere_asr/feature_extraction_cohere_asr.py
+- transformers/src/transformers/models/cohere_asr/processing_cohere_asr.py
+- transformers/src/transformers/models/cohere_asr/modeling_cohere_asr.py
+- transformers/src/transformers/models/cohere_asr/modular_cohere_asr.py
+- transformers/src/transformers/models/parakeet/configuration_parakeet.py
+- transformers/src/transformers/models/parakeet/modeling_parakeet.py
+- transformers/docs/source/en/model_doc/cohere_asr.md
 Any missing files or assumptions: official raw config/preprocessor/processor/tokenizer/generation files for CohereLabs/cohere-transcribe-03-2026 require gated access. The Hub API reports `gated: auto`, public metadata, and siblings including `config.json`, `modeling_cohere_asr.py`, `processing_cohere_asr.py`, `tokenization_cohere_asr.py`, and `model.safetensors`.
 ```
 

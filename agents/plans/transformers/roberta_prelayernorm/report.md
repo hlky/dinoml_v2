@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Source doc says the model was added to Transformers on 2022-12-19.
 
 Model id:
@@ -14,7 +14,7 @@ Model id:
 
 Config source:
 
-- Local config class: `X:/H/transformers/src/transformers/models/roberta_prelayernorm/configuration_roberta_prelayernorm.py`.
+- Local config class: `transformers/src/transformers/models/roberta_prelayernorm/configuration_roberta_prelayernorm.py`.
 - HF raw `config.json` snapshots fetched on 2026-05-13 for efficient-MLM, downstream classification, and smaller open variants.
 
 Source files inspected:

@@ -3,15 +3,15 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4, local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4, local checkout transformers
 Model id: deepseek-ai/DeepSeek-V4-Flash-Base, deepseek-ai/DeepSeek-V4-Flash, deepseek-ai/DeepSeek-V4-Pro-Base, deepseek-ai/DeepSeek-V4-Pro
 Config source: HF config.json snapshots copied under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/deepseek_v4/configuration_deepseek_v4.py
-  X:/H/transformers/src/transformers/models/deepseek_v4/modeling_deepseek_v4.py
-  X:/H/transformers/src/transformers/models/deepseek_v4/modular_deepseek_v4.py
-  X:/H/transformers/docs/source/en/model_doc/deepseek_v4.md
-  X:/H/transformers/src/transformers/activations.py
+  transformers/src/transformers/models/deepseek_v4/configuration_deepseek_v4.py
+  transformers/src/transformers/models/deepseek_v4/modeling_deepseek_v4.py
+  transformers/src/transformers/models/deepseek_v4/modular_deepseek_v4.py
+  transformers/docs/source/en/model_doc/deepseek_v4.md
+  transformers/src/transformers/activations.py
 Any missing files or assumptions: no tokenizer-specific coupling was needed for the neural graph. No small/debug checkpoint was found; official representatives are very large production checkpoints.
 ```
 

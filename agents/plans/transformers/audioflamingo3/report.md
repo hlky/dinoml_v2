@@ -11,10 +11,10 @@ Primary runtime target: audio/text-to-text conditional generation, first target 
 
 Source files inspected:
 
-- Local pinned source: `X:/H/transformers/src/transformers/models/audioflamingo3/configuration_audioflamingo3.py`
-- Local pinned source: `X:/H/transformers/src/transformers/models/audioflamingo3/modular_audioflamingo3.py`
-- Local pinned source: `X:/H/transformers/src/transformers/models/audioflamingo3/modeling_audioflamingo3.py`
-- Local pinned source: `X:/H/transformers/src/transformers/models/audioflamingo3/processing_audioflamingo3.py`
+- Local pinned source: `transformers/src/transformers/models/audioflamingo3/configuration_audioflamingo3.py`
+- Local pinned source: `transformers/src/transformers/models/audioflamingo3/modular_audioflamingo3.py`
+- Local pinned source: `transformers/src/transformers/models/audioflamingo3/modeling_audioflamingo3.py`
+- Local pinned source: `transformers/src/transformers/models/audioflamingo3/processing_audioflamingo3.py`
 - Neighbor/composed source: `qwen2/configuration_qwen2.py`, `qwen2/modeling_qwen2.py`, `whisper/feature_extraction_whisper.py`, and auto mappings.
 
 External primary config URLs:

@@ -4,9 +4,9 @@ Audit date: 2026-05-13
 
 ## Local source
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/mvp`
+- Family directory: `transformers/src/transformers/models/mvp`
 - Files inspected:
   - `configuration_mvp.py`
   - `modeling_mvp.py`

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+  transformers @ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id:
   swiss-ai/Apertus-8B-2509
   swiss-ai/Apertus-8B-Instruct-2509
@@ -13,12 +13,12 @@ Model id:
 Config source:
   Hugging Face Hub config/generation/tokenizer metadata snapshots saved beside this report.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/apertus/configuration_apertus.py
-  X:/H/transformers/src/transformers/models/apertus/modeling_apertus.py
-  X:/H/transformers/src/transformers/models/apertus/modular_apertus.py
-  X:/H/transformers/src/transformers/activations.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/models/apertus/configuration_apertus.py
+  transformers/src/transformers/models/apertus/modeling_apertus.py
+  transformers/src/transformers/models/apertus/modular_apertus.py
+  transformers/src/transformers/activations.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
   No Apertus-specific tokenizer source exists in the model family directory.
   modeling_apertus.py and configuration_apertus.py are generated from modular_apertus.py; future upstream source edits should inspect modular_apertus.py first, while DinoML parity should match generated imported code.

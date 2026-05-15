@@ -26,5 +26,5 @@ Normal maps should be a separate output type in the preprocessor schema with vec
 
 - `H:/controlnet_aux/src/controlnet_aux/normalbae/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/normalbae/nets/NNET.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/normal_bae/__init__.py`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/backend/image_util/normal_bae/nets`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/normal_bae/__init__.py`
+- `invoke-ai/InvokeAI/invokeai/backend/image_util/normal_bae/nets`

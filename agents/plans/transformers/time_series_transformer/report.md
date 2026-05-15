@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: huggingface/time-series-transformer-tourism-monthly, plus public config sweep below
 Config source: HF raw config.json and model API, fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/time_series_transformer/configuration_time_series_transformer.py
-  X:/H/transformers/src/transformers/models/time_series_transformer/modeling_time_series_transformer.py
-  X:/H/transformers/src/transformers/time_series_utils.py
-  X:/H/transformers/tests/models/time_series_transformer/test_modeling_time_series_transformer.py
+  transformers/src/transformers/models/time_series_transformer/configuration_time_series_transformer.py
+  transformers/src/transformers/models/time_series_transformer/modeling_time_series_transformer.py
+  transformers/src/transformers/time_series_utils.py
+  transformers/tests/models/time_series_transformer/test_modeling_time_series_transformer.py
 Any missing files or assumptions: no processor/tokenizer; caller/data pipeline owns calendar/time features, missing-value imputation, static features, and dataset batching.
 ```
 

@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Family target: AutoencoderKL 2D image latent codec.
@@ -26,22 +26,22 @@ Config sources:
     H:/configs/black-forest-labs/FLUX.1-schnell/vae/config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py
-  X:/H/diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_img2img.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_xl/pipeline_stable_diffusion_xl.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py
+  diffusers/src/diffusers/pipelines/flux/pipeline_flux.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/image_processor.py indirectly through pipeline VAE usage.
+  diffusers/src/diffusers/image_processor.py indirectly through pipeline VAE usage.
 
 External component configs inspected:
   None. AutoencoderKL is a Diffusers-native component.

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,11 +23,11 @@ Config source:
   https://huggingface.co/hf-internal-testing/tiny-random-SamModel/raw/main/preprocessor_config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/sam/configuration_sam.py
-  X:/H/transformers/src/transformers/models/sam/modeling_sam.py
-  X:/H/transformers/src/transformers/models/sam/processing_sam.py
-  X:/H/transformers/src/transformers/models/sam/image_processing_sam.py
-  X:/H/transformers/tests/models/sam/test_modeling_sam.py
+  transformers/src/transformers/models/sam/configuration_sam.py
+  transformers/src/transformers/models/sam/modeling_sam.py
+  transformers/src/transformers/models/sam/processing_sam.py
+  transformers/src/transformers/models/sam/image_processing_sam.py
+  transformers/tests/models/sam/test_modeling_sam.py
 
 Any missing files or assumptions:
   No custom remote-code files are required for standard SAM checkpoints.

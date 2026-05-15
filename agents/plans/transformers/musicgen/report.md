@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -20,16 +20,16 @@ Config source:
   preprocessor_config.json, tokenizer_config.json.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/musicgen/modeling_musicgen.py
-  X:/H/transformers/src/transformers/models/musicgen/configuration_musicgen.py
-  X:/H/transformers/src/transformers/models/musicgen/processing_musicgen.py
-  X:/H/transformers/src/transformers/models/musicgen/convert_musicgen_transformers.py
-  X:/H/transformers/src/transformers/models/encodec/modeling_encodec.py
-  X:/H/transformers/src/transformers/models/encodec/configuration_encodec.py
-  X:/H/transformers/src/transformers/models/encodec/feature_extraction_encodec.py
-  X:/H/transformers/tests/models/musicgen/test_modeling_musicgen.py
-  X:/H/transformers/tests/models/musicgen/test_processing_musicgen.py
-  X:/H/transformers/tests/models/encodec/test_modeling_encodec.py
+  transformers/src/transformers/models/musicgen/modeling_musicgen.py
+  transformers/src/transformers/models/musicgen/configuration_musicgen.py
+  transformers/src/transformers/models/musicgen/processing_musicgen.py
+  transformers/src/transformers/models/musicgen/convert_musicgen_transformers.py
+  transformers/src/transformers/models/encodec/modeling_encodec.py
+  transformers/src/transformers/models/encodec/configuration_encodec.py
+  transformers/src/transformers/models/encodec/feature_extraction_encodec.py
+  transformers/tests/models/musicgen/test_modeling_musicgen.py
+  transformers/tests/models/musicgen/test_processing_musicgen.py
+  transformers/tests/models/encodec/test_modeling_encodec.py
 
 Any missing files or assumptions:
   No remote-code files are required for the standard facebook/musicgen checkpoints.

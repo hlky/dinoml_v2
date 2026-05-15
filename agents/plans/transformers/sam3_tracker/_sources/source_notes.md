@@ -1,7 +1,7 @@
 # sam3_tracker source notes
 
 Source basis:
-- Local Transformers checkout: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local Transformers checkout: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Primary target directory: `src/transformers/models/sam3_tracker`.
 - Generated files state that `modular_sam3_tracker.py` is authoritative for future upstream source edits; `configuration_sam3_tracker.py`, `modeling_sam3_tracker.py`, and `processing_sam3_tracker.py` are generated.
 - Composed vision backbone source: `src/transformers/models/sam3/{configuration_sam3.py,modeling_sam3.py}` because `Sam3TrackerConfig` defaults `vision_config.model_type` to `sam3_vision_model`.

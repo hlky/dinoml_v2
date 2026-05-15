@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Source family: src/transformers/models/esm.
 
 Model id:
@@ -23,11 +23,11 @@ Config source:
   facebook__esm1b_t33_650M_UR50S.config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/esm/configuration_esm.py
-  X:/H/transformers/src/transformers/models/esm/modeling_esm.py
-  X:/H/transformers/src/transformers/models/esm/modeling_esmfold.py
-  X:/H/transformers/src/transformers/models/esm/tokenization_esm.py
-  X:/H/transformers/src/transformers/models/esm/openfold_utils/*.py
+  transformers/src/transformers/models/esm/configuration_esm.py
+  transformers/src/transformers/models/esm/modeling_esm.py
+  transformers/src/transformers/models/esm/modeling_esmfold.py
+  transformers/src/transformers/models/esm/tokenization_esm.py
+  transformers/src/transformers/models/esm/openfold_utils/*.py
 
 Any missing files or assumptions:
   No remote-code files are required for these checkpoints. The sampled Hub

@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/PP-DocLayoutV2_safetensors
 Config source: HF config.json at repo SHA 880e8971b88938518611c54fc0f59ad57849c9d4, plus source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pp_doclayout_v2/configuration_pp_doclayout_v2.py
-  X:/H/transformers/src/transformers/models/pp_doclayout_v2/image_processing_pp_doclayout_v2.py
-  X:/H/transformers/src/transformers/models/pp_doclayout_v2/modeling_pp_doclayout_v2.py
-  X:/H/transformers/src/transformers/models/pp_doclayout_v2/modular_pp_doclayout_v2.py
-  X:/H/transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
-  X:/H/transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
-  X:/H/transformers/src/transformers/integrations/hub_kernels.py
+  transformers/src/transformers/models/pp_doclayout_v2/configuration_pp_doclayout_v2.py
+  transformers/src/transformers/models/pp_doclayout_v2/image_processing_pp_doclayout_v2.py
+  transformers/src/transformers/models/pp_doclayout_v2/modeling_pp_doclayout_v2.py
+  transformers/src/transformers/models/pp_doclayout_v2/modular_pp_doclayout_v2.py
+  transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
+  transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+  transformers/src/transformers/integrations/hub_kernels.py
 Any missing files or assumptions: only one native pp_doclayout_v2 checkpoint/config was found; no gated source. Generated pp_doclayout_v2 files are exact runtime source, while modular_pp_doclayout_v2.py is the authoritative future edit source.
 ```
 

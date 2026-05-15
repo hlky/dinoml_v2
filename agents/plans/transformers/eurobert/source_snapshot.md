@@ -1,6 +1,6 @@
 # EuroBERT Source Snapshot
 
-Source basis: `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source basis: `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Key source anchors from `src/transformers/models/eurobert/modeling_eurobert.py`:
 

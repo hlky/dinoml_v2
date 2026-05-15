@@ -6,7 +6,7 @@ Candidate slug: `marigold`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Primary official configs:
@@ -33,25 +33,25 @@ Config sources:
   because the local cache initially contained only model_index.json files.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_depth.py
-  X:/H/diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_normals.py
-  X:/H/diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_intrinsics.py
-  X:/H/diffusers/src/diffusers/pipelines/marigold/marigold_image_processing.py
-  X:/H/diffusers/src/diffusers/pipelines/marigold/__init__.py
+  diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_depth.py
+  diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_normals.py
+  diffusers/src/diffusers/pipelines/marigold/pipeline_marigold_intrinsics.py
+  diffusers/src/diffusers/pipelines/marigold/marigold_image_processing.py
+  diffusers/src/diffusers/pipelines/marigold/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lcm.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_lcm.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   CLIPTextModel and CLIPTokenizer configs in the official Marigold repos.

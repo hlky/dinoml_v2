@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary in-library checkpoint [`omlab/omdet-turbo-swin-tiny-hf`](https://huggingface.co/omlab/omdet-turbo-swin-tiny-hf). Also checked [`Blueway/inference-endpoint-for-omdet-turbo-swin-tiny-hf`](https://huggingface.co/Blueway/inference-endpoint-for-omdet-turbo-swin-tiny-hf) as a derivative config copy, and [`omlab/OmDet-Turbo_tiny_SWIN_T`](https://huggingface.co/omlab/OmDet-Turbo_tiny_SWIN_T), which is public but has only `.pth`/CLIP files and no HF `config.json`.
 

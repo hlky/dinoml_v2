@@ -22,6 +22,6 @@ Mark output quality as preview-only. Do not substitute approximate decoders for 
 
 ## Sources
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_approx.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_approx.py`
 - `agents/plans/auxiliary/vae_and_latent_helpers.md`
 

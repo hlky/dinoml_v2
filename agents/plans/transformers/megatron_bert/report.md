@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id:
 
@@ -20,11 +20,11 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/megatron_bert/configuration_megatron_bert.py`
-- `X:/H/transformers/src/transformers/models/megatron_bert/modeling_megatron_bert.py`
-- `X:/H/transformers/src/transformers/models/megatron_bert/convert_megatron_bert_checkpoint.py`
-- `X:/H/transformers/tests/models/megatron_bert/test_modeling_megatron_bert.py`
-- `X:/H/transformers/docs/source/en/model_doc/megatron-bert.md`
+- `transformers/src/transformers/models/megatron_bert/configuration_megatron_bert.py`
+- `transformers/src/transformers/models/megatron_bert/modeling_megatron_bert.py`
+- `transformers/src/transformers/models/megatron_bert/convert_megatron_bert_checkpoint.py`
+- `transformers/tests/models/megatron_bert/test_modeling_megatron_bert.py`
+- `transformers/docs/source/en/model_doc/megatron-bert.md`
 - Source notes and config sweep: `_sources/source_notes.md`, `_sources/config_sweep.md`
 
 Any missing files or assumptions:

@@ -2,9 +2,9 @@
 
 Local Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/roberta_prelayernorm`
+- Family directory: `transformers/src/transformers/models/roberta_prelayernorm`
 
 Source files inspected:
 

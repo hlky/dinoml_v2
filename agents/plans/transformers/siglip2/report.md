@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/siglip2-base-patch16-naflex, google/siglip2-so400m-patch16-naflex
 Config source: local Transformers source defaults plus official HF config/preprocessor/tokenizer JSON snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/siglip2/configuration_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/modeling_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/modular_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/image_processing_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/image_processing_pil_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/processing_siglip2.py
-- X:/H/transformers/src/transformers/models/siglip2/tokenization_siglip2.py
+- transformers/src/transformers/models/siglip2/configuration_siglip2.py
+- transformers/src/transformers/models/siglip2/modeling_siglip2.py
+- transformers/src/transformers/models/siglip2/modular_siglip2.py
+- transformers/src/transformers/models/siglip2/image_processing_siglip2.py
+- transformers/src/transformers/models/siglip2/image_processing_pil_siglip2.py
+- transformers/src/transformers/models/siglip2/processing_siglip2.py
+- transformers/src/transformers/models/siglip2/tokenization_siglip2.py
 Any missing files or assumptions: no gated native SigLIP2 configs observed. `modeling_siglip2.py`, `configuration_siglip2.py`, and `tokenization_siglip2.py` are generated from `modular_siglip2.py`; future source edits should target the modular file. Several official repos named `siglip2-*` still have `model_type: siglip` and route to the older SigLIP implementation/image processor, so they are listed as out-of-scope comparison configs rather than native SigLIP2 operator requirements.
 ```
 

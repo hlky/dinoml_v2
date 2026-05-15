@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: generic wrapper family; representative configs listed below
 Config source: local source defaults plus HF raw config.json snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/encoder_decoder/configuration_encoder_decoder.py
-- X:/H/transformers/src/transformers/models/encoder_decoder/modeling_encoder_decoder.py
-- X:/H/transformers/src/transformers/models/encoder_decoder/__init__.py
-- X:/H/transformers/src/transformers/generation/utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
-- X:/H/transformers/src/transformers/modeling_utils.py
+- transformers/src/transformers/models/encoder_decoder/configuration_encoder_decoder.py
+- transformers/src/transformers/models/encoder_decoder/modeling_encoder_decoder.py
+- transformers/src/transformers/models/encoder_decoder/__init__.py
+- transformers/src/transformers/generation/utils.py
+- transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/modeling_utils.py
 - Representative delegated BERT sources for cache/cross-attention shape checks:
-  X:/H/transformers/src/transformers/models/bert/modeling_bert.py
-  X:/H/transformers/src/transformers/models/bert_generation/modeling_bert_generation.py
+  transformers/src/transformers/models/bert/modeling_bert.py
+  transformers/src/transformers/models/bert_generation/modeling_bert_generation.py
 Any missing files or assumptions:
 - No Flax/TF encoder_decoder source exists in this checkout family dir.
 - This report owns only the PyTorch `EncoderDecoderModel` wrapper contract.

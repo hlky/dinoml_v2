@@ -4,7 +4,7 @@ Audit target: `audioflamingo3` only.
 
 Local Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Family directory: `src/transformers/models/audioflamingo3`
 

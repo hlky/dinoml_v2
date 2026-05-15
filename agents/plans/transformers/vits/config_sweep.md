@@ -1,6 +1,6 @@
 # VITS Config Sweep Snapshot
 
-Fetched on 2026-05-13 from Hugging Face raw `config.json` and tokenizer files where accessible. Source basis is Transformers checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Fetched on 2026-05-13 from Hugging Face raw `config.json` and tokenizer files where accessible. Source basis is Transformers checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 | Model id | Config access | Tokenizer access | Operator-significant fields |
 | --- | --- | --- | --- |

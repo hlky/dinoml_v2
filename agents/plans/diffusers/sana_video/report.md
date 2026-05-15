@@ -8,7 +8,7 @@ Status: focused full-audit report for the non-deprecated Sana Video target.
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Efficient-Large-Model/SANA-Video_2B_480p_diffusers
@@ -27,22 +27,22 @@ Config sources:
     tokenizer/tokenizer_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/sana_video/pipeline_sana_video.py
-  X:/H/diffusers/src/diffusers/pipelines/sana_video/pipeline_sana_video_i2v.py
-  X:/H/diffusers/src/diffusers/pipelines/sana_video/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/sana_video/__init__.py
+  diffusers/src/diffusers/pipelines/sana_video/pipeline_sana_video.py
+  diffusers/src/diffusers/pipelines/sana_video/pipeline_sana_video_i2v.py
+  diffusers/src/diffusers/pipelines/sana_video/pipeline_output.py
+  diffusers/src/diffusers/pipelines/sana_video/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_sana_video.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
+  diffusers/src/diffusers/models/transformers/transformer_sana_video.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx2.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   Gemma2Model text encoder configs and GemmaTokenizer/GemmaTokenizerFast

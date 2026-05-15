@@ -23,5 +23,5 @@ This is design-sensitive because outputs feed inpaint/control workflows. First s
 ## Sources
 
 - `agents/plans/auxiliary/control_preprocessors.md`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
 

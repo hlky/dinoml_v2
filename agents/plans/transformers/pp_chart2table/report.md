@@ -7,17 +7,17 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/PP-Chart2Table_safetensors
 Config source: Hugging Face config.json snapshot plus native Transformers config defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/pp_chart2table/configuration_pp_chart2table.py
-  X:/H/transformers/src/transformers/models/pp_chart2table/modular_pp_chart2table.py
-  X:/H/transformers/src/transformers/models/pp_chart2table/image_processing_pp_chart2table.py
-  X:/H/transformers/src/transformers/models/pp_chart2table/image_processing_pil_pp_chart2table.py
-  X:/H/transformers/src/transformers/models/pp_chart2table/processing_pp_chart2table.py
-  X:/H/transformers/src/transformers/models/got_ocr2/modeling_got_ocr2.py
-  X:/H/transformers/src/transformers/models/got_ocr2/configuration_got_ocr2.py
-  X:/H/transformers/src/transformers/models/got_ocr2/processing_got_ocr2.py
-  X:/H/transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
-  X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
-  X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
+  transformers/src/transformers/models/pp_chart2table/configuration_pp_chart2table.py
+  transformers/src/transformers/models/pp_chart2table/modular_pp_chart2table.py
+  transformers/src/transformers/models/pp_chart2table/image_processing_pp_chart2table.py
+  transformers/src/transformers/models/pp_chart2table/image_processing_pil_pp_chart2table.py
+  transformers/src/transformers/models/pp_chart2table/processing_pp_chart2table.py
+  transformers/src/transformers/models/got_ocr2/modeling_got_ocr2.py
+  transformers/src/transformers/models/got_ocr2/configuration_got_ocr2.py
+  transformers/src/transformers/models/got_ocr2/processing_got_ocr2.py
+  transformers/src/transformers/models/got_ocr2/image_processing_got_ocr2.py
+  transformers/src/transformers/models/qwen2/modeling_qwen2.py
+  transformers/src/transformers/models/qwen2/configuration_qwen2.py
 Any missing files or assumptions:
   Native Transformers has no modeling_pp_chart2table.py file. AutoModelForVision2Seq maps pp_chart2table to GotOcr2ForConditionalGeneration.
   Generated pp_chart2table files are produced from modular_pp_chart2table.py; future source edits should inspect/edit the modular file first.

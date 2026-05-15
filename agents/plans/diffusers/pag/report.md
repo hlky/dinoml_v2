@@ -6,7 +6,7 @@ Target slug: `pag`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   PAG has no separate checkpoint format in the inspected source. It is a
@@ -34,30 +34,30 @@ Config sources:
   local PAG-specific configs do not exist.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/pag/__init__.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pag_utils.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_xl.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_xl_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_3.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_3_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_hunyuandit.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_kolors.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_pixart_sigma.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sana.py
-  X:/H/diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_animatediff.py
-  X:/H/diffusers/src/diffusers/pipelines/auto_pipeline.py
+  diffusers/src/diffusers/pipelines/pag/__init__.py
+  diffusers/src/diffusers/pipelines/pag/pag_utils.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_img2img.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_inpaint.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_inpaint.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl_img2img.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_xl_inpaint.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_xl.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_controlnet_sd_xl_img2img.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_3.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_3_img2img.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_hunyuandit.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_kolors.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_pixart_sigma.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sana.py
+  diffusers/src/diffusers/pipelines/pag/pipeline_pag_sd_animatediff.py
+  diffusers/src/diffusers/pipelines/auto_pipeline.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention.py
   Source context from prior reports:
     UNet2DConditionModel and blocks for SD/SDXL/Kolors/AnimateDiff.
     SD3Transformer2DModel for SD3.
@@ -65,11 +65,11 @@ Model files inspected:
     AutoencoderKL and VAE shared modules.
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/guiders/perturbed_attention_guidance.py
-  X:/H/diffusers/src/diffusers/hooks/layer_skip.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/tests/pipelines/pag/
+  diffusers/src/diffusers/guiders/perturbed_attention_guidance.py
+  diffusers/src/diffusers/hooks/layer_skip.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/tests/pipelines/pag/
   agents/plans/diffusers/stable_diffusion_1_5/report.md
   agents/plans/diffusers/stable_diffusion_xl/report.md
   agents/plans/diffusers/stable_diffusion_3/report.md
@@ -638,7 +638,7 @@ with hook/layer-skip metadata.
 - `pag_scale=0.0` regression: output should match the corresponding base
   pipeline within base tolerance, and no PAG processors should be installed.
 - End-to-end tiny PAG smoke for each test file already present under
-  `X:/H/diffusers/tests/pipelines/pag/`.
+  `diffusers/tests/pipelines/pag/`.
 - Suggested tolerances: guidance arithmetic fp32 `rtol=1e-5, atol=1e-6`;
   fp16/bf16 denoiser parity initially `rtol=2e-2, atol=2e-2`, tightened after
   attention/provider-specific validation.

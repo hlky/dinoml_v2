@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: susnato/clvp_dev
 Config source: https://huggingface.co/susnato/clvp_dev/resolve/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/clvp/configuration_clvp.py
-- X:/H/transformers/src/transformers/models/clvp/modeling_clvp.py
-- X:/H/transformers/src/transformers/models/clvp/feature_extraction_clvp.py
-- X:/H/transformers/src/transformers/models/clvp/tokenization_clvp.py
-- X:/H/transformers/src/transformers/models/clvp/number_normalizer.py
-- X:/H/transformers/src/transformers/models/clvp/processing_clvp.py
+- transformers/src/transformers/models/clvp/configuration_clvp.py
+- transformers/src/transformers/models/clvp/modeling_clvp.py
+- transformers/src/transformers/models/clvp/feature_extraction_clvp.py
+- transformers/src/transformers/models/clvp/tokenization_clvp.py
+- transformers/src/transformers/models/clvp/number_normalizer.py
+- transformers/src/transformers/models/clvp/processing_clvp.py
 Any missing files or assumptions: only one native Transformers CLVP checkpoint was found. jbetker/tts-scores-clvp is an open legacy Tortoise CLVP repo with .pth/.json files but no Transformers config.json, so it is not treated as a compatible native checkpoint.
 ```
 

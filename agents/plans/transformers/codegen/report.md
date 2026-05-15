@@ -20,11 +20,11 @@ Model ids/configs inspected:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/codegen/modeling_codegen.py`
+- `transformers/src/transformers/models/codegen/modeling_codegen.py`
   - GitHub URL: <https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/codegen/modeling_codegen.py>
-- `X:/H/transformers/src/transformers/models/codegen/configuration_codegen.py`
+- `transformers/src/transformers/models/codegen/configuration_codegen.py`
   - GitHub URL: <https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/codegen/configuration_codegen.py>
-- `X:/H/transformers/src/transformers/models/codegen/tokenization_codegen.py`
+- `transformers/src/transformers/models/codegen/tokenization_codegen.py`
   - GitHub URL: <https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/codegen/tokenization_codegen.py>
 
 Any missing files or assumptions:

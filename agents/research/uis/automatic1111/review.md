@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/AUTOMATIC1111/stable-diffusion-webui`
+- UI clone: `AUTOMATIC1111/stable-diffusion-webui`
 
 ## Summary
 
@@ -54,51 +54,51 @@ made those preprocessors a normal UI expectation.
 
 ## Code Anchors
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:87`
+- `AUTOMATIC1111/stable-diffusion-webui/README.md:87`
   documents Stable Diffusion 2.0 support.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:90`
+- `AUTOMATIC1111/stable-diffusion-webui/README.md:90`
   documents safetensors loading.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:94`
+- `AUTOMATIC1111/stable-diffusion-webui/README.md:94`
   documents Segmind Stable Diffusion support.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:175`
+- `AUTOMATIC1111/stable-diffusion-webui/README.md:175`
   lists upstream Stable Diffusion references.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_models.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_models.py`
   handles checkpoint discovery/loading.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae.py`
   handles VAE selection/loading.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/`
+- `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/`
   contains built-in LoRA network support.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/textual_inversion/`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/textual_inversion/`
   contains textual inversion embedding support.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/extras.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/extras.py`
   implements checkpoint merge and extras workflows.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/modelloader.py:164`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/modelloader.py:164`
   loads Spandrel models.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/esrgan_model.py:7`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/esrgan_model.py:7`
   registers `UpscalerESRGAN`.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/realesrgan_model.py:39`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/realesrgan_model.py:39`
   loads RealESRGAN via Spandrel.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/dat_model.py:9`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/dat_model.py:9`
   registers DAT upscalers.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/hat_model.py:10`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/hat_model.py:10`
   registers HAT upscalers.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/SwinIR/scripts/swinir_model.py:70`
+- `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/SwinIR/scripts/swinir_model.py:70`
   loads SwinIR.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/ScuNET/scripts/scunet_model.py:64`
+- `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/ScuNET/scripts/scunet_model.py:64`
   loads ScuNET.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/gfpgan_model.py:23`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/gfpgan_model.py:23`
   registers GFPGAN restoration.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/codeformer_model.py:25`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/codeformer_model.py:25`
   registers CodeFormer restoration.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/face_restoration_utils.py:43`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/face_restoration_utils.py:43`
   wraps facexlib face helper behavior.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
   covers BLIP/CLIP interrogation.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/deepbooru.py`
   covers DeepDanbooru tagging.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/scripts/postprocessing_upscale.py`
+- `AUTOMATIC1111/stable-diffusion-webui/scripts/postprocessing_upscale.py`
   implements extras upscaling behavior.
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/scripts/sd_upscale.py`
+- `AUTOMATIC1111/stable-diffusion-webui/scripts/sd_upscale.py`
   implements tiled SD upscale.
 
 ## DinoML Gaps
@@ -116,16 +116,16 @@ made those preprocessors a normal UI expectation.
 ## Further Exploration Additions
 
 - Swin2SR is a supported/upstream-noted upscaler in addition to SwinIR.
-  Anchors: `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:31`,
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/README.md:182`.
+  Anchors: `AUTOMATIC1111/stable-diffusion-webui/README.md:31`,
+  `AUTOMATIC1111/stable-diffusion-webui/README.md:182`.
 - LDSR should be tracked in the cross-UI reference as a diffusion upscaler.
   Anchor:
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/LDSR/scripts/ldsr_model.py:11`.
+  `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/LDSR/scripts/ldsr_model.py:11`.
 - Hypertile exposes U-Net/VAE attention tiling as a runtime/product feature.
   Anchors:
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/hypertile/scripts/hypertile_script.py:85`,
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/hypertile/hypertile.py:318`.
+  `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/hypertile/scripts/hypertile_script.py:85`,
+  `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/hypertile/hypertile.py:318`.
 - Built-in LoRA support includes LyCORIS/OFT/BOFT-style variants.
   Anchors:
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/network_oft.py:13`,
-  `H:/uis/AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/preload.py:8`.
+  `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/network_oft.py:13`,
+  `AUTOMATIC1111/stable-diffusion-webui/extensions-builtin/Lora/preload.py:8`.

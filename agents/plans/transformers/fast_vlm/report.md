@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers; checkpoint configs say transformers_version=4.56.0.dev0.
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers; checkpoint configs say transformers_version=4.56.0.dev0.
 Model id: KamilaMila/FastVLM-0.5B, KamilaMila/FastVLM-1.5B, KamilaMila/FastVLM-7B.
 Config source: local HF snapshots in agents/plans/transformers/fast_vlm/_sources/.
 Source files inspected: fast_vlm configuration/modeling/modular/conversion files; timm_wrapper configuration/modeling; qwen2 configuration/modeling; local installed timm fastvit.py; FastVLM tests/docs.

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary dense text target: baidu/ERNIE-4.5-0.3B-PT and baidu/ERNIE-4.5-0.3B-Base-PT.
@@ -21,10 +21,10 @@ Config source:
   https://huggingface.co/baidu/ERNIE-4.5-VL-28B-A3B-PT/raw/main/config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/ernie4_5/configuration_ernie4_5.py
-  X:/H/transformers/src/transformers/models/ernie4_5/modeling_ernie4_5.py
-  X:/H/transformers/src/transformers/models/ernie4_5/modular_ernie4_5.py
-  X:/H/transformers/src/transformers/models/ernie4_5/convert_ernie4_5_tokenizer.py
+  transformers/src/transformers/models/ernie4_5/configuration_ernie4_5.py
+  transformers/src/transformers/models/ernie4_5/modeling_ernie4_5.py
+  transformers/src/transformers/models/ernie4_5/modular_ernie4_5.py
+  transformers/src/transformers/models/ernie4_5/convert_ernie4_5_tokenizer.py
   Shared helpers searched: modeling_rope_utils.py, masking_utils.py, cache_utils.py
 
 Any missing files or assumptions:

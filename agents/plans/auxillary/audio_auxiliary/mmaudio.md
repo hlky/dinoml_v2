@@ -24,6 +24,6 @@ This is a separate audio/video generation lane. It needs explicit condition tens
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/mmaudio/model/networks.py`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/mmaudio/ext/bigvgan`
+- `deepbeepmeep/Wan2GP/postprocessing/mmaudio/model/networks.py`
+- `deepbeepmeep/Wan2GP/postprocessing/mmaudio/ext/bigvgan`
 

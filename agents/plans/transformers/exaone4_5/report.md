@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: LGAI-EXAONE/EXAONE-4.5-33B, plus FP8 and AWQ variants
 Config source: HF config.json / processor_config.json snapshots under _sources
 Source files inspected:
-  X:/H/transformers/src/transformers/models/exaone4_5/configuration_exaone4_5.py
-  X:/H/transformers/src/transformers/models/exaone4_5/modeling_exaone4_5.py
-  X:/H/transformers/src/transformers/models/exaone4_5/modular_exaone4_5.py
-  X:/H/transformers/src/transformers/models/exaone4_5/processing_exaone4_5.py
-  X:/H/transformers/src/transformers/models/exaone4/configuration_exaone4.py
-  X:/H/transformers/src/transformers/models/exaone4/modeling_exaone4.py
+  transformers/src/transformers/models/exaone4_5/configuration_exaone4_5.py
+  transformers/src/transformers/models/exaone4_5/modeling_exaone4_5.py
+  transformers/src/transformers/models/exaone4_5/modular_exaone4_5.py
+  transformers/src/transformers/models/exaone4_5/processing_exaone4_5.py
+  transformers/src/transformers/models/exaone4/configuration_exaone4.py
+  transformers/src/transformers/models/exaone4/modeling_exaone4.py
 Any missing files or assumptions: video_preprocessor_config.json returned 404; video processor data came from processor_config.json.
 ```
 

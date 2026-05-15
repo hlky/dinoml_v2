@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: depth-anything/prompt-depth-anything-vitl-hf; also checked vits-hf and vits-transparent-hf
 Config source: HF raw config/preprocessor JSON plus Transformers config defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/prompt_depth_anything/configuration_prompt_depth_anything.py
-  X:/H/transformers/src/transformers/models/prompt_depth_anything/modeling_prompt_depth_anything.py
-  X:/H/transformers/src/transformers/models/prompt_depth_anything/modular_prompt_depth_anything.py
-  X:/H/transformers/src/transformers/models/prompt_depth_anything/image_processing_prompt_depth_anything.py
-  X:/H/transformers/src/transformers/models/prompt_depth_anything/convert_prompt_depth_anything_to_hf.py
-  X:/H/transformers/src/transformers/models/dinov2/configuration_dinov2.py
-  X:/H/transformers/src/transformers/models/dinov2/modeling_dinov2.py
+  transformers/src/transformers/models/prompt_depth_anything/configuration_prompt_depth_anything.py
+  transformers/src/transformers/models/prompt_depth_anything/modeling_prompt_depth_anything.py
+  transformers/src/transformers/models/prompt_depth_anything/modular_prompt_depth_anything.py
+  transformers/src/transformers/models/prompt_depth_anything/image_processing_prompt_depth_anything.py
+  transformers/src/transformers/models/prompt_depth_anything/convert_prompt_depth_anything_to_hf.py
+  transformers/src/transformers/models/dinov2/configuration_dinov2.py
+  transformers/src/transformers/models/dinov2/modeling_dinov2.py
 Any missing files or assumptions: no gated repos found; HF lookup for vitb-hf returned not found. modeling_prompt_depth_anything.py is generated from modular_prompt_depth_anything.py, so future source edits should inspect the modular file first.
 ```
 

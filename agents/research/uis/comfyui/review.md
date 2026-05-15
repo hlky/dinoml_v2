@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/Comfy-Org/ComfyUI`
+- UI clone: `Comfy-Org/ComfyUI`
 
 ## Summary
 
@@ -65,49 +65,49 @@ segmentation.
 
 ## Code Anchors
 
-- `H:/uis/Comfy-Org/ComfyUI/README.md:73` lists SDXL/SDXL Turbo support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:75` lists SD3/SD3.5 support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:77` lists AuraFlow support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:78` lists HunyuanDiT support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:79` lists Flux support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:82` lists Qwen Image support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:84` lists Flux 2 support.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:92` starts video model support list.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:100` starts audio model support list.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:109` documents checkpoint/component
+- `Comfy-Org/ComfyUI/README.md:73` lists SDXL/SDXL Turbo support.
+- `Comfy-Org/ComfyUI/README.md:75` lists SD3/SD3.5 support.
+- `Comfy-Org/ComfyUI/README.md:77` lists AuraFlow support.
+- `Comfy-Org/ComfyUI/README.md:78` lists HunyuanDiT support.
+- `Comfy-Org/ComfyUI/README.md:79` lists Flux support.
+- `Comfy-Org/ComfyUI/README.md:82` lists Qwen Image support.
+- `Comfy-Org/ComfyUI/README.md:84` lists Flux 2 support.
+- `Comfy-Org/ComfyUI/README.md:92` starts video model support list.
+- `Comfy-Org/ComfyUI/README.md:100` starts audio model support list.
+- `Comfy-Org/ComfyUI/README.md:109` documents checkpoint/component
   loading.
-- `H:/uis/Comfy-Org/ComfyUI/README.md:119` documents ControlNet/T2I-Adapter.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:30` defines `clip_vision`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:39` defines `upscale_models`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:41` defines
+- `Comfy-Org/ComfyUI/README.md:119` documents ControlNet/T2I-Adapter.
+- `Comfy-Org/ComfyUI/folder_paths.py:30` defines `clip_vision`.
+- `Comfy-Org/ComfyUI/folder_paths.py:39` defines `upscale_models`.
+- `Comfy-Org/ComfyUI/folder_paths.py:41` defines
   `latent_upscale_models`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:53` defines `audio_encoders`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:55` defines
+- `Comfy-Org/ComfyUI/folder_paths.py:53` defines `audio_encoders`.
+- `Comfy-Org/ComfyUI/folder_paths.py:55` defines
   `background_removal`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:57` defines
+- `Comfy-Org/ComfyUI/folder_paths.py:57` defines
   `frame_interpolation`.
-- `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:59` defines `optical_flow`.
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_upscale_model.py`
+- `Comfy-Org/ComfyUI/folder_paths.py:59` defines `optical_flow`.
+- `Comfy-Org/ComfyUI/comfy_extras/nodes_upscale_model.py`
   implements Spandrel upscaler nodes.
-- `H:/uis/Comfy-Org/ComfyUI/nodes.py:1017` loads CLIP vision models.
-- `H:/uis/Comfy-Org/ComfyUI/nodes.py:1053` loads style models.
-- `H:/uis/Comfy-Org/ComfyUI/nodes.py:1152` loads GLIGEN models.
-- `H:/uis/Comfy-Org/ComfyUI/latent_preview.py:39` implements TAESD preview.
-- `H:/uis/Comfy-Org/ComfyUI/latent_preview.py:47` implements TAEHV preview.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/bg_removal_model.py:11` references
+- `Comfy-Org/ComfyUI/nodes.py:1017` loads CLIP vision models.
+- `Comfy-Org/ComfyUI/nodes.py:1053` loads style models.
+- `Comfy-Org/ComfyUI/nodes.py:1152` loads GLIGEN models.
+- `Comfy-Org/ComfyUI/latent_preview.py:39` implements TAESD preview.
+- `Comfy-Org/ComfyUI/latent_preview.py:47` implements TAEHV preview.
+- `Comfy-Org/ComfyUI/comfy/bg_removal_model.py:11` references
   BiRefNet.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py:9`
+- `Comfy-Org/ComfyUI/comfy/audio_encoders/whisper.py:9`
   implements Whisper feature extraction.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/model_detection.py:774` detects SAM3/SAM3.1.
-- `H:/uis/Comfy-Org/ComfyUI/comfy/quant_ops.py:134` implements
+- `Comfy-Org/ComfyUI/comfy/model_detection.py:774` detects SAM3/SAM3.1.
+- `Comfy-Org/ComfyUI/comfy/quant_ops.py:134` implements
   `TensorCoreNVFP4Layout`.
-- `H:/uis/Comfy-Org/ComfyUI/blueprints/Frame Interpolation.json`
+- `Comfy-Org/ComfyUI/blueprints/Frame Interpolation.json`
   downloads FILM interpolation weights.
-- `H:/uis/Comfy-Org/ComfyUI/blueprints/Remove Background (BiRefNet).json`
+- `Comfy-Org/ComfyUI/blueprints/Remove Background (BiRefNet).json`
   downloads BiRefNet weights.
-- `H:/uis/Comfy-Org/ComfyUI/blueprints/Image Segmentation (SAM3).json`
+- `Comfy-Org/ComfyUI/blueprints/Image Segmentation (SAM3).json`
   shows SAM3 mask workflow.
-- `H:/uis/Comfy-Org/ComfyUI/blueprints/Video Segmentation (SAM3).json`
+- `Comfy-Org/ComfyUI/blueprints/Video Segmentation (SAM3).json`
   shows temporally consistent SAM3 video masks.
 
 ## DinoML Gaps
@@ -128,31 +128,31 @@ segmentation.
   LongCat Image, RT-DETR v4, Ernie Image, SAM3/SAM3.1, and CogVideoX
   T2V/I2V/Inpaint are represented in supported model detection.
   Anchors include
-  `H:/uis/Comfy-Org/ComfyUI/comfy/supported_models.py:954`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/supported_models.py:1027`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/supported_models.py:1098`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/supported_models.py:1479`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/supported_models.py:1931`.
+  `Comfy-Org/ComfyUI/comfy/supported_models.py:954`,
+  `Comfy-Org/ComfyUI/comfy/supported_models.py:1027`,
+  `Comfy-Org/ComfyUI/comfy/supported_models.py:1098`,
+  `Comfy-Org/ComfyUI/comfy/supported_models.py:1479`,
+  `Comfy-Org/ComfyUI/comfy/supported_models.py:1931`.
 - Folder taxonomy also includes `hypernetworks`, `photomaker`, `classifiers`,
   `model_patches`, and `custom_nodes`.
-  Anchor: `H:/uis/Comfy-Org/ComfyUI/folder_paths.py:43`.
+  Anchor: `Comfy-Org/ComfyUI/folder_paths.py:43`.
 - Product/API endpoints cover model discovery, extensions, metadata, object
   info, jobs, and prompt submission.
-  Anchors: `H:/uis/Comfy-Org/ComfyUI/server.py:330`,
-  `H:/uis/Comfy-Org/ComfyUI/server.py:624`,
-  `H:/uis/Comfy-Org/ComfyUI/server.py:916`.
+  Anchors: `Comfy-Org/ComfyUI/server.py:330`,
+  `Comfy-Org/ComfyUI/server.py:624`,
+  `Comfy-Org/ComfyUI/server.py:916`.
 - Media/API helpers support audio, video, and 3D uploads, plus job previews for
   image/video/audio/3D/text.
-  Anchors: `H:/uis/Comfy-Org/ComfyUI/comfy_api_nodes/util/upload_helpers.py:113`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy_execution/jobs.py:23`.
+  Anchors: `Comfy-Org/ComfyUI/comfy_api_nodes/util/upload_helpers.py:113`,
+  `Comfy-Org/ComfyUI/comfy_execution/jobs.py:23`.
 - LTX 2.x synchronized audio/video workflows appear in blueprints.
-  Anchors: `H:/uis/Comfy-Org/ComfyUI/blueprints/Canny to Video (LTX 2.0).json:659`,
-  `H:/uis/Comfy-Org/ComfyUI/blueprints/First-Last-Frame to Video.json:2480`.
+  Anchors: `Comfy-Org/ComfyUI/blueprints/Canny to Video (LTX 2.0).json:659`,
+  `Comfy-Org/ComfyUI/blueprints/First-Last-Frame to Video.json:2480`.
 - Audio is broader than Stable Audio/Whisper: latent audio, audio VAE
   encode/decode, tiled decode, FLAC/MP3/Opus save, preview/load/record/trim.
-  Anchor: `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_audio.py:15`.
+  Anchor: `Comfy-Org/ComfyUI/comfy_extras/nodes_audio.py:15`.
 - Runtime formats include fp8 e4m3/e5m2/e8m0, scaled fp8, and NVFP4/fp4
   machinery.
-  Anchors: `H:/uis/Comfy-Org/ComfyUI/nodes.py:936`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/cli_args.py:68`,
-  `H:/uis/Comfy-Org/ComfyUI/comfy/quant_ops.py:134`.
+  Anchors: `Comfy-Org/ComfyUI/nodes.py:936`,
+  `Comfy-Org/ComfyUI/comfy/cli_args.py:68`,
+  `Comfy-Org/ComfyUI/comfy/quant_ops.py:134`.

@@ -17,14 +17,14 @@ Config source: downloaded HF `config.json`, `preprocessor_config.json`, `tokeniz
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/speech_to_text/modeling_speech_to_text.py`
-- `X:/H/transformers/src/transformers/models/speech_to_text/configuration_speech_to_text.py`
-- `X:/H/transformers/src/transformers/models/speech_to_text/feature_extraction_speech_to_text.py`
-- `X:/H/transformers/src/transformers/models/speech_to_text/processing_speech_to_text.py`
-- `X:/H/transformers/src/transformers/models/speech_to_text/tokenization_speech_to_text.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/generation/utils.py`
+- `transformers/src/transformers/models/speech_to_text/modeling_speech_to_text.py`
+- `transformers/src/transformers/models/speech_to_text/configuration_speech_to_text.py`
+- `transformers/src/transformers/models/speech_to_text/feature_extraction_speech_to_text.py`
+- `transformers/src/transformers/models/speech_to_text/processing_speech_to_text.py`
+- `transformers/src/transformers/models/speech_to_text/tokenization_speech_to_text.py`
+- `transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/generation/utils.py`
 
 Pinned source URLs:
 

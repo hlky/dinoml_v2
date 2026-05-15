@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: rednote-hilab/dots.llm1.base, rednote-hilab/dots.llm1.inst, rednote-hilab/dots.llm1.inst-FP8-dynamic
 Config source: Hugging Face raw config.json snapshots saved beside this report
 Source files inspected:
-  X:/H/transformers/src/transformers/models/dots1/modular_dots1.py
-  X:/H/transformers/src/transformers/models/dots1/modeling_dots1.py
-  X:/H/transformers/src/transformers/models/dots1/configuration_dots1.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/modeling_flash_attention_utils.py
-  X:/H/transformers/src/transformers/integrations/moe.py
+  transformers/src/transformers/models/dots1/modular_dots1.py
+  transformers/src/transformers/models/dots1/modeling_dots1.py
+  transformers/src/transformers/models/dots1/configuration_dots1.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/modeling_flash_attention_utils.py
+  transformers/src/transformers/integrations/moe.py
 Any missing files or assumptions:
   modeling_dots1.py and configuration_dots1.py are generated from modular_dots1.py. Future Transformers source edits should target modular_dots1.py.
   No processor/image/audio files exist for dots1. Runtime target is text causal LM.

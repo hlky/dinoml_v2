@@ -24,6 +24,6 @@ Do not model IndexTTS2 as one graph initially. Split into text frontend, LM/acou
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/infer_v2.py`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/pipeline.py`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/infer_v2.py`
 

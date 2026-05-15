@@ -2,7 +2,7 @@
 
 ## Source
 
-- UI clone: `H:/uis/Panchovix/stable-diffusion-webui-reForge`
+- UI clone: `Panchovix/stable-diffusion-webui-reForge`
 
 ## Summary
 
@@ -50,45 +50,45 @@ newer upscaler families.
 
 ## Code Anchors
 
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:11`
+- `Panchovix/stable-diffusion-webui-reForge/README.md:11`
   states Flux/fp8/GGUF/Wan 2.2/Qwen Image/Nunchaku scope.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:96`
+- `Panchovix/stable-diffusion-webui-reForge/README.md:96`
   documents low-VRAM SDXL/SD1.5 targets.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:104`
+- `Panchovix/stable-diffusion-webui-reForge/README.md:104`
   documents CUDA stream model movement.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:106`
+- `Panchovix/stable-diffusion-webui-reForge/README.md:106`
   documents shared-memory offload.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:193`
+- `Panchovix/stable-diffusion-webui-reForge/README.md:193`
   references Hunyuan-DiT extension support.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_controlnet/scripts/controlnet.py`
   integrates Forge ControlNet.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/modules_forge/supported_preprocessor.py:102`
+- `Panchovix/stable-diffusion-webui-reForge/modules_forge/supported_preprocessor.py:102`
   registers built-in none/canny preprocessors.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/modules_forge/supported_controlnet.py:37`
+- `Panchovix/stable-diffusion-webui-reForge/modules_forge/supported_controlnet.py:37`
   defines `ControlNetPatcher`.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_tile/scripts/preprocessor_tile.py:98`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_tile/scripts/preprocessor_tile.py:98`
   registers tile preprocessors.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_revision/scripts/preprocessor_revision.py:91`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_revision/scripts/preprocessor_revision.py:91`
   registers CLIP vision revision preprocessors.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_reference/scripts/forge_reference.py:214`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_reference/scripts/forge_reference.py:214`
   registers reference preprocessors.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_inpaint/scripts/preprocessor_inpaint.py:106`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_inpaint/scripts/preprocessor_inpaint.py:106`
   downloads `ControlNetLama.pth`.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_inpaint/scripts/preprocessor_inpaint.py:217`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_inpaint/scripts/preprocessor_inpaint.py:217`
   registers LaMa inpaint.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_normalbae/scripts/preprocessor_normalbae.py:16`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_normalbae/scripts/preprocessor_normalbae.py:16`
   defines NormalBae preprocessor.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_marigold/scripts/preprocessor_marigold.py:20`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/forge_preprocessor_marigold/scripts/preprocessor_marigold.py:20`
   tags Marigold as depth.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_ipadapter/scripts/forge_ipadapter.py:88`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_ipadapter/scripts/forge_ipadapter.py:88`
   registers IP-Adapter CLIP Vision preprocessors.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_ipadapter/scripts/forge_ipadapter.py:106`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_ipadapter/scripts/forge_ipadapter.py:106`
   registers InsightFace for InstantID.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_photomaker/scripts/forge_photomaker.py:23`
+- `Panchovix/stable-diffusion-webui-reForge/extensions-builtin/sd_forge_photomaker/scripts/forge_photomaker.py:23`
   registers PhotoMaker CLIP vision preprocessor.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/modules/compact_model.py:62`
+- `Panchovix/stable-diffusion-webui-reForge/modules/compact_model.py:62`
   covers Compact upscaler route.
-- `H:/uis/Panchovix/stable-diffusion-webui-reForge/modules/grl_model.py:62`
+- `Panchovix/stable-diffusion-webui-reForge/modules/grl_model.py:62`
   covers GRL upscaler route.
 
 ## DinoML Gaps
@@ -104,14 +104,14 @@ newer upscaler families.
 ## Further Exploration Additions
 
 - PixArt Sigma and Stable Cascade are listed as supported extension paths.
-  Anchors: `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:194`,
-  `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:195`.
+  Anchors: `Panchovix/stable-diffusion-webui-reForge/README.md:194`,
+  `Panchovix/stable-diffusion-webui-reForge/README.md:195`.
 - CFG++ sampler support should be tracked as a sampler/runtime feature.
-  Anchors: `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:18`,
-  `H:/uis/Panchovix/stable-diffusion-webui-reForge/modules_forge/forge_alter_samplers.py:224`.
+  Anchors: `Panchovix/stable-diffusion-webui-reForge/README.md:18`,
+  `Panchovix/stable-diffusion-webui-reForge/modules_forge/forge_alter_samplers.py:224`.
 - Runtime dtype knobs include UNet fp8 e4m3/e5m2, VAE bf16/fp16/fp32, and CLIP
   fp8/fp16/fp32.
-  Anchor: `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:150`.
+  Anchor: `Panchovix/stable-diffusion-webui-reForge/README.md:150`.
 - Sage/Flash attention support is exposed as runtime acceleration.
-  Anchors: `H:/uis/Panchovix/stable-diffusion-webui-reForge/README.md:113`,
-  `H:/uis/Panchovix/stable-diffusion-webui-reForge/ldm_patched/ldm/modules/attention.py:688`.
+  Anchors: `Panchovix/stable-diffusion-webui-reForge/README.md:113`,
+  `Panchovix/stable-diffusion-webui-reForge/ldm_patched/ldm/modules/attention.py:688`.

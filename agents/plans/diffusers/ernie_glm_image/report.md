@@ -6,7 +6,7 @@ Candidate slug: `ernie_glm_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   baidu/ERNIE-Image
@@ -29,25 +29,25 @@ Config sources:
     akshan-main/tiny-ernie-image-modular-pipe at snapshot b55394c5a8a7f54b034db6e5ca253c3b62733e51
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/ernie_image/pipeline_ernie_image.py
-  X:/H/diffusers/src/diffusers/pipelines/glm_image/pipeline_glm_image.py
-  X:/H/diffusers/src/diffusers/modular_pipelines/ernie_image/*.py
+  diffusers/src/diffusers/pipelines/ernie_image/pipeline_ernie_image.py
+  diffusers/src/diffusers/pipelines/glm_image/pipeline_glm_image.py
+  diffusers/src/diffusers/modular_pipelines/ernie_image/*.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_ernie_image.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_glm_image.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_flux2.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/transformer_ernie_image.py
+  diffusers/src/diffusers/models/transformers/transformer_glm_image.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_flux2.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   ERNIE: Mistral3Model / TokenizersBackend text encoder and Ministral3ForCausalLM prompt enhancer configs.

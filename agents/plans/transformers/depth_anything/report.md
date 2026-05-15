@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: depth_anything family; representative checkpoints listed below
 Config source: official Hugging Face config/preprocessor JSON from each model repo, with repo SHA captured in _sources
 Source files inspected:
-- X:/H/transformers/src/transformers/models/depth_anything/configuration_depth_anything.py
-- X:/H/transformers/src/transformers/models/depth_anything/modeling_depth_anything.py
-- X:/H/transformers/src/transformers/models/dpt/image_processing_dpt.py
-- X:/H/transformers/src/transformers/models/dinov2/configuration_dinov2.py
-- X:/H/transformers/src/transformers/models/dinov2/modeling_dinov2.py
-- X:/H/transformers/src/transformers/backbone_utils.py
+- transformers/src/transformers/models/depth_anything/configuration_depth_anything.py
+- transformers/src/transformers/models/depth_anything/modeling_depth_anything.py
+- transformers/src/transformers/models/dpt/image_processing_dpt.py
+- transformers/src/transformers/models/dinov2/configuration_dinov2.py
+- transformers/src/transformers/models/dinov2/modeling_dinov2.py
+- transformers/src/transformers/backbone_utils.py
 Any missing files or assumptions: no native image processor lives under depth_anything; official configs use DPTImageProcessor. No remote-code or gated official repos were required. This report composes the DINOv2 backbone audit instead of re-owning all DINOv2 operator coverage.
 ```
 

@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: ETH-CVG/lightglue_superpoint
 Config source: https://huggingface.co/ETH-CVG/lightglue_superpoint/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/lightglue/configuration_lightglue.py
-  X:/H/transformers/src/transformers/models/lightglue/modeling_lightglue.py
-  X:/H/transformers/src/transformers/models/lightglue/modular_lightglue.py
-  X:/H/transformers/src/transformers/models/lightglue/image_processing_lightglue.py
-  X:/H/transformers/src/transformers/models/lightglue/image_processing_pil_lightglue.py
-  X:/H/transformers/src/transformers/models/superpoint/configuration_superpoint.py
-  X:/H/transformers/src/transformers/models/superpoint/modeling_superpoint.py
+  transformers/src/transformers/models/lightglue/configuration_lightglue.py
+  transformers/src/transformers/models/lightglue/modeling_lightglue.py
+  transformers/src/transformers/models/lightglue/modular_lightglue.py
+  transformers/src/transformers/models/lightglue/image_processing_lightglue.py
+  transformers/src/transformers/models/lightglue/image_processing_pil_lightglue.py
+  transformers/src/transformers/models/superpoint/configuration_superpoint.py
+  transformers/src/transformers/models/superpoint/modeling_superpoint.py
 Any missing files or assumptions:
   modeling_lightglue.py/configuration_lightglue.py/image_processing_* are generated from modular_lightglue.py.
   Future Transformers edits should start from modular_lightglue.py, but DinoML import parity should follow the generated files.

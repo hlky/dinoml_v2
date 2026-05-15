@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` in `transformers`.
 
 Model id: primary public checkpoints are `uw-madison/mra-base-512-4` and `uw-madison/mra-base-4096-8-d3`.
 

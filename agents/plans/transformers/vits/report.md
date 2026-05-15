@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary examples `facebook/mms-tts-eng` and `kakao-enterprise/vits-vctk`; additional config sweep from `facebook/mms-tts-spa`, `facebook/mms-tts-deu`, `facebook/mms-tts-fra`, `kakao-enterprise/vits-ljs`; attempted `facebook/mms-tts-cmn` returned 401.
 
@@ -10,13 +10,13 @@ Config source: `src/transformers/models/vits/configuration_vits.py`; representat
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/vits/modeling_vits.py`
-- `X:/H/transformers/src/transformers/models/vits/configuration_vits.py`
-- `X:/H/transformers/src/transformers/models/vits/tokenization_vits.py`
-- `X:/H/transformers/src/transformers/models/vits/convert_original_checkpoint.py`
-- `X:/H/transformers/src/transformers/pipelines/text_to_audio.py`
-- `X:/H/transformers/tests/models/vits/test_modeling_vits.py`
-- `X:/H/transformers/tests/models/vits/test_tokenization_vits.py`
+- `transformers/src/transformers/models/vits/modeling_vits.py`
+- `transformers/src/transformers/models/vits/configuration_vits.py`
+- `transformers/src/transformers/models/vits/tokenization_vits.py`
+- `transformers/src/transformers/models/vits/convert_original_checkpoint.py`
+- `transformers/src/transformers/pipelines/text_to_audio.py`
+- `transformers/tests/models/vits/test_modeling_vits.py`
+- `transformers/tests/models/vits/test_tokenization_vits.py`
 
 Source URLs at the inspected commit:
 

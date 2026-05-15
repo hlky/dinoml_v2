@@ -6,7 +6,7 @@
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/switch-base-8 as the primary common checkpoint; sweep also covers google/switch-base-{16,32,64,128,256}, google/switch-large-128, google/switch-xxl-128, google/switch-c-2048.
 Config source: official Hugging Face config.json files fetched from https://huggingface.co/{model_id}/resolve/main/config.json on 2026-05-13; snapshots stored beside this report.
-Source files inspected: X:/H/transformers/src/transformers/models/switch_transformers/modeling_switch_transformers.py, configuration_switch_transformers.py, modular_switch_transformers.py; T5 inherited helpers in src/transformers/models/t5/modeling_t5.py; tests/models/switch_transformers/test_modeling_switch_transformers.py.
+Source files inspected: transformers/src/transformers/models/switch_transformers/modeling_switch_transformers.py, configuration_switch_transformers.py, modular_switch_transformers.py; T5 inherited helpers in src/transformers/models/t5/modeling_t5.py; tests/models/switch_transformers/test_modeling_switch_transformers.py.
 Any missing files or assumptions: no gated/401 official configs were encountered for the Google Switch checkpoints listed above. Tokenizer coupling is T5-style SentencePiece from google-t5/t5-small in tests, but tokenizer internals are not model-graph-owned.
 ```
 

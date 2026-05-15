@@ -3,17 +3,17 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from transformers
 Model id: usyd-community/vitpose-base-simple plus representative usyd-community/vitpose-base, vitpose-base-coco-aic-mpii, vitpose-plus-small/base/large/huge
 Config source: HF config.json/preprocessor_config.json fetched 2026-05-13; source defaults from configuration_vitpose.py and configuration_vitpose_backbone.py
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vitpose/configuration_vitpose.py
-  X:/H/transformers/src/transformers/models/vitpose/modeling_vitpose.py
-  X:/H/transformers/src/transformers/models/vitpose/image_processing_vitpose.py
-  X:/H/transformers/src/transformers/models/vitpose/image_processing_pil_vitpose.py
-  X:/H/transformers/src/transformers/models/vitpose/convert_vitpose_to_hf.py
-  X:/H/transformers/src/transformers/models/vitpose_backbone/configuration_vitpose_backbone.py
-  X:/H/transformers/src/transformers/models/vitpose_backbone/modeling_vitpose_backbone.py
+  transformers/src/transformers/models/vitpose/configuration_vitpose.py
+  transformers/src/transformers/models/vitpose/modeling_vitpose.py
+  transformers/src/transformers/models/vitpose/image_processing_vitpose.py
+  transformers/src/transformers/models/vitpose/image_processing_pil_vitpose.py
+  transformers/src/transformers/models/vitpose/convert_vitpose_to_hf.py
+  transformers/src/transformers/models/vitpose_backbone/configuration_vitpose_backbone.py
+  transformers/src/transformers/models/vitpose_backbone/modeling_vitpose_backbone.py
 Any missing files or assumptions: no official sampled configs were gated; no imports, tests, or model execution were run. Effective defaults are inferred from config class defaults when checkpoint JSON omits fields.
 ```
 

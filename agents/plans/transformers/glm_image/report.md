@@ -12,9 +12,9 @@ Any missing files or assumptions: full image synthesis requires the Diffusers GL
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/glm_image/modular_glm_image.py` is the authoritative future-edit source.
+- `transformers/src/transformers/models/glm_image/modular_glm_image.py` is the authoritative future-edit source.
 - `configuration_glm_image.py`, `modeling_glm_image.py`, `image_processing_glm_image.py`, `image_processing_pil_glm_image.py`, `processing_glm_image.py` are generated from the modular source and were used for exact runtime behavior.
-- `X:/H/transformers/docs/source/en/model_doc/glm_image.md`.
+- `transformers/docs/source/en/model_doc/glm_image.md`.
 - Local snapshots saved in this folder:
   - `zai-org_GLM-Image_vision_language_encoder_config.json`
   - `zai-org_GLM-Image_vision_language_encoder_generation_config.json`

@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary: FacebookAI/xlm-roberta-base.
@@ -21,10 +21,10 @@ Config source:
   Snapshots are under agents/plans/transformers/xlm_roberta/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/xlm_roberta/configuration_xlm_roberta.py
-  X:/H/transformers/src/transformers/models/xlm_roberta/modeling_xlm_roberta.py
-  X:/H/transformers/src/transformers/models/xlm_roberta/modular_xlm_roberta.py
-  X:/H/transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py
+  transformers/src/transformers/models/xlm_roberta/configuration_xlm_roberta.py
+  transformers/src/transformers/models/xlm_roberta/modeling_xlm_roberta.py
+  transformers/src/transformers/models/xlm_roberta/modular_xlm_roberta.py
+  transformers/src/transformers/models/xlm_roberta/tokenization_xlm_roberta.py
   Comparison: RoBERTa and CamemBERT modeling/config/tokenizer files at same commit.
 
 Any missing files or assumptions:

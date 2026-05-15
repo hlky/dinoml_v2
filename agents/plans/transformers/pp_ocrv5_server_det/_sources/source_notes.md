@@ -3,7 +3,7 @@
 ## Scope
 
 - DinoML audit target: `pp_ocrv5_server_det`
-- Transformers source root: `X:/H/transformers`
+- Transformers source root: `transformers`
 - Transformers commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Report written under: `H:/dinoml_v2/agents/plans/transformers/pp_ocrv5_server_det/`
 - No DinoML tests, Transformers imports, or model execution were run.

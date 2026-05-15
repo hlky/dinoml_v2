@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary worked example: facebook/xglm-564M.
@@ -21,13 +21,13 @@ Config source:
   were snapshotted where available.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/xglm/configuration_xglm.py
-  X:/H/transformers/src/transformers/models/xglm/modeling_xglm.py
-  X:/H/transformers/src/transformers/models/xglm/tokenization_xglm.py
-  X:/H/transformers/src/transformers/models/xglm/convert_xglm_original_ckpt_to_trfms.py
-  X:/H/transformers/tests/models/xglm/test_modeling_xglm.py
-  X:/H/transformers/tests/models/xglm/test_tokenization_xglm.py
-  X:/H/transformers/src/transformers/convert_slow_tokenizer.py for XGLMConverter.
+  transformers/src/transformers/models/xglm/configuration_xglm.py
+  transformers/src/transformers/models/xglm/modeling_xglm.py
+  transformers/src/transformers/models/xglm/tokenization_xglm.py
+  transformers/src/transformers/models/xglm/convert_xglm_original_ckpt_to_trfms.py
+  transformers/tests/models/xglm/test_modeling_xglm.py
+  transformers/tests/models/xglm/test_tokenization_xglm.py
+  transformers/src/transformers/convert_slow_tokenizer.py for XGLMConverter.
 
 Any missing files or assumptions:
   No remote-code source is required for standard XGLM. No model imports,

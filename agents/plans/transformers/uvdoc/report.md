@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/UVDoc_safetensors
 Config source: https://huggingface.co/PaddlePaddle/UVDoc_safetensors/resolve/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/uvdoc/modular_uvdoc.py
-- X:/H/transformers/src/transformers/models/uvdoc/modeling_uvdoc.py
-- X:/H/transformers/src/transformers/models/uvdoc/configuration_uvdoc.py
-- X:/H/transformers/src/transformers/models/uvdoc/image_processing_uvdoc.py
-- X:/H/transformers/tests/models/uvdoc/test_modeling_uvdoc.py
-- X:/H/transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py, for the modular inheritance source of Conv+BN+activation behavior
+- transformers/src/transformers/models/uvdoc/modular_uvdoc.py
+- transformers/src/transformers/models/uvdoc/modeling_uvdoc.py
+- transformers/src/transformers/models/uvdoc/configuration_uvdoc.py
+- transformers/src/transformers/models/uvdoc/image_processing_uvdoc.py
+- transformers/tests/models/uvdoc/test_modeling_uvdoc.py
+- transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py, for the modular inheritance source of Conv+BN+activation behavior
 Representative configs:
 - PaddlePaddle/UVDoc_safetensors config.json and preprocessor_config.json
 - PaddlePaddle/UVDoc Paddle inference config.json, used only as a non-native deployment-shape reference

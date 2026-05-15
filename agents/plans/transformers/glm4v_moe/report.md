@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`; HF configs report `transformers_version: 4.57.1`.
+Transformers commit/version: local `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`; HF configs report `transformers_version: 4.57.1`.
 
 Model id: primary `zai-org/GLM-4.5V`; quantized variant `zai-org/GLM-4.5V-FP8`; comparison/out-of-scope shared vision family `zai-org/GLM-4.1V-9B-Thinking`.
 

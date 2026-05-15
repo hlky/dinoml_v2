@@ -12,13 +12,13 @@ Model id:
 Config source:
   agents/plans/transformers/janus/_sources/*.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/janus/configuration_janus.py
-  X:/H/transformers/src/transformers/models/janus/modeling_janus.py
-  X:/H/transformers/src/transformers/models/janus/modular_janus.py
-  X:/H/transformers/src/transformers/models/janus/processing_janus.py
-  X:/H/transformers/src/transformers/models/janus/image_processing_janus.py
-  X:/H/transformers/src/transformers/models/janus/image_processing_pil_janus.py
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/janus/configuration_janus.py
+  transformers/src/transformers/models/janus/modeling_janus.py
+  transformers/src/transformers/models/janus/modular_janus.py
+  transformers/src/transformers/models/janus/processing_janus.py
+  transformers/src/transformers/models/janus/image_processing_janus.py
+  transformers/src/transformers/models/janus/image_processing_pil_janus.py
+  transformers/src/transformers/models/llama/modeling_llama.py
 Any missing files or assumptions:
   modeling_janus.py is generated from modular_janus.py. Future Transformers edits
   should usually be checked against modular_janus.py, but runtime behavior was

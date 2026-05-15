@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/timesfm-2.0-500m-pytorch
 Config source: https://huggingface.co/google/timesfm-2.0-500m-pytorch/raw/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/timesfm/configuration_timesfm.py
-  X:/H/transformers/src/transformers/models/timesfm/modeling_timesfm.py
-  X:/H/transformers/src/transformers/models/timesfm/modular_timesfm.py
-  X:/H/transformers/src/transformers/models/timesfm/convert_timesfm_orignal_to_hf.py
-  X:/H/transformers/tests/models/timesfm/test_modeling_timesfm.py
-  X:/H/transformers/docs/source/en/model_doc/timesfm.md
+  transformers/src/transformers/models/timesfm/configuration_timesfm.py
+  transformers/src/transformers/models/timesfm/modeling_timesfm.py
+  transformers/src/transformers/models/timesfm/modular_timesfm.py
+  transformers/src/transformers/models/timesfm/convert_timesfm_orignal_to_hf.py
+  transformers/tests/models/timesfm/test_modeling_timesfm.py
+  transformers/docs/source/en/model_doc/timesfm.md
 Any missing files or assumptions:
   modeling_timesfm.py is generated from modular_timesfm.py. Runtime behavior was
   checked against the generated file; future Transformers source edits should

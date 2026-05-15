@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: Intel/zoedepth-nyu, Intel/zoedepth-kitti, Intel/zoedepth-nyu-kitti
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots
 Source files inspected:
-  X:/H/transformers/src/transformers/models/zoedepth/configuration_zoedepth.py
-  X:/H/transformers/src/transformers/models/zoedepth/modeling_zoedepth.py
-  X:/H/transformers/src/transformers/models/zoedepth/image_processing_zoedepth.py
-  X:/H/transformers/src/transformers/models/zoedepth/image_processing_pil_zoedepth.py
+  transformers/src/transformers/models/zoedepth/configuration_zoedepth.py
+  transformers/src/transformers/models/zoedepth/modeling_zoedepth.py
+  transformers/src/transformers/models/zoedepth/image_processing_zoedepth.py
+  transformers/src/transformers/models/zoedepth/image_processing_pil_zoedepth.py
 Any missing files or assumptions:
   The native source composes a BEiT backbone through load_backbone(config). This report owns the ZoeDepth neck/head and records
   the BEiT feature contract consumed by ZoeDepth, but detailed BEiT operator coverage should reuse a separate BEiT audit.

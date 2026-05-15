@@ -6,7 +6,7 @@ Candidate slug: `kandinsky_family`
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model ids / configs inspected:
   Local model_index cache:

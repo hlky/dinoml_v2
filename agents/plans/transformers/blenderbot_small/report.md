@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/blenderbot_small-90M primary; facebook/blenderbot-90M legacy alias/config peer
 Config source: local config class plus HF raw config snapshots under _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/blenderbot_small/configuration_blenderbot_small.py
-  X:/H/transformers/src/transformers/models/blenderbot_small/modeling_blenderbot_small.py
-  X:/H/transformers/src/transformers/models/blenderbot_small/tokenization_blenderbot_small.py
-  X:/H/transformers/src/transformers/models/blenderbot/modeling_blenderbot.py
-  X:/H/transformers/src/transformers/models/blenderbot/configuration_blenderbot.py
-  X:/H/transformers/src/transformers/masking_utils.py
-  X:/H/transformers/src/transformers/cache_utils.py
-  X:/H/transformers/tests/models/blenderbot_small/test_modeling_blenderbot_small.py
-  X:/H/transformers/tests/models/blenderbot_small/test_tokenization_blenderbot_small.py
+  transformers/src/transformers/models/blenderbot_small/configuration_blenderbot_small.py
+  transformers/src/transformers/models/blenderbot_small/modeling_blenderbot_small.py
+  transformers/src/transformers/models/blenderbot_small/tokenization_blenderbot_small.py
+  transformers/src/transformers/models/blenderbot/modeling_blenderbot.py
+  transformers/src/transformers/models/blenderbot/configuration_blenderbot.py
+  transformers/src/transformers/masking_utils.py
+  transformers/src/transformers/cache_utils.py
+  transformers/tests/models/blenderbot_small/test_modeling_blenderbot_small.py
+  transformers/tests/models/blenderbot_small/test_tokenization_blenderbot_small.py
 Any missing files or assumptions:
   No remote-code files are required. No imports/tests were run. HF configs were fetched from public raw URLs.
 ```

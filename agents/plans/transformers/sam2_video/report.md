@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/sam2_video.1-hiera-tiny / small / base-plus / large family
 Config source: source defaults and conversion script; official raw HF configs returned 401
 Source files inspected:
-- X:/H/transformers/src/transformers/models/sam2_video/configuration_sam2_video.py
-- X:/H/transformers/src/transformers/models/sam2_video/modeling_sam2_video.py
-- X:/H/transformers/src/transformers/models/sam2_video/modular_sam2_video.py
-- X:/H/transformers/src/transformers/models/sam2_video/processing_sam2_video.py
-- X:/H/transformers/src/transformers/models/sam2_video/video_processing_sam2_video.py
-- X:/H/transformers/src/transformers/models/sam2_video/convert_sam2_video_to_hf.py
-- X:/H/transformers/src/transformers/models/sam2/configuration_sam2.py
-- X:/H/transformers/src/transformers/models/sam2/modeling_sam2.py
+- transformers/src/transformers/models/sam2_video/configuration_sam2_video.py
+- transformers/src/transformers/models/sam2_video/modeling_sam2_video.py
+- transformers/src/transformers/models/sam2_video/modular_sam2_video.py
+- transformers/src/transformers/models/sam2_video/processing_sam2_video.py
+- transformers/src/transformers/models/sam2_video/video_processing_sam2_video.py
+- transformers/src/transformers/models/sam2_video/convert_sam2_video_to_hf.py
+- transformers/src/transformers/models/sam2/configuration_sam2.py
+- transformers/src/transformers/models/sam2/modeling_sam2.py
 Any missing files or assumptions:
 - Official raw configs/processors for [facebook/sam2_video.1-hiera-tiny](https://huggingface.co/facebook/sam2_video.1-hiera-tiny), [small](https://huggingface.co/facebook/sam2_video.1-hiera-small), [base-plus](https://huggingface.co/facebook/sam2_video.1-hiera-base-plus), and [large](https://huggingface.co/facebook/sam2_video.1-hiera-large) returned 401. Access would confirm serialized JSON and any non-default processor fields.
 - Generated files identify modular_sam2_video.py as the future-edit source.

@@ -20,6 +20,6 @@ Keep separate from single-image Depth Anything. If native support is added, repr
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/preprocessing/depth_anything_v3/depth.py:266`
-- `X:/H/transformers/src/transformers/models/depth_anything`
+- `deepbeepmeep/Wan2GP/preprocessing/depth_anything_v3/depth.py:266`
+- `transformers/src/transformers/models/depth_anything`
 

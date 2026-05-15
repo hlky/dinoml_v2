@@ -2,7 +2,7 @@
 
 Source checkout:
 
-- `X:/H/transformers`
+- `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Commit date: `2026-05-11 12:26:00 +0000`
 

@@ -2,7 +2,7 @@
 
 ## Local source
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Commit date/subject from local git: `2026-05-11 12:26:00 +0000`, `fix(minicpmv4_6): skip invalid failing tests (#45836)`
 

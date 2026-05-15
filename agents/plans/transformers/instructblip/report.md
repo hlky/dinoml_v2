@@ -13,13 +13,13 @@ Config source:
   Hugging Face config.json, generation_config.json, processor_config.json,
   preprocessor_config.json, tokenizer_config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/instructblip/modeling_instructblip.py
-  X:/H/transformers/src/transformers/models/instructblip/configuration_instructblip.py
-  X:/H/transformers/src/transformers/models/instructblip/processing_instructblip.py
-  X:/H/transformers/src/transformers/models/instructblip/convert_instructblip_original_to_pytorch.py
-  X:/H/transformers/src/transformers/models/blip/image_processing_blip.py
-  X:/H/transformers/docs/source/en/model_doc/instructblip.md
-  X:/H/transformers/tests/models/instructblip/test_modeling_instructblip.py
+  transformers/src/transformers/models/instructblip/modeling_instructblip.py
+  transformers/src/transformers/models/instructblip/configuration_instructblip.py
+  transformers/src/transformers/models/instructblip/processing_instructblip.py
+  transformers/src/transformers/models/instructblip/convert_instructblip_original_to_pytorch.py
+  transformers/src/transformers/models/blip/image_processing_blip.py
+  transformers/docs/source/en/model_doc/instructblip.md
+  transformers/tests/models/instructblip/test_modeling_instructblip.py
 Any missing files or assumptions:
   No remote-code files are required for the inspected Salesforce checkpoints.
   Local source is authoritative. Official HF configs were fetched from public

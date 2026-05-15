@@ -6,7 +6,7 @@ Candidate slug: `easyanimate`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   alibaba-pai/EasyAnimateV5.1-7b-zh-diffusers
@@ -26,22 +26,22 @@ Config sources:
   report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate.py
-  X:/H/diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate_control.py
-  X:/H/diffusers/src/diffusers/pipelines/easyanimate/pipeline_output.py
+  diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate.py
+  diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate_inpaint.py
+  diffusers/src/diffusers/pipelines/easyanimate/pipeline_easyanimate_control.py
+  diffusers/src/diffusers/pipelines/easyanimate/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_easyanimate.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_magvit.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_easyanimate.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_magvit.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   Qwen2VLForConditionalGeneration and Qwen2Tokenizer configs from the official

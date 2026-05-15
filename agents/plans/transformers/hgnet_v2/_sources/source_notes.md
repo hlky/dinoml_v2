@@ -4,7 +4,7 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Primary source: `src/transformers/models/hgnet_v2/modular_hgnet_v2.py`
 - Generated runtime files: `src/transformers/models/hgnet_v2/modeling_hgnet_v2.py`, `src/transformers/models/hgnet_v2/configuration_hgnet_v2.py`

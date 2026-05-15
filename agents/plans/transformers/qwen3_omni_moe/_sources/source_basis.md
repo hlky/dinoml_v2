@@ -4,10 +4,10 @@ Date: 2026-05-13
 
 ## Local Transformers checkout
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Last commit summary: `b75feb2af6 fix(minicpmv4_6): skip invalid failing tests (#45836)`
-- Family path: `X:/H/transformers/src/transformers/models/qwen3_omni_moe`
+- Family path: `transformers/src/transformers/models/qwen3_omni_moe`
 
 ## Files inspected
 

@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: deepseek-community/deepseek-vl-7b-base and deepseek-community/deepseek-vl-7b-chat
 Config source: HF config/preprocessor/processor/tokenizer pages plus local source defaults
 Source files inspected: configuration_deepseek_vl_hybrid.py, modeling_deepseek_vl_hybrid.py, modular_deepseek_vl_hybrid.py, processing_deepseek_vl_hybrid.py, image_processing_deepseek_vl_hybrid.py, image_processing_pil_deepseek_vl_hybrid.py, convert_deepseek_vl_hybrid_weights_to_hf.py; composed llama/siglip/sam source files

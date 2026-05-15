@@ -2,9 +2,9 @@
 
 Local source basis:
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/paddleocr_vl`
+- Family directory: `transformers/src/transformers/models/paddleocr_vl`
 
 Downloaded Hugging Face snapshots:
 

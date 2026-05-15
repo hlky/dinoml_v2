@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id:
 
@@ -23,10 +23,10 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/camembert/modeling_camembert.py`
-- `X:/H/transformers/src/transformers/models/camembert/modular_camembert.py`
-- `X:/H/transformers/src/transformers/models/camembert/configuration_camembert.py`
-- `X:/H/transformers/src/transformers/models/camembert/tokenization_camembert.py`
+- `transformers/src/transformers/models/camembert/modeling_camembert.py`
+- `transformers/src/transformers/models/camembert/modular_camembert.py`
+- `transformers/src/transformers/models/camembert/configuration_camembert.py`
+- `transformers/src/transformers/models/camembert/tokenization_camembert.py`
 - Comparison points: RoBERTa and XLM-RoBERTa modeling/config/tokenizer files at the same commit.
 
 Any missing files or assumptions:

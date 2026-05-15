@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -18,12 +18,12 @@ Config source:
   Additional configs and preprocessors fetched from Hugging Face repos listed above.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/whisper/modeling_whisper.py
-  X:/H/transformers/src/transformers/models/whisper/configuration_whisper.py
-  X:/H/transformers/src/transformers/models/whisper/feature_extraction_whisper.py
-  X:/H/transformers/src/transformers/models/whisper/processing_whisper.py
-  X:/H/transformers/src/transformers/models/whisper/tokenization_whisper.py
-  X:/H/transformers/src/transformers/models/whisper/generation_whisper.py
+  transformers/src/transformers/models/whisper/modeling_whisper.py
+  transformers/src/transformers/models/whisper/configuration_whisper.py
+  transformers/src/transformers/models/whisper/feature_extraction_whisper.py
+  transformers/src/transformers/models/whisper/processing_whisper.py
+  transformers/src/transformers/models/whisper/tokenization_whisper.py
+  transformers/src/transformers/models/whisper/generation_whisper.py
 
 Any missing files or assumptions:
   No remote-code files are required for standard OpenAI Whisper checkpoints.

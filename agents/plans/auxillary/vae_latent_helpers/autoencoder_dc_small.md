@@ -22,6 +22,6 @@ Treat each codec class as its own artifact family. For first support, parse the 
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_dc.py`
-- `H:/uis/vladmandic/sdnext/modules/vae/sd_vae_taesd.py:139`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_dc.py`
+- `vladmandic/sdnext/modules/vae/sd_vae_taesd.py:139`
 

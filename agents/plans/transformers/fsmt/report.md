@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+  b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 
 Model id:
   Primary representative family: facebook/wmt19-{en-ru,ru-en,en-de,de-en}
@@ -15,12 +15,12 @@ Config source:
   H:/dinoml_v2/agents/plans/transformers/fsmt/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/fsmt/configuration_fsmt.py
-  X:/H/transformers/src/transformers/models/fsmt/modeling_fsmt.py
-  X:/H/transformers/src/transformers/models/fsmt/tokenization_fsmt.py
-  X:/H/transformers/src/transformers/models/fsmt/convert_fsmt_original_pytorch_checkpoint_to_pytorch.py
-  X:/H/transformers/tests/models/fsmt/test_modeling_fsmt.py
-  X:/H/transformers/tests/models/fsmt/test_tokenization_fsmt.py
+  transformers/src/transformers/models/fsmt/configuration_fsmt.py
+  transformers/src/transformers/models/fsmt/modeling_fsmt.py
+  transformers/src/transformers/models/fsmt/tokenization_fsmt.py
+  transformers/src/transformers/models/fsmt/convert_fsmt_original_pytorch_checkpoint_to_pytorch.py
+  transformers/tests/models/fsmt/test_modeling_fsmt.py
+  transformers/tests/models/fsmt/test_tokenization_fsmt.py
 
 Any missing files or assumptions:
   No remote code is required for official WMT19 checkpoints. The tiny debug checkpoint could not be fetched without

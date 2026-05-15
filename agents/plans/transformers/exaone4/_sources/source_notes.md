@@ -3,24 +3,24 @@
 ## Scope
 
 - DinoML audit target: `exaone4`
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Verified commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Report output: `H:/dinoml_v2/agents/plans/transformers/exaone4/report.md`
 - No DinoML tests or Python imports were run.
 
 ## Local source files inspected
 
-- `X:/H/transformers/src/transformers/models/exaone4/configuration_exaone4.py`
-- `X:/H/transformers/src/transformers/models/exaone4/modeling_exaone4.py`
-- `X:/H/transformers/src/transformers/models/exaone4/modular_exaone4.py`
+- `transformers/src/transformers/models/exaone4/configuration_exaone4.py`
+- `transformers/src/transformers/models/exaone4/modeling_exaone4.py`
+- `transformers/src/transformers/models/exaone4/modular_exaone4.py`
 - Supporting inherited/shared behavior:
-  - `X:/H/transformers/src/transformers/models/gemma2/modeling_gemma2.py`
-  - `X:/H/transformers/src/transformers/models/llama/modeling_llama.py`
-  - `X:/H/transformers/src/transformers/models/olmo2/modeling_olmo2.py`
-  - `X:/H/transformers/src/transformers/modeling_rope_utils.py`
-  - `X:/H/transformers/src/transformers/cache_utils.py`
-  - `X:/H/transformers/src/transformers/masking_utils.py`
-  - `X:/H/transformers/src/transformers/generation/utils.py`
+  - `transformers/src/transformers/models/gemma2/modeling_gemma2.py`
+  - `transformers/src/transformers/models/llama/modeling_llama.py`
+  - `transformers/src/transformers/models/olmo2/modeling_olmo2.py`
+  - `transformers/src/transformers/modeling_rope_utils.py`
+  - `transformers/src/transformers/cache_utils.py`
+  - `transformers/src/transformers/masking_utils.py`
+  - `transformers/src/transformers/generation/utils.py`
 
 ## Hugging Face config URLs checked
 

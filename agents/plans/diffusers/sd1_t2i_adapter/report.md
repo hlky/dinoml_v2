@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
   Remote upstream: https://github.com/huggingface/diffusers.git
 
 Model id(s):
@@ -46,25 +46,25 @@ Config sources:
     https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5/raw/main/scheduler/scheduler_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_adapter.py
-  X:/H/diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_xl_adapter.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
+  diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_adapter.py
+  diffusers/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_xl_adapter.py
+  diffusers/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/adapter.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_condition.py
-  X:/H/diffusers/src/diffusers/models/unets/unet_2d_blocks.py
-  X:/H/diffusers/src/diffusers/models/resnet.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/adapter.py
+  diffusers/src/diffusers/models/unets/unet_2d_condition.py
+  diffusers/src/diffusers/models/unets/unet_2d_blocks.py
+  diffusers/src/diffusers/models/resnet.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
 
 External component configs inspected:
   Base SD 1.5 UNet, VAE, and scheduler configs listed above. CLIP text encoder

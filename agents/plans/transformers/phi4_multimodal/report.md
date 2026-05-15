@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: native source targets `microsoft/Phi-4-multimodal-instruct`; public checkpoint configs are mostly historical remote-code schema (`phi4mm`), not a clean native `phi4_multimodal` config.
 

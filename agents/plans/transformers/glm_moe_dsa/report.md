@@ -4,7 +4,7 @@
 
 Transformers commit/version:
 
-- Local checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Local checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Source package appears to target the 2026-era Transformers mainline; inspected files are generated from modular source.
 
 Model id:

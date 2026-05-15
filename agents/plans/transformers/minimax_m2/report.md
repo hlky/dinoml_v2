@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: MiniMaxAI/MiniMax-M2.7 as the primary current representative; MiniMaxAI/MiniMax-M2, M2.1, and M2.5 also inspected.
 Config source: Hugging Face raw config.json snapshots fetched 2026-05-13 and stored beside this report.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/minimax_m2/modular_minimax_m2.py
-- X:/H/transformers/src/transformers/models/minimax_m2/configuration_minimax_m2.py
-- X:/H/transformers/src/transformers/models/minimax_m2/modeling_minimax_m2.py
-- X:/H/transformers/src/transformers/models/flex_olmo/modeling_flex_olmo.py
-- X:/H/transformers/src/transformers/models/glm4_moe/modeling_glm4_moe.py
-- X:/H/transformers/src/transformers/modeling_gguf_pytorch_utils.py
-- X:/H/transformers/src/transformers/integrations/ggml.py
-- X:/H/transformers/src/transformers/conversion_mapping.py
+- transformers/src/transformers/models/minimax_m2/modular_minimax_m2.py
+- transformers/src/transformers/models/minimax_m2/configuration_minimax_m2.py
+- transformers/src/transformers/models/minimax_m2/modeling_minimax_m2.py
+- transformers/src/transformers/models/flex_olmo/modeling_flex_olmo.py
+- transformers/src/transformers/models/glm4_moe/modeling_glm4_moe.py
+- transformers/src/transformers/modeling_gguf_pytorch_utils.py
+- transformers/src/transformers/integrations/ggml.py
+- transformers/src/transformers/conversion_mapping.py
 Any missing files or assumptions: no MiniMax M2 processor exists; tokenizer/generation configs were sampled from the Hub only for ABI notes. No weights were downloaded.
 ```
 

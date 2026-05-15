@@ -22,7 +22,7 @@ Treat as a composite TTS product target. Native support should begin by identify
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/chatterbox/pipeline.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/chatterbox/mtl_tts.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/chatterbox/vc.py`
+- `deepbeepmeep/Wan2GP/models/TTS/chatterbox/pipeline.py`
+- `deepbeepmeep/Wan2GP/models/TTS/chatterbox/mtl_tts.py`
+- `deepbeepmeep/Wan2GP/models/TTS/chatterbox/vc.py`
 

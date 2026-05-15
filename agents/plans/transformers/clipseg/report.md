@@ -6,7 +6,7 @@ Primary target: `CLIPSegForImageSegmentation` zero-shot/one-shot image segmentat
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary production checkpoint: CIDAS/clipseg-rd64-refined.
@@ -18,13 +18,13 @@ Config source:
   model API metadata, and local Transformers source defaults.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/clipseg/modeling_clipseg.py
-  X:/H/transformers/src/transformers/models/clipseg/modular_clipseg.py
-  X:/H/transformers/src/transformers/models/clipseg/configuration_clipseg.py
-  X:/H/transformers/src/transformers/models/clipseg/processing_clipseg.py
-  X:/H/transformers/src/transformers/models/clipseg/convert_clipseg_original_pytorch_to_hf.py
-  X:/H/transformers/tests/models/clipseg/test_modeling_clipseg.py
-  X:/H/transformers/tests/models/clipseg/test_processing_clipseg.py
+  transformers/src/transformers/models/clipseg/modeling_clipseg.py
+  transformers/src/transformers/models/clipseg/modular_clipseg.py
+  transformers/src/transformers/models/clipseg/configuration_clipseg.py
+  transformers/src/transformers/models/clipseg/processing_clipseg.py
+  transformers/src/transformers/models/clipseg/convert_clipseg_original_pytorch_to_hf.py
+  transformers/tests/models/clipseg/test_modeling_clipseg.py
+  transformers/tests/models/clipseg/test_processing_clipseg.py
   Prior reports: agents/plans/transformers/clip/report.md and
   agents/plans/transformers/vit/report.md.
 

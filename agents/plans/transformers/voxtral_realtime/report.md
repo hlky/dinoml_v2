@@ -12,12 +12,12 @@ DinoML assumptions: inference-only first, CUDA GPU target, stateful streaming se
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/configuration_voxtral_realtime.py`
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/modeling_voxtral_realtime.py`
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/modular_voxtral_realtime.py`
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/feature_extraction_voxtral_realtime.py`
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/processing_voxtral_realtime.py`
-- `X:/H/transformers/src/transformers/models/voxtral_realtime/convert_voxtral_realtime_weights_to_hf.py`
+- `transformers/src/transformers/models/voxtral_realtime/configuration_voxtral_realtime.py`
+- `transformers/src/transformers/models/voxtral_realtime/modeling_voxtral_realtime.py`
+- `transformers/src/transformers/models/voxtral_realtime/modular_voxtral_realtime.py`
+- `transformers/src/transformers/models/voxtral_realtime/feature_extraction_voxtral_realtime.py`
+- `transformers/src/transformers/models/voxtral_realtime/processing_voxtral_realtime.py`
+- `transformers/src/transformers/models/voxtral_realtime/convert_voxtral_realtime_weights_to_hf.py`
 - Neighbor/composed source: `voxtral`, `auto/modeling_auto.py`, `auto/processing_auto.py`, `auto/feature_extraction_auto.py`, `auto/tokenization_auto.py`
 
 `modeling_voxtral_realtime.py` is generated from `modular_voxtral_realtime.py`; treat the modular file as authoritative for future upstream source edits. Source notes and config snapshots are summarized in `_sources/source_notes.md`.

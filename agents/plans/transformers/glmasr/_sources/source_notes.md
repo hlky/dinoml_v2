@@ -2,7 +2,7 @@
 
 Audit date: 2026-05-13
 
-Transformers source checkout: `X:/H/transformers`
+Transformers source checkout: `transformers`
 Pinned commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 
 ## Local source files inspected

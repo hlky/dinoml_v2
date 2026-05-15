@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: no public Hub checkpoint with model_type=instructblipvideo found by name search; representative Salesforce InstructBLIP configs inspected because the video docs/examples reuse those repos.
 Config source: local source defaults plus Hub config/processor snapshots copied into this folder.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/instructblipvideo/configuration_instructblipvideo.py
-- X:/H/transformers/src/transformers/models/instructblipvideo/modeling_instructblipvideo.py
-- X:/H/transformers/src/transformers/models/instructblipvideo/modular_instructblipvideo.py
-- X:/H/transformers/src/transformers/models/instructblipvideo/processing_instructblipvideo.py
-- X:/H/transformers/src/transformers/models/instructblipvideo/video_processing_instructblipvideo.py
+- transformers/src/transformers/models/instructblipvideo/configuration_instructblipvideo.py
+- transformers/src/transformers/models/instructblipvideo/modeling_instructblipvideo.py
+- transformers/src/transformers/models/instructblipvideo/modular_instructblipvideo.py
+- transformers/src/transformers/models/instructblipvideo/processing_instructblipvideo.py
+- transformers/src/transformers/models/instructblipvideo/video_processing_instructblipvideo.py
 Any missing files or assumptions: modeling/config files are generated from modular_instructblipvideo.py; future source edits should inspect the modular file first. The public Salesforce checkpoints are mostly model_type=instructblip and use image processors, not native instructblipvideo configs; treat them as representative dimensional anchors, not proof of native video checkpoint coverage.
 ```
 

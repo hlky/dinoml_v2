@@ -4,7 +4,7 @@ Scope: Transformers `olmo3` source audit for DinoML planning. No DinoML tests or
 
 ## Local source
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Runtime files:
   - `src/transformers/models/olmo3/modeling_olmo3.py`

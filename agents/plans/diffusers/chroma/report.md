@@ -6,7 +6,7 @@ Candidate slug: `chroma`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   lodestones/Chroma
@@ -41,27 +41,27 @@ Config sources:
   H:/configs/lodestones/Chroma1-HD/tokenizer/tokenizer_config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/chroma/pipeline_chroma.py
-  X:/H/diffusers/src/diffusers/pipelines/chroma/pipeline_chroma_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/chroma/pipeline_chroma_inpainting.py
-  X:/H/diffusers/src/diffusers/pipelines/chroma/pipeline_output.py
+  diffusers/src/diffusers/pipelines/chroma/pipeline_chroma.py
+  diffusers/src/diffusers/pipelines/chroma/pipeline_chroma_img2img.py
+  diffusers/src/diffusers/pipelines/chroma/pipeline_chroma_inpainting.py
+  diffusers/src/diffusers/pipelines/chroma/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_chroma.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_flux.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/transformer_chroma.py
+  diffusers/src/diffusers/models/transformers/transformer_flux.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/ip_adapter.py
-  X:/H/diffusers/src/diffusers/loaders/transformer_flux.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/ip_adapter.py
+  diffusers/src/diffusers/loaders/transformer_flux.py
 
 External component configs inspected:
   T5EncoderModel / T5Tokenizer configs from Chroma repos, matching

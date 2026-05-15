@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`, local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`, local checkout `transformers`.
 
 Model id: family `deberta`, config `model_type="deberta"`. Primary production references: `microsoft/deberta-base`, `microsoft/deberta-large`, `microsoft/deberta-xlarge`, and `microsoft/deberta-base-mnli`.
 
@@ -16,10 +16,10 @@ Config source: fetched Hugging Face `config.json` files into `_sources/` from:
 
 Source files inspected and snapshotted:
 
-- `X:/H/transformers/src/transformers/models/deberta/modeling_deberta.py`
-- `X:/H/transformers/src/transformers/models/deberta/configuration_deberta.py`
-- `X:/H/transformers/src/transformers/models/deberta/tokenization_deberta.py`
-- Comparison only: `X:/H/transformers/src/transformers/models/deberta_v2/modeling_deberta_v2.py`
+- `transformers/src/transformers/models/deberta/modeling_deberta.py`
+- `transformers/src/transformers/models/deberta/configuration_deberta.py`
+- `transformers/src/transformers/models/deberta/tokenization_deberta.py`
+- Comparison only: `transformers/src/transformers/models/deberta_v2/modeling_deberta_v2.py`
 
 Commit-pinned source URLs:
 

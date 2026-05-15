@@ -23,7 +23,7 @@ This is a fast preview/codec path, not identical to full AutoencoderKL. Track la
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_tiny.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/taesd/taesd.py`
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_taesd.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_tiny.py`
+- `Comfy-Org/ComfyUI/comfy/taesd/taesd.py`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/sd_vae_taesd.py`
 

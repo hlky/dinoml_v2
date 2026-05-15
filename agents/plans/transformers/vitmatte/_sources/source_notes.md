@@ -2,7 +2,7 @@
 
 Source basis:
 
-- Transformers checkout: `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Transformers checkout: `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 - Native source inspected:
   - `src/transformers/models/vitmatte/configuration_vitmatte.py`
   - `src/transformers/models/vitmatte/modeling_vitmatte.py`

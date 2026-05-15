@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: kyutai/helium-1-preview and kyutai/helium-1-preview-2b
 Config source: public Hugging Face raw config.json plus HeliumConfig defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/helium/configuration_helium.py
-- X:/H/transformers/src/transformers/models/helium/modeling_helium.py
-- X:/H/transformers/src/transformers/models/helium/modular_helium.py
-- X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-- X:/H/transformers/src/transformers/models/granite/modeling_granite.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/tests/models/helium/test_modeling_helium.py
+- transformers/src/transformers/models/helium/configuration_helium.py
+- transformers/src/transformers/models/helium/modeling_helium.py
+- transformers/src/transformers/models/helium/modular_helium.py
+- transformers/src/transformers/models/llama/modeling_llama.py
+- transformers/src/transformers/models/granite/modeling_granite.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/tests/models/helium/test_modeling_helium.py
 Any missing files or assumptions: no processor/image/audio files exist for this family. The generated modeling_helium.py is the runtime file; modular_helium.py is authoritative for future Transformers source edits.
 ```
 

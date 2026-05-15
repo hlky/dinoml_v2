@@ -1,6 +1,6 @@
 # sam3_video source notes
 
-Audit target: `sam3_video` in `X:/H/transformers/src/transformers/models/sam3_video` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Audit target: `sam3_video` in `transformers/src/transformers/models/sam3_video` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Files read:
 

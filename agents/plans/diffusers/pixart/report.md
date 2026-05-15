@@ -15,7 +15,7 @@ dropout/gradient checkpointing, multi-GPU/context parallel, callbacks/interrupt.
 
 ```text
 Diffusers commit/version:
-  X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   PixArt-alpha/PixArt-XL-2-512x512
@@ -39,23 +39,23 @@ Config sources:
     returned 404.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py
-  X:/H/diffusers/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_sigma.py
+  diffusers/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_alpha.py
+  diffusers/src/diffusers/pipelines/pixart_alpha/pipeline_pixart_sigma.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/pixart_transformer_2d.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/pixart_transformer_2d.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   T5EncoderModel / T5Tokenizer configs from the official PixArt repos.

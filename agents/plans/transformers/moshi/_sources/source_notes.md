@@ -1,6 +1,6 @@
 # Moshi Source Notes
 
-Audit scope: Transformers `moshi` family only, source checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Audit scope: Transformers `moshi` family only, source checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## Local source files inspected
 

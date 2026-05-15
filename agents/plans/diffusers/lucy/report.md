@@ -6,7 +6,7 @@ Candidate slug: `lucy`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   decart-ai/Lucy-Edit-Dev
@@ -30,31 +30,31 @@ Config sources:
   this worker owns only this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/lucy/pipeline_lucy_edit.py
-  X:/H/diffusers/src/diffusers/pipelines/lucy/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/lucy/__init__.py
+  diffusers/src/diffusers/pipelines/lucy/pipeline_lucy_edit.py
+  diffusers/src/diffusers/pipelines/lucy/pipeline_output.py
+  diffusers/src/diffusers/pipelines/lucy/__init__.py
   Nearby Wan variant files for separate-candidate inventory:
-    X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan.py
-    X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_i2v.py
-    X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_video2video.py
-    X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_vace.py
-    X:/H/diffusers/src/diffusers/pipelines/wan/pipeline_wan_animate.py
+    diffusers/src/diffusers/pipelines/wan/pipeline_wan.py
+    diffusers/src/diffusers/pipelines/wan/pipeline_wan_i2v.py
+    diffusers/src/diffusers/pipelines/wan/pipeline_wan_video2video.py
+    diffusers/src/diffusers/pipelines/wan/pipeline_wan_vace.py
+    diffusers/src/diffusers/pipelines/wan/pipeline_wan_animate.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_wan.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_wan.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_wan.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
   Existing nearby reports:
     agents/plans/diffusers/wan/report.md
     agents/plans/diffusers/video_autoencoders/report.md

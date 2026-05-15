@@ -12,11 +12,11 @@ Any missing files or assumptions: no target_vocab.json was accessible for sample
 
 Primary source files:
 
-- `X:/H/transformers/src/transformers/models/marian/modeling_marian.py`
-- `X:/H/transformers/src/transformers/models/marian/configuration_marian.py`
-- `X:/H/transformers/src/transformers/models/marian/tokenization_marian.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/models/marian/modeling_marian.py`
+- `transformers/src/transformers/models/marian/configuration_marian.py`
+- `transformers/src/transformers/models/marian/tokenization_marian.py`
+- `transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/cache_utils.py`
 
 Representative config snapshots are stored under `agents/plans/transformers/marian/_sources/` for:
 

@@ -2,11 +2,11 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`, `git rev-parse HEAD = b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
-- Family directory: `X:/H/transformers/src/transformers/models/pp_doclayout_v2`.
+- Transformers checkout: `transformers`, `git rev-parse HEAD = b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+- Family directory: `transformers/src/transformers/models/pp_doclayout_v2`.
 - Generated files all state they are produced from `modular_pp_doclayout_v2.py`; use generated files for exact runtime audit and modular file as future edit authority.
-- Nested backbone source inspected: `X:/H/transformers/src/transformers/models/hgnet_v2`.
-- Hub-kernel dispatch inspected: `X:/H/transformers/src/transformers/integrations/hub_kernels.py`.
+- Nested backbone source inspected: `transformers/src/transformers/models/hgnet_v2`.
+- Hub-kernel dispatch inspected: `transformers/src/transformers/integrations/hub_kernels.py`.
 
 ## Hugging Face checkpoint/config basis
 

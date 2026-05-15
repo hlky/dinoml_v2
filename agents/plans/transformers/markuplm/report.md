@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/markuplm-base, microsoft/markuplm-large, microsoft/markuplm-base-finetuned-websrc
 Config source: official HF raw config/tokenizer JSON where accessible, plus source defaults in configuration_markuplm.py
 Source files inspected:
-  X:/H/transformers/src/transformers/models/markuplm/configuration_markuplm.py
-  X:/H/transformers/src/transformers/models/markuplm/modeling_markuplm.py
-  X:/H/transformers/src/transformers/models/markuplm/tokenization_markuplm.py
-  X:/H/transformers/src/transformers/models/markuplm/feature_extraction_markuplm.py
-  X:/H/transformers/src/transformers/models/markuplm/processing_markuplm.py
-  X:/H/transformers/src/transformers/models/markuplm/__init__.py
+  transformers/src/transformers/models/markuplm/configuration_markuplm.py
+  transformers/src/transformers/models/markuplm/modeling_markuplm.py
+  transformers/src/transformers/models/markuplm/tokenization_markuplm.py
+  transformers/src/transformers/models/markuplm/feature_extraction_markuplm.py
+  transformers/src/transformers/models/markuplm/processing_markuplm.py
+  transformers/src/transformers/models/markuplm/__init__.py
 Any missing files or assumptions:
   No separate tokenization_markuplm_fast.py exists in this checkout; MarkupLMTokenizerFast aliases MarkupLMTokenizer.
   Current native source has no exported MarkupLMForPretraining or MarkupLMForMaskedLM despite public base configs declaring MarkupLMForPretraining.

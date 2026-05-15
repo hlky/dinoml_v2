@@ -1,7 +1,7 @@
 Source snapshots for the DinoML DeiT Transformers audit.
 
 Transformers checkout:
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 
 Copied source files:

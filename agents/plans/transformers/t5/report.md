@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -20,9 +20,9 @@ Config source:
   AutoModelForSeq2SeqLM, about 60.5M parameters.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/t5/modeling_t5.py
-  X:/H/transformers/src/transformers/models/t5/configuration_t5.py
-  X:/H/transformers/src/transformers/models/t5/tokenization_t5.py
+  transformers/src/transformers/models/t5/modeling_t5.py
+  transformers/src/transformers/models/t5/configuration_t5.py
+  transformers/src/transformers/models/t5/tokenization_t5.py
 
 Any missing files or assumptions:
   No remote-code files are required for standard T5. The report assumes

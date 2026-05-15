@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: codellama/CodeLlama-* HF checkpoints, implemented by model_type="llama"
 Config source: downloaded config/tokenizer/generation JSON snapshots in _sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/code_llama/tokenization_code_llama.py
-- X:/H/transformers/src/transformers/models/code_llama/__init__.py
-- X:/H/transformers/src/transformers/models/llama/configuration_llama.py
-- X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-- X:/H/transformers/src/transformers/modeling_rope_utils.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/models/code_llama/tokenization_code_llama.py
+- transformers/src/transformers/models/code_llama/__init__.py
+- transformers/src/transformers/models/llama/configuration_llama.py
+- transformers/src/transformers/models/llama/modeling_llama.py
+- transformers/src/transformers/modeling_rope_utils.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
 Any missing files or assumptions:
 - There is no CodeLlama modeling or configuration file in this Transformers commit. CodeLlama model configs use model_type="llama" and architectures=["LlamaForCausalLM"], so runtime coverage is shared with Llama.
 - meta-llama CodeLlama repos returned 401 without credentials: [7B](https://huggingface.co/meta-llama/CodeLlama-7b-hf), [7B Python](https://huggingface.co/meta-llama/CodeLlama-7b-Python-hf), [13B Instruct](https://huggingface.co/meta-llama/CodeLlama-13b-Instruct-hf), [34B](https://huggingface.co/meta-llama/CodeLlama-34b-hf), [70B](https://huggingface.co/meta-llama/CodeLlama-70b-hf). Accepted gated access plus an HF token would resolve this.

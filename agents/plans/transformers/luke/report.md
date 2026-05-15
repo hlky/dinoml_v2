@@ -3,7 +3,7 @@
 ## 1. Source basis
 
 Transformers commit/version:
-`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`. Sampled checkpoint configs report older `transformers_version` values (`4.6.0.dev0` or `4.15.0`), so source behavior below is based on the current local in-library implementation, not historical remote code.
+`b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`. Sampled checkpoint configs report older `transformers_version` values (`4.6.0.dev0` or `4.15.0`), so source behavior below is based on the current local in-library implementation, not historical remote code.
 
 Model id:
 Primary source/checkpoint family `studio-ousia/luke-*`. Representative configs were fetched from Hugging Face and saved under `_sources/`.
@@ -18,10 +18,10 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/luke/configuration_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/modeling_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/tokenization_luke.py`
-- `X:/H/transformers/src/transformers/models/luke/convert_luke_original_pytorch_checkpoint_to_pytorch.py`
+- `transformers/src/transformers/models/luke/configuration_luke.py`
+- `transformers/src/transformers/models/luke/modeling_luke.py`
+- `transformers/src/transformers/models/luke/tokenization_luke.py`
+- `transformers/src/transformers/models/luke/convert_luke_original_pytorch_checkpoint_to_pytorch.py`
 
 Any missing files or assumptions:
 No remote-code files were required. The report target is inference for the base LUKE encoder plus entity classification, entity-pair classification, and entity-span classification heads. Masked LM/entity prediction is optional for first integration; training losses are deferred.

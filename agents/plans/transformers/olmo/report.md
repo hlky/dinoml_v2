@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: OLMo family, primary checkpoint sweep below
 Config source: Hugging Face config.json files, snapshotted in ./_sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/olmo/configuration_olmo.py
-- X:/H/transformers/src/transformers/models/olmo/modeling_olmo.py
-- X:/H/transformers/src/transformers/models/olmo/modular_olmo.py
-- X:/H/transformers/src/transformers/models/olmo/convert_olmo_weights_to_hf.py
-- X:/H/transformers/src/transformers/models/olmo2/configuration_olmo2.py
-- X:/H/transformers/src/transformers/models/olmo2/modeling_olmo2.py
-- X:/H/transformers/src/transformers/models/olmo2/modular_olmo2.py
-- X:/H/transformers/src/transformers/masking_utils.py
-- X:/H/transformers/src/transformers/cache_utils.py
-- X:/H/transformers/src/transformers/modeling_layers.py
+- transformers/src/transformers/models/olmo/configuration_olmo.py
+- transformers/src/transformers/models/olmo/modeling_olmo.py
+- transformers/src/transformers/models/olmo/modular_olmo.py
+- transformers/src/transformers/models/olmo/convert_olmo_weights_to_hf.py
+- transformers/src/transformers/models/olmo2/configuration_olmo2.py
+- transformers/src/transformers/models/olmo2/modeling_olmo2.py
+- transformers/src/transformers/models/olmo2/modular_olmo2.py
+- transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/cache_utils.py
+- transformers/src/transformers/modeling_layers.py
 Any missing files or assumptions: tokenizer files were not audited because no model-coupled tokenizer logic is read by the OLMo module graph. The primary runtime target is OlmoForCausalLM text generation.
 ```
 

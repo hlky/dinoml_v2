@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: asapp/sew-d-* public checkpoints, centered on asapp/sew-d-tiny-100k and asapp/sew-d-tiny-100k-ft-ls100h
 Config source: local SEWDConfig plus public HF config/preprocessor/vocab/API metadata fetched 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/sew_d/configuration_sew_d.py
-- X:/H/transformers/src/transformers/models/sew_d/modeling_sew_d.py
-- X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-- X:/H/transformers/src/transformers/feature_extraction_sequence_utils.py
-- X:/H/transformers/tests/models/sew_d/test_modeling_sew_d.py
-- X:/H/transformers/docs/source/en/model_doc/sew-d.md
+- transformers/src/transformers/models/sew_d/configuration_sew_d.py
+- transformers/src/transformers/models/sew_d/modeling_sew_d.py
+- transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+- transformers/src/transformers/feature_extraction_sequence_utils.py
+- transformers/tests/models/sew_d/test_modeling_sew_d.py
+- transformers/docs/source/en/model_doc/sew-d.md
 Any missing files or assumptions: no gated/401 checkpoints encountered. HF snapshots are summarized in config_snapshots.md. The source has inherited/dead-looking branches (`ConvLayer`, adapter loading hooks, some config fields) not exercised by representative public SEW-D configs.
 ```
 

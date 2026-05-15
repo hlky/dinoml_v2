@@ -1,6 +1,6 @@
 # StableLM Config Evidence Snapshot
 
-Source: Hugging Face raw `config.json` files fetched during audit on 2026-05-13. Transformers source basis is local checkout `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source: Hugging Face raw `config.json` files fetched during audit on 2026-05-13. Transformers source basis is local checkout `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 | Model id | Config availability | Operator-significant fields |
 | --- | --- | --- |

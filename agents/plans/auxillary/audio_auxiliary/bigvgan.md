@@ -23,7 +23,7 @@ Audio providers need strong Conv1d and transposed Conv1d coverage. SnakeBeta sho
 
 ## Sources
 
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/mmaudio/vae/bigvgan.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/TTS/index_tts2/BigVGAN`
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/mmaudio/ext/bigvgan`
+- `Comfy-Org/ComfyUI/comfy/ldm/mmaudio/vae/bigvgan.py`
+- `deepbeepmeep/Wan2GP/models/TTS/index_tts2/BigVGAN`
+- `deepbeepmeep/Wan2GP/postprocessing/mmaudio/ext/bigvgan`
 

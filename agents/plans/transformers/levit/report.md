@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/levit-128S, facebook/levit-128, facebook/levit-192, facebook/levit-256, facebook/levit-384
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots
 Source files inspected:
-- X:/H/transformers/src/transformers/models/levit/modeling_levit.py
-- X:/H/transformers/src/transformers/models/levit/configuration_levit.py
-- X:/H/transformers/src/transformers/models/levit/image_processing_levit.py
-- X:/H/transformers/src/transformers/models/levit/image_processing_pil_levit.py
-- X:/H/transformers/src/transformers/models/levit/convert_levit_timm_to_pytorch.py
+- transformers/src/transformers/models/levit/modeling_levit.py
+- transformers/src/transformers/models/levit/configuration_levit.py
+- transformers/src/transformers/models/levit/image_processing_levit.py
+- transformers/src/transformers/models/levit/image_processing_pil_levit.py
+- transformers/src/transformers/models/levit/convert_levit_timm_to_pytorch.py
 Any missing files or assumptions: no gated files; no remote code required. Scope is inference for image classification, including the official `LevitForImageClassificationWithTeacher` wrapper.
 ```
 

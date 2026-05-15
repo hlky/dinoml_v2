@@ -25,5 +25,5 @@ Do not fold TEED into ControlNet support. It needs a separate image-to-condition
 - `H:/controlnet_aux/src/controlnet_aux/teed/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/teed/ted.py`
 - `agents/plans/auxiliary/control_preprocessors.md`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:715`
-- `H:/uis/vladmandic/sdnext/modules/control/processor.py:34`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:715`
+- `vladmandic/sdnext/modules/control/processor.py:34`

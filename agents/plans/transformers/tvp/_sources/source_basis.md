@@ -2,7 +2,7 @@
 
 Source basis:
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Source directory: `src/transformers/models/tvp`
 - Official HF repositories inspected:

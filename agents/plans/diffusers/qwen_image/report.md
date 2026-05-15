@@ -6,7 +6,7 @@ Candidate slug: `qwen_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Qwen/Qwen-Image
@@ -29,31 +29,31 @@ Config sources:
   saving them, because the only owned write path for this task is this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit_plus.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_controlnet_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_layered.py
-  X:/H/diffusers/src/diffusers/modular_pipelines/qwenimage/*.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_img2img.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_inpaint.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit_plus.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_edit_inpaint.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_controlnet.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_controlnet_inpaint.py
+  diffusers/src/diffusers/pipelines/qwenimage/pipeline_qwenimage_layered.py
+  diffusers/src/diffusers/modular_pipelines/qwenimage/*.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_qwenimage.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_qwenimage.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_qwenimage.py
+  diffusers/src/diffusers/models/transformers/transformer_qwenimage.py
+  diffusers/src/diffusers/models/controlnets/controlnet_qwenimage.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_qwenimage.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   Qwen2_5_VLForConditionalGeneration / Qwen2Tokenizer configs for official

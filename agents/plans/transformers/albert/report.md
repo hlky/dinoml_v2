@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,10 +23,10 @@ Config source:
   and Hugging Face repo file metadata for albert-base-v2 and albert-xxlarge-v2.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/albert/modeling_albert.py
-  X:/H/transformers/src/transformers/models/albert/configuration_albert.py
-  X:/H/transformers/src/transformers/models/albert/tokenization_albert.py
-  X:/H/transformers/src/transformers/masking_utils.py for the shared
+  transformers/src/transformers/models/albert/modeling_albert.py
+  transformers/src/transformers/models/albert/configuration_albert.py
+  transformers/src/transformers/models/albert/tokenization_albert.py
+  transformers/src/transformers/masking_utils.py for the shared
   bidirectional attention-mask helper used by AlbertModel.
 
 Any missing files or assumptions:

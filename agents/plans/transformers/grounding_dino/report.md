@@ -6,7 +6,7 @@ Primary target: open-vocabulary / text-conditioned object detection with `Ground
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary: IDEA-Research/grounding-dino-tiny.
@@ -23,16 +23,16 @@ Config source:
   https://huggingface.co/hf-internal-testing/tiny-random-GroundingDinoForObjectDetection/raw/main/config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/grounding_dino/configuration_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/modeling_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/processing_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/image_processing_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/image_processing_pil_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/modular_grounding_dino.py
-  X:/H/transformers/src/transformers/models/grounding_dino/convert_grounding_dino_to_hf.py
-  X:/H/transformers/tests/models/grounding_dino/test_modeling_grounding_dino.py
-  X:/H/transformers/tests/models/grounding_dino/test_processing_grounding_dino.py
-  X:/H/transformers/tests/models/grounding_dino/test_image_processing_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/configuration_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/modeling_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/processing_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/image_processing_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/image_processing_pil_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/modular_grounding_dino.py
+  transformers/src/transformers/models/grounding_dino/convert_grounding_dino_to_hf.py
+  transformers/tests/models/grounding_dino/test_modeling_grounding_dino.py
+  transformers/tests/models/grounding_dino/test_processing_grounding_dino.py
+  transformers/tests/models/grounding_dino/test_image_processing_grounding_dino.py
 
 Any missing files or assumptions:
   No remote code is required for the inspected official checkpoints. Native

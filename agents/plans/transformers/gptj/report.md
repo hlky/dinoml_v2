@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: gptj family; primary checkpoint EleutherAI/gpt-j-6b
 Config source: local GPTJConfig plus official/open Hugging Face config.json, tokenizer_config.json, and repo file metadata
 Source files inspected:
-- X:/H/transformers/src/transformers/models/gptj/configuration_gptj.py
-- X:/H/transformers/src/transformers/models/gptj/modeling_gptj.py
-- X:/H/transformers/tests/models/gptj/test_modeling_gptj.py
-- X:/H/transformers/src/transformers/models/auto/tokenization_auto.py
-- X:/H/transformers/src/transformers/cache_utils.py, indirectly through Cache/DynamicCache usage
-- X:/H/transformers/src/transformers/masking_utils.py, indirectly through create_causal_mask usage
+- transformers/src/transformers/models/gptj/configuration_gptj.py
+- transformers/src/transformers/models/gptj/modeling_gptj.py
+- transformers/tests/models/gptj/test_modeling_gptj.py
+- transformers/src/transformers/models/auto/tokenization_auto.py
+- transformers/src/transformers/cache_utils.py, indirectly through Cache/DynamicCache usage
+- transformers/src/transformers/masking_utils.py, indirectly through create_causal_mask usage
 Any missing files or assumptions: the GPT-J directory has no tokenizer file; AutoTokenizer maps `gptj` to GPT2Tokenizer. No remote-code files are required for the inspected in-library source. No standalone generation_config.json was present in inspected repos; generation defaults come from config/tokenizer metadata and GenerationMixin.
 ```
 

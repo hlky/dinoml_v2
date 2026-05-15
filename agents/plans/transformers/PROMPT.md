@@ -1,6 +1,6 @@
 # Transformers model-family assessment prompt
 
-Transformers source is available in `X:/H/transformers`.
+Transformers source is available in `transformers`.
 
 This is not a runtime code edit task. Do not implement Dinoml operators or run
 Dinoml tests unless the user explicitly changes scope. Reading source files,

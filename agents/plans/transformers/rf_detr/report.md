@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary target: stevenbucaille/rf-detr-base, RfDetrForObjectDetection.
@@ -24,13 +24,13 @@ Config source:
   agents/plans/transformers/rf_detr/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/rf_detr/configuration_rf_detr.py
-  X:/H/transformers/src/transformers/models/rf_detr/modeling_rf_detr.py
-  X:/H/transformers/src/transformers/models/rf_detr/modular_rf_detr.py
-  X:/H/transformers/src/transformers/models/rf_detr/convert_rf_detr_weights_to_hf.py
-  X:/H/transformers/src/transformers/models/detr/image_processing_detr.py
-  X:/H/transformers/docs/source/en/model_doc/rf_detr.md
-  X:/H/transformers/tests/models/rf_detr/test_modeling_rf_detr.py
+  transformers/src/transformers/models/rf_detr/configuration_rf_detr.py
+  transformers/src/transformers/models/rf_detr/modeling_rf_detr.py
+  transformers/src/transformers/models/rf_detr/modular_rf_detr.py
+  transformers/src/transformers/models/rf_detr/convert_rf_detr_weights_to_hf.py
+  transformers/src/transformers/models/detr/image_processing_detr.py
+  transformers/docs/source/en/model_doc/rf_detr.md
+  transformers/tests/models/rf_detr/test_modeling_rf_detr.py
 
 Any missing files or assumptions:
   configuration_rf_detr.py and modeling_rf_detr.py are generated from

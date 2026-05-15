@@ -20,6 +20,6 @@ Keep as separate auxiliary targets from RIFE. Do not assume RIFE's flow/mask con
 
 ## Sources
 
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/nodes_frame_interpolation.py:9`
+- `Comfy-Org/ComfyUI/comfy_extras/nodes_frame_interpolation.py:9`
 - `agents/plans/auxiliary/video_auxiliary.md`
 

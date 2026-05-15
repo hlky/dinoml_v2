@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: primary public checkpoint [`poolside/Laguna-XS.2`](https://huggingface.co/poolside/Laguna-XS.2). Quantized representative variants: [`poolside/Laguna-XS.2-FP8`](https://huggingface.co/poolside/Laguna-XS.2-FP8), [`poolside/Laguna-XS.2-NVFP4`](https://huggingface.co/poolside/Laguna-XS.2-NVFP4), [`poolside/Laguna-XS.2-INT4`](https://huggingface.co/poolside/Laguna-XS.2-INT4). No gated configs were encountered.
 

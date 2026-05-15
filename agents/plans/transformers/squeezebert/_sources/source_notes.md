@@ -1,6 +1,6 @@
 # SqueezeBERT Source Notes
 
-Local Transformers checkout: `X:/H/transformers`
+Local Transformers checkout: `transformers`
 
 Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 

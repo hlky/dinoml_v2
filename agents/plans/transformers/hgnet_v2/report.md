@@ -8,13 +8,13 @@ Model family: hgnet_v2
 Primary runtime target: HGNetV2Backbone feature-map extraction; image classification head is optional.
 Config source: src/transformers/models/hgnet_v2/configuration_hgnet_v2.py plus representative HF config.json files.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/hgnet_v2/modular_hgnet_v2.py
-- X:/H/transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
-- X:/H/transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
-- X:/H/transformers/src/transformers/backbone_utils.py
-- X:/H/transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
-- X:/H/transformers/docs/source/en/model_doc/hgnet_v2.md
-- X:/H/transformers/tests/models/hgnet_v2/test_modeling_hgnet_v2.py
+- transformers/src/transformers/models/hgnet_v2/modular_hgnet_v2.py
+- transformers/src/transformers/models/hgnet_v2/modeling_hgnet_v2.py
+- transformers/src/transformers/models/hgnet_v2/configuration_hgnet_v2.py
+- transformers/src/transformers/backbone_utils.py
+- transformers/src/transformers/models/rt_detr/image_processing_rt_detr.py
+- transformers/docs/source/en/model_doc/hgnet_v2.md
+- transformers/tests/models/hgnet_v2/test_modeling_hgnet_v2.py
 Representative HF configs:
 - https://huggingface.co/ustc-community/hgnet-v2/raw/main/config.json
 - https://huggingface.co/ustc-community/hgnet-v2/raw/main/preprocessor_config.json

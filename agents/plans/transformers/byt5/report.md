@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: representative official configs from [google/byt5-small](https://huggingface.co/google/byt5-small), [google/byt5-base](https://huggingface.co/google/byt5-base), [google/byt5-large](https://huggingface.co/google/byt5-large), [google/byt5-xl](https://huggingface.co/google/byt5-xl), and [google/byt5-xxl](https://huggingface.co/google/byt5-xxl).
 

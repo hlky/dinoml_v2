@@ -6,7 +6,7 @@ Candidate slug: `z_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Tongyi-MAI/Z-Image
@@ -26,29 +26,29 @@ Config sources:
   saving them, because the only owned write path for this task is this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_omni.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_controlnet_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/z_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_img2img.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_inpaint.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_omni.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_controlnet.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_z_image_controlnet_inpaint.py
+  diffusers/src/diffusers/pipelines/z_image/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_z_image.py
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_z_image.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/transformer_z_image.py
+  diffusers/src/diffusers/models/controlnets/controlnet_z_image.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/lora_conversion_utils.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_model.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/lora_conversion_utils.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/loaders/single_file_model.py
 
 External component configs inspected:
   Qwen3Model / Qwen3ForCausalLM text encoder configs.

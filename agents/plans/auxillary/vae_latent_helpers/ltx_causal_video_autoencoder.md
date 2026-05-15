@@ -22,7 +22,7 @@ Reuse the Diffusers LTX autoencoder report where available, but keep UI codec ch
 
 ## Sources
 
-- `X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_video_autoencoder.py`
-- `H:/uis/deepbeepmeep/Wan2GP/models/ltx_video/models/autoencoders/causal_video_autoencoder.py`
+- `diffusers/src/diffusers/models/autoencoders/autoencoder_kl_ltx.py`
+- `Comfy-Org/ComfyUI/comfy/ldm/lightricks/vae/causal_video_autoencoder.py`
+- `deepbeepmeep/Wan2GP/models/ltx_video/models/autoencoders/causal_video_autoencoder.py`
 

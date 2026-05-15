@@ -1,6 +1,6 @@
 # Autoformer source hotspots
 
-Transformers source basis: `X:/H/transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers source basis: `transformers`, commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Inspected files:
 

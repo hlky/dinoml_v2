@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: meta-llama/Llama-3.2-{11B,90B}-Vision{-Instruct} intended targets; official repos are gated from this environment.
 Config source: accessible HF mirrors plus Transformers conversion/config defaults, labeled below.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mllama/modeling_mllama.py
-  X:/H/transformers/src/transformers/models/mllama/configuration_mllama.py
-  X:/H/transformers/src/transformers/models/mllama/processing_mllama.py
-  X:/H/transformers/src/transformers/models/mllama/image_processing_mllama.py
-  X:/H/transformers/src/transformers/models/mllama/image_processing_pil_mllama.py
-  X:/H/transformers/src/transformers/models/mllama/convert_mllama_weights_to_hf.py
-  X:/H/transformers/docs/source/en/model_doc/mllama.md
-  X:/H/transformers/tests/models/mllama/test_modeling_mllama.py
+  transformers/src/transformers/models/mllama/modeling_mllama.py
+  transformers/src/transformers/models/mllama/configuration_mllama.py
+  transformers/src/transformers/models/mllama/processing_mllama.py
+  transformers/src/transformers/models/mllama/image_processing_mllama.py
+  transformers/src/transformers/models/mllama/image_processing_pil_mllama.py
+  transformers/src/transformers/models/mllama/convert_mllama_weights_to_hf.py
+  transformers/docs/source/en/model_doc/mllama.md
+  transformers/tests/models/mllama/test_modeling_mllama.py
 Source URLs:
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mllama/modeling_mllama.py
   https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mllama/configuration_mllama.py

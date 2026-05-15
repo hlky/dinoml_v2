@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/unispeech-large-1500h-cv and related open microsoft/unispeech-* checkpoints
 Config source: local configuration_unispeech.py plus HF config.json snapshots downloaded 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/unispeech/modeling_unispeech.py
-- X:/H/transformers/src/transformers/models/unispeech/configuration_unispeech.py
-- X:/H/transformers/src/transformers/models/unispeech/modular_unispeech.py
-- X:/H/transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
-- X:/H/transformers/src/transformers/masking_utils.py
+- transformers/src/transformers/models/unispeech/modeling_unispeech.py
+- transformers/src/transformers/models/unispeech/configuration_unispeech.py
+- transformers/src/transformers/models/unispeech/modular_unispeech.py
+- transformers/src/transformers/models/wav2vec2/feature_extraction_wav2vec2.py
+- transformers/src/transformers/masking_utils.py
 Any missing files or assumptions:
 - UniSpeech uses the Wav2Vec2 feature extractor class in processor configs; there is no separate UniSpeech feature extractor file.
 - `modular_unispeech.py` subclasses Wav2Vec2 modules, but the generated `modeling_unispeech.py` contains the concrete runtime implementation inspected here.

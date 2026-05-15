@@ -7,15 +7,15 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: ModernVBERT/colmodernvbert-merged, plus related ModernVBERT/colmodernvbert and ModernVBERT/colmodernvbert-base
 Config source: local source defaults plus Hub JSON snapshots saved beside this report
 Source files inspected:
-- X:/H/transformers/src/transformers/models/colmodernvbert/modular_colmodernvbert.py
-- X:/H/transformers/src/transformers/models/colmodernvbert/configuration_colmodernvbert.py
-- X:/H/transformers/src/transformers/models/colmodernvbert/modeling_colmodernvbert.py
-- X:/H/transformers/src/transformers/models/colmodernvbert/processing_colmodernvbert.py
-- X:/H/transformers/src/transformers/models/modernvbert/modeling_modernvbert.py
-- X:/H/transformers/src/transformers/models/modernvbert/configuration_modernvbert.py
-- X:/H/transformers/src/transformers/models/modernbert/modeling_modernbert.py
-- X:/H/transformers/src/transformers/models/siglip/modeling_siglip.py
-- X:/H/transformers/src/transformers/models/idefics3/image_processing_idefics3.py
+- transformers/src/transformers/models/colmodernvbert/modular_colmodernvbert.py
+- transformers/src/transformers/models/colmodernvbert/configuration_colmodernvbert.py
+- transformers/src/transformers/models/colmodernvbert/modeling_colmodernvbert.py
+- transformers/src/transformers/models/colmodernvbert/processing_colmodernvbert.py
+- transformers/src/transformers/models/modernvbert/modeling_modernvbert.py
+- transformers/src/transformers/models/modernvbert/configuration_modernvbert.py
+- transformers/src/transformers/models/modernbert/modeling_modernbert.py
+- transformers/src/transformers/models/siglip/modeling_siglip.py
+- transformers/src/transformers/models/idefics3/image_processing_idefics3.py
 Any missing files or assumptions:
 - No gated checkpoint was encountered.
 - Native `colmodernvbert` source is generated from `modular_colmodernvbert.py`; future source edits should inspect the modular file first.

@@ -8,7 +8,7 @@ Primary target: `Qwen2AudioForConditionalGeneration` audio/text-to-text generati
 Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: qwen2_audio
 Primary task: multimodal audio/text causal LM generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:

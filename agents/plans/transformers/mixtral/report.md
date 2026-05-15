@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: local checkout `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Transformers commit/version: local checkout `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Model id: primary target `mistralai/Mixtral-8x7B-v0.1`; representative sweep also includes `mistralai/Mixtral-8x7B-Instruct-v0.1`, `mistralai/Mixtral-8x22B-v0.1`, `TitanML/tiny-mixtral`, and `optimum-intel-internal-testing/tiny-mixtral`.
 
@@ -17,13 +17,13 @@ Config source:
 - `https://huggingface.co/optimum-intel-internal-testing/tiny-mixtral/raw/main/config.json`
 
 Source files inspected:
-- `X:/H/transformers/src/transformers/models/mixtral/configuration_mixtral.py`
-- `X:/H/transformers/src/transformers/models/mixtral/modeling_mixtral.py`
-- `X:/H/transformers/src/transformers/models/mixtral/modular_mixtral.py`
-- `X:/H/transformers/src/transformers/models/mixtral/convert_mixtral_weights_to_hf.py`
-- `X:/H/transformers/src/transformers/models/mistral/modeling_mistral.py`, for inherited attention behavior cross-checks
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/models/mixtral/configuration_mixtral.py`
+- `transformers/src/transformers/models/mixtral/modeling_mixtral.py`
+- `transformers/src/transformers/models/mixtral/modular_mixtral.py`
+- `transformers/src/transformers/models/mixtral/convert_mixtral_weights_to_hf.py`
+- `transformers/src/transformers/models/mistral/modeling_mistral.py`, for inherited attention behavior cross-checks
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/masking_utils.py`
 
 Source URLs at the inspected commit:
 - `https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/mixtral/configuration_mixtral.py`

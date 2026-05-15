@@ -4,9 +4,9 @@ Audit date: 2026-05-13.
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family directory: `X:/H/transformers/src/transformers/models/sam3_lite_text`
+- Family directory: `transformers/src/transformers/models/sam3_lite_text`
 - Files inspected:
   - `configuration_sam3_lite_text.py`
   - `modeling_sam3_lite_text.py`
@@ -14,8 +14,8 @@ Audit date: 2026-05-13.
   - `convert_sam3_lite_text_to_hf.py`
   - `__init__.py`
 - Shared SAM3 files inspected for inherited vision/detector contracts:
-  - `X:/H/transformers/src/transformers/models/sam3/configuration_sam3.py`
-  - `X:/H/transformers/src/transformers/models/sam3/modeling_sam3.py`
+  - `transformers/src/transformers/models/sam3/configuration_sam3.py`
+  - `transformers/src/transformers/models/sam3/modeling_sam3.py`
 
 ## Hub sources
 

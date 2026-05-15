@@ -7,16 +7,16 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: zai-org/GLM-ASR-Nano-2512
 Config source: https://huggingface.co/zai-org/GLM-ASR-Nano-2512/resolve/main/config.json
 Source files inspected:
-  X:/H/transformers/src/transformers/models/glmasr/configuration_glmasr.py
-  X:/H/transformers/src/transformers/models/glmasr/modeling_glmasr.py
-  X:/H/transformers/src/transformers/models/glmasr/modular_glmasr.py
-  X:/H/transformers/src/transformers/models/glmasr/processing_glmasr.py
-  X:/H/transformers/src/transformers/models/glmasr/convert_glmasr_weights_to_hf.py
-  X:/H/transformers/docs/source/en/model_doc/glmasr.md
-  X:/H/transformers/src/transformers/models/llama/modeling_llama.py
-  X:/H/transformers/src/transformers/models/llama/configuration_llama.py
-  X:/H/transformers/src/transformers/models/whisper/feature_extraction_whisper.py
-  X:/H/transformers/src/transformers/models/audioflamingo3/{modeling,processing}_audioflamingo3.py
+  transformers/src/transformers/models/glmasr/configuration_glmasr.py
+  transformers/src/transformers/models/glmasr/modeling_glmasr.py
+  transformers/src/transformers/models/glmasr/modular_glmasr.py
+  transformers/src/transformers/models/glmasr/processing_glmasr.py
+  transformers/src/transformers/models/glmasr/convert_glmasr_weights_to_hf.py
+  transformers/docs/source/en/model_doc/glmasr.md
+  transformers/src/transformers/models/llama/modeling_llama.py
+  transformers/src/transformers/models/llama/configuration_llama.py
+  transformers/src/transformers/models/whisper/feature_extraction_whisper.py
+  transformers/src/transformers/models/audioflamingo3/{modeling,processing}_audioflamingo3.py
 Any missing files or assumptions: only one current official native checkpoint was found; older Hub revision used remote-code-style config fields and is treated as an admission trap, not the native source basis.
 ```
 

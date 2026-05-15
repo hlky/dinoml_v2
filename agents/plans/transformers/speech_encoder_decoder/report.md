@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: composite family; representative ids listed below
 Config source: local source plus Hugging Face config/preprocessor/tokenizer/generation JSON fetched 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/speech_encoder_decoder/configuration_speech_encoder_decoder.py
-- X:/H/transformers/src/transformers/models/speech_encoder_decoder/modeling_speech_encoder_decoder.py
-- X:/H/transformers/docs/source/en/model_doc/speech-encoder-decoder.md
-- X:/H/transformers/tests/models/speech_encoder_decoder/test_modeling_speech_encoder_decoder.py
+- transformers/src/transformers/models/speech_encoder_decoder/configuration_speech_encoder_decoder.py
+- transformers/src/transformers/models/speech_encoder_decoder/modeling_speech_encoder_decoder.py
+- transformers/docs/source/en/model_doc/speech-encoder-decoder.md
+- transformers/tests/models/speech_encoder_decoder/test_modeling_speech_encoder_decoder.py
 - selected delegated owner source for ABI checks: wav2vec2 configuration/modeling, speech_to_text feature extractor
 Any missing files or assumptions:
 - There is no processing_speech_encoder_decoder.py in this checkout.

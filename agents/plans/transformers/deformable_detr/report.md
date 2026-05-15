@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: SenseTime/deformable-detr, plus structural variants listed below
 Config source: Hugging Face config.json and preprocessor_config.json snapshots under _sources/hf_configs
 Source files inspected:
-- X:/H/transformers/src/transformers/models/deformable_detr/configuration_deformable_detr.py
-- X:/H/transformers/src/transformers/models/deformable_detr/modeling_deformable_detr.py
-- X:/H/transformers/src/transformers/models/deformable_detr/modular_deformable_detr.py
-- X:/H/transformers/src/transformers/models/deformable_detr/image_processing_deformable_detr.py
-- X:/H/transformers/src/transformers/models/deformable_detr/image_processing_pil_deformable_detr.py
+- transformers/src/transformers/models/deformable_detr/configuration_deformable_detr.py
+- transformers/src/transformers/models/deformable_detr/modeling_deformable_detr.py
+- transformers/src/transformers/models/deformable_detr/modular_deformable_detr.py
+- transformers/src/transformers/models/deformable_detr/image_processing_deformable_detr.py
+- transformers/src/transformers/models/deformable_detr/image_processing_pil_deformable_detr.py
 Any missing files or assumptions: no gated/401/403 checkpoint gaps observed. model.safetensors.index.json and image_processor_config.json were absent/404 for sampled repos; preprocessor_config.json is present.
 ```
 

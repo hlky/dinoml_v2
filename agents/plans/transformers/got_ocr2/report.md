@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from `transformers`.
 
 Model id: native in-library checkpoint [`stepfun-ai/GOT-OCR-2.0-hf`](https://huggingface.co/stepfun-ai/GOT-OCR-2.0-hf). Historical/custom-code contrast configs inspected: [`stepfun-ai/GOT-OCR2_0`](https://huggingface.co/stepfun-ai/GOT-OCR2_0), [`abhinand/GOT-OCR-2.0-unofficial`](https://huggingface.co/abhinand/GOT-OCR-2.0-unofficial), and [`impactframes/GOT-OCR2_0`](https://huggingface.co/impactframes/GOT-OCR2_0).
 

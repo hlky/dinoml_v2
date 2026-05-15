@@ -6,7 +6,7 @@ Candidate slug: `longcat_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   meituan-longcat/LongCat-Image
@@ -31,23 +31,23 @@ Config sources:
   They were not copied into H:/configs by this worker because this task owns only this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/longcat_image/pipeline_longcat_image.py
-  X:/H/diffusers/src/diffusers/pipelines/longcat_image/pipeline_longcat_image_edit.py
-  X:/H/diffusers/src/diffusers/pipelines/longcat_image/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/longcat_image/system_messages.py
+  diffusers/src/diffusers/pipelines/longcat_image/pipeline_longcat_image.py
+  diffusers/src/diffusers/pipelines/longcat_image/pipeline_longcat_image_edit.py
+  diffusers/src/diffusers/pipelines/longcat_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/longcat_image/system_messages.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_longcat_image.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vae.py
+  diffusers/src/diffusers/models/transformers/transformer_longcat_image.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/autoencoders/vae.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
 
 External component configs inspected:
   Qwen2_5_VLForConditionalGeneration / Qwen2Tokenizer / Qwen2_5_VLProcessor configs from official LongCat repos.

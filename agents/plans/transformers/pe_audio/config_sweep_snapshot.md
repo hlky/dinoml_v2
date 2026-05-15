@@ -1,7 +1,7 @@
 # pe_audio representative config snapshot
 
 Source basis:
-- Transformers checkout: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
+- Transformers checkout: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Hub access date: 2026-05-13
 - Hub config URLs used:
   - https://huggingface.co/facebook/pe-a-frame-small/raw/main/config.json

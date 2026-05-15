@@ -6,7 +6,7 @@ Target slug: `stable_cascade`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   stabilityai/stable-cascade-prior
@@ -26,22 +26,22 @@ Config sources:
   because this task's owned write path is only this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade_prior.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade_combined.py
+  diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade_prior.py
+  diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade.py
+  diffusers/src/diffusers/pipelines/stable_cascade/pipeline_stable_cascade_combined.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/unets/unet_stable_cascade.py
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/wuerstchen/modeling_paella_vq_model.py
-  X:/H/diffusers/src/diffusers/pipelines/deprecated/wuerstchen/modeling_wuerstchen_common.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/vq_model.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/unets/unet_stable_cascade.py
+  diffusers/src/diffusers/pipelines/deprecated/wuerstchen/modeling_paella_vq_model.py
+  diffusers/src/diffusers/pipelines/deprecated/wuerstchen/modeling_wuerstchen_common.py
+  diffusers/src/diffusers/models/autoencoders/vq_model.py
+  diffusers/src/diffusers/models/attention_processor.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm_wuerstchen.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_lcm.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm_wuerstchen.py
+  diffusers/src/diffusers/schedulers/scheduling_lcm.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
 
 External component configs inspected:
   CLIPTextModelWithProjection config from both official repos.

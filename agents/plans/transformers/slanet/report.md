@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: PaddlePaddle/SLANet_plus_safetensors; PaddlePaddle/SLANet_safetensors
 Config source: HF config.json for the two public checkpoints plus source defaults
 Source files inspected:
-  X:/H/transformers/src/transformers/models/slanet/configuration_slanet.py
-  X:/H/transformers/src/transformers/models/slanet/modeling_slanet.py
-  X:/H/transformers/src/transformers/models/slanet/modular_slanet.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/configuration_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py
-  X:/H/transformers/src/transformers/models/slanext/image_processing_slanext.py
-  X:/H/transformers/tests/models/slanet/test_modeling_slanet.py
+  transformers/src/transformers/models/slanet/configuration_slanet.py
+  transformers/src/transformers/models/slanet/modeling_slanet.py
+  transformers/src/transformers/models/slanet/modular_slanet.py
+  transformers/src/transformers/models/pp_lcnet/configuration_pp_lcnet.py
+  transformers/src/transformers/models/pp_lcnet/modeling_pp_lcnet.py
+  transformers/src/transformers/models/slanext/image_processing_slanext.py
+  transformers/tests/models/slanet/test_modeling_slanet.py
 Any missing files or assumptions:
   modeling_slanet.py/configuration_slanet.py are generated from modular_slanet.py.
   SLANet reuses SLANeXtImageProcessor through auto image processing.

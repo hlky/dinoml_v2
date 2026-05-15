@@ -6,7 +6,7 @@ Candidate slug: `hidream_image`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   HiDream-ai/HiDream-I1-Full
@@ -27,22 +27,22 @@ Config sources:
   requests but not saved, because this worker owns only this report path.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/hidream_image/pipeline_hidream_image.py
-  X:/H/diffusers/src/diffusers/pipelines/hidream_image/__init__.py
-  X:/H/diffusers/src/diffusers/pipelines/hidream_image/pipeline_output.py
+  diffusers/src/diffusers/pipelines/hidream_image/pipeline_hidream_image.py
+  diffusers/src/diffusers/pipelines/hidream_image/__init__.py
+  diffusers/src/diffusers/pipelines/hidream_image/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_hidream_image.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/transformers/transformer_hidream_image.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_lcm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_model.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_lcm.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/single_file_model.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
 
 External component configs inspected:
   Official HiDream CLIP-L, OpenCLIP-bigG, T5-XXL configs/tokenizer configs.

@@ -6,7 +6,7 @@ Candidate slug: `shap_e`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   openai/shap-e
@@ -35,22 +35,22 @@ Config sources:
     openai/shap-e-img2img renderer/diffusion_pytorch_model.fp16.safetensors
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/shap_e/pipeline_shap_e.py
-  X:/H/diffusers/src/diffusers/pipelines/shap_e/pipeline_shap_e_img2img.py
-  X:/H/diffusers/src/diffusers/pipelines/shap_e/__init__.py
+  diffusers/src/diffusers/pipelines/shap_e/pipeline_shap_e.py
+  diffusers/src/diffusers/pipelines/shap_e/pipeline_shap_e_img2img.py
+  diffusers/src/diffusers/pipelines/shap_e/__init__.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/prior_transformer.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/activations.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/transformers/prior_transformer.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/activations.py
+  diffusers/src/diffusers/models/embeddings.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_heun_discrete.py
-  X:/H/diffusers/src/diffusers/pipelines/shap_e/renderer.py
-  X:/H/diffusers/src/diffusers/pipelines/shap_e/camera.py
-  X:/H/diffusers/src/diffusers/utils/pil_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_heun_discrete.py
+  diffusers/src/diffusers/pipelines/shap_e/renderer.py
+  diffusers/src/diffusers/pipelines/shap_e/camera.py
+  diffusers/src/diffusers/utils/pil_utils.py
 
 External component configs inspected:
   CLIPTextModelWithProjection text config from openai/shap-e/text_encoder/config.json.

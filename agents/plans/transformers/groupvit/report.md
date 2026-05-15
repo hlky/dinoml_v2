@@ -16,13 +16,13 @@ Config source:
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/groupvit/modeling_groupvit.py`
-- `X:/H/transformers/src/transformers/models/groupvit/configuration_groupvit.py`
-- `X:/H/transformers/src/transformers/models/groupvit/convert_groupvit_nvlab_to_hf.py`
-- `X:/H/transformers/tests/models/groupvit/test_modeling_groupvit.py`
+- `transformers/src/transformers/models/groupvit/modeling_groupvit.py`
+- `transformers/src/transformers/models/groupvit/configuration_groupvit.py`
+- `transformers/src/transformers/models/groupvit/convert_groupvit_nvlab_to_hf.py`
+- `transformers/tests/models/groupvit/test_modeling_groupvit.py`
 - Auto mappings for processor/tokenizer/image processor: `CLIPProcessor`, `CLIPTokenizer`, `CLIPImageProcessor`.
-- `X:/H/transformers/src/transformers/models/clip/image_processing_clip.py` for image preprocessing defaults.
-- `X:/H/transformers/src/transformers/masking_utils.py` for `create_causal_mask`.
+- `transformers/src/transformers/models/clip/image_processing_clip.py` for image preprocessing defaults.
+- `transformers/src/transformers/masking_utils.py` for `create_causal_mask`.
 
 Small source/config snapshots saved under this folder:
 

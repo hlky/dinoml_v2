@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: apple/aimv2-large-patch14-224-lit for dual-encoder target; vision-only variants listed below
 Config source: local configuration_aimv2.py plus HF raw config/preprocessor JSON fetched 2026-05-13
 Source files inspected:
-- X:/H/transformers/src/transformers/models/aimv2/configuration_aimv2.py
-- X:/H/transformers/src/transformers/models/aimv2/modeling_aimv2.py
-- X:/H/transformers/src/transformers/models/aimv2/modular_aimv2.py
-- X:/H/transformers/src/transformers/models/aimv2/convert_aimv2_original_pytorch_to_hf.py
+- transformers/src/transformers/models/aimv2/configuration_aimv2.py
+- transformers/src/transformers/models/aimv2/modeling_aimv2.py
+- transformers/src/transformers/models/aimv2/modular_aimv2.py
+- transformers/src/transformers/models/aimv2/convert_aimv2_original_pytorch_to_hf.py
 Any missing files or assumptions:
 - No family-owned tokenizer/image processor implementation exists in-tree; AIMv2 uses CLIP image processor/tokenizer metadata on HF repos.
 - modeling_aimv2.py and configuration_aimv2.py are generated from modular_aimv2.py. Runtime behavior was checked in generated modeling_aimv2.py; future Transformers source edits should be made in modular_aimv2.py.

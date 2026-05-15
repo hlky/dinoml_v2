@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -23,9 +23,9 @@ Config source:
   Tokenizer metadata checked from tokenizer_config.json for the same Google repos.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/electra/modeling_electra.py
-  X:/H/transformers/src/transformers/models/electra/configuration_electra.py
-  X:/H/transformers/src/transformers/models/auto/tokenization_auto.py
+  transformers/src/transformers/models/electra/modeling_electra.py
+  transformers/src/transformers/models/electra/configuration_electra.py
+  transformers/src/transformers/models/auto/tokenization_auto.py
 
 Any missing files or assumptions:
   The ELECTRA model directory has no family-local tokenizer implementation.

@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/convnextv2-tiny-1k-224 as the common reference; sweep includes atto/tiny/base/large/huge variants.
 Config source: official Hugging Face config.json and preprocessor_config.json files fetched from facebook/* repos.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/convnextv2/modeling_convnextv2.py
-- X:/H/transformers/src/transformers/models/convnextv2/configuration_convnextv2.py
-- X:/H/transformers/src/transformers/models/convnextv2/convert_convnextv2_to_pytorch.py
-- X:/H/transformers/src/transformers/models/convnext/image_processing_convnext.py
-- X:/H/transformers/src/transformers/models/convnext/image_processing_pil_convnext.py
-- X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-- X:/H/transformers/tests/models/convnextv2/test_modeling_convnextv2.py
+- transformers/src/transformers/models/convnextv2/modeling_convnextv2.py
+- transformers/src/transformers/models/convnextv2/configuration_convnextv2.py
+- transformers/src/transformers/models/convnextv2/convert_convnextv2_to_pytorch.py
+- transformers/src/transformers/models/convnext/image_processing_convnext.py
+- transformers/src/transformers/models/convnext/image_processing_pil_convnext.py
+- transformers/src/transformers/models/auto/image_processing_auto.py
+- transformers/tests/models/convnextv2/test_modeling_convnextv2.py
 Any missing files or assumptions: no gated/401/403 gaps were observed for the representative official repos. ConvNeXtV2 has no family-local image processor; AutoImageProcessor maps convnextv2 to the shared ConvNextImageProcessor.
 ```
 

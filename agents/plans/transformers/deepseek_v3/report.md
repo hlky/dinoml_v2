@@ -15,15 +15,15 @@ Model id: primary scope is native `deepseek_v3` in-library inference for `Deepse
 
 Config source:
 
-- Local config class: `X:/H/transformers/src/transformers/models/deepseek_v3/configuration_deepseek_v3.py`
+- Local config class: `transformers/src/transformers/models/deepseek_v3/configuration_deepseek_v3.py`
 - HF raw configs fetched from `https://huggingface.co/<repo>/raw/main/config.json`.
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/deepseek_v3/configuration_deepseek_v3.py`
-- `X:/H/transformers/src/transformers/models/deepseek_v3/modular_deepseek_v3.py`
-- `X:/H/transformers/src/transformers/models/deepseek_v3/modeling_deepseek_v3.py`
-- Comparison only: `X:/H/transformers/src/transformers/models/deepseek_v2/{configuration,modeling,modular}_deepseek_v2.py`
+- `transformers/src/transformers/models/deepseek_v3/configuration_deepseek_v3.py`
+- `transformers/src/transformers/models/deepseek_v3/modular_deepseek_v3.py`
+- `transformers/src/transformers/models/deepseek_v3/modeling_deepseek_v3.py`
+- Comparison only: `transformers/src/transformers/models/deepseek_v2/{configuration,modeling,modular}_deepseek_v2.py`
 - Remote-code snapshot for divergence checks only: `_sources/deepseek-ai__DeepSeek-V3.{configuration_deepseek.py,modeling_deepseek.py}`
 
 Any missing files or assumptions:

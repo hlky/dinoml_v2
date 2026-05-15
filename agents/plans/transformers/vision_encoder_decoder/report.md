@@ -14,15 +14,15 @@ Model id:
 Config source:
   Official Hugging Face config.json plus preprocessor/tokenizer configs where accessible.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vision_encoder_decoder/configuration_vision_encoder_decoder.py
-  X:/H/transformers/src/transformers/models/vision_encoder_decoder/modeling_vision_encoder_decoder.py
-  X:/H/transformers/src/transformers/models/vision_encoder_decoder/__init__.py
+  transformers/src/transformers/models/vision_encoder_decoder/configuration_vision_encoder_decoder.py
+  transformers/src/transformers/models/vision_encoder_decoder/modeling_vision_encoder_decoder.py
+  transformers/src/transformers/models/vision_encoder_decoder/__init__.py
   Supporting delegated-source checks:
-  X:/H/transformers/src/transformers/models/vit/modeling_vit.py
-  X:/H/transformers/src/transformers/models/vit/image_processing_vit.py
-  X:/H/transformers/src/transformers/models/trocr/modeling_trocr.py
-  X:/H/transformers/src/transformers/models/trocr/processing_trocr.py
-  X:/H/transformers/src/transformers/models/gpt2/modeling_gpt2.py
+  transformers/src/transformers/models/vit/modeling_vit.py
+  transformers/src/transformers/models/vit/image_processing_vit.py
+  transformers/src/transformers/models/trocr/modeling_trocr.py
+  transformers/src/transformers/models/trocr/processing_trocr.py
+  transformers/src/transformers/models/gpt2/modeling_gpt2.py
 Any missing files or assumptions:
   No family-local processor file exists. Processor ABI is inherited from the paired encoder/decoder processors, for example TrOCRProcessor or ViTImageProcessor plus GPT2Tokenizer. No sampled config required remote code. This report does not re-own ViT, DeiT, TrOCR, or GPT-2 operator coverage; it composes their separate audits.
 ```

@@ -26,6 +26,6 @@ Treat as external preprocessing providers until a specific model implementation 
 
 - `H:/controlnet_aux/src/controlnet_aux/mediapipe_face/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/mediapipe_face/mediapipe_face_common.py`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:700`
-- `H:/uis/invoke-ai/InvokeAI/invokeai/app/invocations/mediapipe_face.py:9`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:700`
+- `invoke-ai/InvokeAI/invokeai/app/invocations/mediapipe_face.py:9`
 - `agents/plans/auxiliary/control_preprocessors.md`

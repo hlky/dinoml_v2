@@ -7,14 +7,14 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: thisisiron/Ovis2-1B-hf, thisisiron/Ovis2-2B-hf for in-library scope; AIDC-AI/Ovis2-{1B,2B,4B,8B,16B,34B} inspected as remote-code/original-config contrast.
 Config source: HF config/preprocessor/processor JSON snapshots in _sources/.
 Source files inspected:
-  X:/H/transformers/src/transformers/models/ovis2/configuration_ovis2.py
-  X:/H/transformers/src/transformers/models/ovis2/modeling_ovis2.py
-  X:/H/transformers/src/transformers/models/ovis2/modular_ovis2.py
-  X:/H/transformers/src/transformers/models/ovis2/processing_ovis2.py
-  X:/H/transformers/src/transformers/models/ovis2/image_processing_ovis2.py
-  X:/H/transformers/src/transformers/models/ovis2/image_processing_pil_ovis2.py
-  X:/H/transformers/src/transformers/models/qwen2/configuration_qwen2.py
-  X:/H/transformers/src/transformers/models/qwen2/modeling_qwen2.py
+  transformers/src/transformers/models/ovis2/configuration_ovis2.py
+  transformers/src/transformers/models/ovis2/modeling_ovis2.py
+  transformers/src/transformers/models/ovis2/modular_ovis2.py
+  transformers/src/transformers/models/ovis2/processing_ovis2.py
+  transformers/src/transformers/models/ovis2/image_processing_ovis2.py
+  transformers/src/transformers/models/ovis2/image_processing_pil_ovis2.py
+  transformers/src/transformers/models/qwen2/configuration_qwen2.py
+  transformers/src/transformers/models/qwen2/modeling_qwen2.py
 Any missing files or assumptions: larger converted thisisiron/*-hf configs returned 401; original AIDC-AI/Ovis2-* repos are model_type=ovis with auto_map remote code and are out of scope for the in-library Ovis2 class unless explicitly routed to a separate remote-code audit.
 ```
 

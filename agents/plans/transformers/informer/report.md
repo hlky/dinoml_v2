@@ -8,11 +8,11 @@ Model family: informer
 Primary runtime target: probabilistic time-series forecasting with InformerForPrediction.generate()
 Config source: local configuration class plus public HF config.json files listed below
 Source files inspected:
-- X:/H/transformers/src/transformers/models/informer/configuration_informer.py
-- X:/H/transformers/src/transformers/models/informer/modeling_informer.py
-- X:/H/transformers/src/transformers/models/informer/modular_informer.py
-- X:/H/transformers/src/transformers/time_series_utils.py
-- X:/H/transformers/tests/models/informer/test_modeling_informer.py
+- transformers/src/transformers/models/informer/configuration_informer.py
+- transformers/src/transformers/models/informer/modeling_informer.py
+- transformers/src/transformers/models/informer/modular_informer.py
+- transformers/src/transformers/time_series_utils.py
+- transformers/tests/models/informer/test_modeling_informer.py
 Snapshots:
 - agents/plans/transformers/informer/_sources/
 Missing files or assumptions: no processor class; time features and scaling inputs are caller/data-pipeline owned.

@@ -23,6 +23,6 @@ The hard runtime primitive is `grid_sample` with flow-normalized coordinates. Pr
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/postprocessing/rife/RIFE_V4.py`
-- `H:/uis/Comfy-Org/ComfyUI/comfy_extras/frame_interpolation_models/ifnet.py`
+- `deepbeepmeep/Wan2GP/postprocessing/rife/RIFE_V4.py`
+- `Comfy-Org/ComfyUI/comfy_extras/frame_interpolation_models/ifnet.py`
 

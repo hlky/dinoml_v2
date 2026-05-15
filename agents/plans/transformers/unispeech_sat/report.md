@@ -7,10 +7,10 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/unispeech-sat-base, microsoft/unispeech-sat-large, microsoft/unispeech-sat-base-100h-libri-ft, microsoft/unispeech-sat-large-sd, microsoft/unispeech-sat-base-sv
 Config source: downloaded config.json and preprocessor_config.json snapshots in this folder
 Source files inspected:
-- X:/H/transformers/src/transformers/models/unispeech_sat/configuration_unispeech_sat.py
-- X:/H/transformers/src/transformers/models/unispeech_sat/modeling_unispeech_sat.py
-- X:/H/transformers/src/transformers/models/unispeech_sat/modular_unispeech_sat.py
-- X:/H/transformers/src/transformers/models/wav2vec2/modeling_wav2vec2.py for inherited modular source context
+- transformers/src/transformers/models/unispeech_sat/configuration_unispeech_sat.py
+- transformers/src/transformers/models/unispeech_sat/modeling_unispeech_sat.py
+- transformers/src/transformers/models/unispeech_sat/modular_unispeech_sat.py
+- transformers/src/transformers/models/wav2vec2/modeling_wav2vec2.py for inherited modular source context
 Any missing files or assumptions:
 - `modeling_unispeech_sat.py` is generated from `modular_unispeech_sat.py`; future source edits should start from the modular file, but this report uses the generated file for explicit in-library behavior.
 - No gated/401 official configs were encountered. Tokenizer configs are absent (404) for base pretraining, large pretraining, large-sd, and base-sv; only the CTC checkpoint downloaded tokenizer_config.json.

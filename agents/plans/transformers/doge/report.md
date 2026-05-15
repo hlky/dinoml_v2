@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: doge / SmallDoge Doge family
 Config source: Transformers DogeConfig defaults plus public Hub config snapshots in this folder
 Source files inspected:
-  X:/H/transformers/src/transformers/models/doge/configuration_doge.py
-  X:/H/transformers/src/transformers/models/doge/modeling_doge.py
-  X:/H/transformers/src/transformers/models/doge/modular_doge.py
-  X:/H/transformers/src/transformers/models/doge/convert_doge_weights_to_hf.py
-  X:/H/transformers/tests/models/doge/test_modeling_doge.py
-  X:/H/transformers/docs/source/en/model_doc/doge.md
+  transformers/src/transformers/models/doge/configuration_doge.py
+  transformers/src/transformers/models/doge/modeling_doge.py
+  transformers/src/transformers/models/doge/modular_doge.py
+  transformers/src/transformers/models/doge/convert_doge_weights_to_hf.py
+  transformers/tests/models/doge/test_modeling_doge.py
+  transformers/docs/source/en/model_doc/doge.md
 Config snapshots:
   SmallDoge_Doge-20M_config.json
   SmallDoge_Doge-60M_config.json

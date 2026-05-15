@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: tiiuae/Falcon-H1 family, primary target FalconH1ForCausalLM
 Config source: local configuration_falcon_h1.py plus HF config.json sweep
 Source files inspected:
-  X:/H/transformers/src/transformers/models/falcon_h1/configuration_falcon_h1.py
-  X:/H/transformers/src/transformers/models/falcon_h1/modeling_falcon_h1.py
-  X:/H/transformers/src/transformers/models/falcon_h1/modular_falcon_h1.py
-  X:/H/transformers/src/transformers/models/falcon_h1/convert_mamba_ssm_checkpoint.py
-  X:/H/transformers/src/transformers/cache_utils.py
+  transformers/src/transformers/models/falcon_h1/configuration_falcon_h1.py
+  transformers/src/transformers/models/falcon_h1/modeling_falcon_h1.py
+  transformers/src/transformers/models/falcon_h1/modular_falcon_h1.py
+  transformers/src/transformers/models/falcon_h1/convert_mamba_ssm_checkpoint.py
+  transformers/src/transformers/cache_utils.py
 Any missing files or assumptions: no weights fetched; no imports/tests run; config reads were direct HF raw JSON.
 ```
 

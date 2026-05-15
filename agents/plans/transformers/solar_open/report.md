@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: upstage/Solar-Open-100B
 Config source: https://huggingface.co/upstage/Solar-Open-100B/raw/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/solar_open/configuration_solar_open.py
-- X:/H/transformers/src/transformers/models/solar_open/modeling_solar_open.py
-- X:/H/transformers/src/transformers/models/solar_open/modular_solar_open.py
-- X:/H/transformers/docs/source/en/model_doc/solar_open.md
-- X:/H/transformers/tests/models/solar_open/test_modeling_solar_open.py
+- transformers/src/transformers/models/solar_open/configuration_solar_open.py
+- transformers/src/transformers/models/solar_open/modeling_solar_open.py
+- transformers/src/transformers/models/solar_open/modular_solar_open.py
+- transformers/docs/source/en/model_doc/solar_open.md
+- transformers/tests/models/solar_open/test_modeling_solar_open.py
 Representative configs inspected:
 - upstage/Solar-Open-100B config.json and generation_config.json
 - SSON9/solar-open-tiny-dummy config.json

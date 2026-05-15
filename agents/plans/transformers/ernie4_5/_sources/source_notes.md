@@ -4,7 +4,7 @@ Audit date: 2026-05-13
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit verified with `git rev-parse HEAD`: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Inspected files:
   - `src/transformers/models/ernie4_5/configuration_ernie4_5.py`

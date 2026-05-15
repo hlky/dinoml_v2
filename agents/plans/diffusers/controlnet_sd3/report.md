@@ -8,7 +8,7 @@ Status: focused audit report. This report covers `StableDiffusion3ControlNetPipe
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   Base model context:
@@ -44,21 +44,21 @@ Config sources:
     DavyMorgan/tiny-controlnet-sd35 config.json
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet.py
-  X:/H/diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet_inpainting.py
-  X:/H/diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py
+  diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet.py
+  diffusers/src/diffusers/pipelines/controlnet_sd3/pipeline_stable_diffusion_3_controlnet_inpainting.py
+  diffusers/src/diffusers/pipelines/stable_diffusion_3/pipeline_stable_diffusion_3.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/controlnets/controlnet_sd3.py
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_sd3.py
-  X:/H/diffusers/src/diffusers/models/attention.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
+  diffusers/src/diffusers/models/controlnets/controlnet_sd3.py
+  diffusers/src/diffusers/models/transformers/transformer_sd3.py
+  diffusers/src/diffusers/models/attention.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/image_processor.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
 
 External component configs inspected:
   SD3 medium transformer, VAE, and scheduler configs from H:/configs/stabilityai.

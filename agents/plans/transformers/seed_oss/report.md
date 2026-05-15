@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Public checkpoint configs report transformers_version 4.55.0.
 
 Model id:
@@ -16,11 +16,11 @@ Config source:
   Raw Hugging Face config.json files plus source configuration defaults.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/seed_oss/configuration_seed_oss.py
-  X:/H/transformers/src/transformers/models/seed_oss/modular_seed_oss.py
-  X:/H/transformers/src/transformers/models/seed_oss/modeling_seed_oss.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
-  X:/H/transformers/src/transformers/configuration_utils.py
+  transformers/src/transformers/models/seed_oss/configuration_seed_oss.py
+  transformers/src/transformers/models/seed_oss/modular_seed_oss.py
+  transformers/src/transformers/models/seed_oss/modeling_seed_oss.py
+  transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/configuration_utils.py
 
 Any missing files or assumptions:
   No model-specific processor/image/audio files exist. `modeling_seed_oss.py`

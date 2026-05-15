@@ -23,5 +23,5 @@ Do not reuse the human OpenPose topology. The keypoint schema and renderer need 
 ## Sources
 
 - `agents/plans/auxiliary/control_preprocessors.md`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py`
 

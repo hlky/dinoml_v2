@@ -2,9 +2,9 @@
 
 ## Local source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Model directory: `X:/H/transformers/src/transformers/models/dac`
+- Model directory: `transformers/src/transformers/models/dac`
 - Files inspected:
   - `configuration_dac.py`
   - `feature_extraction_dac.py`

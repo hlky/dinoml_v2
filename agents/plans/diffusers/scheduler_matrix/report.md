@@ -6,7 +6,7 @@ Candidate slug: `scheduler_matrix`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model / pipeline reports used as staging context:
   agents/plans/diffusers/stable_diffusion_1_5/report.md
@@ -18,16 +18,16 @@ Model / pipeline reports used as staging context:
   agents/plans/diffusers/cogvideox/report.md
 
 Scheduler source files inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddpm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_pndm.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim.py
+  diffusers/src/diffusers/schedulers/scheduling_ddpm.py
+  diffusers/src/diffusers/schedulers/scheduling_pndm.py
+  diffusers/src/diffusers/schedulers/scheduling_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_dpmsolver_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_unipc_multistep.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_utils.py
 
 Pipeline call sites inspected:
   Stable Diffusion / SDXL / SD3 / Flux / Wan / CogVideoX pipeline folders,

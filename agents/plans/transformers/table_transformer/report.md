@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/table-transformer-detection; microsoft/table-transformer-structure-recognition; microsoft/table-transformer-structure-recognition-v1.1-{pub,fin,all}
 Config source: official Hugging Face config.json and preprocessor_config.json snapshots under _sources/hf_configs/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/table_transformer/configuration_table_transformer.py
-- X:/H/transformers/src/transformers/models/table_transformer/modeling_table_transformer.py
-- X:/H/transformers/src/transformers/models/detr/image_processing_detr.py for AutoImageProcessor preprocessing/postprocess
-- X:/H/transformers/src/transformers/backbone_utils.py for backbone_config/load_backbone behavior
-- X:/H/transformers/src/transformers/masking_utils.py for create_bidirectional_mask behavior
+- transformers/src/transformers/models/table_transformer/configuration_table_transformer.py
+- transformers/src/transformers/models/table_transformer/modeling_table_transformer.py
+- transformers/src/transformers/models/detr/image_processing_detr.py for AutoImageProcessor preprocessing/postprocess
+- transformers/src/transformers/backbone_utils.py for backbone_config/load_backbone behavior
+- transformers/src/transformers/masking_utils.py for create_bidirectional_mask behavior
 Any missing files or assumptions: no gated/401/403 gaps found. Table Transformer has no local image_processing_table_transformer.py; official checkpoints route to legacy DetrFeatureExtractor or DetrImageProcessor. Training losses/matching were not audited as first-target runtime features.
 ```
 

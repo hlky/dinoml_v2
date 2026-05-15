@@ -9,7 +9,7 @@ block inventory except where a variant changes input/output contracts.
 
 ## 1. Source basis
 
-Diffusers commit/version: local checkout `X:/H/diffusers` at
+Diffusers commit/version: local checkout `diffusers` at
 `b3a515080752a3ba7ca92161e25530c7f280f629`.
 
 Read first / contrast reports:

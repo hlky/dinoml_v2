@@ -5,12 +5,12 @@ Audit target: Transformers `src/transformers/models/xcodec` at commit
 
 Local source basis:
 
-- `X:/H/transformers/src/transformers/models/xcodec/configuration_xcodec.py`
-- `X:/H/transformers/src/transformers/models/xcodec/modeling_xcodec.py`
-- `X:/H/transformers/src/transformers/models/xcodec/convert_xcodec_weights_to_hf.py`
-- `X:/H/transformers/src/transformers/models/dac/configuration_dac.py`
-- `X:/H/transformers/src/transformers/models/dac/modeling_dac.py`
-- `X:/H/transformers/src/transformers/models/dac/feature_extraction_dac.py`
+- `transformers/src/transformers/models/xcodec/configuration_xcodec.py`
+- `transformers/src/transformers/models/xcodec/modeling_xcodec.py`
+- `transformers/src/transformers/models/xcodec/convert_xcodec_weights_to_hf.py`
+- `transformers/src/transformers/models/dac/configuration_dac.py`
+- `transformers/src/transformers/models/dac/modeling_dac.py`
+- `transformers/src/transformers/models/dac/feature_extraction_dac.py`
 - Semantic backbones are delegated to existing in-library HuBERT or WavLM sources:
   `src/transformers/models/hubert/modeling_hubert.py` and
   `src/transformers/models/wavlm/modeling_wavlm.py`.

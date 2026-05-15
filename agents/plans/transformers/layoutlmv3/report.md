@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: microsoft/layoutlmv3-base, microsoft/layoutlmv3-large
 Config source: official HF config.json and preprocessor_config.json snapshots under _sources/hf_configs/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/layoutlmv3/modeling_layoutlmv3.py
-- X:/H/transformers/src/transformers/models/layoutlmv3/configuration_layoutlmv3.py
-- X:/H/transformers/src/transformers/models/layoutlmv3/processing_layoutlmv3.py
-- X:/H/transformers/src/transformers/models/layoutlmv3/image_processing_layoutlmv3.py
-- X:/H/transformers/src/transformers/models/layoutlmv3/image_processing_pil_layoutlmv3.py
-- X:/H/transformers/src/transformers/models/layoutlmv3/tokenization_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/modeling_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/configuration_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/processing_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/image_processing_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/image_processing_pil_layoutlmv3.py
+- transformers/src/transformers/models/layoutlmv3/tokenization_layoutlmv3.py
 Any missing files or assumptions:
 - Native Transformers source implements base encoder, token classification, question answering, and sequence classification heads.
 - No native `LayoutLMv3ForMaskedLM` or masked-image-modeling head is present in this source basis; tokenizer `<mask>` is preprocessing/tokenizer support only for this audit.

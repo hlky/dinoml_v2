@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: espnet/fastspeech2_conformer, espnet/fastspeech2_conformer_hifigan, espnet/fastspeech2_conformer_with_hifigan
 Config source: HF raw config.json for the three repos above, fetched 2026-05-13
 Source files inspected:
-  X:/H/transformers/src/transformers/models/fastspeech2_conformer/configuration_fastspeech2_conformer.py
-  X:/H/transformers/src/transformers/models/fastspeech2_conformer/modeling_fastspeech2_conformer.py
-  X:/H/transformers/src/transformers/models/fastspeech2_conformer/tokenization_fastspeech2_conformer.py
-  X:/H/transformers/tests/models/fastspeech2_conformer/test_modeling_fastspeech2_conformer.py
-  X:/H/transformers/src/transformers/models/fastspeech2_conformer/convert_*.py
+  transformers/src/transformers/models/fastspeech2_conformer/configuration_fastspeech2_conformer.py
+  transformers/src/transformers/models/fastspeech2_conformer/modeling_fastspeech2_conformer.py
+  transformers/src/transformers/models/fastspeech2_conformer/tokenization_fastspeech2_conformer.py
+  transformers/tests/models/fastspeech2_conformer/test_modeling_fastspeech2_conformer.py
+  transformers/src/transformers/models/fastspeech2_conformer/convert_*.py
 Any missing files or assumptions:
   No processor or feature extractor file exists for this family. Text normalization and phonemization live in the tokenizer and depend on g2p_en. Acoustic training labels require an external audio/alignment pipeline; the tests explicitly use dummy pitch/energy/duration/spectrogram labels for training-path coverage.
 ```

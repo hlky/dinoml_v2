@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/dinov3-vitl16-chmv2-dpt-head
 Config source: official repo is gated; open ONNX mirror config used only as representative checkpoint snapshot.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/chmv2/configuration_chmv2.py
-- X:/H/transformers/src/transformers/models/chmv2/modeling_chmv2.py
-- X:/H/transformers/src/transformers/models/chmv2/modular_chmv2.py
-- X:/H/transformers/src/transformers/models/chmv2/image_processing_chmv2.py
-- X:/H/transformers/src/transformers/models/dinov3_vit/configuration_dinov3_vit.py
-- X:/H/transformers/src/transformers/models/dinov3_vit/modeling_dinov3_vit.py
+- transformers/src/transformers/models/chmv2/configuration_chmv2.py
+- transformers/src/transformers/models/chmv2/modeling_chmv2.py
+- transformers/src/transformers/models/chmv2/modular_chmv2.py
+- transformers/src/transformers/models/chmv2/image_processing_chmv2.py
+- transformers/src/transformers/models/dinov3_vit/configuration_dinov3_vit.py
+- transformers/src/transformers/models/dinov3_vit/modeling_dinov3_vit.py
 Any missing files or assumptions: facebook/dinov3-vitl16-chmv2-dpt-head config/preprocessor files returned gated/auth-required errors. HF API metadata was accessible and marks the repo gated="manual". The ONNX mirror is not authoritative for weights but matches the native architecture/config shape.
 ```
 

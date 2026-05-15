@@ -12,13 +12,13 @@ Assumptions: inference-only, CUDA first, preserve source NCHW semantics before o
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/superpoint/configuration_superpoint.py`
-- `X:/H/transformers/src/transformers/models/superpoint/modeling_superpoint.py`
-- `X:/H/transformers/src/transformers/models/superpoint/image_processing_superpoint.py`
-- `X:/H/transformers/src/transformers/models/superpoint/image_processing_pil_superpoint.py`
-- `X:/H/transformers/src/transformers/models/superpoint/convert_superpoint_to_pytorch.py`
-- `X:/H/transformers/tests/models/superpoint/test_modeling_superpoint.py`
-- `X:/H/transformers/tests/models/superpoint/test_image_processing_superpoint.py`
+- `transformers/src/transformers/models/superpoint/configuration_superpoint.py`
+- `transformers/src/transformers/models/superpoint/modeling_superpoint.py`
+- `transformers/src/transformers/models/superpoint/image_processing_superpoint.py`
+- `transformers/src/transformers/models/superpoint/image_processing_pil_superpoint.py`
+- `transformers/src/transformers/models/superpoint/convert_superpoint_to_pytorch.py`
+- `transformers/tests/models/superpoint/test_modeling_superpoint.py`
+- `transformers/tests/models/superpoint/test_image_processing_superpoint.py`
 
 Representative configs:
 

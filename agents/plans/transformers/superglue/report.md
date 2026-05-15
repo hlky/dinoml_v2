@@ -7,13 +7,13 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: magic-leap-community/superglue_indoor, magic-leap-community/superglue_outdoor
 Config source: official HF config.json/preprocessor_config.json plus local SuperGlueConfig defaults
 Source files inspected:
-- X:/H/transformers/src/transformers/models/superglue/configuration_superglue.py
-- X:/H/transformers/src/transformers/models/superglue/modeling_superglue.py
-- X:/H/transformers/src/transformers/models/superglue/image_processing_superglue.py
-- X:/H/transformers/src/transformers/models/superglue/image_processing_pil_superglue.py
-- X:/H/transformers/src/transformers/models/superglue/convert_superglue_to_hf.py
-- X:/H/transformers/src/transformers/models/superpoint/configuration_superpoint.py
-- X:/H/transformers/src/transformers/models/superpoint/modeling_superpoint.py
+- transformers/src/transformers/models/superglue/configuration_superglue.py
+- transformers/src/transformers/models/superglue/modeling_superglue.py
+- transformers/src/transformers/models/superglue/image_processing_superglue.py
+- transformers/src/transformers/models/superglue/image_processing_pil_superglue.py
+- transformers/src/transformers/models/superglue/convert_superglue_to_hf.py
+- transformers/src/transformers/models/superpoint/configuration_superpoint.py
+- transformers/src/transformers/models/superpoint/modeling_superpoint.py
 Any missing files or assumptions: SuperGlue delegates keypoint detection to AutoModelForKeypointDetection, defaulting to SuperPoint. This report treats the SuperPoint boundary as required for end-to-end SuperGlue parity, but the SuperPoint body should be staged as its own owned detector sub-audit before broad operator admission.
 ```
 

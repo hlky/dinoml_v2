@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/sam3, tracker sub-config/model family sam3_tracker_video
 Config source: pinned source defaults; raw facebook/sam3 config is gated and returned HTTP 401
 Source files inspected:
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/processing_sam3_tracker_video.py
-  X:/H/transformers/src/transformers/models/sam3_tracker_video/modular_sam3_tracker_video.py
-  X:/H/transformers/src/transformers/models/sam3/configuration_sam3.py
-  X:/H/transformers/src/transformers/models/sam3/modeling_sam3.py
+  transformers/src/transformers/models/sam3_tracker_video/configuration_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3_tracker_video/modeling_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3_tracker_video/processing_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3_tracker_video/modular_sam3_tracker_video.py
+  transformers/src/transformers/models/sam3/configuration_sam3.py
+  transformers/src/transformers/models/sam3/modeling_sam3.py
 Any missing files or assumptions:
   facebook/sam3 raw config and preprocessor configs are manually gated. This report uses source defaults plus public HF API metadata.
 ```

@@ -7,12 +7,12 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: dg845/univnet-dev
 Config source: https://huggingface.co/dg845/univnet-dev/raw/main/config.json
 Source files inspected:
-- X:/H/transformers/src/transformers/models/univnet/configuration_univnet.py
-- X:/H/transformers/src/transformers/models/univnet/modeling_univnet.py
-- X:/H/transformers/src/transformers/models/univnet/feature_extraction_univnet.py
-- X:/H/transformers/src/transformers/models/univnet/convert_univnet.py
-- X:/H/transformers/tests/models/univnet/test_modeling_univnet.py
-- X:/H/transformers/tests/models/univnet/test_feature_extraction_univnet.py
+- transformers/src/transformers/models/univnet/configuration_univnet.py
+- transformers/src/transformers/models/univnet/modeling_univnet.py
+- transformers/src/transformers/models/univnet/feature_extraction_univnet.py
+- transformers/src/transformers/models/univnet/convert_univnet.py
+- transformers/tests/models/univnet/test_modeling_univnet.py
+- transformers/tests/models/univnet/test_feature_extraction_univnet.py
 Any missing files or assumptions: only one public Transformers-native HF config was found. `my3bikaht/univnet-RU` has no config.json and is treated as a non-native checkpoint gap, not a source of runtime requirements.
 ```
 

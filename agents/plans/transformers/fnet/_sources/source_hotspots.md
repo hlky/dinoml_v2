@@ -1,6 +1,6 @@
 # FNet source hotspots
 
-Local Transformers checkout: `X:/H/transformers` at commit
+Local Transformers checkout: `transformers` at commit
 `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## Files inspected

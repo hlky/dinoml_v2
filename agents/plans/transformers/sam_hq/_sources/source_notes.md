@@ -4,7 +4,7 @@ Scope: `sam_hq` only.
 
 Transformers source checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Authoritative family source: `src/transformers/models/sam_hq/modular_sam_hq.py`
 - Generated source inspected for concrete line-oriented behavior: `src/transformers/models/sam_hq/modeling_sam_hq.py` and `configuration_sam_hq.py`

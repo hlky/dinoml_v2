@@ -28,6 +28,6 @@ ZoeDepth should compose the Transformers model report with an auxiliary output-i
 - `H:/controlnet_aux/src/controlnet_aux/zoe/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/leres/__init__.py`
 - `H:/controlnet_aux/src/controlnet_aux/processor.py`
-- `X:/H/transformers/src/transformers/models/zoedepth`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:263`
-- `H:/uis/lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:577`
+- `transformers/src/transformers/models/zoedepth`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:263`
+- `lllyasviel/stable-diffusion-webui-forge/extensions-builtin/forge_legacy_preprocessors/legacy_preprocessors/preprocessor.py:577`

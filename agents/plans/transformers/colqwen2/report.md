@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: primary native checkpoint [`vidore/colqwen2-v1.0-hf`](https://huggingface.co/vidore/colqwen2-v1.0-hf). Historical ColQwen2 repos such as [`vidore/colqwen2-base`](https://huggingface.co/vidore/colqwen2-base) and [`vidore/colqwen2-v1.0-merged`](https://huggingface.co/vidore/colqwen2-v1.0-merged) are noted as legacy/ColPali-format references, not the native `model_type=colqwen2` target.
 

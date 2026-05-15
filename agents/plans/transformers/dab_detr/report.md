@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: IDEA-Research/dab-detr-resnet-50 primary; IDEA-Research/dab-detr-resnet-50-dc5 variant
 Config source: HF config/preprocessor JSON snapshots under _sources/hf_configs/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/dab_detr/configuration_dab_detr.py
-  X:/H/transformers/src/transformers/models/dab_detr/modeling_dab_detr.py
-  X:/H/transformers/src/transformers/models/dab_detr/__init__.py
-  X:/H/transformers/src/transformers/models/conditional_detr/image_processing_conditional_detr.py
-  X:/H/transformers/src/transformers/models/conditional_detr/modular_conditional_detr.py
+  transformers/src/transformers/models/dab_detr/configuration_dab_detr.py
+  transformers/src/transformers/models/dab_detr/modeling_dab_detr.py
+  transformers/src/transformers/models/dab_detr/__init__.py
+  transformers/src/transformers/models/conditional_detr/image_processing_conditional_detr.py
+  transformers/src/transformers/models/conditional_detr/modular_conditional_detr.py
 Any missing files or assumptions:
   The dab_detr package has no dedicated image_processing_dab_detr.py. Official configs use
   ConditionalDetrImageProcessor, so postprocess/preprocess facts below come from that file.

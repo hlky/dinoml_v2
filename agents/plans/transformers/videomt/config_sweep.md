@@ -1,6 +1,6 @@
 # VidEoMT Config Sweep Evidence
 
-Source basis: public Hugging Face `config.json` files fetched on 2026-05-13 plus `X:/H/transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Source basis: public Hugging Face `config.json` files fetched on 2026-05-13 plus `transformers` at commit `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 `preprocessor_config.json` returned 404 for the sampled public repos. Processor behavior in the report therefore comes from `video_processing_videomt.py` and inherited `BaseVideoProcessor` defaults, not per-checkpoint processor files.
 

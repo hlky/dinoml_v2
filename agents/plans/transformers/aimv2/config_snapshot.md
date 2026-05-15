@@ -2,7 +2,7 @@
 
 Source date: 2026-05-13.
 
-Primary source checkout: `X:/H/transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
+Primary source checkout: `transformers` at `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 Representative Hugging Face configs fetched from `https://huggingface.co/{model_id}/raw/main/config.json` and `preprocessor_config.json`.
 

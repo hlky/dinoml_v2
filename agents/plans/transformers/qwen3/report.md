@@ -5,17 +5,17 @@ Primary target: `Qwen3ForCausalLM` inference and generation on CUDA. This is a s
 ## 1. Source basis
 
 ```text
-Transformers commit/version: local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Transformers commit/version: local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model family: qwen3
 Primary task: causal LM prefill/decode/generation
-Local source root: X:/H/transformers
+Local source root: transformers
 ```
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen3/configuration_qwen3.py`
-- `X:/H/transformers/src/transformers/models/qwen3/modeling_qwen3.py`
-- `X:/H/transformers/src/transformers/models/qwen3/modular_qwen3.py`
+- `transformers/src/transformers/models/qwen3/configuration_qwen3.py`
+- `transformers/src/transformers/models/qwen3/modeling_qwen3.py`
+- `transformers/src/transformers/models/qwen3/modular_qwen3.py`
 - Cross-checks: `src/transformers/models/qwen2/modeling_qwen2.py`, `src/transformers/models/qwen2/configuration_qwen2.py`, `src/transformers/models/qwen3_moe/modeling_qwen3_moe.py`, `src/transformers/models/qwen3_moe/configuration_qwen3_moe.py`, `src/transformers/cache_utils.py`, `src/transformers/masking_utils.py`, `src/transformers/modeling_rope_utils.py`
 
 Source URLs at the inspected commit:

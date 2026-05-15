@@ -23,8 +23,8 @@ Treat these as separate conditioning reports rather than base Wan support. First
 
 ## Sources
 
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/any2video.py:912`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/any2video.py:1048`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/any2video.py:1085`
-- `H:/uis/deepbeepmeep/Wan2GP/models/wan/multitalk/multitalk_model.py:353`
+- `deepbeepmeep/Wan2GP/models/wan/any2video.py:912`
+- `deepbeepmeep/Wan2GP/models/wan/any2video.py:1048`
+- `deepbeepmeep/Wan2GP/models/wan/any2video.py:1085`
+- `deepbeepmeep/Wan2GP/models/wan/multitalk/multitalk_model.py:353`
 

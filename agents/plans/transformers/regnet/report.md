@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: facebook/regnet-y-040 as the default/common example; additional sampled checkpoints listed below.
 Config source: local Transformers RegNetConfig plus official Hugging Face config.json/preprocessor_config.json snapshots.
 Source files inspected:
-- X:/H/transformers/src/transformers/models/regnet/modeling_regnet.py
-- X:/H/transformers/src/transformers/models/regnet/configuration_regnet.py
-- X:/H/transformers/src/transformers/models/regnet/convert_regnet_to_pytorch.py
-- X:/H/transformers/src/transformers/models/regnet/convert_regnet_seer_10b_to_pytorch.py
-- X:/H/transformers/tests/models/regnet/test_modeling_regnet.py, for output-shape expectations only
+- transformers/src/transformers/models/regnet/modeling_regnet.py
+- transformers/src/transformers/models/regnet/configuration_regnet.py
+- transformers/src/transformers/models/regnet/convert_regnet_to_pytorch.py
+- transformers/src/transformers/models/regnet/convert_regnet_seer_10b_to_pytorch.py
+- transformers/tests/models/regnet/test_modeling_regnet.py, for output-shape expectations only
 Any missing files or assumptions: no RegNet-specific image processor exists in-tree; checkpoints reuse generic image processor configs. All sampled official configs were accessible; no gated/401/403 gaps found.
 ```
 

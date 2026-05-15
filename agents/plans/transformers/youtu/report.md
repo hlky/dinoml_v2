@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: tencent/Youtu-LLM-2B and tencent/Youtu-LLM-2B-Base
 Config source: local Transformers defaults plus HF config.json files fetched from the two public repos
 Source files inspected:
-  X:/H/transformers/src/transformers/models/youtu/configuration_youtu.py
-  X:/H/transformers/src/transformers/models/youtu/modeling_youtu.py
-  X:/H/transformers/src/transformers/models/youtu/modular_youtu.py
+  transformers/src/transformers/models/youtu/configuration_youtu.py
+  transformers/src/transformers/models/youtu/modeling_youtu.py
+  transformers/src/transformers/models/youtu/modular_youtu.py
 Any missing files or assumptions:
   No image/audio processor exists for the in-library youtu family. Youtu-VL and Youtu-Parsing are remote-code multimodal families and are out of scope for this report.
 ```

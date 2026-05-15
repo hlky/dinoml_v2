@@ -22,7 +22,7 @@ Prefer reusing Transformers BLIP/BLIP-2 coverage for in-library models. The UI c
 
 ## Sources
 
-- `H:/uis/AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
-- `X:/H/transformers/src/transformers/models/blip`
-- `X:/H/transformers/src/transformers/models/blip_2`
+- `AUTOMATIC1111/stable-diffusion-webui/modules/interrogate.py`
+- `transformers/src/transformers/models/blip`
+- `transformers/src/transformers/models/blip_2`
 

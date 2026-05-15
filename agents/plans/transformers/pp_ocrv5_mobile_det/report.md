@@ -8,12 +8,12 @@ Model id: PaddlePaddle/PP-OCRv5_mobile_det_safetensors
 Config source: HF config/preprocessor plus original Paddle inference config snapshots in _sources/
 Primary runtime target: OCR text-line detection probability-map model plus required DB postprocess
 Source files inspected:
-- X:/H/transformers/src/transformers/models/pp_ocrv5_mobile_det/configuration_pp_ocrv5_mobile_det.py
-- X:/H/transformers/src/transformers/models/pp_ocrv5_mobile_det/modeling_pp_ocrv5_mobile_det.py
-- X:/H/transformers/src/transformers/models/pp_ocrv5_mobile_det/modular_pp_ocrv5_mobile_det.py
-- X:/H/transformers/src/transformers/models/pp_ocrv5_server_det/image_processing_pp_ocrv5_server_det.py
-- X:/H/transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py
-- X:/H/transformers/src/transformers/models/pp_lcnet_v3/modeling_pp_lcnet_v3.py
+- transformers/src/transformers/models/pp_ocrv5_mobile_det/configuration_pp_ocrv5_mobile_det.py
+- transformers/src/transformers/models/pp_ocrv5_mobile_det/modeling_pp_ocrv5_mobile_det.py
+- transformers/src/transformers/models/pp_ocrv5_mobile_det/modular_pp_ocrv5_mobile_det.py
+- transformers/src/transformers/models/pp_ocrv5_server_det/image_processing_pp_ocrv5_server_det.py
+- transformers/src/transformers/models/pp_lcnet_v3/configuration_pp_lcnet_v3.py
+- transformers/src/transformers/models/pp_lcnet_v3/modeling_pp_lcnet_v3.py
 Any missing files or assumptions: pp_ocrv5_mobile_det has no family-local image processor; AutoImageProcessor maps it to PPOCRV5ServerDetImageProcessor. Modeling/config files are generated from modular source; modular_pp_ocrv5_mobile_det.py is authoritative for source edits.
 ```
 

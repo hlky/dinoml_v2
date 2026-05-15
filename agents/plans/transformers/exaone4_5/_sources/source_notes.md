@@ -2,7 +2,7 @@
 
 ## Source basis
 
-- Transformers checkout: `X:/H/transformers`
+- Transformers checkout: `transformers`
 - Commit inspected: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Primary family: `src/transformers/models/exaone4_5`
 - Text dependency: `src/transformers/models/exaone4`

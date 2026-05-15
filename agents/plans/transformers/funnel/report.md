@@ -3,16 +3,16 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: funnel-transformer/{small,small-base,medium,intermediate,large,xlarge}
 Config source: HF config.json snapshots saved under agents/plans/transformers/funnel/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/funnel/configuration_funnel.py
-  X:/H/transformers/src/transformers/models/funnel/modeling_funnel.py
-  X:/H/transformers/src/transformers/models/funnel/tokenization_funnel.py
-  X:/H/transformers/docs/source/en/model_doc/funnel.md
-  X:/H/transformers/tests/models/funnel/test_modeling_funnel.py
-  X:/H/transformers/src/transformers/activations.py
+  transformers/src/transformers/models/funnel/configuration_funnel.py
+  transformers/src/transformers/models/funnel/modeling_funnel.py
+  transformers/src/transformers/models/funnel/tokenization_funnel.py
+  transformers/docs/source/en/model_doc/funnel.md
+  transformers/tests/models/funnel/test_modeling_funnel.py
+  transformers/src/transformers/activations.py
 Any missing files or assumptions:
   No remote code is required for the sampled checkpoints. This report scopes DinoML first target to inference for encoder outputs and task heads, not training losses.
 ```

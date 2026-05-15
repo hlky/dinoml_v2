@@ -6,7 +6,7 @@ Candidate slug: `flux2`
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   black-forest-labs/FLUX.2-dev
@@ -27,27 +27,27 @@ Config sources:
   Hugging Face raw/API reads for component configs listed below.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/flux2/pipeline_flux2.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein_kv.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein_inpaint.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/image_processor.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/pipeline_output.py
-  X:/H/diffusers/src/diffusers/pipelines/flux2/system_messages.py
+  diffusers/src/diffusers/pipelines/flux2/pipeline_flux2.py
+  diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein.py
+  diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein_kv.py
+  diffusers/src/diffusers/pipelines/flux2/pipeline_flux2_klein_inpaint.py
+  diffusers/src/diffusers/pipelines/flux2/image_processor.py
+  diffusers/src/diffusers/pipelines/flux2/pipeline_output.py
+  diffusers/src/diffusers/pipelines/flux2/system_messages.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/transformer_flux2.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_flux2.py
-  X:/H/diffusers/src/diffusers/models/attention_dispatch.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/transformers/transformer_flux2.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_flux2.py
+  diffusers/src/diffusers/models/attention_dispatch.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/normalization.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
-  X:/H/diffusers/src/diffusers/loaders/lora_pipeline.py
-  X:/H/diffusers/src/diffusers/loaders/lora_conversion_utils.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_model.py
-  X:/H/diffusers/src/diffusers/loaders/single_file_utils.py
+  diffusers/src/diffusers/schedulers/scheduling_flow_match_euler_discrete.py
+  diffusers/src/diffusers/loaders/lora_pipeline.py
+  diffusers/src/diffusers/loaders/lora_conversion_utils.py
+  diffusers/src/diffusers/loaders/single_file_model.py
+  diffusers/src/diffusers/loaders/single_file_utils.py
 
 External component configs inspected:
   black-forest-labs/FLUX.2-dev:

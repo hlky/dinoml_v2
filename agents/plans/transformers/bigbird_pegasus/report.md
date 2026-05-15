@@ -7,9 +7,9 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: google/bigbird-pegasus-large-arxiv primary; google/bigbird-pegasus-large-pubmed and google/bigbird-pegasus-large-bigpatent representative public configs
 Config source: Hugging Face config.json/tokenizer_config.json/generation_config.json snapshots saved under agents/plans/transformers/bigbird_pegasus/_sources/
 Source files inspected:
-- X:/H/transformers/src/transformers/models/bigbird_pegasus/configuration_bigbird_pegasus.py
-- X:/H/transformers/src/transformers/models/bigbird_pegasus/modeling_bigbird_pegasus.py
-- X:/H/transformers/src/transformers/models/pegasus/tokenization_pegasus.py
+- transformers/src/transformers/models/bigbird_pegasus/configuration_bigbird_pegasus.py
+- transformers/src/transformers/models/bigbird_pegasus/modeling_bigbird_pegasus.py
+- transformers/src/transformers/models/pegasus/tokenization_pegasus.py
 Any missing files or assumptions:
 - google/bigbird-pegasus-large-wikihow returned 401 for config/tokenizer/generation config fetches; it is recorded as unavailable and not used for operator facts.
 - This report scopes the first useful DinoML runtime target to `BigBirdPegasusForConditionalGeneration`: long-document encoder-decoder summarization with block-sparse encoder attention, dense decoder self-attention/cross-attention, and decoder KV/cache support. Sequence classification, QA, and decoder-only CausalLM heads are implemented in source but are optional/deferred for that target.

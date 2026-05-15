@@ -2,7 +2,7 @@
 
 Local Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 - Model source: `src/transformers/models/deepseek_v4/`
 - Generated runtime file: `modeling_deepseek_v4.py`

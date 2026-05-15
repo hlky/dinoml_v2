@@ -11,13 +11,13 @@ Primary runtime target: vision image classification
 
 Source files inspected:
 
-- `X:/H/transformers/src/transformers/models/swiftformer/modeling_swiftformer.py`
-- `X:/H/transformers/src/transformers/models/swiftformer/configuration_swiftformer.py`
-- `X:/H/transformers/src/transformers/models/swiftformer/convert_swiftformer_original_to_hf.py`
-- `X:/H/transformers/src/transformers/models/auto/image_processing_auto.py`
-- `X:/H/transformers/src/transformers/models/vit/image_processing_vit.py`
-- `X:/H/transformers/src/transformers/image_processing_utils.py`
-- `X:/H/transformers/src/transformers/image_transforms.py`
+- `transformers/src/transformers/models/swiftformer/modeling_swiftformer.py`
+- `transformers/src/transformers/models/swiftformer/configuration_swiftformer.py`
+- `transformers/src/transformers/models/swiftformer/convert_swiftformer_original_to_hf.py`
+- `transformers/src/transformers/models/auto/image_processing_auto.py`
+- `transformers/src/transformers/models/vit/image_processing_vit.py`
+- `transformers/src/transformers/image_processing_utils.py`
+- `transformers/src/transformers/image_transforms.py`
 
 Primary URLs:
 

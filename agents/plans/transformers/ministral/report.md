@@ -2,7 +2,7 @@
 
 ## 1. Source basis
 
-Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `X:/H/transformers`.
+Transformers commit/version: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4` from local checkout `transformers`.
 
 Model id: source docstring and HF docs point at `mistralai/Ministral-8B-Instruct-2410`, but its current `config.json` says `model_type: "mistral"` and `architectures: ["MistralForCausalLM"]`. Treat that checkpoint as a compatibility trap for this `ministral` audit, not as proof that the `ministral` class owns the live weights.
 
@@ -20,11 +20,11 @@ Config source:
   - `tokenizer_generation_summary.md` for tokenizer special-token and generation metadata.
 
 Source files inspected:
-- `X:/H/transformers/src/transformers/models/ministral/configuration_ministral.py`
-- `X:/H/transformers/src/transformers/models/ministral/modeling_ministral.py`
-- `X:/H/transformers/src/transformers/models/ministral/modular_ministral.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
-- `X:/H/transformers/src/transformers/masking_utils.py`
+- `transformers/src/transformers/models/ministral/configuration_ministral.py`
+- `transformers/src/transformers/models/ministral/modeling_ministral.py`
+- `transformers/src/transformers/models/ministral/modular_ministral.py`
+- `transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/masking_utils.py`
 
 Source URLs:
 - https://github.com/huggingface/transformers/tree/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/ministral

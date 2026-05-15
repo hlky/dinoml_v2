@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Equivalent source URL:
   https://github.com/huggingface/transformers/tree/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/vitdet
 
@@ -14,19 +14,19 @@ Model id:
   hustvl/vitmatte-base-composition-1k and hustvl/vitmatte-small-composition-1k.
 
 Config source:
-  X:/H/transformers/src/transformers/models/vitdet/configuration_vitdet.py
+  transformers/src/transformers/models/vitdet/configuration_vitdet.py
   https://huggingface.co/hustvl/vitmatte-base-composition-1k/raw/main/config.json
   https://huggingface.co/hustvl/vitmatte-small-composition-1k/raw/main/config.json
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/vitdet/modeling_vitdet.py
-  X:/H/transformers/src/transformers/models/vitdet/configuration_vitdet.py
-  X:/H/transformers/src/transformers/models/vitdet/__init__.py
-  X:/H/transformers/src/transformers/models/auto/auto_mappings.py
-  X:/H/transformers/src/transformers/models/auto/modeling_auto.py
-  X:/H/transformers/src/transformers/models/auto/image_processing_auto.py
-  X:/H/transformers/docs/source/en/model_doc/vitdet.md
-  X:/H/transformers/tests/models/vitdet/test_modeling_vitdet.py
+  transformers/src/transformers/models/vitdet/modeling_vitdet.py
+  transformers/src/transformers/models/vitdet/configuration_vitdet.py
+  transformers/src/transformers/models/vitdet/__init__.py
+  transformers/src/transformers/models/auto/auto_mappings.py
+  transformers/src/transformers/models/auto/modeling_auto.py
+  transformers/src/transformers/models/auto/image_processing_auto.py
+  transformers/docs/source/en/model_doc/vitdet.md
+  transformers/tests/models/vitdet/test_modeling_vitdet.py
 
 Any missing files or assumptions:
   No VitDet image processor, detector head, segmentation head, NMS, mask

@@ -1,6 +1,6 @@
 # prompt_depth_anything config/source snapshot
 
-Source basis: Transformers checkout `X:/H/transformers` at
+Source basis: Transformers checkout `transformers` at
 `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`.
 
 ## Representative HF configs

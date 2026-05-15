@@ -4,7 +4,7 @@
 
 ```text
 Diffusers commit/version:
-  Local checkout X:/H/diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
+  Local checkout diffusers at b3a515080752a3ba7ca92161e25530c7f280f629.
 
 Model id(s):
   zai-org/CogVideoX-2b
@@ -21,26 +21,26 @@ Config sources:
   task's owned write path is limited to this report.
 
 Pipeline files inspected:
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox.py
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_image2video.py
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_video2video.py
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_fun_control.py
-  X:/H/diffusers/src/diffusers/pipelines/cogvideo/pipeline_output.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_image2video.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_video2video.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_cogvideox_fun_control.py
+  diffusers/src/diffusers/pipelines/cogvideo/pipeline_output.py
 
 Model files inspected:
-  X:/H/diffusers/src/diffusers/models/transformers/cogvideox_transformer_3d.py
-  X:/H/diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
-  X:/H/diffusers/src/diffusers/models/embeddings.py
-  X:/H/diffusers/src/diffusers/models/attention_processor.py
-  X:/H/diffusers/src/diffusers/models/normalization.py
-  X:/H/diffusers/src/diffusers/models/downsampling.py
-  X:/H/diffusers/src/diffusers/models/upsampling.py
+  diffusers/src/diffusers/models/transformers/cogvideox_transformer_3d.py
+  diffusers/src/diffusers/models/autoencoders/autoencoder_kl_cogvideox.py
+  diffusers/src/diffusers/models/embeddings.py
+  diffusers/src/diffusers/models/attention_processor.py
+  diffusers/src/diffusers/models/normalization.py
+  diffusers/src/diffusers/models/downsampling.py
+  diffusers/src/diffusers/models/upsampling.py
 
 Scheduler/processors/helpers inspected:
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
-  X:/H/diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
-  X:/H/diffusers/src/diffusers/video_processor.py
-  X:/H/diffusers/src/diffusers/image_processor.py
+  diffusers/src/diffusers/schedulers/scheduling_ddim_cogvideox.py
+  diffusers/src/diffusers/schedulers/scheduling_dpm_cogvideox.py
+  diffusers/src/diffusers/video_processor.py
+  diffusers/src/diffusers/image_processor.py
 
 External component configs inspected:
   T5EncoderModel and T5Tokenizer configs in official CogVideoX repos.

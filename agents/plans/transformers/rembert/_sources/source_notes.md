@@ -2,9 +2,9 @@
 
 Local Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family dir: `X:/H/transformers/src/transformers/models/rembert`
+- Family dir: `transformers/src/transformers/models/rembert`
 
 Files inspected:
 

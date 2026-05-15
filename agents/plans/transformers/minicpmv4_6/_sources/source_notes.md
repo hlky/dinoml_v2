@@ -2,9 +2,9 @@
 
 Local Transformers checkout:
 
-- Path: `X:/H/transformers`
+- Path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
-- Family path: `X:/H/transformers/src/transformers/models/minicpmv4_6`
+- Family path: `transformers/src/transformers/models/minicpmv4_6`
 
 Primary local files inspected:
 
@@ -18,9 +18,9 @@ Primary local files inspected:
 
 Nested text implementation inspected:
 
-- `X:/H/transformers/src/transformers/models/qwen3_5/configuration_qwen3_5.py`
-- `X:/H/transformers/src/transformers/models/qwen3_5/modeling_qwen3_5.py`
-- `X:/H/transformers/src/transformers/cache_utils.py`
+- `transformers/src/transformers/models/qwen3_5/configuration_qwen3_5.py`
+- `transformers/src/transformers/models/qwen3_5/modeling_qwen3_5.py`
+- `transformers/src/transformers/cache_utils.py`
 
 Hugging Face snapshots saved in this directory:
 

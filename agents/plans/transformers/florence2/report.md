@@ -7,11 +7,11 @@ Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 Model id: florence-community/Florence-2-base as the native-source representative; microsoft/Florence-2-{base,base-ft,large,large-ft} and florence-community/Florence-2-{base,base-ft,large,large-ft} inspected for variation.
 Config source: HF raw configs saved under agents/plans/transformers/florence2/_sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/florence2/configuration_florence2.py
-  X:/H/transformers/src/transformers/models/florence2/modeling_florence2.py
-  X:/H/transformers/src/transformers/models/florence2/modular_florence2.py
-  X:/H/transformers/src/transformers/models/florence2/processing_florence2.py
-  X:/H/transformers/src/transformers/models/florence2/convert_florence2_original_pytorch_to_hf.py
+  transformers/src/transformers/models/florence2/configuration_florence2.py
+  transformers/src/transformers/models/florence2/modeling_florence2.py
+  transformers/src/transformers/models/florence2/modular_florence2.py
+  transformers/src/transformers/models/florence2/processing_florence2.py
+  transformers/src/transformers/models/florence2/convert_florence2_original_pytorch_to_hf.py
 Any missing files or assumptions:
   modeling/configuration/processing files are generated from modular_florence2.py; modular_florence2.py is authoritative for future Transformers edits.
   Text stack is delegated to AutoModel with BART configs; this report records the Florence2-owned bridge plus BART-shaped requirements, but detailed BART parity should compose the separate BART audit.

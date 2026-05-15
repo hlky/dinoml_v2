@@ -10,7 +10,7 @@ Primary runtime target: Kosmos2_5ForConditionalGeneration, multimodal OCR/markdo
 Dinoml assumptions: inference-only first; CUDA target; keep source PyTorch axes for initial parity; treat image preprocessing as CPU/data-pipeline unless explicitly fused later.
 ```
 
-Source files inspected from `X:/H/transformers/src/transformers/models/kosmos2_5/`:
+Source files inspected from `transformers/src/transformers/models/kosmos2_5/`:
 
 - `configuration_kosmos2_5.py`
 - `modeling_kosmos2_5.py`

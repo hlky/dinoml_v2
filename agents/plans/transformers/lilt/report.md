@@ -3,14 +3,14 @@
 ## 1. Source basis
 
 ```text
-Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout X:/H/transformers
+Transformers commit/version: b75feb2af64c3e29cbbc1bd859958c5432cc7ed4 from local checkout transformers
 Model id: SCUT-DLVCLab/lilt-roberta-en-base, SCUT-DLVCLab/lilt-infoxlm-base; representative mirrors/fine-tunes listed below
 Config source: Hugging Face Hub config/tokenizer files fetched 2026-05-13 into _sources/
 Source files inspected:
-  X:/H/transformers/src/transformers/models/lilt/configuration_lilt.py
-  X:/H/transformers/src/transformers/models/lilt/modeling_lilt.py
-  X:/H/transformers/src/transformers/models/layoutlmv3/tokenization_layoutlmv3.py
-  X:/H/transformers/src/transformers/models/layoutxlm/tokenization_layoutxlm.py
+  transformers/src/transformers/models/lilt/configuration_lilt.py
+  transformers/src/transformers/models/lilt/modeling_lilt.py
+  transformers/src/transformers/models/layoutlmv3/tokenization_layoutlmv3.py
+  transformers/src/transformers/models/layoutxlm/tokenization_layoutxlm.py
 Any missing files or assumptions:
   No LiLT processor/image/OCR source exists in the LiLT directory. Official LiLT repos did not expose preprocessor_config.json. OCR and word boxes are caller/data-pipeline responsibilities.
 ```

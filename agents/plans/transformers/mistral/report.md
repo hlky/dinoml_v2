@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
   Remote upstream: https://github.com/huggingface/transformers.git
 
 Model id:
@@ -22,10 +22,10 @@ Config source:
   rather than transformers in repo metadata, but standard configs are readable.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/mistral/modeling_mistral.py
-  X:/H/transformers/src/transformers/models/mistral/modular_mistral.py
-  X:/H/transformers/src/transformers/models/mistral/configuration_mistral.py
-  X:/H/transformers/src/transformers/modeling_rope_utils.py
+  transformers/src/transformers/models/mistral/modeling_mistral.py
+  transformers/src/transformers/models/mistral/modular_mistral.py
+  transformers/src/transformers/models/mistral/configuration_mistral.py
+  transformers/src/transformers/modeling_rope_utils.py
   Tokenizer behavior inferred from LlamaTokenizer inheritance/config because
   the mistral directory has no dedicated tokenization_mistral.py.
 

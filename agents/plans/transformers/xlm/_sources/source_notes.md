@@ -4,15 +4,15 @@ Audit target: `xlm`
 
 Transformers checkout:
 
-- Local path: `X:/H/transformers`
+- Local path: `transformers`
 - Commit: `b75feb2af64c3e29cbbc1bd859958c5432cc7ed4`
 
 Local source files inspected:
 
-- `X:/H/transformers/src/transformers/models/xlm/configuration_xlm.py`
-- `X:/H/transformers/src/transformers/models/xlm/modeling_xlm.py`
-- `X:/H/transformers/src/transformers/models/xlm/tokenization_xlm.py`
-- `X:/H/transformers/src/transformers/models/xlm/convert_xlm_original_pytorch_checkpoint_to_pytorch.py` only for file presence; runtime report does not depend on converter behavior.
+- `transformers/src/transformers/models/xlm/configuration_xlm.py`
+- `transformers/src/transformers/models/xlm/modeling_xlm.py`
+- `transformers/src/transformers/models/xlm/tokenization_xlm.py`
+- `transformers/src/transformers/models/xlm/convert_xlm_original_pytorch_checkpoint_to_pytorch.py` only for file presence; runtime report does not depend on converter behavior.
 
 Representative config snapshots saved under `configs/`:
 

@@ -1,6 +1,6 @@
 # vision_text_dual_encoder source notes
 
-Transformers checkout: `X:/H/transformers`
+Transformers checkout: `transformers`
 
 Transformers commit inspected:
 
@@ -10,10 +10,10 @@ b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
 
 Local source files inspected:
 
-- `X:/H/transformers/src/transformers/models/vision_text_dual_encoder/modeling_vision_text_dual_encoder.py`
-- `X:/H/transformers/src/transformers/models/vision_text_dual_encoder/configuration_vision_text_dual_encoder.py`
-- `X:/H/transformers/src/transformers/models/vision_text_dual_encoder/processing_vision_text_dual_encoder.py`
-- `X:/H/transformers/src/transformers/processing_utils.py` for the inherited processor call/merge ABI.
+- `transformers/src/transformers/models/vision_text_dual_encoder/modeling_vision_text_dual_encoder.py`
+- `transformers/src/transformers/models/vision_text_dual_encoder/configuration_vision_text_dual_encoder.py`
+- `transformers/src/transformers/models/vision_text_dual_encoder/processing_vision_text_dual_encoder.py`
+- `transformers/src/transformers/processing_utils.py` for the inherited processor call/merge ABI.
 
 Representative Hugging Face config snapshots saved in this directory:
 

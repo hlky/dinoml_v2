@@ -4,7 +4,7 @@
 
 ```text
 Transformers commit/version:
-  Local checkout X:/H/transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
+  Local checkout transformers at b75feb2af64c3e29cbbc1bd859958c5432cc7ed4.
 
 Model id:
   Primary base checkpoints: google/canine-s and google/canine-c.
@@ -16,10 +16,10 @@ Config source:
   H:/dinoml_v2/agents/plans/transformers/canine/_sources/.
 
 Source files inspected:
-  X:/H/transformers/src/transformers/models/canine/modeling_canine.py
-  X:/H/transformers/src/transformers/models/canine/configuration_canine.py
-  X:/H/transformers/src/transformers/models/canine/tokenization_canine.py
-  X:/H/transformers/src/transformers/models/canine/__init__.py
+  transformers/src/transformers/models/canine/modeling_canine.py
+  transformers/src/transformers/models/canine/configuration_canine.py
+  transformers/src/transformers/models/canine/tokenization_canine.py
+  transformers/src/transformers/models/canine/__init__.py
 
 Any missing files or assumptions:
   No remote-code files are required for the inspected checkpoints. This report

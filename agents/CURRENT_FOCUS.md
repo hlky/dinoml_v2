@@ -35,11 +35,12 @@
 - CLIP first-model sprint: text model, vision patch path, projections, and
   contrastive wrapper integration, with Transformers parity as the acceptance
   bar for each admitted surface.
-- CUTLASS Conv maturity needed by CLIP vision: static profiling and the exact
-  CLIP float32 patch-projection CUDA runtime are landed; next gaps include using
-  that runtime in a bounded CUDA CLIP artifact smoke, C=8 parity if useful,
-  dynamic/guarded admission decisions, and avoiding unsupported grouped/
-  depthwise/transposed/3D claims.
+- CUTLASS Conv maturity needed by CLIP vision: static profiling, the exact
+  CLIP patch-projection CUDA runtime, and the broader static rank-4 groups=1
+  float32 SIMT runtime/profiler path are landed for public NCHW/OIHW
+  `conv2d_bias`. Next gaps include C=8 parity if useful, dynamic/guarded
+  admission decisions, no-bias/fused Conv2d variants, and avoiding unsupported
+  grouped/depthwise/transposed/3D claims.
 - Attention path: preserve dense attention parity first, then explore
   FlashAttention-style provider integration in the v1 manner.
 - libgguf direct-link follow-up only if a concrete runtime/build/cache failure
@@ -63,10 +64,11 @@
   bounded multi-layer text, vision, and two-tower CLIP wrappers now compile and
   run as CPU artifacts against local Transformers, with
   `examples/clip_model_workflow.py` now compiling, loading, and running that CPU
-  artifact end-to-end. Exact CLIP float32 patch Conv now compiles and runs
-  through a bounded CUDA `cutlass_conv` runtime boundary for the admitted
-  Transformers-shaped patch-projection slice, while other float32 Conv shapes
-  remain scaffold-only. Preferred next slice: shift away from the completed
-  naive CPU bridge/artifact-proof lane toward a bounded CUDA CLIP artifact smoke
-  that exposes the next concrete runtime blocker, or a new narrow Transformers
-  parity gap that is not already covered by the layer-count proofs.
+  artifact end-to-end. The tiny full two-tower CUDA artifact now also matches
+  local Transformers after the generated CUDA `vector_norm` fix, and static
+  groups=1 float32 `conv2d_bias` now uses a bounded CUTLASS SIMT
+  runtime/profiler path beyond the original exact CLIP patch shape. Preferred
+  next slice: continue Conv toward v1 core parity with a focused no-bias/fused
+  epilogue, grouped/depthwise/transposed/3D, or dynamic-dispatch decision, or
+  pick a new narrow Transformers parity gap that is not already covered by the
+  layer-count proofs.

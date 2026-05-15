@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Expanded CUTLASS Conv float32 runtime coverage beyond the original exact CLIP
+  patch-projection slice. Static rank-4 public NCHW/OIHW `conv2d_bias` with
+  `groups=1` now uses a bounded float32 SIMT runtime/profiler candidate, and a
+  non-CLIP stride/padding/dilation CUDA parity case proves the generated
+  pack/launch/unpack path against Torch. This is a real v1-core-parity step for
+  the existing `conv2d_bias` surface, not a claim for no-bias/fused epilogues,
+  grouped/depthwise/transposed/3D Conv, dynamic dispatch, or persistent packed
+  weights.
 - Fixed the first concrete CUDA CLIP contrastive-head drift boundary in model
   generated reductions. The CUDA `vector_norm` kernel had been reusing its
   per-element `acc + value * value` expression while reducing already-partial
@@ -29,13 +37,12 @@ This file should be updated after each major loop.
   widening Conv claims.
 - Landed the exact CLIP float32 CUDA Conv runtime slice. The
   Transformers-shaped patch projection used by `LegacyCLIPVisionEmbeddings`
-  (`[B,3,4,4]` input, `[6,3,2,2]` weights, stride 2, padding 0, groups 1) now
-  selects a bounded-runtime SIMT `cutlass_conv` candidate, builds the support
-  library launcher when CUDA tooling is available, and matches Torch/local
-  Transformers through a CUDA artifact boundary. Other float32 Conv shapes
-  remain scaffold-only, and the reviewer follow-up keeps the mixed float32
-  candidate-set status conservative so `cutlass_conv_plan.status` is the
-  per-shape runtime/scaffold authority.
+  (`[B,3,4,4]` input, `[6,3,2,2]` weights, stride 2, padding 0, groups 1)
+  selected a bounded-runtime SIMT `cutlass_conv` candidate, built the support
+  library launcher when CUDA tooling was available, and matched Torch/local
+  Transformers through a CUDA artifact boundary. The later broader float32
+  Conv loop supersedes its exact-shape-only limitation for static groups=1
+  `conv2d_bias`.
 - Upgraded the visible `examples/clip_model_workflow.py` proof from CPU
   reference-only to a compiled CPU artifact lifecycle smoke. The example now
   self-bootstraps the worktree source, traces the bounded `LegacyCLIPModel`,

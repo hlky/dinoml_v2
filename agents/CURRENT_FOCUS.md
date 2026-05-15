@@ -48,7 +48,7 @@
 - On 2026-05-15, the bounded CLIP text-feature wrapper exists, covers both
   source EOS pooling branches, has a visible text workflow proof, and no longer
   requires explicit `position_ids`. The vision side now has fixed-size
-  embeddings plus a zero-layer pool/projection wrapper. Preferred next slice:
-  add the first real vision encoder layer with Transformers parity, or address
-  Conv/provider runtime maturity only if it is a concrete blocker to CLIP
-  vision artifacts.
+  embeddings plus zero-layer and one-layer pool/projection wrappers. Preferred
+  next slice: assemble a bounded two-tower/contrastive CLIP workflow against
+  local Transformers if feasible, or add the smallest missing model assembly
+  piece that makes that workflow possible.

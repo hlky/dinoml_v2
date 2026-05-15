@@ -4,6 +4,32 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first real CLIP vision encoder layer. The bounded vision wrapper
+  now admits `num_hidden_layers` in `{0, 1}` and matches local Transformers for
+  the one-layer surface: fixed-size embeddings, `pre_layrnorm`, dense noncausal
+  self-attention, residuals, quick-gelu MLP, CLS pool, `post_layernorm`, and
+  bias-free visual projection. Focused tests pin `last_hidden_state`,
+  `pooler_output`, and `image_features` for both zero-layer and one-layer
+  configs and verify provider/model ownership for Conv, GEMM/BMM, softmax,
+  LayerNorm, and sequence assembly. Remaining limits: fixed square NCHW only,
+  no positional interpolation, no arbitrary image sizes, no vision
+  padding/causal mask path, no full `CLIPModel`, and CPU artifacts still stop
+  at the existing `conv2d_bias` backend boundary.
+
+## Next Recommended Lane
+
+- Convert the growing CLIP parity islands into a bounded two-tower/contrastive
+  workflow proof if feasible: use the admitted text wrapper plus the one-layer
+  vision wrapper to produce projected text/image features, normalize them, apply
+  `exp(logit_scale)`, and compare logits against local Transformers for a tiny
+  deterministic `CLIPModel` surface. Keep the scope test-backed and do not add
+  tokenizer/processor plumbing, positional interpolation, FlashAttention, or new
+  provider surface.
+- If a two-tower workflow is still too broad, add the smallest missing
+  `CLIPModel` assembly piece that makes that workflow inevitable, with local
+  Transformers parity as the acceptance bar and explicit non-parity limits.
+- Conv/provider runtime maturity remains a follow-up only when tied to a CLIP
+  artifact/runtime blocker; do not broaden Conv claims for their own sake.
 - Landed a bounded zero-layer CLIP vision wrapper/projection slice. DinoML now
   matches local Transformers `CLIPVisionModelWithProjection` for the admitted
   zero-encoder-layer surface: fixed-size vision embeddings, `pre_layrnorm`, CLS
@@ -14,22 +40,6 @@ This file should be updated after each major loop.
   only, fixed square NCHW inputs, no positional interpolation, no real vision
   encoder block, no full `CLIPModel`/processor plumbing, and CPU artifact
   compilation still stops at the existing `conv2d_bias` backend boundary.
-
-## Next Recommended Lane
-
-- Continue CLIP parity only with a concrete surface that moves toward a real
-  end-to-end product story. The highest-value next slice is likely the first
-  actual CLIP vision encoder layer using the already-landed dense attention/MLP
-  primitives, if it can be parity-tested against local Transformers without new
-  provider surface. A bounded contrastive two-tower workflow can follow once a
-  meaningful vision tower surface exists.
-- If the next vision step is blocked by Conv runtime maturity rather than model
-  graph coverage, make the Conv blocker explicit and keep any provider work
-  tied to a CLIP artifact/runtime test. Do not broaden Conv claims for their own
-  sake.
-- Keep libgguf follow-up limited to concrete direct-link failures or validation
-  gaps; do not broaden GGUF offload policy, quantized GEMM families, epilogue
-  coverage, or public provider surface as part of that lane.
 - Landed the first bounded CLIP vision-side parity slice: fixed-size
   `LegacyCLIPVisionEmbeddings` now matches local Transformers
   `CLIPVisionEmbeddings` for semantic NCHW pixel input, bias-free patch

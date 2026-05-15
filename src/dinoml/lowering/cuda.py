@@ -69,6 +69,7 @@ def render_cuda_module(
             "external_kernel_declarations": _external_kernel_declarations(kernel_manifest),
             "cutlass_workspace": _cutlass_workspace_context(kernel_manifest),
             "gguf_dequant_scratch": _gguf_dequant_scratch_context(kernel_manifest),
+            "gguf_cuda_native_linked": bool(kernel_manifest and kernel_manifest.get("gguf_cuda_native_library")),
             "pointer_decls": list(
                 _pointer_decls(
                     input_map=input_map,

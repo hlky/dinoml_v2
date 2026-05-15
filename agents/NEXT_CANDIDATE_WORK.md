@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Replaced the GGUF CUDA runtime-dequant native boundary with a reproducible
+  direct-link default: the repo now vendors `third_party/libgguf` as a pinned
+  submodule from `https://github.com/hlky/libgguf`, CUDA module builds compile
+  and link the native `libgguf_cuda_native` artifact from that submodule into
+  GGUF runtime-dequant artifacts, generated lowering calls
+  `libgguf_cuda_dequantize_rows_on_stream(...)` directly when linked, and
+  artifact metadata/codegen plans record the linked native library. The old
+  `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` path remains only
+  as an explicit fallback/testing boundary when direct linking is unavailable or
+  deliberately disabled. Focused planning/unit coverage plus CUDA-gated runtime
+  regressions now cover both the direct-link default and the forced-fallback
+  compatibility path without widening GGUF policy, epilogue coverage, or public
+  provider admission.
 - Advanced the bounded `conv2d_bias`/`cutlass_conv` provider-maturity lane from
   runtime-only candidates to a real static profile/report/cache/plan loop.
   The CUTLASS Conv support source now exports real profiler entrypoints for all

@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, cutlass_conv_wrapper_stages
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
+from dinoml.libgguf_cuda import libgguf_submodule_source_root, resolve_libgguf_cuda_direct_link_library
 
 
 @dataclass(frozen=True)
@@ -146,8 +147,47 @@ def _external_support_libraries(
                     "transform_helper_symbols": list(used_candidate_plan.get("transform_helper_symbols", [])),
                 }
             )
+    if _requires_gguf_cuda_native_library(kernel_manifest):
+        gguf_library = resolve_libgguf_cuda_direct_link_library()
+        source_root = libgguf_submodule_source_root(Path(__file__).resolve().parents[3])
+        if gguf_library is not None:
+            result.append(
+                {
+                    "name": "gguf_cuda_native",
+                    "origin_path": str(gguf_library),
+                    "library": f"lib/{gguf_library.name}",
+                    "symbols": ["libgguf_cuda_dequantize_rows_on_stream"],
+                    "link_mode": "direct",
+                    "library_kind": "static" if gguf_library.suffix == ".a" else "shared",
+                }
+            )
+        elif source_root is not None:
+            cache_dir = cache_root / "support" / target_dir / "libgguf-cuda-native" / support_key
+            result.append(
+                {
+                    "name": "gguf_cuda_native",
+                    "cache_dir": str(cache_dir),
+                    "library": "lib/libgguf_cuda_native.a",
+                    "source_root": str(source_root),
+                    "symbols": ["libgguf_cuda_dequantize_rows_on_stream"],
+                    "link_mode": "direct",
+                    "library_kind": "static",
+                }
+            )
     return tuple(result)
 
 
 def _wrapper_stages(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
     return tuple(cutlass_conv_wrapper_stages(kernel_manifest))
+
+
+def _requires_gguf_cuda_native_library(kernel_manifest: Mapping[str, Any]) -> bool:
+    for item in kernel_manifest.get("required_kernels", []):
+        if not isinstance(item, Mapping):
+            continue
+        plan = item.get("gguf_runtime_dequant")
+        if not isinstance(plan, Mapping):
+            continue
+        if str(plan.get("status")) == "lowered_runtime_dequant_scratch":
+            return True
+    return False

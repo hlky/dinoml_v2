@@ -1,6 +1,7 @@
 import ctypes
 import struct
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -2349,7 +2350,7 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
 
 
 def test_libgguf_cuda_native_dequantize_rows_on_stream_caches_cdll(monkeypatch):
-    cache_key = "/tmp/fake_libgguf_cuda_extension.so"
+    cache_key = "/tmp/fake_libgguf_cuda_native.so"
     call_count = 0
     callback_type = ctypes.CFUNCTYPE(
         ctypes.c_int,
@@ -2369,14 +2370,14 @@ def test_libgguf_cuda_native_dequantize_rows_on_stream_caches_cdll(monkeypatch):
     class FakeLibrary:
         libgguf_cuda_dequantize_rows_on_stream = launcher
 
-    def fake_cdll(path):
+    def fake_cdll(path, *args, **kwargs):
         nonlocal call_count
         assert path == cache_key
         call_count += 1
         return FakeLibrary()
 
-    monkeypatch.setenv("LIBGGUF_CUDA_EXTENSION", cache_key)
     monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
+    monkeypatch.setattr(runtime, "resolve_libgguf_cuda_symbol_library", lambda: Path(cache_key))
     monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_CACHE", {})
     monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_LIBRARIES", [])
 

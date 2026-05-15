@@ -51,6 +51,14 @@ set_target_properties(dinoml_cutlass_conv PROPERTIES
 )
 {% endif %}
 
+{% if gguf_cuda_native_lib %}
+add_library(dinoml_libgguf_cuda_native {{ gguf_cuda_native_lib_kind }} IMPORTED GLOBAL)
+set_target_properties(dinoml_libgguf_cuda_native PROPERTIES
+  IMPORTED_LOCATION "{{ gguf_cuda_native_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endif %}
+
 add_library(module SHARED module.cu)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
@@ -69,6 +77,9 @@ target_link_libraries(module PRIVATE
 {% endif %}
 {% if cutlass_conv_lib %}
   dinoml_cutlass_conv
+{% endif %}
+{% if gguf_cuda_native_lib %}
+  dinoml_libgguf_cuda_native
 {% endif %}
 )
 if(DINOML_ENABLE_CUDA_FAST_MATH)

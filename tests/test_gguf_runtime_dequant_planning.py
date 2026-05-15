@@ -7,6 +7,8 @@ import dinoml as dml
 from dinoml.compiler import _validate_gguf_runtime_dequant_admission
 from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import array_to_storage
+from dinoml.kernels import codegen as kernel_codegen
+from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import _with_kernel_manifest_cache_keys, build_kernel_manifest
 from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.lowering.cuda import render_cuda_module
@@ -426,6 +428,40 @@ def test_cuda_gemm_rcr_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm()
     assert dequant_call in source
     assert gemm_call in source
     assert source.index(dequant_call) < source.index(gemm_call)
+
+
+def test_cuda_gemm_lowering_emits_direct_libgguf_call_when_native_library_is_linked():
+    spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
+    ir = _renderable_ir(spec)
+    manifest = build_kernel_manifest(ir, CUDA_TARGET)
+    manifest["gguf_cuda_native_library"] = "lib/gguf_cuda_native.so"
+
+    source = render_cuda_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int libgguf_cuda_dequantize_rows_on_stream(' in source
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in source
+    assert (
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
+        in source
+    )
+    assert "module->libgguf_cuda_dequantize_rows_on_stream" not in source
+
+
+def test_codegen_plan_records_direct_linked_libgguf_cuda_native(monkeypatch, tmp_path):
+    spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
+    manifest = build_kernel_manifest(_renderable_ir(spec), CUDA_TARGET)
+    manifest = _with_kernel_manifest_cache_keys(deepcopy(manifest))
+    native_library = tmp_path / "gguf_cuda_native.so"
+    native_library.write_bytes(b"fake")
+    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: native_library)
+
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    support_entries = [entry for entry in plan.external_support_libraries if entry["name"] == "gguf_cuda_native"]
+    assert len(support_entries) == 1
+    assert support_entries[0]["origin_path"] == str(native_library)
+    assert support_entries[0]["library"] == f"lib/{native_library.name}"
+    assert support_entries[0]["link_mode"] == "direct"
 
 
 @pytest.mark.parametrize(

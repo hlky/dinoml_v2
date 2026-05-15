@@ -14,9 +14,10 @@ class LegacyCLIPTextConfig:
     """Bounded legacy OpenAI CLIP text-tower config.
 
     This helper intentionally models only the bounded text path currently
-    landed in DinoML: explicit `position_ids`, static traced sequence length,
-    and the two source CLIP EOS pooling branches (`eos_token_id == 2`
-    argmax/highest-token-id compatibility, otherwise first EOS equality match).
+    landed in DinoML: static traced sequence length, optional default
+    `position_ids`, and the two source CLIP EOS pooling branches
+    (`eos_token_id == 2` argmax/highest-token-id compatibility, otherwise
+    first EOS equality match).
     """
 
     vocab_size: int
@@ -311,8 +312,13 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
         pooled = dml.ops.batch_gather(hidden_states, indices)
         return dml.ops.squeeze(pooled, 1)
 
-    def encode_text(self, input_ids, attention_mask, position_ids):
+    def _default_position_ids(self, seq_len: int) -> dml.Parameter:
+        return dml.Parameter(np.arange(seq_len, dtype=np.int64), dtype="int64")
+
+    def encode_text(self, input_ids, attention_mask, position_ids=None):
         seq_len = _sequence_length(input_ids.shape)
+        if position_ids is None:
+            position_ids = self._default_position_ids(seq_len)
         token_embeddings = dml.ops.embedding(self.token_embedding_weight, input_ids)
         position_embeddings = dml.ops.embedding(self.position_embedding_weight, position_ids)
         hidden_states = dml.ops.add(token_embeddings, position_embeddings)
@@ -330,7 +336,7 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
         pooled_output = self._pool_hidden_state(input_ids, last_hidden_state)
         return dml.ops.gemm_rcr(pooled_output, self.text_projection_weight)
 
-    def forward(self, input_ids, attention_mask, position_ids):
+    def forward(self, input_ids, attention_mask, position_ids=None):
         text_features = self.encode_text(input_ids, attention_mask, position_ids)
         return dml.ops.output(text_features, "text_features")
 

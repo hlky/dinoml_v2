@@ -105,7 +105,6 @@ def build_validation_inputs(*, eos_token_id: int = 2) -> dict[str, np.ndarray]:
             ],
             dtype=np.bool_,
         ),
-        "position_ids": np.array([0, 1, 2, 3], dtype=np.int64),
     }
 
 
@@ -115,7 +114,6 @@ def build_spec(*, eos_token_id: int = 2) -> dml.ir.ModelSpec:
         inputs={
             "input_ids": dml.TensorSpec([BATCH, SEQ_LEN], "int64"),
             "attention_mask": dml.TensorSpec([BATCH, SEQ_LEN], "bool"),
-            "position_ids": dml.TensorSpec([SEQ_LEN], "int64"),
         },
         name=f"clip_text_workflow_eos_{eos_token_id}",
     )
@@ -162,12 +160,12 @@ def reference_outputs(*, eos_token_id: int = 2) -> np.ndarray:
     model.eval()
 
     inputs = build_validation_inputs(eos_token_id=eos_token_id)
+    kwargs = {
+        "input_ids": torch.from_numpy(inputs["input_ids"]),
+        "attention_mask": torch.from_numpy(inputs["attention_mask"]),
+    }
     with torch.inference_mode():
-        text_features = model.get_text_features(
-            input_ids=torch.from_numpy(inputs["input_ids"]),
-            attention_mask=torch.from_numpy(inputs["attention_mask"]),
-            position_ids=torch.from_numpy(inputs["position_ids"]),
-        )
+        text_features = model.get_text_features(**kwargs)
     return text_features.pooler_output.detach().cpu().numpy().astype(np.float32)
 
 
@@ -206,7 +204,6 @@ def run_example(*, eos_token_id: int = 2) -> dict[str, object]:
     summary["inputs"] = {
         "input_ids": inputs["input_ids"].tolist(),
         "attention_mask": inputs["attention_mask"].tolist(),
-        "position_ids": inputs["position_ids"].tolist(),
     }
     summary["text_features"] = np.round(actual, 6).tolist()
     return summary

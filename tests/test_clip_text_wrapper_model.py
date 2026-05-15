@@ -108,19 +108,21 @@ def _position_ids():
     return np.array([0, 1, 2, 3], dtype=np.int64)
 
 
-def _trace(*, eos_token_id: int = 2):
+def _trace(*, eos_token_id: int = 2, include_position_ids: bool = True):
+    inputs = {
+        "input_ids": dml.TensorSpec([BATCH, SEQ_LEN], "int64"),
+        "attention_mask": dml.TensorSpec([BATCH, SEQ_LEN], "bool"),
+    }
+    if include_position_ids:
+        inputs["position_ids"] = dml.TensorSpec([SEQ_LEN], "int64")
     return dml.trace(
         LegacyCLIPTextModelWithProjection(_config(eos_token_id=eos_token_id), WEIGHTS),
-        inputs={
-            "input_ids": dml.TensorSpec([BATCH, SEQ_LEN], "int64"),
-            "attention_mask": dml.TensorSpec([BATCH, SEQ_LEN], "bool"),
-            "position_ids": dml.TensorSpec([SEQ_LEN], "int64"),
-        },
+        inputs=inputs,
         name=f"clip_text_model_with_projection_eos_{eos_token_id}",
     )
 
 
-def _reference_outputs(*, eos_token_id: int = 2):
+def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = True):
     torch = pytest.importorskip("torch")
     transformers = pytest.importorskip("transformers")
 
@@ -162,25 +164,30 @@ def _reference_outputs(*, eos_token_id: int = 2):
 
     input_ids = torch.from_numpy(_input_ids(eos_token_id=eos_token_id))
     attention_mask = torch.from_numpy(_attention_mask())
-    position_ids = torch.from_numpy(_position_ids())
+    kwargs = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+    }
+    if include_position_ids:
+        kwargs["position_ids"] = torch.from_numpy(_position_ids())
     with torch.inference_mode():
-        text_features = model.get_text_features(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-        )
+        text_features = model.get_text_features(**kwargs)
     return text_features.pooler_output.detach().cpu().numpy().astype(np.float32)
 
 
 @pytest.mark.parametrize(
-    ("eos_token_id", "expected_counts"),
+    ("eos_token_id", "expected_counts", "include_position_ids"),
     [
-        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}),
-        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}),
+        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}, True),
+        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}, False),
+        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}, True),
+        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}, False),
     ],
 )
-def test_clip_text_wrapper_get_text_features_matches_local_transformers(eos_token_id, expected_counts):
-    spec = _trace(eos_token_id=eos_token_id)
+def test_clip_text_wrapper_get_text_features_matches_local_transformers(
+    eos_token_id, expected_counts, include_position_ids
+):
+    spec = _trace(eos_token_id=eos_token_id, include_position_ids=include_position_ids)
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops.count("embedding") == 2
@@ -197,16 +204,19 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers(eos_toke
     assert dynamic_slice_node["attrs"] == {"start_indices": [0, 0, 0], "slice_sizes": [1, SEQ_LEN, SEQ_LEN]}
     assert spec.ir["outputs"][0]["name"] == "text_features"
     assert spec.ir["outputs"][0]["shape"] == [BATCH, PROJECTION]
+    assert [entry["name"] for entry in spec.ir["inputs"]] == ["input_ids", "attention_mask"] + (
+        ["position_ids"] if include_position_ids else []
+    )
 
-    actual = execute_cpu(
-        spec,
-        {
-            "input_ids": _input_ids(eos_token_id=eos_token_id),
-            "attention_mask": _attention_mask(),
-            "position_ids": _position_ids(),
-        },
-    )["text_features"]
-    expected = _reference_outputs(eos_token_id=eos_token_id)
+    inputs = {
+        "input_ids": _input_ids(eos_token_id=eos_token_id),
+        "attention_mask": _attention_mask(),
+    }
+    if include_position_ids:
+        inputs["position_ids"] = _position_ids()
+
+    actual = execute_cpu(spec, inputs)["text_features"]
+    expected = _reference_outputs(eos_token_id=eos_token_id, include_position_ids=include_position_ids)
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 

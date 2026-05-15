@@ -19,7 +19,14 @@ from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
-from dinoml.models.clip import LegacyCLIPModel, LegacyCLIPTextConfig, LegacyCLIPVisionConfig
+from dinoml.models.clip import (
+    LegacyCLIPModel,
+    LegacyCLIPTextConfig,
+    LegacyCLIPVisionConfig,
+    legacy_clip_configs_from_transformers_clip_config,
+    legacy_clip_model_from_transformers_clip_model,
+    legacy_clip_weights_from_transformers_state_dict,
+)
 from dinoml.passes import PassManager, validate_ir
 
 
@@ -41,7 +48,7 @@ IMAGE_SIZE = 4
 PATCH_SIZE = 2
 
 
-def _text_config(*, num_hidden_layers: int = 2):
+def _text_config(*, num_hidden_layers: int = 2, eos_token_id: int = 2):
     return LegacyCLIPTextConfig(
         vocab_size=VOCAB_SIZE,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
@@ -51,7 +58,7 @@ def _text_config(*, num_hidden_layers: int = 2):
         num_hidden_layers=num_hidden_layers,
         projection_dim=PROJECTION,
         layer_norm_eps=EPS,
-        eos_token_id=2,
+        eos_token_id=eos_token_id,
     )
 
 
@@ -158,6 +165,18 @@ def _input_ids():
     )
 
 
+def _input_ids_for_eos(eos_token_id: int):
+    if eos_token_id == 2:
+        return _input_ids()
+    return np.array(
+        [
+            [0, eos_token_id, 5, eos_token_id],
+            [0, 4, eos_token_id, eos_token_id],
+        ],
+        dtype=np.int64,
+    )
+
+
 def _attention_mask():
     return np.array(
         [
@@ -238,6 +257,39 @@ def _import_local_transformers():
 
 def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_layers: int = 2):
     torch = pytest.importorskip("torch")
+    clip_model = _build_local_transformers_clip_model(
+        text_num_hidden_layers=text_num_hidden_layers,
+        vision_num_hidden_layers=vision_num_hidden_layers,
+    )
+    text_inputs = {
+        "input_ids": torch.from_numpy(_input_ids()),
+        "attention_mask": torch.from_numpy(_attention_mask()),
+    }
+    image_inputs = {
+        "pixel_values": torch.from_numpy(_pixel_values()),
+    }
+
+    with torch.inference_mode():
+        text_features = clip_model.get_text_features(**text_inputs).pooler_output
+        image_features = clip_model.get_image_features(**image_inputs).pooler_output
+        outputs = clip_model(**text_inputs, **image_inputs)
+    return {
+        "text_features": text_features.detach().cpu().numpy().astype(np.float32),
+        "image_features": image_features.detach().cpu().numpy().astype(np.float32),
+        "logits_per_image": outputs.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        "logits_per_text": outputs.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        "text_embeds": outputs.text_embeds.detach().cpu().numpy().astype(np.float32),
+        "image_embeds": outputs.image_embeds.detach().cpu().numpy().astype(np.float32),
+    }
+
+
+def _build_local_transformers_clip_model(
+    *,
+    text_num_hidden_layers: int = 2,
+    vision_num_hidden_layers: int = 2,
+    eos_token_id: int = 2,
+):
+    torch = pytest.importorskip("torch")
     transformers = _import_local_transformers()
 
     text_config = transformers.CLIPTextConfig(
@@ -252,7 +304,7 @@ def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_lay
         attention_dropout=0.0,
         layer_norm_eps=EPS,
         bos_token_id=0,
-        eos_token_id=2,
+        eos_token_id=eos_token_id,
         pad_token_id=1,
     )
     vision_config = transformers.CLIPVisionConfig(
@@ -288,27 +340,7 @@ def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_lay
         return model
 
     clip_model = _load(clip_model)
-
-    text_inputs = {
-        "input_ids": torch.from_numpy(_input_ids()),
-        "attention_mask": torch.from_numpy(_attention_mask()),
-    }
-    image_inputs = {
-        "pixel_values": torch.from_numpy(_pixel_values()),
-    }
-
-    with torch.inference_mode():
-        text_features = clip_model.get_text_features(**text_inputs).pooler_output
-        image_features = clip_model.get_image_features(**image_inputs).pooler_output
-        outputs = clip_model(**text_inputs, **image_inputs)
-    return {
-        "text_features": text_features.detach().cpu().numpy().astype(np.float32),
-        "image_features": image_features.detach().cpu().numpy().astype(np.float32),
-        "logits_per_image": outputs.logits_per_image.detach().cpu().numpy().astype(np.float32),
-        "logits_per_text": outputs.logits_per_text.detach().cpu().numpy().astype(np.float32),
-        "text_embeds": outputs.text_embeds.detach().cpu().numpy().astype(np.float32),
-        "image_embeds": outputs.image_embeds.detach().cpu().numpy().astype(np.float32),
-    }
+    return clip_model
 
 
 def test_clip_model_get_text_and_image_features_match_local_transformers():
@@ -332,6 +364,200 @@ def test_clip_model_get_text_and_image_features_match_local_transformers():
 
     np.testing.assert_allclose(actual_text, expected["text_features"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual_image, expected["image_features"], atol=1e-5, rtol=1e-5)
+
+
+def test_clip_model_transformers_adapter_matches_local_transformers_cpu_reference():
+    torch = pytest.importorskip("torch")
+    clip_model = _build_local_transformers_clip_model()
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+
+    assert text_config == _text_config()
+    assert vision_config == _vision_config()
+
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "int64"),
+            "pixel_values": dml.TensorSpec([IMAGE_BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE], "float32"),
+            "attention_mask": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "bool"),
+        },
+        name="clip_model_two_tower_transformers_adapter",
+    )
+    actual = execute_cpu(
+        spec,
+        {
+            "input_ids": _input_ids(),
+            "pixel_values": _pixel_values(),
+            "attention_mask": _attention_mask(),
+        },
+    )
+
+    text_inputs = {
+        "input_ids": torch.from_numpy(_input_ids()),
+        "attention_mask": torch.from_numpy(_attention_mask()),
+    }
+    image_inputs = {
+        "pixel_values": torch.from_numpy(_pixel_values()),
+    }
+    with torch.inference_mode():
+        expected = clip_model(**text_inputs, **image_inputs)
+
+    np.testing.assert_allclose(
+        actual["logits_per_image"],
+        expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["logits_per_text"],
+        expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["text_embeds"],
+        expected.text_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["image_embeds"],
+        expected.image_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+
+
+def test_clip_model_transformers_adapter_non_2_eos_matches_local_transformers_cpu_reference():
+    torch = pytest.importorskip("torch")
+    eos_token_id = 7
+    clip_model = _build_local_transformers_clip_model(eos_token_id=eos_token_id)
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+
+    assert text_config == _text_config(eos_token_id=eos_token_id)
+    assert vision_config == _vision_config()
+
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "int64"),
+            "pixel_values": dml.TensorSpec([IMAGE_BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE], "float32"),
+            "attention_mask": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "bool"),
+        },
+        name="clip_model_two_tower_transformers_adapter_non_2_eos",
+    )
+    inputs = {
+        "input_ids": _input_ids_for_eos(eos_token_id),
+        "pixel_values": _pixel_values(),
+        "attention_mask": _attention_mask(),
+    }
+    actual = execute_cpu(spec, inputs)
+
+    text_inputs = {
+        "input_ids": torch.from_numpy(inputs["input_ids"]),
+        "attention_mask": torch.from_numpy(inputs["attention_mask"]),
+    }
+    image_inputs = {
+        "pixel_values": torch.from_numpy(inputs["pixel_values"]),
+    }
+    with torch.inference_mode():
+        expected = clip_model(**text_inputs, **image_inputs)
+
+    np.testing.assert_allclose(
+        actual["logits_per_image"],
+        expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["logits_per_text"],
+        expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["text_embeds"],
+        expected.text_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["image_embeds"],
+        expected.image_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+
+
+def test_clip_model_transformers_state_dict_adapter_rejects_missing_required_weight():
+    clip_model = _build_local_transformers_clip_model()
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    state_dict = dict(clip_model.state_dict())
+    state_dict.pop("text_model.embeddings.token_embedding.weight")
+
+    with pytest.raises(KeyError, match="text_model.embeddings.token_embedding.weight"):
+        legacy_clip_weights_from_transformers_state_dict(state_dict, text_config, vision_config)
+
+
+def test_clip_model_transformers_config_adapter_rejects_non_quick_gelu():
+    transformers = _import_local_transformers()
+    clip_config = transformers.CLIPConfig(
+        text_config=transformers.CLIPTextConfig(
+            vocab_size=VOCAB_SIZE,
+            hidden_size=TEXT_HIDDEN,
+            intermediate_size=TEXT_INTERMEDIATE,
+            projection_dim=PROJECTION,
+            num_attention_heads=NUM_HEADS,
+            num_hidden_layers=1,
+            max_position_embeddings=MAX_POSITION_EMBEDDINGS,
+            hidden_act="gelu",
+            attention_dropout=0.0,
+            layer_norm_eps=EPS,
+            bos_token_id=0,
+            eos_token_id=2,
+            pad_token_id=1,
+        ).to_dict(),
+        vision_config=transformers.CLIPVisionConfig(
+            hidden_size=VISION_HIDDEN,
+            intermediate_size=VISION_INTERMEDIATE,
+            projection_dim=PROJECTION,
+            num_attention_heads=NUM_HEADS,
+            num_hidden_layers=1,
+            image_size=IMAGE_SIZE,
+            patch_size=PATCH_SIZE,
+            num_channels=NUM_CHANNELS,
+            hidden_act="quick_gelu",
+            attention_dropout=0.0,
+            layer_norm_eps=EPS,
+        ).to_dict(),
+        projection_dim=PROJECTION,
+    )
+
+    with pytest.raises(ValueError, match="hidden_act='quick_gelu'"):
+        legacy_clip_configs_from_transformers_clip_config(clip_config)
+
+
+def test_clip_model_transformers_checkpoint_config_smoke_local_cache_only():
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE=1 to validate a cached Transformers CLIP checkpoint config"
+        )
+    checkpoint_id = os.environ.get("DINOML_CLIP_CHECKPOINT_ID", "openai/clip-vit-large-patch14")
+    transformers = _import_local_transformers()
+    try:
+        clip_config = transformers.CLIPConfig.from_pretrained(checkpoint_id, local_files_only=True)
+    except Exception as exc:
+        pytest.skip(f"checkpoint config {checkpoint_id!r} not available in local cache: {exc}")
+
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_config)
+
+    assert text_config.hidden_size == int(clip_config.text_config.hidden_size)
+    assert text_config.projection_dim == int(clip_config.projection_dim)
+    assert vision_config.hidden_size == int(clip_config.vision_config.hidden_size)
+    assert vision_config.num_hidden_layers == int(clip_config.vision_config.num_hidden_layers)
+    assert vision_config.projection_dim == int(clip_config.projection_dim)
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

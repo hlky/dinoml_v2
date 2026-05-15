@@ -786,6 +786,88 @@ class LegacyCLIPModel(dml.Module):
         )
 
 
+def legacy_clip_configs_from_transformers_clip_config(
+    clip_config: object,
+) -> tuple[LegacyCLIPTextConfig, LegacyCLIPVisionConfig]:
+    """Derive bounded LegacyCLIP configs from a Transformers CLIPConfig.
+
+    This adapter intentionally admits only the already-supported inference
+    surface: dense CLIP text/vision towers with `hidden_act="quick_gelu"` and
+    the existing DinoML `LegacyCLIPModel` weight namespace.
+    """
+
+    text_config = getattr(clip_config, "text_config", None)
+    vision_config = getattr(clip_config, "vision_config", None)
+    projection_dim = getattr(clip_config, "projection_dim", None)
+    if text_config is None or vision_config is None or projection_dim is None:
+        raise TypeError("expected a Transformers CLIPConfig-like object with text_config, vision_config, and projection_dim")
+    _validate_transformers_clip_hidden_act(text_config, tower="text")
+    _validate_transformers_clip_hidden_act(vision_config, tower="vision")
+    return (
+        LegacyCLIPTextConfig(
+            vocab_size=int(text_config.vocab_size),
+            max_position_embeddings=int(text_config.max_position_embeddings),
+            hidden_size=int(text_config.hidden_size),
+            intermediate_size=int(text_config.intermediate_size),
+            num_attention_heads=int(text_config.num_attention_heads),
+            num_hidden_layers=int(text_config.num_hidden_layers),
+            projection_dim=int(projection_dim),
+            layer_norm_eps=float(text_config.layer_norm_eps),
+            eos_token_id=int(text_config.eos_token_id),
+        ),
+        LegacyCLIPVisionConfig(
+            hidden_size=int(vision_config.hidden_size),
+            intermediate_size=int(vision_config.intermediate_size),
+            num_attention_heads=int(vision_config.num_attention_heads),
+            num_hidden_layers=int(vision_config.num_hidden_layers),
+            projection_dim=int(projection_dim),
+            image_size=int(vision_config.image_size),
+            patch_size=int(vision_config.patch_size),
+            num_channels=int(vision_config.num_channels),
+            layer_norm_eps=float(vision_config.layer_norm_eps),
+        ),
+    )
+
+
+def legacy_clip_weights_from_transformers_state_dict(
+    state_dict: Mapping[str, object],
+    text_config: LegacyCLIPTextConfig,
+    vision_config: LegacyCLIPVisionConfig,
+) -> dict[str, np.ndarray]:
+    """Convert a Transformers CLIPModel state dict into LegacyCLIP weights."""
+
+    required = _legacy_clip_required_weight_names(text_config, vision_config)
+    missing = [name for name in required if name not in state_dict]
+    if missing:
+        preview = ", ".join(missing[:5])
+        suffix = "" if len(missing) <= 5 else f", ... ({len(missing)} missing total)"
+        raise KeyError(f"Missing Transformers CLIP state_dict weights: {preview}{suffix}")
+    return {name: _transformers_state_value_to_numpy(state_dict[name], name) for name in required}
+
+
+def legacy_clip_model_from_transformers_clip_model(clip_model: object) -> LegacyCLIPModel:
+    """Build a bounded DinoML LegacyCLIPModel from a local Transformers CLIPModel.
+
+    The adapter is intentionally inference-only: it transfers config and
+    checkpoint weights for the existing LegacyCLIP text/vision towers and
+    contrastive head, but it does not add tokenizer/processor plumbing, loss,
+    position interpolation, FlashAttention dispatch, or other broader CLIP
+    surfaces beyond the current LegacyCLIPModel contract.
+    """
+
+    clip_config = getattr(clip_model, "config", None)
+    state_dict_fn = getattr(clip_model, "state_dict", None)
+    if clip_config is None or state_dict_fn is None:
+        raise TypeError("expected a Transformers CLIPModel-like object with config and state_dict()")
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_config)
+    weights = legacy_clip_weights_from_transformers_state_dict(
+        state_dict_fn(),
+        text_config,
+        vision_config,
+    )
+    return LegacyCLIPModel(text_config, vision_config, weights)
+
+
 def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int, ...]) -> np.ndarray:
     if name not in weights:
         raise KeyError(f"Missing CLIP weight: {name}")
@@ -840,3 +922,91 @@ def _nchw_image_shape(shape: list[int]) -> tuple[int, int, int, int]:
     if channels <= 0 or height <= 0 or width <= 0:
         raise ValueError("expected positive static NCHW image dimensions")
     return batch, channels, height, width
+
+
+def _validate_transformers_clip_hidden_act(config: object, *, tower: str) -> None:
+    hidden_act = getattr(config, "hidden_act", None)
+    if hidden_act != "quick_gelu":
+        raise ValueError(
+            f"LegacyCLIP {tower} adapter only supports Transformers hidden_act='quick_gelu', got {hidden_act!r}"
+        )
+
+
+def _legacy_clip_required_weight_names(
+    text_config: LegacyCLIPTextConfig,
+    vision_config: LegacyCLIPVisionConfig,
+) -> list[str]:
+    names = [
+        "text_model.embeddings.token_embedding.weight",
+        "text_model.embeddings.position_embedding.weight",
+        "text_model.final_layer_norm.weight",
+        "text_model.final_layer_norm.bias",
+        "text_projection.weight",
+        "vision_model.embeddings.class_embedding",
+        "vision_model.embeddings.patch_embedding.weight",
+        "vision_model.embeddings.position_embedding.weight",
+        "vision_model.pre_layrnorm.weight",
+        "vision_model.pre_layrnorm.bias",
+        "vision_model.post_layernorm.weight",
+        "vision_model.post_layernorm.bias",
+        "visual_projection.weight",
+        "logit_scale",
+    ]
+    for layer_idx in range(text_config.num_hidden_layers):
+        prefix = f"text_model.encoder.layers.{layer_idx}"
+        names.extend(
+            [
+                f"{prefix}.layer_norm1.weight",
+                f"{prefix}.layer_norm1.bias",
+                f"{prefix}.self_attn.q_proj.weight",
+                f"{prefix}.self_attn.q_proj.bias",
+                f"{prefix}.self_attn.k_proj.weight",
+                f"{prefix}.self_attn.k_proj.bias",
+                f"{prefix}.self_attn.v_proj.weight",
+                f"{prefix}.self_attn.v_proj.bias",
+                f"{prefix}.self_attn.out_proj.weight",
+                f"{prefix}.self_attn.out_proj.bias",
+                f"{prefix}.layer_norm2.weight",
+                f"{prefix}.layer_norm2.bias",
+                f"{prefix}.mlp.fc1.weight",
+                f"{prefix}.mlp.fc1.bias",
+                f"{prefix}.mlp.fc2.weight",
+                f"{prefix}.mlp.fc2.bias",
+            ]
+        )
+    for layer_idx in range(vision_config.num_hidden_layers):
+        prefix = f"vision_model.encoder.layers.{layer_idx}"
+        names.extend(
+            [
+                f"{prefix}.layer_norm1.weight",
+                f"{prefix}.layer_norm1.bias",
+                f"{prefix}.self_attn.q_proj.weight",
+                f"{prefix}.self_attn.q_proj.bias",
+                f"{prefix}.self_attn.k_proj.weight",
+                f"{prefix}.self_attn.k_proj.bias",
+                f"{prefix}.self_attn.v_proj.weight",
+                f"{prefix}.self_attn.v_proj.bias",
+                f"{prefix}.self_attn.out_proj.weight",
+                f"{prefix}.self_attn.out_proj.bias",
+                f"{prefix}.layer_norm2.weight",
+                f"{prefix}.layer_norm2.bias",
+                f"{prefix}.mlp.fc1.weight",
+                f"{prefix}.mlp.fc1.bias",
+                f"{prefix}.mlp.fc2.weight",
+                f"{prefix}.mlp.fc2.bias",
+            ]
+        )
+    return names
+
+
+def _transformers_state_value_to_numpy(value: object, name: str) -> np.ndarray:
+    if hasattr(value, "detach"):
+        value = value.detach()
+    if hasattr(value, "cpu"):
+        value = value.cpu()
+    if hasattr(value, "numpy"):
+        value = value.numpy()
+    array = np.asarray(value, dtype=np.float32)
+    if array.size == 0:
+        raise ValueError(f"Transformers CLIP weight {name} is empty")
+    return array

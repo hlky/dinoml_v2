@@ -276,6 +276,35 @@ The smallest real CLIPModel-style assembly is now in-tree at
   entry in the CUDA manifest, and no tokenizer/processor or
   positional-interpolation plumbing.
 
+## 2026-05-15 landed Transformers checkpoint adapter slice
+
+The bounded `LegacyCLIPModel` path can now be derived directly from a local
+Transformers `CLIPModel` / `CLIPConfig` plus its `state_dict()`.
+
+- The adapter stays intentionally narrow: `src/dinoml/models/clip.py` now
+  exposes helpers that derive `LegacyCLIPTextConfig`,
+  `LegacyCLIPVisionConfig`, and the existing DinoML CLIP weight namespace from
+  a Transformers CLIP config/model without adding tokenizer/processor plumbing,
+  position interpolation, loss, FlashAttention dispatch, or new op/provider
+  surface.
+- Admission remains honest about the current inference contract. The adapter
+  rejects non-`quick_gelu` CLIP configs because the admitted MLP path still
+  relies on the existing `fast_gelu`/quick-gelu approximation used by the
+  local Transformers CLIP source.
+- Focused validation now includes a deterministic tiny parity test that
+  constructs a local Transformers `CLIPModel`, loads the existing tiny
+  weights, builds the DinoML `LegacyCLIPModel` through the new adapter, and
+  proves CPU reference parity for logits and normalized embeds. Adapter-specific
+  coverage includes both the legacy `eos_token_id == 2` pooling branch and a
+  non-2 EOS branch, plus a missing-state-dict-key rejection check for the
+  exported weight converter.
+- A skipped-by-default cache-only smoke is also in-tree for known checkpoint
+  configs such as `openai/clip-vit-large-patch14`. Enable it with
+  `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE=1`, and optionally override the
+  checkpoint id with `DINOML_CLIP_CHECKPOINT_ID=...`. The smoke uses
+  `local_files_only=True` and validates config adaptation only; it does not
+  download or run the full checkpoint by default.
+
 ## 2026-05-15 CUDA full-model blocker smoke
 
 The next CUDA blocker after the exact patch-projection runtime is now explicit.

@@ -255,6 +255,48 @@ def _import_local_transformers():
     return transformers
 
 
+def _load_cached_transformers_clip_checkpoint(*, default_checkpoint_id: str):
+    checkpoint_id = os.environ.get("DINOML_CLIP_CHECKPOINT_ID", default_checkpoint_id)
+    transformers = _import_local_transformers()
+    try:
+        clip_model = transformers.CLIPModel.from_pretrained(checkpoint_id, local_files_only=True)
+    except Exception as exc:
+        pytest.skip(f"checkpoint model {checkpoint_id!r} not available in local cache: {exc}")
+    clip_model.eval()
+    return checkpoint_id, clip_model
+
+
+def _cached_checkpoint_runtime_inputs(
+    *,
+    text_config,
+    vision_config,
+):
+    seq_len = min(4, int(text_config.max_position_embeddings))
+    eos_token_id = int(text_config.eos_token_id)
+    vocab_size = int(text_config.vocab_size)
+
+    token_ids = []
+    candidate = 0
+    while len(token_ids) < max(seq_len - 1, 0):
+        if candidate != eos_token_id:
+            token_ids.append(candidate)
+        candidate += 1
+    token_ids.append(vocab_size - 1 if eos_token_id == 2 else eos_token_id)
+
+    pixel_values = np.linspace(
+        -1.0,
+        1.0,
+        num=int(vision_config.num_channels) * int(vision_config.image_size) * int(vision_config.image_size),
+        dtype=np.float32,
+    ).reshape(1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size))
+
+    return seq_len, {
+        "input_ids": np.asarray([token_ids], dtype=np.int64),
+        "attention_mask": np.ones((1, seq_len), dtype=np.bool_),
+        "pixel_values": pixel_values,
+    }
+
+
 def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_layers: int = 2):
     torch = pytest.importorskip("torch")
     clip_model = _build_local_transformers_clip_model(
@@ -544,13 +586,7 @@ def test_clip_model_transformers_checkpoint_adapter_state_smoke_local_cache_only
         pytest.skip(
             "set DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1 to validate a cached Transformers CLIP checkpoint state import plus trace/admission smoke"
         )
-    checkpoint_id = os.environ.get("DINOML_CLIP_CHECKPOINT_ID", "openai/clip-vit-large-patch14")
-    transformers = _import_local_transformers()
-    try:
-        clip_model = transformers.CLIPModel.from_pretrained(checkpoint_id, local_files_only=True)
-    except Exception as exc:
-        pytest.skip(f"checkpoint model {checkpoint_id!r} not available in local cache: {exc}")
-    clip_model.eval()
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-large-patch14")
 
     text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
     weights = legacy_clip_weights_from_transformers_state_dict(
@@ -602,6 +638,72 @@ def test_clip_model_transformers_checkpoint_adapter_state_smoke_local_cache_only
         "cutlass_conv",
         "cutlass_gemm",
     }
+
+
+@pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
+def test_clip_model_transformers_checkpoint_runtime_smoke_local_cache_only():
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_RUNTIME_SMOKE") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_RUNTIME_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CPU runtime parity against local Transformers"
+        )
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
+    seq_len, inputs = _cached_checkpoint_runtime_inputs(text_config=text_config, vision_config=vision_config)
+
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
+            "pixel_values": dml.TensorSpec(
+                [1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size)],
+                "float32",
+            ),
+            "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
+        },
+        name="clip_model_two_tower_transformers_cached_checkpoint_runtime_smoke",
+    )
+
+    with np.errstate(over="ignore"):
+        actual = execute_cpu(spec, inputs)
+
+    torch = pytest.importorskip("torch")
+    with torch.inference_mode():
+        expected = clip_model(
+            input_ids=torch.from_numpy(inputs["input_ids"]),
+            attention_mask=torch.from_numpy(inputs["attention_mask"]),
+            pixel_values=torch.from_numpy(inputs["pixel_values"]),
+        )
+
+    assert spec.ir["outputs"][0]["shape"] == [1, 1]
+    assert spec.ir["outputs"][1]["shape"] == [1, 1]
+    assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
+    assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
+
+    np.testing.assert_allclose(
+        actual["logits_per_image"],
+        expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        atol=2e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["logits_per_text"],
+        expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        atol=2e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["text_embeds"],
+        expected.text_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=2e-5,
+        rtol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual["image_embeds"],
+        expected.image_embeds.detach().cpu().numpy().astype(np.float32),
+        atol=2e-5,
+        rtol=1e-5,
+    )
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

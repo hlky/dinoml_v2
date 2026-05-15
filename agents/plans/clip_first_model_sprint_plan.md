@@ -329,6 +329,27 @@ Transformers `CLIPModel` / `CLIPConfig` plus its `state_dict()`.
   and manifest/codegen admission only; it does not download or run full
   large-checkpoint runtime parity by default.
 
+## 2026-05-15 landed cached base-checkpoint CPU runtime smoke
+
+The adapter now also has one heavier but still bounded opt-in runtime proof for
+the PM-refreshed cached `openai/clip-vit-base-patch32` checkpoint.
+
+- The smoke is skipped by default and only runs when
+  `DINOML_RUN_CLIP_CHECKPOINT_RUNTIME_SMOKE=1` is set. It loads
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)` from the
+  local cache, defaults to `openai/clip-vit-base-patch32`, still honors
+  `DINOML_CLIP_CHECKPOINT_ID=...`, and skips clearly instead of downloading when
+  the checkpoint files are absent.
+- The proof stays intentionally narrow: batch size 1, short traced text length
+  `min(4, max_position_embeddings)`, synthetic already-shaped `pixel_values`,
+  and CPU reference execution only. It traces the adapter-built
+  `LegacyCLIPModel`, runs DinoML `execute_cpu`, runs the same cached
+  Transformers checkpoint locally, and compares `logits_per_text`,
+  `logits_per_image`, `text_embeds`, and `image_embeds`.
+- This is a tractable cached runtime parity proof for the CPU reference path,
+  not a claim about compiled CPU/CUDA runtime, tokenizer or processor
+  plumbing, downloads, interpolation, loss, or broader checkpoint coverage.
+
 ## 2026-05-15 CUDA full-model blocker smoke
 
 The next CUDA blocker after the exact patch-projection runtime is now explicit.

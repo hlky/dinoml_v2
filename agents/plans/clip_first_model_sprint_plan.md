@@ -260,6 +260,7 @@ The smallest real CLIPModel-style assembly is now in-tree at
   artifact planning/codegen now exposes the single Conv node honestly as a
   bounded-runtime `cutlass_conv` entry with visible activation/weight pack,
   provider launch, and output unpack wrapper stages.
+
 - Focused tests compare projected features, normalized embeds, and
   `logits_per_text` / `logits_per_image` against the local
   `/workspace/transformers` `CLIPModel` with deterministic weights and keep
@@ -275,6 +276,28 @@ The smallest real CLIPModel-style assembly is now in-tree at
   positions, fixed square NCHW image shape, one bounded-runtime Conv provider
   entry in the CUDA manifest, and no tokenizer/processor or
   positional-interpolation plumbing.
+
+## 2026-05-15 landed cached checkpoint adapter admission smoke
+
+The Transformers-to-Legacy CLIP adapter now has one bounded opt-in proof for a
+real cached checkpoint in `tests/test_clip_model_two_tower.py`.
+
+- The smoke is skipped by default and only runs when
+  `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1` is set. It loads
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)` from the
+  local cache, defaulting to `openai/clip-vit-large-patch14` with
+  `DINOML_CLIP_CHECKPOINT_ID` override support, and skips clearly when the
+  checkpoint files are absent instead of downloading anything.
+- The proof is intentionally narrow and honest: it validates config adaptation,
+  required state-dict import into the existing Legacy weight namespace, traces a
+  fixed-shape `LegacyCLIPModel` using a tiny batch and short text sequence that
+  still respect the checkpoint config, and then proves IR validation plus CUDA
+  kernel-manifest/codegen-plan admission for the existing Conv/GEMM/BMM
+  provider path.
+- This smoke does not claim cached large-checkpoint runtime parity, tokenizer or
+  processor plumbing, downloads, or any new op/provider surface. If future work
+  wants runtime parity on a real checkpoint, that should land as a separate,
+  explicitly heavier proof.
 
 ## 2026-05-15 landed Transformers checkpoint adapter slice
 
@@ -298,12 +321,13 @@ Transformers `CLIPModel` / `CLIPConfig` plus its `state_dict()`.
   coverage includes both the legacy `eos_token_id == 2` pooling branch and a
   non-2 EOS branch, plus a missing-state-dict-key rejection check for the
   exported weight converter.
-- A skipped-by-default cache-only smoke is also in-tree for known checkpoint
-  configs such as `openai/clip-vit-large-patch14`. Enable it with
-  `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE=1`, and optionally override the
-  checkpoint id with `DINOML_CLIP_CHECKPOINT_ID=...`. The smoke uses
-  `local_files_only=True` and validates config adaptation only; it does not
-  download or run the full checkpoint by default.
+- A skipped-by-default cache-only smoke is also in-tree for known checkpoints
+  such as `openai/clip-vit-large-patch14`. Enable it with
+  `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1`, and optionally override
+  the checkpoint id with `DINOML_CLIP_CHECKPOINT_ID=...`. The smoke uses
+  `local_files_only=True` and validates cached config/state import plus trace
+  and manifest/codegen admission only; it does not download or run full
+  large-checkpoint runtime parity by default.
 
 ## 2026-05-15 CUDA full-model blocker smoke
 

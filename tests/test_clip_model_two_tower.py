@@ -539,25 +539,69 @@ def test_clip_model_transformers_config_adapter_rejects_non_quick_gelu():
         legacy_clip_configs_from_transformers_clip_config(clip_config)
 
 
-def test_clip_model_transformers_checkpoint_config_smoke_local_cache_only():
-    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE") != "1":
+def test_clip_model_transformers_checkpoint_adapter_state_smoke_local_cache_only(tmp_path):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE") != "1":
         pytest.skip(
-            "set DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_SMOKE=1 to validate a cached Transformers CLIP checkpoint config"
+            "set DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1 to validate a cached Transformers CLIP checkpoint state import plus trace/admission smoke"
         )
     checkpoint_id = os.environ.get("DINOML_CLIP_CHECKPOINT_ID", "openai/clip-vit-large-patch14")
     transformers = _import_local_transformers()
     try:
-        clip_config = transformers.CLIPConfig.from_pretrained(checkpoint_id, local_files_only=True)
+        clip_model = transformers.CLIPModel.from_pretrained(checkpoint_id, local_files_only=True)
     except Exception as exc:
-        pytest.skip(f"checkpoint config {checkpoint_id!r} not available in local cache: {exc}")
+        pytest.skip(f"checkpoint model {checkpoint_id!r} not available in local cache: {exc}")
+    clip_model.eval()
 
-    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_config)
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    weights = legacy_clip_weights_from_transformers_state_dict(
+        clip_model.state_dict(),
+        text_config,
+        vision_config,
+    )
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
 
-    assert text_config.hidden_size == int(clip_config.text_config.hidden_size)
-    assert text_config.projection_dim == int(clip_config.projection_dim)
-    assert vision_config.hidden_size == int(clip_config.vision_config.hidden_size)
-    assert vision_config.num_hidden_layers == int(clip_config.vision_config.num_hidden_layers)
-    assert vision_config.projection_dim == int(clip_config.projection_dim)
+    seq_len = min(4, text_config.max_position_embeddings)
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
+            "pixel_values": dml.TensorSpec(
+                [1, vision_config.num_channels, vision_config.image_size, vision_config.image_size],
+                "float32",
+            ),
+            "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
+        },
+        name="clip_model_two_tower_transformers_cached_checkpoint_adapter_smoke",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86", "no_tf32": True})
+    codegen_plan = create_codegen_plan(manifest, tmp_path / "cache")
+
+    assert text_config.hidden_size == int(clip_model.config.text_config.hidden_size)
+    assert text_config.projection_dim == int(clip_model.config.projection_dim)
+    assert vision_config.hidden_size == int(clip_model.config.vision_config.hidden_size)
+    assert vision_config.num_hidden_layers == int(clip_model.config.vision_config.num_hidden_layers)
+    assert vision_config.projection_dim == int(clip_model.config.projection_dim)
+    assert weights["text_projection.weight"].shape == (text_config.projection_dim, text_config.hidden_size)
+    assert weights["vision_model.embeddings.patch_embedding.weight"].shape == (
+        vision_config.hidden_size,
+        vision_config.num_channels,
+        vision_config.patch_size,
+        vision_config.patch_size,
+    )
+    assert spec.ir["outputs"][0]["shape"] == [1, 1]
+    assert spec.ir["outputs"][1]["shape"] == [1, 1]
+    assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
+    assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
+
+    required_ops = {entry["op"] for entry in manifest["required_kernels"]}
+    assert {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"} <= required_ops
+    assert {entry["name"] for entry in codegen_plan.external_support_libraries} == {
+        "cutlass_bmm",
+        "cutlass_conv",
+        "cutlass_gemm",
+    }
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

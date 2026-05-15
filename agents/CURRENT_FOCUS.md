@@ -57,12 +57,11 @@
   Transformers for projected features, normalized embeds, and logits with a
   compact runnable workflow proof. The current artifact boundary is now pinned:
   naive generated CPU bridges exist for `gemm_rcr`, `gemm_rcr_bias`,
-  `gemm_rcr_bias_fast_gelu`, `bmm_rcr`, and `bmm_rrr`, so the bounded
-  multi-layer CLIP text wrapper now compiles and runs as a CPU artifact against
-  local Transformers. Full two-tower CPU compilation now stops honestly on the
-  vision path at `conv2d_bias`. Exact CLIP float32 patch Conv can compile to a
-  CUDA artifact but still fails through the scaffolded CUTLASS Conv runtime
-  launcher boundary. Preferred next slice: shift from the completed text CPU
-  bridge lane to one Conv/vision artifact blocker, or pick a new
-  narrow Transformers parity gap that is not already covered by the layer-count
-  proofs.
+  `gemm_rcr_bias_fast_gelu`, `bmm_rcr`, `bmm_rrr`, and `conv2d_bias`, so the
+  bounded multi-layer text, vision, and two-tower CLIP wrappers now compile and
+  run as CPU artifacts against local Transformers. Exact CLIP float32 patch Conv
+  can compile to a CUDA artifact but still fails through the scaffolded CUTLASS
+  Conv runtime launcher boundary. Preferred next slice: shift away from the
+  completed naive CPU bridge lane toward the CLIP-tied CUDA Conv runtime
+  boundary, a small artifact usability/onboarding proof, or a new narrow
+  Transformers parity gap that is not already covered by the layer-count proofs.

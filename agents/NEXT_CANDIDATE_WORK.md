@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded naive compiled CPU bridge for `conv2d_bias` as the final
+  blocker for the current bounded CLIP CPU artifact path. Generated CPU
+  artifacts now run a static-shape NCHW/OIHW `groups=1` loop for admitted
+  `float32`/`float16` Conv, keep CUDA/CUTLASS Conv behavior scaffolded and
+  honest, and make `LegacyCLIPVisionEmbeddings`,
+  `LegacyCLIPVisionModelWithProjection`, and the bounded two-tower
+  `LegacyCLIPModel` match local `/workspace/transformers` as CPU artifacts.
+  A reviewer-requested follow-up made the focused tests hermetic without
+  relying on ambient `PYTHONPATH` and corrected stale CLIP plan language.
 - Landed the bounded naive compiled CPU bridge for `gemm_rcr_bias_fast_gelu`
   and a deeper CLIP text CPU artifact proof. The existing `fast_gelu(x) =
   x * sigmoid(1.702 * x)` epilogue now runs in generated CPU GEMM artifacts for
@@ -112,21 +121,26 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: shift back to the vision artifact blockers by either narrowing
-  the compiled CPU `conv2d_bias` boundary for the full two-tower CPU artifact or
-  advancing the exact CUDA Conv scaffold toward a CLIP-tied runtime smoke
-  without broadening Conv claims. If staying purely in model parity, pick a new
-  narrow Transformers gap that is not already covered by the layer-count proofs.
-  Keep local `/workspace/transformers` parity as the acceptance bar and keep all
-  non-parity limits explicit.
+  next slices: advance the exact CLIP float32 CUDA Conv scaffold toward a
+  CLIP-tied runtime smoke without broadening Conv claims; add a small artifact
+  lifecycle/onboarding proof that exercises the newly runnable CPU CLIP
+  artifact; or pick a new narrow Transformers gap that is not already covered by
+  the layer-count proofs. Keep local `/workspace/transformers` parity as the
+  acceptance bar and keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims
   without a full admission slice.
 - Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
   as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
-  as a blocker for CLIP artifact smoke work, but keep any naive CPU GEMM support
-  small, measured by tests, and explicit about performance limits.
+  as a blocker for CLIP artifact smoke work, but keep any naive CPU bridge small,
+  measured by tests, and explicit about performance limits. The current CLIP CPU
+  artifact blocker chain is complete for the bounded two-tower surface; do not
+  keep polishing the same naive CPU bridge lane without a concrete failing test
+  or unsupported-fence gap.
+- Older landed-slice notes below are historical context. Their remaining-limit
+  clauses predate later CLIP CPU artifact closure unless explicitly restated in
+  the current recommendation above.
 - Landed the first real CLIP vision encoder layer. The bounded vision wrapper
   now admits `num_hidden_layers` in `{0, 1}` and matches local Transformers for
   the one-layer surface: fixed-size embeddings, `pre_layrnorm`, dense noncausal
@@ -134,10 +148,10 @@ This file should be updated after each major loop.
   bias-free visual projection. Focused tests pin `last_hidden_state`,
   `pooler_output`, and `image_features` for both zero-layer and one-layer
   configs and verify provider/model ownership for Conv, GEMM/BMM, softmax,
-  LayerNorm, and sequence assembly. Remaining limits: fixed square NCHW only,
-  no positional interpolation, no arbitrary image sizes, no vision
-  padding/causal mask path, no full `CLIPModel`, and CPU artifacts still stop
-  at the existing `conv2d_bias` backend boundary.
+  LayerNorm, and sequence assembly. Remaining limits at that point were fixed
+  square NCHW only, no positional interpolation, no arbitrary image sizes, and
+  no vision padding/causal mask path; the historical CPU artifact boundary is
+  superseded by the current completed loop above.
 - Landed a bounded zero-layer CLIP vision wrapper/projection slice. DinoML now
   matches local Transformers `CLIPVisionModelWithProjection` for the admitted
   zero-encoder-layer surface: fixed-size vision embeddings, `pre_layrnorm`, CLS
@@ -154,12 +168,14 @@ This file should be updated after each major loop.
   projection modeled as `conv2d_bias(..., zero_bias)`, spatial flatten +
   sequence transpose, CLS prepend, and learned absolute position add. Focused
   tests compare full embeddings and the zero-bias patch-projection substep
-  against local Transformers, keep CPU compile failure honest at the existing
-  `conv2d_bias` backend boundary, and verify CUDA manifest/generated-source
-  ownership without broadening Conv provider maturity. Remaining limits: fixed
+  against local Transformers, historically recorded the then-existing
+  `conv2d_bias` CPU backend boundary, and verify CUDA
+  manifest/generated-source ownership without broadening Conv provider maturity.
+  Remaining limits: fixed
   square image size only, no positional interpolation, no vision encoder or
-  projection head, no full `CLIPVisionModel`, no widened Conv claims, and no
-  compiled CPU artifact support for the Conv-backed wrapper path.
+  projection head, no full `CLIPVisionModel`, and no widened Conv claims; the
+  later CPU Conv bridge supersedes the no-compiled-artifact limit for the
+  bounded admitted path.
 - Landed the bounded CLIP text-wrapper default-position slice. Callers may now
   omit `position_ids`; the wrapper falls back to a traced static int64
   `[0, 1, ..., S-1]` position sequence for the current static sequence length,
@@ -179,7 +195,8 @@ This file should be updated after each major loop.
   `eos_token_id == 2` and non-2 EOS branches, assert CUTLASS ownership for
   GEMM/BMM pieces, assert model-generated ownership for embedding/LayerNorm/
   softmax/pooling-side kernels, and smoke the runnable example script. Remaining
-  limits: text-only proof, no compiled CPU wrapper support, explicit
+  limits: text-only proof, compiled CPU wrapper support was not part of that
+  proof, explicit
   `position_ids`, static traced sequence length, no vision tower, and no full
   contrastive artifact workflow yet.
 - Landed the bounded CLIP non-2 EOS pooling branch without adding a new pooling

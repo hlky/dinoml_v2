@@ -256,15 +256,12 @@ The smallest real CLIPModel-style assembly is now in-tree at
   interpolation, no tokenizer/processor plumbing, no loss path, and no new op
   or provider surface. The top-level
   model remains a proof for the admitted tiny CLIPConfig surface, not a broad
-  CLIP checkpoint claim. Compiled full-model CPU artifacts are still blocked
-  before the vision path; after the bounded naive compiled CPU `bmm_rcr` and
-  `bmm_rrr` bridges for the text attention path, the bounded naive compiled CPU
-  `gemm_rcr_bias_fast_gelu` bridge now lets the deeper text wrapper compile and
-  match local `/workspace/transformers` as a CPU artifact. The remaining full
-  two-tower CPU blocker is honestly back on the vision path at `conv2d_bias`,
-  while CUDA artifact planning/codegen still exposes the single
-  Conv node honestly as a `cutlass_conv` scaffold entry with visible
-  activation/weight pack and output unpack wrapper stages.
+  CLIP checkpoint claim. With the bounded naive compiled CPU `bmm_rcr`,
+  `bmm_rrr`, `gemm_rcr_bias_fast_gelu`, and `conv2d_bias` bridges, the bounded
+  full-model CPU artifact now matches local `/workspace/transformers`. CUDA
+  artifact planning/codegen still exposes the single Conv node honestly as a
+  `cutlass_conv` scaffold entry with visible activation/weight pack and output
+  unpack wrapper stages.
 - Focused tests compare projected features, normalized embeds, and
   `logits_per_text` / `logits_per_image` against the local
   `/workspace/transformers` `CLIPModel` with deterministic weights and keep

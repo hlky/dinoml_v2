@@ -4,6 +4,31 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first bounded CLIPModel-style two-tower contrastive workflow.
+  `LegacyCLIPModel` now composes the admitted text tower and one-layer vision
+  tower, exposes bounded `get_text_features` / `get_image_features`, normalizes
+  projected features, applies `exp(logit_scale)`, and produces
+  `logits_per_text` plus transposed `logits_per_image`. Focused tests pin
+  projected features, normalized embeds, and both logits against local
+  `/workspace/transformers` `CLIPModel` for a deterministic tiny config, while
+  preserving provider/model manifest ownership. Remaining limits: static traced
+  text length, default traced text positions, fixed square NCHW vision input,
+  vision depth admitted only up to one layer, no tokenizer/processor plumbing,
+  no positional interpolation, no loss path, and no compiled full-model CUDA
+  runtime parity yet.
+
+## Next Recommended Lane
+
+- Stabilize and expose the new CLIPModel-style workflow rather than adding
+  another unrelated island. Good next slices: add a compact example/test that
+  demonstrates the two-tower workflow from synthetic text/image tensors, or
+  close the smallest remaining gap that blocks a compiled artifact/runtime
+  smoke for the bounded CLIPModel surface. Keep parity with local Transformers
+  as the acceptance bar.
+- If moving into runtime/provider work, tie it directly to a CLIP artifact test
+  and keep the existing Conv limitations honest. Do not broaden tokenizer,
+  processor, positional interpolation, FlashAttention, or Conv provider claims
+  without a full admission slice.
 - Landed the first real CLIP vision encoder layer. The bounded vision wrapper
   now admits `num_hidden_layers` in `{0, 1}` and matches local Transformers for
   the one-layer surface: fixed-size embeddings, `pre_layrnorm`, dense noncausal
@@ -15,21 +40,6 @@ This file should be updated after each major loop.
   no positional interpolation, no arbitrary image sizes, no vision
   padding/causal mask path, no full `CLIPModel`, and CPU artifacts still stop
   at the existing `conv2d_bias` backend boundary.
-
-## Next Recommended Lane
-
-- Convert the growing CLIP parity islands into a bounded two-tower/contrastive
-  workflow proof if feasible: use the admitted text wrapper plus the one-layer
-  vision wrapper to produce projected text/image features, normalize them, apply
-  `exp(logit_scale)`, and compare logits against local Transformers for a tiny
-  deterministic `CLIPModel` surface. Keep the scope test-backed and do not add
-  tokenizer/processor plumbing, positional interpolation, FlashAttention, or new
-  provider surface.
-- If a two-tower workflow is still too broad, add the smallest missing
-  `CLIPModel` assembly piece that makes that workflow inevitable, with local
-  Transformers parity as the acceptance bar and explicit non-parity limits.
-- Conv/provider runtime maturity remains a follow-up only when tied to a CLIP
-  artifact/runtime blocker; do not broaden Conv claims for their own sake.
 - Landed a bounded zero-layer CLIP vision wrapper/projection slice. DinoML now
   matches local Transformers `CLIPVisionModelWithProjection` for the admitted
   zero-encoder-layer surface: fixed-size vision embeddings, `pre_layrnorm`, CLS

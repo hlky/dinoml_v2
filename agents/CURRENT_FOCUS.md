@@ -2,12 +2,12 @@
 
 ## Primary Focus
 
-- Human-directed feature target: start the first full-model sprint with CLIP as
-  the primary model target. The sprint should move from the recently landed
-  CLIP text/contrastive composition slices toward a real model implementation,
-  using the model audits in `agents/plans/transformers/clip/` and pinned
-  Transformers source/reference snippets rather than the ambient installed
-  package alone.
+- Human-directed feature target: continue the first full-model sprint with CLIP
+  as the primary model target. The sprint has moved from isolated
+  text/vision/contrastive composition slices into a bounded `LegacyCLIPModel`
+  surface; keep advancing it against the model audits in
+  `agents/plans/transformers/clip/` and pinned Transformers source/reference
+  snippets rather than the ambient installed package alone.
 - CLIP integration is a practical parity target against the pinned/local
   Transformers implementation for the supported inference surfaces. Bounded
   slices are acceptable only when their admitted behavior matches Transformers
@@ -48,7 +48,8 @@
 - On 2026-05-15, the bounded CLIP text-feature wrapper exists, covers both
   source EOS pooling branches, has a visible text workflow proof, and no longer
   requires explicit `position_ids`. The vision side now has fixed-size
-  embeddings plus zero-layer and one-layer pool/projection wrappers. Preferred
-  next slice: assemble a bounded two-tower/contrastive CLIP workflow against
-  local Transformers if feasible, or add the smallest missing model assembly
-  piece that makes that workflow possible.
+  embeddings plus zero-layer and one-layer pool/projection wrappers, and the
+  first bounded two-tower `LegacyCLIPModel` workflow matches local Transformers
+  for projected features, normalized embeds, and logits. Preferred next slice:
+  stabilize/expose that workflow with a compact example or close the smallest
+  compiled artifact/runtime blocker for the admitted CLIPModel surface.

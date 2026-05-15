@@ -491,12 +491,11 @@ def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, 
     os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL") != "1",
     reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL=1 to run the expensive CUDA CLIP full-model smoke",
 )
-def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_path, monkeypatch):
+def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_path, use_shared_dinoml_cuda_cache):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
 
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     expected = _reference_outputs()
     full_spec = _trace_model()
     full_artifact = dml.compile(

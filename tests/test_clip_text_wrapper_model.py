@@ -407,14 +407,13 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest(eos_
     os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER") != "1",
     reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER=1 to run the expensive CUDA wrapper runtime smoke",
 )
-def test_clip_text_wrapper_generated_cuda_runtime_matches_local_transformers(tmp_path, monkeypatch):
+def test_clip_text_wrapper_generated_cuda_runtime_matches_local_transformers(tmp_path, use_shared_dinoml_cuda_cache):
     from dinoml import runtime
 
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
 
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
     artifact = dml.compile(
         spec,

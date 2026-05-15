@@ -1129,7 +1129,7 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
         assert (artifact_dir / "debug" / "profile_report.json").exists()
 
 
-def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -1143,7 +1143,6 @@ def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, monk
         dilation=(1, 2),
     )
     artifact_dir = tmp_path / "conv2d_bias_cuda_fixed_c4.dinoml"
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
@@ -1178,7 +1177,7 @@ def test_conv2d_bias_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, monk
         module.close()
 
 
-def test_conv2d_bias_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("optimized CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -1192,7 +1191,6 @@ def test_conv2d_bias_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, 
         dilation=(1, 2),
     )
     artifact_dir = tmp_path / "conv2d_bias_cuda_optimized_c16.dinoml"
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
@@ -1228,7 +1226,7 @@ def test_conv2d_bias_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, 
         module.close()
 
 
-def test_conv2d_bias_cuda_runtime_float32_simt_clip_patch_shape_matches_torch(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_runtime_float32_simt_clip_patch_shape_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("float32 CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -1242,7 +1240,6 @@ def test_conv2d_bias_cuda_runtime_float32_simt_clip_patch_shape_matches_torch(tm
         dilation=(1, 1),
     )
     artifact_dir = tmp_path / "conv2d_bias_float32_clip_patch_cuda.dinoml"
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
@@ -1306,7 +1303,7 @@ def test_cutlass_conv2d_bias_float32_non_clip_shape_uses_simt_runtime():
     assert workloads[0].candidate["cutlass"]["iterator_algorithm"] == "analytic"
 
 
-def test_conv2d_bias_cuda_runtime_float32_simt_general_shape_matches_torch(tmp_path, monkeypatch):
+def test_conv2d_bias_cuda_runtime_float32_simt_general_shape_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("general float32 CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -1320,7 +1317,6 @@ def test_conv2d_bias_cuda_runtime_float32_simt_general_shape_matches_torch(tmp_p
         dilation=(2, 1),
     )
     artifact_dir = tmp_path / "conv2d_bias_float32_general_cuda.dinoml"
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
@@ -1400,7 +1396,9 @@ def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tm
 
 
 @pytest.mark.parametrize("dtype", ["float16", "float32"])
-def test_cutlass_conv_support_scaffold_runtime_transform_helpers_match_torch(tmp_path, monkeypatch, dtype):
+def test_cutlass_conv_support_scaffold_runtime_transform_helpers_match_torch(
+    use_shared_dinoml_cuda_cache, dtype
+):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("CUDA runtime transform helper parity requires nvcc and torch CUDA")
 
@@ -1416,7 +1414,6 @@ def test_cutlass_conv_support_scaffold_runtime_transform_helpers_match_torch(tmp
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
     [required] = kernel_manifest["required_kernels"]
     used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     scaffold = ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
     support_library = Path(scaffold.manifest).parent / "libdinoml_cutlass_conv.so"

@@ -252,10 +252,11 @@ def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_h
     assert any("dinoml::math::add" in source for source in cuda_sources["kernels"])
 
 
-def test_clip_vision_patch_projection_exact_float32_cuda_runtime_boundary_matches_transformers(tmp_path, monkeypatch):
+def test_clip_vision_patch_projection_exact_float32_cuda_runtime_boundary_matches_transformers(
+    tmp_path, use_shared_dinoml_cuda_cache
+):
     torch = pytest.importorskip("torch")
 
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_patch_projection()
 
     manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})

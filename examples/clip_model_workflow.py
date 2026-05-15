@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
 from collections import Counter
@@ -43,6 +44,7 @@ LOCAL_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
 ATOL = 1.0e-5
 RTOL = 1.0e-5
 MODEL_OUTPUT_NAMES = ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds")
+_GENERATED_HELPER_RE_TEMPLATE = r"\bstatic int {op}_[A-Za-z0-9_]+\s*\("
 
 
 def build_text_config() -> LegacyCLIPTextConfig:
@@ -406,11 +408,11 @@ def _run_compiled_cpu_artifact(
             session.close()
             module.close()
 
-        bridge_kernels = [
-            name
-            for name in ("conv2d_bias", "gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr")
-            if f"static int {name}_" in generated
-        ]
+        bridge_kernels = []
+        for name in ("conv2d_bias", "gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr"):
+            pattern = _GENERATED_HELPER_RE_TEMPLATE.format(op=re.escape(name))
+            if re.search(pattern, generated):
+                bridge_kernels.append(name)
         artifact_summary = {
             "path": str(artifact.path),
             "retained": retained,

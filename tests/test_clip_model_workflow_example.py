@@ -5,12 +5,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SRC = REPO_ROOT / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
+
 import numpy as np
 
 from dinoml.backends.cpu import execute_cpu
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO_ROOT / "examples" / "clip_model_workflow.py"
 
 

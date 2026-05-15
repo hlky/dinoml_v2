@@ -751,6 +751,51 @@ class LegacyCLIPVisionModelWithProjection(dml.Module):
         )
 
 
+class LegacyCLIPModel(dml.Module):
+    """Bounded CLIP two-tower wrapper composed from the admitted tower slices."""
+
+    def __init__(
+        self,
+        text_config: LegacyCLIPTextConfig,
+        vision_config: LegacyCLIPVisionConfig,
+        weights: Mapping[str, np.ndarray],
+    ):
+        if text_config.projection_dim != vision_config.projection_dim:
+            raise ValueError("text and vision projection_dim must match")
+        self.text_model = LegacyCLIPTextModelWithProjection(text_config, weights)
+        self.vision_model = LegacyCLIPVisionModelWithProjection(vision_config, weights)
+        self.logit_scale = dml.Parameter(
+            [1],
+            dtype="float32",
+            value=np.asarray([_scalar_weight_value(weights, "logit_scale")], dtype=np.float32),
+        )
+
+    def get_text_features(self, input_ids, attention_mask, position_ids=None):
+        return self.text_model.encode_text(input_ids, attention_mask, position_ids)
+
+    def get_image_features(self, pixel_values):
+        _, _, image_features = self.vision_model.encode_vision(pixel_values)
+        return image_features
+
+    def _normalize_features(self, features):
+        return dml.ops.div(features, dml.ops.vector_norm(features, dim=-1, keepdim=True))
+
+    def forward(self, input_ids, pixel_values, attention_mask, position_ids=None):
+        text_features = self.get_text_features(input_ids, attention_mask, position_ids)
+        image_features = self.get_image_features(pixel_values)
+        text_embeds = self._normalize_features(text_features)
+        image_embeds = self._normalize_features(image_features)
+        logits_per_text = dml.ops.gemm_rcr(text_embeds, image_embeds)
+        logits_per_text = dml.ops.mul(logits_per_text, dml.ops.exp(self.logit_scale))
+        logits_per_image = dml.ops.transpose(logits_per_text, 0, 1)
+        return (
+            dml.ops.output(logits_per_image, "logits_per_image"),
+            dml.ops.output(logits_per_text, "logits_per_text"),
+            dml.ops.output(text_embeds, "text_embeds"),
+            dml.ops.output(image_embeds, "image_embeds"),
+        )
+
+
 def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int, ...]) -> np.ndarray:
     if name not in weights:
         raise KeyError(f"Missing CLIP weight: {name}")
@@ -758,6 +803,15 @@ def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int
     if value.shape != shape:
         raise ValueError(f"Weight {name} has shape {value.shape}, expected {shape}")
     return value
+
+
+def _scalar_weight_value(weights: Mapping[str, np.ndarray], name: str) -> np.float32:
+    if name not in weights:
+        raise KeyError(f"Missing CLIP weight: {name}")
+    value = np.asarray(weights[name], dtype=np.float32)
+    if value.shape not in {(), (1,)}:
+        raise ValueError(f"Weight {name} has shape {value.shape}, expected scalar or [1]")
+    return np.float32(value.reshape(-1)[0] if value.shape == (1,) else value)
 
 
 def _first_static_dim(shape: list[int]) -> int:

@@ -222,3 +222,27 @@ The bounded CLIP vision wrapper now also admits a single real encoder block.
   remains on the CUTLASS Conv scaffold, attention/MLP GEMM+BMM pieces stay
   CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool path stay
   model-generated.
+
+## 2026-05-15 landed bounded two-tower contrastive slice
+
+The smallest real CLIPModel-style assembly is now in-tree at
+`src/dinoml/models/clip.py`.
+
+- The admitted surface stays intentionally narrow: reuse the bounded
+  `LegacyCLIPTextModelWithProjection` and one-layer
+  `LegacyCLIPVisionModelWithProjection` slices to produce projected text and
+  image features, L2-normalize both with the existing `vector_norm` + `div`
+  composition, apply `exp(logit_scale)`, compute `logits_per_text` with
+  `gemm_rcr`, and transpose to `logits_per_image`. The wrapper also exposes
+  `get_text_features` and `get_image_features` in the same bounded spirit as
+  the local Transformers `CLIPModel`.
+- The honest limits stay explicit: static traced text sequence length, default
+  traced text positions only, one-layer-or-fewer vision encoder, fixed square
+  NCHW pixel input only, no positional interpolation, no tokenizer/processor
+  plumbing, no loss path, and no new op or provider surface. The top-level
+  model remains a proof for the admitted tiny CLIPConfig surface, not a broad
+  CLIP checkpoint claim.
+- Focused tests compare projected features, normalized embeds, and
+  `logits_per_text` / `logits_per_image` against the local
+  `/workspace/transformers` `CLIPModel` with deterministic weights and keep
+  provider/model ownership visible in the CUDA manifest.

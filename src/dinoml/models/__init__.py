@@ -1,6 +1,7 @@
 """Internal model-building helpers for bounded integration slices."""
 
 from dinoml.models.clip import (
+    LegacyCLIPModel,
     LegacyCLIPTextConfig,
     LegacyCLIPTextModelWithProjection,
     LegacyCLIPVisionConfig,
@@ -10,6 +11,7 @@ from dinoml.models.clip import (
 )
 
 __all__ = [
+    "LegacyCLIPModel",
     "LegacyCLIPTextConfig",
     "LegacyCLIPTextModelWithProjection",
     "LegacyCLIPVisionConfig",

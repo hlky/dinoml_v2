@@ -4,31 +4,35 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Advanced the bounded `conv2d_bias`/`cutlass_conv` provider-maturity lane from
-  runtime-only candidates to a real static profile/report/cache/plan loop.
-  The CUTLASS Conv support source now exports real profiler entrypoints for all
-  emitted fp16 runtime candidates (SIMT, FewChannels C=3, FixedChannels C=4/C=8,
-  and Optimized align8), and `_CudaProfiler` times those profiler symbols on
-  provider-layout NHWC/OHWI buffers. `profile_artifact` now writes Conv
-  `debug/profile_report.json`, updates the support-cache profile cache with
-  Conv-specific layout/weight/Conv config/candidate provenance, and emits static
-  execution plans. Applying a static Conv selection updates manifest
-  `selected_candidate_id`, kernel/profiler symbols, `execution_plan_selection`,
-  and `cutlass_conv_plan["selected_candidate"]` for generated lowering; stale
-  or guarded Conv selections remain rejected. This still does not claim dynamic
-  Conv profiling/guarded dispatch, grouped/depthwise/transposed/3D, hidden
-  channel padding, runtime-persistent packed weights, C=8 runtime parity, or
-  public NHWC semantics.
+- Landed the first bounded CLIP text-model wrapper slice without adding a new
+  public op, vision path, tokenizer/processor plumbing, or FlashAttention
+  provider surface. `src/dinoml/models/clip.py` now exposes a narrow legacy
+  OpenAI `get_text_features`-style wrapper composed from existing DinoML ops:
+  token/position embeddings, dense causal + padding-mask attention, MLP,
+  final LayerNorm, legacy `eos_token_id == 2` argmax pooling, and bias-free
+  text projection. Focused tests pin wrapper-level parity against the local
+  Transformers CLIP implementation, prove traced `seq_len <=
+  max_position_embeddings` by slicing the precomputed causal-mask constant via
+  existing `dynamic_slice`, keep provider/model manifest ownership honest, and
+  leave the expensive generated CUDA runtime smoke opt-in. Remaining honest
+  limits: explicit `position_ids`, static traced sequence length, legacy
+  argmax-only EOS pooling, no non-2 first-match EOS branch, no vision tower,
+  and no full contrastive wrapper.
 
 ## Next Recommended Lane
 
-- 2026-05-15 kickoff: shift from the now-reviewed Conv provider hardening back
-  to the CLIP first-model sprint. Start by pinning the exact CLIP reference
-  source/audit inputs, then land the smallest real `CLIPTextModel` or
-  text-feature wrapper slice that reuses the existing CLIP text composition
-  tests instead of adding a broad wrapper surface. If that reveals an op,
-  provider, runtime, or artifact gap, finish that gap completely or as far as
-  safely possible before returning to the model.
+- Active parallel lane: finish the human-directed libgguf direct-linking slice.
+  Replace or reduce the generated CUDA module's runtime-set
+  `libgguf_cuda_dequantize_rows_on_stream` function-pointer boundary with a
+  direct, artifact-visible linkage path against the native libgguf CUDA
+  dequantizer where safely possible. Keep the scope to the already-admitted
+  GGUF runtime-dequant-before-CUTLASS-GEMM path; do not broaden offload policy,
+  quantized GEMM families, or public op/provider surface.
+- CLIP follow-up after the libgguf lane or in a separate bounded branch: add the
+  newer non-2 EOS first-match pooling branch and/or reduce the explicit
+  `position_ids` requirement only if the wrapper-level parity story remains
+  narrow and test-backed. Vision patch work remains the next larger CLIP model
+  step once text pooling/config handling is honest.
 - Use worktrees for independent branches if running parallel agents. Keep
   feature write sets disjoint, keep shared queue/tracking doc reconciliation on
   the main line when possible, and require PM review plus validation before

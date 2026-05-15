@@ -198,3 +198,27 @@ A bounded CLIP vision-wrapper path is now in-tree at `src/dinoml/models/clip.py`
   ownership visible: the patch projection stays on the existing CUTLASS Conv
   scaffold, the final projection stays CUTLASS GEMM-backed, and the sequence
   assembly plus LayerNorm/pool path stay model-generated.
+
+## 2026-05-15 landed first real vision encoder layer slice
+
+The bounded CLIP vision wrapper now also admits a single real encoder block.
+
+- The admitted surface remains intentionally narrow: fixed-size semantic NCHW
+  embeddings, `pre_layrnorm`, exactly zero or one encoder layer, CLS pooling,
+  `post_layernorm`, and bias-free visual projection. The one-layer encoder path
+  matches the local Transformers `CLIPVisionModelWithProjection` contract as
+  `layer_norm -> dense noncausal self-attention -> residual -> layer_norm ->
+  quick_gelu MLP -> residual`, reusing the already landed GEMM/BMM/softmax and
+  `gemm_rcr_bias_fast_gelu` composition rather than introducing a new public
+  attention or activation op.
+- The honest limits stay explicit: `num_hidden_layers` is admitted only for
+  `{0, 1}`, there is still no positional interpolation, no arbitrary image
+  sizes, no padding/causal mask handling in the vision block, no full
+  `CLIPModel`, and no widened Conv/provider claims. CPU reference execution
+  proves both the preserved zero-layer path and the new one-layer path against
+  local Transformers; compiled CPU artifacts still stop honestly at the
+  existing `conv2d_bias` backend boundary.
+- Focused tests keep ownership visible on the one-layer path: patch projection
+  remains on the CUTLASS Conv scaffold, attention/MLP GEMM+BMM pieces stay
+  CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool path stay
+  model-generated.

@@ -56,6 +56,25 @@ def _weights():
         "vision_model.pre_layrnorm.bias": _normal((config.hidden_size,), 5.5),
         "vision_model.post_layernorm.weight": _normal((config.hidden_size,), 3.5),
         "vision_model.post_layernorm.bias": _normal((config.hidden_size,), 5.5),
+        "vision_model.encoder.layers.0.layer_norm1.weight": _normal((config.hidden_size,), 4.0),
+        "vision_model.encoder.layers.0.layer_norm1.bias": _normal((config.hidden_size,), 6.0),
+        "vision_model.encoder.layers.0.self_attn.q_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
+        "vision_model.encoder.layers.0.self_attn.q_proj.bias": _normal((config.hidden_size,), 7.0),
+        "vision_model.encoder.layers.0.self_attn.k_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
+        "vision_model.encoder.layers.0.self_attn.k_proj.bias": _normal((config.hidden_size,), 7.0),
+        "vision_model.encoder.layers.0.self_attn.v_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
+        "vision_model.encoder.layers.0.self_attn.v_proj.bias": _normal((config.hidden_size,), 7.0),
+        "vision_model.encoder.layers.0.self_attn.out_proj.weight": _normal(
+            (config.hidden_size, config.hidden_size),
+            5.0,
+        ),
+        "vision_model.encoder.layers.0.self_attn.out_proj.bias": _normal((config.hidden_size,), 7.0),
+        "vision_model.encoder.layers.0.layer_norm2.weight": _normal((config.hidden_size,), 4.0),
+        "vision_model.encoder.layers.0.layer_norm2.bias": _normal((config.hidden_size,), 6.0),
+        "vision_model.encoder.layers.0.mlp.fc1.weight": _normal((config.intermediate_size, config.hidden_size), 4.0),
+        "vision_model.encoder.layers.0.mlp.fc1.bias": _normal((config.intermediate_size,), 6.0),
+        "vision_model.encoder.layers.0.mlp.fc2.weight": _normal((config.hidden_size, config.intermediate_size), 4.0),
+        "vision_model.encoder.layers.0.mlp.fc2.bias": _normal((config.hidden_size,), 6.0),
         "visual_projection.weight": _normal((config.projection_dim, config.hidden_size), 4.0),
     }
 
@@ -73,15 +92,26 @@ def _pixel_values():
     return values.reshape(BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE)
 
 
-def _trace():
+def _trace(num_hidden_layers=0):
+    config = LegacyCLIPVisionConfig(
+        hidden_size=HIDDEN,
+        intermediate_size=INTERMEDIATE,
+        num_attention_heads=NUM_HEADS,
+        num_hidden_layers=num_hidden_layers,
+        projection_dim=PROJECTION,
+        image_size=IMAGE_SIZE,
+        patch_size=PATCH_SIZE,
+        num_channels=NUM_CHANNELS,
+        layer_norm_eps=EPS,
+    )
     return dml.trace(
-        LegacyCLIPVisionModelWithProjection(_config(), WEIGHTS),
+        LegacyCLIPVisionModelWithProjection(config, WEIGHTS),
         inputs={"pixel_values": dml.TensorSpec([BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE], "float32")},
-        name="clip_vision_model_with_projection_zero_layer",
+        name=f"clip_vision_model_with_projection_{num_hidden_layers}_layer",
     )
 
 
-def _reference_outputs():
+def _reference_outputs(num_hidden_layers=0):
     torch = pytest.importorskip("torch")
     transformers = pytest.importorskip("transformers")
 
@@ -90,7 +120,7 @@ def _reference_outputs():
         intermediate_size=INTERMEDIATE,
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=0,
+        num_hidden_layers=num_hidden_layers,
         image_size=IMAGE_SIZE,
         patch_size=PATCH_SIZE,
         num_channels=NUM_CHANNELS,
@@ -101,7 +131,8 @@ def _reference_outputs():
     model = transformers.CLIPVisionModelWithProjection(config)
     state_dict = model.state_dict()
     for name, value in WEIGHTS.items():
-        state_dict[name] = torch.from_numpy(np.asarray(value, dtype=np.float32))
+        if name in state_dict:
+            state_dict[name] = torch.from_numpy(np.asarray(value, dtype=np.float32))
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -117,7 +148,7 @@ def _reference_outputs():
 
 
 def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
-    spec = _trace()
+    spec = _trace(0)
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops.count("conv2d_bias") == 1
@@ -144,7 +175,7 @@ def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
     assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
 
     actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
-    expected = _reference_outputs()
+    expected = _reference_outputs(0)
 
     np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["pooler_output"], expected["pooler_output"], atol=1e-5, rtol=1e-5)
@@ -153,13 +184,13 @@ def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
 
 def test_clip_vision_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
-    spec = _trace()
+    spec = _trace(1)
     with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_model_with_projection_cpu.dinoml")
 
 
 def test_clip_vision_wrapper_manifest_keeps_provider_and_model_kernels_honest():
-    spec = _trace()
+    spec = _trace(0)
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
@@ -198,4 +229,96 @@ def test_clip_vision_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     assert any("permute021_" in source for source in cuda_sources["kernels"])
     assert any("dynamic_slice_" in source for source in cuda_sources["kernels"])
     assert any("layer_norm_" in source for source in cuda_sources["kernels"])
+    assert any("dinoml::math::add" in source for source in cuda_sources["kernels"])
+
+
+def test_clip_vision_wrapper_one_layer_matches_local_transformers():
+    spec = _trace(1)
+    node_ops = [node["op"] for node in spec.ir["nodes"]]
+
+    assert node_ops.count("conv2d_bias") == 1
+    assert node_ops.count("permute021") == 1
+    assert node_ops.count("expand") == 1
+    assert node_ops.count("concatenate") == 1
+    assert node_ops.count("embedding") == 1
+    assert node_ops.count("layer_norm") == 4
+    assert node_ops.count("gemm_rcr_bias") == 5
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
+    assert node_ops.count("permute0213") == 4
+    assert node_ops.count("bmm_rcr") == 1
+    assert node_ops.count("bmm_rrr") == 1
+    assert node_ops.count("softmax") == 1
+    assert node_ops.count("dynamic_slice") == 1
+    assert node_ops.count("gemm_rcr") == 1
+    assert [output["name"] for output in spec.ir["outputs"]] == [
+        "last_hidden_state",
+        "pooler_output",
+        "image_features",
+    ]
+    assert spec.ir["outputs"][0]["shape"] == [BATCH, NUM_PATCHES + 1, HIDDEN]
+    assert spec.ir["outputs"][1]["shape"] == [BATCH, HIDDEN]
+    assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
+
+    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
+    expected = _reference_outputs(1)
+
+    np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["pooler_output"], expected["pooler_output"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_features"], expected["image_features"], atol=1e-5, rtol=1e-5)
+
+
+def test_clip_vision_wrapper_one_layer_manifest_keeps_provider_and_model_kernels_honest():
+    spec = _trace(1)
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    cuda_sources = collect_generated_sources("cuda", lowered["nodes"], tensor_map)
+
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
+    required = manifest["required_kernels"]
+    ops = [entry["op"] for entry in required]
+
+    assert "conv2d_bias" in ops
+    assert "permute021" in ops
+    assert "permute0213" in ops
+    assert "expand" in ops
+    assert "concatenate" in ops
+    assert "embedding" in ops
+    assert "fused_elementwise" in ops
+    assert "layer_norm" in ops
+    assert "softmax" in ops
+    assert "bmm_rcr" in ops
+    assert "bmm_rrr" in ops
+    assert "gemm_rcr_bias" in ops
+    assert "gemm_rcr_bias_fast_gelu" in ops
+    assert "dynamic_slice" in ops
+    assert "gemm_rcr" in ops
+
+    provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
+    provider_entries = [entry for entry in required if entry["op"] in provider_ops]
+    model_entries = [entry for entry in required if entry["op"] not in provider_ops]
+
+    assert len([entry for entry in provider_entries if entry["op"] == "conv2d_bias"]) == 1
+    assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr_bias_fast_gelu"]) == 1
+    assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr_bias"]) >= 1
+    assert len([entry for entry in provider_entries if entry["op"] == "bmm_rcr"]) == 1
+    assert len([entry for entry in provider_entries if entry["op"] == "bmm_rrr"]) == 1
+    assert len([entry for entry in provider_entries if entry["op"] == "gemm_rcr"]) == 1
+
+    conv_entry = next(entry for entry in provider_entries if entry["op"] == "conv2d_bias")
+    assert conv_entry["kernel_library"] == "cutlass_conv"
+    assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == conv_entry["kernel_symbol"]
+    assert conv_entry["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert all(entry["kernel_library"] == "cutlass_gemm" for entry in provider_entries if entry["op"] in {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr"})
+    assert all(entry["kernel_library"] == "cutlass_bmm" for entry in provider_entries if entry["op"] in {"bmm_rcr", "bmm_rrr"})
+
+    assert model_entries
+    assert all(entry["kernel_library"] == "model" for entry in model_entries)
+
+    assert any("embedding_" in source for source in cuda_sources["kernels"])
+    assert any("permute021_" in source for source in cuda_sources["kernels"])
+    assert any("permute0213_" in source for source in cuda_sources["kernels"])
+    assert any("dynamic_slice_" in source for source in cuda_sources["kernels"])
+    assert any("layer_norm_" in source for source in cuda_sources["kernels"])
+    assert any("generated_softmax" in source or "softmax_" in source for source in cuda_sources["kernels"])
     assert any("dinoml::math::add" in source for source in cuda_sources["kernels"])

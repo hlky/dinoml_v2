@@ -380,6 +380,10 @@ DINO_HD DINO_FORCEINLINE T floor(T x) { return from_float<T>(floorf(to_float(x))
 template <typename T>
 DINO_HD DINO_FORCEINLINE bool eq(T a, T b) { return to_float(a) == to_float(b); }
 
+DINO_HD DINO_FORCEINLINE bool eq(int32_t a, int32_t b) { return a == b; }
+
+DINO_HD DINO_FORCEINLINE bool eq(int64_t a, int64_t b) { return a == b; }
+
 template <typename T>
 DINO_HD DINO_FORCEINLINE bool ge(T a, T b) { return to_float(a) >= to_float(b); }
 

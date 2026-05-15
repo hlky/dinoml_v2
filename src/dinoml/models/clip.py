@@ -13,9 +13,10 @@ import dinoml as dml
 class LegacyCLIPTextConfig:
     """Bounded legacy OpenAI CLIP text-tower config.
 
-    This helper intentionally models only the already-landed bounded text path:
-    explicit `position_ids`, static traced sequence length, and the legacy
-    `eos_token_id == 2` argmax pooling branch.
+    This helper intentionally models only the bounded text path currently
+    landed in DinoML: explicit `position_ids`, static traced sequence length,
+    and the two source CLIP EOS pooling branches (`eos_token_id == 2`
+    argmax/highest-token-id compatibility, otherwise first EOS equality match).
     """
 
     vocab_size: int
@@ -46,10 +47,6 @@ class LegacyCLIPTextConfig:
             raise ValueError("num_attention_heads must be positive")
         if self.hidden_size % self.num_attention_heads != 0:
             raise ValueError("hidden_size must be divisible by num_attention_heads")
-        if self.eos_token_id != 2:
-            raise ValueError(
-                "LegacyCLIPTextConfig only models the bounded eos_token_id == 2 compatibility path"
-            )
 
     @property
     def head_dim(self) -> int:
@@ -306,7 +303,11 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
         )
 
     def _pool_hidden_state(self, input_ids, hidden_states):
-        indices = dml.ops.argmax(input_ids, dim=-1, keepdim=True)
+        if self.config.eos_token_id == 2:
+            indices = dml.ops.argmax(input_ids, dim=-1, keepdim=True)
+        else:
+            eos_mask = dml.ops.eq(input_ids, self.config.eos_token_id)
+            indices = dml.ops.argmax(eos_mask, dim=-1, keepdim=True)
         pooled = dml.ops.batch_gather(hidden_states, indices)
         return dml.ops.squeeze(pooled, 1)
 

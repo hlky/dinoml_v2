@@ -71,6 +71,7 @@ ELEMENTWISE_SPECS: tuple[ElementwiseSpec, ...] = (
 ELEMENTWISE_BY_NAME = {spec.name: spec for spec in ELEMENTWISE_SPECS}
 FUSABLE_ELEMENTWISE_OPS = frozenset(ELEMENTWISE_BY_NAME)
 FLOAT_ELEMENTWISE_DTYPES = ("float16", "float32", "bfloat16")
+EQ_ELEMENTWISE_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "int32", "int64")
 ELEMENTWISE_OUTPUT_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "bool")
 CAST_ELEMENTWISE_DTYPES = ELEMENTWISE_OUTPUT_DTYPES
 
@@ -124,7 +125,12 @@ def register_elementwise_ops(registry: OpRegistry) -> None:
                     spec.name,
                     default_attrs={name: default for name, default in spec.attr_defaults},
                 ),
-                allowed_dtypes=spec.allowed_dtypes or (CAST_ELEMENTWISE_DTYPES if spec.name == "cast" else FLOAT_ELEMENTWISE_DTYPES),
+                allowed_dtypes=spec.allowed_dtypes
+                or (
+                    CAST_ELEMENTWISE_DTYPES
+                    if spec.name == "cast"
+                    else EQ_ELEMENTWISE_DTYPES if spec.name == "eq" else FLOAT_ELEMENTWISE_DTYPES
+                ),
                 description=f"Elementwise {spec.name}. Lowered through fused_elementwise.",
             )
         )

@@ -6,7 +6,6 @@ from dinoml.backends.cpu import execute_cpu
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
-from dinoml.runtime import load
 
 
 RELATIONAL_CASES = (
@@ -60,6 +59,19 @@ def test_cpu_reference_relational_ops_return_bool_arrays(op_name, np_op):
     np.testing.assert_array_equal(actual, np_op(x, y))
 
 
+@pytest.mark.parametrize("dtype", ["int32", "int64"])
+def test_eq_accepts_integer_inputs_without_float_rounding(dtype):
+    spec = _trace_relational("eq", dtype)
+    large = 2**25 if dtype == "int32" else 2**54
+    x = np.array([[large, large + 1, large + 2], [large + 3, large + 4, large + 5]], dtype=dtype)
+    y = np.array([[large, large + 2, large + 2]], dtype=dtype)
+
+    actual = execute_cpu(spec, {"x": x, "y": y})["out"]
+
+    assert actual.dtype == np.bool_
+    np.testing.assert_array_equal(actual, np.equal(x, y))
+
+
 def test_fused_relational_validation_rejects_float_output_dtype():
     spec = _trace_relational("gt")
     spec.ir["tensors"][-1]["dtype"] = "float32"
@@ -95,3 +107,21 @@ def test_relational_fused_cpu_and_cuda_sources_use_float_inputs_and_bool_output(
 
     assert actual.dtype == np.bool_
     np.testing.assert_array_equal(actual, x < y)
+
+
+def test_eq_integer_generated_cpu_and_cuda_sources_preserve_integer_storage():
+    spec = _trace_relational("eq", "int64")
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+    tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
+    fused = next(node for node in lowered["nodes"] if node["op"] == "fused_elementwise")
+
+    cpu_source = render_generated_kernels("cpu", [fused], tensor_map)[0]
+    cuda_source = render_generated_kernels("cuda", [fused], tensor_map)[0]
+
+    assert "const int64_t* DINO_RESTRICT ptr_x" in cpu_source
+    assert "const int64_t* DINO_RESTRICT ptr_y" in cpu_source
+    assert "dinoml::math::eq(" in cpu_source
+    assert "const int64_t* DINO_RESTRICT ptr_x" in cuda_source
+    assert "const int64_t* DINO_RESTRICT ptr_y" in cuda_source
+    assert "dinoml::math::eq(" in cuda_source

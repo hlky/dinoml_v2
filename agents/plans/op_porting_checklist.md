@@ -48,9 +48,11 @@ These should be reusable building blocks. They generally map to `torch` or
 - [x] `elementwise`: initial dense coverage for arithmetic,
   min/max, trig/log/exp/sqrt, activations, `nan_to_num`,
   `clamp_nan_to_num`, `pow`, `floor_div`, `floor`, and relational ops
-  `eq`/`ge`/`gt`/`le`/`lt`/`ne` with bool outputs. Remaining v1 parity work:
-  jagged broadcasting, broader CPU/vector accessors, scalar dtype promotion,
-  and exhaustive edge-case tests.
+  `eq`/`ge`/`gt`/`le`/`lt`/`ne` with bool outputs. `eq` now additionally
+  admits bounded `int32`/`int64` inputs so model code can test integer token
+  ids without float-casting them through fused elementwise kernels. Remaining
+  v1 parity work: jagged broadcasting, broader CPU/vector accessors, scalar
+  dtype promotion, and exhaustive edge-case tests.
 - [x] `fused_elementwise`: connected registered unary/binary elementwise
   subgraphs lower to model-generated CPU/CUDA kernels that call
   `dinoml::math::<name>` helpers. CPU and CUDA support float32, float16, and
@@ -200,13 +202,13 @@ epilogues where possible.
   compares float inputs in fp32 with NaN-aware first-max behavior, compares
   `int32`/`int64` inputs as integers, returns first max indices on ties, and
   materializes `int64` output tensors through an op-specific compiler/runtime
-  contract exception. The integer-input admission is intentionally narrow: it
-  unblocks legacy OpenAI CLIP text EOT pooling via `input_ids.argmax(dim=-1)`
-  only, and does not cover non-2 EOS equality matching or the full pooled
-  hidden-state gather flow by itself. The composed legacy CLIP pooling slice is
-  now covered end to end through `argmax(..., keepdim=True) ->
-  batch_gather(hidden_states, indices) -> squeeze(axis=1)` without adding a new
-  public pooling op.
+  contract exception. The integer-input admission now composes with bounded
+  integer `eq` to cover both CLIP text pooling branches: legacy OpenAI
+  `input_ids.argmax(dim=-1)` when `eos_token_id == 2`, and first-match
+  `(input_ids == eos_token_id).argmax(dim=-1)` for newer non-2 EOS configs.
+  The composed CLIP pooling slice is now covered end to end through
+  `argmax(..., keepdim=True) -> batch_gather(hidden_states, indices) ->
+  squeeze(axis=1)` without adding a new public pooling op.
   Public `topk(x, k, dim=-1, largest=True, sorted=True)` is available as two
   internal single-output ops (`topk_values`, `topk_indices`) for one
   static-shape ranked dense tensor over a positive static last dimension only,
@@ -224,7 +226,9 @@ epilogues where possible.
   view-of-view reshape inputs remain limited by existing shape-view lowering.
   `where` is available for dense bool-condition plus matching
   float/reduced-precision/bool `x`/`y` through fused elementwise CPU/CUDA
-  generation.
+  generation. `eq` additionally supports bounded `int32`/`int64` inputs with
+  bool outputs through the same fused-elementwise path; the other relational
+  ops remain float/reduced-precision-input only for now.
 - [x] Collections/broadcasting: no remaining named v1 collection gaps in this
   bounded subset. `expand` is available as a materialized dense broadcast copy
   for static shapes across the generated float/reduced-precision and bool

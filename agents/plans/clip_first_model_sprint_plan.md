@@ -132,12 +132,14 @@ A bounded text-only wrapper path is now in-tree at `src/dinoml/models/clip.py`.
 - The landed surface is intentionally narrow: a legacy-OpenAI
   `get_text_features`-style wrapper composed from existing DinoML ops for token
   embedding, position embedding, one-or-more text encoder layers, final
-  LayerNorm, legacy `eos_token_id == 2` argmax pooling, and bias-free text
-  projection.
+  LayerNorm, CLIP EOS pooling (`eos_token_id == 2` argmax compatibility or
+  first equality match for non-2 EOS), and bias-free text projection.
 - The wrapper keeps the current honest limits explicit: explicit
   `position_ids` input, static traced sequence length bounded by
-  `max_position_embeddings`, text-only scope, and no non-2 EOS first-match
-  branch yet.
+  `max_position_embeddings`, and text-only scope. The non-2 EOS branch now
+  relies on bounded integer `eq` admission plus bool `argmax`, and still
+  assumes tokenizer-prepared sequences contain an EOS token the same way the
+  Transformers source does.
 - Focused wrapper-level tests compare the DinoML path against the pinned local
   Transformers CLIP source and keep manifest ownership honest by proving that no
   new public op or provider surface was introduced for this slice.

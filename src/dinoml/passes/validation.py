@@ -17,6 +17,7 @@ from dinoml.ops.elementwise import (
     CAST_ELEMENTWISE_DTYPES,
     ELEMENTWISE_BY_NAME,
     ELEMENTWISE_OUTPUT_DTYPES,
+    EQ_ELEMENTWISE_DTYPES,
     FLOAT_ELEMENTWISE_DTYPES,
     elementwise_output_dtype,
 )
@@ -718,6 +719,7 @@ def _fused_elementwise_output_dtype(sub_op: Mapping[str, Any], input_dtypes: Seq
         return input_dtypes[1]
     if input_dtypes and any(dtype != input_dtypes[0] for dtype in input_dtypes):
         raise ValidationError(f"Fused sub-op {op} has mismatched input dtypes")
-    if input_dtypes and input_dtypes[0] not in FLOAT_ELEMENTWISE_DTYPES:
+    supported_dtypes = EQ_ELEMENTWISE_DTYPES if op == "eq" else FLOAT_ELEMENTWISE_DTYPES
+    if input_dtypes and input_dtypes[0] not in supported_dtypes:
         raise ValidationError(f"Fused sub-op {op} does not support dtype {input_dtypes[0]}")
     return elementwise_output_dtype(op, input_dtypes[0])

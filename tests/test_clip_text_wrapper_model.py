@@ -23,7 +23,7 @@ EPS = 1.0e-5
 MAX_POSITION_EMBEDDINGS = 6
 
 
-def _config():
+def _config(*, eos_token_id: int = 2):
     return LegacyCLIPTextConfig(
         vocab_size=VOCAB_SIZE,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
@@ -33,7 +33,7 @@ def _config():
         num_hidden_layers=1,
         projection_dim=PROJECTION,
         layer_norm_eps=EPS,
-        eos_token_id=2,
+        eos_token_id=eos_token_id,
     )
 
 
@@ -76,11 +76,19 @@ def _weights():
 WEIGHTS = _weights()
 
 
-def _input_ids():
+def _input_ids(*, eos_token_id: int = 2):
+    if eos_token_id == 2:
+        return np.array(
+            [
+                [0, 5, 15, 1],
+                [0, 15, 4, 1],
+            ],
+            dtype=np.int64,
+        )
     return np.array(
         [
-            [0, 5, 15, 1],
-            [0, 15, 4, 1],
+            [0, eos_token_id, 3, eos_token_id],
+            [5, 4, eos_token_id, eos_token_id],
         ],
         dtype=np.int64,
     )
@@ -100,19 +108,19 @@ def _position_ids():
     return np.array([0, 1, 2, 3], dtype=np.int64)
 
 
-def _trace():
+def _trace(*, eos_token_id: int = 2):
     return dml.trace(
-        LegacyCLIPTextModelWithProjection(_config(), WEIGHTS),
+        LegacyCLIPTextModelWithProjection(_config(eos_token_id=eos_token_id), WEIGHTS),
         inputs={
             "input_ids": dml.TensorSpec([BATCH, SEQ_LEN], "int64"),
             "attention_mask": dml.TensorSpec([BATCH, SEQ_LEN], "bool"),
             "position_ids": dml.TensorSpec([SEQ_LEN], "int64"),
         },
-        name="clip_text_model_with_projection_legacy",
+        name=f"clip_text_model_with_projection_eos_{eos_token_id}",
     )
 
 
-def _reference_outputs():
+def _reference_outputs(*, eos_token_id: int = 2):
     torch = pytest.importorskip("torch")
     transformers = pytest.importorskip("transformers")
 
@@ -128,8 +136,8 @@ def _reference_outputs():
         attention_dropout=0.0,
         layer_norm_eps=EPS,
         bos_token_id=0,
-        eos_token_id=2,
-        pad_token_id=1,
+        eos_token_id=eos_token_id,
+        pad_token_id=1 if eos_token_id == 2 else eos_token_id,
     )
     vision_config = transformers.CLIPVisionConfig(
         hidden_size=8,
@@ -152,7 +160,7 @@ def _reference_outputs():
     model.load_state_dict(state_dict)
     model.eval()
 
-    input_ids = torch.from_numpy(_input_ids())
+    input_ids = torch.from_numpy(_input_ids(eos_token_id=eos_token_id))
     attention_mask = torch.from_numpy(_attention_mask())
     position_ids = torch.from_numpy(_position_ids())
     with torch.inference_mode():
@@ -164,8 +172,15 @@ def _reference_outputs():
     return text_features.pooler_output.detach().cpu().numpy().astype(np.float32)
 
 
-def test_clip_text_wrapper_get_text_features_matches_local_transformers():
-    spec = _trace()
+@pytest.mark.parametrize(
+    ("eos_token_id", "expected_counts"),
+    [
+        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}),
+        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}),
+    ],
+)
+def test_clip_text_wrapper_get_text_features_matches_local_transformers(eos_token_id, expected_counts):
+    spec = _trace(eos_token_id=eos_token_id)
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops.count("embedding") == 2
@@ -176,8 +191,8 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers():
     assert node_ops.count("gemm_rcr") == 1
     assert node_ops.count("bmm_rcr") == 1
     assert node_ops.count("bmm_rrr") == 1
-    assert node_ops.count("argmax") == 1
-    assert node_ops.count("batch_gather") == 1
+    for op_name, expected_count in expected_counts.items():
+        assert node_ops.count(op_name) == expected_count
     dynamic_slice_node = next(node for node in spec.ir["nodes"] if node["op"] == "dynamic_slice")
     assert dynamic_slice_node["attrs"] == {"start_indices": [0, 0, 0], "slice_sizes": [1, SEQ_LEN, SEQ_LEN]}
     assert spec.ir["outputs"][0]["name"] == "text_features"
@@ -186,12 +201,12 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers():
     actual = execute_cpu(
         spec,
         {
-            "input_ids": _input_ids(),
+            "input_ids": _input_ids(eos_token_id=eos_token_id),
             "attention_mask": _attention_mask(),
             "position_ids": _position_ids(),
         },
     )["text_features"]
-    expected = _reference_outputs()
+    expected = _reference_outputs(eos_token_id=eos_token_id)
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
@@ -203,8 +218,9 @@ def test_clip_text_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypat
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
 
 
-def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest():
-    spec = _trace()
+@pytest.mark.parametrize("eos_token_id", [2, 7])
+def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest(eos_token_id):
+    spec = _trace(eos_token_id=eos_token_id)
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}
@@ -219,6 +235,8 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     assert "softmax" in ops
     assert "argmax" in ops
     assert "batch_gather" in ops
+    if eos_token_id != 2:
+        assert "fused_elementwise" in ops
     assert "gemm_rcr_bias" in ops
     assert "gemm_rcr_bias_fast_gelu" in ops
     assert "gemm_rcr" in ops
@@ -242,6 +260,9 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     assert any("static int softmax_" in source for source in cuda_sources["kernels"])
     assert any("static int argmax_" in source for source in cuda_sources["kernels"])
     assert any("static int batch_gather_" in source for source in cuda_sources["kernels"])
+    if eos_token_id != 2:
+        assert any("const int64_t* DINO_RESTRICT ptr_input_ids" in source for source in cuda_sources["kernels"])
+        assert any("dinoml::math::eq(" in source for source in cuda_sources["kernels"])
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

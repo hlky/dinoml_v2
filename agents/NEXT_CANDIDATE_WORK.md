@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Pinned the exact CLIP patch-projection CUDA runtime boundary. The
+  Transformers-shaped float32 patch Conv used by `LegacyCLIPVisionEmbeddings`
+  (`[B,3,4,4]` input, `[6,3,2,2]` weights, stride 2, padding 0, groups 1) now
+  has focused coverage proving that the manifest selects a float32 SIMT
+  `cutlass_conv` candidate with `manifest_scaffold_only` status and
+  `cutlass_conv_runtime_launcher_not_implemented` as the explicit blocker. When
+  CUDA tooling is available, the artifact compiles and then fails at the
+  generated scaffold runtime boundary instead of disappearing into a vague
+  provider gap.
 - Pinned the current CLIPModel artifact blockers without widening provider
   surface. Focused tests now prove that full two-tower CPU compilation fails
   first at the existing `gemm_rcr_bias` compiled-CPU boundary, before the
@@ -65,16 +74,21 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: close or narrow the compiled CPU `gemm_rcr_bias` blocker for the
-  text side, or advance the CUDA Conv scaffold toward a CLIP-tied runtime smoke
-  without broadening Conv claims. If staying purely in model parity, pick a new
-  narrow Transformers gap that is not already covered by the layer-count
-  proofs. Keep local `/workspace/transformers` parity as the acceptance bar and
-  keep all non-parity limits explicit.
+  next slices: close or narrow the compiled CPU GEMM-family blockers for the
+  text side with a clearly scoped naive generated CPU bridge, or advance the
+  exact CUDA Conv scaffold toward a CLIP-tied runtime smoke without broadening
+  Conv claims. If staying purely in model parity, pick a new narrow
+  Transformers gap that is not already covered by the layer-count proofs. Keep
+  local `/workspace/transformers` parity as the acceptance bar and keep all
+  non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims
   without a full admission slice.
+- Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
+  as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
+  as a blocker for CLIP artifact smoke work, but keep any naive CPU GEMM support
+  small, measured by tests, and explicit about performance limits.
 - Landed the first real CLIP vision encoder layer. The bounded vision wrapper
   now admits `num_hidden_layers` in `{0, 1}` and matches local Transformers for
   the one-layer surface: fixed-size embeddings, `pre_layrnorm`, dense noncausal

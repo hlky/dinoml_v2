@@ -21,6 +21,10 @@
   return to the model path. CUTLASS Conv remains a legitimate blocking lane for
   CLIP vision work; keep authoring model graphs in semantic NCHW and let the
   provider transform to NHWC/OHWI through artifact-visible plans.
+- Naive generated CPU GEMM is acceptable as a temporary bridge for compiled CPU
+  artifacts. Do not block CLIP artifact progress solely waiting for a future CPU
+  BLAS/library integration; keep any naive path clearly scoped, validated, and
+  honest about performance.
 - FlashAttention is a priority optimization for the attention path, but dense
   semantic attention remains the truth source. Use v1 and the external
   FlashAttention reference as guidance only after the dense CLIP contract is
@@ -52,8 +56,9 @@
   and the first bounded two-tower `LegacyCLIPModel` workflow matches local
   Transformers for projected features, normalized embeds, and logits with a
   compact runnable workflow proof. The current artifact boundary is now pinned:
-  full CPU compilation fails first at `gemm_rcr_bias`, and CUDA planning keeps
-  the CLIP Conv node visible as a scaffolded `cutlass_conv` wrapper. Preferred
-  next slice: narrow one of those artifact blockers, or pick a new narrow
-  Transformers parity gap that is not already covered by the layer-count
-  proofs.
+  full CPU compilation fails first at GEMM-family compiled CPU lowering, while
+  exact CLIP float32 patch Conv can compile to a CUDA artifact but still fails
+  through the scaffolded CUTLASS Conv runtime launcher boundary. Preferred next
+  slice: land the smallest validated naive CPU GEMM bridge for CLIP artifacts,
+  advance the exact Conv launcher boundary, or pick a new narrow Transformers
+  parity gap that is not already covered by the layer-count proofs.

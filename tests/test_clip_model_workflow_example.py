@@ -22,6 +22,15 @@ def _load_example() -> dict[str, object]:
     return runpy.run_path(str(EXAMPLE))
 
 
+def test_clip_model_workflow_bridge_kernel_detection_is_exact():
+    example = _load_example()
+    patterns = example["_GENERATED_HELPER_PATTERNS"]
+    generated = "static int gemm_rcr_bias_float32_123456789abc(\n"
+
+    assert not patterns["gemm_rcr"].search(generated)
+    assert patterns["gemm_rcr_bias"].search(generated)
+
+
 def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, monkeypatch):
     example = _load_example()
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))

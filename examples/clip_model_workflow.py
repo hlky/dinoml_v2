@@ -44,7 +44,16 @@ LOCAL_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
 ATOL = 1.0e-5
 RTOL = 1.0e-5
 MODEL_OUTPUT_NAMES = ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds")
-_GENERATED_HELPER_RE_TEMPLATE = r"\bstatic int {op}_[A-Za-z0-9_]+\s*\("
+_GENERATED_HELPER_PATTERNS = {
+    "conv2d_bias": re.compile(r"\bstatic int conv2d_bias_[0-9a-f]{12}\s*\("),
+    "gemm_rcr": re.compile(r"\bstatic int gemm_rcr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
+    "gemm_rcr_bias": re.compile(r"\bstatic int gemm_rcr_bias_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
+    "gemm_rcr_bias_fast_gelu": re.compile(
+        r"\bstatic int gemm_rcr_bias_fast_gelu_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("
+    ),
+    "bmm_rcr": re.compile(r"\bstatic int bmm_rcr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
+    "bmm_rrr": re.compile(r"\bstatic int bmm_rrr_(?:float32|float16|bfloat16)_[0-9a-f]{12}\s*\("),
+}
 
 
 def build_text_config() -> LegacyCLIPTextConfig:
@@ -408,11 +417,7 @@ def _run_compiled_cpu_artifact(
             session.close()
             module.close()
 
-        bridge_kernels = []
-        for name in ("conv2d_bias", "gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr"):
-            pattern = _GENERATED_HELPER_RE_TEMPLATE.format(op=re.escape(name))
-            if re.search(pattern, generated):
-                bridge_kernels.append(name)
+        bridge_kernels = [name for name, pattern in _GENERATED_HELPER_PATTERNS.items() if pattern.search(generated)]
         artifact_summary = {
             "path": str(artifact.path),
             "retained": retained,

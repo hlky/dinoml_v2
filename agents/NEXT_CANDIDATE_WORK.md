@@ -197,12 +197,14 @@ This file should be updated after each major loop.
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims
   without a full admission slice.
-- Conv next steps should stay in the bias/no-bias lane only if they deepen the
-  core rather than polish aliases: either admit a true no-bias provider/runtime
-  family over the existing explicit-zero bridge, or move to the next clearly
-  bounded Conv maturity gap such as fused epilogues or broader TensorOp/runtime
-  selection coverage. Keep grouped/depthwise/transposed/3D and dynamic/guarded
-  dispatch deferred until a separate admission slice.
+- Conv next steps should prioritize GEMM-like provider maturity for the existing
+  `conv2d_bias`/explicit-zero `conv2d` path: candidate sets, profile workloads,
+  profile reports, execution-plan selections, and generated lowering visibly
+  consuming the selected Conv candidate. Stay in the bias/no-bias lane only when
+  the work deepens that core rather than polishing aliases; after the profiling
+  and execution-plan loop is boring, move to bounded fused epilogues or broader
+  TensorOp/runtime selection coverage. Keep grouped/depthwise/transposed/3D and
+  dynamic/guarded dispatch deferred until a separate admission slice.
 - Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
   as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
   as a blocker for CLIP artifact smoke work, but keep any naive CPU bridge small,

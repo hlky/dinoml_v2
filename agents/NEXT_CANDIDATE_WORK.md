@@ -4,6 +4,34 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded CLIP text-wrapper default-position slice. Callers may now
+  omit `position_ids`; the wrapper falls back to a traced static int64
+  `[0, 1, ..., S-1]` position sequence for the current static sequence length,
+  matching Transformers CLIP default behavior while keeping the explicit
+  `position_ids` path working. The visible CLIP text workflow example now omits
+  `position_ids`, and focused tests prove both EOS pooling branches with and
+  without explicit positions. Remaining limits: text-only wrapper, static
+  traced sequence length, no tokenizer/processor plumbing, no vision tower, and
+  default positions are traced constants rather than runtime-generated dynamic
+  indices.
+
+## Next Recommended Lane
+
+- Continue the CLIP first-model sprint with a bounded behavior-backed vision
+  patch or contrastive-artifact slice. Prefer the vision patch path only if it
+  stays semantic NCHW and artifact-visible around Conv/provider choices; defer
+  grouped/depthwise/transposed/3D and unsupported Conv claims. A full
+  contrastive wrapper artifact workflow is also reasonable if it can reuse the
+  existing text-feature and contrastive-head coverage without new op/provider
+  surface. For either path, treat pinned/local Transformers behavior as the
+  acceptance bar for the admitted surface, and record any remaining non-parity
+  limits explicitly.
+- Keep libgguf follow-up limited to concrete direct-link failures or validation
+  gaps: add a CUDA builder smoke using the initialized submodule only if the
+  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
+  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
+  families, epilogue coverage, or public provider surface as part of this
+  lane.
 - Added a visible CLIP text workflow proof without adding new CLIP behavior,
   ops, providers, tokenizer/processor plumbing, FlashAttention, or expensive
   CUDA runtime requirements. `examples/clip_text_workflow.py` traces the
@@ -16,21 +44,6 @@ This file should be updated after each major loop.
   limits: text-only proof, no compiled CPU wrapper support, explicit
   `position_ids`, static traced sequence length, no vision tower, and no full
   contrastive artifact workflow yet.
-
-## Next Recommended Lane
-
-- Continue the CLIP first-model sprint with a bounded behavior-backed slice:
-  either reduce the explicit `position_ids` requirement for the text wrapper or
-  begin the vision patch path. Prefer the text cleanup if it unlocks a simpler
-  end-to-end example without new provider surface; prefer vision patch only if
-  the slice stays semantic NCHW and artifact-visible around Conv/provider
-  choices.
-- Keep libgguf follow-up limited to concrete direct-link failures or validation
-  gaps: add a CUDA builder smoke using the initialized submodule only if the
-  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
-  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
-  families, epilogue coverage, or public provider surface as part of this
-  lane.
 - Landed the bounded CLIP non-2 EOS pooling branch without adding a new pooling
   op, vision tower, tokenizer/processor plumbing, or FlashAttention/provider
   surface. `LegacyCLIPTextModelWithProjection` now matches both Transformers

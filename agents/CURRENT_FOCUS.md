@@ -8,6 +8,10 @@
   using the model audits in `agents/plans/transformers/clip/` and pinned
   Transformers source/reference snippets rather than the ambient installed
   package alone.
+- CLIP integration is a practical parity target against the pinned/local
+  Transformers implementation for the supported inference surfaces. Bounded
+  slices are acceptable only when their admitted behavior matches Transformers
+  or their remaining non-parity limits are explicit and test-backed.
 - libgguf direct linking is landed. Keep any follow-up narrowly tied to concrete
   direct-link failures or validation gaps; do not reopen GGUF policy, quantized
   GEMM families, epilogue coverage, or public provider surface as part of that
@@ -25,7 +29,8 @@
 ## Near-Term Priorities
 
 - CLIP first-model sprint: text model, vision patch path, projections, and
-  contrastive wrapper integration.
+  contrastive wrapper integration, with Transformers parity as the acceptance
+  bar for each admitted surface.
 - CUTLASS Conv maturity needed by CLIP vision: static profiling is landed;
   next gaps include C=8 parity if useful, dynamic/guarded admission decisions,
   and avoiding unsupported grouped/depthwise/transposed/3D claims.

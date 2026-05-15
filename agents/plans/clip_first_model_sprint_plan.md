@@ -4,6 +4,16 @@ This note captures the first full-model sprint for the transformers family work.
 The sprint is intentionally text-tower-first on CLIP, with ViT as the conservative
 vision-side companion path and T5 explicitly deferred.
 
+## Parity target
+
+The CLIP sprint target is practical parity with the pinned/local Transformers
+implementation for supported inference surfaces, not a CLIP-like approximation.
+Each bounded DinoML slice should either match the relevant Transformers behavior
+for the surface it admits or state the remaining non-parity limits plainly in the
+same tests/docs that land the slice. The local `/workspace/transformers`
+implementation and the audit in `agents/plans/transformers/clip/report.md` are
+the behavior source unless a later explicit design decision says otherwise.
+
 ## Why CLIP text first
 
 CLIP text tower work gives the highest-signal bounded slice:

@@ -301,10 +301,35 @@ def test_clip_text_wrapper_zero_layer_matches_local_transformers(
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+def test_clip_text_wrapper_zero_layer_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace(num_hidden_layers=0)
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_zero_layer_cpu.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "attention_mask": _attention_mask(),
+                "position_ids": _position_ids(),
+            }
+        )["text_features"]
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs(num_hidden_layers=0)
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
 def test_clip_text_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rcr_bias"):
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op bmm_rcr"):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
 
 

@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+import hashlib
 import re
+from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
 from dinoml.ir import dtype_nbytes
-from dinoml.lowering.cpp_types import cuda_storage_type
+from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 
 
-def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+_CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias"}
+
+
+def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _render_cpu_template("gemm_cpu.cpp.j2", _cpu_context(node, tensor_map))
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported GEMM lowering target: {target}")
 
 
 def render_launch(
@@ -22,8 +32,6 @@ def render_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
-    if target != "cuda":
-        raise ValueError(f"{node['op']} lowering is currently CUDA-only")
     op_name = str(node["op"])
     spec = gemm_op_spec(op_name)
     a_name, b_name = node["inputs"][:2]
@@ -31,8 +39,30 @@ def render_launch(
     a_ident = _c_ident(a_name)
     b_ident = _c_ident(b_name)
     c_ident = _c_ident(c_name)
-    _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
+    _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name], target=target)
     a_rank = len(tensor_map[a_name]["shape"])
+    m_expr = _product_expr(f"shape_{a_ident}_{axis}" for axis in range(a_rank - 1))
+    k_expr = f"shape_{a_ident}_{a_rank - 1}"
+    if spec.base_layout == "rrr":
+        n_expr = f"shape_{b_ident}_1"
+        k_check = f"{k_expr} != shape_{b_ident}_0"
+    else:
+        n_expr = f"shape_{b_ident}_0"
+        k_check = f"{k_expr} != shape_{b_ident}_1"
+    output_check = _folded_output_shape_check(c_ident, a_ident, a_rank, n_expr)
+    if target == "cpu":
+        return _render_cpu_launch(
+            node=node,
+            tensor_map=tensor_map,
+            spec=spec,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            k_check=k_check,
+            output_check=output_check,
+        )
+    if target != "cuda":
+        raise ValueError(f"{op_name} lowering is only implemented for CPU or CUDA")
     c_rank = len(tensor_map[c_name]["shape"])
     dtype = str(tensor_map[c_name]["dtype"])
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]))
@@ -46,16 +76,6 @@ def render_launch(
         if manifest_item is not None
         else get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
     )
-
-    m_expr = _product_expr(f"shape_{a_ident}_{axis}" for axis in range(a_rank - 1))
-    k_expr = f"shape_{a_ident}_{a_rank - 1}"
-    if spec.base_layout == "rrr":
-        n_expr = f"shape_{b_ident}_1"
-        k_check = f"{k_expr} != shape_{b_ident}_0"
-    else:
-        n_expr = f"shape_{b_ident}_0"
-        k_check = f"{k_expr} != shape_{b_ident}_1"
-    output_check = _folded_output_shape_check(c_ident, a_ident, a_rank, n_expr)
     epilogue_checks = []
     epilogue_args = []
     for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2):
@@ -140,14 +160,110 @@ def render_launch(
     return "\n".join(lines)
 
 
-def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return f"{target}:{generated_function_name(target, node, tensor_map)}"
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported GEMM lowering target: {target}")
 
 
-def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _cpu_function_name(node, tensor_map)
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported GEMM lowering target: {target}")
+
+
+def _render_cpu_launch(
+    *,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    spec: Any,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    k_check: str,
+    output_check: str,
+) -> str:
+    op_name = str(node["op"])
+    func = _cpu_function_name(node, tensor_map)
+    lines = [
+        f'if ({k_check}) return dinoml::module::fail("{op_name} K dimension mismatch");',
+        f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
+    ]
+    epilogue_args = []
+    for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2):
+        tensor_name = str(node["inputs"][input_offset])
+        tensor_ident = _c_ident(tensor_name)
+        tensor_rank = len(tensor_map[tensor_name]["shape"])
+        if input_name == "bias":
+            if tensor_rank == 1:
+                lines.append(f'if (shape_{tensor_ident}_0 != {n_expr}) return dinoml::module::fail("{op_name} bias shape mismatch");')
+            elif tensor_rank == 2:
+                lines.append(
+                    f'if (shape_{tensor_ident}_0 != 1 || shape_{tensor_ident}_1 != {n_expr}) '
+                    f'return dinoml::module::fail("{op_name} bias shape mismatch");'
+                )
+            else:
+                raise NotImplementedError(f"{op_name} CPU lowering supports rank-1 or rank-2 bias only")
+            epilogue_args.append(
+                f"ptr_{tensor_ident}, runtime_numel_{tensor_ident}, "
+            )
+        else:
+            raise NotImplementedError(f"{op_name} CPU lowering does not support epilogue input {input_name!r}")
+    a_ident = _c_ident(node["inputs"][0])
+    b_ident = _c_ident(node["inputs"][1])
+    c_ident = _c_ident(node["outputs"][0])
+    lines.append(
+        "if (int err = "
+        f"{func}(ptr_{a_ident}, runtime_numel_{a_ident}, ptr_{b_ident}, runtime_numel_{b_ident}, "
+        f"{''.join(epilogue_args)}ptr_{c_ident}, runtime_numel_{c_ident}, {m_expr}, {n_expr}, {k_expr})) return err;"
+    )
+    return "\n".join(lines)
+
+
+def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    op_name = str(node["op"])
+    if op_name not in _CPU_GEMM_OPS:
+        raise ValueError(f"CPU GEMM lowering only supports {_CPU_GEMM_OPS}, got {op_name}")
+    output_tensor = tensor_map[node["outputs"][0]]
+    dtype = str(output_tensor["dtype"])
+    has_bias = gemm_op_spec(op_name).epilogue.has_bias
+    if has_bias:
+        bias_tensor = tensor_map[node["inputs"][2]]
+        bias_rank = len(bias_tensor["shape"])
+        if bias_rank not in {1, 2}:
+            raise ValueError(f"{op_name} CPU lowering requires rank-1 or rank-2 bias, got rank {bias_rank}")
+    else:
+        bias_rank = 0
+    signature = {
+        "op": op_name,
+        "dtype": dtype,
+        "bias_rank": bias_rank,
+    }
+    digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return {
+        "func": f"{op_name}_{dtype}_{digest}",
+        "storage_type": cpu_storage_type(dtype),
+        "has_bias": has_bias,
+    }
+
+
+def _cpu_function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    return str(_cpu_context(node, tensor_map)["func"])
+
+
+def _render_cpu_template(name: str, context: Mapping[str, Any]) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
+    return env.get_template(name).render(**context)
 
 
 def _product_expr(terms: Iterable[str]) -> str:
@@ -580,18 +696,20 @@ def _validate_static_contract(
     op_name: str,
     input_infos: list[Mapping[str, Any]],
     c_info: Mapping[str, Any],
+    *,
+    target: str,
 ) -> None:
     op_def = get_op_def(op_name)
     if any(input_info["dtype"] != c_info["dtype"] for input_info in input_infos):
-        raise NotImplementedError(f"{op_name} CUDA lowering requires matching input/output dtypes")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering requires matching input/output dtypes")
     if str(c_info["dtype"]) not in op_def.allowed_dtypes:
-        raise NotImplementedError(f"{op_name} CUDA lowering does not support dtype {c_info['dtype']}")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support dtype {c_info['dtype']}")
     if (
         len(input_infos[0]["shape"]) < 2
         or len(input_infos[1]["shape"]) != 2
         or len(c_info["shape"]) != len(input_infos[0]["shape"])
     ):
-        raise NotImplementedError(f"{op_name} CUDA lowering expects A[...,K], rank-2 B, and C[...,N]")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering expects A[...,K], rank-2 B, and C[...,N]")
 
 
 def _c_ident(name: str) -> str:

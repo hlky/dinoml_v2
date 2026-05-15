@@ -42,19 +42,26 @@ def infer_gemm_rcr_bias_relu(shapes: Sequence[Sequence[int]]) -> list[int]:
 def register_gemm_ops(registry: OpRegistry) -> None:
     for op_name in GEMM_OPS:
         spec = gemm_op_spec(op_name)
+        backend_kernels = {
+            "cuda": KernelBinding(
+                cutlass_gemm_symbol(op_name, "float32"),
+                "cutlass_gemm",
+                profiler_symbol=cutlass_gemm_profiler_symbol(op_name, "float32"),
+                dtype_variants=_cutlass_dtype_variants(op_name),
+            ),
+        }
+        if op_name in {"gemm_rcr", "gemm_rcr_bias"}:
+            backend_kernels["cpu"] = KernelBinding(
+                symbol="generated_gemm",
+                library="model",
+                source_template="gemm_cpu.cpp.j2",
+            )
         registry.register(
             OpDef(
                 name=op_name,
                 schema=OpSchema(inputs=_schema_inputs(spec)),
                 infer_shape=_infer_shape_fn(op_name),
-                backend_kernels={
-                    "cuda": KernelBinding(
-                        cutlass_gemm_symbol(op_name, "float32"),
-                        "cutlass_gemm",
-                        profiler_symbol=cutlass_gemm_profiler_symbol(op_name, "float32"),
-                        dtype_variants=_cutlass_dtype_variants(op_name),
-                    ),
-                },
+                backend_kernels=backend_kernels,
                 frontend=FrontendBinding(op_name),
                 allowed_dtypes=GEMM_SUPPORTED_DTYPES,
                 profiler=True,

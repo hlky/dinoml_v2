@@ -304,8 +304,11 @@ normalization or softmax patterns, otherwise use custom block reductions.
 
 - [x] Base GEMM layouts: `gemm_rcr`, `gemm_rrr` are explicit CUDA ops for
   `float32`, `float16`, and `bfloat16`, backed by cached CUTLASS launchers with
-  explicit tensor-op manifest candidate sets and CPU reference
-  execution but no CPU compiled GEMM. Float32 candidate parity includes 221
+  explicit tensor-op manifest candidate sets. `gemm_rcr` also has a bounded
+  compiled CPU bridge: generated CPU artifacts flatten `A[..., K]` into runtime
+  `M` and run a naive row-major loop over static/dynamic leading dims for
+  `float32`, `float16`, and `bfloat16`. `gemm_rrr` still has CPU reference
+  execution only and no compiled CPU GEMM. Float32 candidate parity includes 221
   default candidates: optional v1 SM80 regular TF32 TensorOp candidates,
   optional fast TensorOp families for `multiply_add_fast_f16`,
   `multiply_add_fast_bf16`, and 3xTF32 `multiply_add_fast_f32`, plus the exact
@@ -322,7 +325,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   contracts are ready.
 - [x] First bias epilogues: `gemm_rcr_bias`, `gemm_rrr_bias` support rank-1
   `[N]` and rank-2 `[1, N]` bias contracts through CUTLASS launcher/profiler
-  symbols for `float32`, `float16`, and `bfloat16`, with CPU reference coverage.
+  symbols for `float32`, `float16`, and `bfloat16`. `gemm_rcr_bias` additionally
+  has bounded compiled CPU coverage through the same naive generated loop used
+  by `gemm_rcr`, while `gemm_rrr_bias` remains CPU reference-only.
 - [x] First activation epilogue: `gemm_rcr_bias_relu` and
   `gemm_rrr_bias_relu` use CUTLASS `LinearCombinationRelu` with the same bias
   shape/dtype/runtime/profiler contracts as the bias-only GEMM ops.

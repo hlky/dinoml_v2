@@ -4168,6 +4168,51 @@ def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "gemm_rrr_cpu_reject.dinoml")
 
 
+@pytest.mark.parametrize("op_name", ["gemm_rcr", "gemm_rcr_bias"])
+def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, monkeypatch, op_name):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class DynamicGemmModule(dml.Module):
+        def forward(self, a, b, bias=None):
+            if bias is None:
+                return dml.ops.output(dml.ops.gemm_rcr(a, b), "y")
+            return dml.ops.output(dml.ops.gemm_rcr_bias(a, b, bias), "y")
+
+    inputs = {
+        "a": dml.TensorSpec([dml.Dim("tokens", min=1, max=8), 8], "float32"),
+        "b": dml.TensorSpec([6, 8], "float32"),
+    }
+    if op_name == "gemm_rcr_bias":
+        inputs["bias"] = dml.TensorSpec([6], "float32")
+    spec = dml.trace(DynamicGemmModule(), inputs=inputs, name=f"{op_name}_dynamic_cpu")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{op_name}_dynamic_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert f"static int {op_name}_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        rng = np.random.default_rng(1234)
+        b = rng.standard_normal((6, 8)).astype(np.float32)
+        bias = rng.standard_normal((6,)).astype(np.float32)
+        for tokens in (2, 5):
+            a = rng.standard_normal((tokens, 8)).astype(np.float32)
+            inputs = {"a": a, "b": b}
+            expected = a @ b.T
+            if op_name == "gemm_rcr_bias":
+                inputs["bias"] = bias
+                expected = expected + bias
+            actual = session.run_numpy(inputs)["y"]
+            assert actual.shape == (tokens, 6)
+            np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-5, rtol=1e-5)
+    finally:
+        session.close()
+        module.close()
+
+
 def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):
     spec = dml.trace(
         ReductionLastDim("reduce_mean", keepdim=True),

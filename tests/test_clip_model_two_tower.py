@@ -413,10 +413,25 @@ def test_clip_model_zero_layer_text_tower_matches_local_transformers():
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
 
+def test_clip_model_two_tower_zero_text_zero_vision_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = dml.trace(
+        LegacyCLIPModel(_text_config(num_hidden_layers=0), _vision_config(num_hidden_layers=0), WEIGHTS),
+        inputs={
+            "input_ids": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "int64"),
+            "pixel_values": dml.TensorSpec([IMAGE_BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE], "float32"),
+            "attention_mask": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "bool"),
+        },
+        name="clip_model_two_tower_zero_text_zero_vision",
+    )
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op conv2d_bias"):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_zero_cpu.dinoml")
+
+
 def test_clip_model_two_tower_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_model()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rcr_bias"):
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op bmm_rcr"):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
 
 

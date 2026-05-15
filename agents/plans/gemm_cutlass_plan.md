@@ -75,8 +75,13 @@ The runtime GEMM port now wires model lowering into that support library:
 3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
    cached launcher with runtime `M/N/K`, so smaller runtime `M/N` values use the
    same max-shape artifact.
-4. CPU has reference execution only; compiled CPU GEMM still rejects until a
-   real CPU library path exists.
+4. CPU now has a bounded naive generated path for `gemm_rcr` and
+   `gemm_rcr_bias`: compiled CPU artifacts flatten `A[..., K]` into runtime `M`
+   and run straightforward row-major loops for `float32`, `float16`, and
+   `bfloat16`, including rank-1 or `[1, N]` bias. This is an explicit bridge
+   for CLIP CPU artifacts, not a library-backed provider path. Other compiled
+   CPU GEMM/BMM families still reject until a better CPU library/runtime path
+   lands.
 
 GGUF runtime dequantization before GEMM now has a bounded CUDA runtime slice for
 `gemm_rrr`, `gemm_rcr`, `gemm_rrr_bias`, and `gemm_rcr_bias` with a GGUF RHS

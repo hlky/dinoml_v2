@@ -1711,6 +1711,112 @@ def test_conv2d_bias_relu_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path,
         module.close()
 
 
+def test_conv2d_bias_relu_cuda_runtime_few_channels_c3_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("few-channel CUTLASS Conv bias+ReLU parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias_relu(
+        "float16",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    artifact_dir = tmp_path / "conv2d_bias_relu_cuda_few_c3.dinoml"
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["selected_candidate_id"].endswith("few_channels_c3")
+    assert required["candidate_set"]["epilogue"] == "bias_relu"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_relu"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
+    assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 3
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_output_channels"] == 4
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input((2, 3, 7, 8), "float16", -1.0, 1.0)
+        weight = _input((4, 3, 3, 2), "float16", -0.5, 0.5)
+        bias = _input((4,), "float16", -0.25, 0.25)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+        expected = _storage_roundtrip(
+            _torch_conv2d_bias_relu_reference(
+                x,
+                weight,
+                bias,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+            ),
+            "float16",
+        )
+        np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
+    finally:
+        session.close()
+        module.close()
+
+
+def test_conv2d_bias_relu_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("optimized CUTLASS Conv bias+ReLU parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias_relu(
+        "float16",
+        x_shape=(2, 16, 7, 8),
+        weight_shape=(16, 16, 3, 2),
+        bias_shape=(16,),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    artifact_dir = tmp_path / "conv2d_bias_relu_cuda_optimized_c16.dinoml"
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["selected_candidate_id"].endswith("optimized_align8")
+    assert required["candidate_set"]["epilogue"] == "bias_relu"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_relu"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "optimized"
+    assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == 16
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_output_channels"] == 16
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input((2, 16, 7, 8), "float16", -1.0, 1.0)
+        weight = _input((16, 16, 3, 2), "float16", -0.5, 0.5)
+        bias = _input((16,), "float16", -0.25, 0.25)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+        expected = _storage_roundtrip(
+            _torch_conv2d_bias_relu_reference(
+                x,
+                weight,
+                bias,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+            ),
+            "float16",
+        )
+        np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
+    finally:
+        session.close()
+        module.close()
+
+
 def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tmp_path, monkeypatch):
     spec = _trace_conv2d_bias("float16")
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})

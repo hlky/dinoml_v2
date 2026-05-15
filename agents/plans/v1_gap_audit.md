@@ -287,8 +287,9 @@ porting. It intentionally excludes the op inventory, which lives in
   the currently admitted base families: fp16 SIMT, fp16 TensorOp few-channels,
   fp16 TensorOp fixed-channels, fp16 TensorOp optimized, and float32 SIMT only.
   Focused fused-ReLU runtime parity is now explicitly proved on float32 SIMT
-  and fp16 FixedChannels `C=8`; the remaining admitted ReLU TensorOp lanes are
-  still coverage gaps rather than hidden claims.
+  plus the fp16 FewChannels `C=3`, FixedChannels `C=8`, and optimized aligned
+  `C=16` lanes; the remaining admitted ReLU TensorOp coverage gap is
+  FixedChannels `C=4` rather than a hidden claim.
   Static groups=1 float32 Conv now uses the bounded SIMT runtime/profiler path.
   Conv profile workload construction now filters candidates through the same
   shape/layout/dtype predicate used by manifest selection, so incompatible

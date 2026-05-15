@@ -630,9 +630,10 @@ behavior.
   candidate family already admitted for `conv2d_bias`: fp16 SIMT, fp16
   TensorOp few-channels (`C=3`), fp16 TensorOp fixed-channels (`C=4`/`C=8`),
   fp16 TensorOp optimized (`C >= 16` with aligned channels), and float32 SIMT
-  only. Focused runtime parity is now proved for the float32 SIMT path and the
-  fp16 FixedChannels `C=8` TensorOp path; the remaining admitted ReLU TensorOp
-  lanes still need explicit runtime tests. This does not claim general Conv
+  only. Focused runtime parity is now proved for the float32 SIMT path plus the
+  fp16 FewChannels `C=3`, FixedChannels `C=8`, and optimized aligned `C=16`
+  TensorOp paths; the remaining admitted ReLU TensorOp runtime gap is
+  FixedChannels `C=4`. This does not claim general Conv
   epilogue parity: add/sigmoid/residual epilogues, broader float32 TensorOp
   runtime, bfloat16 Conv runtime, grouped/depthwise/transposed/3D Conv, and
   guarded/dynamic Conv dispatch remain unported.

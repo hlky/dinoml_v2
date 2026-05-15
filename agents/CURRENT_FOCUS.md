@@ -59,9 +59,11 @@
   naive generated CPU bridges exist for `gemm_rcr`, `gemm_rcr_bias`,
   `gemm_rcr_bias_fast_gelu`, `bmm_rcr`, `bmm_rrr`, and `conv2d_bias`, so the
   bounded multi-layer text, vision, and two-tower CLIP wrappers now compile and
-  run as CPU artifacts against local Transformers. Exact CLIP float32 patch Conv
-  can compile to a CUDA artifact but still fails through the scaffolded CUTLASS
-  Conv runtime launcher boundary. Preferred next slice: shift away from the
-  completed naive CPU bridge lane toward the CLIP-tied CUDA Conv runtime
-  boundary, a small artifact usability/onboarding proof, or a new narrow
-  Transformers parity gap that is not already covered by the layer-count proofs.
+  run as CPU artifacts against local Transformers, with
+  `examples/clip_model_workflow.py` now compiling, loading, and running that CPU
+  artifact end-to-end. Exact CLIP float32 patch Conv can compile to a CUDA
+  artifact but still fails through the scaffolded CUTLASS Conv runtime launcher
+  boundary. Preferred next slice: shift away from the completed naive CPU
+  bridge/artifact-proof lane toward the CLIP-tied CUDA Conv runtime boundary, or
+  a new narrow Transformers parity gap that is not already covered by the
+  layer-count proofs.

@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Upgraded the visible `examples/clip_model_workflow.py` proof from CPU
+  reference-only to a compiled CPU artifact lifecycle smoke. The example now
+  self-bootstraps the worktree source, traces the bounded `LegacyCLIPModel`,
+  compiles a CPU `.dinoml`, loads it with `dinoml.runtime`, runs
+  `session.run_numpy(...)`, and prints artifact-vs-reference and
+  artifact-vs-local-Transformers parity with explicit artifact details. Focused
+  tests smoke the plain script, keep the workflow hermetic, and include a
+  regression so bridge-kernel reporting cannot mistake `gemm_rcr_bias` for
+  `gemm_rcr`.
 - Landed the bounded naive compiled CPU bridge for `conv2d_bias` as the final
   blocker for the current bounded CLIP CPU artifact path. Generated CPU
   artifacts now run a static-shape NCHW/OIHW `groups=1` loop for admitted
@@ -122,11 +131,12 @@ This file should be updated after each major loop.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
   next slices: advance the exact CLIP float32 CUDA Conv scaffold toward a
-  CLIP-tied runtime smoke without broadening Conv claims; add a small artifact
-  lifecycle/onboarding proof that exercises the newly runnable CPU CLIP
-  artifact; or pick a new narrow Transformers gap that is not already covered by
-  the layer-count proofs. Keep local `/workspace/transformers` parity as the
-  acceptance bar and keep all non-parity limits explicit.
+  CLIP-tied runtime smoke without broadening Conv claims, or pick a new narrow
+  Transformers gap that is not already covered by the layer-count proofs. The
+  bounded CPU artifact workflow is now visible and tested; do not spend another
+  loop on CLIP CPU artifact examples unless a concrete user-facing failure
+  appears. Keep local `/workspace/transformers` parity as the acceptance bar and
+  keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

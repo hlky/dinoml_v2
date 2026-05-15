@@ -2,6 +2,8 @@
 
 ## Primary Focus
 
+- libgguf: Direct linking against lib instead of runtime-set 
+  `libgguf_cuda_dequantize_rows_on_stream`.
 - Human-directed feature target: start the first full-model sprint with CLIP as
   the primary model target. The sprint should move from the recently landed
   CLIP text/contrastive composition slices toward a real model implementation,

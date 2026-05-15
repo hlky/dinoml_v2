@@ -389,3 +389,31 @@ The next CUDA blocker after the exact patch-projection runtime is now explicit.
 - Treat that as the next bounded CUDA lane. Do not widen Conv claims or reopen
   tokenizer/processor, positional interpolation, FlashAttention, or other model
   surfaces while the contrastive-head CUDA runtime still fails this smoke.
+
+## 2026-05-15 landed cached base-checkpoint compiled CUDA tractability smoke
+
+The same cached `openai/clip-vit-base-patch32` checkpoint now also has a
+bounded opt-in CUDA compiled-artifact tractability proof, but it is
+intentionally not a parity claim.
+
+- The smoke is skipped by default and only runs when
+  `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1` is set. It forces
+  `HF_HOME=/workspace/.cache/huggingface`, keeps
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, reuses
+  the shared CUDA support cache fixture for tractable runtime, and skips
+  clearly when CUDA or the cached checkpoint is absent instead of downloading.
+- The admitted proof stays intentionally narrow and honest: batch size 1, short
+  traced text length `min(4, max_position_embeddings)`, synthetic already-shaped
+  `pixel_values`, adapter-built `LegacyCLIPModel`, CUDA `.dinoml`
+  compilation, `dinoml.runtime` session execution, generated-source and kernel
+  manifest visibility for the expected Conv/GEMM/BMM providers, and finite
+  output checks for `logits_per_text`, `logits_per_image`, `text_embeds`, and
+  `image_embeds`.
+- Current evidence on the refreshed local cache shows that the full base
+  checkpoint is tractable to compile, load, and run on CUDA, but still drifts
+  materially from both local Transformers and DinoML CPU on the bounded smoke
+  inputs: `max_abs_diff ~= 0.7948` for both logits, `0.0295` for
+  `text_embeds`, and `0.0739` for `image_embeds`. The opt-in smoke therefore
+  holds only a loose non-parity envelope (`< 0.9` logits, `< 0.05` text embeds,
+  `< 0.1` image embeds) so future loops can detect regressions while keeping
+  the remaining CUDA numerical blocker explicit.

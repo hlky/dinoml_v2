@@ -763,6 +763,65 @@ def test_clip_model_transformers_checkpoint_compiled_cpu_smoke_local_cache_only(
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=3e-5, rtol=1e-5)
 
 
+@pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only(
+    tmp_path,
+    monkeypatch,
+    use_shared_dinoml_cuda_cache,
+):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CUDA compile/load/run tractability and current drift bounds against local Transformers"
+        )
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
+
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("cuda", arch="sm_86", no_tf32=True),
+        tmp_path / "clip_model_two_tower_transformers_cached_checkpoint_cuda.dinoml",
+    )
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
+    assert "dinoml_cutlass_conv" in generated
+    assert "dinoml_cutlass_gemm" in generated
+    assert "dinoml_cutlass_bmm" in generated
+
+    kernel_manifest = json.loads((artifact.path / "kernel_manifest.json").read_text(encoding="utf-8"))
+    required_ops = {entry["op"] for entry in kernel_manifest["required_kernels"]}
+    assert {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"} <= required_ops
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+
+    expected = _cached_checkpoint_expected_outputs(clip_model, inputs)
+
+    assert spec.ir["outputs"][0]["shape"] == [1, 1]
+    assert spec.ir["outputs"][1]["shape"] == [1, 1]
+    assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
+    assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
+
+    for name in ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds"):
+        assert np.isfinite(actual[name]).all()
+
+    assert np.max(np.abs(actual["logits_per_image"] - expected["logits_per_image"])) < 0.9
+    assert np.max(np.abs(actual["logits_per_text"] - expected["logits_per_text"])) < 0.9
+    assert np.max(np.abs(actual["text_embeds"] - expected["text_embeds"])) < 0.05
+    assert np.max(np.abs(actual["image_embeds"] - expected["image_embeds"])) < 0.1
+
+
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():
     spec = _trace_model()
     node_ops = [node["op"] for node in spec.ir["nodes"]]

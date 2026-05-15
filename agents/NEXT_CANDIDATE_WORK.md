@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the exact CLIP float32 CUDA Conv runtime slice. The
+  Transformers-shaped patch projection used by `LegacyCLIPVisionEmbeddings`
+  (`[B,3,4,4]` input, `[6,3,2,2]` weights, stride 2, padding 0, groups 1) now
+  selects a bounded-runtime SIMT `cutlass_conv` candidate, builds the support
+  library launcher when CUDA tooling is available, and matches Torch/local
+  Transformers through a CUDA artifact boundary. Other float32 Conv shapes
+  remain scaffold-only, and the reviewer follow-up keeps the mixed float32
+  candidate-set status conservative so `cutlass_conv_plan.status` is the
+  per-shape runtime/scaffold authority.
 - Upgraded the visible `examples/clip_model_workflow.py` proof from CPU
   reference-only to a compiled CPU artifact lifecycle smoke. The example now
   self-bootstraps the worktree source, traces the bounded `LegacyCLIPModel`,
@@ -130,13 +139,14 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: advance the exact CLIP float32 CUDA Conv scaffold toward a
-  CLIP-tied runtime smoke without broadening Conv claims, or pick a new narrow
-  Transformers gap that is not already covered by the layer-count proofs. The
-  bounded CPU artifact workflow is now visible and tested; do not spend another
-  loop on CLIP CPU artifact examples unless a concrete user-facing failure
-  appears. Keep local `/workspace/transformers` parity as the acceptance bar and
-  keep all non-parity limits explicit.
+  next slices: use the newly runtime-backed exact CLIP CUDA patch projection in
+  a bounded CUDA CLIP artifact/workflow smoke that reveals the next concrete
+  runtime blocker, or pick a new narrow Transformers gap that is not already
+  covered by the layer-count proofs. The bounded CPU artifact workflow is now
+  visible and tested; do not spend another loop on CLIP CPU artifact examples
+  unless a concrete user-facing failure appears. Keep local
+  `/workspace/transformers` parity as the acceptance bar and keep all
+  non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

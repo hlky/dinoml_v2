@@ -35,9 +35,11 @@
 - CLIP first-model sprint: text model, vision patch path, projections, and
   contrastive wrapper integration, with Transformers parity as the acceptance
   bar for each admitted surface.
-- CUTLASS Conv maturity needed by CLIP vision: static profiling is landed;
-  next gaps include C=8 parity if useful, dynamic/guarded admission decisions,
-  and avoiding unsupported grouped/depthwise/transposed/3D claims.
+- CUTLASS Conv maturity needed by CLIP vision: static profiling and the exact
+  CLIP float32 patch-projection CUDA runtime are landed; next gaps include using
+  that runtime in a bounded CUDA CLIP artifact smoke, C=8 parity if useful,
+  dynamic/guarded admission decisions, and avoiding unsupported grouped/
+  depthwise/transposed/3D claims.
 - Attention path: preserve dense attention parity first, then explore
   FlashAttention-style provider integration in the v1 manner.
 - libgguf direct-link follow-up only if a concrete runtime/build/cache failure
@@ -61,9 +63,10 @@
   bounded multi-layer text, vision, and two-tower CLIP wrappers now compile and
   run as CPU artifacts against local Transformers, with
   `examples/clip_model_workflow.py` now compiling, loading, and running that CPU
-  artifact end-to-end. Exact CLIP float32 patch Conv can compile to a CUDA
-  artifact but still fails through the scaffolded CUTLASS Conv runtime launcher
-  boundary. Preferred next slice: shift away from the completed naive CPU
-  bridge/artifact-proof lane toward the CLIP-tied CUDA Conv runtime boundary, or
-  a new narrow Transformers parity gap that is not already covered by the
-  layer-count proofs.
+  artifact end-to-end. Exact CLIP float32 patch Conv now compiles and runs
+  through a bounded CUDA `cutlass_conv` runtime boundary for the admitted
+  Transformers-shaped patch-projection slice, while other float32 Conv shapes
+  remain scaffold-only. Preferred next slice: shift away from the completed
+  naive CPU bridge/artifact-proof lane toward a bounded CUDA CLIP artifact smoke
+  that exposes the next concrete runtime blocker, or a new narrow Transformers
+  parity gap that is not already covered by the layer-count proofs.

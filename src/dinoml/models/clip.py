@@ -54,6 +54,43 @@ class LegacyCLIPTextConfig:
         return self.hidden_size // self.num_attention_heads
 
 
+@dataclass(frozen=True)
+class LegacyCLIPVisionEmbeddingsConfig:
+    """Bounded CLIP vision-embeddings config.
+
+    This helper intentionally models only the admitted CLIP vision embedding
+    slice currently landing in DinoML: fixed square NCHW pixel input, patch
+    projection, patch flatten/transposition into a sequence, CLS prepend, and
+    learned absolute position add. It does not admit interpolation, arbitrary
+    image sizes, or the full vision encoder/projection path.
+    """
+
+    hidden_size: int
+    image_size: int
+    patch_size: int
+    num_channels: int = 3
+
+    def __post_init__(self) -> None:
+        if self.hidden_size <= 0:
+            raise ValueError("hidden_size must be positive")
+        if self.image_size <= 0:
+            raise ValueError("image_size must be positive")
+        if self.patch_size <= 0:
+            raise ValueError("patch_size must be positive")
+        if self.num_channels <= 0:
+            raise ValueError("num_channels must be positive")
+        if self.patch_size > self.image_size:
+            raise ValueError("patch_size must be less than or equal to image_size")
+
+    @property
+    def num_patches(self) -> int:
+        return (self.image_size // self.patch_size) ** 2
+
+    @property
+    def num_positions(self) -> int:
+        return self.num_patches + 1
+
+
 def build_clip_causal_mask(seq_len: int, mask_fill_value: float = -1.0e4) -> np.ndarray:
     if seq_len <= 0:
         raise ValueError("seq_len must be positive")
@@ -341,6 +378,81 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
         return dml.ops.output(text_features, "text_features")
 
 
+class LegacyCLIPVisionEmbeddings(dml.Module):
+    def __init__(self, config: LegacyCLIPVisionEmbeddingsConfig, weights: Mapping[str, np.ndarray]):
+        self.config = config
+        self.class_embedding = dml.Parameter(
+            [1, 1, config.hidden_size],
+            dtype="float32",
+            value=_weight_value(
+                weights,
+                "vision_model.embeddings.class_embedding",
+                (config.hidden_size,),
+            ).reshape(1, 1, config.hidden_size),
+        )
+        self.patch_embedding_weight = dml.Parameter(
+            [config.hidden_size, config.num_channels, config.patch_size, config.patch_size],
+            dtype="float32",
+            value=_weight_value(
+                weights,
+                "vision_model.embeddings.patch_embedding.weight",
+                (config.hidden_size, config.num_channels, config.patch_size, config.patch_size),
+            ),
+        )
+        # Transformers CLIP uses a bias-free patch projection. Model that
+        # source contract honestly by composing the admitted biasful conv with
+        # an explicit zero bias tensor.
+        self.patch_embedding_zero_bias = dml.Parameter(
+            [config.hidden_size],
+            dtype="float32",
+            value=np.zeros((config.hidden_size,), dtype=np.float32),
+        )
+        self.position_embedding_weight = dml.Parameter(
+            [config.num_positions, config.hidden_size],
+            dtype="float32",
+            value=_weight_value(
+                weights,
+                "vision_model.embeddings.position_embedding.weight",
+                (config.num_positions, config.hidden_size),
+            ),
+        )
+        self.position_ids = dml.Parameter(
+            np.arange(config.num_positions, dtype=np.int64).reshape(1, config.num_positions),
+            dtype="int64",
+        )
+
+    def forward(self, pixel_values):
+        batch, channels, height, width = _nchw_image_shape(pixel_values.shape)
+        if channels != self.config.num_channels:
+            raise ValueError(
+                f"expected pixel_values channel dimension {self.config.num_channels}, got {channels}"
+            )
+        if height != self.config.image_size or width != self.config.image_size:
+            raise ValueError(
+                f"Input image size ({height}*{width}) doesn't match model "
+                f"({self.config.image_size}*{self.config.image_size})."
+            )
+
+        patch_embeds = dml.ops.conv2d_bias(
+            pixel_values,
+            self.patch_embedding_weight,
+            self.patch_embedding_zero_bias,
+            stride=(self.config.patch_size, self.config.patch_size),
+            padding=(0, 0),
+            dilation=(1, 1),
+            groups=1,
+        )
+        patch_embeds = dml.ops.flatten(patch_embeds, start_dim=2)
+        patch_embeds = dml.ops.permute021(patch_embeds)
+
+        class_embeds = dml.ops.expand(self.class_embedding, [batch, 1, self.config.hidden_size])
+
+        embeddings = dml.ops.concatenate([class_embeds, patch_embeds], dim=1)
+        position_embeddings = dml.ops.embedding(self.position_embedding_weight, self.position_ids)
+        embeddings = dml.ops.add(embeddings, position_embeddings)
+        return dml.ops.output(embeddings, "embeddings")
+
+
 def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int, ...]) -> np.ndarray:
     if name not in weights:
         raise KeyError(f"Missing CLIP weight: {name}")
@@ -375,3 +487,14 @@ def _hidden_sequence_length(shape: list[int]) -> int:
     if dim <= 0:
         raise ValueError("expected positive static sequence dimension")
     return dim
+
+
+def _nchw_image_shape(shape: list[int]) -> tuple[int, int, int, int]:
+    if len(shape) != 4:
+        raise ValueError("expected rank-4 NCHW image tensor")
+    batch, channels, height, width = (int(dim) for dim in shape)
+    if batch <= 0:
+        raise ValueError("expected positive static batch dimension")
+    if channels <= 0 or height <= 0 or width <= 0:
+        raise ValueError("expected positive static NCHW image dimensions")
+    return batch, channels, height, width

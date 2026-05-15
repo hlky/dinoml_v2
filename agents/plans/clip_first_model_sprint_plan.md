@@ -154,3 +154,25 @@ A bounded text-only wrapper path is now in-tree at `src/dinoml/models/clip.py`.
 - Focused wrapper-level tests compare the DinoML path against the pinned local
   Transformers CLIP source and keep manifest ownership honest by proving that no
   new public op or provider surface was introduced for this slice.
+
+## 2026-05-15 landed vision-embeddings slice
+
+A bounded CLIP vision-embeddings path is now in-tree at `src/dinoml/models/clip.py`.
+
+- The landed surface is intentionally narrow: fixed square NCHW pixel input,
+  source-faithful patch projection via `conv2d_bias(..., zero_bias)` to model
+  the bias-free Transformers `nn.Conv2d`, patch flatten + `[B, hidden, gh, gw]`
+  -> `[B, patches, hidden]` transpose, CLS prepend, and learned absolute
+  position add from the local/pinned Transformers `CLIPVisionEmbeddings`
+  source.
+- The wrapper keeps the current honest limits explicit: no position
+  interpolation, no arbitrary image sizes, no vision encoder/projection head,
+  no grouped/depthwise/transposed/3D Conv claims, and no new provider surface.
+  CPU reference execution proves parity for the admitted slice, while compiled
+  CPU artifacts still stop honestly at the existing `conv2d_bias` backend
+  boundary. CUDA manifest checks keep ownership visible: the Conv node stays on
+  the existing CUTLASS Conv scaffold plan while sequence assembly and position
+  add remain model-generated kernels.
+- Focused wrapper-level tests compare both the full embeddings output and the
+  zero-bias patch-projection substep against the pinned local Transformers CLIP
+  implementation.

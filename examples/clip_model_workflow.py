@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SRC = REPO_ROOT / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
 
 import numpy as np
 
 import dinoml as dml
+from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -32,6 +40,9 @@ IMAGE_SIZE = 4
 PATCH_SIZE = 2
 CUDA_TARGET = {"name": "cuda", "arch": "sm_86"}
 LOCAL_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
+ATOL = 1.0e-5
+RTOL = 1.0e-5
+MODEL_OUTPUT_NAMES = ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds")
 
 
 def build_text_config() -> LegacyCLIPTextConfig:
@@ -233,14 +244,19 @@ def build_image_features_spec() -> dml.ir.ModelSpec:
     )
 
 
-def reference_outputs() -> dict[str, np.ndarray]:
-    torch = __import__("torch")
+def _import_local_transformers():
     if str(LOCAL_TRANSFORMERS_SRC) not in sys.path:
         sys.path.insert(0, str(LOCAL_TRANSFORMERS_SRC))
     transformers = __import__("transformers")
     resolved = Path(transformers.__file__).resolve()
     if not resolved.is_relative_to(LOCAL_TRANSFORMERS_SRC.resolve()):
         raise AssertionError(f"expected local /workspace/transformers import, got {resolved}")
+    return transformers
+
+
+def reference_outputs() -> dict[str, np.ndarray]:
+    torch = __import__("torch")
+    transformers = _import_local_transformers()
 
     text_config = transformers.CLIPTextConfig(
         vocab_size=VOCAB_SIZE,
@@ -344,32 +360,116 @@ def inspect_workflow() -> dict[str, object]:
     }
 
 
-def run_example() -> dict[str, object]:
+def _round_array(value: np.ndarray) -> list[object]:
+    return np.round(np.asarray(value, dtype=np.float32), 6).tolist()
+
+
+def _tensor_parity(actual: np.ndarray, expected: np.ndarray) -> dict[str, object]:
+    actual = np.asarray(actual, dtype=np.float32)
+    expected = np.asarray(expected, dtype=np.float32)
+    diff = np.abs(actual - expected)
+    max_abs_diff = float(diff.max()) if diff.size else 0.0
+    return {
+        "allclose": bool(np.allclose(actual, expected, atol=ATOL, rtol=RTOL)),
+        "max_abs_diff": max_abs_diff,
+    }
+
+
+def _output_parity(actual: dict[str, np.ndarray], expected: dict[str, np.ndarray]) -> dict[str, dict[str, object]]:
+    return {name: _tensor_parity(actual[name], expected[name]) for name in MODEL_OUTPUT_NAMES}
+
+
+def _run_compiled_cpu_artifact(
+    artifact_dir: Path | None,
+    *,
+    spec: dml.ir.ModelSpec,
+    inputs: dict[str, np.ndarray],
+) -> tuple[dict[str, np.ndarray], dict[str, object]]:
+    temporary_dir: tempfile.TemporaryDirectory[str] | None = None
+    retained = artifact_dir is not None
+    if artifact_dir is None:
+        temporary_dir = tempfile.TemporaryDirectory(prefix="clip_model_cpu_artifact_")
+        artifact_dir = Path(temporary_dir.name) / "clip_model_workflow_cpu.dinoml"
+    artifact_dir = Path(artifact_dir).resolve()
+
+    try:
+        artifact = dml.compile(spec, dml.Target("cpu"), artifact_dir)
+        manifest_path = artifact.path / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        generated_path = artifact.path / "debug" / "generated_src" / "module.cpp"
+        generated = generated_path.read_text(encoding="utf-8")
+        module = runtime.load(artifact.path)
+        session = module.create_session()
+        try:
+            actual = session.run_numpy(inputs)
+        finally:
+            session.close()
+            module.close()
+
+        bridge_kernels = [
+            name
+            for name in ("conv2d_bias", "gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr")
+            if f"static int {name}_" in generated
+        ]
+        artifact_summary = {
+            "path": str(artifact.path),
+            "retained": retained,
+            "module_exists": (artifact.path / "module.so").exists(),
+            "manifest_exists": manifest_path.exists(),
+            "generated_module_exists": generated_path.exists(),
+            "target": manifest["target"],
+            "bridge_kernels": bridge_kernels,
+        }
+        return actual, artifact_summary
+    finally:
+        if temporary_dir is not None:
+            temporary_dir.cleanup()
+
+
+def run_example(*, artifact_dir: str | Path | None = None) -> dict[str, object]:
     inputs = build_validation_inputs()
     spec = build_spec()
-    actual = execute_cpu(spec, inputs)
+    eager_outputs = execute_cpu(spec, inputs)
     text_only = execute_cpu(
         build_text_features_spec(),
         {"input_ids": inputs["input_ids"], "attention_mask": inputs["attention_mask"]},
     )["text_features"]
     image_only = execute_cpu(build_image_features_spec(), {"pixel_values": inputs["pixel_values"]})["image_features"]
+    transformers_outputs = reference_outputs()
+    artifact_outputs, artifact_summary = _run_compiled_cpu_artifact(Path(artifact_dir) if artifact_dir is not None else None, spec=spec, inputs=inputs)
     summary = inspect_workflow()
     summary["inputs"] = {
         "input_ids": inputs["input_ids"].tolist(),
         "attention_mask": inputs["attention_mask"].tolist(),
         "pixel_values_shape": list(inputs["pixel_values"].shape),
     }
-    summary["text_features"] = np.round(text_only, 6).tolist()
-    summary["image_features"] = np.round(image_only, 6).tolist()
-    summary["text_embeds"] = np.round(actual["text_embeds"], 6).tolist()
-    summary["image_embeds"] = np.round(actual["image_embeds"], 6).tolist()
-    summary["logits_per_text"] = np.round(actual["logits_per_text"], 6).tolist()
-    summary["logits_per_image"] = np.round(actual["logits_per_image"], 6).tolist()
+    summary["artifact"] = artifact_summary
+    summary["feature_parity_vs_transformers"] = {
+        "text_features": _tensor_parity(text_only, transformers_outputs["text_features"]),
+        "image_features": _tensor_parity(image_only, transformers_outputs["image_features"]),
+    }
+    summary["parity"] = {
+        "execute_cpu_vs_transformers": _output_parity(eager_outputs, transformers_outputs),
+        "artifact_vs_execute_cpu": _output_parity(artifact_outputs, eager_outputs),
+        "artifact_vs_transformers": _output_parity(artifact_outputs, transformers_outputs),
+    }
+    summary["text_features"] = _round_array(text_only)
+    summary["image_features"] = _round_array(image_only)
+    for name in MODEL_OUTPUT_NAMES:
+        summary[name] = _round_array(artifact_outputs[name])
     return summary
 
 
 def main() -> None:
-    print(json.dumps(run_example(), indent=2, sort_keys=True))
+    parser = argparse.ArgumentParser(description="Compile and run a bounded CLIP CPU artifact workflow proof.")
+    parser.add_argument(
+        "--artifact-dir",
+        type=Path,
+        default=None,
+        help="Optional output path for the compiled .dinoml artifact. Defaults to a temporary directory.",
+    )
+    args = parser.parse_args()
+    print(json.dumps(run_example(artifact_dir=args.artifact_dir), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

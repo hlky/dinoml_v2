@@ -18,8 +18,9 @@ def _load_example() -> dict[str, object]:
     return runpy.run_path(str(EXAMPLE))
 
 
-def test_clip_model_workflow_example_proves_bounded_two_tower_surface():
+def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, monkeypatch):
     example = _load_example()
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = example["build_spec"]()
     inputs = example["build_validation_inputs"]()
 
@@ -46,7 +47,8 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface():
     np.testing.assert_allclose(text_only, expected["text_features"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(image_only, expected["image_features"], atol=1e-5, rtol=1e-5)
 
-    summary = example["inspect_workflow"]()
+    artifact_dir = tmp_path / "clip_model_workflow_cpu.dinoml"
+    summary = example["run_example"](artifact_dir=artifact_dir)
     assert summary["name"] == "clip_model_workflow"
     assert summary["input_names"] == ["input_ids", "pixel_values", "attention_mask"]
     assert summary["output_names"] == ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
@@ -83,17 +85,33 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface():
     assert summary["provider_kernel_libraries"] == ["cutlass_bmm", "cutlass_conv", "cutlass_gemm"]
     assert "model" in summary["required_kernel_libraries"]
     assert summary["generated_cuda_kernel_count"] >= 12
+    assert summary["artifact"]["path"] == str(artifact_dir.resolve())
+    assert summary["artifact"]["retained"] is True
+    assert summary["artifact"]["module_exists"] is True
+    assert summary["artifact"]["manifest_exists"] is True
+    assert summary["artifact"]["generated_module_exists"] is True
+    assert summary["artifact"]["target"]["name"] == "cpu"
+    assert summary["artifact"]["target"]["arch"] == "native"
+    assert summary["artifact"]["bridge_kernels"] == [
+        "conv2d_bias",
+        "gemm_rcr",
+        "gemm_rcr_bias",
+        "gemm_rcr_bias_fast_gelu",
+        "bmm_rcr",
+        "bmm_rrr",
+    ]
+    assert all(item["allclose"] for item in summary["feature_parity_vs_transformers"].values())
+    for parity_group in summary["parity"].values():
+        assert all(item["allclose"] for item in parity_group.values())
+        assert all(item["max_abs_diff"] <= 1.0e-5 for item in parity_group.values())
 
 
-def test_clip_model_workflow_example_script_smoke():
+def test_clip_model_workflow_example_script_smoke(tmp_path):
+    artifact_dir = tmp_path / "clip_model_workflow_cli_cpu.dinoml"
     env = os.environ.copy()
-    src_path = str(REPO_ROOT / "src")
-    if env.get("PYTHONPATH"):
-        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{env['PYTHONPATH']}"
-    else:
-        env["PYTHONPATH"] = src_path
+    env["DINOML_CACHE_DIR"] = str(tmp_path / "cache")
     result = subprocess.run(
-        [sys.executable, str(EXAMPLE)],
+        [sys.executable, str(EXAMPLE), "--artifact-dir", str(artifact_dir)],
         cwd=REPO_ROOT,
         env=env,
         text=True,
@@ -107,5 +125,12 @@ def test_clip_model_workflow_example_script_smoke():
     assert summary["uses_traced_default_text_positions"] is True
     assert summary["has_cutlass_conv_scaffold"] is True
     assert summary["output_names"] == ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
+    assert summary["artifact"]["path"] == str(artifact_dir.resolve())
+    assert summary["artifact"]["retained"] is True
+    assert summary["artifact"]["module_exists"] is True
+    assert summary["artifact"]["target"]["name"] == "cpu"
+    assert summary["artifact"]["target"]["arch"] == "native"
+    for parity_group in summary["parity"].values():
+        assert all(item["allclose"] for item in parity_group.values())
     assert len(summary["text_features"]) == 2
     assert len(summary["image_features"]) == 3

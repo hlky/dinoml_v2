@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added an opt-in cached OpenAI CLIP base checkpoint compiled-CPU artifact
+  parity smoke for the PM-refreshed `/workspace/.cache/huggingface`
+  checkpoint. The new smoke is gated by
+  `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CPU_SMOKE=1`, forces
+  `HF_HOME=/workspace/.cache/huggingface`, still loads
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, traces
+  the adapter-built `LegacyCLIPModel` on the same bounded batch-1 short
+  sequence inputs as the runtime smoke, compiles a CPU `.dinoml`, runs it
+  through `dinoml.runtime`, and compares `logits_per_image`,
+  `logits_per_text`, `text_embeds`, and `image_embeds` against local
+  Transformers. This proves the full two-tower cached
+  `openai/clip-vit-base-patch32` checkpoint is tractable as a bounded compiled
+  CPU artifact on this worktree; it remains explicitly heavy, opt-in, cache-
+  only, and not a tokenizer/processor, CUDA, interpolation, loss, or broader
+  checkpoint-family claim.
 - Added an opt-in cached OpenAI CLIP base checkpoint CPU-reference runtime
   parity smoke after refreshing `openai/clip-vit-base-patch32` into
   `/workspace/.cache/huggingface`. The new smoke is gated by
@@ -305,12 +320,10 @@ This file should be updated after each major loop.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time after
   the Conv lane is stable. The adapter now reaches cached-checkpoint
-  config/state import, trace/manifest admission, and a real cached
-  `openai/clip-vit-base-patch32` CPU-reference runtime parity smoke. The next
-  CLIP-facing proof should move only one step further: either a compiled CPU
-  artifact smoke for the cached base checkpoint if tractable, or a precise
-  blocker if the full checkpoint exceeds generated CPU/artifact limits. The
-  first known contrastive-head CUDA bug is now fixed in generated
+  config/state import, trace/manifest admission, a real cached
+  `openai/clip-vit-base-patch32` CPU-reference runtime parity smoke, and a
+  matching opt-in compiled CPU artifact smoke for the full two-tower base
+  checkpoint. The first known contrastive-head CUDA bug is now fixed in generated
   `vector_norm`; rerun the opt-in CLIP two-tower CUDA smoke on a CUDA-capable
   machine when useful to confirm normalized embeds and logits stay allclose end
   to end. If any CUDA drift remains, inspect `div` and final similarity/

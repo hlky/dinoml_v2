@@ -297,6 +297,41 @@ def _cached_checkpoint_runtime_inputs(
     }
 
 
+def _trace_cached_checkpoint_two_tower_spec(clip_model):
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
+    seq_len, inputs = _cached_checkpoint_runtime_inputs(text_config=text_config, vision_config=vision_config)
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
+            "pixel_values": dml.TensorSpec(
+                [1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size)],
+                "float32",
+            ),
+            "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
+        },
+        name="clip_model_two_tower_transformers_cached_checkpoint_runtime_smoke",
+    )
+    return text_config, vision_config, spec, inputs
+
+
+def _cached_checkpoint_expected_outputs(clip_model, inputs):
+    torch = pytest.importorskip("torch")
+    with torch.inference_mode():
+        expected = clip_model(
+            input_ids=torch.from_numpy(inputs["input_ids"]),
+            attention_mask=torch.from_numpy(inputs["attention_mask"]),
+            pixel_values=torch.from_numpy(inputs["pixel_values"]),
+        )
+    return {
+        "logits_per_image": expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        "logits_per_text": expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        "text_embeds": expected.text_embeds.detach().cpu().numpy().astype(np.float32),
+        "image_embeds": expected.image_embeds.detach().cpu().numpy().astype(np.float32),
+    }
+
+
 def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_layers: int = 2):
     torch = pytest.importorskip("torch")
     clip_model = _build_local_transformers_clip_model(
@@ -647,33 +682,11 @@ def test_clip_model_transformers_checkpoint_runtime_smoke_local_cache_only():
             "set DINOML_RUN_CLIP_CHECKPOINT_RUNTIME_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CPU runtime parity against local Transformers"
         )
     _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
-    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
-    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
-    seq_len, inputs = _cached_checkpoint_runtime_inputs(text_config=text_config, vision_config=vision_config)
-
-    spec = dml.trace(
-        adapted_model,
-        inputs={
-            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
-            "pixel_values": dml.TensorSpec(
-                [1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size)],
-                "float32",
-            ),
-            "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
-        },
-        name="clip_model_two_tower_transformers_cached_checkpoint_runtime_smoke",
-    )
+    text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
 
     with np.errstate(over="ignore"):
         actual = execute_cpu(spec, inputs)
-
-    torch = pytest.importorskip("torch")
-    with torch.inference_mode():
-        expected = clip_model(
-            input_ids=torch.from_numpy(inputs["input_ids"]),
-            attention_mask=torch.from_numpy(inputs["attention_mask"]),
-            pixel_values=torch.from_numpy(inputs["pixel_values"]),
-        )
+    expected = _cached_checkpoint_expected_outputs(clip_model, inputs)
 
     assert spec.ir["outputs"][0]["shape"] == [1, 1]
     assert spec.ir["outputs"][1]["shape"] == [1, 1]
@@ -682,28 +695,72 @@ def test_clip_model_transformers_checkpoint_runtime_smoke_local_cache_only():
 
     np.testing.assert_allclose(
         actual["logits_per_image"],
-        expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
+        expected["logits_per_image"],
         atol=2e-5,
         rtol=1e-5,
     )
     np.testing.assert_allclose(
         actual["logits_per_text"],
-        expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
+        expected["logits_per_text"],
         atol=2e-5,
         rtol=1e-5,
     )
     np.testing.assert_allclose(
         actual["text_embeds"],
-        expected.text_embeds.detach().cpu().numpy().astype(np.float32),
+        expected["text_embeds"],
         atol=2e-5,
         rtol=1e-5,
     )
     np.testing.assert_allclose(
         actual["image_embeds"],
-        expected.image_embeds.detach().cpu().numpy().astype(np.float32),
+        expected["image_embeds"],
         atol=2e-5,
         rtol=1e-5,
     )
+
+
+@pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
+def test_clip_model_transformers_checkpoint_compiled_cpu_smoke_local_cache_only(tmp_path, monkeypatch):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CPU_SMOKE") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CPU_SMOKE=1 to validate cached openai/clip-vit-base-patch32 compiled CPU parity against local Transformers"
+        )
+    monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
+    expected = _cached_checkpoint_expected_outputs(clip_model, inputs)
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("cpu"),
+        tmp_path / "clip_model_two_tower_transformers_cached_checkpoint_cpu.dinoml",
+    )
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int conv2d_bias_" in generated
+    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int bmm_rcr_" in generated
+    assert "static int bmm_rrr_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+
+    assert spec.ir["outputs"][0]["shape"] == [1, 1]
+    assert spec.ir["outputs"][1]["shape"] == [1, 1]
+    assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
+    assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
+
+    np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=3e-5, rtol=1e-5)
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

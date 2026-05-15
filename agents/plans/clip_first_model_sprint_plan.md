@@ -350,6 +350,28 @@ the PM-refreshed cached `openai/clip-vit-base-patch32` checkpoint.
   not a claim about compiled CPU/CUDA runtime, tokenizer or processor
   plumbing, downloads, interpolation, loss, or broader checkpoint coverage.
 
+## 2026-05-15 landed cached base-checkpoint compiled CPU smoke
+
+The same cached `openai/clip-vit-base-patch32` checkpoint now also has a real
+opt-in compiled CPU artifact proof.
+
+- The smoke is skipped by default and only runs when
+  `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CPU_SMOKE=1` is set. It forces
+  `HF_HOME=/workspace/.cache/huggingface`, still uses
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, keeps
+  the same `DINOML_CLIP_CHECKPOINT_ID=...` override, and skips clearly instead
+  of downloading when the checkpoint files are absent.
+- The admitted proof stays intentionally heavy but bounded: batch size 1, short
+  traced text length `min(4, max_position_embeddings)`, already-shaped
+  synthetic `pixel_values`, adapter-built `LegacyCLIPModel`, CPU `.dinoml`
+  compilation, `dinoml.runtime` session execution, and parity checks for
+  `logits_per_text`, `logits_per_image`, `text_embeds`, and `image_embeds`
+  against the same cached local Transformers checkpoint.
+- In this bounded form the full two-tower base checkpoint is tractable on CPU:
+  generated source stays finite, the artifact builds and loads, and runtime
+  parity holds. Keep it opt-in and explicit about cost; this is not a default
+  test, not a CUDA claim, and not broader checkpoint/model-family coverage.
+
 ## 2026-05-15 CUDA full-model blocker smoke
 
 The next CUDA blocker after the exact patch-projection runtime is now explicit.

@@ -6,6 +6,10 @@ DinoML v1 is in `/workspace/dinoml`.
 
 libgguf is in `/workspace/libgguf`.
 
+transformers is in `/workspace/transformers`.
+
+diffusers is in `/workspace/diffusers`.
+
 Your role is to supervise and steer the main autonomous engineering agent, not to perform implementation work yourself unless necessary to unblock the loop.
 
 You can install dependencies if the developers need them.
@@ -72,7 +76,8 @@ Use `Extra High`, `High`, `Medium` or `Low` for subagents depending on the task.
    - `agents/CURRENT_FOCUS.md`
    - `agents/NEXT_CANDIDATE_WORK.md`
    - `agents/BLOCKED_OR_DEFERRED.md`
-   - active files under `agents/plans/`
+   - active files under `agents/plans/*.md`
+     - `auxiliary/`, `diffusers/` and `transformers/` are out of scope unless working on model integration.
 
 2. Launch the main autonomous engineering agent with `agents/PROMPT.md`.
 

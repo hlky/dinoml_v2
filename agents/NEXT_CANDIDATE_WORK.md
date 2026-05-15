@@ -4,6 +4,28 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added an opt-in cached-checkpoint admission smoke for the new Transformers
+  CLIP adapter. The smoke is gated by
+  `DINOML_RUN_CLIP_CHECKPOINT_ADAPTER_STATE_SMOKE=1`, uses
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, defaults
+  to `openai/clip-vit-large-patch14` with `DINOML_CLIP_CHECKPOINT_ID` override
+  support, and skips clearly when the checkpoint is not already cached. When a
+  cached checkpoint is present, it proves config adaptation, required
+  state-dict import into the `LegacyCLIPModel` weight namespace, full
+  fixed-shape tracing, IR validation, and CUDA manifest/codegen-plan admission.
+  This is intentionally not a large-checkpoint runtime-parity claim and adds no
+  tokenizer/processor/download surface.
+- Added the bounded Transformers checkpoint adapter for the existing
+  `LegacyCLIPModel` path. `src/dinoml/models/clip.py` can now derive
+  `LegacyCLIPTextConfig`, `LegacyCLIPVisionConfig`, and the DinoML CLIP weight
+  namespace from a local Transformers `CLIPModel`/`CLIPConfig` plus
+  `state_dict()`, then build the existing bounded wrapper directly. Focused
+  tests prove tiny local-Transformers parity through the adapter for both
+  `eos_token_id == 2` and non-2 EOS pooling branches, reject non-`quick_gelu`
+  configs, and reject missing required checkpoint weights. This moves CLIP
+  integration toward known-checkpoint readiness without claiming tokenizer/
+  processor plumbing, positional interpolation, loss, FlashAttention, or full
+  large-checkpoint runtime parity.
 - Closed the concrete runtime-parity gap in the newly admitted fused Conv
   epilogue path by proving `conv2d_bias_relu` on a real fp16 CUTLASS TensorOp
   FixedChannels `C=8` candidate. The new CUDA-gated regression compiles an
@@ -255,16 +277,19 @@ This file should be updated after each major loop.
   static rank-4 groups=1 path.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time after
-  the Conv lane is stable. The first known contrastive-head CUDA bug is now
-  fixed in generated `vector_norm`; the immediate CLIP follow-up is to rerun
-  the opt-in CLIP two-tower CUDA smoke on a CUDA-capable machine and confirm
-  that normalized embeds and logits now stay allclose end to end. If any CUDA
-  drift remains after that, inspect `div` and final similarity/transpose
-  assembly with artifact-visible evidence before broadening scope. The bounded
-  CPU artifact workflow is now visible and tested; do not spend another loop on
-  CLIP CPU artifact examples unless a concrete user-facing failure appears.
-  Keep local `/workspace/transformers` parity as the acceptance bar and keep
-  all non-parity limits explicit.
+  the Conv lane is stable. The adapter now reaches cached-checkpoint
+  config/state import and trace/manifest admission; the next CLIP-L-facing
+  proof should be either an explicitly opt-in cached-checkpoint runtime parity
+  slice, if local weights/hardware are available, or a smaller adapter/runtime
+  admission gap discovered by that smoke. The first known contrastive-head CUDA
+  bug is now fixed in generated `vector_norm`; rerun the opt-in CLIP two-tower
+  CUDA smoke on a CUDA-capable machine when useful to confirm normalized embeds
+  and logits stay allclose end to end. If any CUDA drift remains, inspect `div`
+  and final similarity/transpose assembly with artifact-visible evidence before
+  broadening scope. The bounded CPU artifact workflow is visible and tested; do
+  not spend another loop on CLIP CPU artifact examples unless a concrete
+  user-facing failure appears. Keep local `/workspace/transformers` parity as
+  the acceptance bar and keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

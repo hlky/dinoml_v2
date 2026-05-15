@@ -14,6 +14,32 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelV
 CONV2D_BIAS_DTYPES = ("float16", "float32")
 
 
+def infer_conv2d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_conv2d_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "groups": 1},
+    )
+
+
+def infer_conv2d_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("conv2d expects activation and weight inputs")
+    stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
+        attrs.get("stride", (1, 1)),
+        attrs.get("padding", (0, 0)),
+        attrs.get("dilation", (1, 1)),
+        attrs.get("groups", 1),
+    )
+    return resolve_conv2d_shape(
+        input_shapes[0],
+        input_shapes[1],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def infer_conv2d_bias_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     return infer_conv2d_bias_shape_with_attrs(
         input_shapes,
@@ -122,6 +148,31 @@ def resolve_conv2d_bias_shape(
     return [batch, out_channels, out_height, out_width]
 
 
+def resolve_conv2d_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    if len(input_shape) != 4:
+        raise ValueError(f"conv2d expects rank-4 NCHW activation, got rank {len(input_shape)}")
+    if len(weight_shape) != 4:
+        raise ValueError(f"conv2d expects rank-4 OIHW weight, got rank {len(weight_shape)}")
+    out_channels = int(weight_shape[0]) if weight_shape else 0
+    return resolve_conv2d_bias_shape(
+        input_shape,
+        weight_shape,
+        [out_channels],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def _conv_output_dim(
     op_name: str,
     dim: int,
@@ -225,9 +276,12 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
 
 __all__ = [
     "CONV2D_BIAS_DTYPES",
+    "infer_conv2d_shape",
+    "infer_conv2d_shape_with_attrs",
     "infer_conv2d_bias_shape",
     "infer_conv2d_bias_shape_with_attrs",
     "normalize_conv2d_bias_attrs",
     "register_conv_ops",
+    "resolve_conv2d_shape",
     "resolve_conv2d_bias_shape",
 ]

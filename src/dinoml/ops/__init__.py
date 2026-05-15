@@ -47,6 +47,7 @@ from dinoml.ops.bmm import BMM_FRONTEND_OPS, BMM_HELPER_OPS
 from dinoml.ops.conv import (
     CONV2D_BIAS_DTYPES,
     normalize_conv2d_bias_attrs,
+    resolve_conv2d_shape,
     resolve_conv2d_bias_shape,
 )
 from dinoml.ops.embedding import embedding as _embedding_frontend
@@ -849,6 +850,68 @@ def _conv2d_bias_frontend(
     )
 
 
+def _conv2d_frontend(
+    x: Any,
+    weight: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if weight_tensor.builder is not x_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if weight_tensor.dtype != x_tensor.dtype:
+        raise ValueError(f"conv2d dtype mismatch: {x_tensor.dtype} vs {weight_tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"conv2d does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank != 4:
+        raise ValueError(f"conv2d expects rank-4 NCHW activation, got rank {x_tensor.rank}")
+    if weight_tensor.rank != 4:
+        raise ValueError(f"conv2d expects rank-4 OIHW weight, got rank {weight_tensor.rank}")
+    if x_tensor.dynamic or weight_tensor.dynamic:
+        raise ValueError("conv2d currently supports only static activation and weight shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv2d_bias_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    out_shape = resolve_conv2d_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    zero_bias = as_tensor(
+        Parameter(
+            [int(weight_tensor.shape[0])],
+            dtype=x_tensor.dtype,
+            name="conv2d_zero_bias",
+            value=np.zeros((int(weight_tensor.shape[0]),), dtype=np.float32),
+        ),
+        dtype_hint=x_tensor.dtype,
+    )
+    return x_tensor.builder.emit(
+        "conv2d_bias",
+        [x_tensor, weight_tensor, zero_bias],
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+            "bias_mode": "explicit_zero_constant",
+            "source_op": "conv2d",
+        },
+        shape_spec=out_shape,
+    )
+
+
 def _slice_reshape_scatter_frontend(x: Any, update: Any, start_indices: Any, slice_shape: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
@@ -1022,6 +1085,7 @@ globals()["pad"] = _pad_frontend
 globals()["pad_last_dim"] = _pad_last_dim_frontend
 globals()["avg_pool1d"] = _avg_pool1d_frontend
 globals()["avg_pool2d"] = _avg_pool2d_frontend
+globals()["conv2d"] = _conv2d_frontend
 globals()["conv2d_bias"] = _conv2d_bias_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
@@ -1099,6 +1163,7 @@ __all__ = list(dict.fromkeys([
     "concatenate",
     "concatenate_fast",
     "concatenate_tanh",
+    "conv2d",
     "conv2d_bias",
     "dynamic_slice",
     "full",

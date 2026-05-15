@@ -460,14 +460,6 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
                 (config.hidden_size, config.num_channels, config.patch_size, config.patch_size),
             ),
         )
-        # Transformers CLIP uses a bias-free patch projection. Model that
-        # source contract honestly by composing the admitted biasful conv with
-        # an explicit zero bias tensor.
-        self.patch_embedding_zero_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=np.zeros((config.hidden_size,), dtype=np.float32),
-        )
         self.position_embedding_weight = dml.Parameter(
             [config.num_positions, config.hidden_size],
             dtype="float32",
@@ -494,10 +486,9 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
                 f"({self.config.image_size}*{self.config.image_size})."
             )
 
-        patch_embeds = dml.ops.conv2d_bias(
+        patch_embeds = dml.ops.conv2d(
             pixel_values,
             self.patch_embedding_weight,
-            self.patch_embedding_zero_bias,
             stride=(self.config.patch_size, self.config.patch_size),
             padding=(0, 0),
             dilation=(1, 1),

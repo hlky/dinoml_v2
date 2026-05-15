@@ -279,7 +279,8 @@ slice is proven.
 
 Only after `conv2d_bias` is real and boring should follow-up work consider:
 
-1. `conv2d` without bias if it naturally shares the provider family.
+1. A true no-bias provider/runtime family for `conv2d`, beyond the current
+   explicit-zero bridge that reuses the `conv2d_bias` core path.
 2. Wider dtype coverage, starting with clean `float32`.
 3. Dynamic spatial bucket profiling and guarded execution-plan dispatch.
 4. Broader Conv2d epilogues or fused activation forms.
@@ -293,6 +294,13 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   NCHW/OIHW/bias `[O]`, CPU reference execution validates against PyTorch, and
   CUDA lowering records explicit NHWC/OHWI provider transforms in
   `cutlass_conv` manifest/codegen metadata.
+- A bounded no-bias `conv2d` public surface now also exists as an explicit-zero
+  bridge. `dml.ops.conv2d(x, weight, ...)` performs its own static rank-4
+  NCHW/OIHW/groups=1 validation, then emits a `conv2d_bias` core node with
+  `source_op=conv2d`, `bias_mode=explicit_zero_constant`, and a traced zero-bias
+  constant tensor. This keeps artifacts honest for future provider work and
+  removes CLIP's old model-local synthetic zero-bias parameter, but it is not a
+  separate no-bias CUTLASS family yet.
 - The `float16` and exact `float32` SIMT, static rank-4, groups=1 CUDA paths now
   have correctness-first CUTLASS runtime launchers. Generated code allocates per-session
   NHWC/OHWI/NHWC temporaries, calls the support-library NCHW -> NHWC activation

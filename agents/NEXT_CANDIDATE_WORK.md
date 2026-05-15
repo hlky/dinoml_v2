@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded public no-bias `conv2d` bridge without pretending a new
+  provider family exists. `dml.ops.conv2d(x, weight, ...)` now performs its own
+  static NCHW/OIHW/groups=1 validation, computes the no-bias output shape in
+  frontend utilities, and then emits an artifact-visible `conv2d_bias` core
+  node with attrs `source_op=conv2d` and
+  `bias_mode=explicit_zero_constant` plus an explicit traced zero-bias constant
+  tensor. Focused tests cover the traced IR/constant visibility, CPU reference
+  and CPU artifact parity against Torch `F.conv2d(..., bias=None)`, CUDA
+  compile-time manifest/codegen visibility, an opt-in small CUDA runtime smoke,
+  and CLIP patch projection now using the public `conv2d` surface instead of a
+  model-local synthetic zero-bias parameter. This is an honest no-bias bridge
+  over the existing `conv2d_bias` runtime/provider path, not a distinct no-bias
+  CUTLASS family or a claim about fused epilogues, grouped/depthwise/
+  transposed/3D Conv, or dynamic dispatch.
 - Expanded CUTLASS Conv float32 runtime coverage beyond the original exact CLIP
   patch-projection slice. Static rank-4 public NCHW/OIHW `conv2d_bias` with
   `groups=1` now uses a bounded float32 SIMT runtime/profiler candidate, and a
@@ -183,6 +197,12 @@ This file should be updated after each major loop.
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims
   without a full admission slice.
+- Conv next steps should stay in the bias/no-bias lane only if they deepen the
+  core rather than polish aliases: either admit a true no-bias provider/runtime
+  family over the existing explicit-zero bridge, or move to the next clearly
+  bounded Conv maturity gap such as fused epilogues or broader TensorOp/runtime
+  selection coverage. Keep grouped/depthwise/transposed/3D and dynamic/guarded
+  dispatch deferred until a separate admission slice.
 - Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
   as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
   as a blocker for CLIP artifact smoke work, but keep any naive CPU bridge small,

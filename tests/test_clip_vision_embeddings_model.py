@@ -84,18 +84,12 @@ class _ZeroBiasPatchProjection(dml.Module):
             dtype="float32",
             value=np.asarray(weights["vision_model.embeddings.patch_embedding.weight"], dtype=np.float32),
         )
-        self.zero_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=np.zeros((config.hidden_size,), dtype=np.float32),
-        )
         self.patch_size = config.patch_size
 
     def forward(self, pixel_values):
-        patches = dml.ops.conv2d_bias(
+        patches = dml.ops.conv2d(
             pixel_values,
             self.weight,
-            self.zero_bias,
             stride=(self.patch_size, self.patch_size),
             padding=(0, 0),
             dilation=(1, 1),
@@ -165,6 +159,8 @@ def _reference_patch_projection():
 
 
 def test_clip_vision_embeddings_wrapper_matches_local_transformers():
+    model = LegacyCLIPVisionEmbeddings(_config(), WEIGHTS)
+    assert not hasattr(model, "patch_embedding_zero_bias")
     spec = _trace()
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
@@ -185,6 +181,13 @@ def test_clip_vision_patch_projection_zero_bias_matches_transformers_bias_free_c
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops == ["conv2d_bias"]
+    [node] = spec.ir["nodes"]
+    assert node["attrs"]["source_op"] == "conv2d"
+    assert node["attrs"]["bias_mode"] == "explicit_zero_constant"
+    zero_bias_name = node["inputs"][2]
+    zero_bias_constant = next(constant for constant in spec.ir["constants"] if constant["name"] == zero_bias_name)
+    assert zero_bias_constant["shape"] == [HIDDEN]
+    np.testing.assert_array_equal(spec.constants[zero_bias_name], np.zeros((HIDDEN,), dtype=np.float32))
     assert spec.ir["outputs"][0]["shape"] == [BATCH, HIDDEN, IMAGE_SIZE // PATCH_SIZE, IMAGE_SIZE // PATCH_SIZE]
 
     actual = execute_cpu(spec, {"pixel_values": _pixel_values()})["patches"]

@@ -608,6 +608,18 @@ behavior.
   rank-4 NCHW activations, OIHW weights, rank-1 bias, groups=1, and
   `float32`/`float16` only. That bridge is intentionally a temporary CLIP
   artifact unblocker rather than a library-backed CPU provider path. The static
+  no-bias public surface now also exists as bounded helper
+  `dml.ops.conv2d(x, weight, ...)`: it is not a distinct provider family yet,
+  but it does perform its own bounded frontend shape/attr validation and then
+  emits an artifact-visible `conv2d_bias` core node with attrs
+  `source_op=conv2d` and `bias_mode=explicit_zero_constant` plus an explicit
+  zero-bias constant tensor. That keeps bias-free CLIP-style patch projection
+  source-faithful without claiming separate no-bias provider/runtime parity.
+  Focused `conv2d` tests prove the explicit-zero bridge in the traced IR,
+  CPU/reference and CPU/artifact parity against Torch `F.conv2d(..., bias=None)`,
+  CUDA compile-time manifest/codegen visibility, and a small CUDA runtime smoke
+  when tooling is available.
+  The static
   profile
   workload path records the same artifact-visible layout translation, weight
   transform, Conv config, candidate/config, and support provenance; real

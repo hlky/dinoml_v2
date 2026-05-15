@@ -274,7 +274,12 @@ porting. It intentionally excludes the op inventory, which lives in
   representative non-CLIP float32 stride/padding/dilation SIMT path against
   local Transformers/Torch, while manifest/source tests keep C=8
   artifact-visible and keep unaligned non-small-channel shapes on the SIMT
-  fallback with no hidden channel padding. Static groups=1 float32 Conv now
+  fallback with no hidden channel padding. Public no-bias `conv2d` is now
+  admitted only as an explicit-zero bridge over that same core path: frontend
+  validation is real, but the traced/compiled artifact still carries a
+  `conv2d_bias` node with `source_op=conv2d`, `bias_mode=explicit_zero_constant`,
+  and a zero-bias constant rather than a distinct no-bias provider family.
+  Static groups=1 float32 Conv now
   uses the bounded SIMT runtime/profiler path. Conv profile workload construction
   now filters candidates through the same shape/layout/dtype predicate used by
   manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer

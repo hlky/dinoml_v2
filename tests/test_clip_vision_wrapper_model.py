@@ -253,7 +253,8 @@ def test_clip_vision_wrapper_manifest_keeps_provider_and_model_kernels_honest():
     gemm_entry = next(entry for entry in provider_entries if entry["op"] == "gemm_rcr")
     assert conv_entry["kernel_library"] == "cutlass_conv"
     assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == conv_entry["kernel_symbol"]
-    assert conv_entry["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert conv_entry["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
     assert gemm_entry["kernel_library"] == "cutlass_gemm"
 
     assert model_entries
@@ -377,7 +378,8 @@ def test_clip_vision_wrapper_one_layer_manifest_keeps_provider_and_model_kernels
     conv_entry = next(entry for entry in provider_entries if entry["op"] == "conv2d_bias")
     assert conv_entry["kernel_library"] == "cutlass_conv"
     assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == conv_entry["kernel_symbol"]
-    assert conv_entry["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert conv_entry["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
     assert all(entry["kernel_library"] == "cutlass_gemm" for entry in provider_entries if entry["op"] in {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr"})
     assert all(entry["kernel_library"] == "cutlass_bmm" for entry in provider_entries if entry["op"] in {"bmm_rcr", "bmm_rrr"})
 

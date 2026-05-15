@@ -347,6 +347,8 @@ def inspect_workflow() -> dict[str, object]:
     provider_ops = {"conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "bmm_rcr", "bmm_rrr", "gemm_rcr"}
     provider_entries = [entry for entry in required if entry["op"] in provider_ops]
     model_entries = [entry for entry in required if entry["op"] not in provider_ops]
+    conv_entries = [entry for entry in required if entry["op"] == "conv2d_bias" and entry["kernel_library"] == "cutlass_conv"]
+    conv_statuses = sorted({str(entry.get("cutlass_conv_plan", {}).get("status", "")) for entry in conv_entries})
     return {
         "name": spec.name,
         "input_names": [tensor["name"] for tensor in spec.ir["inputs"]],
@@ -360,11 +362,11 @@ def inspect_workflow() -> dict[str, object]:
         "uses_traced_default_text_positions": "position_ids" not in {tensor["name"] for tensor in spec.ir["inputs"]},
         "vision_input_shape": [IMAGE_BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE],
         "patch_grid": [IMAGE_SIZE // PATCH_SIZE, IMAGE_SIZE // PATCH_SIZE],
+        "cutlass_conv_statuses": conv_statuses,
+        "has_cutlass_conv_runtime": "bounded_runtime" in conv_statuses,
         "has_cutlass_conv_scaffold": any(
-            entry["op"] == "conv2d_bias"
-            and entry["kernel_library"] == "cutlass_conv"
-            and entry.get("cutlass_conv_plan", {}).get("status") == "manifest_scaffold_only"
-            for entry in required
+            status == "manifest_scaffold_only"
+            for status in conv_statuses
         ),
         "uses_similarity_transpose": node_op_counts.get("permute", 0) >= 1,
         "model_kernel_ops": sorted({entry["op"] for entry in model_entries}),

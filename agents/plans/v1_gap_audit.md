@@ -236,8 +236,8 @@ porting. It intentionally excludes the op inventory, which lives in
   islands only, and require generated pack/unpack temporaries plus manifest
   metadata instead of relying on ABI strides for layout translation. The first
   `conv2d_bias` slice now lets CUDA compile emit intended NHWC/OHWI provider
-  transforms as kernel-manifest/codegen metadata and runs a bounded fp16
-  groups=1 static rank-4 provider path. The static profile workload builder
+  transforms as kernel-manifest/codegen metadata and runs bounded fp16 plus
+  exact float32 SIMT groups=1 static rank-4 provider paths. The static profile workload builder
   emits `cutlass_conv` workloads from that explicit transform plan, rejects
   missing transform metadata, and carries Conv-specific layout transform,
   weight transform, Conv config, candidate/config, and support provenance into
@@ -245,8 +245,9 @@ porting. It intentionally excludes the op inventory, which lives in
   support-cache/source-manifest
   boundary for `cutlass_conv` so provider transform provenance is visible; with
   `nvcc` available that boundary compiles `libdinoml_cutlass_conv.so` with
-  transform helpers, a correctness-first SIMT CUTLASS
-  `device::ImplicitGemmConvolution` Fprop+bias launcher for fp16, a
+  transform helpers, correctness-first SIMT CUTLASS
+  `device::ImplicitGemmConvolution` Fprop+bias launchers for fp16 and exact
+  float32, a
   v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` fp16 launcher selected
   only for semantic input `C=3`, v1-inspired TensorOp
   `IteratorAlgorithm::kFixedChannels` fp16 launchers selected only for semantic
@@ -269,9 +270,11 @@ porting. It intentionally excludes the op inventory, which lives in
   the support-library transform helpers, call the selected provider launcher
   symbol, and unpack outputs back to NCHW. Focused CUDA runtime parity covers
   the bounded fp16 C=3 few-channel path, C=4 fixed-channel path, and optimized
-  C=16/O=16 path against Torch, while manifest/source tests keep C=8
-  artifact-visible and keep unaligned non-small-channel shapes on the SIMT
-  fallback with no hidden channel padding. Conv profile workload construction
+  C=16/O=16 path against Torch, plus the exact CLIP float32 patch-projection
+  SIMT path against local Transformers/Torch, while manifest/source tests keep
+  C=8 artifact-visible and keep unaligned non-small-channel shapes on the SIMT
+  fallback with no hidden channel padding. Other float32 Conv shapes remain
+  scaffold-only. Conv profile workload construction
   now filters candidates through the same shape/layout/dtype predicate used by
   manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer
   emitted. `profile_artifact` now profiles those Conv candidates on

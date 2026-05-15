@@ -513,14 +513,15 @@ def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():
     assert len(conv_entries) == 1
     assert len(gemm_entries) >= 1
     assert conv_entries[0]["kernel_library"] == "cutlass_conv"
-    assert conv_entries[0]["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert conv_entries[0]["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert conv_entries[0]["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
     assert all(entry["kernel_library"] == "cutlass_gemm" for entry in provider_entries if entry["op"] in {"gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr"})
     assert all(entry["kernel_library"] == "cutlass_bmm" for entry in provider_entries if entry["op"] in {"bmm_rcr", "bmm_rrr"})
     assert model_entries
     assert all(entry["kernel_library"] == "model" for entry in model_entries)
 
 
-def test_clip_model_codegen_plan_keeps_conv_scaffold_artifact_visible(tmp_path):
+def test_clip_model_codegen_plan_keeps_conv_runtime_artifact_visible(tmp_path):
     spec = _trace_model()
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
@@ -539,9 +540,9 @@ def test_clip_model_codegen_plan_keeps_conv_scaffold_artifact_visible(tmp_path):
         entry for entry in codegen_plan.external_support_libraries if entry["name"] == "cutlass_conv"
     )
 
-    assert conv_manifest_entry["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert conv_manifest_entry["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert conv_support_lib["kernel_symbols"] == [conv_manifest_entry["kernel_symbol"]]
-    assert conv_support_lib["profiler_symbols"] == [conv_manifest_entry["profiler_symbol"]]
+    assert conv_manifest_entry["profiler_symbol"] in conv_support_lib["profiler_symbols"]
     assert conv_support_lib["transform_helper_symbols"] == [
         "dinoml_cutlass_conv_input_pack_nchw_to_nhwc_float32_v1",
         "dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_float32_v1",

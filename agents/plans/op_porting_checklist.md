@@ -579,14 +579,15 @@ behavior.
   artifact-visible NHWC/OHWI provider transforms, groups=`1`, static
   channel/kernel attrs, and CPU/PyTorch reference validation. The first
   reference/runtime slice now exists as a public `conv2d_bias` frontend plus
-  CPU reference execution and a CUDA `float16` groups=1 static rank-4 runtime
-  path. CUDA compile emits `bounded_runtime` `cutlass_conv`
+  CPU reference execution plus CUDA `float16` and exact `float32` SIMT
+  groups=1 static rank-4 runtime paths. CUDA compile emits `bounded_runtime` `cutlass_conv`
   kernel-manifest/codegen metadata, keeps the NCHW -> NHWC activation pack,
   OIHW -> OHWI weight pack, provider launch, and NHWC -> NCHW output unpack
   stages artifact-visible, and links `libdinoml_cutlass_conv.so` from the
-  support cache. The fp16 launcher set now includes the correctness-first
-  CUTLASS SIMT `device::ImplicitGemmConvolution` Fprop+bias fallback plus a
-  v1-inspired TensorOp `IteratorAlgorithm::kFewChannels` candidate selected
+  support cache. The launcher set now includes correctness-first CUTLASS SIMT
+  `device::ImplicitGemmConvolution` Fprop+bias fallbacks for float16 and
+  float32; the fp16 set additionally includes a v1-inspired TensorOp
+  `IteratorAlgorithm::kFewChannels` candidate selected
   only for semantic input `C=3`, plus v1-inspired TensorOp
   `IteratorAlgorithm::kFixedChannels` candidates selected only for semantic
   input `C=4` or `C=8`, plus a regular TensorOp
@@ -594,10 +595,12 @@ behavior.
   non-small-channel shapes (`C >= 16` and input/output channels divisible by
   8); all use bias as CUTLASS C with
   `TensorNHWC::Stride(0)` and no hidden channel padding. Focused CUDA runtime
-  parity compares the selected C=3 few-channel, C=4 fixed-channel, and
-  optimized C=16/O=16 public NCHW/OIHW results against Torch, and
+  parity compares the selected C=3 few-channel, C=4 fixed-channel, optimized
+  C=16/O=16, and exact CLIP float32 patch-projection public NCHW/OIHW results
+  against Torch/local Transformers, and
   manifest/source tests prove C=8 is artifact-visible while unaligned shapes
-  stay on the SIMT fallback. Compiled CPU artifacts now also have a bounded
+  stay on the SIMT fallback. Other float32 Conv shapes remain scaffold-only.
+  Compiled CPU artifacts now also have a bounded
   generated naive `conv2d_bias` path for the admitted public contract: static
   rank-4 NCHW activations, OIHW weights, rank-1 bias, groups=1, and
   `float32`/`float16` only. That bridge is intentionally a temporary CLIP

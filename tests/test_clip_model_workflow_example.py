@@ -85,7 +85,9 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
         example["IMAGE_SIZE"],
     ]
     assert summary["patch_grid"] == [example["IMAGE_SIZE"] // example["PATCH_SIZE"]] * 2
-    assert summary["has_cutlass_conv_scaffold"] is True
+    assert summary["cutlass_conv_statuses"] == ["bounded_runtime"]
+    assert summary["has_cutlass_conv_runtime"] is True
+    assert summary["has_cutlass_conv_scaffold"] is False
     assert summary["uses_similarity_transpose"] is True
     assert summary["provider_kernel_ops"] == [
         "bmm_rcr",
@@ -136,7 +138,9 @@ def test_clip_model_workflow_example_script_smoke(tmp_path):
     summary = json.loads(result.stdout)
     assert summary["name"] == "clip_model_workflow"
     assert summary["uses_traced_default_text_positions"] is True
-    assert summary["has_cutlass_conv_scaffold"] is True
+    assert summary["cutlass_conv_statuses"] == ["bounded_runtime"]
+    assert summary["has_cutlass_conv_runtime"] is True
+    assert summary["has_cutlass_conv_scaffold"] is False
     assert summary["output_names"] == ["logits_per_image", "logits_per_text", "text_embeds", "image_embeds"]
     assert summary["artifact"]["path"] == str(artifact_dir.resolve())
     assert summary["artifact"]["retained"] is True

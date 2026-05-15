@@ -293,19 +293,21 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   NCHW/OIHW/bias `[O]`, CPU reference execution validates against PyTorch, and
   CUDA lowering records explicit NHWC/OHWI provider transforms in
   `cutlass_conv` manifest/codegen metadata.
-- The `float16`, static rank-4, groups=1 CUDA path now has a correctness-first
-  CUTLASS runtime launcher set. Generated code allocates per-session
+- The `float16` and exact `float32` SIMT, static rank-4, groups=1 CUDA paths now
+  have correctness-first CUTLASS runtime launchers. Generated code allocates per-session
   NHWC/OHWI/NHWC temporaries, calls the support-library NCHW -> NHWC activation
   pack helper, OIHW -> OHWI weight pack helper, the manifest-selected provider
   launcher, and NHWC -> NCHW output unpack helper. The candidate set now records
-  the SIMT fallback, a v1-inspired TensorOp
+  a SIMT fallback for both admitted dtypes, plus float16-only v1-inspired TensorOp
   `IteratorAlgorithm::kFewChannels` candidate selected only for semantic input
   `C=3`, and v1-inspired TensorOp `IteratorAlgorithm::kFixedChannels`
   candidates selected only for semantic input `C=4` or `C=8`, all with no
   channel padding. Focused CUDA runtime parity validates the selected C=3
-  few-channel path and selected C=4 fixed-channel path against Torch, while
-  manifest/source tests keep C=8 artifact-visible and keep non-3/4/8 shapes on
-  the SIMT fallback.
+  few-channel path, selected C=4 fixed-channel path, optimized C=16/O=16 path,
+  and the exact CLIP float32 patch-projection SIMT path against Torch or local
+  Transformers, while manifest/source tests keep C=8 artifact-visible and keep
+  non-3/4/8 shapes on the SIMT fallback. Float32 Conv shapes outside that exact
+  CLIP runtime slice remain scaffold-only.
 - The profile workload builder now emits real static `cutlass_conv` workloads
   for compatible runtime candidates and preserves the same layout translation,
   weight-transform, Conv config, candidate/config, and source provenance in
@@ -325,7 +327,7 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   candidate/config keys, and explicit layout/weight-transform provenance. When
   `nvcc` is available, the support cache also builds
   `lib/libdinoml_cutlass_conv.so` with concrete transform helper exports, the
-  fp16 SIMT fallback launcher export, the fp16 TensorOp FewChannels C=3
+  fp16 and float32 SIMT fallback launcher exports, the fp16 TensorOp FewChannels C=3
   launcher export, the C=4/C=8 FixedChannels exports, the regular Optimized
   align8 export, and matching real profiler exports for all emitted runtime
   candidates using the `dinoml_cutlass_conv2d_bias_v1` ABI. If `nvcc` is
@@ -357,7 +359,9 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   side-door for stale candidate provenance.
 - Model CUDA compile now builds a generated module when `nvcc` can compile the
   support library, and the artifact manifest carries
-  `lib/libdinoml_cutlass_conv.so`. The selected fp16 provider launcher is
+  `lib/libdinoml_cutlass_conv.so`. The selected provider launcher is
+  the float32 SIMT implicit-GEMM fallback for the exact CLIP patch-projection
+  shape, or, for float16,
   either the SIMT implicit-GEMM fallback, the C=3 TensorOp FewChannels
   Fprop+bias call, the C=4/C=8 TensorOp FixedChannels Fprop+bias call, or the
   regular TensorOp Optimized Fprop+bias call for naturally aligned
@@ -366,8 +370,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   evaluator now filters Conv profile workload construction so incompatible
   small-channel and optimized candidates are not emitted for a node's
   shape/layout/dtype contract. CUDA runtime parity covers C=3 FewChannels,
-  C=4 FixedChannels, and optimized C=16/O=16 against Torch; CUDA-gated profile
-  smoke validates the real Conv profiler exports through `profile_artifact`.
+  C=4 FixedChannels, optimized C=16/O=16, and the exact CLIP float32
+  patch-projection SIMT path against Torch/local Transformers; CUDA-gated
+  profile smoke validates the real Conv profiler exports through
+  `profile_artifact`.
   No dynamic Conv profiling, guarded Conv dispatch,
   grouped/depthwise/transposed/3D coverage, runtime-set packed weights, C=8
   runtime parity, or public NHWC semantics are claimed.

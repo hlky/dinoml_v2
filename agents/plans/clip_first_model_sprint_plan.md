@@ -173,19 +173,17 @@ A bounded CLIP vision-embeddings path is now in-tree at `src/dinoml/models/clip.
   no grouped/depthwise/transposed/3D Conv claims, and no new provider surface.
   CPU reference execution proves parity for the admitted slice, and compiled
   CPU artifacts now also run through a bounded generated naive `conv2d_bias`
-  bridge for the admitted static groups=1 float32 path. CUDA manifest checks
-  keep ownership visible: the Conv node stays on the existing CUTLASS Conv
-  scaffold plan while sequence assembly and position add remain model-generated
-  kernels.
+  bridge for the admitted static groups=1 float32 path. CUDA manifest/runtime
+  checks keep ownership visible: the Conv node stays on the CUTLASS Conv
+  provider path with explicit pack/launch/unpack metadata while sequence
+  assembly and position add remain model-generated kernels.
 - For the exact CLIP patch-projection shape already used by
   `LegacyCLIPVisionEmbeddings` (`float32` NCHW input `[B,3,4,4]`,
-  OIHW weights `[6,3,2,2]`, stride 2, padding 0, groups 1), CUDA planning still
-  selects the float32 SIMT CUTLASS Conv scaffold with
-  `blocked_reason: cutlass_conv_runtime_launcher_not_implemented`. The artifact
-  can remain provider-visible, but runtime execution still fails through the
-  generated scaffold boundary until a real float32 launcher is added or the
-  admitted CLIP path is intentionally retargeted to a separately validated fp16
-  runtime slice.
+  OIHW weights `[6,3,2,2]`, stride 2, padding 0, groups 1), CUDA planning now
+  selects the bounded-runtime float32 SIMT CUTLASS Conv candidate. CUDA-gated
+  coverage compiles the patch-projection artifact and compares the runtime
+  output against local Transformers instead of stopping at the old scaffold
+  launcher boundary.
 - Focused wrapper-level tests compare both the full embeddings output and the
   zero-bias patch-projection substep against the pinned local Transformers CLIP
   implementation.
@@ -234,9 +232,9 @@ The bounded CLIP vision wrapper now also admits stacked real encoder blocks.
   now run through the same bounded naive `conv2d_bias` bridge for the admitted
   static groups=1 float32 path.
 - Focused tests keep ownership visible on the encoder path: patch projection
-  remains on the CUTLASS Conv scaffold, attention/MLP GEMM+BMM pieces stay
-  CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool path stay
-  model-generated.
+  remains on the bounded CUTLASS Conv provider path, attention/MLP GEMM+BMM
+  pieces stay CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool
+  path stay model-generated.
 
 ## 2026-05-15 landed bounded two-tower contrastive slice
 
@@ -259,9 +257,9 @@ The smallest real CLIPModel-style assembly is now in-tree at
   CLIP checkpoint claim. With the bounded naive compiled CPU `bmm_rcr`,
   `bmm_rrr`, `gemm_rcr_bias_fast_gelu`, and `conv2d_bias` bridges, the bounded
   full-model CPU artifact now matches local `/workspace/transformers`. CUDA
-  artifact planning/codegen still exposes the single Conv node honestly as a
-  `cutlass_conv` scaffold entry with visible activation/weight pack and output
-  unpack wrapper stages.
+  artifact planning/codegen now exposes the single Conv node honestly as a
+  bounded-runtime `cutlass_conv` entry with visible activation/weight pack,
+  provider launch, and output unpack wrapper stages.
 - Focused tests compare projected features, normalized embeds, and
   `logits_per_text` / `logits_per_image` against the local
   `/workspace/transformers` `CLIPModel` with deterministic weights and keep
@@ -274,5 +272,6 @@ The smallest real CLIPModel-style assembly is now in-tree at
   records artifact-visible limits in the summary itself. The proof stays
   intentionally narrow by making the current admitted boundaries test-visible:
   no `position_ids` input because the text branch uses traced default
-  positions, fixed square NCHW image shape, one Conv scaffold entry in the CUDA
-  manifest, and no tokenizer/processor or positional-interpolation plumbing.
+  positions, fixed square NCHW image shape, one bounded-runtime Conv provider
+  entry in the CUDA manifest, and no tokenizer/processor or
+  positional-interpolation plumbing.

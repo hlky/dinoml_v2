@@ -237,7 +237,8 @@ def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_h
     assert len(provider_entries) == 1
     assert provider_entries[0]["kernel_library"] == "cutlass_conv"
     assert provider_entries[0]["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == provider_entries[0]["kernel_symbol"]
-    assert provider_entries[0]["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert provider_entries[0]["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert provider_entries[0]["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
     assert provider_entries[0]["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == NUM_CHANNELS
 
     assert model_entries
@@ -251,7 +252,7 @@ def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_h
     assert any("dinoml::math::add" in source for source in cuda_sources["kernels"])
 
 
-def test_clip_vision_patch_projection_exact_float32_cuda_boundary_stays_scaffold_only(tmp_path, monkeypatch):
+def test_clip_vision_patch_projection_exact_float32_cuda_runtime_boundary_matches_transformers(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
 
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
@@ -261,10 +262,15 @@ def test_clip_vision_patch_projection_exact_float32_cuda_boundary_stays_scaffold
     [required] = manifest["required_kernels"]
 
     assert required["op"] == "conv2d_bias"
-    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
-    assert required["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert required["candidate_set"]["status"] == "bounded_runtime"
+    assert required["candidate_set"]["profiler_status"] == "bounded_runtime_profiler"
+    assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert required["cutlass_conv_plan"]["profiler_status"] == "bounded_runtime_profiler"
     assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
-    assert required["cutlass_conv_plan"]["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "analytic"
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
+    assert "blocked_reason" not in required["cutlass_conv_plan"]
     assert required["cutlass_conv_plan"]["input_shape"] == [BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE]
     assert required["cutlass_conv_plan"]["weight_shape"] == [HIDDEN, NUM_CHANNELS, PATCH_SIZE, PATCH_SIZE]
     assert required["cutlass_conv_plan"]["output_shape"] == [BATCH, HIDDEN, IMAGE_SIZE // PATCH_SIZE, IMAGE_SIZE // PATCH_SIZE]
@@ -282,8 +288,10 @@ def test_clip_vision_patch_projection_exact_float32_cuda_boundary_stays_scaffold
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
-        with pytest.raises(RuntimeError, match="provider launcher is unsupported by the current scaffold"):
-            session.run_numpy({"pixel_values": _pixel_values()})
+        actual = session.run_numpy({"pixel_values": _pixel_values()})["patches"]
     finally:
         session.close()
         module.close()
+
+    expected = _reference_patch_projection()
+    np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)

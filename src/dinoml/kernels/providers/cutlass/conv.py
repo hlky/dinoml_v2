@@ -433,7 +433,7 @@ def cutlass_conv_candidate_set(
     candidate_statuses = {str(candidate.get("status", "")) for candidate in candidates}
     status = (
         _CUTLASS_CONV_RUNTIME_STATUS
-        if _CUTLASS_CONV_RUNTIME_STATUS in candidate_statuses
+        if candidates and candidate_statuses == {_CUTLASS_CONV_RUNTIME_STATUS}
         else _CUTLASS_CONV_SCAFFOLD_STATUS
     )
     normalized_target = _normalize_target_policy(target)

@@ -1290,6 +1290,9 @@ def test_cutlass_conv2d_bias_float32_non_clip_shape_stays_scaffold_only():
     [required] = kernel_manifest["required_kernels"]
 
     assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias_scaffold")
+    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
+    assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
+    assert required["candidate_set"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
     assert required["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
     assert required["cutlass_conv_plan"]["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
     assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"]["kind"] == "fallback"

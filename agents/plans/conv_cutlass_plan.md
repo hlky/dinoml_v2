@@ -307,7 +307,9 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   and the exact CLIP float32 patch-projection SIMT path against Torch or local
   Transformers, while manifest/source tests keep C=8 artifact-visible and keep
   non-3/4/8 shapes on the SIMT fallback. Float32 Conv shapes outside that exact
-  CLIP runtime slice remain scaffold-only.
+  CLIP runtime slice remain scaffold-only, so the mixed float32 candidate-set
+  status stays conservative and `cutlass_conv_plan.status` is the per-shape
+  runtime/scaffold authority.
 - The profile workload builder now emits real static `cutlass_conv` workloads
   for compatible runtime candidates and preserves the same layout translation,
   weight-transform, Conv config, candidate/config, and source provenance in

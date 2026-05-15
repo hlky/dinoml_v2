@@ -4,35 +4,36 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Landed the first bounded CLIP text-model wrapper slice without adding a new
-  public op, vision path, tokenizer/processor plumbing, or FlashAttention
-  provider surface. `src/dinoml/models/clip.py` now exposes a narrow legacy
-  OpenAI `get_text_features`-style wrapper composed from existing DinoML ops:
-  token/position embeddings, dense causal + padding-mask attention, MLP,
-  final LayerNorm, legacy `eos_token_id == 2` argmax pooling, and bias-free
-  text projection. Focused tests pin wrapper-level parity against the local
-  Transformers CLIP implementation, prove traced `seq_len <=
-  max_position_embeddings` by slicing the precomputed causal-mask constant via
-  existing `dynamic_slice`, keep provider/model manifest ownership honest, and
-  leave the expensive generated CUDA runtime smoke opt-in. Remaining honest
-  limits: explicit `position_ids`, static traced sequence length, legacy
-  argmax-only EOS pooling, no non-2 first-match EOS branch, no vision tower,
-  and no full contrastive wrapper.
+- Replaced the GGUF CUDA runtime-dequant native boundary with a reproducible
+  direct-link default: the repo now vendors `third_party/libgguf` as a pinned
+  submodule from `https://github.com/hlky/libgguf`, CUDA module builds compile
+  and link the native `libgguf_cuda_native` artifact from that submodule into
+  GGUF runtime-dequant artifacts, generated lowering calls
+  `libgguf_cuda_dequantize_rows_on_stream(...)` directly when linked, and
+  artifact metadata/codegen plans record the linked native library plus source
+  provenance and cache manifests. The runtime fallback no longer treats static
+  archives as `ctypes.CDLL` candidates, cached native builds are invalidated on
+  source/library provenance changes, and the old
+  `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` path remains only
+  as an explicit fallback/testing boundary when direct linking is unavailable or
+  deliberately disabled. Focused planning/unit coverage plus CUDA-gated runtime
+  regressions cover the direct-link default, forced fallback compatibility, and
+  stale-cache/static-archive guardrails without widening GGUF policy, epilogue
+  coverage, or public provider admission.
 
 ## Next Recommended Lane
 
-- Active parallel lane: finish the human-directed libgguf direct-linking slice.
-  Replace or reduce the generated CUDA module's runtime-set
-  `libgguf_cuda_dequantize_rows_on_stream` function-pointer boundary with a
-  direct, artifact-visible linkage path against the native libgguf CUDA
-  dequantizer where safely possible. Keep the scope to the already-admitted
-  GGUF runtime-dequant-before-CUTLASS-GEMM path; do not broaden offload policy,
-  quantized GEMM families, or public op/provider surface.
-- CLIP follow-up after the libgguf lane or in a separate bounded branch: add the
+- CLIP follow-up in a separate bounded branch: add the
   newer non-2 EOS first-match pooling branch and/or reduce the explicit
   `position_ids` requirement only if the wrapper-level parity story remains
   narrow and test-backed. Vision patch work remains the next larger CLIP model
   step once text pooling/config handling is honest.
+- Keep libgguf follow-up limited to concrete direct-link failures or validation
+  gaps: add a CUDA builder smoke using the initialized submodule only if the
+  current unit/CUDA-gated coverage misses a real failure mode, and keep fallback
+  behavior explicit. Do not broaden GGUF offload policy, quantized GEMM
+  families, epilogue coverage, or public op/provider surface as part of this
+  lane.
 - Use worktrees for independent branches if running parallel agents. Keep
   feature write sets disjoint, keep shared queue/tracking doc reconciliation on
   the main line when possible, and require PM review plus validation before

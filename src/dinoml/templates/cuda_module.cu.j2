@@ -16,10 +16,17 @@
 #define DINO_RESTRICT __restrict__
 #endif
 
-struct DinoModule {
-  std::string artifact_dir;
-  std::string metadata_json;
 {% if gguf_dequant_scratch %}
+{% if gguf_cuda_native_linked %}
+extern "C" int libgguf_cuda_dequantize_rows_on_stream(
+    const void* device_input,
+    int64_t qtype,
+    int64_t rows,
+    int64_t n_per_row,
+    int output_dtype,
+    void* device_output,
+    void* stream);
+{% else %}
   using LibggufCudaDequantizeRowsOnStream = int (*)(
       const void* device_input,
       int64_t qtype,
@@ -28,6 +35,13 @@ struct DinoModule {
       int output_dtype,
       void* device_output,
       void* stream);
+{% endif %}
+{% endif %}
+
+struct DinoModule {
+  std::string artifact_dir;
+  std::string metadata_json;
+{% if gguf_dequant_scratch and not gguf_cuda_native_linked %}
   LibggufCudaDequantizeRowsOnStream libgguf_cuda_dequantize_rows_on_stream = nullptr;
 {% endif %}
 {% for constant in constants %}
@@ -168,7 +182,7 @@ DINO_EXPORT int dino_module_set_constant(
   return dinoml::module::fail(std::string("Unknown constant: ") + name);
 }
 
-{% if gguf_dequant_scratch %}
+{% if gguf_dequant_scratch and not gguf_cuda_native_linked %}
 DINO_EXPORT int dino_module_set_encoded_constant(
     DinoModule* module,
     const char* name,
@@ -207,8 +221,41 @@ DINO_EXPORT int dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
     return dinoml::module::fail("dino_module_set_libgguf_cuda_dequantize_rows_on_stream received null module");
   }
   module->libgguf_cuda_dequantize_rows_on_stream =
-      reinterpret_cast<DinoModule::LibggufCudaDequantizeRowsOnStream>(fn_ptr);
+      reinterpret_cast<LibggufCudaDequantizeRowsOnStream>(fn_ptr);
   return 0;
+}
+
+{% endif %}
+{% if gguf_dequant_scratch and gguf_cuda_native_linked %}
+DINO_EXPORT int dino_module_set_encoded_constant(
+    DinoModule* module,
+    const char* name,
+    const void* device_data,
+    size_t nbytes) {
+  if (module == nullptr || name == nullptr || (device_data == nullptr && nbytes > 0)) {
+    return dinoml::module::fail("dino_module_set_encoded_constant received null argument");
+  }
+{% for constant in constants %}
+{% if constant.encoded_runtime_dequant %}
+  if (std::strcmp(name, "{{ constant.name }}") == 0) {
+    if (nbytes != {{ constant.nbytes }}) {
+      return dinoml::module::fail("Encoded constant {{ constant.name }} byte size mismatch");
+    }
+    if (module->const_{{ constant.ident }} == nullptr) {
+      DINO_CUDA_CHECK(cudaMalloc(&module->const_{{ constant.ident }}, {{ constant.nbytes }}));
+    }
+    module->const_shape_{{ constant.ident }} = std::vector<int64_t>{ {{ constant.shape_literal }} };
+    DINO_CUDA_CHECK(cudaMemcpy(
+        module->const_{{ constant.ident }},
+        device_data,
+        nbytes,
+        cudaMemcpyDeviceToDevice));
+    module->const_{{ constant.ident }}_loaded = true;
+    return 0;
+  }
+{% endif %}
+{% endfor %}
+  return dinoml::module::fail(std::string("Unknown encoded constant: ") + name);
 }
 
 {% endif %}

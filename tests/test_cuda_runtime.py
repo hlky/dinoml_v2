@@ -10,9 +10,11 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
+from dinoml.backends import cuda as cuda_backend
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import ModelSpec, dtype_runtime_enum, read_json, write_json
+from dinoml.kernels import codegen as kernel_codegen
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
 
@@ -50,6 +52,24 @@ def _write_minimal_gguf_tensor(path, *, name, gguf_shape, qtype_value, payload):
     data += b"\0" * ((32 - len(data) % 32) % 32)
     data += payload
     path.write_bytes(data)
+
+
+def _force_gguf_runtime_dequant_setter_fallback(monkeypatch):
+    monkeypatch.setattr(cuda_backend, "resolve_libgguf_cuda_direct_link_library", lambda: None)
+    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: None)
+    monkeypatch.setattr(cuda_backend, "libgguf_submodule_source_root", lambda _repo_root: None)
+    monkeypatch.setattr(kernel_codegen, "libgguf_submodule_source_root", lambda _repo_root: None)
+
+
+def _assert_gguf_runtime_dequant_generated_linkage(generated: str, manifest: dict, dequant_call: str, gemm_call: str) -> None:
+    direct_linked = "gguf_cuda_native_library" in manifest["files"]
+    if direct_linked:
+        assert 'extern "C" int libgguf_cuda_dequantize_rows_on_stream(' in generated
+        assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in generated
+    else:
+        assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" in generated
+    assert dequant_call in generated
+    assert generated.index(dequant_call) < generated.index(gemm_call)
 
 
 def test_cuda_artifact_runs_without_torch(tmp_path):
@@ -1247,18 +1267,32 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
         constant_load_policy="deferred",
     )
 
+    artifact_manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     plan = kernel_manifest["required_kernels"][0]["gguf_runtime_dequant"]
     assert plan["status"] == "lowered_runtime_dequant_scratch"
+    if "gguf_cuda_native_library" in artifact_manifest["files"]:
+        assert (artifact.path / artifact_manifest["files"]["gguf_cuda_native_library"]).exists()
+        codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+        support_entries = [
+            entry for entry in codegen_plan["external_support_libraries"] if entry["name"] == "gguf_cuda_native"
+        ]
+        assert len(support_entries) == 1
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "module->libgguf_cuda_dequantize_rows_on_stream" in generated
-    assert generated.index("module->libgguf_cuda_dequantize_rows_on_stream") < generated.index("ptr_x, ptr_weight_dequant")
+    _assert_gguf_runtime_dequant_generated_linkage(
+        generated,
+        artifact_manifest,
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+        "ptr_x, ptr_weight_dequant",
+    )
 
     x = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
     expected = x @ expected_weight
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
+        if "gguf_cuda_native_library" in artifact_manifest["files"]:
+            assert getattr(module, "_set_libgguf_cuda_dequantize_rows_on_stream", None) is None
         assert module.constant_load_state() == {"weight": False}
         with pytest.raises(RuntimeError, match="Constant weight has not been loaded"):
             session.run_numpy({"x": x})
@@ -1330,6 +1364,7 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_d
         constant_load_policy="deferred",
     )
 
+    artifact_manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     required = kernel_manifest["required_kernels"][0]
     plan = required["gguf_runtime_dequant"]
@@ -1337,9 +1372,11 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_d
     assert plan["op"] == "gemm_rrr_bias"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "module->libgguf_cuda_dequantize_rows_on_stream" in generated
-    assert generated.index("module->libgguf_cuda_dequantize_rows_on_stream") < generated.index(
-        "ptr_x, ptr_weight_dequant, ptr_bias, "
+    _assert_gguf_runtime_dequant_generated_linkage(
+        generated,
+        artifact_manifest,
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+        "ptr_x, ptr_weight_dequant, ptr_bias, ",
     )
 
     x0 = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
@@ -1411,6 +1448,7 @@ def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encod
     if dequant_fn_ptr is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1705,14 +1743,19 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
         constant_load_policy="deferred",
     )
 
+    artifact_manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     plan = kernel_manifest["required_kernels"][0]["gguf_runtime_dequant"]
     assert plan["status"] == "lowered_runtime_dequant_scratch"
     assert plan["op"] == "gemm_rcr"
     assert plan["logical_shape"] == [24, 32]
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "module->libgguf_cuda_dequantize_rows_on_stream" in generated
-    assert generated.index("module->libgguf_cuda_dequantize_rows_on_stream") < generated.index("ptr_x, ptr_weight_dequant")
+    _assert_gguf_runtime_dequant_generated_linkage(
+        generated,
+        artifact_manifest,
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+        "ptr_x, ptr_weight_dequant",
+    )
 
     x = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
     expected = x @ expected_weight.T
@@ -1789,6 +1832,7 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch_f
         constant_load_policy="deferred",
     )
 
+    artifact_manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     plan = kernel_manifest["required_kernels"][0]["gguf_runtime_dequant"]
     assert plan["status"] == "lowered_runtime_dequant_scratch"
@@ -1796,9 +1840,11 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch_f
     assert plan["logical_shape"] == [24, 32]
     assert plan["scratch_nbytes"] == 24 * 32 * 2
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "module->libgguf_cuda_dequantize_rows_on_stream" in generated
-    assert generated.index("module->libgguf_cuda_dequantize_rows_on_stream") < generated.index(
-        "ptr_x, ptr_weight_dequant"
+    _assert_gguf_runtime_dequant_generated_linkage(
+        generated,
+        artifact_manifest,
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 1, session->gguf_dequant_scratch, session->stream)",
+        "ptr_x, ptr_weight_dequant",
     )
 
     x = torch.linspace(-0.5, 0.75, 64, dtype=torch.float32, device="cuda").reshape(2, 32).to(torch.float16)
@@ -1884,6 +1930,7 @@ def test_cuda_cutlass_gemm_rcr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
         constant_load_policy="deferred",
     )
 
+    artifact_manifest = read_json(artifact.path / "manifest.json")
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
     required = kernel_manifest["required_kernels"][0]
     plan = required["gguf_runtime_dequant"]
@@ -1891,9 +1938,11 @@ def test_cuda_cutlass_gemm_rcr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
     assert plan["op"] == "gemm_rcr_bias"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
-    assert "module->libgguf_cuda_dequantize_rows_on_stream" in generated
-    assert generated.index("module->libgguf_cuda_dequantize_rows_on_stream") < generated.index(
-        "ptr_x, ptr_weight_dequant, ptr_bias, "
+    _assert_gguf_runtime_dequant_generated_linkage(
+        generated,
+        artifact_manifest,
+        "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 1, session->gguf_dequant_scratch, session->stream)",
+        "ptr_x, ptr_weight_dequant, ptr_bias, ",
     )
 
     x = torch.linspace(-0.5, 0.75, 64, dtype=torch.float32, device="cuda").reshape(2, 32).to(torch.float16)
@@ -2184,6 +2233,7 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_fails_when_launcher_cleared_after
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -2258,6 +2308,7 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequant_fails_when_launcher_cleared_after
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):

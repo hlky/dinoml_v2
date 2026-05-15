@@ -318,13 +318,16 @@ def _build_artifact_from_lowered_ir(
         manifest["execution_plan"] = execution_plan_config
     write_json(artifact_dir / "manifest.json", manifest)
 
-    backend.resolve_build_function()(
+    build_files = backend.resolve_build_function()(
         lowered_ir,
         target=target,
         artifact_dir=artifact_dir,
         generated_src_dir=generated_src_dir,
         kernel_manifest=kernel_manifest,
     )
+    if build_files:
+        manifest["files"].update(dict(build_files))
+        write_json(artifact_dir / "manifest.json", manifest)
 
     return Artifact(artifact_dir)
 

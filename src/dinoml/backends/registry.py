@@ -16,7 +16,7 @@ class BackendBuildFunction(Protocol):
         artifact_dir: Path,
         generated_src_dir: Path,
         kernel_manifest: Mapping[str, Any],
-    ) -> None:
+    ) -> Mapping[str, str] | None:
         ...
 
 

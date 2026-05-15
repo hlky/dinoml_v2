@@ -27,6 +27,7 @@ from dinoml.constant_sources import (
     materialize_gguf_encoded_constant,
 )
 from dinoml.shapes import infer_output_shape, validate_runtime_shape
+from dinoml.libgguf_cuda import resolve_libgguf_cuda_symbol_library
 
 
 class _DinoTensor(ctypes.Structure):
@@ -614,6 +615,10 @@ class RuntimeModule:
             raise RuntimeError("libgguf CUDA dequantizer is only available for CUDA artifacts")
         setter = getattr(self, "_set_libgguf_cuda_dequantize_rows_on_stream", None)
         if setter is None:
+            if self._uses_gguf_runtime_dequant():
+                raise RuntimeError(
+                    "Artifact links the GGUF CUDA dequantizer directly; runtime override is unavailable"
+                )
             raise RuntimeError("Artifact does not expose GGUF runtime dequant native launcher configuration")
         setter(self, fn_ptr)
 
@@ -666,7 +671,7 @@ class RuntimeModule:
     def _ensure_libgguf_cuda_dequantizer_configured(self) -> None:
         setter = getattr(self, "_set_libgguf_cuda_dequantize_rows_on_stream", None)
         if setter is None:
-            raise RuntimeError("Artifact does not expose GGUF runtime dequant native launcher configuration")
+            return
         fn_ptr = _libgguf_cuda_native_dequantize_rows_on_stream()
         if fn_ptr is None:
             raise RuntimeError(
@@ -674,6 +679,18 @@ class RuntimeModule:
                 "libgguf_cuda_dequantize_rows_on_stream"
             )
         setter(self, ctypes.c_void_p(fn_ptr))
+
+    def _uses_gguf_runtime_dequant(self) -> bool:
+        kernel_manifest = self._kernel_manifest
+        if not isinstance(kernel_manifest, MappingABC):
+            return False
+        for item in kernel_manifest.get("required_kernels", []):
+            if not isinstance(item, MappingABC):
+                continue
+            plan = item.get("gguf_runtime_dequant")
+            if isinstance(plan, MappingABC) and str(plan.get("status")) == "lowered_runtime_dequant_scratch":
+                return True
+        return False
 
     def set_constant_torch(self, name: str, value: object) -> None:
         constants = {constant["name"]: constant for constant in self.metadata["constants"]}
@@ -1421,23 +1438,19 @@ def _libgguf_cuda_dequant_api() -> tuple[object, object, object] | None:
 
 
 def _libgguf_cuda_native_dequantize_rows_on_stream() -> int | None:
-    extension_path = os.environ.get("LIBGGUF_CUDA_EXTENSION")
+    library_path = resolve_libgguf_cuda_symbol_library()
+    cache_key = None if library_path is None else str(library_path)
     try:
-        if extension_path is None:
-            import libgguf.libgguf_cuda.ops as cuda_ops  # type: ignore[import-not-found]
-
-            extension = getattr(cuda_ops, "_C_gguf", None)
-            if extension is None:
-                return None
-            extension_path = str(Path(extension.__file__))
-        cached = _LIBGGUF_CUDA_NATIVE_CACHE.get(extension_path)
+        if library_path is None:
+            return None
+        cached = _LIBGGUF_CUDA_NATIVE_CACHE.get(cache_key)
         if cached is not None:
             return cached[1]
-        library = ctypes.CDLL(extension_path)
+        library = ctypes.CDLL(str(library_path))
         launcher = library.libgguf_cuda_dequantize_rows_on_stream
     except (ImportError, AttributeError, OSError):
-        if extension_path is not None:
-            _LIBGGUF_CUDA_NATIVE_CACHE[extension_path] = (None, None)
+        if cache_key is not None:
+            _LIBGGUF_CUDA_NATIVE_CACHE[cache_key] = (None, None)
         return None
     launcher.argtypes = (
         ctypes.c_void_p,
@@ -1451,7 +1464,7 @@ def _libgguf_cuda_native_dequantize_rows_on_stream() -> int | None:
     launcher.restype = ctypes.c_int
     _LIBGGUF_CUDA_NATIVE_LIBRARIES.append(library)
     ptr = int(ctypes.cast(launcher, ctypes.c_void_p).value or 0) or None
-    _LIBGGUF_CUDA_NATIVE_CACHE[extension_path] = (library, ptr)
+    _LIBGGUF_CUDA_NATIVE_CACHE[cache_key] = (library, ptr)
     return ptr
 
 

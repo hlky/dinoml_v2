@@ -176,3 +176,25 @@ A bounded CLIP vision-embeddings path is now in-tree at `src/dinoml/models/clip.
 - Focused wrapper-level tests compare both the full embeddings output and the
   zero-bias patch-projection substep against the pinned local Transformers CLIP
   implementation.
+
+## 2026-05-15 landed vision stem/pool/projection slice
+
+A bounded CLIP vision-wrapper path is now in-tree at `src/dinoml/models/clip.py`.
+
+- The landed surface is intentionally narrow: source-faithful fixed-size vision
+  embeddings, `pre_layrnorm`, a no-op encoder admitted only as
+  `num_hidden_layers == 0`, CLS pooling via the first sequence token,
+  `post_layernorm`, and bias-free visual projection. This matches the local
+  Transformers `CLIPVisionModelWithProjection` behavior for a zero-layer
+  `CLIPVisionConfig` without claiming a full encoder layer yet.
+- The wrapper keeps the current honest limits explicit: fixed square NCHW pixel
+  input only, no positional interpolation, no arbitrary image sizes, no real
+  vision encoder block, no full `CLIPModel`, and no widened Conv/provider
+  claims. CPU reference execution proves parity for `last_hidden_state`,
+  `pooler_output`, and projected `image_features`, while compiled CPU artifacts
+  still stop honestly at the existing `conv2d_bias` backend boundary.
+- Focused wrapper-level tests compare the DinoML outputs against the pinned
+  local Transformers implementation and keep CUDA manifest/generated-source
+  ownership visible: the patch projection stays on the existing CUTLASS Conv
+  scaffold, the final projection stays CUTLASS GEMM-backed, and the sequence
+  assembly plus LayerNorm/pool path stay model-generated.

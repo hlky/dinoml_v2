@@ -91,6 +91,59 @@ class LegacyCLIPVisionEmbeddingsConfig:
         return self.num_patches + 1
 
 
+@dataclass(frozen=True)
+class LegacyCLIPVisionConfig:
+    """Bounded CLIP vision-wrapper config.
+
+    This helper intentionally models only the admitted CLIP vision-wrapper
+    slice currently landed in DinoML: fixed square NCHW pixel input,
+    source-faithful embeddings, pre-LayerNorm, a no-op encoder
+    (`num_hidden_layers == 0`), CLS pool, post-LayerNorm, and bias-free visual
+    projection. It does not admit interpolation, arbitrary image sizes, or a
+    real encoder layer yet.
+    """
+
+    hidden_size: int
+    intermediate_size: int
+    num_attention_heads: int
+    num_hidden_layers: int
+    projection_dim: int
+    image_size: int
+    patch_size: int
+    num_channels: int = 3
+    layer_norm_eps: float = 1.0e-5
+
+    def __post_init__(self) -> None:
+        if self.hidden_size <= 0:
+            raise ValueError("hidden_size must be positive")
+        if self.intermediate_size <= 0:
+            raise ValueError("intermediate_size must be positive")
+        if self.num_attention_heads <= 0:
+            raise ValueError("num_attention_heads must be positive")
+        if self.hidden_size % self.num_attention_heads != 0:
+            raise ValueError("hidden_size must be divisible by num_attention_heads")
+        if self.num_hidden_layers != 0:
+            raise ValueError("LegacyCLIPVisionConfig currently admits only num_hidden_layers == 0")
+        if self.projection_dim <= 0:
+            raise ValueError("projection_dim must be positive")
+        if self.image_size <= 0:
+            raise ValueError("image_size must be positive")
+        if self.patch_size <= 0:
+            raise ValueError("patch_size must be positive")
+        if self.num_channels <= 0:
+            raise ValueError("num_channels must be positive")
+        if self.patch_size > self.image_size:
+            raise ValueError("patch_size must be less than or equal to image_size")
+
+    @property
+    def num_patches(self) -> int:
+        return (self.image_size // self.patch_size) ** 2
+
+    @property
+    def num_positions(self) -> int:
+        return self.num_patches + 1
+
+
 def build_clip_causal_mask(seq_len: int, mask_fill_value: float = -1.0e4) -> np.ndarray:
     if seq_len <= 0:
         raise ValueError("seq_len must be positive")
@@ -379,7 +432,11 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
 
 
 class LegacyCLIPVisionEmbeddings(dml.Module):
-    def __init__(self, config: LegacyCLIPVisionEmbeddingsConfig, weights: Mapping[str, np.ndarray]):
+    def __init__(
+        self,
+        config: LegacyCLIPVisionEmbeddingsConfig | LegacyCLIPVisionConfig,
+        weights: Mapping[str, np.ndarray],
+    ):
         self.config = config
         self.class_embedding = dml.Parameter(
             [1, 1, config.hidden_size],
@@ -421,7 +478,7 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
             dtype="int64",
         )
 
-    def forward(self, pixel_values):
+    def encode_pixels(self, pixel_values):
         batch, channels, height, width = _nchw_image_shape(pixel_values.shape)
         if channels != self.config.num_channels:
             raise ValueError(
@@ -449,8 +506,74 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
 
         embeddings = dml.ops.concatenate([class_embeds, patch_embeds], dim=1)
         position_embeddings = dml.ops.embedding(self.position_embedding_weight, self.position_ids)
-        embeddings = dml.ops.add(embeddings, position_embeddings)
+        return dml.ops.add(embeddings, position_embeddings)
+
+    def forward(self, pixel_values):
+        embeddings = self.encode_pixels(pixel_values)
         return dml.ops.output(embeddings, "embeddings")
+
+
+class LegacyCLIPVisionModelWithProjection(dml.Module):
+    def __init__(self, config: LegacyCLIPVisionConfig, weights: Mapping[str, np.ndarray]):
+        self.config = config
+        self.embeddings = LegacyCLIPVisionEmbeddings(config, weights)
+        self.pre_layrnorm_weight = dml.Parameter(
+            [config.hidden_size],
+            dtype="float32",
+            value=_weight_value(weights, "vision_model.pre_layrnorm.weight", (config.hidden_size,)),
+        )
+        self.pre_layrnorm_bias = dml.Parameter(
+            [config.hidden_size],
+            dtype="float32",
+            value=_weight_value(weights, "vision_model.pre_layrnorm.bias", (config.hidden_size,)),
+        )
+        self.post_layernorm_weight = dml.Parameter(
+            [config.hidden_size],
+            dtype="float32",
+            value=_weight_value(weights, "vision_model.post_layernorm.weight", (config.hidden_size,)),
+        )
+        self.post_layernorm_bias = dml.Parameter(
+            [config.hidden_size],
+            dtype="float32",
+            value=_weight_value(weights, "vision_model.post_layernorm.bias", (config.hidden_size,)),
+        )
+        self.visual_projection_weight = dml.Parameter(
+            [config.projection_dim, config.hidden_size],
+            dtype="float32",
+            value=_weight_value(weights, "visual_projection.weight", (config.projection_dim, config.hidden_size)),
+        )
+
+    def encode_vision(self, pixel_values):
+        hidden_states = self.embeddings.encode_pixels(pixel_values)
+        hidden_states = dml.ops.layer_norm(
+            hidden_states,
+            self.pre_layrnorm_weight,
+            self.pre_layrnorm_bias,
+            eps=self.config.layer_norm_eps,
+        )
+        batch = _first_static_dim(hidden_states.shape)
+        pooled_output = dml.ops.dynamic_slice(
+            hidden_states,
+            start_indices=(0, 0, 0),
+            slice_sizes=(batch, 1, self.config.hidden_size),
+        )
+        pooled_output = dml.ops.squeeze(pooled_output, 1)
+        pooled_output = dml.ops.layer_norm(
+            pooled_output,
+            self.post_layernorm_weight,
+            self.post_layernorm_bias,
+            eps=self.config.layer_norm_eps,
+        )
+        image_features = dml.ops.gemm_rcr(pooled_output, self.visual_projection_weight)
+        return hidden_states, pooled_output, image_features
+
+    def forward(self, pixel_values):
+        last_hidden_state, pooler_output, image_features = self.encode_vision(pixel_values)
+        return (
+            dml.ops.output(last_hidden_state, "last_hidden_state"),
+            dml.ops.output(pooler_output, "pooler_output"),
+            dml.ops.output(image_features, "image_features"),
+        )
 
 
 def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int, ...]) -> np.ndarray:

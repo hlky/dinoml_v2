@@ -1,3 +1,6 @@
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -19,6 +22,7 @@ INTERMEDIATE = 10
 PROJECTION = 5
 EPS = 1.0e-5
 NUM_PATCHES = (IMAGE_SIZE // PATCH_SIZE) ** 2
+LOCAL_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
 
 
 def _config():
@@ -42,7 +46,7 @@ def _weights():
         return (rng.standard_normal(shape).astype(np.float32) / scale).astype(np.float32)
 
     config = _config()
-    return {
+    weights = {
         "vision_model.embeddings.class_embedding": _normal((config.hidden_size,), 4.0),
         "vision_model.embeddings.patch_embedding.weight": _normal(
             (config.hidden_size, config.num_channels, config.patch_size, config.patch_size),
@@ -56,27 +60,27 @@ def _weights():
         "vision_model.pre_layrnorm.bias": _normal((config.hidden_size,), 5.5),
         "vision_model.post_layernorm.weight": _normal((config.hidden_size,), 3.5),
         "vision_model.post_layernorm.bias": _normal((config.hidden_size,), 5.5),
-        "vision_model.encoder.layers.0.layer_norm1.weight": _normal((config.hidden_size,), 4.0),
-        "vision_model.encoder.layers.0.layer_norm1.bias": _normal((config.hidden_size,), 6.0),
-        "vision_model.encoder.layers.0.self_attn.q_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "vision_model.encoder.layers.0.self_attn.q_proj.bias": _normal((config.hidden_size,), 7.0),
-        "vision_model.encoder.layers.0.self_attn.k_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "vision_model.encoder.layers.0.self_attn.k_proj.bias": _normal((config.hidden_size,), 7.0),
-        "vision_model.encoder.layers.0.self_attn.v_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "vision_model.encoder.layers.0.self_attn.v_proj.bias": _normal((config.hidden_size,), 7.0),
-        "vision_model.encoder.layers.0.self_attn.out_proj.weight": _normal(
-            (config.hidden_size, config.hidden_size),
-            5.0,
-        ),
-        "vision_model.encoder.layers.0.self_attn.out_proj.bias": _normal((config.hidden_size,), 7.0),
-        "vision_model.encoder.layers.0.layer_norm2.weight": _normal((config.hidden_size,), 4.0),
-        "vision_model.encoder.layers.0.layer_norm2.bias": _normal((config.hidden_size,), 6.0),
-        "vision_model.encoder.layers.0.mlp.fc1.weight": _normal((config.intermediate_size, config.hidden_size), 4.0),
-        "vision_model.encoder.layers.0.mlp.fc1.bias": _normal((config.intermediate_size,), 6.0),
-        "vision_model.encoder.layers.0.mlp.fc2.weight": _normal((config.hidden_size, config.intermediate_size), 4.0),
-        "vision_model.encoder.layers.0.mlp.fc2.bias": _normal((config.hidden_size,), 6.0),
         "visual_projection.weight": _normal((config.projection_dim, config.hidden_size), 4.0),
     }
+    for layer_idx in range(2):
+        prefix = f"vision_model.encoder.layers.{layer_idx}"
+        weights[f"{prefix}.layer_norm1.weight"] = _normal((config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm1.bias"] = _normal((config.hidden_size,), 6.0)
+        weights[f"{prefix}.self_attn.q_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.q_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.k_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.k_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.v_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.v_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.out_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.out_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.layer_norm2.weight"] = _normal((config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm2.bias"] = _normal((config.hidden_size,), 6.0)
+        weights[f"{prefix}.mlp.fc1.weight"] = _normal((config.intermediate_size, config.hidden_size), 4.0)
+        weights[f"{prefix}.mlp.fc1.bias"] = _normal((config.intermediate_size,), 6.0)
+        weights[f"{prefix}.mlp.fc2.weight"] = _normal((config.hidden_size, config.intermediate_size), 4.0)
+        weights[f"{prefix}.mlp.fc2.bias"] = _normal((config.hidden_size,), 6.0)
+    return weights
 
 
 WEIGHTS = _weights()
@@ -113,7 +117,13 @@ def _trace(num_hidden_layers=0):
 
 def _reference_outputs(num_hidden_layers=0):
     torch = pytest.importorskip("torch")
+    if str(LOCAL_TRANSFORMERS_SRC) not in sys.path:
+        sys.path.insert(0, str(LOCAL_TRANSFORMERS_SRC))
     transformers = pytest.importorskip("transformers")
+    resolved = Path(transformers.__file__).resolve()
+    assert resolved.is_relative_to(LOCAL_TRANSFORMERS_SRC.resolve()), (
+        f"expected local /workspace/transformers import, got {resolved}"
+    )
 
     config = transformers.CLIPVisionConfig(
         hidden_size=HIDDEN,
@@ -261,6 +271,41 @@ def test_clip_vision_wrapper_one_layer_matches_local_transformers():
 
     actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
     expected = _reference_outputs(1)
+
+    np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["pooler_output"], expected["pooler_output"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_features"], expected["image_features"], atol=1e-5, rtol=1e-5)
+
+
+def test_clip_vision_wrapper_two_layer_matches_local_transformers():
+    spec = _trace(2)
+    node_ops = [node["op"] for node in spec.ir["nodes"]]
+
+    assert node_ops.count("conv2d_bias") == 1
+    assert node_ops.count("permute021") == 1
+    assert node_ops.count("expand") == 1
+    assert node_ops.count("concatenate") == 1
+    assert node_ops.count("embedding") == 1
+    assert node_ops.count("layer_norm") == 6
+    assert node_ops.count("gemm_rcr_bias") == 10
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 2
+    assert node_ops.count("permute0213") == 8
+    assert node_ops.count("bmm_rcr") == 2
+    assert node_ops.count("bmm_rrr") == 2
+    assert node_ops.count("softmax") == 2
+    assert node_ops.count("dynamic_slice") == 1
+    assert node_ops.count("gemm_rcr") == 1
+    assert [output["name"] for output in spec.ir["outputs"]] == [
+        "last_hidden_state",
+        "pooler_output",
+        "image_features",
+    ]
+    assert spec.ir["outputs"][0]["shape"] == [BATCH, NUM_PATCHES + 1, HIDDEN]
+    assert spec.ir["outputs"][1]["shape"] == [BATCH, HIDDEN]
+    assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
+
+    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
+    expected = _reference_outputs(2)
 
     np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["pooler_output"], expected["pooler_output"], atol=1e-5, rtol=1e-5)

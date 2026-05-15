@@ -199,26 +199,26 @@ A bounded CLIP vision-wrapper path is now in-tree at `src/dinoml/models/clip.py`
   scaffold, the final projection stays CUTLASS GEMM-backed, and the sequence
   assembly plus LayerNorm/pool path stay model-generated.
 
-## 2026-05-15 landed first real vision encoder layer slice
+## 2026-05-15 landed bounded multi-layer vision encoder slice
 
-The bounded CLIP vision wrapper now also admits a single real encoder block.
+The bounded CLIP vision wrapper now also admits stacked real encoder blocks.
 
 - The admitted surface remains intentionally narrow: fixed-size semantic NCHW
-  embeddings, `pre_layrnorm`, exactly zero or one encoder layer, CLS pooling,
-  `post_layernorm`, and bias-free visual projection. The one-layer encoder path
+  embeddings, `pre_layrnorm`, any non-negative `num_hidden_layers`, CLS
+  pooling, `post_layernorm`, and bias-free visual projection. The encoder path
   matches the local Transformers `CLIPVisionModelWithProjection` contract as
   `layer_norm -> dense noncausal self-attention -> residual -> layer_norm ->
   quick_gelu MLP -> residual`, reusing the already landed GEMM/BMM/softmax and
   `gemm_rcr_bias_fast_gelu` composition rather than introducing a new public
   attention or activation op.
 - The honest limits stay explicit: `num_hidden_layers` is admitted only for
-  `{0, 1}`, there is still no positional interpolation, no arbitrary image
-  sizes, no padding/causal mask handling in the vision block, no full
-  `CLIPModel`, and no widened Conv/provider claims. CPU reference execution
-  proves both the preserved zero-layer path and the new one-layer path against
-  local Transformers; compiled CPU artifacts still stop honestly at the
-  existing `conv2d_bias` backend boundary.
-- Focused tests keep ownership visible on the one-layer path: patch projection
+  non-negative integers, there is still no positional interpolation, no
+  arbitrary image sizes, no padding/causal mask handling in the vision block,
+  no full `CLIPModel`, and no widened Conv/provider claims. CPU reference
+  execution now proves the preserved zero-layer path plus deterministic one-
+  and two-layer paths against local Transformers; compiled CPU artifacts still
+  stop honestly at the existing `conv2d_bias` backend boundary.
+- Focused tests keep ownership visible on the encoder path: patch projection
   remains on the CUTLASS Conv scaffold, attention/MLP GEMM+BMM pieces stay
   CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool path stay
   model-generated.
@@ -229,7 +229,7 @@ The smallest real CLIPModel-style assembly is now in-tree at
 `src/dinoml/models/clip.py`.
 
 - The admitted surface stays intentionally narrow: reuse the bounded
-  `LegacyCLIPTextModelWithProjection` and one-layer
+  `LegacyCLIPTextModelWithProjection` and bounded
   `LegacyCLIPVisionModelWithProjection` slices to produce projected text and
   image features, L2-normalize both with the existing `vector_norm` + `div`
   composition, apply `exp(logit_scale)`, compute `logits_per_text` with
@@ -237,9 +237,9 @@ The smallest real CLIPModel-style assembly is now in-tree at
   `get_text_features` and `get_image_features` in the same bounded spirit as
   the local Transformers `CLIPModel`.
 - The honest limits stay explicit: static traced text sequence length, default
-  traced text positions only, one-layer-or-fewer vision encoder, fixed square
-  NCHW pixel input only, no positional interpolation, no tokenizer/processor
-  plumbing, no loss path, and no new op or provider surface. The top-level
+  traced text positions only, fixed square NCHW pixel input only, no positional
+  interpolation, no tokenizer/processor plumbing, no loss path, and no new op
+  or provider surface. The top-level
   model remains a proof for the admitted tiny CLIPConfig surface, not a broad
   CLIP checkpoint claim.
 - Focused tests compare projected features, normalized embeds, and

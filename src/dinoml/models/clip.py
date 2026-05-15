@@ -98,10 +98,9 @@ class LegacyCLIPVisionConfig:
     This helper intentionally models only the admitted CLIP vision-wrapper
     slice currently landed in DinoML: fixed square NCHW pixel input,
     source-faithful embeddings, pre-LayerNorm, either a no-op encoder
-    (`num_hidden_layers == 0`) or one real encoder block
-    (`num_hidden_layers == 1`), CLS pool, post-LayerNorm, and bias-free visual
-    projection. It does not admit interpolation, arbitrary image sizes, or
-    more than one encoder layer yet.
+    (`num_hidden_layers == 0`) or one-or-more real encoder blocks,
+    CLS pool, post-LayerNorm, and bias-free visual projection. It does not
+    admit interpolation or arbitrary image sizes.
     """
 
     hidden_size: int
@@ -123,8 +122,8 @@ class LegacyCLIPVisionConfig:
             raise ValueError("num_attention_heads must be positive")
         if self.hidden_size % self.num_attention_heads != 0:
             raise ValueError("hidden_size must be divisible by num_attention_heads")
-        if self.num_hidden_layers not in (0, 1):
-            raise ValueError("LegacyCLIPVisionConfig currently admits only num_hidden_layers in {0, 1}")
+        if self.num_hidden_layers < 0:
+            raise ValueError("num_hidden_layers must be non-negative")
         if self.projection_dim <= 0:
             raise ValueError("projection_dim must be positive")
         if self.image_size <= 0:

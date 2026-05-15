@@ -191,10 +191,9 @@ def register_conv_ops(registry: OpRegistry) -> None:
                 "Compiled CPU artifacts now also have a bounded generated naive "
                 "runtime for the admitted float16/float32 contract. CUDA compile "
                 "emits artifact-visible CUTLASS Conv pack/launch/unpack metadata, "
-                "materializes the support boundary when possible, and runs a "
-                "correctness-first float16 groups=1 static-shape CUTLASS SIMT "
-                "launcher while profiler/execution-plan and TensorOp maturity "
-                "remain future work."
+                "materializes the support boundary when possible, and runs "
+                "correctness-first static groups=1 CUTLASS launchers for "
+                "float32 SIMT and the bounded float16 SIMT/TensorOp candidates."
             ),
         )
     )

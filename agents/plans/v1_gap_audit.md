@@ -270,11 +270,12 @@ porting. It intentionally excludes the op inventory, which lives in
   the support-library transform helpers, call the selected provider launcher
   symbol, and unpack outputs back to NCHW. Focused CUDA runtime parity covers
   the bounded fp16 C=3 few-channel path, C=4 fixed-channel path, and optimized
-  C=16/O=16 path against Torch, plus the exact CLIP float32 patch-projection
-  SIMT path against local Transformers/Torch, while manifest/source tests keep
-  C=8 artifact-visible and keep unaligned non-small-channel shapes on the SIMT
-  fallback with no hidden channel padding. Other float32 Conv shapes remain
-  scaffold-only. Conv profile workload construction
+  C=16/O=16 path against Torch, plus the CLIP float32 patch-projection and a
+  representative non-CLIP float32 stride/padding/dilation SIMT path against
+  local Transformers/Torch, while manifest/source tests keep C=8
+  artifact-visible and keep unaligned non-small-channel shapes on the SIMT
+  fallback with no hidden channel padding. Static groups=1 float32 Conv now
+  uses the bounded SIMT runtime/profiler path. Conv profile workload construction
   now filters candidates through the same shape/layout/dtype predicate used by
   manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer
   emitted. `profile_artifact` now profiles those Conv candidates on

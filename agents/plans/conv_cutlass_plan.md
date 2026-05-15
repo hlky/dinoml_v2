@@ -304,12 +304,11 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   candidates selected only for semantic input `C=4` or `C=8`, all with no
   channel padding. Focused CUDA runtime parity validates the selected C=3
   few-channel path, selected C=4 fixed-channel path, optimized C=16/O=16 path,
-  and the exact CLIP float32 patch-projection SIMT path against Torch or local
-  Transformers, while manifest/source tests keep C=8 artifact-visible and keep
-  non-3/4/8 shapes on the SIMT fallback. Float32 Conv shapes outside that exact
-  CLIP runtime slice remain scaffold-only, so the mixed float32 candidate-set
-  status stays conservative and `cutlass_conv_plan.status` is the per-shape
-  runtime/scaffold authority.
+  the CLIP float32 patch-projection SIMT path, and a representative non-CLIP
+  float32 SIMT shape against Torch or local Transformers, while manifest/source
+  tests keep C=8 artifact-visible and keep non-3/4/8 fp16 shapes on the SIMT
+  fallback. Static groups=1 float32 Conv now uses the bounded SIMT runtime and
+  profiler boundary instead of remaining exact-shape scaffold-only.
 - The profile workload builder now emits real static `cutlass_conv` workloads
   for compatible runtime candidates and preserves the same layout translation,
   weight-transform, Conv config, candidate/config, and source provenance in
@@ -362,9 +361,8 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
 - Model CUDA compile now builds a generated module when `nvcc` can compile the
   support library, and the artifact manifest carries
   `lib/libdinoml_cutlass_conv.so`. The selected provider launcher is
-  the float32 SIMT implicit-GEMM fallback for the exact CLIP patch-projection
-  shape, or, for float16,
-  either the SIMT implicit-GEMM fallback, the C=3 TensorOp FewChannels
+  the float32 SIMT implicit-GEMM fallback for static groups=1 shapes, or, for
+  float16, either the SIMT implicit-GEMM fallback, the C=3 TensorOp FewChannels
   Fprop+bias call, the C=4/C=8 TensorOp FixedChannels Fprop+bias call, or the
   regular TensorOp Optimized Fprop+bias call for naturally aligned
   non-small-channel shapes (`C >= 16`, input/output channels divisible by 8),
@@ -372,9 +370,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   evaluator now filters Conv profile workload construction so incompatible
   small-channel and optimized candidates are not emitted for a node's
   shape/layout/dtype contract. CUDA runtime parity covers C=3 FewChannels,
-  C=4 FixedChannels, optimized C=16/O=16, and the exact CLIP float32
-  patch-projection SIMT path against Torch/local Transformers; CUDA-gated
-  profile smoke validates the real Conv profiler exports through
+  C=4 FixedChannels, optimized C=16/O=16, the CLIP float32 patch-projection
+  SIMT path, and a non-CLIP float32 stride/padding/dilation SIMT path against
+  Torch/local Transformers; CUDA-gated profile smoke validates the real Conv
+  profiler exports through
   `profile_artifact`.
   No dynamic Conv profiling, guarded Conv dispatch,
   grouped/depthwise/transposed/3D coverage, runtime-set packed weights, C=8

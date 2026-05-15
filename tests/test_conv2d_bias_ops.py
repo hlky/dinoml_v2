@@ -1275,7 +1275,7 @@ def test_conv2d_bias_cuda_runtime_float32_simt_clip_patch_shape_matches_torch(tm
         module.close()
 
 
-def test_cutlass_conv2d_bias_float32_non_clip_shape_stays_scaffold_only():
+def test_cutlass_conv2d_bias_float32_non_clip_shape_uses_simt_runtime():
     spec = _trace_conv2d_bias(
         "float32",
         x_shape=(2, 3, 6, 7),
@@ -1289,13 +1289,67 @@ def test_cutlass_conv2d_bias_float32_non_clip_shape_stays_scaffold_only():
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
     [required] = kernel_manifest["required_kernels"]
 
-    assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias_scaffold")
-    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
-    assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
-    assert required["candidate_set"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
-    assert required["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
-    assert required["cutlass_conv_plan"]["blocked_reason"] == "cutlass_conv_runtime_launcher_not_implemented"
+    assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert required["candidate_set"]["status"] == "bounded_runtime"
+    assert required["candidate_set"]["profiler_status"] == "bounded_runtime_profiler"
+    assert "profiler_blocked_reason" not in required["candidate_set"]
+    assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
+    assert required["cutlass_conv_plan"]["profiler_status"] == "bounded_runtime_profiler"
     assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"]["kind"] == "fallback"
+
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+    assert len(workloads) == 1
+    assert workloads[0].candidate["dtype"] == "float32"
+    assert workloads[0].candidate["status"] == "bounded_runtime"
+    assert workloads[0].candidate["cutlass"]["opclass"] == "simt"
+    assert workloads[0].candidate["cutlass"]["iterator_algorithm"] == "analytic"
+
+
+def test_conv2d_bias_cuda_runtime_float32_simt_general_shape_matches_torch(tmp_path, monkeypatch):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("general float32 CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias(
+        "float32",
+        x_shape=(2, 3, 6, 7),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        stride=(1, 2),
+        padding=(1, 1),
+        dilation=(2, 1),
+    )
+    artifact_dir = tmp_path / "conv2d_bias_float32_general_cuda.dinoml"
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "analytic"
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input((2, 3, 6, 7), "float32", -1.0, 1.0)
+        weight = _input((4, 3, 2, 3), "float32", -0.5, 0.5)
+        bias = _input((4,), "float32", -0.25, 0.25)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+        expected = _torch_conv2d_bias_reference(
+            x,
+            weight,
+            bias,
+            stride=(1, 2),
+            padding=(1, 1),
+            dilation=(2, 1),
+        )
+        np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
+    finally:
+        session.close()
+        module.close()
 
 
 def test_cutlass_conv_support_scaffold_marks_exports_source_only_without_nvcc(tmp_path, monkeypatch):

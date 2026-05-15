@@ -579,7 +579,7 @@ behavior.
   artifact-visible NHWC/OHWI provider transforms, groups=`1`, static
   channel/kernel attrs, and CPU/PyTorch reference validation. The first
   reference/runtime slice now exists as a public `conv2d_bias` frontend plus
-  CPU reference execution plus CUDA `float16` and exact `float32` SIMT
+  CPU reference execution plus CUDA `float16` and static groups=1 `float32` SIMT
   groups=1 static rank-4 runtime paths. CUDA compile emits `bounded_runtime`
   `cutlass_conv_plan` kernel-manifest/codegen metadata for selected runtime
   shapes, keeps the NCHW -> NHWC activation pack,
@@ -597,12 +597,12 @@ behavior.
   8); all use bias as CUTLASS C with
   `TensorNHWC::Stride(0)` and no hidden channel padding. Focused CUDA runtime
   parity compares the selected C=3 few-channel, C=4 fixed-channel, optimized
-  C=16/O=16, and exact CLIP float32 patch-projection public NCHW/OIHW results
-  against Torch/local Transformers, and
+  C=16/O=16, exact CLIP float32 patch-projection, and representative non-CLIP
+  float32 stride/padding/dilation public NCHW/OIHW results against Torch/local
+  Transformers, and
   manifest/source tests prove C=8 is artifact-visible while unaligned shapes
-  stay on the SIMT fallback. Other float32 Conv shapes remain scaffold-only,
-  and the mixed float32 candidate set therefore reports a conservative scaffold
-  status while exact-shape runtime support is recorded on the selected plan.
+  stay on the SIMT fallback. The float32 candidate set now reports bounded
+  runtime/profiler status for the static groups=1 SIMT path.
   Compiled CPU artifacts now also have a bounded
   generated naive `conv2d_bias` path for the admitted public contract: static
   rank-4 NCHW activations, OIHW weights, rank-1 bias, groups=1, and

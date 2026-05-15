@@ -11,7 +11,6 @@ CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CONV_OPS = ("conv2d_bias",)
 CONV_SUPPORTED_DTYPES = ("float16", "float32")
 _CUTLASS_CONV_SIMT_SYMBOL_ID = "simt_sm80_nhwc_ohwi_bias"
-_CUTLASS_CONV_FLOAT32_SCAFFOLD_SYMBOL_ID = "simt_sm80_nhwc_ohwi_bias_scaffold"
 _CUTLASS_CONV_FEW_CHANNELS_SYMBOL_ID = "tensorop_sm80_nhwc_ohwi_bias_few_channels_c3"
 _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS = {
     4: "tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c4",
@@ -84,16 +83,11 @@ def cutlass_conv_candidates(
     normalized_dtype = _normalize_conv_dtype(dtype)
     normalized_target = _normalize_target_policy(target)
     status = _conv_candidate_status(normalized_dtype)
-    fallback_symbol_id = (
-        _CUTLASS_CONV_FLOAT32_SCAFFOLD_SYMBOL_ID
-        if normalized_dtype == "float32"
-        else _CUTLASS_CONV_SIMT_SYMBOL_ID
-    )
     candidates = [
         _cutlass_conv_candidate(
             op_name,
             normalized_dtype,
-            symbol_id=fallback_symbol_id,
+            symbol_id=_CUTLASS_CONV_SIMT_SYMBOL_ID,
             target_policy=normalized_target,
             status=status,
             accumulator_dtype="float32",
@@ -116,48 +110,6 @@ def cutlass_conv_candidates(
             optional=False,
         )
     ]
-    if normalized_dtype == "float32":
-        candidates.append(
-            _cutlass_conv_candidate(
-                op_name,
-                normalized_dtype,
-                symbol_id=_CUTLASS_CONV_SIMT_SYMBOL_ID,
-                target_policy=normalized_target,
-                status=_CUTLASS_CONV_RUNTIME_STATUS,
-                accumulator_dtype="float32",
-                cutlass={
-                    "opclass": "simt",
-                    "arch": "sm80",
-                    "iterator_algorithm": "analytic",
-                    "instruction_shape": [1, 1, 1],
-                    "threadblock": [128, 64, 8],
-                    "warp": [32, 64, 8],
-                    "stages": 2,
-                    "align_a": 1,
-                    "align_b": 1,
-                    "kind": "implicit_gemm_runtime_launcher",
-                },
-                selection_predicate={
-                    "kind": "semantic_input_channels",
-                    "input_channels": 3,
-                    "dtype": "float32",
-                    "groups": 1,
-                    "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
-                    "padding_policy": "none",
-                    "exact_runtime_slice": {
-                        "name": "clip_patch_projection_float32",
-                        "activation_shape": ["batch", 3, 4, 4],
-                        "weight_shape": [6, 3, 2, 2],
-                        "output_shape": ["batch", 6, 2, 2],
-                        "stride": [2, 2],
-                        "padding": [0, 0],
-                        "dilation": [1, 1],
-                        "groups": 1,
-                    },
-                },
-                optional=True,
-            )
-        )
     if normalized_dtype == "float16":
         candidates.append(
             _cutlass_conv_candidate(
@@ -2536,10 +2488,8 @@ def _validate_conv_op_name(op_name: str) -> None:
 
 
 def _conv_candidate_status(dtype: str) -> str:
-    normalized = _normalize_conv_dtype(dtype)
-    if normalized == "float16":
-        return _CUTLASS_CONV_RUNTIME_STATUS
-    return _CUTLASS_CONV_SCAFFOLD_STATUS
+    _normalize_conv_dtype(dtype)
+    return _CUTLASS_CONV_RUNTIME_STATUS
 
 
 def _conv_plan_status(
@@ -2550,26 +2500,8 @@ def _conv_plan_status(
     output_shape: Any,
     conv_config: Mapping[str, Any],
 ) -> str:
-    normalized = _normalize_conv_dtype(dtype)
-    if normalized == "float16":
-        return _CUTLASS_CONV_RUNTIME_STATUS
-    if normalized == "float32" and _cutlass_conv_exact_runtime_slice_compatible(
-        {
-            "activation_shape": ["batch", 3, 4, 4],
-            "weight_shape": [6, 3, 2, 2],
-            "output_shape": ["batch", 6, 2, 2],
-            "stride": [2, 2],
-            "padding": [0, 0],
-            "dilation": [1, 1],
-            "groups": 1,
-        },
-        input_shape=input_shape,
-        weight_shape=weight_shape,
-        output_shape=output_shape,
-        conv_config=conv_config,
-    ):
-        return _CUTLASS_CONV_RUNTIME_STATUS
-    return _CUTLASS_CONV_SCAFFOLD_STATUS
+    _normalize_conv_dtype(dtype)
+    return _CUTLASS_CONV_RUNTIME_STATUS
 
 
 def _conv_plan_status_payload(status: str) -> dict[str, Any]:

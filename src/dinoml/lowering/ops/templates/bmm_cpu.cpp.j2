@@ -40,9 +40,13 @@ static int {{ func }}(
       const int64_t c_row_base = c_batch_base + row * runtime_n;
       for (int64_t col = 0; col < runtime_n; ++col) {
         float acc = 0.0f;
-        const int64_t b_col_base = b_batch_base + col * runtime_k;
         for (int64_t kk = 0; kk < runtime_k; ++kk) {
-          acc += dinoml::math::cast<float>(a[a_row_base + kk]) * dinoml::math::cast<float>(b[b_col_base + kk]);
+{% if b_layout == "c" %}
+          const int64_t b_index = b_batch_base + col * runtime_k + kk;
+{% else %}
+          const int64_t b_index = b_batch_base + kk * runtime_n + col;
+{% endif %}
+          acc += dinoml::math::cast<float>(a[a_row_base + kk]) * dinoml::math::cast<float>(b[b_index]);
         }
         c[c_row_base + col] = dinoml::math::cast<{{ storage_type }}>(acc);
       }

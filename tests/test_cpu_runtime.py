@@ -4214,6 +4214,13 @@ def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, 
 
 
 @pytest.mark.parametrize(
+    ("op_name", "a_spec_shape", "b_spec_shape"),
+    [
+        ("bmm_rcr", lambda token_dim: [2, token_dim, 4], lambda token_dim: [2, token_dim, 4]),
+        ("bmm_rrr", lambda token_dim: [2, token_dim, token_dim], lambda token_dim: [2, token_dim, 4]),
+    ],
+)
+@pytest.mark.parametrize(
     ("dtype", "atol", "rtol"),
     [
         ("float32", 1e-5, 1e-5),
@@ -4221,66 +4228,102 @@ def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, 
         ("bfloat16", 2e-2, 2e-2),
     ],
 )
-def test_cpu_artifact_runs_generated_naive_bmm_rcr_with_dynamic_token_shape(tmp_path, monkeypatch, dtype, atol, rtol):
+def test_cpu_artifact_runs_generated_naive_bmm_with_dynamic_token_shape(
+    tmp_path,
+    monkeypatch,
+    op_name,
+    a_spec_shape,
+    b_spec_shape,
+    dtype,
+    atol,
+    rtol,
+):
     from dinoml import runtime
 
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     token_dim = dml.Dim("tokens", min=1, max=8)
     spec = dml.trace(
-        BmmModule("bmm_rcr"),
+        BmmModule(op_name),
         inputs={
-            "a": dml.TensorSpec([2, token_dim, 4], dtype),
-            "b": dml.TensorSpec([2, token_dim, 4], dtype),
+            "a": dml.TensorSpec(a_spec_shape(token_dim), dtype),
+            "b": dml.TensorSpec(b_spec_shape(token_dim), dtype),
         },
-        name=f"bmm_rcr_dynamic_{dtype}_cpu",
+        name=f"{op_name}_dynamic_{dtype}_cpu",
     )
-    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"bmm_rcr_dynamic_{dtype}_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{op_name}_dynamic_{dtype}_cpu.dinoml")
 
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
-    assert "static int bmm_rcr_" in generated
+    assert f"static int {op_name}_" in generated
 
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
         rng = np.random.default_rng(2234)
         for tokens in (3, 6):
-            a = rng.standard_normal((2, tokens, 4)).astype(np.float32)
-            b = rng.standard_normal((2, tokens, 4)).astype(np.float32)
+            if op_name == "bmm_rcr":
+                a = rng.standard_normal((2, tokens, 4)).astype(np.float32)
+                b = rng.standard_normal((2, tokens, 4)).astype(np.float32)
+            else:
+                a = rng.standard_normal((2, tokens, tokens)).astype(np.float32)
+                b = rng.standard_normal((2, tokens, 4)).astype(np.float32)
             a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
             b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
-            expected = np.matmul(a_reference, np.swapaxes(b_reference, -1, -2))
+            if op_name == "bmm_rcr":
+                expected = np.matmul(a_reference, np.swapaxes(b_reference, -1, -2))
+            else:
+                expected = np.matmul(a_reference, b_reference)
             expected = array_from_storage(array_to_storage(expected, dtype), dtype)
             actual = session.run_numpy({"a": a, "b": b})["y"]
-            assert actual.shape == (2, tokens, tokens)
+            if op_name == "bmm_rcr":
+                assert actual.shape == (2, tokens, tokens)
+            else:
+                assert actual.shape == (2, tokens, 4)
             np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
     finally:
         session.close()
         module.close()
 
 
-def test_cpu_artifact_runs_generated_naive_bmm_rcr_with_batch_broadcast(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("op_name", "a_shape", "b_shape", "expected_shape"),
+    [
+        ("bmm_rcr", [1, 3, 4], [2, 5, 4], (2, 3, 5)),
+        ("bmm_rrr", [2, 3, 4], [1, 4, 5], (2, 3, 5)),
+    ],
+)
+def test_cpu_artifact_runs_generated_naive_bmm_with_batch_broadcast(
+    tmp_path,
+    monkeypatch,
+    op_name,
+    a_shape,
+    b_shape,
+    expected_shape,
+):
     from dinoml import runtime
 
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = dml.trace(
-        BmmModule("bmm_rcr"),
+        BmmModule(op_name),
         inputs={
-            "a": dml.TensorSpec([1, 3, 4], "float32"),
-            "b": dml.TensorSpec([2, 5, 4], "float32"),
+            "a": dml.TensorSpec(a_shape, "float32"),
+            "b": dml.TensorSpec(b_shape, "float32"),
         },
-        name="bmm_rcr_broadcast_cpu",
+        name=f"{op_name}_broadcast_cpu",
     )
-    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "bmm_rcr_broadcast_cpu.dinoml")
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"{op_name}_broadcast_cpu.dinoml")
 
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
         rng = np.random.default_rng(2299)
-        a = rng.standard_normal((1, 3, 4)).astype(np.float32)
-        b = rng.standard_normal((2, 5, 4)).astype(np.float32)
-        expected = np.matmul(a, np.swapaxes(b, -1, -2)).astype(np.float32)
+        a = rng.standard_normal(tuple(a_shape)).astype(np.float32)
+        b = rng.standard_normal(tuple(b_shape)).astype(np.float32)
+        if op_name == "bmm_rcr":
+            expected = np.matmul(a, np.swapaxes(b, -1, -2)).astype(np.float32)
+        else:
+            expected = np.matmul(a, b).astype(np.float32)
         actual = session.run_numpy({"a": a, "b": b})["y"]
-        assert actual.shape == (2, 3, 5)
+        assert actual.shape == expected_shape
         np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
     finally:
         session.close()

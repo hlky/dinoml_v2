@@ -431,7 +431,7 @@ def test_clip_model_two_tower_zero_text_zero_vision_cpu_compile_boundary_stays_h
 def test_clip_model_two_tower_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_model()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op bmm_rrr"):
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rcr_bias_fast_gelu"):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
 
 

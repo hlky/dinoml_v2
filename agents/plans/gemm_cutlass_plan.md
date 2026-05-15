@@ -76,14 +76,15 @@ The runtime GEMM port now wires model lowering into that support library:
    cached launcher with runtime `M/N/K`, so smaller runtime `M/N` values use the
    same max-shape artifact.
 4. CPU now has a bounded naive generated path for `gemm_rcr`,
-   `gemm_rcr_bias`, and `bmm_rcr`: compiled CPU artifacts flatten `A[..., K]`
-   into runtime `M` for GEMM, keep rank-3 `B x M x N` semantics for BMM, and
-   run straightforward row-major loops for `float32`, `float16`, and
-   `bfloat16`, including rank-1 or `[1, N]` bias for `gemm_rcr_bias` and
-   zero-stride batch broadcast for `bmm_rcr`. This is an explicit bridge for
-   CLIP CPU artifacts, not a library-backed provider path. Other compiled CPU
-   GEMM/BMM families still reject until a better CPU library/runtime path
-   lands.
+   `gemm_rcr_bias`, `bmm_rcr`, and `bmm_rrr`: compiled CPU artifacts flatten
+   `A[..., K]` into runtime `M` for GEMM, keep rank-3 `B x M x N` semantics
+   for BMM, and run straightforward row-major loops for `float32`, `float16`,
+   and `bfloat16`, including rank-1 or `[1, N]` bias for `gemm_rcr_bias`,
+   zero-stride batch broadcast for both admitted BMM layouts, and
+   row-major-logical `B[B, K, N]` handling for `bmm_rrr`. This is an explicit
+   bridge for CLIP CPU artifacts, not a library-backed provider path. Other
+   compiled CPU GEMM/BMM families still reject until a better CPU
+   library/runtime path lands.
 
 GGUF runtime dequantization before GEMM now has a bounded CUDA runtime slice for
 `gemm_rrr`, `gemm_rcr`, `gemm_rrr_bias`, and `gemm_rcr_bias` with a GGUF RHS
@@ -126,10 +127,14 @@ frontend and CPU reference cover
 same v1 layout semantics: A and B `c` layouts transpose the last two logical
 dimensions, and C `c` layouts return `[B, N, M]` output. `_add` accepts an
 output-shaped addend or v1-style trailing-bias addend after leading `1`s are
-squeezed. Compiled CPU artifacts now also have a bounded naive `bmm_rcr`
-bridge for CLIP attention: rank-3 row-major `A[B, M, K]`, column-major-logical
-`B[B, N, K]`, row-major `C[B, M, N]`, and v1-style batch broadcast through
-zero batch strides. The base `bmm_*` ops now register a separate `cutlass_bmm`
+squeezed. Compiled CPU artifacts now also have bounded naive `bmm_rcr` and
+`bmm_rrr` bridges for CLIP attention: rank-3 row-major `A[B, M, K]`,
+column-major-logical `B[B, N, K]` for `bmm_rcr`, row-major-logical
+`B[B, K, N]` for `bmm_rrr`, row-major `C[B, M, N]`, and v1-style batch
+broadcast through zero batch strides. This now covers the CLIP attention
+context matmul as a compiled CPU artifact and moves the deeper text/two-tower
+CPU boundary forward to `gemm_rcr_bias_fast_gelu`. The base `bmm_*` ops now
+register a separate `cutlass_bmm`
 external library with a real batched GEMM ABI carrying batch count,
 per-operand batch strides, leading dimensions, C-layout-aware output handling,
 v1-style batch broadcast through zero batch strides, candidate metadata, and

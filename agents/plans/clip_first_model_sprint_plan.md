@@ -254,8 +254,10 @@ The smallest real CLIPModel-style assembly is now in-tree at
   or provider surface. The top-level
   model remains a proof for the admitted tiny CLIPConfig surface, not a broad
   CLIP checkpoint claim. Compiled full-model CPU artifacts are still blocked
-  before the vision path at the existing `gemm_rcr_bias` backend boundary from
-  the text tower, while CUDA artifact planning/codegen still exposes the single
+  before the vision path; after the bounded naive compiled CPU `bmm_rcr` and
+  `bmm_rrr` bridges for the text attention path, the current text-side blocker
+  is now `gemm_rcr_bias_fast_gelu`, while CUDA artifact planning/codegen still
+  exposes the single
   Conv node honestly as a `cutlass_conv` scaffold entry with visible
   activation/weight pack and output unpack wrapper stages.
 - Focused tests compare projected features, normalized embeds, and

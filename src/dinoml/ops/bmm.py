@@ -15,7 +15,7 @@ def register_bmm_ops(registry: OpRegistry) -> None:
     for op_name in BMM_OPS:
         spec = bmm_op_spec(op_name)
         backend_kernels = _backend_kernels(op_name)
-        if op_name == "bmm_rcr":
+        if op_name in {"bmm_rcr", "bmm_rrr"}:
             backend_kernels["cpu"] = KernelBinding(
                 symbol="generated_bmm",
                 library="model",

@@ -13,7 +13,7 @@ from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.definitions import get_op_def
 
-_CPU_BMM_OPS = {"bmm_rcr"}
+_CPU_BMM_OPS = {"bmm_rcr", "bmm_rrr"}
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -209,6 +209,7 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
     return {
         "func": f"{op_name}_{dtype}_{digest}",
         "storage_type": cpu_storage_type(dtype),
+        "b_layout": bmm_op_spec(op_name).b_layout,
     }
 
 

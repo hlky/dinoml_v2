@@ -233,6 +233,34 @@ def test_clip_text_attention_bool_padding_mask_cpu_reference():
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
+def test_clip_text_attention_cpu_artifact_with_padding_mask_matches_reference(tmp_path, monkeypatch):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace_with_padding_mask()
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_attention_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int bmm_rcr_" in generated
+    assert "static int bmm_rrr_" in generated
+
+    hidden_states = _hidden_states()
+    attention_mask = _attention_mask()
+    expected = _reference_attention(hidden_states, attention_mask=attention_mask)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {"hidden_states": hidden_states, "attention_mask": attention_mask}
+        )["out"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
 def test_clip_text_attention_manifest_keeps_cutlass_and_model_kernels_honest():
     spec = _trace_with_padding_mask()
     lowered, _ = PassManager().run(spec.ir)

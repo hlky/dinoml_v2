@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added a focused cached `openai/clip-vit-base-patch32` CUDA op audit and a
+  CLIP-shape CUDA `layer_norm` regression. The audit uses actual cached
+  checkpoint tower activations and stops at the first drifty provider row:
+  `text_layer_norm1`, `vision_pre_layer_norm`, `vision_patch_conv2d_bias`,
+  `text_q_proj_gemm_rcr_bias`, and `vision_q_proj_gemm_rcr_bias` are clean at
+  tight tolerances, while the CLIP MLP `fc1` fused activation row currently
+  drifts by about `2.07e-2`. That row is intentionally still named
+  `gemm_rcr_bias_fast_gelu` because it is the existing path being misused by
+  CLIP; do not change `fast_gelu` semantics. The next fix should add an
+  explicit QuickGELU surface/provider path for CLIP
+  (`x * sigmoid(1.702 * x)`) and update the model to use it.
 - Added an opt-in cached OpenAI CLIP base checkpoint compiled-CUDA artifact
   tractability smoke. The new smoke is gated by
   `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1`, forces
@@ -349,12 +360,11 @@ This file should be updated after each major loop.
   matching opt-in compiled CPU artifact smoke for the full two-tower base
   checkpoint. The cached base checkpoint also now compiles, loads, and runs as
   an opt-in CUDA artifact, but with a documented non-parity drift envelope. The
-  next high-value CLIP CUDA task is to isolate the source of that drift in a
-  tower, op, dtype/TF32, reduction, or provider path, rather than adding broader
-  checkpoint surfaces. The first known contrastive-head CUDA bug is now fixed in
-  generated `vector_norm`, so future drift isolation should compare cached
-  checkpoint text-only, image-only, normalized-embed, and logits boundaries
-  against the existing CPU/Transformers references before broadening scope.
+  next high-value CLIP CUDA task is no longer broad drift isolation: add a
+  distinct QuickGELU fused GEMM path for CLIP instead of mutating the existing
+  `fast_gelu` op. The first known contrastive-head CUDA bug is now fixed in
+  generated `vector_norm`, and final normalization/logit assembly has been
+  cross-checked against tower recomposition.
   Keep local `/workspace/transformers` parity as the acceptance bar and keep all
   non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test

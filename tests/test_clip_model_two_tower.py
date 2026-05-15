@@ -36,26 +36,26 @@ IMAGE_SIZE = 4
 PATCH_SIZE = 2
 
 
-def _text_config():
+def _text_config(*, num_hidden_layers: int = 2):
     return LegacyCLIPTextConfig(
         vocab_size=VOCAB_SIZE,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_size=TEXT_HIDDEN,
         intermediate_size=TEXT_INTERMEDIATE,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=2,
+        num_hidden_layers=num_hidden_layers,
         projection_dim=PROJECTION,
         layer_norm_eps=EPS,
         eos_token_id=2,
     )
 
 
-def _vision_config():
+def _vision_config(*, num_hidden_layers: int = 2):
     return LegacyCLIPVisionConfig(
         hidden_size=VISION_HIDDEN,
         intermediate_size=VISION_INTERMEDIATE,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=2,
+        num_hidden_layers=num_hidden_layers,
         projection_dim=PROJECTION,
         image_size=IMAGE_SIZE,
         patch_size=PATCH_SIZE,
@@ -231,7 +231,7 @@ def _import_local_transformers():
     return transformers
 
 
-def _reference_outputs():
+def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_layers: int = 2):
     torch = pytest.importorskip("torch")
     transformers = _import_local_transformers()
 
@@ -241,7 +241,7 @@ def _reference_outputs():
         intermediate_size=TEXT_INTERMEDIATE,
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=2,
+        num_hidden_layers=text_num_hidden_layers,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_act="quick_gelu",
         attention_dropout=0.0,
@@ -255,7 +255,7 @@ def _reference_outputs():
         intermediate_size=VISION_INTERMEDIATE,
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=2,
+        num_hidden_layers=vision_num_hidden_layers,
         image_size=IMAGE_SIZE,
         patch_size=PATCH_SIZE,
         num_channels=NUM_CHANNELS,
@@ -363,6 +363,48 @@ def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transform
         },
     )
     expected = _reference_outputs()
+
+    np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
+
+
+def test_clip_model_zero_layer_text_tower_matches_local_transformers():
+    text_config = _text_config(num_hidden_layers=0)
+    vision_config = _vision_config(num_hidden_layers=0)
+    spec = dml.trace(
+        LegacyCLIPModel(text_config, vision_config, WEIGHTS),
+        inputs={
+            "input_ids": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "int64"),
+            "pixel_values": dml.TensorSpec([IMAGE_BATCH, NUM_CHANNELS, IMAGE_SIZE, IMAGE_SIZE], "float32"),
+            "attention_mask": dml.TensorSpec([TEXT_BATCH, SEQ_LEN], "bool"),
+        },
+        name="clip_model_two_tower_zero_text_zero_vision",
+    )
+    node_ops = [node["op"] for node in spec.ir["nodes"]]
+
+    assert node_ops.count("conv2d_bias") == 1
+    assert node_ops.count("embedding") == 3
+    assert node_ops.count("layer_norm") == 3
+    assert node_ops.count("vector_norm") == 2
+    assert node_ops.count("div") == 2
+    assert node_ops.count("gemm_rcr") == 3
+    assert node_ops.count("gemm_rcr_bias") == 0
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 0
+    assert node_ops.count("bmm_rcr") == 0
+    assert node_ops.count("bmm_rrr") == 0
+    assert node_ops.count("exp") == 1
+
+    actual = execute_cpu(
+        spec,
+        {
+            "input_ids": _input_ids(),
+            "pixel_values": _pixel_values(),
+            "attention_mask": _attention_mask(),
+        },
+    )
+    expected = _reference_outputs(text_num_hidden_layers=0, vision_num_hidden_layers=0)
 
     np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=1e-5, rtol=1e-5)

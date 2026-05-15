@@ -42,8 +42,8 @@ class LegacyCLIPTextConfig:
             raise ValueError("intermediate_size must be positive")
         if self.projection_dim <= 0:
             raise ValueError("projection_dim must be positive")
-        if self.num_hidden_layers <= 0:
-            raise ValueError("num_hidden_layers must be positive")
+        if self.num_hidden_layers < 0:
+            raise ValueError("num_hidden_layers must be non-negative")
         if self.num_attention_heads <= 0:
             raise ValueError("num_attention_heads must be positive")
         if self.hidden_size % self.num_attention_heads != 0:

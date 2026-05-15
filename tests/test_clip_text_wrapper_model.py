@@ -181,7 +181,8 @@ def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = Tr
     model = transformers.CLIPModel(config)
     state_dict = model.state_dict()
     for name, value in WEIGHTS.items():
-        state_dict[name] = torch.from_numpy(np.asarray(value, dtype=np.float32))
+        if name in state_dict:
+            state_dict[name] = torch.from_numpy(np.asarray(value, dtype=np.float32))
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -248,6 +249,53 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers(
         eos_token_id=eos_token_id,
         include_position_ids=include_position_ids,
         num_hidden_layers=num_hidden_layers,
+    )
+
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize(
+    ("eos_token_id", "expected_counts", "include_position_ids"),
+    [
+        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}, True),
+        (2, {"argmax": 1, "batch_gather": 1, "eq": 0}, False),
+        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}, True),
+        (7, {"argmax": 1, "batch_gather": 1, "eq": 1}, False),
+    ],
+)
+def test_clip_text_wrapper_zero_layer_matches_local_transformers(
+    eos_token_id, expected_counts, include_position_ids
+):
+    spec = _trace(
+        eos_token_id=eos_token_id,
+        include_position_ids=include_position_ids,
+        num_hidden_layers=0,
+    )
+    node_ops = [node["op"] for node in spec.ir["nodes"]]
+
+    assert node_ops.count("embedding") == 2
+    assert node_ops.count("dynamic_slice") == 1
+    assert node_ops.count("layer_norm") == 1
+    assert node_ops.count("gemm_rcr") == 1
+    assert node_ops.count("gemm_rcr_bias") == 0
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 0
+    assert node_ops.count("bmm_rcr") == 0
+    assert node_ops.count("bmm_rrr") == 0
+    for op_name, expected_count in expected_counts.items():
+        assert node_ops.count(op_name) == expected_count
+
+    inputs = {
+        "input_ids": _input_ids(eos_token_id=eos_token_id),
+        "attention_mask": _attention_mask(),
+    }
+    if include_position_ids:
+        inputs["position_ids"] = _position_ids()
+
+    actual = execute_cpu(spec, inputs)["text_features"]
+    expected = _reference_outputs(
+        eos_token_id=eos_token_id,
+        include_position_ids=include_position_ids,
+        num_hidden_layers=0,
     )
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)

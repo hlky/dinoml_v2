@@ -51,7 +51,9 @@
   zero-layer text and vision paths, are covered by deterministic parity tests,
   and the first bounded two-tower `LegacyCLIPModel` workflow matches local
   Transformers for projected features, normalized embeds, and logits with a
-  compact runnable workflow proof. Preferred next slice: close the smallest
-  compiled artifact/runtime blocker for the admitted CLIPModel surface, or pick
-  a new narrow Transformers parity gap that is not already covered by the layer
-  count proofs.
+  compact runnable workflow proof. The current artifact boundary is now pinned:
+  full CPU compilation fails first at `gemm_rcr_bias`, and CUDA planning keeps
+  the CLIP Conv node visible as a scaffolded `cutlass_conv` wrapper. Preferred
+  next slice: narrow one of those artifact blockers, or pick a new narrow
+  Transformers parity gap that is not already covered by the layer-count
+  proofs.

@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged a distinct CLIP-focused
+  `gemm_rcr_bias_quick_gelu` fused GEMM slice without changing the existing
+  `fast_gelu` surface. The new path carries explicit `quick_gelu` activation
+  metadata, generated CPU lowering/reference semantics for
+  `x * sigmoid(1.702 * x)`, a dedicated CUTLASS `BiasQuickGeluEpilogue`, CLIP
+  MLP wiring, and updated CLIP wrapper/workflow/provider expectations. Focused
+  validation covered frontend/provider metadata, CPU reference and generated
+  CPU artifact lowering, CUDA source rendering, distinct fast/quick GELU
+  surfaces, a generated CUDA CLIP MLP runtime parity check, and the cached
+  checkpoint CUDA op audit; the audit now treats the text `fc1` QuickGELU row
+  as clean instead of the first known fused-activation drift. This was aligned
+  with human steering to keep `fast_gelu` intact and make QuickGELU explicit.
 - Added a focused cached `openai/clip-vit-base-patch32` CUDA op audit and a
   CLIP-shape CUDA `layer_norm` regression. The audit uses actual cached
   checkpoint tower activations and stops at the first drifty provider row:
@@ -359,12 +371,13 @@ This file should be updated after each major loop.
   `openai/clip-vit-base-patch32` CPU-reference runtime parity smoke, and a
   matching opt-in compiled CPU artifact smoke for the full two-tower base
   checkpoint. The cached base checkpoint also now compiles, loads, and runs as
-  an opt-in CUDA artifact, but with a documented non-parity drift envelope. The
-  next high-value CLIP CUDA task is no longer broad drift isolation: add a
-  distinct QuickGELU fused GEMM path for CLIP instead of mutating the existing
-  `fast_gelu` op. The first known contrastive-head CUDA bug is now fixed in
-  generated `vector_norm`, and final normalization/logit assembly has been
-  cross-checked against tower recomposition.
+  an opt-in CUDA artifact, but with a documented non-parity drift envelope. With
+  the distinct QuickGELU fused GEMM path landed, the next high-value CLIP CUDA
+  task is to rerun the cached base compiled-CUDA smoke/op audit and isolate the
+  next concrete drifty row, if any, without reopening the `fast_gelu` alias
+  question. The first known contrastive-head CUDA bug is now fixed in generated
+  `vector_norm`, and final normalization/logit assembly has been cross-checked
+  against tower recomposition.
   Keep local `/workspace/transformers` parity as the acceptance bar and keep all
   non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
@@ -1057,16 +1070,16 @@ This file should be updated after each major loop.
    blocker; do not use it as a reason to widen unrelated integer tensor
    support or claim broader CLIP pooling parity before non-2 EOS matching and
    the pooled hidden-state gather path are actually covered.
-2. Continue the first bounded ConvNd provider slice described in
-   `agents/plans/conv_cutlass_plan.md` by promoting the now-runnable
-   `float16` SIMT fallback plus C=3 TensorOp `FewChannels` launcher toward
-   provider maturity without widening public semantics. The next valuable
-   slices are either a similarly explicit `FixedChannels` C=4/8 admission if it
-   compiles and validates cleanly, or real Conv profiler execution and
-   execution-plan consumption. Do not describe the current runtime launcher set
-   as optimized/provider-mature Conv parity: it is a narrow static rank-4,
-   groups=1 fp16 slice with pack/unpack provenance, C=3 few-channel Torch
-   parity, and SIMT fallback coverage.
+2. Continue the bounded ConvNd provider slice described in
+   `agents/plans/conv_cutlass_plan.md` toward v1-core parity without widening
+   public semantics. Human steering keeps Conv first: keep `conv2d`/explicit
+   zero-bias, `conv2d_bias`, and fused `conv2d_bias_relu` honest, then add one
+   bounded follow-on epilogue or no-bias/runtime-profile slice only if it
+   includes frontend/admission, manifest/profile/execution-plan visibility,
+   generated lowering, CUDA runtime parity, and checklist updates. The current
+   useful direction is GEMM-like Conv maturity: candidate profiling/selection,
+   TensorOp coverage, epilogues, and real runtime proofs for the admitted
+   static rank-4, groups=1 path, not broad Conv semantics.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.

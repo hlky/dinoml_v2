@@ -53,6 +53,9 @@ static int {{ func }}(
           }
           const int64_t out_index =
               ((batch * {{ out_channels }} + out_channel) * {{ out_height }} + out_h) * {{ out_width }} + out_w;
+{% if apply_relu %}
+          acc = acc > 0.0f ? acc : 0.0f;
+{% endif %}
           out[out_index] = dinoml::math::cast<{{ storage_type }}>(acc);
         }
       }

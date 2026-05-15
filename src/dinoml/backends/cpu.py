@@ -292,11 +292,12 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] == "conv2d_bias":
+        elif node["op"] in {"conv2d_bias", "conv2d_bias_relu"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
-                _execute_conv2d_bias(
+                _execute_conv2d_bias_family(
+                    node["op"],
                     values[node["inputs"][0]],
                     values[node["inputs"][1]],
                     values[node["inputs"][2]],
@@ -894,22 +895,41 @@ def _execute_conv2d_bias(
     bias: np.ndarray,
     attrs: Mapping[str, object],
 ) -> np.ndarray:
+    return _execute_conv2d_bias_family("conv2d_bias", x, weight, bias, attrs)
+
+
+def _execute_conv2d_bias_relu(
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    return _execute_conv2d_bias_family("conv2d_bias_relu", x, weight, bias, attrs)
+
+
+def _execute_conv2d_bias_family(
+    op_name: str,
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
     stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1))]
     pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0))]
     dilation_h, dilation_w = [int(item) for item in attrs.get("dilation", (1, 1))]
     groups = int(attrs.get("groups", 1))
     if groups != 1:
-        raise NotImplementedError(f"conv2d_bias CPU reference currently supports groups=1 only, got {groups}")
+        raise NotImplementedError(f"{op_name} CPU reference currently supports groups=1 only, got {groups}")
     batch, in_channels, in_height, in_width = [int(dim) for dim in x.shape]
     out_channels, weight_in_channels, kernel_h, kernel_w = [int(dim) for dim in weight.shape]
     if weight_in_channels != in_channels:
         raise ValueError(
-            "conv2d_bias CPU reference weight input channels must match activation channels for groups=1: "
+            f"{op_name} CPU reference weight input channels must match activation channels for groups=1: "
             f"got activation C={in_channels}, weight C={weight_in_channels}"
         )
     if bias.shape != (out_channels,):
         raise ValueError(
-            f"conv2d_bias CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
+            f"{op_name} CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
         )
     out_height = (in_height + 2 * pad_h - dilation_h * (kernel_h - 1) - 1) // stride_h + 1
     out_width = (in_width + 2 * pad_w - dilation_w * (kernel_w - 1) - 1) // stride_w + 1
@@ -934,6 +954,8 @@ def _execute_conv2d_bias(
                                 if iw < 0 or iw >= in_width:
                                     continue
                                 total += float(source[n, ic, ih, iw] * filters[oc, ic, kh, kw])
+                    if op_name == "conv2d_bias_relu":
+                        total = max(total, 0.0)
                     result[n, oc, oh, ow] = total
     return result
 

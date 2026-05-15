@@ -10,7 +10,13 @@ from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
 from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
-from dinoml.ops.conv import CONV2D_BIAS_DTYPES, normalize_conv2d_bias_attrs, resolve_conv2d_bias_shape
+from dinoml.ops.conv import (
+    CONV2D_BIAS_DTYPES,
+    CONV2D_BIAS_FAMILY_OPS,
+    normalize_conv2d_bias_attrs,
+    resolve_conv2d_bias_shape,
+    resolve_conv2d_bias_relu_shape,
+)
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -41,7 +47,7 @@ def render_launch(
         )
     if target != "cuda":
         raise ValueError(f"Unsupported Conv lowering target: {target}")
-    if op_name != "conv2d_bias":
+    if op_name not in CONV2D_BIAS_FAMILY_OPS:
         raise NotImplementedError(f"{op_name} CUDA Conv lowering is not implemented")
     item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")))
     if item is None:
@@ -126,6 +132,7 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
         "pad_w": attrs["padding"][1],
         "dilation_h": attrs["dilation"][0],
         "dilation_w": attrs["dilation"][1],
+        "apply_relu": attrs["apply_relu"],
     }
 
 
@@ -160,13 +167,14 @@ def _validate_cpu_contract(
     bias: Mapping[str, Any],
     output: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if str(node["op"]) != "conv2d_bias":
+    op_name = str(node["op"])
+    if op_name not in CONV2D_BIAS_FAMILY_OPS:
         raise ValueError(f"Unsupported Conv op for CPU lowering: {node['op']}")
     dtype = str(output["dtype"])
     if dtype not in CONV2D_BIAS_DTYPES:
-        raise NotImplementedError(f"conv2d_bias CPU lowering does not support dtype {dtype!r}")
+        raise NotImplementedError(f"{op_name} CPU lowering does not support dtype {dtype!r}")
     if str(x["dtype"]) != dtype or str(weight["dtype"]) != dtype or str(bias["dtype"]) != dtype:
-        raise ValueError("conv2d_bias CPU lowering requires matching activation, weight, bias, and output dtypes")
+        raise ValueError(f"{op_name} CPU lowering requires matching activation, weight, bias, and output dtypes")
     attrs = node.get("attrs", {})
     stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
         attrs.get("stride", (1, 1)),
@@ -174,22 +182,16 @@ def _validate_cpu_contract(
         attrs.get("dilation", (1, 1)),
         attrs.get("groups", 1),
     )
-    expected_shape = resolve_conv2d_bias_shape(
-        x["shape"],
-        weight["shape"],
-        bias["shape"],
-        stride=stride,
-        padding=padding,
-        dilation=dilation,
-        groups=groups,
-    )
+    resolve_shape = resolve_conv2d_bias_shape if op_name == "conv2d_bias" else resolve_conv2d_bias_relu_shape
+    expected_shape = resolve_shape(x["shape"], weight["shape"], bias["shape"], stride=stride, padding=padding, dilation=dilation, groups=groups)
     if [int(dim) for dim in output["shape"]] != expected_shape:
-        raise ValueError("conv2d_bias CPU lowering output shape does not match attrs")
+        raise ValueError(f"{op_name} CPU lowering output shape does not match attrs")
     return {
         "stride": stride,
         "padding": padding,
         "dilation": dilation,
         "groups": groups,
+        "apply_relu": op_name == "conv2d_bias_relu",
     }
 
 
@@ -462,8 +464,18 @@ CONV2D_BIAS_LOWERING = OpLowering(
 )
 
 
+CONV2D_BIAS_RELU_LOWERING = OpLowering(
+    op_name="conv2d_bias_relu",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
+
+
 __all__ = [
     "CONV2D_BIAS_LOWERING",
+    "CONV2D_BIAS_RELU_LOWERING",
     "render_scaffold_wrapper_source",
     "render_scaffold_wrapper_stage",
     "render_scaffold_wrapper_stages",

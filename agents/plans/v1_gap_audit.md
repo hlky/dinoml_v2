@@ -279,16 +279,23 @@ porting. It intentionally excludes the op inventory, which lives in
   validation is real, but the traced/compiled artifact still carries a
   `conv2d_bias` node with `source_op=conv2d`, `bias_mode=explicit_zero_constant`,
   and a zero-bias constant rather than a distinct no-bias provider family.
-  Static groups=1 float32 Conv now
-  uses the bounded SIMT runtime/profiler path. Conv profile workload construction
-  now filters candidates through the same shape/layout/dtype predicate used by
-  manifest selection, so incompatible C=3/C=4/C=16 candidates are no longer
-  emitted. `profile_artifact` now profiles those Conv candidates on
-  provider-layout buffers, writes report/cache/plan artifacts, and static Conv
-  execution-plan application updates both manifest symbols and the
+  The first fused Conv epilogue slice is now also real as `conv2d_bias_relu`,
+  using that same public contract plus explicit `bias_relu` epilogue metadata in
+  manifest/profile/execution-plan/generated-lowering payloads and the launch ABI
+  `dinoml_cutlass_conv2d_bias_relu_v1`. Runtime coverage is still bounded to
+  the currently admitted base families: fp16 SIMT, fp16 TensorOp few-channels,
+  fp16 TensorOp fixed-channels, fp16 TensorOp optimized, and float32 SIMT only.
+  Static groups=1 float32 Conv now uses the bounded SIMT runtime/profiler path.
+  Conv profile workload construction now filters candidates through the same
+  shape/layout/dtype predicate used by manifest selection, so incompatible
+  C=3/C=4/C=16 candidates are no longer emitted. `profile_artifact` now
+  profiles those Conv candidates on provider-layout buffers, writes
+  report/cache/plan artifacts, and static Conv execution-plan application
+  updates both manifest symbols and the
   `cutlass_conv_plan["selected_candidate"]` payload consumed by generated
-  lowering. Dynamic Conv profiling, guarded Conv dispatch, and general
-  channel-last runtime layout remain unimplemented.
+  lowering. Dynamic Conv profiling, guarded Conv dispatch, broader Conv
+  epilogues beyond `conv2d_bias_relu`, broader float32 TensorOp/bfloat16 Conv
+  runtime, and general channel-last runtime layout remain unimplemented.
 - Constants lifecycle: v1 distinguishes bound/unbound/owned constants, original
   names, constant folding inputs, and runtime setters. V2 now has symbolic
   parameters and runtime-settable constants. Runtime constant setters now

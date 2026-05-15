@@ -4,6 +4,29 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the first fused Conv epilogue slice as a bounded extension of the
+  existing `cutlass_conv` path: public `conv2d_bias_relu`. This loop did not
+  broaden Conv semantics beyond the admitted static rank-4, `groups=1`,
+  NCHW/OIHW contract; it added one useful v1-style fused epilogue with
+  end-to-end visibility. Frontend/admission now registers
+  `dml.ops.conv2d_bias_relu(...)`, CPU reference execution supports it, and
+  generated CPU artifacts reuse the existing naive `conv2d_bias` loop family
+  with an explicit fused ReLU clamp. CUDA/provider visibility is now wired
+  through `cutlass_conv`: candidate-set ids, manifest metadata, profile
+  workloads, execution-plan compatibility checks, support-cache/source-manifest
+  payloads, and generated lowering all record the fused `bias_relu` epilogue
+  plus `epilogue_config` and the new launch ABI
+  `dinoml_cutlass_conv2d_bias_relu_v1`. Runtime coverage is intentionally the
+  same bounded candidate family already admitted for base `conv2d_bias`: fp16
+  SIMT, fp16 TensorOp few-channels (`C=3`), fp16 TensorOp fixed-channels
+  (`C=4`/`C=8`), fp16 TensorOp optimized (`C >= 16` with channel alignment),
+  and float32 SIMT only. Focused tests cover traced IR/frontend shape
+  preservation, CPU reference parity, generated CPU artifact parity,
+  manifest/codegen/profile visibility, and an opt-in float32 SIMT CUDA runtime
+  parity smoke. This is the first fused Conv epilogue slice only; add/sigmoid/
+  residual epilogues, broader float32 TensorOp or bf16 runtime, grouped/
+  depthwise/transposed/3D Conv, and guarded/dynamic Conv dispatch remain out of
+  scope.
 - Tightened CUTLASS Conv execution-plan discipline to match the established
   GEMM/BMM flow instead of treating Conv as a special happy-path case. Conv now
   keeps the same visible profile-selection path end to end: candidate sets in
@@ -195,33 +218,43 @@ This file should be updated after each major loop.
 
 ## Next Recommended Lane
 
+- Human steering on 2026-05-15 makes Conv the first lane. The next bounded Conv
+  work should stay inside the existing `cutlass_conv` contract and build on the
+  new `conv2d_bias_relu` slice rather than drifting into alias polish or broad
+  plumbing. Highest-value follow-ons are: one additional fused epilogue with
+  clear v1 demand (`conv2d_bias_add` or `conv2d_bias_sigmoid`) only if it can
+  satisfy the same manifest/profile/runtime visibility end to end; broader
+  runtime coverage for the current epilogues, especially TensorOp/bfloat16/
+  float32 gaps beyond the admitted SIMT float32 path; or deeper execution-plan
+  evidence around Conv candidate selection on CUDA-capable hardware. Keep the
+  exact coverage honest: today only `conv2d_bias`, explicit-zero `conv2d`, and
+  fused `conv2d_bias_relu` are admitted on the static rank-4 groups=1 path.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
-  local Transformers parity with one concrete, test-backed gap at a time. The
-  first known contrastive-head CUDA bug is now fixed in generated
-  `vector_norm`; the immediate next task is to rerun the opt-in CLIP two-tower
-  CUDA smoke on a CUDA-capable machine and confirm that normalized embeds and
-  logits now stay allclose end to end. If any CUDA drift remains after that,
-  inspect `div` and final similarity/transpose assembly with artifact-visible
-  evidence before broadening scope. The bounded CPU artifact workflow is now
-  visible and tested; do not spend another loop on CLIP CPU artifact examples
-  unless a concrete user-facing failure appears. Keep local
-  `/workspace/transformers` parity as the acceptance bar and keep all
-  non-parity limits explicit.
+  local Transformers parity with one concrete, test-backed gap at a time after
+  the Conv lane is stable. The first known contrastive-head CUDA bug is now
+  fixed in generated `vector_norm`; the immediate CLIP follow-up is to rerun
+  the opt-in CLIP two-tower CUDA smoke on a CUDA-capable machine and confirm
+  that normalized embeds and logits now stay allclose end to end. If any CUDA
+  drift remains after that, inspect `div` and final similarity/transpose
+  assembly with artifact-visible evidence before broadening scope. The bounded
+  CPU artifact workflow is now visible and tested; do not spend another loop on
+  CLIP CPU artifact examples unless a concrete user-facing failure appears.
+  Keep local `/workspace/transformers` parity as the acceptance bar and keep
+  all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims
   without a full admission slice.
 - Conv next steps should prioritize GEMM-like provider maturity for the existing
-  `conv2d_bias`/explicit-zero `conv2d` path: candidate sets, profile workloads,
-  profile reports, execution-plan selections, and generated lowering visibly
-  consuming the selected Conv candidate. The stale/incompatible static-plan
-  rejection path is now covered; next work in this lane should stay bounded to
-  deeper profile-assisted Conv selection maturity rather than alias polish, such
-  as more node/shape-specific evidence around static-selection conflicts or the
-  next narrow runtime candidate gap. After the profiling and execution-plan loop
-  is boring, move to bounded fused epilogues or broader TensorOp/runtime
-  selection coverage. Keep grouped/depthwise/transposed/3D and dynamic/guarded
-  dispatch deferred until a separate admission slice.
+  `conv2d_bias`/explicit-zero `conv2d`/`conv2d_bias_relu` path: candidate sets,
+  profile workloads, profile reports, execution-plan selections, and generated
+  lowering visibly consuming the selected Conv candidate. The stale/
+  incompatible static-plan rejection path is now covered, and the first fused
+  epilogue is admitted; next work in this lane should stay bounded to deeper
+  profile-assisted Conv selection maturity or one more narrowly admitted
+  epilogue/runtime gap rather than alias polish. Keep grouped/depthwise/
+  transposed/3D and dynamic/guarded dispatch deferred until a separate
+  admission slice.
 - Human steering on 2026-05-15 allows a naive compiled CPU GEMM implementation
   as a temporary bridge. Do not treat the lack of a final CPU library/BLAS path
   as a blocker for CLIP artifact smoke work, but keep any naive CPU bridge small,

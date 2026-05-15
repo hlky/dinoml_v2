@@ -12,6 +12,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelV
 
 
 CONV2D_BIAS_DTYPES = ("float16", "float32")
+CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu")
 
 
 def infer_conv2d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -48,15 +49,36 @@ def infer_conv2d_bias_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
 
 
 def infer_conv2d_bias_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    return _infer_conv2d_bias_family_shape_with_attrs("conv2d_bias", input_shapes, attrs)
+
+
+def infer_conv2d_bias_relu_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_conv2d_bias_relu_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "groups": 1},
+    )
+
+
+def infer_conv2d_bias_relu_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    return _infer_conv2d_bias_family_shape_with_attrs("conv2d_bias_relu", input_shapes, attrs)
+
+
+def _infer_conv2d_bias_family_shape_with_attrs(
+    op_name: str,
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    _validate_conv2d_bias_family_op_name(op_name)
     if len(input_shapes) != 3:
-        raise ValueError("conv2d_bias expects activation, weight, and bias inputs")
+        raise ValueError(f"{op_name} expects activation, weight, and bias inputs")
     stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
         attrs.get("stride", (1, 1)),
         attrs.get("padding", (0, 0)),
         attrs.get("dilation", (1, 1)),
         attrs.get("groups", 1),
     )
-    return resolve_conv2d_bias_shape(
+    return _resolve_conv2d_bias_family_shape(
+        op_name,
         input_shapes[0],
         input_shapes[1],
         input_shapes[2],
@@ -96,12 +118,58 @@ def resolve_conv2d_bias_shape(
     dilation: Any,
     groups: Any,
 ) -> list[int]:
+    return _resolve_conv2d_bias_family_shape(
+        "conv2d_bias",
+        input_shape,
+        weight_shape,
+        bias_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def resolve_conv2d_bias_relu_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    bias_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    return _resolve_conv2d_bias_family_shape(
+        "conv2d_bias_relu",
+        input_shape,
+        weight_shape,
+        bias_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def _resolve_conv2d_bias_family_shape(
+    op_name: str,
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    bias_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    _validate_conv2d_bias_family_op_name(op_name)
     if len(input_shape) != 4:
-        raise ValueError(f"conv2d_bias expects rank-4 NCHW activation, got rank {len(input_shape)}")
+        raise ValueError(f"{op_name} expects rank-4 NCHW activation, got rank {len(input_shape)}")
     if len(weight_shape) != 4:
-        raise ValueError(f"conv2d_bias expects rank-4 OIHW weight, got rank {len(weight_shape)}")
+        raise ValueError(f"{op_name} expects rank-4 OIHW weight, got rank {len(weight_shape)}")
     if len(bias_shape) != 1:
-        raise ValueError(f"conv2d_bias expects rank-1 bias, got rank {len(bias_shape)}")
+        raise ValueError(f"{op_name} expects rank-1 bias, got rank {len(bias_shape)}")
     normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv2d_bias_attrs(
         stride,
         padding,
@@ -109,7 +177,7 @@ def resolve_conv2d_bias_shape(
         groups,
     )
     if normalized_groups != 1:
-        raise NotImplementedError(f"conv2d_bias currently supports groups=1 only, got {normalized_groups}")
+        raise NotImplementedError(f"{op_name} currently supports groups=1 only, got {normalized_groups}")
 
     batch, in_channels, in_height, in_width = [int(dim) for dim in input_shape]
     out_channels, weight_in_channels, kernel_h, kernel_w = [int(dim) for dim in weight_shape]
@@ -117,18 +185,18 @@ def resolve_conv2d_bias_shape(
 
     if weight_in_channels != in_channels:
         raise ValueError(
-            "conv2d_bias weight input channels must match activation channels for groups=1: "
+            f"{op_name} weight input channels must match activation channels for groups=1: "
             f"got activation C={in_channels}, weight C={weight_in_channels}"
         )
     if bias_channels != out_channels:
         raise ValueError(
-            f"conv2d_bias bias length must match weight output channels, got bias {bias_channels} and weight O={out_channels}"
+            f"{op_name} bias length must match weight output channels, got bias {bias_channels} and weight O={out_channels}"
         )
     if kernel_h <= 0 or kernel_w <= 0:
-        raise ValueError(f"conv2d_bias kernel dimensions must be positive, got {weight_shape!r}")
+        raise ValueError(f"{op_name} kernel dimensions must be positive, got {weight_shape!r}")
 
     out_height = _conv_output_dim(
-        "conv2d_bias",
+        op_name,
         in_height,
         kernel_h,
         normalized_stride[0],
@@ -137,7 +205,7 @@ def resolve_conv2d_bias_shape(
         "height",
     )
     out_width = _conv_output_dim(
-        "conv2d_bias",
+        op_name,
         in_width,
         kernel_w,
         normalized_stride[1],
@@ -248,12 +316,39 @@ def register_conv_ops(registry: OpRegistry) -> None:
             ),
         )
     )
+    registry.register(
+        OpDef(
+            name="conv2d_bias_relu",
+            schema=OpSchema(
+                inputs=("x", "weight", "bias"),
+                attrs=(
+                    AttrDef("stride", "ints", required=True),
+                    AttrDef("padding", "ints", default=(0, 0)),
+                    AttrDef("dilation", "ints", default=(1, 1)),
+                    AttrDef("groups", "int", default=1),
+                ),
+            ),
+            infer_shape=infer_conv2d_bias_relu_shape,
+            infer_shape_with_attrs=infer_conv2d_bias_relu_shape_with_attrs,
+            allowed_dtypes=CONV2D_BIAS_DTYPES,
+            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias_relu"),
+            frontend=FrontendBinding("conv2d_bias_relu"),
+            description=(
+                "Bounded fused conv2d_bias_relu frontend sharing the public NCHW/OIHW, "
+                "groups=1, static rank-4 Conv contract. CPU reference and compiled CPU "
+                "artifacts apply the ReLU epilogue in the same generated Conv loop, while "
+                "CUDA compile/profile/runtime keep the fused bias+ReLU CUTLASS Conv choice "
+                "artifact-visible through the same manifest/profile/execution-plan path as "
+                "`conv2d_bias`."
+            ),
+        )
+    )
 
 
 def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
     return {
         "cpu": KernelBinding(
-            symbol="generated_conv2d_bias",
+            symbol=f"generated_{op_name}",
             library="model",
             source_template="conv_cpu.cpp.j2",
         ),
@@ -274,14 +369,23 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
     }
 
 
+def _validate_conv2d_bias_family_op_name(op_name: str) -> None:
+    if op_name not in CONV2D_BIAS_FAMILY_OPS:
+        raise ValueError(f"Unsupported conv2d bias family op {op_name!r}")
+
+
 __all__ = [
+    "CONV2D_BIAS_FAMILY_OPS",
     "CONV2D_BIAS_DTYPES",
     "infer_conv2d_shape",
     "infer_conv2d_shape_with_attrs",
     "infer_conv2d_bias_shape",
     "infer_conv2d_bias_shape_with_attrs",
+    "infer_conv2d_bias_relu_shape",
+    "infer_conv2d_bias_relu_shape_with_attrs",
     "normalize_conv2d_bias_attrs",
     "register_conv_ops",
     "resolve_conv2d_shape",
     "resolve_conv2d_bias_shape",
+    "resolve_conv2d_bias_relu_shape",
 ]

@@ -619,6 +619,21 @@ behavior.
   CPU/reference and CPU/artifact parity against Torch `F.conv2d(..., bias=None)`,
   CUDA compile-time manifest/codegen visibility, and a small CUDA runtime smoke
   when tooling is available.
+  The first fused Conv epilogue slice is now also admitted as
+  `conv2d_bias_relu`. It shares the same public static rank-4 groups=1
+  NCHW/OIHW contract, adds CPU reference plus generated CPU artifact support,
+  and records explicit fused epilogue metadata in the CUDA/provider path:
+  candidate-set ids, manifest/profile payloads, execution-plan compatibility,
+  support-cache/source-manifest provenance, generated lowering wrapper stages,
+  and the launch ABI `dinoml_cutlass_conv2d_bias_relu_v1`. Current CUDA runtime
+  coverage for `conv2d_bias_relu` is intentionally only the same bounded
+  candidate family already admitted for `conv2d_bias`: fp16 SIMT, fp16
+  TensorOp few-channels (`C=3`), fp16 TensorOp fixed-channels (`C=4`/`C=8`),
+  fp16 TensorOp optimized (`C >= 16` with aligned channels), and float32 SIMT
+  only. This does not claim general Conv epilogue parity: add/sigmoid/residual
+  epilogues, broader float32 TensorOp runtime, bfloat16 Conv runtime, grouped/
+  depthwise/transposed/3D Conv, and guarded/dynamic Conv dispatch remain
+  unported.
   The static
   profile
   workload path records the same artifact-visible layout translation, weight

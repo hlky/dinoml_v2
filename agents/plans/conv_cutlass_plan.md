@@ -6,7 +6,30 @@ into hidden layout state.
 
 The first implementation target is intentionally narrow: a CUDA-only
 `conv2d_bias` provider-backed slice with artifact-visible internal layout
-translation. This is a design-first plan, not an implementation status update.
+translation.
+
+## Current implemented status
+
+The original base slice is now real, and one bounded fused epilogue has been
+added on top of it:
+
+- `conv2d_bias` is admitted on the static rank-4, `groups=1`, public
+  NCHW/OIHW contract with CPU reference execution, generated naive CPU
+  artifacts for `float32`/`float16`, and CUDA `cutlass_conv` manifest/profile/
+  execution-plan/generated-lowering support.
+- Public no-bias `conv2d` exists only as an explicit-zero bridge over that same
+  core path. It is not a distinct provider family or runtime ABI.
+- `conv2d_bias_relu` is now the first fused Conv epilogue slice. It reuses the
+  same public contract, profiling flow, and layout-transform metadata as
+  `conv2d_bias`, but records fused `bias_relu` epilogue state through candidate
+  sets, manifests, profile workloads, execution plans, support-cache/source
+  manifests, and generated lowering.
+- Current CUDA runtime coverage for both `conv2d_bias` and `conv2d_bias_relu`
+  is still deliberately narrow: fp16 SIMT, fp16 TensorOp few-channels
+  (`C=3`), fp16 TensorOp fixed-channels (`C=4`/`C=8`), fp16 TensorOp optimized
+  (`C >= 16` with aligned channels), and float32 SIMT only. Broader float32
+  TensorOp, bfloat16, add/sigmoid/residual epilogues, and grouped/depthwise/
+  transposed/3D Conv are not landed.
 
 ## Why this needs its own plan
 
@@ -248,7 +271,7 @@ Do not broaden the first ConvNd landing to include:
 - `depthwise_conv3d`
 - `transposed_conv2d`
 - grouped or depthwise 2D convolution
-- fused epilogue expansion beyond bias
+- fused epilogue expansion beyond the admitted `conv2d_bias_relu` slice
 - dynamic H/W profiling or guarded runtime shape dispatch
 - global layout pass work
 - runtime-set transformed weights or hidden persistent packed-weight state
@@ -257,6 +280,29 @@ Do not broaden the first ConvNd landing to include:
 - hidden small-channel auto-padding
 - ROCm/CK parity
 - CPU compiled conv backend
+
+## First fused epilogue extension
+
+With the base slice admitted, the next bounded extension is exactly one fused
+epilogue that can satisfy the same artifact-visible contract. The first landed
+one is:
+
+- op: `conv2d_bias_relu`
+- public semantics: unchanged from `conv2d_bias` (NCHW activation, OIHW weight,
+  rank-1 bias, static rank-4, groups=`1`)
+- manifest/profile/runtime identity: same provider family and candidate shapes
+  as `conv2d_bias`, but with explicit `epilogue=bias_relu`,
+  `epilogue_config={"inputs":["bias"],"activation":"relu"}`, and launch ABI
+  `dinoml_cutlass_conv2d_bias_relu_v1`
+- CPU path: reference execution plus generated naive CPU artifact with fused
+  ReLU clamp
+- CUDA runtime: only where the corresponding base candidate already exists
+  today, namely fp16 SIMT/TensorOp few-channels/fixed-channels/optimized and
+  float32 SIMT
+
+Do not treat this as general Conv epilogue parity. It is one admitted fused
+activation slice chosen because it fits the existing bias-family launch ABI and
+selection flow cleanly.
 
 These all deserve separate admission and design updates after the first bounded
 slice is proven.

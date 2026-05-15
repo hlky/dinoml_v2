@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Admitted stacked CLIP vision encoder blocks for the bounded vision wrapper.
+  `LegacyCLIPVisionConfig` now accepts non-negative `num_hidden_layers`, and
+  the wrapper reuses the existing dense noncausal attention + quick-gelu MLP
+  block for each layer without adding new ops, FlashAttention, positional
+  interpolation, tokenizer/processor plumbing, or provider claims. Focused
+  tests pin zero-, one-, and two-layer `CLIPVisionModelWithProjection` outputs
+  against local `/workspace/transformers`, upgrade the tiny two-tower
+  `LegacyCLIPModel` parity test to two vision layers, and keep Conv represented
+  honestly as a CUTLASS scaffold-only manifest entry.
 - Added a compact runnable CLIPModel two-tower workflow proof. The new
   `examples/clip_model_workflow.py` traces the bounded `LegacyCLIPModel` on
   synthetic text/image tensors, runs the CPU reference path, prints projected
@@ -30,12 +39,12 @@ This file should be updated after each major loop.
 ## Next Recommended Lane
 
 - Keep converting the bounded CLIPModel surface toward local Transformers parity
-  with one concrete, test-backed gap at a time. Good next slices: prove and
-  admit a slightly deeper tower surface if existing composition supports it
-  cleanly (for example, more than one CLIP vision encoder layer), or close the
-  smallest remaining gap that blocks a compiled artifact/runtime smoke for the
-  admitted CLIPModel workflow. Keep local `/workspace/transformers` parity as
-  the acceptance bar and keep all non-parity limits explicit.
+  with one concrete, test-backed gap at a time. Good next slices: prove the
+  text tower and top-level `LegacyCLIPModel` with more than one text encoder
+  layer if the existing composition supports it cleanly, or close the smallest
+  remaining gap that blocks a compiled artifact/runtime smoke for the admitted
+  CLIPModel workflow. Keep local `/workspace/transformers` parity as the
+  acceptance bar and keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

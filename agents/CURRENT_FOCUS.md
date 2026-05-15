@@ -48,9 +48,9 @@
 - On 2026-05-15, the bounded CLIP text-feature wrapper exists, covers both
   source EOS pooling branches, has a visible text workflow proof, and no longer
   requires explicit `position_ids`. The vision side now has fixed-size
-  embeddings plus zero-layer and one-layer pool/projection wrappers, and the
-  first bounded two-tower `LegacyCLIPModel` workflow matches local Transformers
-  for projected features, normalized embeds, and logits with a compact runnable
+  embeddings plus stacked encoder-layer pool/projection wrappers, and the first
+  bounded two-tower `LegacyCLIPModel` workflow matches local Transformers for
+  projected features, normalized embeds, and logits with a compact runnable
   workflow proof. Preferred next slice: close a concrete Transformers-parity gap
-  such as deeper admitted tower layer counts, or the smallest compiled
-  artifact/runtime blocker for the admitted CLIPModel surface.
+  such as text tower depth, or the smallest compiled artifact/runtime blocker
+  for the admitted CLIPModel surface.

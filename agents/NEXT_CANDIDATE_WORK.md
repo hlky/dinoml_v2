@@ -4,6 +4,34 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded CLIP non-2 EOS pooling branch without adding a new pooling
+  op, vision tower, tokenizer/processor plumbing, or FlashAttention/provider
+  surface. `LegacyCLIPTextModelWithProjection` now matches both Transformers
+  CLIP text pooling paths: legacy OpenAI configs with `eos_token_id == 2` keep
+  the highest-token-id `argmax(input_ids)` compatibility path, while newer
+  non-2 EOS configs use first-match `(input_ids == eos_token_id).argmax(...)`
+  followed by the existing `batch_gather(...)->squeeze(...)` composition.
+  Public `eq` admission was widened only for `int32`/`int64` inputs so token-id
+  equality does not float-cast large integers; other relational ops remain
+  float/reduced-precision-input only. Focused tests pin local Transformers
+  parity for both EOS branches, generated CPU/CUDA source keeps integer storage
+  for `eq`, and manifest checks keep provider/model ownership honest. Remaining
+  limits: text-only wrapper, explicit `position_ids`, static traced sequence
+  length, tokenizer-prepared EOS presence assumption, no vision tower, and no
+  full contrastive wrapper artifact workflow yet.
+
+## Next Recommended Lane
+
+- Add a small, visible CLIP text workflow proof in a separate bounded branch:
+  prefer an example or focused artifact-inspection test that compiles or traces
+  the current text-feature wrapper, inspects the provider/model split in
+  artifact-visible state, and makes the first-model sprint discoverable without
+  reading internal plans. Keep it behavior-backed; do not spend a loop on
+  README wording alone.
+- CLIP model follow-up after the visible workflow proof: reduce the explicit
+  `position_ids` requirement or begin the vision patch path only if the slice
+  remains narrow and test-backed. Vision patch work remains the next larger
+  CLIP model step now that text pooling/config handling is honest.
 - Replaced the GGUF CUDA runtime-dequant native boundary with a reproducible
   direct-link default: the repo now vendors `third_party/libgguf` as a pinned
   submodule from `https://github.com/hlky/libgguf`, CUDA module builds compile
@@ -20,14 +48,6 @@ This file should be updated after each major loop.
   regressions cover the direct-link default, forced fallback compatibility, and
   stale-cache/static-archive guardrails without widening GGUF policy, epilogue
   coverage, or public provider admission.
-
-## Next Recommended Lane
-
-- CLIP follow-up in a separate bounded branch: add the
-  newer non-2 EOS first-match pooling branch and/or reduce the explicit
-  `position_ids` requirement only if the wrapper-level parity story remains
-  narrow and test-backed. Vision patch work remains the next larger CLIP model
-  step once text pooling/config handling is honest.
 - Keep libgguf follow-up limited to concrete direct-link failures or validation
   gaps: add a CUDA builder smoke using the initialized submodule only if the
   current unit/CUDA-gated coverage misses a real failure mode, and keep fallback

@@ -40,9 +40,10 @@
 
 ## Preferred Next Work
 
-- On 2026-05-15, begin with a bounded CLIP model integration loop. Preferred
-  first slice: pin the exact CLIP reference source/audit, then add the smallest
-  real `CLIPTextModel` or text-feature wrapper path that can reuse the already
-  landed embedding, LayerNorm, dense attention, MLP, pooling, projection, and
-  contrastive composition coverage. If that immediately exposes a provider gap,
-  stop and finish that gap before continuing the model.
+- On 2026-05-15, the bounded CLIP text-feature wrapper exists and covers both
+  source EOS pooling branches. Preferred next slice: make that model path more
+  visible with a small example or artifact-inspection test that proves the
+  text-wrapper workflow and provider/model split without relying on the
+  expensive CUDA smoke. After that, continue with either reducing the explicit
+  `position_ids` requirement or beginning the vision patch path, keeping each
+  slice narrow and parity-backed.

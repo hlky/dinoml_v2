@@ -213,6 +213,22 @@ class _CLIPImageFeaturesModule(dml.Module):
         return dml.ops.output(self.model.get_image_features(pixel_values), "image_features")
 
 
+class _CachedCheckpointCLIPTextFeaturesModule(dml.Module):
+    def __init__(self, model):
+        self.model = model
+
+    def forward(self, input_ids, attention_mask):
+        return dml.ops.output(self.model.get_text_features(input_ids, attention_mask), "text_features")
+
+
+class _CachedCheckpointCLIPImageFeaturesModule(dml.Module):
+    def __init__(self, model):
+        self.model = model
+
+    def forward(self, pixel_values):
+        return dml.ops.output(self.model.get_image_features(pixel_values), "image_features")
+
+
 def _trace_text_features():
     return dml.trace(
         _CLIPTextFeaturesModule(),
@@ -297,10 +313,43 @@ def _cached_checkpoint_runtime_inputs(
     }
 
 
-def _trace_cached_checkpoint_two_tower_spec(clip_model):
+def _cached_checkpoint_legacy_model_and_inputs(clip_model):
     text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
     adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
     seq_len, inputs = _cached_checkpoint_runtime_inputs(text_config=text_config, vision_config=vision_config)
+    return text_config, vision_config, adapted_model, seq_len, inputs
+
+
+def _trace_cached_checkpoint_text_features_spec(clip_model):
+    text_config, vision_config, adapted_model, seq_len, inputs = _cached_checkpoint_legacy_model_and_inputs(clip_model)
+    spec = dml.trace(
+        _CachedCheckpointCLIPTextFeaturesModule(adapted_model),
+        inputs={
+            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
+            "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
+        },
+        name="clip_model_text_features_transformers_cached_checkpoint_runtime_smoke",
+    )
+    return text_config, vision_config, spec, inputs
+
+
+def _trace_cached_checkpoint_image_features_spec(clip_model):
+    text_config, vision_config, adapted_model, _, inputs = _cached_checkpoint_legacy_model_and_inputs(clip_model)
+    spec = dml.trace(
+        _CachedCheckpointCLIPImageFeaturesModule(adapted_model),
+        inputs={
+            "pixel_values": dml.TensorSpec(
+                [1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size)],
+                "float32",
+            )
+        },
+        name="clip_model_image_features_transformers_cached_checkpoint_runtime_smoke",
+    )
+    return text_config, vision_config, spec, inputs
+
+
+def _trace_cached_checkpoint_two_tower_spec(clip_model):
+    text_config, vision_config, adapted_model, seq_len, inputs = _cached_checkpoint_legacy_model_and_inputs(clip_model)
     spec = dml.trace(
         adapted_model,
         inputs={
@@ -330,6 +379,53 @@ def _cached_checkpoint_expected_outputs(clip_model, inputs):
         "text_embeds": expected.text_embeds.detach().cpu().numpy().astype(np.float32),
         "image_embeds": expected.image_embeds.detach().cpu().numpy().astype(np.float32),
     }
+
+
+def _cached_checkpoint_expected_feature_outputs(clip_model, inputs):
+    torch = pytest.importorskip("torch")
+    with torch.inference_mode():
+        text_features = clip_model.get_text_features(
+            input_ids=torch.from_numpy(inputs["input_ids"]),
+            attention_mask=torch.from_numpy(inputs["attention_mask"]),
+        ).pooler_output
+        image_features = clip_model.get_image_features(
+            pixel_values=torch.from_numpy(inputs["pixel_values"]),
+        ).pooler_output
+    return {
+        "text_features": text_features.detach().cpu().numpy().astype(np.float32),
+        "image_features": image_features.detach().cpu().numpy().astype(np.float32),
+    }
+
+
+def _assemble_clip_outputs_from_features(*, text_features, image_features, logit_scale):
+    text_features = np.asarray(text_features, dtype=np.float32)
+    image_features = np.asarray(image_features, dtype=np.float32)
+    text_embeds = text_features / np.linalg.norm(text_features, axis=-1, keepdims=True)
+    image_embeds = image_features / np.linalg.norm(image_features, axis=-1, keepdims=True)
+    scale = float(np.exp(np.asarray(logit_scale, dtype=np.float32)))
+    logits_per_text = (scale * (text_embeds @ image_embeds.T)).astype(np.float32)
+    return {
+        "text_embeds": text_embeds.astype(np.float32),
+        "image_embeds": image_embeds.astype(np.float32),
+        "logits_per_text": logits_per_text,
+        "logits_per_image": logits_per_text.T.copy(),
+    }
+
+
+def _run_numpy_artifact(artifact_path, inputs):
+    module = runtime.load(artifact_path)
+    session = module.create_session()
+    try:
+        return session.run_numpy(inputs)
+    finally:
+        session.close()
+        module.close()
+
+
+def _max_abs_diff(actual, expected):
+    actual = np.asarray(actual, dtype=np.float32)
+    expected = np.asarray(expected, dtype=np.float32)
+    return float(np.max(np.abs(actual - expected)))
 
 
 def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_layers: int = 2):
@@ -820,6 +916,135 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
     assert np.max(np.abs(actual["logits_per_text"] - expected["logits_per_text"])) < 0.9
     assert np.max(np.abs(actual["text_embeds"] - expected["text_embeds"])) < 0.05
     assert np.max(np.abs(actual["image_embeds"] - expected["image_embeds"])) < 0.1
+
+
+@pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_clip_model_transformers_checkpoint_cuda_drift_isolation_local_cache_only(
+    tmp_path,
+    monkeypatch,
+    use_shared_dinoml_cuda_cache,
+):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1 to isolate cached openai/clip-vit-base-patch32 CUDA drift across tower features, normalized embeds, and logits"
+        )
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
+
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    text_config, vision_config, text_spec, inputs = _trace_cached_checkpoint_text_features_spec(clip_model)
+    _, _, image_spec, _ = _trace_cached_checkpoint_image_features_spec(clip_model)
+    _, _, full_spec, _ = _trace_cached_checkpoint_two_tower_spec(clip_model)
+
+    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
+    text_artifact = dml.compile(
+        text_spec,
+        target,
+        tmp_path / "clip_model_text_features_transformers_cached_checkpoint_cuda.dinoml",
+    )
+    image_artifact = dml.compile(
+        image_spec,
+        target,
+        tmp_path / "clip_model_image_features_transformers_cached_checkpoint_cuda.dinoml",
+    )
+    full_artifact = dml.compile(
+        full_spec,
+        target,
+        tmp_path / "clip_model_two_tower_transformers_cached_checkpoint_cuda_drift_isolation.dinoml",
+    )
+
+    actual_text = _run_numpy_artifact(
+        text_artifact.path,
+        {
+            "input_ids": inputs["input_ids"],
+            "attention_mask": inputs["attention_mask"],
+        },
+    )["text_features"]
+    actual_image = _run_numpy_artifact(
+        image_artifact.path,
+        {
+            "pixel_values": inputs["pixel_values"],
+        },
+    )["image_features"]
+    actual_full = _run_numpy_artifact(full_artifact.path, inputs)
+
+    expected_features = _cached_checkpoint_expected_feature_outputs(clip_model, inputs)
+    expected_full = _cached_checkpoint_expected_outputs(clip_model, inputs)
+
+    logit_scale = clip_model.logit_scale.detach().cpu().numpy().astype(np.float32)
+    tower_composed = _assemble_clip_outputs_from_features(
+        text_features=actual_text,
+        image_features=actual_image,
+        logit_scale=logit_scale,
+    )
+    full_recomposed = _assemble_clip_outputs_from_features(
+        text_features=actual_full["text_embeds"],
+        image_features=actual_full["image_embeds"],
+        logit_scale=logit_scale,
+    )
+
+    metrics = {
+        "text_features_vs_transformers": _max_abs_diff(actual_text, expected_features["text_features"]),
+        "image_features_vs_transformers": _max_abs_diff(actual_image, expected_features["image_features"]),
+        "tower_text_embeds_vs_transformers": _max_abs_diff(tower_composed["text_embeds"], expected_full["text_embeds"]),
+        "tower_image_embeds_vs_transformers": _max_abs_diff(tower_composed["image_embeds"], expected_full["image_embeds"]),
+        "tower_logits_per_text_vs_transformers": _max_abs_diff(
+            tower_composed["logits_per_text"], expected_full["logits_per_text"]
+        ),
+        "tower_logits_per_image_vs_transformers": _max_abs_diff(
+            tower_composed["logits_per_image"], expected_full["logits_per_image"]
+        ),
+        "full_text_embeds_vs_transformers": _max_abs_diff(actual_full["text_embeds"], expected_full["text_embeds"]),
+        "full_image_embeds_vs_transformers": _max_abs_diff(actual_full["image_embeds"], expected_full["image_embeds"]),
+        "full_logits_per_text_vs_transformers": _max_abs_diff(
+            actual_full["logits_per_text"], expected_full["logits_per_text"]
+        ),
+        "full_logits_per_image_vs_transformers": _max_abs_diff(
+            actual_full["logits_per_image"], expected_full["logits_per_image"]
+        ),
+        "full_text_embeds_vs_tower_embeds": _max_abs_diff(actual_full["text_embeds"], tower_composed["text_embeds"]),
+        "full_image_embeds_vs_tower_embeds": _max_abs_diff(actual_full["image_embeds"], tower_composed["image_embeds"]),
+        "full_logits_per_text_vs_tower_logits": _max_abs_diff(
+            actual_full["logits_per_text"], tower_composed["logits_per_text"]
+        ),
+        "full_logits_per_image_vs_tower_logits": _max_abs_diff(
+            actual_full["logits_per_image"], tower_composed["logits_per_image"]
+        ),
+        "full_logits_per_text_vs_recomposed_from_full_embeds": _max_abs_diff(
+            actual_full["logits_per_text"], full_recomposed["logits_per_text"]
+        ),
+        "full_logits_per_image_vs_recomposed_from_full_embeds": _max_abs_diff(
+            actual_full["logits_per_image"], full_recomposed["logits_per_image"]
+        ),
+    }
+    report = json.dumps(metrics, indent=2, sort_keys=True)
+
+    assert text_spec.ir["outputs"][0]["shape"] == [1, text_config.projection_dim], report
+    assert image_spec.ir["outputs"][0]["shape"] == [1, vision_config.projection_dim], report
+    assert full_spec.ir["outputs"][0]["shape"] == [1, 1], report
+    assert full_spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim], report
+    assert full_spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim], report
+
+    assert metrics["full_logits_per_text_vs_recomposed_from_full_embeds"] < 5e-4, report
+    assert metrics["full_logits_per_image_vs_recomposed_from_full_embeds"] < 5e-4, report
+
+    assert metrics["full_text_embeds_vs_tower_embeds"] < 5e-5, report
+    assert metrics["full_image_embeds_vs_tower_embeds"] < 5e-5, report
+    assert metrics["full_logits_per_text_vs_tower_logits"] < 5e-4, report
+    assert metrics["full_logits_per_image_vs_tower_logits"] < 5e-4, report
+
+    assert metrics["tower_text_embeds_vs_transformers"] > 1e-2, report
+    assert metrics["tower_image_embeds_vs_transformers"] > 5e-2, report
+    assert metrics["tower_logits_per_text_vs_transformers"] > 5e-1, report
+    assert metrics["tower_logits_per_image_vs_transformers"] > 5e-1, report
+    assert abs(metrics["full_text_embeds_vs_transformers"] - metrics["tower_text_embeds_vs_transformers"]) < 5e-4, report
+    assert abs(metrics["full_image_embeds_vs_transformers"] - metrics["tower_image_embeds_vs_transformers"]) < 5e-4, report
+    assert abs(metrics["full_logits_per_text_vs_transformers"] - metrics["tower_logits_per_text_vs_transformers"]) < 5e-3, report
+    assert abs(metrics["full_logits_per_image_vs_transformers"] - metrics["tower_logits_per_image_vs_transformers"]) < 5e-3, report
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

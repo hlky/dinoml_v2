@@ -417,3 +417,31 @@ intentionally not a parity claim.
   holds only a loose non-parity envelope (`< 0.9` logits, `< 0.05` text embeds,
   `< 0.1` image embeds) so future loops can detect regressions while keeping
   the remaining CUDA numerical blocker explicit.
+
+## 2026-05-15 cached base-checkpoint CUDA drift isolation boundary
+
+The cached base checkpoint CUDA drift has been narrowed from "full model drifts"
+to "standalone tower feature artifacts already carry the drift."
+
+- A new opt-in helper test, gated by
+  `DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1`, traces separate cached
+  checkpoint text-feature, image-feature, and full two-tower CUDA artifacts. It
+  compares standalone tower outputs to local Transformers, recomposes normalized
+  embeds/logits on the host from those standalone tower outputs, and checks that
+  the full artifact's own logits are consistent with recomposition from its
+  emitted embeds.
+- PM artifact reuse from the completed probes showed the standalone tower
+  outputs are already off: projected text features drift by about `0.7207` and
+  projected image features by about `1.2052` before final CLIP normalization.
+  Normalizing/recomposing those standalone tower outputs reproduces the full
+  artifact drift (`~0.0294` text embeds, `~0.0738` image embeds, `~0.7948`
+  logits).
+- The full artifact is effectively identical to the standalone-tower
+  recomposition at the final boundary: full-vs-tower normalized embeds are
+  within about `6e-8`, full logits vs tower-composed logits within about
+  `4e-6`, and full logits vs recomposition from full emitted embeds within
+  about `2e-6`. That makes final normalization, scale, transpose, and logits
+  assembly unlikely to be the first cached-checkpoint CUDA culprit. Next drift
+  work should split the text and vision tower internals, especially GEMM/BMM,
+  layer norm, attention masking, QuickGELU, and Conv/provider choices, instead
+  of re-proving full-artifact compile/load/run.

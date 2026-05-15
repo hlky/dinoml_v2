@@ -277,6 +277,45 @@ The smallest real CLIPModel-style assembly is now in-tree at
   entry in the CUDA manifest, and no tokenizer/processor or
   positional-interpolation plumbing.
 
+## 2026-05-15 CUDA layer_norm check
+
+- A focused CUDA `layer_norm` regression now covers CLIP-base hidden shapes
+  against Torch reference behavior at `(1, 4, 512)` and `(1, 50, 768)` with
+  `eps=1e-5` and real affine-style float32 parameters.
+- A separate cache-only local probe against
+  `openai/clip-vit-base-patch32` using actual checkpoint LayerNorm weights and
+  captured inputs from the text and vision towers stayed within about
+  `2e-6` max absolute error on the checked sites, including
+  `text_model.final_layer_norm`, `text_model.encoder.layers[0].layer_norm1`,
+  `vision_model.pre_layrnorm`, `vision_model.encoder.layers[0].layer_norm1`,
+  and `vision_model.post_layernorm`.
+- For the current cached CLIP-base CUDA drift, LayerNorm is therefore unlikely
+  to be the first culprit. Keep the next tower-focused investigation on the
+  internal GEMM/BMM/attention/QuickGELU/Conv math rather than the final
+  normalization or logit assembly, which already look clean.
+
+## 2026-05-15 cached CLIP CUDA op-audit boundary
+
+- A new opt-in cached-checkpoint CUDA op audit now walks a compact matrix of
+  real `openai/clip-vit-base-patch32` tower op rows and stops at the first
+  drifty family instead of compiling every remaining variant.
+- The current boundary is clean through these checked rows: text
+  `layer_norm1`, vision `pre_layrnorm`, vision patch `conv2d_bias`, text
+  `q_proj` `gemm_rcr_bias`, and vision `q_proj` `gemm_rcr_bias`. Those rows all
+  stayed within about `5e-6` max absolute error, with the patch projection
+  matching exactly on the bounded audit input.
+- The first drifty row is text-layer
+  `gemm_rcr_bias_fast_gelu` at the cached checkpoint `fc1` site
+  (`[1, 4, 512] -> [1, 4, 2048]`), which currently shows about `2.07e-2`
+  max absolute error on CUDA. A side probe showed that magnitude matches the
+  gap between CLIP QuickGELU (`x * sigmoid(1.702x)`) and Torch GELU on the same
+  captured `fc1` activations, which strongly suggests the CUTLASS
+  `fast_gelu` epilogue is not semantically matching the admitted DinoML
+  `fast_gelu` / CLIP QuickGELU contract.
+- Until that boundary is fixed or deliberately decomposed, keep the next CUDA
+  tower audit focused on `gemm_rcr_bias_fast_gelu` before widening to later
+  BMM/softmax/helper rows.
+
 ## 2026-05-15 landed cached checkpoint adapter admission smoke
 
 The Transformers-to-Legacy CLIP adapter now has one bounded opt-in proof for a

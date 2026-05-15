@@ -63,6 +63,37 @@ def _reference_layer_norm(
     return _storage_roundtrip(result, dtype)
 
 
+def _torch_reference_layer_norm(
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    *,
+    eps: float,
+) -> np.ndarray:
+    torch = pytest.importorskip("torch")
+    expected = torch.nn.functional.layer_norm(
+        torch.from_numpy(np.asarray(x, dtype=np.float32)),
+        normalized_shape=(int(weight.shape[0]),),
+        weight=torch.from_numpy(np.asarray(weight, dtype=np.float32)),
+        bias=torch.from_numpy(np.asarray(bias, dtype=np.float32)),
+        eps=float(eps),
+    )
+    return expected.detach().cpu().numpy().astype(np.float32)
+
+
+def _clip_like_layer_norm_inputs(x_shape: tuple[int, ...]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    hidden = int(x_shape[-1])
+    coords = np.arange(int(np.prod(x_shape)), dtype=np.float32).reshape(x_shape)
+    x = (0.8 * np.sin(coords / 37.0) + 0.35 * np.cos(coords / 19.0)).astype(np.float32)
+    x += np.linspace(-0.2, 0.25, num=hidden, dtype=np.float32).reshape((1,) * (len(x_shape) - 1) + (hidden,))
+    if len(x_shape) > 1:
+        row_offsets = np.arange(int(np.prod(x_shape[:-1])), dtype=np.float32).reshape(x_shape[:-1] + (1,))
+        x += (row_offsets * 0.03125).astype(np.float32)
+    weight = (1.0 + 0.05 * np.sin(np.linspace(-1.5, 1.5, num=hidden, dtype=np.float32))).astype(np.float32)
+    bias = (0.02 * np.cos(np.linspace(-0.75, 0.75, num=hidden, dtype=np.float32))).astype(np.float32)
+    return x, weight, bias
+
+
 def test_layer_norm_frontend_ir_preserves_shape_spec_eps_and_dtype():
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(
@@ -299,6 +330,32 @@ def test_cuda_artifact_runs_generated_layer_norm(tmp_path):
     module.close()
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.parametrize(
+    ("label", "x_shape"),
+    [
+        ("clip_text_base", (1, 4, 512)),
+        ("clip_vision_base", (1, 50, 768)),
+    ],
+)
+def test_cuda_artifact_runs_generated_layer_norm_at_clip_base_shapes_against_torch(
+    tmp_path, use_shared_dinoml_cuda_cache, label, x_shape
+):
+    spec = _trace_layer_norm(dtype="float32", x_shape=x_shape, weight_shape=(x_shape[-1],), bias_shape=(x_shape[-1],), eps=1e-5)
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{label}_layer_norm_cuda.dinoml")
+
+    x, weight, bias = _clip_like_layer_norm_inputs(x_shape)
+    expected = _torch_reference_layer_norm(x, weight, bias, eps=1e-5)
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+    session.close()
+    module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=3e-6, rtol=1e-6)
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

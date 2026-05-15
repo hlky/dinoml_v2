@@ -23,6 +23,7 @@ from dinoml.models.clip import (
     LegacyCLIPModel,
     LegacyCLIPTextConfig,
     LegacyCLIPVisionConfig,
+    build_clip_causal_mask,
     legacy_clip_configs_from_transformers_clip_config,
     legacy_clip_model_from_transformers_clip_model,
     legacy_clip_weights_from_transformers_state_dict,
@@ -227,6 +228,389 @@ class _CachedCheckpointCLIPImageFeaturesModule(dml.Module):
 
     def forward(self, pixel_values):
         return dml.ops.output(self.model.get_image_features(pixel_values), "image_features")
+
+
+class _LayerNormAuditModule(dml.Module):
+    def __init__(self, eps: float):
+        self.eps = eps
+
+    def forward(self, x, weight, bias):
+        return dml.ops.output(dml.ops.layer_norm(x, weight, bias, eps=self.eps), "out")
+
+
+class _GemmRcrBiasAuditModule(dml.Module):
+    def forward(self, x, weight, bias):
+        return dml.ops.output(dml.ops.gemm_rcr_bias(x, weight, bias), "out")
+
+
+class _GemmRcrBiasFastGeluAuditModule(dml.Module):
+    def forward(self, x, weight, bias):
+        return dml.ops.output(dml.ops.gemm_rcr_bias_fast_gelu(x, weight, bias), "out")
+
+
+class _BmmRcrAuditModule(dml.Module):
+    def forward(self, a, b):
+        return dml.ops.output(dml.ops.bmm_rcr(a, b), "out")
+
+
+class _BmmRrrAuditModule(dml.Module):
+    def forward(self, a, b):
+        return dml.ops.output(dml.ops.bmm_rrr(a, b), "out")
+
+
+class _SoftmaxAuditModule(dml.Module):
+    def __init__(self, dim: int = -1):
+        self.dim = dim
+
+    def forward(self, x):
+        return dml.ops.output(dml.ops.softmax(x, dim=self.dim), "out")
+
+
+class _Conv2dBiasAuditModule(dml.Module):
+    def __init__(self, *, stride, padding=(0, 0), dilation=(1, 1), groups: int = 1):
+        self.stride = tuple(stride)
+        self.padding = tuple(padding)
+        self.dilation = tuple(dilation)
+        self.groups = int(groups)
+
+    def forward(self, x, weight, bias):
+        return dml.ops.output(
+            dml.ops.conv2d_bias(
+                x,
+                weight,
+                bias,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.groups,
+            ),
+            "out",
+        )
+
+
+def _numpy_dtype_name(value: np.ndarray) -> str:
+    array = np.asarray(value)
+    if array.dtype == np.float32:
+        return "float32"
+    if array.dtype == np.float16:
+        return "float16"
+    if array.dtype == np.bool_:
+        return "bool"
+    if array.dtype == np.int64:
+        return "int64"
+    raise TypeError(f"Unsupported audit dtype: {array.dtype}")
+
+
+def _tensor_spec_inputs(input_values: dict[str, np.ndarray]) -> dict[str, dml.TensorSpec]:
+    return {
+        name: dml.TensorSpec(list(np.asarray(value).shape), _numpy_dtype_name(np.asarray(value)))
+        for name, value in input_values.items()
+    }
+
+
+def _torch_float32(value) -> np.ndarray:
+    return value.detach().cpu().numpy().astype(np.float32)
+
+
+def _reshape_attention_states(projected, num_heads: int) -> object:
+    torch = pytest.importorskip("torch")
+    batch, seq_len, hidden = projected.shape
+    head_dim = hidden // int(num_heads)
+    return (
+        projected.reshape(batch, seq_len, int(num_heads), head_dim)
+        .permute(0, 2, 1, 3)
+        .reshape(batch * int(num_heads), seq_len, head_dim)
+        .contiguous()
+    )
+
+
+def _build_text_attention_probe(attn_module, hidden_states: np.ndarray, attention_mask: np.ndarray) -> dict[str, np.ndarray]:
+    torch = pytest.importorskip("torch")
+    hidden_states_t = torch.from_numpy(np.asarray(hidden_states, dtype=np.float32))
+    attention_mask_t = torch.from_numpy(np.asarray(attention_mask, dtype=np.bool_))
+    mask_fill_value = float(getattr(attn_module.config, "mask_fill_value", -1.0e4))
+    q = _reshape_attention_states(attn_module.q_proj(hidden_states_t), attn_module.num_heads)
+    k = _reshape_attention_states(attn_module.k_proj(hidden_states_t), attn_module.num_heads)
+    v = _reshape_attention_states(attn_module.v_proj(hidden_states_t), attn_module.num_heads)
+    scores = torch.matmul(q, k.transpose(-1, -2)) * (1.0 / float(attn_module.head_dim) ** 0.5)
+    seq_len = int(hidden_states.shape[1])
+    causal = torch.from_numpy(build_clip_causal_mask(seq_len, mask_fill_value)).expand(q.shape[0], -1, -1)
+    keep = attention_mask_t.reshape(int(hidden_states.shape[0]), 1, 1, seq_len).expand(
+        int(hidden_states.shape[0]), int(attn_module.num_heads), seq_len, seq_len
+    )
+    keep = keep.reshape(q.shape[0], seq_len, seq_len)
+    masked = torch.full_like(scores, mask_fill_value)
+    masked_scores = scores + causal + torch.where(keep, torch.zeros_like(scores), masked)
+    probs = torch.softmax(masked_scores, dim=-1)
+    context = torch.matmul(probs, v)
+    return {
+        "q": _torch_float32(q),
+        "k": _torch_float32(k),
+        "v": _torch_float32(v),
+        "masked_scores": _torch_float32(masked_scores),
+        "probs": _torch_float32(probs),
+        "context": _torch_float32(context),
+    }
+
+
+def _build_vision_attention_probe(attn_module, hidden_states: np.ndarray) -> dict[str, np.ndarray]:
+    torch = pytest.importorskip("torch")
+    hidden_states_t = torch.from_numpy(np.asarray(hidden_states, dtype=np.float32))
+    q = _reshape_attention_states(attn_module.q_proj(hidden_states_t), attn_module.num_heads)
+    k = _reshape_attention_states(attn_module.k_proj(hidden_states_t), attn_module.num_heads)
+    v = _reshape_attention_states(attn_module.v_proj(hidden_states_t), attn_module.num_heads)
+    scores = torch.matmul(q, k.transpose(-1, -2)) * (1.0 / float(attn_module.head_dim) ** 0.5)
+    probs = torch.softmax(scores, dim=-1)
+    context = torch.matmul(probs, v)
+    return {
+        "q": _torch_float32(q),
+        "k": _torch_float32(k),
+        "v": _torch_float32(v),
+        "scores": _torch_float32(scores),
+        "probs": _torch_float32(probs),
+        "context": _torch_float32(context),
+    }
+
+
+def _cached_checkpoint_tower_op_audit_rows(clip_model) -> list[dict[str, object]]:
+    torch = pytest.importorskip("torch")
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    _, inputs = _cached_checkpoint_runtime_inputs(text_config=text_config, vision_config=vision_config)
+    torch_inputs = {
+        "input_ids": torch.from_numpy(inputs["input_ids"]),
+        "attention_mask": torch.from_numpy(inputs["attention_mask"]),
+        "pixel_values": torch.from_numpy(inputs["pixel_values"]),
+    }
+
+    captures: dict[str, np.ndarray] = {}
+
+    def _capture(name: str):
+        def _hook(_module, args):
+            captures[name] = _torch_float32(args[0])
+
+        return _hook
+
+    hooks = [
+        clip_model.text_model.encoder.layers[0].layer_norm1.register_forward_pre_hook(_capture("text_layer_norm1_input")),
+        clip_model.text_model.encoder.layers[0].self_attn.q_proj.register_forward_pre_hook(_capture("text_attn_input")),
+        clip_model.text_model.encoder.layers[0].mlp.fc1.register_forward_pre_hook(_capture("text_mlp_input")),
+        clip_model.vision_model.pre_layrnorm.register_forward_pre_hook(_capture("vision_pre_layer_norm_input")),
+        clip_model.vision_model.encoder.layers[0].self_attn.q_proj.register_forward_pre_hook(_capture("vision_attn_input")),
+        clip_model.vision_model.encoder.layers[0].mlp.fc1.register_forward_pre_hook(_capture("vision_mlp_input")),
+    ]
+    try:
+        with torch.inference_mode():
+            clip_model(**torch_inputs)
+    finally:
+        for hook in hooks:
+            hook.remove()
+
+    text_layer = clip_model.text_model.encoder.layers[0]
+    vision_layer = clip_model.vision_model.encoder.layers[0]
+    text_attn_probe = _build_text_attention_probe(text_layer.self_attn, captures["text_attn_input"], inputs["attention_mask"])
+    vision_attn_probe = _build_vision_attention_probe(vision_layer.self_attn, captures["vision_attn_input"])
+
+    zero_bias = np.zeros((int(vision_config.hidden_size),), dtype=np.float32)
+    return [
+        {
+            "name": "text_layer_norm1",
+            "family": "layer_norm",
+            "module": _LayerNormAuditModule(float(text_layer.layer_norm1.eps)),
+            "inputs": {
+                "x": captures["text_layer_norm1_input"],
+                "weight": _torch_float32(text_layer.layer_norm1.weight),
+                "bias": _torch_float32(text_layer.layer_norm1.bias),
+            },
+            "expected": _torch_float32(text_layer.layer_norm1(torch.from_numpy(captures["text_layer_norm1_input"]))),
+            "atol": 5e-6,
+            "rtol": 1e-6,
+        },
+        {
+            "name": "vision_pre_layer_norm",
+            "family": "layer_norm",
+            "module": _LayerNormAuditModule(float(clip_model.vision_model.pre_layrnorm.eps)),
+            "inputs": {
+                "x": captures["vision_pre_layer_norm_input"],
+                "weight": _torch_float32(clip_model.vision_model.pre_layrnorm.weight),
+                "bias": _torch_float32(clip_model.vision_model.pre_layrnorm.bias),
+            },
+            "expected": _torch_float32(
+                clip_model.vision_model.pre_layrnorm(torch.from_numpy(captures["vision_pre_layer_norm_input"]))
+            ),
+            "atol": 5e-6,
+            "rtol": 1e-6,
+        },
+        {
+            "name": "vision_patch_conv2d_bias",
+            "family": "conv2d_bias",
+            "module": _Conv2dBiasAuditModule(stride=(int(vision_config.patch_size), int(vision_config.patch_size))),
+            "inputs": {
+                "x": inputs["pixel_values"].astype(np.float32),
+                "weight": _torch_float32(clip_model.vision_model.embeddings.patch_embedding.weight),
+                "bias": zero_bias,
+            },
+            "expected": _torch_float32(clip_model.vision_model.embeddings.patch_embedding(torch_inputs["pixel_values"])),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "text_q_proj_gemm_rcr_bias",
+            "family": "gemm_rcr_bias",
+            "module": _GemmRcrBiasAuditModule(),
+            "inputs": {
+                "x": captures["text_attn_input"],
+                "weight": _torch_float32(text_layer.self_attn.q_proj.weight),
+                "bias": _torch_float32(text_layer.self_attn.q_proj.bias),
+            },
+            "expected": _torch_float32(text_layer.self_attn.q_proj(torch.from_numpy(captures["text_attn_input"]))),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "vision_q_proj_gemm_rcr_bias",
+            "family": "gemm_rcr_bias",
+            "module": _GemmRcrBiasAuditModule(),
+            "inputs": {
+                "x": captures["vision_attn_input"],
+                "weight": _torch_float32(vision_layer.self_attn.q_proj.weight),
+                "bias": _torch_float32(vision_layer.self_attn.q_proj.bias),
+            },
+            "expected": _torch_float32(vision_layer.self_attn.q_proj(torch.from_numpy(captures["vision_attn_input"]))),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "text_fc1_fast_gelu",
+            "family": "gemm_rcr_bias_fast_gelu",
+            "module": _GemmRcrBiasFastGeluAuditModule(),
+            "inputs": {
+                "x": captures["text_mlp_input"],
+                "weight": _torch_float32(text_layer.mlp.fc1.weight),
+                "bias": _torch_float32(text_layer.mlp.fc1.bias),
+            },
+            "expected": _torch_float32(
+                text_layer.mlp.activation_fn(text_layer.mlp.fc1(torch.from_numpy(captures["text_mlp_input"])))
+            ),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "vision_fc1_fast_gelu",
+            "family": "gemm_rcr_bias_fast_gelu",
+            "module": _GemmRcrBiasFastGeluAuditModule(),
+            "inputs": {
+                "x": captures["vision_mlp_input"],
+                "weight": _torch_float32(vision_layer.mlp.fc1.weight),
+                "bias": _torch_float32(vision_layer.mlp.fc1.bias),
+            },
+            "expected": _torch_float32(
+                vision_layer.mlp.activation_fn(vision_layer.mlp.fc1(torch.from_numpy(captures["vision_mlp_input"])))
+            ),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "text_attention_scores_bmm_rcr",
+            "family": "bmm_rcr",
+            "module": _BmmRcrAuditModule(),
+            "inputs": {"a": text_attn_probe["q"], "b": text_attn_probe["k"]},
+            "expected": _torch_float32(
+                torch.matmul(
+                    torch.from_numpy(text_attn_probe["q"]),
+                    torch.from_numpy(text_attn_probe["k"]).transpose(-1, -2),
+                )
+            ),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "vision_attention_scores_bmm_rcr",
+            "family": "bmm_rcr",
+            "module": _BmmRcrAuditModule(),
+            "inputs": {"a": vision_attn_probe["q"], "b": vision_attn_probe["k"]},
+            "expected": _torch_float32(
+                torch.matmul(
+                    torch.from_numpy(vision_attn_probe["q"]),
+                    torch.from_numpy(vision_attn_probe["k"]).transpose(-1, -2),
+                )
+            ),
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "text_attention_probs_softmax",
+            "family": "softmax",
+            "module": _SoftmaxAuditModule(dim=-1),
+            "inputs": {"x": text_attn_probe["masked_scores"]},
+            "expected": text_attn_probe["probs"],
+            "atol": 5e-6,
+            "rtol": 1e-6,
+        },
+        {
+            "name": "vision_attention_probs_softmax",
+            "family": "softmax",
+            "module": _SoftmaxAuditModule(dim=-1),
+            "inputs": {"x": vision_attn_probe["scores"]},
+            "expected": vision_attn_probe["probs"],
+            "atol": 5e-6,
+            "rtol": 1e-6,
+        },
+        {
+            "name": "text_attention_context_bmm_rrr",
+            "family": "bmm_rrr",
+            "module": _BmmRrrAuditModule(),
+            "inputs": {"a": text_attn_probe["probs"], "b": text_attn_probe["v"]},
+            "expected": text_attn_probe["context"],
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+        {
+            "name": "vision_attention_context_bmm_rrr",
+            "family": "bmm_rrr",
+            "module": _BmmRrrAuditModule(),
+            "inputs": {"a": vision_attn_probe["probs"], "b": vision_attn_probe["v"]},
+            "expected": vision_attn_probe["context"],
+            "atol": 5e-5,
+            "rtol": 1e-5,
+        },
+    ]
+
+
+def _run_cached_checkpoint_cuda_op_audit(*, clip_model, tmp_path, target) -> dict[str, object]:
+    rows = []
+    for index, row in enumerate(_cached_checkpoint_tower_op_audit_rows(clip_model)):
+        spec = dml.trace(
+            row["module"],
+            inputs=_tensor_spec_inputs(row["inputs"]),
+            name=f"clip_cuda_op_audit_{index}_{row['name']}",
+        )
+        artifact = dml.compile(spec, target, tmp_path / f"{index:02d}_{row['name']}.dinoml")
+        actual = _run_numpy_artifact(artifact.path, row["inputs"])["out"]
+        expected = np.asarray(row["expected"], dtype=np.float32)
+        max_abs_diff = _max_abs_diff(actual, expected)
+        clean = bool(np.allclose(actual, expected, atol=float(row["atol"]), rtol=float(row["rtol"])))
+        rows.append(
+            {
+                "name": row["name"],
+                "family": row["family"],
+                "shape": list(actual.shape),
+                "atol": float(row["atol"]),
+                "rtol": float(row["rtol"]),
+                "max_abs_diff": max_abs_diff,
+                "status": "clean" if clean else "drifty",
+            }
+        )
+        if not clean:
+            break
+    return {
+        "rows": rows,
+        "pending_rows": [
+            "embedding (token/position tables)",
+            "where/add false attention-mask path with cached checkpoint padding disabled",
+            "dynamic_slice and batch_gather pooling helpers",
+            "layout helpers such as permute021 and permute0213 if provider-heavy math stays clean",
+        ],
+    }
 
 
 def _trace_text_features():
@@ -1045,6 +1429,40 @@ def test_clip_model_transformers_checkpoint_cuda_drift_isolation_local_cache_onl
     assert abs(metrics["full_image_embeds_vs_transformers"] - metrics["tower_image_embeds_vs_transformers"]) < 5e-4, report
     assert abs(metrics["full_logits_per_text_vs_transformers"] - metrics["tower_logits_per_text_vs_transformers"]) < 5e-3, report
     assert abs(metrics["full_logits_per_image_vs_transformers"] - metrics["tower_logits_per_image_vs_transformers"]) < 5e-3, report
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_clip_model_transformers_checkpoint_cuda_op_audit_local_cache_only(
+    tmp_path,
+    monkeypatch,
+    use_shared_dinoml_cuda_cache,
+):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_OP_AUDIT") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_OP_AUDIT=1 to audit cached openai/clip-vit-base-patch32 tower op families on CUDA"
+        )
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
+
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    report = _run_cached_checkpoint_cuda_op_audit(
+        clip_model=clip_model,
+        tmp_path=tmp_path,
+        target=dml.Target("cuda", arch="sm_86", no_tf32=True),
+    )
+    report_text = json.dumps(report, indent=2, sort_keys=True)
+
+    assert report["rows"], report_text
+    assert len(report["rows"]) == 6, report_text
+    assert all(row["status"] == "clean" for row in report["rows"][:-1]), report_text
+    drifty = report["rows"][-1]
+    assert drifty["status"] == "drifty", report_text
+    assert drifty["family"] == "gemm_rcr_bias_fast_gelu", report_text
+    assert drifty["name"] == "text_fc1_fast_gelu", report_text
+    assert 1e-2 < drifty["max_abs_diff"] < 3e-2, report_text
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

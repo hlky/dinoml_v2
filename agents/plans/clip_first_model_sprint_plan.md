@@ -204,8 +204,9 @@ A bounded CLIP vision-wrapper path is now in-tree at `src/dinoml/models/clip.py`
   input only, no positional interpolation, no arbitrary image sizes, no real
   vision encoder block, no full `CLIPModel`, and no widened Conv/provider
   claims. CPU reference execution proves parity for `last_hidden_state`,
-  `pooler_output`, and projected `image_features`, while compiled CPU artifacts
-  still stop honestly at the existing `conv2d_bias` backend boundary.
+  `pooler_output`, and projected `image_features`, and compiled CPU artifacts
+  now also run through the bounded naive `conv2d_bias` bridge for the admitted
+  static groups=1 float32 path.
 - Focused wrapper-level tests compare the DinoML outputs against the pinned
   local Transformers implementation and keep CUDA manifest/generated-source
   ownership visible: the patch projection stays on the existing CUTLASS Conv
@@ -229,8 +230,9 @@ The bounded CLIP vision wrapper now also admits stacked real encoder blocks.
   arbitrary image sizes, no padding/causal mask handling in the vision block,
   no full `CLIPModel`, and no widened Conv/provider claims. CPU reference
   execution now proves the preserved zero-layer path plus deterministic one-
-  and two-layer paths against local Transformers; compiled CPU artifacts still
-  stop honestly at the existing `conv2d_bias` backend boundary.
+  and two-layer paths against local Transformers, and compiled CPU artifacts
+  now run through the same bounded naive `conv2d_bias` bridge for the admitted
+  static groups=1 float32 path.
 - Focused tests keep ownership visible on the encoder path: patch projection
   remains on the CUTLASS Conv scaffold, attention/MLP GEMM+BMM pieces stay
   CUTLASS-backed, and sequence assembly plus LayerNorm/softmax/pool path stay

@@ -32,9 +32,8 @@ added on top of it:
   transposed/3D Conv are not landed. Focused runtime parity currently proves
   base `conv2d_bias` across the admitted fp16 TensorOp/SIMT lanes plus float32
   SIMT, and proves fused `conv2d_bias_relu` on float32 SIMT plus the fp16
-  FewChannels `C=3`, FixedChannels `C=8`, and optimized aligned `C=16`
-  TensorOp lanes; the remaining admitted ReLU TensorOp lane still needing an
-  explicit runtime regression is FixedChannels `C=4`.
+  FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
+  TensorOp lanes.
 
 ## Why this needs its own plan
 

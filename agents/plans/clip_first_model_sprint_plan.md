@@ -246,3 +246,12 @@ The smallest real CLIPModel-style assembly is now in-tree at
   `logits_per_text` / `logits_per_image` against the local
   `/workspace/transformers` `CLIPModel` with deterministic weights and keep
   provider/model ownership visible in the CUDA manifest.
+- A compact runnable workflow proof now lives in
+  `examples/clip_model_workflow.py`: it traces the bounded two-tower wrapper on
+  synthetic token/image tensors, runs the CPU reference path, prints projected
+  features plus normalized embeds/logits, and records artifact-visible limits
+  in the summary itself. The proof stays intentionally narrow by making the
+  current admitted boundaries test-visible: no `position_ids` input because the
+  text branch uses traced default positions, fixed square NCHW image shape,
+  one Conv scaffold entry in the CUDA manifest, and no tokenizer/processor or
+  positional-interpolation plumbing.

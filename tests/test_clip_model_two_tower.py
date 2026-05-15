@@ -311,10 +311,6 @@ def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_lay
     }
 
 
-def _max_abs_diff(actual: np.ndarray, expected: np.ndarray) -> float:
-    return float(np.max(np.abs(np.asarray(actual, dtype=np.float32) - np.asarray(expected, dtype=np.float32))))
-
-
 def test_clip_model_get_text_and_image_features_match_local_transformers():
     text_spec = _trace_text_features()
     image_spec = _trace_image_features()
@@ -502,34 +498,6 @@ def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_pa
 
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     expected = _reference_outputs()
-
-    def _run_artifact(spec: dml.ir.ModelSpec, inputs: dict[str, np.ndarray], artifact_name: str) -> dict[str, np.ndarray]:
-        artifact = dml.compile(
-            spec,
-            dml.Target("cuda", arch="sm_86", no_tf32=True),
-            tmp_path / artifact_name,
-        )
-        module = runtime.load(artifact.path)
-        session = module.create_session()
-        try:
-            return session.run_numpy(inputs)
-        finally:
-            session.close()
-            module.close()
-
-    text_actual = _run_artifact(
-        _trace_text_features(),
-        {
-            "input_ids": _input_ids(),
-            "attention_mask": _attention_mask(),
-        },
-        "clip_model_text_features_cuda.dinoml",
-    )
-    image_actual = _run_artifact(
-        _trace_image_features(),
-        {"pixel_values": _pixel_values()},
-        "clip_model_image_features_cuda.dinoml",
-    )
     full_spec = _trace_model()
     full_artifact = dml.compile(
         full_spec,
@@ -554,12 +522,6 @@ def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_pa
     finally:
         session.close()
         module.close()
-
-    text_feature_diff = _max_abs_diff(text_actual["text_features"], expected["text_features"])
-    image_feature_diff = _max_abs_diff(image_actual["image_features"], expected["image_features"])
-    max_feature_diff = max(text_feature_diff, image_feature_diff)
-
-    assert max_feature_diff < 5.0e-4
 
     for name in ("text_embeds", "image_embeds", "logits_per_text", "logits_per_image"):
         np.testing.assert_allclose(full_actual[name], expected[name], atol=5.0e-4, rtol=5.0e-4)

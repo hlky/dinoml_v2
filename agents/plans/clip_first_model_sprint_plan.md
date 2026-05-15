@@ -124,3 +124,19 @@ open-ended provider sweep:
 - Do not start FlashAttention as the semantic baseline. Dense attention parity
   remains the acceptance gate; FlashAttention-style provider work should follow
   only after the dense CLIP path is pinned.
+
+## 2026-05-15 landed text slice
+
+A bounded text-only wrapper path is now in-tree at `src/dinoml/models/clip.py`.
+
+- The landed surface is intentionally narrow: a legacy-OpenAI
+  `get_text_features`-style wrapper composed from existing DinoML ops for token
+  embedding, position embedding, one-or-more text encoder layers, final
+  LayerNorm, legacy `eos_token_id == 2` argmax pooling, and bias-free text
+  projection.
+- The wrapper keeps the current honest limits explicit: explicit
+  `position_ids` input, static traced sequence length, text-only scope, and no
+  non-2 EOS first-match branch yet.
+- Focused wrapper-level tests compare the DinoML path against the pinned local
+  Transformers CLIP source and keep manifest ownership honest by proving that no
+  new public op or provider surface was introduced for this slice.

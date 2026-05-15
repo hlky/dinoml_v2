@@ -7,6 +7,8 @@ Primary target: image-text dual encoder contrastive inference for `CLIPModel`, w
 ```text
 Transformers commit/version:
   b75feb2af64c3e29cbbc1bd859958c5432cc7ed4
+Local implementation-validation source:
+  transformers 5.8.0.dev0 from /workspace/transformers/src/transformers/models/clip/modeling_clip.py
 Model id:
   clip family; representative checkpoints listed below
 Config source:
@@ -28,6 +30,12 @@ Pinned source URLs:
 - `configuration_clip.py`: https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/clip/configuration_clip.py
 - `image_processing_clip.py`: https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/clip/image_processing_clip.py
 - `tokenization_clip.py`: https://github.com/huggingface/transformers/blob/b75feb2af64c3e29cbbc1bd859958c5432cc7ed4/src/transformers/models/clip/tokenization_clip.py
+
+Bounded v2 text-wrapper validation for this branch also used the local
+`transformers 5.8.0.dev0` checkout at
+`/workspace/transformers/src/transformers/models/clip/modeling_clip.py`,
+specifically the legacy `eos_token_id == 2` pooling branch and
+`CLIPModel.get_text_features(...)` text-projection path.
 
 Representative HF configs fetched:
 
@@ -485,6 +493,18 @@ Stage 2: independent text encoder parity.
 
 - Implement token/position embeddings, causal mask construction, MHA, LayerNorm, MLP, final norm, EOT/EOS pooling, and text projection.
 - Validate `get_text_features` before contrastive logits.
+
+2026-05-15 bounded update:
+
+- A narrow DinoML wrapper now covers the legacy text-only
+  `get_text_features` path with explicit `position_ids`, causal + padding-mask
+  behavior, final LayerNorm, legacy argmax pooling, and text projection through
+  existing DinoML ops only.
+- Wrapper-level parity is now pinned against the local Transformers
+  `CLIPModel.get_text_features(...)` implementation for a tiny one-layer config
+  with weights flowing through the wrapper API.
+- The newer non-2 EOS first-match pooling branch remains a follow-up because
+  this slice stayed aligned with the already-landed legacy pooling coverage.
 
 Stage 3: independent vision encoder parity.
 

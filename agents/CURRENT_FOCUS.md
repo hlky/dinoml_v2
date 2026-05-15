@@ -50,6 +50,7 @@
   requires explicit `position_ids`. The vision side now has fixed-size
   embeddings plus zero-layer and one-layer pool/projection wrappers, and the
   first bounded two-tower `LegacyCLIPModel` workflow matches local Transformers
-  for projected features, normalized embeds, and logits. Preferred next slice:
-  stabilize/expose that workflow with a compact example or close the smallest
-  compiled artifact/runtime blocker for the admitted CLIPModel surface.
+  for projected features, normalized embeds, and logits with a compact runnable
+  workflow proof. Preferred next slice: close a concrete Transformers-parity gap
+  such as deeper admitted tower layer counts, or the smallest compiled
+  artifact/runtime blocker for the admitted CLIPModel surface.

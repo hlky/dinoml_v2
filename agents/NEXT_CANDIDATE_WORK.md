@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added a compact runnable CLIPModel two-tower workflow proof. The new
+  `examples/clip_model_workflow.py` traces the bounded `LegacyCLIPModel` on
+  synthetic text/image tensors, runs the CPU reference path, prints projected
+  text/image features, normalized embeds, logits, node/kernel ownership, and
+  test-visible limits: no explicit `position_ids`, fixed square NCHW image
+  shape, and CUTLASS Conv still represented as a scaffold-only manifest entry.
+  Focused tests compare the example outputs against local `/workspace/transformers`
+  `CLIPModel`, smoke the runnable script, and keep the existing two-tower parity
+  tests green without adding tokenizer/processor plumbing, positional
+  interpolation, FlashAttention, or new provider claims.
 - Landed the first bounded CLIPModel-style two-tower contrastive workflow.
   `LegacyCLIPModel` now composes the admitted text tower and one-layer vision
   tower, exposes bounded `get_text_features` / `get_image_features`, normalizes
@@ -19,12 +29,13 @@ This file should be updated after each major loop.
 
 ## Next Recommended Lane
 
-- Stabilize and expose the new CLIPModel-style workflow rather than adding
-  another unrelated island. Good next slices: add a compact example/test that
-  demonstrates the two-tower workflow from synthetic text/image tensors, or
-  close the smallest remaining gap that blocks a compiled artifact/runtime
-  smoke for the bounded CLIPModel surface. Keep parity with local Transformers
-  as the acceptance bar.
+- Keep converting the bounded CLIPModel surface toward local Transformers parity
+  with one concrete, test-backed gap at a time. Good next slices: prove and
+  admit a slightly deeper tower surface if existing composition supports it
+  cleanly (for example, more than one CLIP vision encoder layer), or close the
+  smallest remaining gap that blocks a compiled artifact/runtime smoke for the
+  admitted CLIPModel workflow. Keep local `/workspace/transformers` parity as
+  the acceptance bar and keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

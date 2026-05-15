@@ -56,12 +56,13 @@
   and the first bounded two-tower `LegacyCLIPModel` workflow matches local
   Transformers for projected features, normalized embeds, and logits with a
   compact runnable workflow proof. The current artifact boundary is now pinned:
-  a naive generated CPU bridge exists for `gemm_rcr` and `gemm_rcr_bias`, so
-  zero-layer text CPU artifacts can run, while deeper text/two-tower CPU
-  compilation now fails first at `bmm_rcr`. Exact CLIP float32 patch Conv can
+  naive generated CPU bridges exist for `gemm_rcr`, `gemm_rcr_bias`, and
+  `bmm_rcr`, so zero-layer text CPU artifacts can run and the first CLIP
+  attention matmul can compile/run on CPU artifacts. Deeper text/two-tower CPU
+  compilation now fails first at `bmm_rrr`. Exact CLIP float32 patch Conv can
   compile to a CUDA artifact but still fails through the scaffolded CUTLASS Conv
   runtime launcher boundary, and zero-text/zero-vision two-tower CPU compilation
   still stops honestly at `conv2d_bias`. Preferred next slice: narrow the CPU
-  `bmm_rcr` blocker, advance the exact Conv launcher boundary, or pick a new
+  `bmm_rrr` blocker, advance the exact Conv launcher boundary, or pick a new
   narrow Transformers parity gap that is not already covered by the layer-count
   proofs.

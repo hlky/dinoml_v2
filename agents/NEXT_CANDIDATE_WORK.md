@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed a bounded naive compiled CPU bridge for `bmm_rcr` as the next CLIP
+  text artifact unblocker, still explicitly a temporary generated loop rather
+  than a CPU library/provider path. Generated CPU artifacts keep rank-3
+  row-major `A[B,M,K]`, column-major-logical `B[B,N,K]`, row-major `C[B,M,N]`,
+  support zero-stride batch broadcast, and preserve CUDA/CUTLASS BMM behavior.
+  Focused tests cover dynamic token shapes for `float32`, `float16`, and
+  `bfloat16`, batch broadcast, existing naive GEMM coverage, CLIP text/two-tower
+  CPU compile boundaries, and BMM lowering/profile metadata. The deeper CLIP
+  text and two-tower CPU blockers now move forward to `bmm_rrr`.
 - Landed a bounded naive compiled CPU bridge for `gemm_rcr` and
   `gemm_rcr_bias` as an explicit CLIP artifact unblocker, not an optimized CPU
   provider/library path. Generated CPU artifacts now flatten `A[..., K]` into
@@ -84,7 +93,7 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: close or narrow the compiled CPU `bmm_rcr` blocker for the text
+  next slices: close or narrow the compiled CPU `bmm_rrr` blocker for the text
   attention path with the same "small naive bridge, honest performance limits"
   discipline, or advance the exact CUDA Conv scaffold toward a CLIP-tied runtime
   smoke without broadening Conv claims. If staying purely in model parity, pick

@@ -1,8 +1,15 @@
 import os
 import shutil
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_SRC = REPO_ROOT / "src"
+if str(REPO_SRC) not in sys.path:
+    sys.path.insert(0, str(REPO_SRC))
 
 import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
@@ -12,6 +19,7 @@ from dinoml.models.clip import LegacyCLIPTextConfig, LegacyCLIPTextModelWithProj
 from dinoml.passes import PassManager, validate_ir
 
 
+LOCAL_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
 BATCH = 2
 SEQ_LEN = 4
 VOCAB_SIZE = 16
@@ -23,14 +31,14 @@ EPS = 1.0e-5
 MAX_POSITION_EMBEDDINGS = 6
 
 
-def _config(*, eos_token_id: int = 2):
+def _config(*, eos_token_id: int = 2, num_hidden_layers: int = 2):
     return LegacyCLIPTextConfig(
         vocab_size=VOCAB_SIZE,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_size=HIDDEN,
         intermediate_size=INTERMEDIATE,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=1,
+        num_hidden_layers=num_hidden_layers,
         projection_dim=PROJECTION,
         layer_norm_eps=EPS,
         eos_token_id=eos_token_id,
@@ -44,33 +52,34 @@ def _weights():
         return (rng.standard_normal(shape).astype(np.float32) / scale).astype(np.float32)
 
     config = _config()
-    return {
+    weights = {
         "text_model.embeddings.token_embedding.weight": _normal((config.vocab_size, config.hidden_size), 3.5),
         "text_model.embeddings.position_embedding.weight": _normal(
             (config.max_position_embeddings, config.hidden_size), 4.0
         ),
-        "text_model.encoder.layers.0.self_attn.q_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "text_model.encoder.layers.0.self_attn.q_proj.bias": _normal((config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.k_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "text_model.encoder.layers.0.self_attn.k_proj.bias": _normal((config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.v_proj.weight": _normal((config.hidden_size, config.hidden_size), 5.0),
-        "text_model.encoder.layers.0.self_attn.v_proj.bias": _normal((config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.out_proj.weight": _normal(
-            (config.hidden_size, config.hidden_size), 5.0
-        ),
-        "text_model.encoder.layers.0.self_attn.out_proj.bias": _normal((config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.layer_norm1.weight": _normal((config.hidden_size,), 4.0),
-        "text_model.encoder.layers.0.layer_norm1.bias": _normal((config.hidden_size,), 6.0),
-        "text_model.encoder.layers.0.mlp.fc1.weight": _normal((config.intermediate_size, config.hidden_size), 4.5),
-        "text_model.encoder.layers.0.mlp.fc1.bias": _normal((config.intermediate_size,), 6.5),
-        "text_model.encoder.layers.0.mlp.fc2.weight": _normal((config.hidden_size, config.intermediate_size), 4.5),
-        "text_model.encoder.layers.0.mlp.fc2.bias": _normal((config.hidden_size,), 6.5),
-        "text_model.encoder.layers.0.layer_norm2.weight": _normal((config.hidden_size,), 4.0),
-        "text_model.encoder.layers.0.layer_norm2.bias": _normal((config.hidden_size,), 6.0),
         "text_model.final_layer_norm.weight": _normal((config.hidden_size,), 4.0),
         "text_model.final_layer_norm.bias": _normal((config.hidden_size,), 6.0),
         "text_projection.weight": _normal((config.projection_dim, config.hidden_size), 4.0),
     }
+    for layer_idx in range(config.num_hidden_layers):
+        prefix = f"text_model.encoder.layers.{layer_idx}"
+        weights[f"{prefix}.self_attn.q_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.q_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.k_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.k_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.v_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.v_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.out_proj.weight"] = _normal((config.hidden_size, config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.out_proj.bias"] = _normal((config.hidden_size,), 7.0)
+        weights[f"{prefix}.layer_norm1.weight"] = _normal((config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm1.bias"] = _normal((config.hidden_size,), 6.0)
+        weights[f"{prefix}.mlp.fc1.weight"] = _normal((config.intermediate_size, config.hidden_size), 4.5)
+        weights[f"{prefix}.mlp.fc1.bias"] = _normal((config.intermediate_size,), 6.5)
+        weights[f"{prefix}.mlp.fc2.weight"] = _normal((config.hidden_size, config.intermediate_size), 4.5)
+        weights[f"{prefix}.mlp.fc2.bias"] = _normal((config.hidden_size,), 6.5)
+        weights[f"{prefix}.layer_norm2.weight"] = _normal((config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm2.bias"] = _normal((config.hidden_size,), 6.0)
+    return weights
 
 
 WEIGHTS = _weights()
@@ -108,7 +117,7 @@ def _position_ids():
     return np.array([0, 1, 2, 3], dtype=np.int64)
 
 
-def _trace(*, eos_token_id: int = 2, include_position_ids: bool = True):
+def _trace(*, eos_token_id: int = 2, include_position_ids: bool = True, num_hidden_layers: int = 2):
     inputs = {
         "input_ids": dml.TensorSpec([BATCH, SEQ_LEN], "int64"),
         "attention_mask": dml.TensorSpec([BATCH, SEQ_LEN], "bool"),
@@ -116,15 +125,29 @@ def _trace(*, eos_token_id: int = 2, include_position_ids: bool = True):
     if include_position_ids:
         inputs["position_ids"] = dml.TensorSpec([SEQ_LEN], "int64")
     return dml.trace(
-        LegacyCLIPTextModelWithProjection(_config(eos_token_id=eos_token_id), WEIGHTS),
+        LegacyCLIPTextModelWithProjection(
+            _config(eos_token_id=eos_token_id, num_hidden_layers=num_hidden_layers),
+            WEIGHTS,
+        ),
         inputs=inputs,
-        name=f"clip_text_model_with_projection_eos_{eos_token_id}",
+        name=f"clip_text_model_with_projection_eos_{eos_token_id}_{num_hidden_layers}_layer",
     )
 
 
-def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = True):
-    torch = pytest.importorskip("torch")
+def _import_local_transformers():
+    if str(LOCAL_TRANSFORMERS_SRC) not in sys.path:
+        sys.path.insert(0, str(LOCAL_TRANSFORMERS_SRC))
     transformers = pytest.importorskip("transformers")
+    resolved = Path(transformers.__file__).resolve()
+    assert resolved.is_relative_to(LOCAL_TRANSFORMERS_SRC.resolve()), (
+        f"expected local /workspace/transformers import, got {resolved}"
+    )
+    return transformers
+
+
+def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = True, num_hidden_layers: int = 2):
+    torch = pytest.importorskip("torch")
+    transformers = _import_local_transformers()
 
     text_config = transformers.CLIPTextConfig(
         vocab_size=VOCAB_SIZE,
@@ -132,7 +155,7 @@ def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = Tr
         intermediate_size=INTERMEDIATE,
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=1,
+        num_hidden_layers=num_hidden_layers,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_act="quick_gelu",
         attention_dropout=0.0,
@@ -187,17 +210,22 @@ def _reference_outputs(*, eos_token_id: int = 2, include_position_ids: bool = Tr
 def test_clip_text_wrapper_get_text_features_matches_local_transformers(
     eos_token_id, expected_counts, include_position_ids
 ):
-    spec = _trace(eos_token_id=eos_token_id, include_position_ids=include_position_ids)
+    num_hidden_layers = 2
+    spec = _trace(
+        eos_token_id=eos_token_id,
+        include_position_ids=include_position_ids,
+        num_hidden_layers=num_hidden_layers,
+    )
     node_ops = [node["op"] for node in spec.ir["nodes"]]
 
     assert node_ops.count("embedding") == 2
     assert node_ops.count("dynamic_slice") == 1
-    assert node_ops.count("layer_norm") == 3
-    assert node_ops.count("gemm_rcr_bias") == 5
-    assert node_ops.count("gemm_rcr_bias_fast_gelu") == 1
+    assert node_ops.count("layer_norm") == (2 * num_hidden_layers) + 1
+    assert node_ops.count("gemm_rcr_bias") == 5 * num_hidden_layers
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == num_hidden_layers
     assert node_ops.count("gemm_rcr") == 1
-    assert node_ops.count("bmm_rcr") == 1
-    assert node_ops.count("bmm_rrr") == 1
+    assert node_ops.count("bmm_rcr") == num_hidden_layers
+    assert node_ops.count("bmm_rrr") == num_hidden_layers
     for op_name, expected_count in expected_counts.items():
         assert node_ops.count(op_name) == expected_count
     dynamic_slice_node = next(node for node in spec.ir["nodes"] if node["op"] == "dynamic_slice")
@@ -216,7 +244,11 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers(
         inputs["position_ids"] = _position_ids()
 
     actual = execute_cpu(spec, inputs)["text_features"]
-    expected = _reference_outputs(eos_token_id=eos_token_id, include_position_ids=include_position_ids)
+    expected = _reference_outputs(
+        eos_token_id=eos_token_id,
+        include_position_ids=include_position_ids,
+        num_hidden_layers=num_hidden_layers,
+    )
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
@@ -230,7 +262,7 @@ def test_clip_text_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypat
 
 @pytest.mark.parametrize("eos_token_id", [2, 7])
 def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest(eos_token_id):
-    spec = _trace(eos_token_id=eos_token_id)
+    spec = _trace(eos_token_id=eos_token_id, num_hidden_layers=2)
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
     tensor_map = {tensor["name"]: tensor for tensor in lowered["tensors"]}

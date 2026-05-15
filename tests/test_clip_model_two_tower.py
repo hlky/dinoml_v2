@@ -43,7 +43,7 @@ def _text_config():
         hidden_size=TEXT_HIDDEN,
         intermediate_size=TEXT_INTERMEDIATE,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=1,
+        num_hidden_layers=2,
         projection_dim=PROJECTION,
         layer_norm_eps=EPS,
         eos_token_id=2,
@@ -77,34 +77,6 @@ def _weights():
         "text_model.embeddings.position_embedding.weight": _normal(
             (text_config.max_position_embeddings, text_config.hidden_size), 4.0
         ),
-        "text_model.encoder.layers.0.self_attn.q_proj.weight": _normal(
-            (text_config.hidden_size, text_config.hidden_size), 5.0
-        ),
-        "text_model.encoder.layers.0.self_attn.q_proj.bias": _normal((text_config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.k_proj.weight": _normal(
-            (text_config.hidden_size, text_config.hidden_size), 5.0
-        ),
-        "text_model.encoder.layers.0.self_attn.k_proj.bias": _normal((text_config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.v_proj.weight": _normal(
-            (text_config.hidden_size, text_config.hidden_size), 5.0
-        ),
-        "text_model.encoder.layers.0.self_attn.v_proj.bias": _normal((text_config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.self_attn.out_proj.weight": _normal(
-            (text_config.hidden_size, text_config.hidden_size), 5.0
-        ),
-        "text_model.encoder.layers.0.self_attn.out_proj.bias": _normal((text_config.hidden_size,), 7.0),
-        "text_model.encoder.layers.0.layer_norm1.weight": _normal((text_config.hidden_size,), 4.0),
-        "text_model.encoder.layers.0.layer_norm1.bias": _normal((text_config.hidden_size,), 6.0),
-        "text_model.encoder.layers.0.mlp.fc1.weight": _normal(
-            (text_config.intermediate_size, text_config.hidden_size), 4.5
-        ),
-        "text_model.encoder.layers.0.mlp.fc1.bias": _normal((text_config.intermediate_size,), 6.5),
-        "text_model.encoder.layers.0.mlp.fc2.weight": _normal(
-            (text_config.hidden_size, text_config.intermediate_size), 4.5
-        ),
-        "text_model.encoder.layers.0.mlp.fc2.bias": _normal((text_config.hidden_size,), 6.5),
-        "text_model.encoder.layers.0.layer_norm2.weight": _normal((text_config.hidden_size,), 4.0),
-        "text_model.encoder.layers.0.layer_norm2.bias": _normal((text_config.hidden_size,), 6.0),
         "text_model.final_layer_norm.weight": _normal((text_config.hidden_size,), 4.0),
         "text_model.final_layer_norm.bias": _normal((text_config.hidden_size,), 6.0),
         "text_projection.weight": _normal((text_config.projection_dim, text_config.hidden_size), 4.0),
@@ -129,6 +101,24 @@ def _weights():
         "visual_projection.weight": _normal((vision_config.projection_dim, vision_config.hidden_size), 4.0),
         "logit_scale": np.array(np.log(1.7), dtype=np.float32),
     }
+    for layer_idx in range(text_config.num_hidden_layers):
+        prefix = f"text_model.encoder.layers.{layer_idx}"
+        weights[f"{prefix}.self_attn.q_proj.weight"] = _normal((text_config.hidden_size, text_config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.q_proj.bias"] = _normal((text_config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.k_proj.weight"] = _normal((text_config.hidden_size, text_config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.k_proj.bias"] = _normal((text_config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.v_proj.weight"] = _normal((text_config.hidden_size, text_config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.v_proj.bias"] = _normal((text_config.hidden_size,), 7.0)
+        weights[f"{prefix}.self_attn.out_proj.weight"] = _normal((text_config.hidden_size, text_config.hidden_size), 5.0)
+        weights[f"{prefix}.self_attn.out_proj.bias"] = _normal((text_config.hidden_size,), 7.0)
+        weights[f"{prefix}.layer_norm1.weight"] = _normal((text_config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm1.bias"] = _normal((text_config.hidden_size,), 6.0)
+        weights[f"{prefix}.mlp.fc1.weight"] = _normal((text_config.intermediate_size, text_config.hidden_size), 4.5)
+        weights[f"{prefix}.mlp.fc1.bias"] = _normal((text_config.intermediate_size,), 6.5)
+        weights[f"{prefix}.mlp.fc2.weight"] = _normal((text_config.hidden_size, text_config.intermediate_size), 4.5)
+        weights[f"{prefix}.mlp.fc2.bias"] = _normal((text_config.hidden_size,), 6.5)
+        weights[f"{prefix}.layer_norm2.weight"] = _normal((text_config.hidden_size,), 4.0)
+        weights[f"{prefix}.layer_norm2.bias"] = _normal((text_config.hidden_size,), 6.0)
     for layer_idx in range(vision_config.num_hidden_layers):
         prefix = f"vision_model.encoder.layers.{layer_idx}"
         weights[f"{prefix}.layer_norm1.weight"] = _normal((vision_config.hidden_size,), 4.0)
@@ -251,7 +241,7 @@ def _reference_outputs():
         intermediate_size=TEXT_INTERMEDIATE,
         projection_dim=PROJECTION,
         num_attention_heads=NUM_HEADS,
-        num_hidden_layers=1,
+        num_hidden_layers=2,
         max_position_embeddings=MAX_POSITION_EMBEDDINGS,
         hidden_act="quick_gelu",
         attention_dropout=0.0,
@@ -279,8 +269,6 @@ def _reference_outputs():
         projection_dim=PROJECTION,
         logit_scale_init_value=float(np.asarray(WEIGHTS["logit_scale"], dtype=np.float32)),
     )
-    text_model = transformers.CLIPTextModelWithProjection(text_config)
-    vision_model = transformers.CLIPVisionModelWithProjection(vision_config)
     clip_model = transformers.CLIPModel(clip_config)
 
     def _load(model):
@@ -294,8 +282,6 @@ def _reference_outputs():
         model.eval()
         return model
 
-    text_model = _load(text_model)
-    vision_model = _load(vision_model)
     clip_model = _load(clip_model)
 
     text_inputs = {
@@ -307,12 +293,12 @@ def _reference_outputs():
     }
 
     with torch.inference_mode():
-        text_outputs = text_model(**text_inputs)
-        image_outputs = vision_model(**image_inputs)
+        text_features = clip_model.get_text_features(**text_inputs).pooler_output
+        image_features = clip_model.get_image_features(**image_inputs).pooler_output
         outputs = clip_model(**text_inputs, **image_inputs)
     return {
-        "text_features": text_outputs.text_embeds.detach().cpu().numpy().astype(np.float32),
-        "image_features": image_outputs.image_embeds.detach().cpu().numpy().astype(np.float32),
+        "text_features": text_features.detach().cpu().numpy().astype(np.float32),
+        "image_features": image_features.detach().cpu().numpy().astype(np.float32),
         "logits_per_image": outputs.logits_per_image.detach().cpu().numpy().astype(np.float32),
         "logits_per_text": outputs.logits_per_text.detach().cpu().numpy().astype(np.float32),
         "text_embeds": outputs.text_embeds.detach().cpu().numpy().astype(np.float32),
@@ -352,6 +338,10 @@ def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transform
     assert node_ops.count("vector_norm") == 2
     assert node_ops.count("div") == 2
     assert node_ops.count("gemm_rcr") == 3
+    assert node_ops.count("gemm_rcr_bias") == 5 * (_text_config().num_hidden_layers + _vision_config().num_hidden_layers)
+    assert node_ops.count("gemm_rcr_bias_fast_gelu") == _text_config().num_hidden_layers + _vision_config().num_hidden_layers
+    assert node_ops.count("bmm_rcr") == _text_config().num_hidden_layers + _vision_config().num_hidden_layers
+    assert node_ops.count("bmm_rrr") == _text_config().num_hidden_layers + _vision_config().num_hidden_layers
     assert node_ops.count("exp") == 1
     assert [output["name"] for output in spec.ir["outputs"]] == [
         "logits_per_image",

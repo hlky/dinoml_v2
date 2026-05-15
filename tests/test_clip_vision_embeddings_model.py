@@ -262,9 +262,9 @@ def test_clip_vision_patch_projection_exact_float32_cuda_runtime_boundary_matche
     [required] = manifest["required_kernels"]
 
     assert required["op"] == "conv2d_bias"
-    assert required["candidate_set"]["status"] == "manifest_scaffold_only"
-    assert required["candidate_set"]["profiler_status"] == "unsupported_stub"
-    assert required["candidate_set"]["profiler_blocked_reason"] == "cutlass_conv_profiler_not_implemented"
+    assert required["candidate_set"]["status"] == "bounded_runtime"
+    assert required["candidate_set"]["profiler_status"] == "bounded_runtime_profiler"
+    assert "profiler_blocked_reason" not in required["candidate_set"]
     assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert required["cutlass_conv_plan"]["profiler_status"] == "bounded_runtime_profiler"
     assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")

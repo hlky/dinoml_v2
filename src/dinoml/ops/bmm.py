@@ -14,12 +14,19 @@ from dinoml.ops.registry import FrontendBinding, KernelBinding, KernelVariant, O
 def register_bmm_ops(registry: OpRegistry) -> None:
     for op_name in BMM_OPS:
         spec = bmm_op_spec(op_name)
+        backend_kernels = _backend_kernels(op_name)
+        if op_name == "bmm_rcr":
+            backend_kernels["cpu"] = KernelBinding(
+                symbol="generated_bmm",
+                library="model",
+                source_template="bmm_cpu.cpp.j2",
+            )
         registry.register(
             OpDef(
                 name=op_name,
                 schema=OpSchema(inputs=("a", "b", *spec.inputs)),
                 infer_shape=_infer_shape_fn(op_name),
-                backend_kernels=_backend_kernels(op_name),
+                backend_kernels=backend_kernels,
                 frontend=FrontendBinding(op_name),
                 allowed_dtypes=BMM_SUPPORTED_DTYPES,
                 profiler=True,

@@ -354,7 +354,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
   strides, target-policy candidate filtering, runtime alignment fallbacks, and
   profile/report/cache workloads keyed by batch-aware BMM problem shapes. Static
   BMM profile selections are consumed during compile, and conflicting BMM
-  profile selections now emit guarded batch/M/N/K dispatch with default fallback.
+  profile selections now emit guarded batch/M/N/K dispatch with default
+  fallback. `bmm_rcr` additionally has a bounded compiled CPU bridge for CLIP
+  attention: generated CPU artifacts keep rank-3 semantics, handle row-major
+  output plus zero-stride batch broadcast, and run naive loops for `float32`,
+  `float16`, and `bfloat16`. Other compiled CPU BMM layouts remain
+  intentionally unsupported.
 - [x] First BMM add epilogue:
   `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}_add` now registers CUTLASS candidate
   sets and a `dinoml_cutlass_bmm_add_v1` launcher/profiler ABI for full-output

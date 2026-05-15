@@ -1,17 +1,27 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 import re
 from typing import Any, Mapping
 
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
 from dinoml.ir import dtype_nbytes
+from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.definitions import get_op_def
 
+_CPU_BMM_OPS = {"bmm_rcr"}
 
-def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+
+def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _render_cpu_template("bmm_cpu.cpp.j2", _cpu_context(node, tensor_map))
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported BMM lowering target: {target}")
 
 
 def render_launch(
@@ -20,12 +30,10 @@ def render_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
-    if target != "cuda":
-        raise ValueError(f"{node['op']} lowering is currently CUDA-only")
     op_name = str(node["op"])
     spec = bmm_op_spec(op_name)
     if spec.epilogue not in {"none", "add"}:
-        raise NotImplementedError(f"{op_name} CUDA lowering does not support BMM epilogue {spec.epilogue!r}")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support BMM epilogue {spec.epilogue!r}")
     a_name, b_name = (str(name) for name in node["inputs"][:2])
     d0_name = str(node["inputs"][2]) if spec.epilogue == "add" else None
     c_name = str(node["outputs"][0])
@@ -33,15 +41,7 @@ def render_launch(
     b_ident = _c_ident(b_name)
     d0_ident = _c_ident(d0_name) if d0_name is not None else None
     c_ident = _c_ident(c_name)
-    _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name])
-    dtype = str(tensor_map[c_name]["dtype"])
-    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
-    _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
-    symbol = (
-        str(manifest_item["kernel_symbol"])
-        if manifest_item is not None
-        else get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
-    )
+    _validate_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name], target=target)
 
     a_batch = f"shape_{a_ident}_0"
     b_batch = f"shape_{b_ident}_0"
@@ -51,6 +51,33 @@ def render_launch(
     n_expr = f"shape_{b_ident}_{1 if spec.b_layout == 'c' else 2}"
     k_b_expr = f"shape_{b_ident}_{2 if spec.b_layout == 'c' else 1}"
     k_expr = k_a_expr
+    output_check = _output_shape_check(c_ident, batch_expr, m_expr, n_expr, spec.c_layout)
+
+    if target == "cpu":
+        return _render_cpu_launch(
+            node=node,
+            tensor_map=tensor_map,
+            batch_expr=batch_expr,
+            a_batch=a_batch,
+            b_batch=b_batch,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            k_b_expr=k_b_expr,
+            output_check=output_check,
+        )
+    if target != "cuda":
+        raise ValueError(f"{op_name} lowering is only implemented for CPU or CUDA")
+
+    dtype = str(tensor_map[c_name]["dtype"])
+    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
+    _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
+    symbol = (
+        str(manifest_item["kernel_symbol"])
+        if manifest_item is not None
+        else get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
+    )
+
     lda_expr = m_expr if spec.a_layout == "c" else k_expr
     ldb_expr = k_expr if spec.b_layout == "c" else n_expr
     ldc_expr = m_expr if spec.c_layout == "c" else n_expr
@@ -59,7 +86,6 @@ def render_launch(
     d0_layout = _d0_layout_context(op_name, spec.c_layout, tensor_map[d0_name], tensor_map[c_name], m_expr, n_expr) if d0_name else None
     batch_stride_d0 = d0_layout["batch_stride"] if d0_layout is not None else f"({m_expr}) * ({n_expr})"
     batch_stride_c = f"({m_expr}) * ({n_expr})"
-    output_check = _output_shape_check(c_ident, batch_expr, m_expr, n_expr, spec.c_layout)
     selected_candidate = _selected_cutlass_candidate(manifest_item)
     lines = [
         f'if (!({a_batch} == {b_batch} || {a_batch} == 1 || {b_batch} == 1)) '
@@ -124,14 +150,81 @@ def render_launch(
     return "\n".join(lines)
 
 
-def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return f"{target}:{generated_function_name(target, node, tensor_map)}"
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported BMM lowering target: {target}")
 
 
-def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
-    del target, node, tensor_map
-    return None
+def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    if target == "cpu":
+        return _cpu_function_name(node, tensor_map)
+    if target == "cuda":
+        return None
+    raise ValueError(f"Unsupported BMM lowering target: {target}")
+
+
+def _render_cpu_launch(
+    *,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    batch_expr: str,
+    a_batch: str,
+    b_batch: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    k_b_expr: str,
+    output_check: str,
+) -> str:
+    op_name = str(node["op"])
+    func = _cpu_function_name(node, tensor_map)
+    a_ident = _c_ident(str(node["inputs"][0]))
+    b_ident = _c_ident(str(node["inputs"][1]))
+    c_ident = _c_ident(str(node["outputs"][0]))
+    lines = [
+        f'if (!({a_batch} == {b_batch} || {a_batch} == 1 || {b_batch} == 1)) return dinoml::module::fail("{op_name} batch dimension mismatch");',
+        f'if ({k_expr} != {k_b_expr}) return dinoml::module::fail("{op_name} K dimension mismatch");',
+        f'if ({output_check}) return dinoml::module::fail("{op_name} output shape mismatch");',
+        "if (int err = "
+        f"{func}(ptr_{a_ident}, runtime_numel_{a_ident}, ptr_{b_ident}, runtime_numel_{b_ident}, "
+        f"ptr_{c_ident}, runtime_numel_{c_ident}, {batch_expr}, {a_batch}, {b_batch}, {m_expr}, {n_expr}, {k_expr})) return err;",
+    ]
+    return "\n".join(lines)
+
+
+def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    op_name = str(node["op"])
+    if op_name not in _CPU_BMM_OPS:
+        raise ValueError(f"CPU BMM lowering only supports {_CPU_BMM_OPS}, got {op_name}")
+    output_tensor = tensor_map[node["outputs"][0]]
+    dtype = str(output_tensor["dtype"])
+    signature = {
+        "op": op_name,
+        "dtype": dtype,
+    }
+    digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return {
+        "func": f"{op_name}_{dtype}_{digest}",
+        "storage_type": cpu_storage_type(dtype),
+    }
+
+
+def _cpu_function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    return str(_cpu_context(node, tensor_map)["func"])
+
+
+def _render_cpu_template(name: str, context: Mapping[str, Any]) -> str:
+    env = Environment(
+        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
+        undefined=StrictUndefined,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+    )
+    return env.get_template(name).render(**context)
 
 
 def _output_shape_check(c_ident: str, batch_expr: str, m_expr: str, n_expr: str, c_layout: str) -> str:
@@ -603,14 +696,16 @@ def _validate_static_contract(
     op_name: str,
     input_infos: list[Mapping[str, Any]],
     c_info: Mapping[str, Any],
+    *,
+    target: str,
 ) -> None:
     op_def = get_op_def(op_name)
     if any(input_info["dtype"] != c_info["dtype"] for input_info in input_infos):
-        raise NotImplementedError(f"{op_name} CUDA lowering requires matching input/output dtypes")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering requires matching input/output dtypes")
     if str(c_info["dtype"]) not in op_def.allowed_dtypes:
-        raise NotImplementedError(f"{op_name} CUDA lowering does not support dtype {c_info['dtype']}")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support dtype {c_info['dtype']}")
     if any(len(input_info["shape"]) != 3 for input_info in input_infos[:2]) or len(c_info["shape"]) != 3:
-        raise NotImplementedError(f"{op_name} CUDA lowering expects rank-3 A, B, and C tensors")
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering expects rank-3 A, B, and C tensors")
 
 
 def _c_ident(name: str) -> str:

@@ -329,7 +329,7 @@ def test_clip_text_wrapper_zero_layer_cpu_artifact_matches_local_transformers(tm
 def test_clip_text_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op bmm_rcr"):
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op bmm_rrr"):
         dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
 
 

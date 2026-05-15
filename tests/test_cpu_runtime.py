@@ -4213,6 +4213,80 @@ def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, 
         module.close()
 
 
+@pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [
+        ("float32", 1e-5, 1e-5),
+        ("float16", 2e-3, 2e-3),
+        ("bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_artifact_runs_generated_naive_bmm_rcr_with_dynamic_token_shape(tmp_path, monkeypatch, dtype, atol, rtol):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    token_dim = dml.Dim("tokens", min=1, max=8)
+    spec = dml.trace(
+        BmmModule("bmm_rcr"),
+        inputs={
+            "a": dml.TensorSpec([2, token_dim, 4], dtype),
+            "b": dml.TensorSpec([2, token_dim, 4], dtype),
+        },
+        name=f"bmm_rcr_dynamic_{dtype}_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"bmm_rcr_dynamic_{dtype}_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int bmm_rcr_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        rng = np.random.default_rng(2234)
+        for tokens in (3, 6):
+            a = rng.standard_normal((2, tokens, 4)).astype(np.float32)
+            b = rng.standard_normal((2, tokens, 4)).astype(np.float32)
+            a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+            b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+            expected = np.matmul(a_reference, np.swapaxes(b_reference, -1, -2))
+            expected = array_from_storage(array_to_storage(expected, dtype), dtype)
+            actual = session.run_numpy({"a": a, "b": b})["y"]
+            assert actual.shape == (2, tokens, tokens)
+            np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+    finally:
+        session.close()
+        module.close()
+
+
+def test_cpu_artifact_runs_generated_naive_bmm_rcr_with_batch_broadcast(tmp_path, monkeypatch):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = dml.trace(
+        BmmModule("bmm_rcr"),
+        inputs={
+            "a": dml.TensorSpec([1, 3, 4], "float32"),
+            "b": dml.TensorSpec([2, 5, 4], "float32"),
+        },
+        name="bmm_rcr_broadcast_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "bmm_rcr_broadcast_cpu.dinoml")
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        rng = np.random.default_rng(2299)
+        a = rng.standard_normal((1, 3, 4)).astype(np.float32)
+        b = rng.standard_normal((2, 5, 4)).astype(np.float32)
+        expected = np.matmul(a, np.swapaxes(b, -1, -2)).astype(np.float32)
+        actual = session.run_numpy({"a": a, "b": b})["y"]
+        assert actual.shape == (2, 3, 5)
+        np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
+    finally:
+        session.close()
+        module.close()
+
+
 def test_cpu_artifact_runs_generated_reduction_keepdim(tmp_path):
     spec = dml.trace(
         ReductionLastDim("reduce_mean", keepdim=True),

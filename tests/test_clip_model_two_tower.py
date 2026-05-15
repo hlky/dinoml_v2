@@ -13,6 +13,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml.backends.cpu import execute_cpu
+from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.models.clip import LegacyCLIPModel, LegacyCLIPTextConfig, LegacyCLIPVisionConfig
 from dinoml.passes import PassManager, validate_ir
@@ -412,6 +413,13 @@ def test_clip_model_zero_layer_text_tower_matches_local_transformers():
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
 
+def test_clip_model_two_tower_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace_model()
+    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rcr_bias"):
+        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
+
+
 def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():
     spec = _trace_model()
     lowered, _ = PassManager().run(spec.ir)
@@ -447,3 +455,40 @@ def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():
     assert all(entry["kernel_library"] == "cutlass_bmm" for entry in provider_entries if entry["op"] in {"bmm_rcr", "bmm_rrr"})
     assert model_entries
     assert all(entry["kernel_library"] == "model" for entry in model_entries)
+
+
+def test_clip_model_codegen_plan_keeps_conv_scaffold_artifact_visible(tmp_path):
+    spec = _trace_model()
+    lowered, _ = PassManager().run(spec.ir)
+    validate_ir(lowered)
+
+    manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86", "no_tf32": True})
+    codegen_plan = create_codegen_plan(manifest, tmp_path / "cache")
+
+    assert [entry["name"] for entry in codegen_plan.external_support_libraries] == [
+        "cutlass_bmm",
+        "cutlass_conv",
+        "cutlass_gemm",
+    ]
+
+    conv_manifest_entry = next(entry for entry in manifest["required_kernels"] if entry["op"] == "conv2d_bias")
+    conv_support_lib = next(
+        entry for entry in codegen_plan.external_support_libraries if entry["name"] == "cutlass_conv"
+    )
+
+    assert conv_manifest_entry["cutlass_conv_plan"]["status"] == "manifest_scaffold_only"
+    assert conv_support_lib["kernel_symbols"] == [conv_manifest_entry["kernel_symbol"]]
+    assert conv_support_lib["profiler_symbols"] == [conv_manifest_entry["profiler_symbol"]]
+    assert conv_support_lib["transform_helper_symbols"] == [
+        "dinoml_cutlass_conv_input_pack_nchw_to_nhwc_float32_v1",
+        "dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_float32_v1",
+        "dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_float32_v1",
+    ]
+    assert [stage["stage_name"] for stage in codegen_plan.wrapper_stages] == [
+        "activation_pack",
+        "weight_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert codegen_plan.wrapper_stages[2]["stage_kind"] == "provider_launcher"
+    assert codegen_plan.wrapper_stages[2]["symbol"] == conv_manifest_entry["kernel_symbol"]

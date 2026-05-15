@@ -4,6 +4,22 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added an opt-in cached OpenAI CLIP base checkpoint compiled-CUDA artifact
+  tractability smoke. The new smoke is gated by
+  `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1`, forces
+  `HF_HOME=/workspace/.cache/huggingface`, uses
+  `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, reuses
+  the shared CUDA support cache fixture, traces the same bounded batch-1 short
+  sequence adapter-built `LegacyCLIPModel`, compiles a CUDA `.dinoml`, loads it
+  through `dinoml.runtime`, and runs the full cached
+  `openai/clip-vit-base-patch32` two-tower artifact. This proves checkpoint
+  loading, tracing, CUDA compile admission, support-library linking, runtime
+  load, and execution are tractable for the cached base checkpoint, but it is
+  explicitly not a parity claim: the current CUDA artifact still drifts from
+  local Transformers on the bounded smoke inputs by roughly `0.795` on logits,
+  `0.0295` on text embeds, and `0.0739` on image embeds. Treat the next CLIP
+  CUDA lane as isolating that numerical drift, not reopening checkpoint loading
+  or compile admission.
 - Closed the last explicit runtime-parity gap in the current bounded fused
   Conv ReLU TensorOp family by proving `conv2d_bias_relu` on the admitted fp16
   CUTLASS FixedChannels `C=4` candidate. The CUDA-gated regression compiles a
@@ -331,11 +347,14 @@ This file should be updated after each major loop.
   config/state import, trace/manifest admission, a real cached
   `openai/clip-vit-base-patch32` CPU-reference runtime parity smoke, and a
   matching opt-in compiled CPU artifact smoke for the full two-tower base
-  checkpoint. The first known contrastive-head CUDA bug is now fixed in generated
-  `vector_norm`; rerun the opt-in CLIP two-tower CUDA smoke on a CUDA-capable
-  machine when useful to confirm normalized embeds and logits stay allclose end
-  to end. If any CUDA drift remains, inspect `div` and final similarity/
-  transpose assembly with artifact-visible evidence before broadening scope.
+  checkpoint. The cached base checkpoint also now compiles, loads, and runs as
+  an opt-in CUDA artifact, but with a documented non-parity drift envelope. The
+  next high-value CLIP CUDA task is to isolate the source of that drift in a
+  tower, op, dtype/TF32, reduction, or provider path, rather than adding broader
+  checkpoint surfaces. The first known contrastive-head CUDA bug is now fixed in
+  generated `vector_norm`, so future drift isolation should compare cached
+  checkpoint text-only, image-only, normalized-embed, and logits boundaries
+  against the existing CPU/Transformers references before broadening scope.
   Keep local `/workspace/transformers` parity as the acceptance bar and keep all
   non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test

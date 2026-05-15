@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Fixed the first concrete CUDA CLIP contrastive-head drift boundary in model
+  generated reductions. The CUDA `vector_norm` kernel had been reusing its
+  per-element `acc + value * value` expression while reducing already-partial
+  sums across the warp/shared-memory tree, which squared partial sums a second
+  time and blew up CLIP feature normalization in the two-tower CUDA path. The
+  reduction lowering now distinguishes element accumulation from partial-sum
+  reduction, focused CUDA source/runtime regressions cover `vector_norm`, and
+  the opt-in CLIP two-tower CUDA smoke now expects allclose parity for
+  normalized embeds and logits instead of asserting intentional drift. Local
+  validation in this worktree covered the focused CUDA reduction runtime path
+  plus the broader CLIP suite entry changes, while the full-model CUDA CLIP
+  smoke remains opt-in and environment-sensitive.
 - Added an opt-in CUDA CLIP two-tower blocker smoke that uses the newly landed
   exact patch-projection runtime in the real model path and records the next
   honest failure boundary. The generated CUDA `LegacyCLIPModel`
@@ -150,17 +162,16 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. The
-  next CLIP CUDA blocker is now narrower than Conv: the full two-tower CUDA
-  artifact compiles and runs through the bounded patch-projection runtime, and
-  the standalone text/image feature artifacts stay close to local
-  Transformers, but the contrastive head still drifts once the model normalizes
-  features and assembles logits. Good next slices: isolate whether the first
-  bad CUDA boundary is `vector_norm`, `div`, or the final similarity/transpose
-  assembly, and land a bounded fix with the existing CUDA smoke as the
-  acceptance test. The bounded CPU artifact workflow is now visible and tested;
-  do not spend another loop on CLIP CPU artifact examples unless a concrete
-  user-facing failure appears. Keep local `/workspace/transformers` parity as
-  the acceptance bar and keep all non-parity limits explicit.
+  first known contrastive-head CUDA bug is now fixed in generated
+  `vector_norm`; the immediate next task is to rerun the opt-in CLIP two-tower
+  CUDA smoke on a CUDA-capable machine and confirm that normalized embeds and
+  logits now stay allclose end to end. If any CUDA drift remains after that,
+  inspect `div` and final similarity/transpose assembly with artifact-visible
+  evidence before broadening scope. The bounded CPU artifact workflow is now
+  visible and tested; do not spend another loop on CLIP CPU artifact examples
+  unless a concrete user-facing failure appears. Keep local
+  `/workspace/transformers` parity as the acceptance bar and keep all
+  non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

@@ -2470,6 +2470,7 @@ def test_cuda_generated_reduced_precision_softmax_source_avoids_packed_float_rei
         ("reduce_max", np.max),
         ("reduce_min", np.min),
         ("reduce_mean", np.mean),
+        ("vector_norm", lambda value, axis: np.sqrt(np.sum(value * value, axis=axis))),
     ],
 )
 def test_cuda_generated_reductions_match_numpy(tmp_path, op_name, numpy_op):

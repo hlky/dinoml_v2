@@ -72,6 +72,7 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         "two_accumulators": node["op"] == "var",
         "initial_value": _initial_value(node["op"]),
         "combine_expr": _combine_expr(node["op"]),
+        "partial_combine_expr": _partial_combine_expr(node["op"]),
         "unbiased": bool(node.get("attrs", {}).get("unbiased", False)),
     }
     context["final_expr"] = _final_expr(node["op"], cols, context["unbiased"])
@@ -134,6 +135,16 @@ def _combine_expr(op: str) -> str:
     if op == "vector_norm":
         return "acc + value * value"
     if op == "var":
+        return "acc + value"
+    if op == "reduce_max":
+        return "fmaxf(acc, value)"
+    if op == "reduce_min":
+        return "fminf(acc, value)"
+    raise ValueError(op)
+
+
+def _partial_combine_expr(op: str) -> str:
+    if op in {"reduce_sum", "reduce_mean", "var", "vector_norm"}:
         return "acc + value"
     if op == "reduce_max":
         return "fmaxf(acc, value)"

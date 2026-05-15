@@ -31,7 +31,7 @@ __global__ void {{ warp_kernel }}(
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
     const float value = __shfl_down_sync(0xffffffffu, acc, offset);
-    acc = {{ combine_expr }};
+    acc = {{ partial_combine_expr }};
 {% if two_accumulators %}
     sum_sq_acc += __shfl_down_sync(0xffffffffu, sum_sq_acc, offset);
 {% endif %}
@@ -77,7 +77,7 @@ __global__ void {{ kernel }}(
     if (tid < stride) {
       const float value = shared[tid + stride];
       acc = shared[tid];
-      shared[tid] = {{ combine_expr }};
+      shared[tid] = {{ partial_combine_expr }};
 {% if two_accumulators %}
       shared[blockDim.x + tid] += shared[blockDim.x + tid + stride];
 {% endif %}

@@ -2707,13 +2707,22 @@ def test_validate_ir_accepts_keepdim_reduction_shape(op_name):
 
 
 @pytest.mark.parametrize(
-    ("op_name", "source_snippet"),
+    ("op_name", "source_snippet", "extra_snippets"),
     [
-        ("var", "sum_sq_acc"),
-        ("vector_norm", "sqrtf(acc)"),
+        ("var", "sum_sq_acc", ()),
+        (
+            "vector_norm",
+            "sqrtf(acc)",
+            (
+                "acc = acc + value * value;",
+                "const float value = __shfl_down_sync(0xffffffffu, acc, offset);",
+                "acc = acc + value;",
+                "shared[tid] = acc + value;",
+            ),
+        ),
     ],
 )
-def test_var_and_vector_norm_manifest_and_cuda_source(op_name, source_snippet):
+def test_var_and_vector_norm_manifest_and_cuda_source(op_name, source_snippet, extra_snippets):
     import dinoml as dml
 
     class ReduceModel(dml.Module):
@@ -2740,6 +2749,8 @@ def test_var_and_vector_norm_manifest_and_cuda_source(op_name, source_snippet):
     assert len(sources["kernels"]) == 1
     assert f"{op_name}_" in sources["kernels"][0]
     assert source_snippet in sources["kernels"][0]
+    for snippet in extra_snippets:
+        assert snippet in sources["kernels"][0]
 
 
 def test_shape_type_infer_propagates_dynamic_shape_spec_through_elementwise_broadcast():

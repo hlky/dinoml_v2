@@ -495,7 +495,7 @@ def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, 
     os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL") != "1",
     reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL=1 to run the expensive CUDA CLIP full-model smoke",
 )
-def test_clip_model_two_tower_generated_cuda_runtime_pins_contrastive_head_blocker(tmp_path, monkeypatch):
+def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
@@ -561,12 +561,8 @@ def test_clip_model_two_tower_generated_cuda_runtime_pins_contrastive_head_block
 
     assert max_feature_diff < 5.0e-4
 
-    full_diffs = {
-        name: _max_abs_diff(full_actual[name], expected[name])
-        for name in ("text_embeds", "image_embeds", "logits_per_text", "logits_per_image")
-    }
-    for name, diff in full_diffs.items():
-        assert diff > max_feature_diff * 1000.0, (name, max_feature_diff, diff)
+    for name in ("text_embeds", "image_embeds", "logits_per_text", "logits_per_image"):
+        np.testing.assert_allclose(full_actual[name], expected[name], atol=5.0e-4, rtol=5.0e-4)
 
 
 def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():

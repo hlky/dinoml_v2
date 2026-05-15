@@ -4,6 +4,7 @@ from typing import Any, Mapping
 
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> None:
@@ -313,14 +314,6 @@ def _shape_placeholders(stage: Mapping[str, Any]) -> list[str]:
             raise ValueError(f"Malformed CUTLASS Conv scaffold shape arg descriptor: {item!r}")
         placeholders.append(str(item["placeholder"]))
     return placeholders
-
-
-def _c_ident(name: str) -> str:
-    pieces = []
-    for char in str(name):
-        pieces.append(char if char.isalnum() else "_")
-    ident = "".join(pieces).strip("_")
-    return ident or "tmp"
 
 
 CONV2D_BIAS_LOWERING = OpLowering(

@@ -20,6 +20,7 @@ class _VectorPlan:
     width: int = 1
     bytes: int = 0
     cpp_type: str = ""
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -659,14 +660,6 @@ def _literal(value: Any) -> str:
     if isinstance(value, float):
         return f"{value:.9g}f"
     raise ValueError(f"Unsupported fused elementwise scalar attr literal: {value!r}")
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident
 
 
 FUSED_ELEMENTWISE_LOWERING = OpLowering(

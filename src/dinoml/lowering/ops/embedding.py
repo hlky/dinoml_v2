@@ -12,6 +12,7 @@ from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.gather import _index_storage_type
 from dinoml.ops.collections import GATHER_INDEX_DTYPES
 from dinoml.ops.embedding import EMBEDDING_DTYPES, resolve_embedding_shape
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -151,14 +152,6 @@ def _render_template(name: str, context: Mapping[str, Any]) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(name).render(**context)
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident
 
 
 EMBEDDING_LOWERING = OpLowering(

@@ -10,6 +10,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.ops.reductions import BASIC_REDUCTION_OPS, REDUCTION_DTYPES, REDUCTION_OPS
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -194,13 +195,6 @@ def _render_template(name: str, context: Mapping[str, Any]) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(name).render(**context)
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    return ident
 
 
 REDUCTION_LOWERINGS = {

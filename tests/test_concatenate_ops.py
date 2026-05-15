@@ -97,7 +97,8 @@ def test_cpu_reference_concatenate(dtype, expected_dtype):
 
 
 @pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool"])
-def test_concatenate_generated_cpu_source_and_runtime(tmp_path, dtype):
+def test_concatenate_generated_cpu_source_and_runtime(tmp_path, monkeypatch, dtype):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_concatenate(dtype, dim=1, shapes=([1, 2, 1], [1, 3, 1], [1, 1, 1]))
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
@@ -156,6 +157,50 @@ def test_concatenate_generated_cuda_source_uses_wrapper_parameter_names_for_fuse
         cuda_source,
         re.DOTALL,
     )
+
+
+def test_concatenate_cpu_artifact_handles_tensor_names_with_numeric_suffixes(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class SuffixedConcatenateModule(dml.Module):
+        def forward(self, x_0, y_0):
+            return dml.ops.output(dml.ops.concatenate([x_0, y_0], dim=0), "out_0")
+
+    spec = dml.trace(
+        SuffixedConcatenateModule(),
+        inputs={
+            "x_0": dml.TensorSpec([2], "float32"),
+            "y_0": dml.TensorSpec([2], "float32"),
+        },
+        name="concatenate_numeric_suffix_identifiers",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "concatenate_numeric_suffix_identifiers.dinoml")
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+
+    assert "ptr_x__0" in generated
+    assert "ptr_y__0" in generated
+    assert "ptr_x_0" not in generated
+    assert "ptr_y_0" not in generated
+    assert "shape_x__0" in generated
+    assert "shape_y__0" in generated
+    assert "shape_x_0" not in generated
+    assert "shape_y_0" not in generated
+
+    module = load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "x_0": np.array([1.0, 2.0], dtype=np.float32),
+                "y_0": np.array([3.0, 4.0], dtype=np.float32),
+            }
+        )["out_0"]
+    finally:
+        session.close()
+        module.close()
+
+    expected = np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")

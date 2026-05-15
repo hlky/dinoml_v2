@@ -16,6 +16,7 @@ from dinoml.ops.definitions import get_op_def
 
 
 _CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu"}
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -715,14 +716,6 @@ def _validate_static_contract(
         or len(c_info["shape"]) != len(input_infos[0]["shape"])
     ):
         raise NotImplementedError(f"{op_name} {target.upper()} lowering expects A[...,K], rank-2 B, and C[...,N]")
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident
 
 
 GEMM_LOWERINGS = {

@@ -15,6 +15,7 @@ from dinoml.ops.collections import (
     normalize_repeat_interleave_repeats,
     resolve_repeat_interleave_shape,
 )
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -146,13 +147,6 @@ def _render_template(name: str, context: Mapping[str, Any]) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(name).render(**context)
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    return ident
 
 
 REPEAT_INTERLEAVE_LOWERING = OpLowering(

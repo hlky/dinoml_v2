@@ -13,6 +13,7 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.lowering.cpp_types import cuda_storage_type
 from dinoml.lowering.ops import render_generated_kernels, render_launch
 from dinoml.lowering.shape_buffers import (
+    c_ident as _c_ident,
     constant_expression_axis_checks,
     dynamic_dim_sources,
     expression_axis_checks,
@@ -748,11 +749,3 @@ def _append_named_dim_check(
 
 def _numel(shape: Iterable[int]) -> int:
     return int(np.prod(list(shape), dtype=np.int64))
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident

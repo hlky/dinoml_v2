@@ -14,6 +14,7 @@ from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.definitions import get_op_def
 
 _CPU_BMM_OPS = {"bmm_rcr", "bmm_rrr"}
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -707,14 +708,6 @@ def _validate_static_contract(
         raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support dtype {c_info['dtype']}")
     if any(len(input_info["shape"]) != 3 for input_info in input_infos[:2]) or len(c_info["shape"]) != 3:
         raise NotImplementedError(f"{op_name} {target.upper()} lowering expects rank-3 A, B, and C tensors")
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident
 
 
 BMM_LOWERINGS = {

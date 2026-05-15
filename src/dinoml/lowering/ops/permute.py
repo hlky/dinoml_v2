@@ -13,6 +13,7 @@ from dinoml.ops.collections import COLLECTION_DTYPES, SPECIALIZED_PERMUTE_DIMS, 
 
 
 PERMUTE_OPS = ("permute", *SPECIALIZED_PERMUTE_DIMS)
+from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
@@ -164,14 +165,6 @@ def _render_template(name: str, context: Mapping[str, Any]) -> str:
         keep_trailing_newline=True,
     )
     return env.get_template(name).render(**context)
-
-
-def _c_ident(name: str) -> str:
-    ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
-    if not ident or ident[0].isdigit():
-        ident = f"_{ident}"
-    ident = re.sub(r"_(\d+)$", r"__\1", ident)
-    return ident
 
 
 PERMUTE_LOWERINGS = {

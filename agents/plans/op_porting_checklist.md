@@ -360,9 +360,12 @@ normalization or softmax patterns, otherwise use custom block reductions.
   handle row-major output plus zero-stride batch broadcast, distinguish the
   admitted logical B layouts (`B[B, N, K]` for `rcr`, `B[B, K, N]` for `rrr`),
   and run naive loops for `float32`, `float16`, and `bfloat16`. This is enough
-  for the compiled CLIP attention context matmul path; deeper text/two-tower
-  CPU compilation now stops honestly at `gemm_rcr_bias_fast_gelu`. Other
-  compiled CPU BMM layouts remain intentionally unsupported.
+  for the compiled CLIP attention context matmul path. The same bounded CPU
+  bridge pattern now also covers `gemm_rcr_bias_fast_gelu` with the existing
+  `fast_gelu(x) = x * sigmoid(1.702 * x)` semantics, so deeper CLIP text CPU
+  artifacts can run and the remaining full two-tower CPU boundary now stops
+  honestly at `conv2d_bias`. Other compiled CPU BMM layouts remain
+  intentionally unsupported.
 - [x] First BMM add epilogue:
   `bmm_{ccc,ccr,crc,crr,rcc,rcr,rrc,rrr}_add` now registers CUTLASS candidate
   sets and a `dinoml_cutlass_bmm_add_v1` launcher/profiler ABI for full-output

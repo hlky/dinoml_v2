@@ -4214,6 +4214,67 @@ def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, 
 
 
 @pytest.mark.parametrize(
+    ("dtype", "atol", "rtol"),
+    [
+        ("float32", 1e-5, 1e-5),
+        ("float16", 2e-3, 2e-3),
+        ("bfloat16", 2e-2, 2e-2),
+    ],
+)
+def test_cpu_artifact_runs_generated_naive_gemm_bias_fast_gelu_with_dynamic_folded_m(
+    tmp_path,
+    monkeypatch,
+    dtype,
+    atol,
+    rtol,
+):
+    from dinoml import runtime
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class DynamicFastGeluGemmModule(dml.Module):
+        def forward(self, a, b, bias):
+            return dml.ops.output(dml.ops.gemm_rcr_bias_fast_gelu(a, b, bias), "y")
+
+    token_dim = dml.Dim("tokens", min=1, max=8)
+    spec = dml.trace(
+        DynamicFastGeluGemmModule(),
+        inputs={
+            "a": dml.TensorSpec([2, token_dim, 8], dtype),
+            "b": dml.TensorSpec([6, 8], dtype),
+            "bias": dml.TensorSpec([1, 6], dtype),
+        },
+        name=f"gemm_rcr_bias_fast_gelu_dynamic_{dtype}_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"gemm_rcr_bias_fast_gelu_dynamic_{dtype}_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "1.702f" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        rng = np.random.default_rng(1337)
+        b = rng.standard_normal((6, 8)).astype(np.float32)
+        bias = rng.standard_normal((1, 6)).astype(np.float32)
+        b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
+        bias_reference = array_from_storage(array_to_storage(bias, dtype), dtype).astype(np.float32)
+        for tokens in (2, 5):
+            a = rng.standard_normal((2, tokens, 8)).astype(np.float32)
+            a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
+            expected = a_reference @ b_reference.T + bias_reference.reshape(1, 1, 6)
+            expected = expected / (1.0 + np.exp(-1.702 * expected))
+            expected = array_from_storage(array_to_storage(expected, dtype), dtype)
+            actual = session.run_numpy({"a": a, "b": b, "bias": bias})["y"]
+            assert actual.shape == (2, tokens, 6)
+            np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
+    finally:
+        session.close()
+        module.close()
+
+
+@pytest.mark.parametrize(
     ("op_name", "a_spec_shape", "b_spec_shape"),
     [
         ("bmm_rcr", lambda token_dim: [2, token_dim, 4], lambda token_dim: [2, token_dim, 4]),

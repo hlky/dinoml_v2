@@ -15,7 +15,7 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
 
 
-_CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias"}
+_CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu"}
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
@@ -230,7 +230,11 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
         raise ValueError(f"CPU GEMM lowering only supports {_CPU_GEMM_OPS}, got {op_name}")
     output_tensor = tensor_map[node["outputs"][0]]
     dtype = str(output_tensor["dtype"])
-    has_bias = gemm_op_spec(op_name).epilogue.has_bias
+    spec = gemm_op_spec(op_name)
+    has_bias = spec.epilogue.has_bias
+    activation = spec.epilogue.activation
+    if activation not in {None, "fast_gelu"}:
+        raise ValueError(f"{op_name} CPU lowering only supports the fast_gelu activation epilogue, got {activation!r}")
     if has_bias:
         bias_tensor = tensor_map[node["inputs"][2]]
         bias_rank = len(bias_tensor["shape"])
@@ -248,6 +252,7 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
         "func": f"{op_name}_{dtype}_{digest}",
         "storage_type": cpu_storage_type(dtype),
         "has_bias": has_bias,
+        "activation": activation,
     }
 
 
@@ -716,6 +721,7 @@ def _c_ident(name: str) -> str:
     ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
     if not ident or ident[0].isdigit():
         ident = f"_{ident}"
+    ident = re.sub(r"_(\d+)$", r"__\1", ident)
     return ident
 
 

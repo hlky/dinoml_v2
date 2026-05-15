@@ -326,11 +326,33 @@ def test_clip_text_wrapper_zero_layer_cpu_artifact_matches_local_transformers(tm
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
-def test_clip_text_wrapper_cpu_compile_boundary_stays_honest(tmp_path, monkeypatch):
+def test_clip_text_wrapper_cpu_artifact_with_encoder_layers_matches_local_transformers(tmp_path, monkeypatch):
+    from dinoml import runtime
+
     monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
-    spec = _trace()
-    with pytest.raises(NotImplementedError, match="cpu backend does not support op gemm_rcr_bias_fast_gelu"):
-        dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
+    spec = _trace(include_position_ids=False, num_hidden_layers=2)
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "static int gemm_rcr_bias_fast_gelu_" in generated
+    assert "static int bmm_rcr_" in generated
+    assert "static int bmm_rrr_" in generated
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "attention_mask": _attention_mask(),
+            }
+        )["text_features"]
+    finally:
+        session.close()
+        module.close()
+
+    expected = _reference_outputs(include_position_ids=False, num_hidden_layers=2)
+    np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
 @pytest.mark.parametrize("eos_token_id", [2, 7])

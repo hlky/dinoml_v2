@@ -47,6 +47,9 @@ static int {{ func }}(
 {% if has_bias %}
       acc += dinoml::math::cast<float>(bias[col]);
 {% endif %}
+{% if activation == "fast_gelu" %}
+      acc = acc / (1.0f + std::exp(-1.702f * acc));
+{% endif %}
       c[c_base + col] = dinoml::math::cast<{{ storage_type }}>(acc);
     }
   }

@@ -50,7 +50,7 @@ def register_gemm_ops(registry: OpRegistry) -> None:
                 dtype_variants=_cutlass_dtype_variants(op_name),
             ),
         }
-        if op_name in {"gemm_rcr", "gemm_rcr_bias"}:
+        if op_name in {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu"}:
             backend_kernels["cpu"] = KernelBinding(
                 symbol="generated_gemm",
                 library="model",

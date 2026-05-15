@@ -113,6 +113,7 @@ def _c_ident(name: str) -> str:
     ident = re.sub(r"[^0-9A-Za-z_]", "_", name)
     if not ident or ident[0].isdigit():
         ident = f"_{ident}"
+    ident = re.sub(r"_(\d+)$", r"__\1", ident)
     return ident
 
 

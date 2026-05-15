@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Landed the bounded naive compiled CPU bridge for `gemm_rcr_bias_fast_gelu`
+  and a deeper CLIP text CPU artifact proof. The existing `fast_gelu(x) =
+  x * sigmoid(1.702 * x)` epilogue now runs in generated CPU GEMM artifacts for
+  dynamic folded-`M` shapes and the two-layer CLIP text wrapper matches local
+  `/workspace/transformers` as a CPU artifact without explicit `position_ids`.
+  Full two-tower CPU compilation now moves honestly to the vision-side
+  `conv2d_bias` blocker. The loop also fixed a real generated-identifier drift:
+  CPU/CUDA top-level lowering and op-local lowerings now share one
+  `shape_buffers.c_ident` helper, with a regression proving tensor names like
+  `x_0`, `y_0`, and `out_0` compile and run consistently.
 - Landed a bounded naive compiled CPU bridge for `bmm_rrr`, completing the two
   CLIP attention matmul layouts needed by the current text artifact path.
   Generated CPU artifacts now distinguish column-major-logical `B[B,N,K]` for
@@ -102,13 +112,13 @@ This file should be updated after each major loop.
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: close or narrow the compiled CPU `gemm_rcr_bias_fast_gelu`
-  blocker for the text MLP path with the same "small naive bridge, honest
-  performance limits" discipline, or advance the exact CUDA Conv scaffold toward
-  a CLIP-tied runtime smoke without broadening Conv claims. If staying purely in
-  model parity, pick a new narrow Transformers gap that is not already covered
-  by the layer-count proofs. Keep local `/workspace/transformers` parity as the
-  acceptance bar and keep all non-parity limits explicit.
+  next slices: shift back to the vision artifact blockers by either narrowing
+  the compiled CPU `conv2d_bias` boundary for the full two-tower CPU artifact or
+  advancing the exact CUDA Conv scaffold toward a CLIP-tied runtime smoke
+  without broadening Conv claims. If staying purely in model parity, pick a new
+  narrow Transformers gap that is not already covered by the layer-count proofs.
+  Keep local `/workspace/transformers` parity as the acceptance bar and keep all
+  non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added an opt-in CUDA CLIP two-tower blocker smoke that uses the newly landed
+  exact patch-projection runtime in the real model path and records the next
+  honest failure boundary. The generated CUDA `LegacyCLIPModel`
+  `get_text_features` and `get_image_features` artifacts now have focused
+  regression coverage proving they both stay near local Transformers on CUDA,
+  including the bounded float32 SIMT `cutlass_conv` patch projection inside the
+  image tower. The same smoke then compiles and runs the full two-tower CUDA
+  artifact and proves the next blocker has moved past Conv: normalized embeds
+  and logits drift badly only after the contrastive head (`vector_norm`/`div`/
+  final similarity assembly). This keeps the CUDA artifact story honest without
+  widening Conv claims.
 - Landed the exact CLIP float32 CUDA Conv runtime slice. The
   Transformers-shaped patch projection used by `LegacyCLIPVisionEmbeddings`
   (`[B,3,4,4]` input, `[6,3,2,2]` weights, stride 2, padding 0, groups 1) now
@@ -138,15 +149,18 @@ This file should be updated after each major loop.
 ## Next Recommended Lane
 
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
-  local Transformers parity with one concrete, test-backed gap at a time. Good
-  next slices: use the newly runtime-backed exact CLIP CUDA patch projection in
-  a bounded CUDA CLIP artifact/workflow smoke that reveals the next concrete
-  runtime blocker, or pick a new narrow Transformers gap that is not already
-  covered by the layer-count proofs. The bounded CPU artifact workflow is now
-  visible and tested; do not spend another loop on CLIP CPU artifact examples
-  unless a concrete user-facing failure appears. Keep local
-  `/workspace/transformers` parity as the acceptance bar and keep all
-  non-parity limits explicit.
+  local Transformers parity with one concrete, test-backed gap at a time. The
+  next CLIP CUDA blocker is now narrower than Conv: the full two-tower CUDA
+  artifact compiles and runs through the bounded patch-projection runtime, and
+  the standalone text/image feature artifacts stay close to local
+  Transformers, but the contrastive head still drifts once the model normalizes
+  features and assembles logits. Good next slices: isolate whether the first
+  bad CUDA boundary is `vector_norm`, `div`, or the final similarity/transpose
+  assembly, and land a bounded fix with the existing CUDA smoke as the
+  acceptance test. The bounded CPU artifact workflow is now visible and tested;
+  do not spend another loop on CLIP CPU artifact examples unless a concrete
+  user-facing failure appears. Keep local `/workspace/transformers` parity as
+  the acceptance bar and keep all non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test
   and keep the existing Conv limitations honest. Do not broaden tokenizer,
   processor, positional interpolation, FlashAttention, or Conv provider claims

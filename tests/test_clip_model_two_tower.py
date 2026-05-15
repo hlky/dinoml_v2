@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -308,6 +311,10 @@ def _reference_outputs(*, text_num_hidden_layers: int = 2, vision_num_hidden_lay
     }
 
 
+def _max_abs_diff(actual: np.ndarray, expected: np.ndarray) -> float:
+    return float(np.max(np.abs(np.asarray(actual, dtype=np.float32) - np.asarray(expected, dtype=np.float32))))
+
+
 def test_clip_model_get_text_and_image_features_match_local_transformers():
     text_spec = _trace_text_features()
     image_spec = _trace_image_features()
@@ -481,6 +488,85 @@ def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, 
     np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL") != "1",
+    reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL=1 to run the expensive CUDA CLIP full-model smoke",
+)
+def test_clip_model_two_tower_generated_cuda_runtime_pins_contrastive_head_blocker(tmp_path, monkeypatch):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    expected = _reference_outputs()
+
+    def _run_artifact(spec: dml.ir.ModelSpec, inputs: dict[str, np.ndarray], artifact_name: str) -> dict[str, np.ndarray]:
+        artifact = dml.compile(
+            spec,
+            dml.Target("cuda", arch="sm_86", no_tf32=True),
+            tmp_path / artifact_name,
+        )
+        module = runtime.load(artifact.path)
+        session = module.create_session()
+        try:
+            return session.run_numpy(inputs)
+        finally:
+            session.close()
+            module.close()
+
+    text_actual = _run_artifact(
+        _trace_text_features(),
+        {
+            "input_ids": _input_ids(),
+            "attention_mask": _attention_mask(),
+        },
+        "clip_model_text_features_cuda.dinoml",
+    )
+    image_actual = _run_artifact(
+        _trace_image_features(),
+        {"pixel_values": _pixel_values()},
+        "clip_model_image_features_cuda.dinoml",
+    )
+    full_spec = _trace_model()
+    full_artifact = dml.compile(
+        full_spec,
+        dml.Target("cuda", arch="sm_86", no_tf32=True),
+        tmp_path / "clip_model_two_tower_cuda.dinoml",
+    )
+    kernel_manifest = json.loads((full_artifact.path / "kernel_manifest.json").read_text(encoding="utf-8"))
+    conv_entry = next(entry for entry in kernel_manifest["required_kernels"] if entry["op"] == "conv2d_bias")
+    assert conv_entry["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert conv_entry["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "simt"
+
+    module = runtime.load(full_artifact.path)
+    session = module.create_session()
+    try:
+        full_actual = session.run_numpy(
+            {
+                "input_ids": _input_ids(),
+                "pixel_values": _pixel_values(),
+                "attention_mask": _attention_mask(),
+            }
+        )
+    finally:
+        session.close()
+        module.close()
+
+    text_feature_diff = _max_abs_diff(text_actual["text_features"], expected["text_features"])
+    image_feature_diff = _max_abs_diff(image_actual["image_features"], expected["image_features"])
+    max_feature_diff = max(text_feature_diff, image_feature_diff)
+
+    assert max_feature_diff < 5.0e-4
+
+    full_diffs = {
+        name: _max_abs_diff(full_actual[name], expected[name])
+        for name in ("text_embeds", "image_embeds", "logits_per_text", "logits_per_image")
+    }
+    for name, diff in full_diffs.items():
+        assert diff > max_feature_diff * 1000.0, (name, max_feature_diff, diff)
 
 
 def test_clip_model_manifest_keeps_provider_and_model_kernels_honest():

@@ -275,3 +275,21 @@ The smallest real CLIPModel-style assembly is now in-tree at
   positions, fixed square NCHW image shape, one bounded-runtime Conv provider
   entry in the CUDA manifest, and no tokenizer/processor or
   positional-interpolation plumbing.
+
+## 2026-05-15 CUDA full-model blocker smoke
+
+The next CUDA blocker after the exact patch-projection runtime is now explicit.
+
+- Focused CUDA smoke coverage now proves the generated CLIP
+  `get_text_features` and `get_image_features` artifacts each stay near local
+  Transformers on CUDA, so the bounded float32 SIMT `cutlass_conv`
+  patch-projection path is no longer the first failing edge in the real
+  two-tower model workflow.
+- The same smoke then compiles and runs the full two-tower CUDA artifact and
+  shows the first remaining drift only after the contrastive head begins
+  normalizing features and assembling logits: `text_embeds`,
+  `image_embeds`, `logits_per_text`, and `logits_per_image` all diverge
+  sharply from local Transformers.
+- Treat that as the next bounded CUDA lane. Do not widen Conv claims or reopen
+  tokenizer/processor, positional interpolation, FlashAttention, or other model
+  surfaces while the contrastive-head CUDA runtime still fails this smoke.

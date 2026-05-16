@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged a Conv sigmoid epilogue blocker note after a bounded
+  `conv2d_bias_sigmoid` admission attempt failed the required CUDA
+  support-library compile gate and was fully backed out. The public op surface
+  remains absent. The recorded classification is effectively hard-blocked for
+  now: CUTLASS exposes `LinearCombinationSigmoid`, but the current Conv
+  `ImplicitGemmConvolution` source-C/bias launcher wiring did not compile under
+  real `nvcc` once that epilogue replaced the admitted bias/ReLU epilogues.
+  Future sigmoid Conv work must first solve that provider/runtime ABI mismatch
+  and prove a real support-library build plus CUDA parity test; do not land
+  frontend-only sigmoid surface.
 - PM-reviewed and merged focused public no-bias `conv2d` CUDA runtime parity
   coverage without adding a separate no-bias provider ABI. The new tests keep
   `dml.ops.conv2d(...)` as the explicit-zero `conv2d_bias` bridge and prove the
@@ -367,8 +377,8 @@ This file should be updated after each major loop.
   work should stay inside the existing `cutlass_conv` contract and build on the
   new `conv2d_bias_relu` slice rather than drifting into alias polish or broad
   plumbing. Highest-value follow-ons are: one additional fused epilogue with
-  clear v1 demand (`conv2d_bias_add` or `conv2d_bias_sigmoid`) only if it can
-  satisfy the same manifest/profile/runtime visibility end to end; broader
+  clear v1 demand, but not `conv2d_bias_sigmoid` until the recorded CUTLASS Conv
+  epilogue ABI blocker is solved with a real `nvcc` build; broader
   runtime coverage for the current epilogues, especially any bfloat16/float32
   gaps beyond the admitted SIMT float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable

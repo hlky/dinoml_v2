@@ -3399,6 +3399,71 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_cuda_profile_artifact_writes_cutlass_conv_no_bias_bridge_report_and_execution_plan(
+    tmp_path,
+    monkeypatch,
+    use_shared_dinoml_cuda_cache,
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
+
+    spec = _conv2d_no_bias_profile_spec()
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "profile_conv2d_no_bias.dinoml")
+    report = profile_artifact(artifact.path, iterations=3, repeats=3, refresh=True)
+
+    report_path = artifact.path / "debug" / "profile_report.json"
+    execution_plan_path = artifact.path / "debug" / "execution_plan.json"
+    execution_plan = read_json(execution_plan_path)
+
+    assert read_json(report_path) == report
+    assert report["schema_version"] == PROFILE_REPORT_SCHEMA_VERSION
+    assert report["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0}
+    assert report["execution_plan"]["path"] == str(execution_plan_path.resolve())
+    selection_count = int(report["execution_plan"]["selection_count"])
+    low_confidence_count = int(report["execution_plan"]["low_confidence_count"])
+    assert (selection_count, low_confidence_count) in {(1, 0), (0, 1)}
+    assert {problem["op"] for problem in report["problems"]} == {"conv2d_bias"}
+    assert {problem["source_op"] for problem in report["problems"]} == {"conv2d"}
+    assert {problem["bias_mode"] for problem in report["problems"]} == {"explicit_zero_constant"}
+    assert {problem["kernel_library"] for problem in report["problems"]} == {"cutlass_conv"}
+    assert {problem["candidate"]["epilogue"] for problem in report["problems"]} == {"bias"}
+    assert all(problem["candidate"]["epilogue_config"] == {"inputs": ["bias"]} for problem in report["problems"])
+    assert all(problem["candidate"]["launch_abi"] == "dinoml_cutlass_conv2d_bias_v1" for problem in report["problems"])
+    assert all(problem["candidate"]["candidate_id"] == problem["candidate_id"] for problem in report["problems"])
+    assert all(problem["selected"]["candidate_id"] == problem["candidate_id"] for problem in report["problems"])
+    assert all(problem["selected"]["reason"] == "only_candidate" for problem in report["problems"])
+    assert all(problem["kernel_symbol"].startswith("dinoml_cutlass_conv2d_bias_float16_") for problem in report["problems"])
+    assert all(
+        problem["profiler_symbol"].startswith("dinoml_profile_cutlass_conv2d_bias_float16_")
+        for problem in report["problems"]
+    )
+    assert int(execution_plan["summary"]["selection_count"]) == selection_count
+    assert int(execution_plan["summary"]["low_confidence_count"]) == low_confidence_count
+    if selection_count:
+        assert int(report["execution_plan"]["static_selection_count"]) == 1
+        assert int(execution_plan["summary"]["static_selection_count"]) == 1
+        assert len(execution_plan["static_selections"]) == 1
+        selected = execution_plan["static_selections"][0]
+    else:
+        assert int(report["execution_plan"]["static_selection_count"]) == 0
+        assert int(execution_plan["summary"]["static_selection_count"]) == 0
+        assert len(execution_plan["low_confidence_selections"]) == 1
+        selected = execution_plan["low_confidence_selections"][0]
+    assert selected["kernel_library"] == "cutlass_conv"
+    assert selected["op"] == "conv2d_bias"
+    assert selected["source_op"] == "conv2d"
+    assert selected["bias_mode"] == "explicit_zero_constant"
+    assert selected["selected_candidate_id"] in {problem["candidate_id"] for problem in report["problems"]}
+    assert selected["kernel_symbol"].startswith("dinoml_cutlass_conv2d_bias_float16_")
+    assert selected["profiler_symbol"].startswith("dinoml_profile_cutlass_conv2d_bias_float16_")
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
 def test_cuda_profile_artifact_writes_cutlass_conv_bias_relu_report_and_execution_plan(
     tmp_path,
     monkeypatch,

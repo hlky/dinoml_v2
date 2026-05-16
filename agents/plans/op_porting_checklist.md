@@ -626,7 +626,10 @@ behavior.
   Focused `conv2d` tests now prove the explicit-zero bridge in the traced IR,
   CPU/reference and CPU/artifact parity against Torch
   `F.conv2d(..., bias=None)`, CUDA compile-time manifest/codegen visibility,
-  non-CUDA profile/execution-plan/generated-lowering metadata preservation, and
+  non-CUDA profile/execution-plan/generated-lowering metadata preservation, a
+  real CUDA-gated `profile_artifact` smoke that writes
+  `debug/profile_report.json` plus `debug/execution_plan.json` while preserving
+  the bridge metadata and existing `dinoml_cutlass_conv2d_bias_v1` ABI, and
   real CUDA runtime parity for the admitted fp16 TensorOp FewChannels `C=3`,
   FixedChannels `C=4`/`C=8`, and optimized aligned `C=16` candidate lanes when
   tooling is available.

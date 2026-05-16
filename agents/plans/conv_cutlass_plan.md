@@ -22,7 +22,11 @@ been added on top of it:
   runtime parity now proves that bridge on the admitted fp16 TensorOp
   FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
   lanes while preserving `source_op=conv2d` and
-  `bias_mode=explicit_zero_constant`.
+  `bias_mode=explicit_zero_constant`. A real CUDA-gated `profile_artifact`
+  smoke now also proves the public no-bias bridge writes
+  `debug/profile_report.json` and `debug/execution_plan.json` with that bridge
+  metadata plus the existing `dinoml_cutlass_conv2d_bias_v1` launcher/profiler
+  ABI intact.
 - `conv2d_bias_relu` is now the first fused Conv epilogue slice. It reuses the
   same public contract, profiling flow, and layout-transform metadata as
   `conv2d_bias`, but records fused `bias_relu` epilogue state through candidate
@@ -458,8 +462,11 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   unsupported. Focused
   no-bias bridge tests now prove `source_op=conv2d` and
   `bias_mode=explicit_zero_constant` survive profile workloads, static
-  execution-plan selection, and compile-time plan consumption; focused
-  fused-epilogue tests now prove that `conv2d_bias_relu` preserves
+  execution-plan selection, compile-time plan consumption, and a real
+  CUDA-gated `profile_artifact` run that emits `debug/profile_report.json` and
+  `debug/execution_plan.json` while still using the
+  `dinoml_cutlass_conv2d_bias_v1` launch ABI; focused fused-epilogue tests now
+  prove that `conv2d_bias_relu` preserves
   `bias_relu` metadata through profile workloads, static execution-plan
   application, and compile-time plan consumption. A CUDA-gated
   `profile_artifact` smoke also proves a real `conv2d_bias_relu` artifact

@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining real CUDA `profile_artifact(..., refresh=True)` proof
+  gap for public no-bias `dml.ops.conv2d(...)` without adding a separate
+  no-bias Conv provider ABI or broadening the static rank-4 groups=1 NCHW/OIHW
+  contract. The new CUDA-gated smoke compiles the public no-bias Conv artifact,
+  runs the real artifact profiler, and asserts `debug/profile_report.json` plus
+  `debug/execution_plan.json` preserve `source_op=conv2d`,
+  `bias_mode=explicit_zero_constant`, selected CUTLASS Conv candidate/kernel/
+  profiler metadata, and the existing `dinoml_cutlass_conv2d_bias_v1` launch
+  ABI. The smoke stays confidence-aware like the fused Conv profile smokes,
+  accepting either a consumable static selection or an explicit low-confidence
+  non-selection while still requiring the bridge/provider metadata to remain
+  intact.
 - Closed the public no-bias `dml.ops.conv2d(...)` profile/candidate-selection
   evidence gap without adding a new provider ABI or broadening the Conv
   contract. The explicit-zero bridge metadata (`source_op=conv2d` and

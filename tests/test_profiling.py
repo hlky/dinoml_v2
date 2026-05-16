@@ -187,6 +187,10 @@ def _conv2d_bias_profile_workload():
     return _conv2d_profile_workload("conv2d_bias")
 
 
+def _conv2d_bias_relu_profile_workload():
+    return _conv2d_profile_workload("conv2d_bias_relu")
+
+
 GEMM_BIAS_RESIDUAL_CASES = tuple(
     (f"gemm_{layout}_bias_{suffix}", layout, epilogue, inputs)
     for layout in ("rcr", "rrr")
@@ -638,6 +642,72 @@ def test_cutlass_conv_static_execution_plan_updates_manifest_and_conv_plan():
     assert required["cutlass_conv_plan"]["selected_candidate"]["profiler_symbol"] == simt.profiler_symbol
 
 
+def test_cutlass_conv_bias_relu_static_execution_plan_updates_manifest_and_conv_plan():
+    _workload, kernel_manifest = _conv2d_bias_relu_profile_workload()
+    workloads = build_profile_workloads(
+        dml.trace(
+            Conv2dBiasModule("conv2d_bias_relu"),
+            inputs={
+                "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+                "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+                "bias": dml.TensorSpec([4], "float16"),
+            },
+            name="profile_conv2d_bias_relu_static_plan",
+        ).ir,
+        kernel_manifest,
+    )
+    simt = next(item for item in workloads if item.candidate["selection_predicate"]["kind"] == "fallback")
+    few_channels = next(item for item in workloads if item.candidate_id != simt.candidate_id)
+    problems = []
+    for workload, elapsed in ((simt, 0.10), (few_channels, 0.20)):
+        timing = _profile_timing([elapsed, elapsed, elapsed], iterations=7)
+        problems.append(
+            _profile_result(
+                workload,
+                timing["median_ms"],
+                7,
+                profile_key=f"profile-{workload.candidate_id}",
+                status="ok",
+                timing=timing,
+            )
+        )
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": DEFAULT_CUDA_TARGET,
+        "kernel_manifest_cache_key": kernel_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": problems,
+    }
+
+    plan = build_execution_plan(report)
+    selected_manifest = apply_execution_plan(kernel_manifest, plan, strict=True)
+    required = selected_manifest["required_kernels"][0]
+
+    assert plan["summary"]["static_selection_count"] == 1
+    assert plan["static_selections"][0]["kernel_library"] == "cutlass_conv"
+    assert plan["static_selections"][0]["op"] == "conv2d_bias_relu"
+    assert plan["static_selections"][0]["selected_candidate_id"] == simt.candidate_id
+    assert "bias_relu" in plan["static_selections"][0]["kernel_symbol"]
+    assert "bias_relu" in plan["static_selections"][0]["profiler_symbol"]
+    assert required["candidate_set"]["epilogue"] == "bias_relu"
+    assert required["candidate_set"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["selected_candidate_id"] == simt.candidate_id
+    assert required["kernel_symbol"] == simt.kernel_symbol
+    assert required["profiler_symbol"] == simt.profiler_symbol
+    assert required["execution_plan_selection"]["selected_candidate_id"] == simt.candidate_id
+    assert "bias_relu" in required["execution_plan_selection"]["kernel_symbol"]
+    assert "bias_relu" in required["execution_plan_selection"]["profiler_symbol"]
+    assert required["cutlass_conv_plan"]["epilogue"] == "bias_relu"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == simt.candidate_id
+    assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == simt.kernel_symbol
+    assert required["cutlass_conv_plan"]["selected_candidate"]["profiler_symbol"] == simt.profiler_symbol
+
+
 def test_apply_execution_plan_rejects_incompatible_cutlass_conv_candidate_in_strict_mode():
     spec = dml.trace(
         Conv2dBiasModule(),
@@ -829,6 +899,98 @@ def test_compile_consumes_static_cutlass_conv_execution_plan_for_lowering(tmp_pa
     assert required["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == selected_candidate["candidate_id"]
     assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == selected_candidate["kernel_symbol"]
     assert codegen_plan["wrapper_stages"][2]["symbol"] == selected_candidate["kernel_symbol"]
+    assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
+    assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
+    assert compile_config["execution_plan"]["execution_plan_key"] == execution_plan["execution_plan_key"]
+    assert manifest["execution_plan"] == compile_config["execution_plan"]
+    assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan
+
+
+def test_compile_consumes_static_cutlass_conv_bias_relu_execution_plan_for_lowering(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_build(ir, *, target, artifact_dir, generated_src_dir, kernel_manifest):
+        calls.append(
+            {
+                "target": target.to_json(),
+                "artifact_dir": artifact_dir,
+                "generated_src_dir": generated_src_dir,
+                "kernel_manifest": kernel_manifest,
+            }
+        )
+
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: fake_build)
+    spec = dml.trace(
+        Conv2dBiasModule("conv2d_bias_relu"),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="compile_profile_selected_conv2d_bias_relu",
+    )
+    target = dml.Target("cuda", arch="sm_86")
+    base_manifest = build_kernel_manifest(spec.ir, target.to_json())
+    required = base_manifest["required_kernels"][0]
+    selected_candidate = next(
+        candidate for candidate in required["candidates"] if candidate["selection_predicate"]["kind"] == "fallback"
+    )
+    execution_plan = {
+        "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+        "kind": "dinoml.execution_plan",
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": base_manifest["cache_key"],
+        "selection_policy": "lowest_median_elapsed_ms_per_node_shape",
+        "selection_confidence_policy": {"name": "test-confidence"},
+        "static_selection_policy": "unique_selected_candidate_per_op_dtype_candidate_set",
+        "summary": {"selection_count": 1, "low_confidence_count": 0, "static_selection_count": 1, "conflict_count": 0},
+        "static_selections": [
+            {
+                "selection_key": "profile-selected-conv-bias-relu",
+                "kernel_library": "cutlass_conv",
+                "op": "conv2d_bias_relu",
+                "dtype": "float16",
+                "candidate_set_key": required["candidate_set_key"],
+                "selected_candidate_id": selected_candidate["candidate_id"],
+                "candidate_config_key": selected_candidate["candidate_config_key"],
+                "kernel_symbol": selected_candidate["kernel_symbol"],
+                "profiler_symbol": selected_candidate["profiler_symbol"],
+                "shape": {"n": 2, "c": 3, "h": 7, "w": 8, "out_n": 2, "out_c": 4, "out_h": 4, "out_w": 6},
+                "avg_ms": 0.01,
+                "split_k": 1,
+                "workspace_nbytes": 0,
+            }
+        ],
+    }
+    execution_plan["execution_plan_key"] = _execution_plan_key(execution_plan)
+
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "compile_profile_selected_conv2d_bias_relu.dinoml",
+        execution_plan=execution_plan,
+    )
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    compile_config = read_json(artifact.path / "compile_config.json")
+    manifest = read_json(artifact.path / "manifest.json")
+    required = kernel_manifest["required_kernels"][0]
+
+    assert calls[0]["kernel_manifest"] == kernel_manifest
+    assert required["candidate_set"]["epilogue"] == "bias_relu"
+    assert required["candidate_set"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["selected_candidate_id"] == selected_candidate["candidate_id"]
+    assert required["kernel_symbol"] == selected_candidate["kernel_symbol"]
+    assert required["profiler_symbol"] == selected_candidate["profiler_symbol"]
+    assert required["execution_plan_selection"]["selected_candidate_id"] == selected_candidate["candidate_id"]
+    assert "bias_relu" in required["execution_plan_selection"]["kernel_symbol"]
+    assert "bias_relu" in required["execution_plan_selection"]["profiler_symbol"]
+    assert required["cutlass_conv_plan"]["epilogue"] == "bias_relu"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
+    assert required["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == selected_candidate["candidate_id"]
+    assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == selected_candidate["kernel_symbol"]
+    assert codegen_plan["wrapper_stages"][2]["symbol"] == selected_candidate["kernel_symbol"]
+    assert codegen_plan["wrapper_stages"][2]["launch_abi"] == "dinoml_cutlass_conv2d_bias_relu_v1"
     assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
     assert compile_config["execution_plan"]["execution_plan_key"] == execution_plan["execution_plan_key"]
@@ -2552,6 +2714,69 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
     assert candidate["kernel_symbol"] == f"dinoml_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
     assert candidate["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
     assert candidate["candidate_config_key"]
+
+
+@pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
+def test_cuda_profile_artifact_writes_cutlass_conv_bias_relu_report_and_execution_plan(
+    tmp_path,
+    monkeypatch,
+    use_shared_dinoml_cuda_cache,
+):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA device is required")
+    if not discover_cuda_libraries()["cutlass"].available:
+        pytest.skip("CUTLASS headers are not available")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
+
+    spec = dml.trace(
+        Conv2dBiasModule("conv2d_bias_relu"),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="profile_conv2d_bias_relu",
+    )
+    artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "profile_conv2d_bias_relu.dinoml")
+    report = profile_artifact(artifact.path, iterations=3, repeats=3, refresh=True)
+
+    report_path = artifact.path / "debug" / "profile_report.json"
+    execution_plan_path = artifact.path / "debug" / "execution_plan.json"
+    execution_plan = read_json(execution_plan_path)
+
+    assert read_json(report_path) == report
+    assert report["schema_version"] == PROFILE_REPORT_SCHEMA_VERSION
+    assert report["profile_cache_schema_version"] == PROFILE_CACHE_SCHEMA_VERSION
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": 2, "skipped": 0}
+    assert report["execution_plan"]["path"] == str(execution_plan_path.resolve())
+    selection_count = int(report["execution_plan"]["selection_count"])
+    low_confidence_count = int(report["execution_plan"]["low_confidence_count"])
+    assert (selection_count, low_confidence_count) in {(1, 0), (0, 1)}
+    assert {problem["op"] for problem in report["problems"]} == {"conv2d_bias_relu"}
+    assert {problem["kernel_library"] for problem in report["problems"]} == {"cutlass_conv"}
+    assert {problem["candidate"]["epilogue"] for problem in report["problems"]} == {"bias_relu"}
+    assert all(problem["candidate"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"} for problem in report["problems"])
+    assert all(problem["candidate"]["launch_abi"] == "dinoml_cutlass_conv2d_bias_relu_v1" for problem in report["problems"])
+    assert all(problem["selected"]["candidate_id"] == problem["candidate_id"] for problem in report["problems"])
+    assert all("bias_relu" in problem["kernel_symbol"] for problem in report["problems"])
+    assert all("bias_relu" in problem["profiler_symbol"] for problem in report["problems"])
+    assert int(execution_plan["summary"]["selection_count"]) == selection_count
+    assert int(execution_plan["summary"]["low_confidence_count"]) == low_confidence_count
+    if selection_count:
+        assert int(report["execution_plan"]["static_selection_count"]) == 1
+        assert int(execution_plan["summary"]["static_selection_count"]) == 1
+        assert len(execution_plan["static_selections"]) == 1
+        selected = execution_plan["static_selections"][0]
+    else:
+        assert int(report["execution_plan"]["static_selection_count"]) == 0
+        assert int(execution_plan["summary"]["static_selection_count"]) == 0
+        assert len(execution_plan["low_confidence_selections"]) == 1
+        selected = execution_plan["low_confidence_selections"][0]
+    assert selected["kernel_library"] == "cutlass_conv"
+    assert selected["op"] == "conv2d_bias_relu"
+    assert "bias_relu" in selected["kernel_symbol"]
+    assert "bias_relu" in selected["profiler_symbol"]
 
 
 def test_cli_profile_smoke(monkeypatch, capsys):

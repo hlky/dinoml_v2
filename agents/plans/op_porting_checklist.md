@@ -636,7 +636,14 @@ behavior.
   fp16 TensorOp optimized (`C >= 16` with aligned channels), and float32 SIMT
   only. Focused runtime parity is now proved for the float32 SIMT path plus the
   fp16 FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned
-  `C=16` TensorOp paths. This does not claim general Conv
+  `C=16` TensorOp paths. Focused profiling coverage now also proves
+  `conv2d_bias_relu` preserves `bias_relu` metadata through profile workloads,
+  static execution-plan application, compile-time execution-plan consumption,
+  and a real CUDA-gated `profile_artifact` smoke that writes
+  `debug/profile_report.json` plus `debug/execution_plan.json`; the real smoke
+  intentionally tolerates low-confidence timing outcomes instead of claiming a
+  consumable static selection when the profiled candidates are too close. This
+  does not claim general Conv
   epilogue parity: add/sigmoid/residual epilogues, broader float32 TensorOp
   runtime, bfloat16 Conv runtime, grouped/depthwise/transposed/3D Conv, and
   guarded/dynamic Conv dispatch remain unported.

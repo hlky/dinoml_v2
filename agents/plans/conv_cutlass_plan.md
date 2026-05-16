@@ -396,7 +396,15 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   kernel/profiler symbols, `execution_plan_selection`, and
   `cutlass_conv_plan["selected_candidate"]` payload consumed by generated
   lowering. Stale or incompatible Conv selections are rejected in strict mode,
-  and guarded/dynamic Conv dispatch remains explicitly unsupported.
+  and guarded/dynamic Conv dispatch remains explicitly unsupported. Focused
+  fused-epilogue tests now prove that `conv2d_bias_relu` preserves
+  `bias_relu` metadata through profile workloads, static execution-plan
+  application, and compile-time plan consumption. A CUDA-gated
+  `profile_artifact` smoke also proves a real `conv2d_bias_relu` artifact
+  writes `debug/profile_report.json` and `debug/execution_plan.json` with the
+  fused launch ABI/symbol metadata intact, while honestly allowing the
+  confidence gate to leave the emitted plan low-confidence and non-consumable
+  when real timings are too close.
 - CUDA compile now materializes a `cutlass_conv` support-cache boundary under
   the advertised support `cache_dir`, including `lib/cutlass_conv_manifest.json`
   and `src/source_manifest.json` with the used candidate plan,

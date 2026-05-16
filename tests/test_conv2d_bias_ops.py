@@ -1985,6 +1985,149 @@ def test_conv2d_bias_add_cuda_runtime_float32_simt_general_shape_matches_torch(t
         module.close()
 
 
+def _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
+    tmp_path: Path,
+    *,
+    x_shape,
+    weight_shape,
+    bias_shape,
+    residual_shape,
+    stride,
+    padding,
+    dilation,
+    artifact_name: str,
+    expected_candidate_suffix: str,
+    expected_kernel_suffix: str,
+    expected_iterator_algorithm: str,
+    expected_input_channels: int,
+    expected_padded_input_channels: int,
+    expected_padded_output_channels: int,
+):
+    spec = _trace_conv2d_bias_add(
+        "float16",
+        x_shape=x_shape,
+        weight_shape=weight_shape,
+        bias_shape=bias_shape,
+        residual_shape=residual_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+    )
+    artifact_dir = tmp_path / artifact_name
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["op"] == "conv2d_bias_add"
+    assert required["selected_candidate_id"].endswith(expected_candidate_suffix)
+    assert required["kernel_symbol"].endswith(expected_kernel_suffix)
+    assert required["candidate_set"]["epilogue"] == "bias_add"
+    assert required["candidate_set"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["candidate_set"]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert required["cutlass_conv_plan"]["epilogue"] == "bias_add"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["cutlass_conv_plan"]["residual_shape"] == list(residual_shape)
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_add"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == required["kernel_symbol"]
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == expected_iterator_algorithm
+    assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"] == {
+        "kind": "semantic_input_channels",
+        "input_channels": expected_input_channels,
+        "dtype": "float16",
+        "groups": 1,
+        "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+        "padding_policy": "none",
+    }
+    assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == expected_padded_input_channels
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_output_channels"] == expected_padded_output_channels
+
+    codegen_plan = read_json(artifact_dir / "kernel_codegen_plan.json")
+    assert [stage["stage_name"] for stage in codegen_plan["wrapper_stages"]] == [
+        "activation_pack",
+        "weight_pack",
+        "residual_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert codegen_plan["wrapper_stages"][2]["tensor_role"] == "residual"
+    assert codegen_plan["wrapper_stages"][3]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert codegen_plan["wrapper_stages"][3]["inputs"][3]["name"] == "residual_nhwc"
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input(x_shape, "float16", -1.0, 1.0)
+        weight = _input(weight_shape, "float16", -0.5, 0.5)
+        bias = _input(bias_shape, "float16", -0.25, 0.25)
+        residual = _input(residual_shape, "float16", -0.2, 0.3)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+        expected = _storage_roundtrip(
+            _torch_conv2d_bias_add_reference(
+                x,
+                weight,
+                bias,
+                residual,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+            ),
+            "float16",
+        )
+        np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
+    finally:
+        session.close()
+        module.close()
+
+
+def test_conv2d_bias_add_cuda_runtime_few_channels_c3_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("few-channel CUTLASS Conv bias+add parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
+        tmp_path,
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_bias_add_cuda_few_c3.dinoml",
+        expected_candidate_suffix="few_channels_c3",
+        expected_kernel_suffix="tensorop_sm80_nhwc_ohwi_bias_few_channels_c3",
+        expected_iterator_algorithm="few_channels",
+        expected_input_channels=3,
+        expected_padded_input_channels=3,
+        expected_padded_output_channels=4,
+    )
+
+
+def test_conv2d_bias_add_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("fixed-channel CUTLASS Conv bias+add parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
+        tmp_path,
+        x_shape=(2, 4, 7, 8),
+        weight_shape=(8, 4, 3, 2),
+        bias_shape=(8,),
+        residual_shape=(2, 8, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_bias_add_cuda_fixed_c4.dinoml",
+        expected_candidate_suffix="fixed_channels_c4",
+        expected_kernel_suffix="tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c4",
+        expected_iterator_algorithm="fixed_channels",
+        expected_input_channels=4,
+        expected_padded_input_channels=4,
+        expected_padded_output_channels=8,
+    )
+
+
 def test_conv2d_bias_relu_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("fixed-channel CUTLASS Conv bias+ReLU parity requires nvcc and torch CUDA")

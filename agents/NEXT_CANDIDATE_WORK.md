@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added focused fp16 CUDA runtime parity coverage for the just-landed
+  residual Conv slice `conv2d_bias_add` without changing provider/runtime
+  surface. The new CUDA-gated tests reuse the shared DinoML CUDA support cache,
+  compile real artifacts for the admitted fp16 TensorOp FewChannels `C=3` and
+  FixedChannels `C=4` lanes, assert explicit `bias_add` metadata
+  (`op=conv2d_bias_add`, `epilogue=bias_add`, residual output shape,
+  `residual_pack` wrapper stage, selected TensorOp candidate id/symbol, and
+  launch ABI `dinoml_cutlass_conv2d_bias_add_v1`), and compare runtime output
+  against Torch `conv2d + bias + residual` with fp16 tolerances. Compact
+  non-CUDA regression reran the float16 CPU-reference parity row. This closes
+  the immediate anti-drift gap for one few-channels lane and one fixed-channel
+  lane, but it is not a claim for C8/C16 residual runtime parity, bfloat16,
+  broader float32 TensorOp, grouped/depthwise/transposed/3D Conv, or richer
+  residual epilogues.
 - PM-reviewed and merged the first bounded residual Conv epilogue slice as
   public `conv2d_bias_add`. The slice keeps the existing static rank-4
   groups=1 NCHW/OIHW public contract, requires one same-shape residual tensor,

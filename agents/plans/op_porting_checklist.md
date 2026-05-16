@@ -651,8 +651,10 @@ behavior.
   source-manifest provenance, generated lowering wrapper stages, and the launch
   ABI `dinoml_cutlass_conv2d_bias_add_v1`. Current proof is intentionally
   narrow: CPU reference plus generated CPU artifact parity, profiling metadata
-  coverage, real support-library compile coverage, and focused float32 SIMT
-  CUDA runtime parity. Broader float32 TensorOp runtime, bfloat16 Conv runtime,
+  coverage, real support-library compile coverage, focused float32 SIMT CUDA
+  runtime parity, and focused fp16 TensorOp CUDA runtime parity on the admitted
+  FewChannels `C=3` and FixedChannels `C=4` lanes. Broader float32 TensorOp
+  runtime, fp16 residual `C=8`/optimized `C=16`, bfloat16 Conv runtime,
   grouped/depthwise/transposed/3D Conv, guarded/dynamic Conv dispatch, and
   richer residual/add+activation Conv epilogues remain unported.
   A bounded `conv2d_bias_sigmoid` admission attempt was intentionally backed

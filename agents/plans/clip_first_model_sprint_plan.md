@@ -290,33 +290,33 @@ The smallest real CLIPModel-style assembly is now in-tree at
   `text_model.final_layer_norm`, `text_model.encoder.layers[0].layer_norm1`,
   `vision_model.pre_layrnorm`, `vision_model.encoder.layers[0].layer_norm1`,
   and `vision_model.post_layernorm`.
-- For the current cached CLIP-base CUDA drift, LayerNorm is therefore unlikely
-  to be the first culprit. Keep the next tower-focused investigation on the
-  internal GEMM/BMM/attention/QuickGELU/Conv math rather than the final
-  normalization or logit assembly, which already look clean.
+- In the pre-QuickGELU-fix cached CLIP-base CUDA drift investigation,
+  LayerNorm was therefore unlikely to be the first culprit. That earlier audit
+  correctly kept the next tower-focused investigation on the internal
+  GEMM/BMM/attention/QuickGELU/Conv math rather than the final normalization
+  or logit assembly.
 
-## 2026-05-15 cached CLIP CUDA op-audit boundary
+## 2026-05-16 cached CLIP CUDA op-audit frontier
 
-- A new opt-in cached-checkpoint CUDA op audit now walks a compact matrix of
-  real `openai/clip-vit-base-patch32` tower op rows and stops at the first
-  drifty family instead of compiling every remaining variant.
-- The current boundary is clean through these checked rows: text
-  `layer_norm1`, vision `pre_layrnorm`, vision patch `conv2d_bias`, text
-  `q_proj` `gemm_rcr_bias`, and vision `q_proj` `gemm_rcr_bias`. Those rows all
-  stayed within about `5e-6` max absolute error, with the patch projection
-  matching exactly on the bounded audit input.
-- The first drifty row was text-layer
-  `gemm_rcr_bias_fast_gelu` at the cached checkpoint `fc1` site
-  (`[1, 4, 512] -> [1, 4, 2048]`), which currently shows about `2.07e-2`
-  max absolute error on CUDA. A side probe showed that magnitude matches the
-  gap between CLIP QuickGELU (`x * sigmoid(1.702x)`) and Torch GELU on the same
-  captured `fc1` activations, which strongly suggests the CUTLASS
-  `fast_gelu` epilogue is not semantically matching the admitted DinoML
-  `fast_gelu` contract for CLIP QuickGELU. The fix is a distinct
-  `gemm_rcr_bias_quick_gelu` path, not changing `fast_gelu`.
-- After that boundary is fixed, keep the next CUDA tower audit focused on
-  proving the `gemm_rcr_bias_quick_gelu` row clean before widening to later
-  BMM/softmax/helper rows.
+- The opt-in cached-checkpoint CUDA op audit still walks a compact matrix of
+  real `openai/clip-vit-base-patch32` tower op rows, but after the merged
+  `gemm_rcr_bias_quick_gelu` fix every currently audited row is now clean.
+- Current refreshed local-cache evidence stays within the per-row audit
+  tolerances for text `layer_norm1`, vision `pre_layrnorm`, vision patch
+  `conv2d_bias`, text/vision `q_proj` `gemm_rcr_bias`, text/vision
+  `fc1` `gemm_rcr_bias_quick_gelu`, text/vision attention-score `bmm_rcr`,
+  text/vision attention-probability `softmax`, and text/vision
+  attention-context `bmm_rrr`.
+- Representative max absolute diffs from the refreshed run were
+  `1.91e-6` for text `layer_norm1`, `0.0` for the bounded patch projection,
+  `3.81e-5` for text `fc1` QuickGELU, `1.14e-5` for text attention-score
+  `bmm_rcr`, `1.79e-7` for vision attention `softmax`, and `0.0` for both
+  audited `bmm_rrr` context rows.
+- The audit's remaining pending rows are still explicit and bounded:
+  token/position embeddings, the false-path `where/add` attention-mask helper
+  when cached checkpoint padding is disabled, pooling helpers
+  (`dynamic_slice`/`batch_gather`), and layout helpers such as `permute021`
+  and `permute0213` if the provider-heavy rows remain clean.
 
 ## 2026-05-15 landed cached checkpoint adapter admission smoke
 
@@ -431,11 +431,11 @@ The next CUDA blocker after the exact patch-projection runtime is now explicit.
   tokenizer/processor, positional interpolation, FlashAttention, or other model
   surfaces while the contrastive-head CUDA runtime still fails this smoke.
 
-## 2026-05-15 landed cached base-checkpoint compiled CUDA tractability smoke
+## 2026-05-16 landed cached base-checkpoint compiled CUDA parity smoke
 
 The same cached `openai/clip-vit-base-patch32` checkpoint now also has a
-bounded opt-in CUDA compiled-artifact tractability proof, but it is
-intentionally not a parity claim.
+bounded opt-in CUDA compiled-artifact parity proof on the admitted smoke
+inputs.
 
 - The smoke is skipped by default and only runs when
   `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1` is set. It forces
@@ -447,22 +447,20 @@ intentionally not a parity claim.
   traced text length `min(4, max_position_embeddings)`, synthetic already-shaped
   `pixel_values`, adapter-built `LegacyCLIPModel`, CUDA `.dinoml`
   compilation, `dinoml.runtime` session execution, generated-source and kernel
-  manifest visibility for the expected Conv/GEMM/BMM providers, and finite
-  output checks for `logits_per_text`, `logits_per_image`, `text_embeds`, and
+  manifest visibility for the expected Conv/GEMM/BMM providers, and direct
+  parity checks for `logits_per_text`, `logits_per_image`, `text_embeds`, and
   `image_embeds`.
 - Current evidence on the refreshed local cache shows that the full base
-  checkpoint is tractable to compile, load, and run on CUDA, but still drifts
-  materially from both local Transformers and DinoML CPU on the bounded smoke
-  inputs: `max_abs_diff ~= 0.7948` for both logits, `0.0295` for
-  `text_embeds`, and `0.0739` for `image_embeds`. The opt-in smoke therefore
-  holds only a loose non-parity envelope (`< 0.9` logits, `< 0.05` text embeds,
-  `< 0.1` image embeds) so future loops can detect regressions while keeping
-  the remaining CUDA numerical blocker explicit.
+  checkpoint now compiles, loads, and runs on CUDA with parity-scale error on
+  the bounded smoke inputs: refreshed max absolute diffs were about
+  `7.63e-6` for both logits, `1.94e-7` for `text_embeds`, and
+  `3.02e-7` for `image_embeds`. The smoke now holds a direct parity envelope
+  (`< 1e-5` on all four outputs) instead of only a loose tractability bound.
 
-## 2026-05-15 cached base-checkpoint CUDA drift isolation boundary
+## 2026-05-16 cached base-checkpoint CUDA parity breakdown
 
-The cached base checkpoint CUDA drift has been narrowed from "full model drifts"
-to "standalone tower feature artifacts already carry the drift."
+The cached base checkpoint CUDA tower/full breakdown now supports parity rather
+than drift isolation on the admitted smoke inputs.
 
 - A new opt-in helper test, gated by
   `DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1`, traces separate cached
@@ -471,18 +469,17 @@ to "standalone tower feature artifacts already carry the drift."
   embeds/logits on the host from those standalone tower outputs, and checks that
   the full artifact's own logits are consistent with recomposition from its
   emitted embeds.
-- PM artifact reuse from the completed probes showed the standalone tower
-  outputs are already off: projected text features drift by about `0.7207` and
-  projected image features by about `1.2052` before final CLIP normalization.
-  Normalizing/recomposing those standalone tower outputs reproduces the full
-  artifact drift (`~0.0294` text embeds, `~0.0738` image embeds, `~0.7948`
-  logits).
-- The full artifact is effectively identical to the standalone-tower
-  recomposition at the final boundary: full-vs-tower normalized embeds are
-  within about `6e-8`, full logits vs tower-composed logits within about
-  `4e-6`, and full logits vs recomposition from full emitted embeds within
-  about `2e-6`. That makes final normalization, scale, transpose, and logits
-  assembly unlikely to be the first cached-checkpoint CUDA culprit. Next drift
-  work should split the text and vision tower internals, especially GEMM/BMM,
-  layer norm, attention masking, QuickGELU, and Conv/provider choices, instead
-  of re-proving full-artifact compile/load/run.
+- Refreshed parity probes showed the standalone tower outputs already match
+  local Transformers closely: projected text features were within about
+  `2.26e-6`, projected image features within about `5.72e-6`, normalized
+  embeds within about `3.02e-7`, and recomposed logits within about
+  `1.91e-6`.
+- The full artifact remains effectively identical to the standalone-tower
+  recomposition at the final boundary: full-vs-tower normalized embeds were
+  within about `5.96e-8`, full logits vs tower-composed logits within about
+  `5.72e-6`, and full logits vs recomposition from full emitted embeds within
+  about `9.54e-6`.
+- On these bounded smoke inputs there is no longer an outstanding cached
+  base-checkpoint CUDA numerical blocker to isolate. Future CLIP CUDA work can
+  move to new helper rows or broader admission surfaces rather than continuing
+  to frame this checkpoint smoke as a drift investigation.

@@ -1252,7 +1252,7 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
 ):
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE") != "1":
         pytest.skip(
-            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CUDA compile/load/run tractability and current drift bounds against local Transformers"
+            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CUDA compile/load/run parity against local Transformers"
         )
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -1293,25 +1293,33 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
     assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
     assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
 
-    for name in ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds"):
-        assert np.isfinite(actual[name]).all()
+    metrics = {
+        "logits_per_image": _max_abs_diff(actual["logits_per_image"], expected["logits_per_image"]),
+        "logits_per_text": _max_abs_diff(actual["logits_per_text"], expected["logits_per_text"]),
+        "text_embeds": _max_abs_diff(actual["text_embeds"], expected["text_embeds"]),
+        "image_embeds": _max_abs_diff(actual["image_embeds"], expected["image_embeds"]),
+    }
+    report = json.dumps(metrics, indent=2, sort_keys=True)
 
-    assert np.max(np.abs(actual["logits_per_image"] - expected["logits_per_image"])) < 0.9
-    assert np.max(np.abs(actual["logits_per_text"] - expected["logits_per_text"])) < 0.9
-    assert np.max(np.abs(actual["text_embeds"] - expected["text_embeds"])) < 0.05
-    assert np.max(np.abs(actual["image_embeds"] - expected["image_embeds"])) < 0.1
+    for name in ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds"):
+        assert np.isfinite(actual[name]).all(), report
+
+    assert metrics["logits_per_image"] < 1.0e-5, report
+    assert metrics["logits_per_text"] < 1.0e-5, report
+    assert metrics["text_embeds"] < 1.0e-5, report
+    assert metrics["image_embeds"] < 1.0e-5, report
 
 
 @pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
-def test_clip_model_transformers_checkpoint_cuda_drift_isolation_local_cache_only(
+def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_only(
     tmp_path,
     monkeypatch,
     use_shared_dinoml_cuda_cache,
 ):
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION") != "1":
         pytest.skip(
-            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1 to isolate cached openai/clip-vit-base-patch32 CUDA drift across tower features, normalized embeds, and logits"
+            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1 to validate cached openai/clip-vit-base-patch32 CUDA tower/full parity breakdown"
         )
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -1418,17 +1426,19 @@ def test_clip_model_transformers_checkpoint_cuda_drift_isolation_local_cache_onl
 
     assert metrics["full_text_embeds_vs_tower_embeds"] < 5e-5, report
     assert metrics["full_image_embeds_vs_tower_embeds"] < 5e-5, report
-    assert metrics["full_logits_per_text_vs_tower_logits"] < 5e-4, report
-    assert metrics["full_logits_per_image_vs_tower_logits"] < 5e-4, report
+    assert metrics["full_logits_per_text_vs_tower_logits"] < 1e-5, report
+    assert metrics["full_logits_per_image_vs_tower_logits"] < 1e-5, report
 
-    assert metrics["tower_text_embeds_vs_transformers"] > 1e-2, report
-    assert metrics["tower_image_embeds_vs_transformers"] > 5e-2, report
-    assert metrics["tower_logits_per_text_vs_transformers"] > 5e-1, report
-    assert metrics["tower_logits_per_image_vs_transformers"] > 5e-1, report
-    assert abs(metrics["full_text_embeds_vs_transformers"] - metrics["tower_text_embeds_vs_transformers"]) < 5e-4, report
-    assert abs(metrics["full_image_embeds_vs_transformers"] - metrics["tower_image_embeds_vs_transformers"]) < 5e-4, report
-    assert abs(metrics["full_logits_per_text_vs_transformers"] - metrics["tower_logits_per_text_vs_transformers"]) < 5e-3, report
-    assert abs(metrics["full_logits_per_image_vs_transformers"] - metrics["tower_logits_per_image_vs_transformers"]) < 5e-3, report
+    assert metrics["text_features_vs_transformers"] < 1e-5, report
+    assert metrics["image_features_vs_transformers"] < 1e-5, report
+    assert metrics["tower_text_embeds_vs_transformers"] < 1e-5, report
+    assert metrics["tower_image_embeds_vs_transformers"] < 1e-5, report
+    assert metrics["tower_logits_per_text_vs_transformers"] < 1e-5, report
+    assert metrics["tower_logits_per_image_vs_transformers"] < 1e-5, report
+    assert metrics["full_text_embeds_vs_transformers"] < 1e-5, report
+    assert metrics["full_image_embeds_vs_transformers"] < 1e-5, report
+    assert metrics["full_logits_per_text_vs_transformers"] < 1e-5, report
+    assert metrics["full_logits_per_image_vs_transformers"] < 1e-5, report
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
@@ -1460,9 +1470,9 @@ def test_clip_model_transformers_checkpoint_cuda_op_audit_local_cache_only(
     assert quick_gelu_row is not None, report_text
     assert quick_gelu_row["name"] == "text_fc1_quick_gelu", report_text
     assert quick_gelu_row["status"] == "clean", report_text
-    drifty = next((row for row in report["rows"] if row["status"] == "drifty"), None)
-    if drifty is not None:
-        assert drifty["family"] != "gemm_rcr_bias_quick_gelu", report_text
+    families = {row["family"] for row in report["rows"]}
+    assert {"layer_norm", "conv2d_bias", "gemm_rcr_bias", "gemm_rcr_bias_quick_gelu", "bmm_rcr", "softmax", "bmm_rrr"} <= families, report_text
+    assert all(row["status"] == "clean" for row in report["rows"]), report_text
 
 
 def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transformers():

@@ -581,6 +581,12 @@ def cutlass_conv_layout_plan(
     _validate_conv_op_name(op_name)
     if op_name not in CONV_OPS:
         raise ValueError(f"Unsupported CUTLASS conv scaffold op {node.get('op')!r}")
+    attrs = dict(node.get("attrs", {}))
+    bridge_metadata = {
+        key: str(attrs[key])
+        for key in ("source_op", "bias_mode")
+        if attrs.get(key) is not None
+    }
     x_name, weight_name, bias_name = [str(name) for name in node.get("inputs", ())[:3]]
     residual_name = (
         str(node.get("inputs", (None, None, None, ""))[3]) if _cutlass_conv_op_has_residual(op_name) else None
@@ -593,10 +599,10 @@ def cutlass_conv_layout_plan(
     output_shape = [int(dim) for dim in tensor_map[output_name]["shape"]]
     dtype = str(tensor_map[output_name]["dtype"])
     dtype_size = dtype_nbytes(dtype)
-    stride = [int(item) for item in node.get("attrs", {}).get("stride", (1, 1))]
-    padding = [int(item) for item in node.get("attrs", {}).get("padding", (0, 0))]
-    dilation = [int(item) for item in node.get("attrs", {}).get("dilation", (1, 1))]
-    groups = int(node.get("attrs", {}).get("groups", 1))
+    stride = [int(item) for item in attrs.get("stride", (1, 1))]
+    padding = [int(item) for item in attrs.get("padding", (0, 0))]
+    dilation = [int(item) for item in attrs.get("dilation", (1, 1))]
+    groups = int(attrs.get("groups", 1))
     temporary_buffers = [
         {"name": "activation_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(x_shape, dtype_size)},
         {"name": "weight_ohwi", "kind": "layout_pack", "layout": "ohwi", "nbytes": _nbytes(weight_shape, dtype_size)},
@@ -635,6 +641,7 @@ def cutlass_conv_layout_plan(
         **_conv_plan_status_payload(plan_status, op_name=op_name),
         "node_id": str(node.get("id", "")),
         "op_family": op_name,
+        **bridge_metadata,
         "dtype": dtype,
         "epilogue": _conv_epilogue(op_name),
         "epilogue_config": _conv_epilogue_config(op_name),
@@ -700,6 +707,14 @@ def validate_cutlass_conv_scaffold_plan(
         raise ValueError(f"Unsupported CUTLASS Conv scaffold status {payload.get('status')!r}")
     op_family = str(payload.get("op_family"))
     _validate_conv_op_name(op_family)
+    source_op = _optional_str(payload.get("source_op"))
+    bias_mode = _optional_str(payload.get("bias_mode"))
+    if source_op is not None or bias_mode is not None:
+        if op_family != "conv2d_bias" or source_op != "conv2d" or bias_mode != "explicit_zero_constant":
+            raise ValueError(
+                "CUTLASS Conv scaffold bridge metadata must be "
+                "source_op='conv2d' and bias_mode='explicit_zero_constant' on conv2d_bias"
+            )
     if node_id is not None and str(payload.get("node_id", "")) != node_id:
         raise ValueError(
             f"CUTLASS Conv scaffold node_id mismatch: expected {node_id!r}, got {payload.get('node_id')!r}"
@@ -966,6 +981,12 @@ def validate_cutlass_conv_scaffold_plan(
                 )
     payload["dtype"] = dtype
     payload["op_family"] = op_family
+    if source_op is not None:
+        payload["source_op"] = source_op
+        payload["bias_mode"] = str(bias_mode)
+    else:
+        payload.pop("source_op", None)
+        payload.pop("bias_mode", None)
     payload["epilogue"] = epilogue
     payload["epilogue_config"] = epilogue_config
     payload["semantic_layout"] = semantic_layout
@@ -1222,6 +1243,11 @@ def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str,
         "kernel_library": "cutlass_conv",
         "dtype": str(conv_plan["dtype"]),
         "status": str(conv_plan["status"]),
+        **(
+            {"source_op": str(conv_plan["source_op"]), "bias_mode": str(conv_plan["bias_mode"])}
+            if conv_plan.get("source_op") is not None
+            else {}
+        ),
         **({"blocked_reason": str(conv_plan["blocked_reason"])} if conv_plan.get("blocked_reason") else {}),
     }
     stages = [

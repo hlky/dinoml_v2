@@ -149,6 +149,9 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["gguf_runtime_dequant"] = gguf_runtime_dequant
         if cutlass_conv_plan is not None:
             item["cutlass_conv_plan"] = cutlass_conv_plan
+            if cutlass_conv_plan.get("source_op") is not None:
+                item["source_op"] = str(cutlass_conv_plan["source_op"])
+                item["bias_mode"] = str(cutlass_conv_plan["bias_mode"])
         if resolved.library in {"cutlass_gemm", "cutlass_bmm"}:
             alignment_context = (
                 cutlass_alignment_contexts.get((str(node["op"]), dtype))
@@ -437,6 +440,7 @@ def apply_execution_plan(
             ):
                 if kernel_library == "cutlass_conv" and not _apply_cutlass_conv_static_selection(
                     item,
+                    selection,
                     selected_candidate,
                     strict=strict,
                 ):
@@ -748,11 +752,17 @@ def _execution_plan_selection_payload(
         "confidence": dict(selection.get("confidence", {})) if isinstance(selection.get("confidence"), Mapping) else {},
         "split_k": int(selection.get("split_k", 1) or 1),
         "workspace_nbytes": int(selection.get("workspace_nbytes", 0) or 0),
+        **(
+            {"source_op": selection.get("source_op"), "bias_mode": selection.get("bias_mode")}
+            if selection.get("source_op") is not None
+            else {}
+        ),
     }
 
 
 def _apply_cutlass_conv_static_selection(
     item: dict[str, Any],
+    selection: Mapping[str, Any],
     selected_candidate: Mapping[str, Any],
     *,
     strict: bool,
@@ -761,6 +771,8 @@ def _apply_cutlass_conv_static_selection(
         item.get("cutlass_conv_plan"),
         node_id=str(item.get("node_id", "")) if item.get("node_id") is not None else None,
     )
+    if not _cutlass_conv_selection_bridge_metadata_matches(selection, conv_plan, strict=strict):
+        return False
     if not cutlass_conv_candidate_compatible_with_plan(selected_candidate, conv_plan):
         if strict:
             raise ValueError(
@@ -782,6 +794,33 @@ def _apply_cutlass_conv_static_selection(
         },
     }
     return True
+
+
+def _cutlass_conv_selection_bridge_metadata_matches(
+    selection: Mapping[str, Any],
+    conv_plan: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
+    expected_source_op = _optional_str(conv_plan.get("source_op"))
+    expected_bias_mode = _optional_str(conv_plan.get("bias_mode"))
+    selected_source_op = _optional_str(selection.get("source_op"))
+    selected_bias_mode = _optional_str(selection.get("bias_mode"))
+    if (expected_source_op, expected_bias_mode) == (selected_source_op, selected_bias_mode):
+        return True
+    if strict:
+        raise ValueError(
+            "CUTLASS Conv execution plan bridge metadata mismatch: "
+            f"manifest source_op={expected_source_op!r}, bias_mode={expected_bias_mode!r}; "
+            f"selection source_op={selected_source_op!r}, bias_mode={selected_bias_mode!r}"
+        )
+    return False
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)
 
 
 def _execution_plan_static_selections(execution_plan: Mapping[str, Any]) -> dict[tuple[str, str, str], Mapping[str, Any]]:

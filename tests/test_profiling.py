@@ -140,6 +140,21 @@ class Conv2dBiasModule(dml.Module):
         )
 
 
+class Conv2dNoBiasModule(dml.Module):
+    def forward(self, x, weight):
+        return dml.ops.output(
+            dml.ops.conv2d(
+                x,
+                weight,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+                groups=1,
+            ),
+            "y",
+        )
+
+
 class Conv2dBiasAddModule(dml.Module):
     def forward(self, x, weight, bias, residual):
         return dml.ops.output(
@@ -219,6 +234,17 @@ def _conv2d_profile_workload(op_name: str = "conv2d_bias"):
 
 def _conv2d_bias_profile_workload():
     return _conv2d_profile_workload("conv2d_bias")
+
+
+def _conv2d_no_bias_profile_spec():
+    return dml.trace(
+        Conv2dNoBiasModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+        },
+        name="profile_conv2d_no_bias_scaffold",
+    )
 
 
 def _conv2d_bias_relu_profile_workload():
@@ -1025,6 +1051,99 @@ def test_apply_execution_plan_rejects_incompatible_cutlass_conv_candidate_in_str
     assert relaxed["required_kernels"][0]["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == required["selected_candidate_id"]
 
 
+def _cutlass_conv_static_selection_plan(required, selected_candidate, **selection_overrides):
+    selection = {
+        "selection_key": "conv-static-selection",
+        "kernel_library": "cutlass_conv",
+        "op": "conv2d_bias",
+        "dtype": "float16",
+        "candidate_set_key": required["candidate_set_key"],
+        "selected_candidate_id": selected_candidate["candidate_id"],
+        "candidate_config_key": selected_candidate["candidate_config_key"],
+        "kernel_symbol": selected_candidate["kernel_symbol"],
+        "profiler_symbol": selected_candidate["profiler_symbol"],
+        "shape": {"n": 2, "c": 3, "h": 7, "w": 8, "out_n": 2, "out_c": 4, "out_h": 4, "out_w": 6},
+        "confidence": {"confident": True, "level": "high"},
+        "split_k": 1,
+        "workspace_nbytes": 0,
+    }
+    selection.update(selection_overrides)
+    return {
+        "schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+        "kind": "dinoml.execution_plan",
+        "static_selections": [selection],
+    }
+
+
+def test_apply_execution_plan_rejects_spurious_cutlass_conv_bridge_metadata_in_strict_mode():
+    spec = dml.trace(
+        Conv2dBiasModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+        },
+        name="conv2d_bias_spurious_bridge_metadata_execution_plan",
+    )
+    manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(
+        candidate for candidate in required["candidates"] if candidate["selection_predicate"]["kind"] == "fallback"
+    )
+    execution_plan = _cutlass_conv_static_selection_plan(
+        required,
+        selected_candidate,
+        source_op="conv2d",
+        bias_mode="explicit_zero_constant",
+    )
+
+    with pytest.raises(ValueError, match="bridge metadata mismatch"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, execution_plan, strict=False)
+    relaxed_required = relaxed["required_kernels"][0]
+    assert "source_op" not in required
+    assert "source_op" not in required["cutlass_conv_plan"]
+    assert "execution_plan_selection" not in relaxed_required
+    assert relaxed_required["selected_candidate_id"] == required["selected_candidate_id"]
+    assert "source_op" not in relaxed_required
+    assert "source_op" not in relaxed_required["cutlass_conv_plan"]
+
+
+def test_apply_execution_plan_rejects_missing_or_wrong_cutlass_conv_bridge_metadata_in_strict_mode():
+    spec = _conv2d_no_bias_profile_spec()
+    manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    required = manifest["required_kernels"][0]
+    selected_candidate = next(
+        candidate for candidate in required["candidates"] if candidate["selection_predicate"]["kind"] == "fallback"
+    )
+    missing_bridge_plan = _cutlass_conv_static_selection_plan(required, selected_candidate)
+    wrong_bridge_plan = _cutlass_conv_static_selection_plan(
+        required,
+        selected_candidate,
+        source_op="conv2d",
+        bias_mode="implicit",
+    )
+
+    assert required["source_op"] == "conv2d"
+    assert required["bias_mode"] == "explicit_zero_constant"
+    assert required["cutlass_conv_plan"]["source_op"] == "conv2d"
+    assert required["cutlass_conv_plan"]["bias_mode"] == "explicit_zero_constant"
+    with pytest.raises(ValueError, match="bridge metadata mismatch"):
+        apply_execution_plan(manifest, missing_bridge_plan, strict=True)
+    with pytest.raises(ValueError, match="bridge metadata mismatch"):
+        apply_execution_plan(manifest, wrong_bridge_plan, strict=True)
+
+    relaxed = apply_execution_plan(manifest, missing_bridge_plan, strict=False)
+    relaxed_required = relaxed["required_kernels"][0]
+    assert "execution_plan_selection" not in relaxed_required
+    assert relaxed_required["selected_candidate_id"] == required["selected_candidate_id"]
+    assert relaxed_required["source_op"] == "conv2d"
+    assert relaxed_required["bias_mode"] == "explicit_zero_constant"
+    assert relaxed_required["cutlass_conv_plan"]["source_op"] == "conv2d"
+    assert relaxed_required["cutlass_conv_plan"]["bias_mode"] == "explicit_zero_constant"
+
+
 def test_profile_artifact_writes_cutlass_conv_report_cache_and_execution_plan(tmp_path, monkeypatch):
     spec = dml.trace(
         Conv2dBiasModule(),
@@ -1165,6 +1284,119 @@ def test_compile_consumes_static_cutlass_conv_execution_plan_for_lowering(tmp_pa
     assert codegen_plan["wrapper_stages"][2]["symbol"] == selected_candidate["kernel_symbol"]
     assert codegen_plan["kernel_symbols"] == [selected_candidate["kernel_symbol"]]
     assert codegen_plan["profiler_symbols"] == [selected_candidate["profiler_symbol"]]
+    assert compile_config["execution_plan"]["execution_plan_key"] == execution_plan["execution_plan_key"]
+    assert manifest["execution_plan"] == compile_config["execution_plan"]
+    assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan
+
+
+def test_compile_consumes_static_cutlass_conv_no_bias_bridge_execution_plan_for_lowering(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_build(ir, *, target, artifact_dir, generated_src_dir, kernel_manifest):
+        calls.append(
+            {
+                "target": target.to_json(),
+                "artifact_dir": artifact_dir,
+                "generated_src_dir": generated_src_dir,
+                "kernel_manifest": kernel_manifest,
+            }
+        )
+
+    monkeypatch.setattr(BackendSpec, "resolve_build_function", lambda self: fake_build)
+    spec = _conv2d_no_bias_profile_spec()
+    target = dml.Target("cuda", arch="sm_86")
+    base_manifest = build_kernel_manifest(spec.ir, target.to_json())
+    required = base_manifest["required_kernels"][0]
+    workloads = build_profile_workloads(spec.ir, base_manifest)
+    selected_workload = next(item for item in workloads if item.candidate["selection_predicate"]["kind"] == "fallback")
+    other_workload = next(item for item in workloads if item.candidate_id != selected_workload.candidate_id)
+    problems = []
+    for workload, elapsed in ((selected_workload, 0.10), (other_workload, 0.20)):
+        timing = _profile_timing([elapsed, elapsed, elapsed], iterations=7)
+        problems.append(
+            _profile_result(
+                workload,
+                timing["median_ms"],
+                7,
+                profile_key=f"profile-{workload.candidate_id}",
+                status="ok",
+                timing=timing,
+            )
+        )
+    profile_key_payload = _profile_key_payload(
+        selected_workload,
+        {"target": target.to_json()},
+        base_manifest,
+        {"cache_key": "codegen-key"},
+        context={
+            "fingerprint": {
+                "hardware_key": "hardware-key",
+                "support_libraries_key": "support-key",
+            }
+        },
+    )
+    report = {
+        "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": target.to_json(),
+        "kernel_manifest_cache_key": base_manifest["cache_key"],
+        "codegen_plan_cache_key": "codegen-key",
+        "fingerprint": {"schema_version": 1, "key": "fingerprint-key"},
+        "hardware_cache_key": "hardware-key",
+        "support_libraries_cache_key": "support-key",
+        "problems": problems,
+    }
+    execution_plan = build_execution_plan(report)
+    execution_plan["execution_plan_key"] = _execution_plan_key(execution_plan)
+
+    assert spec.ir["nodes"][0]["attrs"]["source_op"] == "conv2d"
+    assert spec.ir["nodes"][0]["attrs"]["bias_mode"] == "explicit_zero_constant"
+    assert required["op"] == "conv2d_bias"
+    assert required["source_op"] == "conv2d"
+    assert required["bias_mode"] == "explicit_zero_constant"
+    assert required["cutlass_conv_plan"]["source_op"] == "conv2d"
+    assert required["cutlass_conv_plan"]["bias_mode"] == "explicit_zero_constant"
+    assert profile_key_payload["source_op"] == "conv2d"
+    assert profile_key_payload["bias_mode"] == "explicit_zero_constant"
+    assert {problem["source_op"] for problem in problems} == {"conv2d"}
+    assert {problem["bias_mode"] for problem in problems} == {"explicit_zero_constant"}
+    assert execution_plan["static_selections"][0]["source_op"] == "conv2d"
+    assert execution_plan["static_selections"][0]["bias_mode"] == "explicit_zero_constant"
+
+    artifact = dml.compile(
+        spec,
+        target,
+        tmp_path / "compile_profile_selected_conv2d_no_bias.dinoml",
+        execution_plan=execution_plan,
+    )
+    graph = read_json(artifact.path / "graph.dinoir.json")
+    kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
+    codegen_plan = read_json(artifact.path / "kernel_codegen_plan.json")
+    compile_config = read_json(artifact.path / "compile_config.json")
+    manifest = read_json(artifact.path / "manifest.json")
+    required = kernel_manifest["required_kernels"][0]
+    provider_stage = next(stage for stage in codegen_plan["wrapper_stages"] if stage["stage_name"] == "provider_launch")
+
+    assert calls[0]["kernel_manifest"] == kernel_manifest
+    assert graph["nodes"][0]["attrs"]["source_op"] == "conv2d"
+    assert graph["nodes"][0]["attrs"]["bias_mode"] == "explicit_zero_constant"
+    assert required["selected_candidate_id"] == selected_workload.candidate_id
+    assert required["kernel_symbol"] == selected_workload.kernel_symbol
+    assert required["profiler_symbol"] == selected_workload.profiler_symbol
+    assert required["source_op"] == "conv2d"
+    assert required["bias_mode"] == "explicit_zero_constant"
+    assert required["execution_plan_selection"]["selected_candidate_id"] == selected_workload.candidate_id
+    assert required["execution_plan_selection"]["source_op"] == "conv2d"
+    assert required["execution_plan_selection"]["bias_mode"] == "explicit_zero_constant"
+    assert required["cutlass_conv_plan"]["source_op"] == "conv2d"
+    assert required["cutlass_conv_plan"]["bias_mode"] == "explicit_zero_constant"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["candidate_id"] == selected_workload.candidate_id
+    assert provider_stage["symbol"] == selected_workload.kernel_symbol
+    assert provider_stage["launch_abi"] == "dinoml_cutlass_conv2d_bias_v1"
+    assert provider_stage["source_op"] == "conv2d"
+    assert provider_stage["bias_mode"] == "explicit_zero_constant"
+    assert codegen_plan["kernel_symbols"] == [selected_workload.kernel_symbol]
+    assert codegen_plan["profiler_symbols"] == [selected_workload.profiler_symbol]
     assert compile_config["execution_plan"]["execution_plan_key"] == execution_plan["execution_plan_key"]
     assert manifest["execution_plan"] == compile_config["execution_plan"]
     assert read_json(artifact.path / "debug" / "execution_plan.json") == execution_plan

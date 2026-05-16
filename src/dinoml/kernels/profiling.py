@@ -184,6 +184,8 @@ class ConvProfileWorkload:
     weight_transform: Mapping[str, Any]
     temporary_buffers: tuple[Mapping[str, Any], ...]
     workspace_nbytes: int
+    source_op: str | None
+    bias_mode: str | None
     shape_source: str
     shape_case_id: str
     dim_values: Mapping[str, int]
@@ -217,6 +219,11 @@ class ConvProfileWorkload:
             "weight_transform": dict(self.weight_transform),
             "temporary_buffers": [dict(buffer) for buffer in self.temporary_buffers],
             "workspace_nbytes": self.workspace_nbytes,
+            **(
+                {"source_op": self.source_op, "bias_mode": self.bias_mode}
+                if self.source_op is not None
+                else {}
+            ),
             "profile_variant": {
                 "kind": str(self.candidate.get("status", "manifest_scaffold_only")),
                 "profiler_status": str(self.candidate.get("profiler_status", "unsupported_stub")),
@@ -490,6 +497,16 @@ def _append_conv_profile_workloads(
                         if isinstance(buffer, Mapping)
                     ),
                     workspace_nbytes=int(normalized_conv_plan.get("workspace_nbytes", 0) or 0),
+                    source_op=(
+                        str(normalized_conv_plan["source_op"])
+                        if normalized_conv_plan.get("source_op") is not None
+                        else None
+                    ),
+                    bias_mode=(
+                        str(normalized_conv_plan["bias_mode"])
+                        if normalized_conv_plan.get("bias_mode") is not None
+                        else None
+                    ),
                     shape_source=scenario.source,
                     shape_case_id=scenario.case_id,
                     dim_values=scenario.dim_values,
@@ -1661,6 +1678,11 @@ def _profile_key_payload(
             "layout_translation": dict(workload.layout_translation),
             "weight_transform": dict(workload.weight_transform),
             "conv_config": dict(workload.conv_config),
+            **(
+                {"source_op": workload.source_op, "bias_mode": workload.bias_mode}
+                if workload.source_op is not None
+                else {}
+            ),
             "shape": {
                 "input": list(workload.x_shape),
                 "weight": list(workload.weight_shape),
@@ -2037,6 +2059,11 @@ def _selection_from_group(
         "iterations": int(best.get("iterations", 0) or 0),
         "profile_key": best.get("profile_key"),
         "status": best.get("status"),
+        **(
+            {"source_op": best.get("source_op"), "bias_mode": best.get("bias_mode")}
+            if best.get("source_op") is not None
+            else {}
+        ),
         "confidence": _selection_confidence(best, runner_up),
     }
 

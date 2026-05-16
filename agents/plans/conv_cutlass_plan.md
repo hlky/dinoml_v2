@@ -419,9 +419,12 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   bridge. `dml.ops.conv2d(x, weight, ...)` performs its own static rank-4
   NCHW/OIHW/groups=1 validation, then emits a `conv2d_bias` core node with
   `source_op=conv2d`, `bias_mode=explicit_zero_constant`, and a traced zero-bias
-  constant tensor. This keeps artifacts honest for future provider work and
-  removes CLIP's old model-local synthetic zero-bias parameter, but it is not a
-  separate no-bias CUTLASS family yet.
+  constant tensor. The bridge metadata now remains visible in the
+  `cutlass_conv` manifest/plan, profile workload/report/cache payloads, static
+  execution-plan selections, `execution_plan_selection`, and generated
+  wrapper-stage metadata. This keeps artifacts honest for future provider work
+  and removes CLIP's old model-local synthetic zero-bias parameter, but it is
+  not a separate no-bias CUTLASS family yet.
 - The `float16` and exact `float32` SIMT, static rank-4, groups=1 CUDA paths now
   have correctness-first CUTLASS runtime launchers. Generated code allocates per-session
   NHWC/OHWI/NHWC temporaries, calls the support-library NCHW -> NHWC activation
@@ -450,7 +453,12 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
   kernel/profiler symbols, `execution_plan_selection`, and
   `cutlass_conv_plan["selected_candidate"]` payload consumed by generated
   lowering. Stale or incompatible Conv selections are rejected in strict mode,
-  and guarded/dynamic Conv dispatch remains explicitly unsupported. Focused
+  bridge metadata on Conv selections must exactly match the manifest
+  `cutlass_conv_plan`, and guarded/dynamic Conv dispatch remains explicitly
+  unsupported. Focused
+  no-bias bridge tests now prove `source_op=conv2d` and
+  `bias_mode=explicit_zero_constant` survive profile workloads, static
+  execution-plan selection, and compile-time plan consumption; focused
   fused-epilogue tests now prove that `conv2d_bias_relu` preserves
   `bias_relu` metadata through profile workloads, static execution-plan
   application, and compile-time plan consumption. A CUDA-gated

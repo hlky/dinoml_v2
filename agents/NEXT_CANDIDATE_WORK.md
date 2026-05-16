@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the public no-bias `dml.ops.conv2d(...)` profile/candidate-selection
+  evidence gap without adding a new provider ABI or broadening the Conv
+  contract. The explicit-zero bridge metadata (`source_op=conv2d` and
+  `bias_mode=explicit_zero_constant`) now remains artifact-visible in the
+  `cutlass_conv` manifest/plan, profile workload/report/cache payloads, static
+  execution-plan selections, `execution_plan_selection`, and generated
+  wrapper-stage metadata. A focused non-CUDA regression proves the bridge
+  metadata and selected candidate survive profile-result construction,
+  execution-plan selection, compile-time plan consumption, and generated
+  lowering, and strict plan application now rejects missing, wrong, or spurious
+  bridge metadata before it can be copied into `execution_plan_selection`, while
+  the existing CUDA compile bridge smoke still passes. This is
+  not a separate no-bias Conv provider family, hidden padding, grouped/
+  depthwise/transposed/3D Conv, public NHWC toggles, runtime-set packed
+  weights, or sigmoid Conv.
 - Audited `fast_gelu` and `quick_gelu` against the local
   `/workspace/transformers` activation definitions and CLIP configs, then fixed
   a real CPU semantic split bug without changing public op names or CLIP

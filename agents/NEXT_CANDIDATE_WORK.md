@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining user-visible profile-artifact gap for the already
+  admitted residual Conv surface `conv2d_bias_add` without changing
+  provider/runtime behavior. The new CUDA-gated smoke mirrors the existing
+  `conv2d_bias_relu` artifact-profile proof: it compiles a tiny CUDA artifact,
+  runs `profile_artifact(..., refresh=True)`, and asserts both
+  `debug/profile_report.json` and `debug/execution_plan.json` preserve
+  `op=conv2d_bias_add`, `epilogue=bias_add`,
+  `epilogue_config={"inputs":["bias","d0"]}`, the residual launch ABI
+  `dinoml_cutlass_conv2d_bias_add_v1`, top-level kernel/profiler symbol
+  identity, and the expected static-selection versus low-confidence execution-
+  plan behavior. Validation reran that exact CUDA-gated smoke plus the nearest
+  residual static-plan/lowering regressions; no runtime/provider code changes
+  were needed. Remaining Conv work should move to the next bounded
+  profile-selection or runtime-parity gap instead of revisiting this residual
+  profile-artifact path.
 - Closed the Conv profiling/execution-plan proof gap for the already admitted
   residual public surface `conv2d_bias_add` without changing provider/runtime
   behavior. The focused profiling regressions now match the existing

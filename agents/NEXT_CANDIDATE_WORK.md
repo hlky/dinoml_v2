@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the next full-checkpoint CLIP-L compiled-artifact blocker. The
+  non-legacy OpenAI CLIP text pooling branch (`eos_token_id != 2`) traces
+  `input_ids == eos_token_id` as a pure fused `eq` node with `int64` inputs and
+  bool output; validation already admitted integer `eq`, but the compiler's
+  backend-wide dtype sweep still rejected the internal `fused_elementwise`
+  node. The compiler/runtime contract now exempts only pure fused integer
+  `eq` inputs (`int32`/`int64`) from that rejection, while preserving the
+  existing guard that unrelated integer tensors remain unsupported. A focused
+  CPU artifact regression compiles and runs `int64 eq -> bool` above
+  float-exact range so the path cannot pass by float rounding. Validation
+  reran targeted relational and argmax contract tests plus both cached
+  `openai/clip-vit-base-patch32` and `openai/clip-vit-large-patch14` compiled
+  CPU checkpoint smokes; the large checkpoint now compiles and executes as a
+  CPU artifact. This does not broaden integer elementwise arithmetic generally
+  or claim CUDA CLIP-L runtime parity.
 - Closed the remaining profile-artifact proof gap for the newest admitted
   residual-plus-activation Conv surface `conv2d_bias_add_relu` without changing
   provider/runtime behavior or adding public op surface. The CUDA-gated smoke

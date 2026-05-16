@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged stronger `conv2d_bias_relu` profiling and
+  execution-plan evidence. The new tests prove fused `bias_relu` metadata
+  survives static execution-plan application, compile-time execution-plan
+  consumption, wrapper-stage/codegen symbol selection, and a real CUDA-gated
+  `profile_artifact` smoke that writes `debug/profile_report.json` plus
+  `debug/execution_plan.json` for a fused ReLU Conv artifact. The real profiling
+  smoke is deliberately confidence-aware: it accepts either a consumable static
+  selection or a low-confidence non-selection while still asserting the fused
+  ABI/symbol metadata remains intact. This directly advances the requested
+  GEMM-like profiling/candidate-selection maturity for Conv without adding new
+  public op surface.
 - PM-reviewed and merged a Conv sigmoid epilogue blocker note after a bounded
   `conv2d_bias_sigmoid` admission attempt failed the required CUDA
   support-library compile gate and was fully backed out. The public op surface
@@ -382,7 +393,9 @@ This file should be updated after each major loop.
   runtime coverage for the current epilogues, especially any bfloat16/float32
   gaps beyond the admitted SIMT float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
-  hardware. Keep the exact coverage honest: today only `conv2d_bias`,
+  hardware. The fused ReLU Conv path now has real profile/report/execution-plan
+  metadata coverage, but guarded/dynamic dispatch remains unsupported. Keep the
+  exact coverage honest: today only `conv2d_bias`,
   explicit-zero `conv2d`, and fused `conv2d_bias_relu` are admitted on the
   static rank-4 groups=1 path. The public no-bias `conv2d` bridge now has real
   fp16 TensorOp runtime parity across the same core candidate families as

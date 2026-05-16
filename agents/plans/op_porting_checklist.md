@@ -616,11 +616,13 @@ behavior.
   emits an artifact-visible `conv2d_bias` core node with attrs
   `source_op=conv2d` and `bias_mode=explicit_zero_constant` plus an explicit
   zero-bias constant tensor. That keeps bias-free CLIP-style patch projection
-  source-faithful without claiming separate no-bias provider/runtime parity.
-  Focused `conv2d` tests prove the explicit-zero bridge in the traced IR,
-  CPU/reference and CPU/artifact parity against Torch `F.conv2d(..., bias=None)`,
-  CUDA compile-time manifest/codegen visibility, and a small CUDA runtime smoke
-  when tooling is available.
+  source-faithful without introducing a separate no-bias provider ABI.
+  Focused `conv2d` tests now prove the explicit-zero bridge in the traced IR,
+  CPU/reference and CPU/artifact parity against Torch
+  `F.conv2d(..., bias=None)`, CUDA compile-time manifest/codegen visibility,
+  and real CUDA runtime parity for the admitted fp16 TensorOp FewChannels
+  `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16` candidate
+  lanes when tooling is available.
   The first fused Conv epilogue slice is now also admitted as
   `conv2d_bias_relu`. It shares the same public static rank-4 groups=1
   NCHW/OIHW contract, adds CPU reference plus generated CPU artifact support,

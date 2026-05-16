@@ -18,7 +18,11 @@ added on top of it:
   artifacts for `float32`/`float16`, and CUDA `cutlass_conv` manifest/profile/
   execution-plan/generated-lowering support.
 - Public no-bias `conv2d` exists only as an explicit-zero bridge over that same
-  core path. It is not a distinct provider family or runtime ABI.
+  core path. It is not a distinct provider family or runtime ABI, but focused
+  runtime parity now proves that bridge on the admitted fp16 TensorOp
+  FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
+  lanes while preserving `source_op=conv2d` and
+  `bias_mode=explicit_zero_constant`.
 - `conv2d_bias_relu` is now the first fused Conv epilogue slice. It reuses the
   same public contract, profiling flow, and layout-transform metadata as
   `conv2d_bias`, but records fused `bias_relu` epilogue state through candidate
@@ -31,9 +35,10 @@ added on top of it:
   TensorOp, bfloat16, add/sigmoid/residual epilogues, and grouped/depthwise/
   transposed/3D Conv are not landed. Focused runtime parity currently proves
   base `conv2d_bias` across the admitted fp16 TensorOp/SIMT lanes plus float32
-  SIMT, and proves fused `conv2d_bias_relu` on float32 SIMT plus the fp16
+  SIMT, proves the bridged public no-bias `conv2d` path on the fp16
   FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
-  TensorOp lanes.
+  TensorOp lanes, and proves fused `conv2d_bias_relu` on float32 SIMT plus the
+  same fp16 TensorOp lane family.
 
 ## Why this needs its own plan
 

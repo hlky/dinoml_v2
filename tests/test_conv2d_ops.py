@@ -89,6 +89,89 @@ def _torch_conv2d_reference(x, weight, *, stride, padding, dilation):
     )
 
 
+def _assert_explicit_zero_bias_bridge(lowered_path, *, output_channels):
+    lowered = read_json(lowered_path)
+    [node] = lowered["nodes"]
+    assert node["op"] == "conv2d_bias"
+    assert node["attrs"]["source_op"] == "conv2d"
+    assert node["attrs"]["bias_mode"] == "explicit_zero_constant"
+    zero_bias_name = node["inputs"][2]
+    zero_bias_tensor = next(tensor for tensor in lowered["tensors"] if tensor["name"] == zero_bias_name)
+    assert zero_bias_tensor["kind"] == "constant"
+    zero_bias_constant = next(constant for constant in lowered["constants"] if constant["name"] == zero_bias_name)
+    assert zero_bias_constant["shape"] == [output_channels]
+
+
+def _assert_conv2d_cuda_runtime_matches_torch(
+    tmp_path,
+    *,
+    x_shape,
+    weight_shape,
+    stride,
+    padding,
+    dilation,
+    artifact_name,
+    expected_candidate_suffix,
+    expected_iterator_algorithm,
+    expected_padded_input_channels,
+    expected_padded_output_channels=None,
+):
+    spec = _trace_conv2d(
+        "float16",
+        x_shape=x_shape,
+        weight_shape=weight_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+    )
+    artifact_dir = tmp_path / artifact_name
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    _assert_explicit_zero_bias_bridge(
+        artifact_dir / "graph.dinoir.json",
+        output_channels=weight_shape[0],
+    )
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["op"] == "conv2d_bias"
+    assert required["kernel_library"] == "cutlass_conv"
+    assert required["candidate_set"]["status"] == "bounded_runtime"
+    assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
+    assert required["selected_candidate_id"].endswith(expected_candidate_suffix)
+    assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
+    assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == expected_iterator_algorithm
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias"
+    assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
+    assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == expected_padded_input_channels
+    if expected_padded_output_channels is not None:
+        assert required["cutlass_conv_plan"]["weight_transform"]["padded_output_channels"] == expected_padded_output_channels
+
+    x = _input(x_shape, "float16", -1.0, 1.0)
+    weight = _input(weight_shape, "float16", -0.5, 0.5)
+    expected = _storage_roundtrip(
+        _torch_conv2d_reference(
+            x,
+            weight,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+        ),
+        "float16",
+    )
+
+    module = runtime.load(artifact_dir)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x, "weight": weight})["out"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual, expected, atol=2e-2, rtol=2e-2)
+
+
 def test_conv2d_frontend_lowers_through_explicit_zero_bias_constant():
     spec = _trace_conv2d(
         "float32",
@@ -205,16 +288,7 @@ def test_conv2d_cuda_compile_records_explicit_zero_bias_bridge(tmp_path, monkeyp
         with pytest.raises(NotImplementedError, match="compiled support library"):
             dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
 
-    lowered = read_json(artifact_dir / "graph.dinoir.json")
-    [node] = lowered["nodes"]
-    assert node["op"] == "conv2d_bias"
-    assert node["attrs"]["source_op"] == "conv2d"
-    assert node["attrs"]["bias_mode"] == "explicit_zero_constant"
-    zero_bias_name = node["inputs"][2]
-    zero_bias_tensor = next(tensor for tensor in lowered["tensors"] if tensor["name"] == zero_bias_name)
-    assert zero_bias_tensor["kind"] == "constant"
-    zero_bias_constant = next(constant for constant in lowered["constants"] if constant["name"] == zero_bias_name)
-    assert zero_bias_constant["shape"] == [4]
+    _assert_explicit_zero_bias_bridge(artifact_dir / "graph.dinoir.json", output_channels=4)
 
     kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
     [required] = kernel_manifest["required_kernels"]
@@ -223,6 +297,81 @@ def test_conv2d_cuda_compile_records_explicit_zero_bias_bridge(tmp_path, monkeyp
     assert required["candidate_set"]["status"] == "bounded_runtime"
     assert required["cutlass_conv_plan"]["status"] == "bounded_runtime"
     assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
+
+
+def test_conv2d_cuda_runtime_few_channels_c3_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("few-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_cuda_runtime_matches_torch(
+        tmp_path,
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_cuda_few_c3.dinoml",
+        expected_candidate_suffix="few_channels_c3",
+        expected_iterator_algorithm="few_channels",
+        expected_padded_input_channels=3,
+        expected_padded_output_channels=4,
+    )
+
+
+def test_conv2d_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_cuda_runtime_matches_torch(
+        tmp_path,
+        x_shape=(2, 4, 7, 8),
+        weight_shape=(8, 4, 3, 2),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_cuda_fixed_c4.dinoml",
+        expected_candidate_suffix="fixed_channels_c4",
+        expected_iterator_algorithm="fixed_channels",
+        expected_padded_input_channels=4,
+        expected_padded_output_channels=8,
+    )
+
+
+def test_conv2d_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_cuda_runtime_matches_torch(
+        tmp_path,
+        x_shape=(2, 8, 7, 8),
+        weight_shape=(8, 8, 3, 2),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_cuda_fixed_c8.dinoml",
+        expected_candidate_suffix="fixed_channels_c8",
+        expected_iterator_algorithm="fixed_channels",
+        expected_padded_input_channels=8,
+    )
+
+
+def test_conv2d_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("optimized CUTLASS Conv runtime parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_cuda_runtime_matches_torch(
+        tmp_path,
+        x_shape=(2, 16, 7, 8),
+        weight_shape=(16, 16, 3, 2),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_cuda_optimized_c16.dinoml",
+        expected_candidate_suffix="optimized_align8",
+        expected_iterator_algorithm="optimized",
+        expected_padded_input_channels=16,
+        expected_padded_output_channels=16,
+    )
 
 
 @pytest.mark.skipif(not torch.cuda.is_available() or shutil.which("nvcc") is None, reason="CUDA runtime smoke requires torch CUDA and nvcc")

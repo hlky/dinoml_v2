@@ -63,10 +63,11 @@ been added on top of it:
   optimized aligned `C=16`, and real support-library compile coverage for the
   fp16 residual path. The new `conv2d_bias_add_relu` slice currently has CPU
   reference/generated CPU parity, manifest/profile/execution-plan visibility,
-  real `nvcc` support-library compile proof on the float16 default path, and a
-  focused float32 SIMT CUDA runtime parity test. Remaining open areas are fp16
-  residual+ReLU runtime coverage, bfloat16, and broader float32 TensorOp
-  shapes.
+  real `nvcc` support-library compile proof on the float16 default path,
+  focused float32 SIMT CUDA runtime parity, and focused fp16 TensorOp CUDA
+  runtime parity on the admitted FewChannels `C=3`, FixedChannels `C=4`/`C=8`,
+  and optimized aligned `C=16` lanes. Remaining open areas are bfloat16 and
+  broader float32 TensorOp shapes.
 - A bounded `conv2d_bias_sigmoid` follow-up was explored and intentionally not
   landed. CUTLASS does ship
   `cutlass/epilogue/thread/linear_combination_sigmoid.h`, but the current

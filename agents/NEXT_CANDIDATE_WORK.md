@@ -16,11 +16,12 @@ This file should be updated after each major loop.
   lowering, and reuses the existing artifact-visible residual NCHW->NHWC pack
   stage. Validation covered frontend/base regression checks, CPU reference and
   generated CPU parity, profiling/execution-plan metadata, real float16-path
-  support-library `nvcc` compile proof, and focused float32 SIMT CUDA runtime
-  parity against Torch `conv2d + bias + residual + relu`. This is useful Conv
-  v1-core progress, but it is not a claim for fp16 residual+ReLU runtime lane
-  coverage, bfloat16, broader float32 TensorOp, grouped/depthwise/transposed/
-  3D Conv, or richer residual chains.
+  support-library `nvcc` compile proof, focused float32 SIMT CUDA runtime
+  parity, and focused fp16 TensorOp CUDA runtime parity on the admitted
+  FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
+  lanes against Torch `conv2d + bias + residual + relu`. This is useful Conv
+  v1-core progress, but it is not a claim for bfloat16, broader float32
+  TensorOp, grouped/depthwise/transposed/3D Conv, or richer residual chains.
 - Added focused fp16 CUDA runtime parity coverage for the just-landed
   residual Conv slice `conv2d_bias_add` without changing provider/runtime
   surface. The new CUDA-gated tests reuse the shared DinoML CUDA support cache,
@@ -458,8 +459,9 @@ This file should be updated after each major loop.
   hardware. The fused ReLU Conv path now has real profile/report/execution-plan
   metadata coverage, the residual add slice now has focused float32 SIMT
   runtime parity plus the full admitted fp16 TensorOp lane family, and the
-  new residual+ReLU slice now has focused float32 SIMT runtime parity plus
-  float16-path compile proof, but guarded/dynamic dispatch remains unsupported.
+  new residual+ReLU slice now has focused float32 SIMT runtime parity plus the
+  matching admitted fp16 TensorOp lane family, but guarded/dynamic dispatch
+  remains unsupported.
   Keep the exact coverage honest: today only `conv2d_bias`, explicit-zero
   `conv2d`, fused `conv2d_bias_relu`, fused `conv2d_bias_add`, and fused
   `conv2d_bias_add_relu` are admitted on the static rank-4 groups=1 path.

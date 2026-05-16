@@ -4,6 +4,22 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged the first bounded residual Conv epilogue slice as
+  public `conv2d_bias_add`. The slice keeps the existing static rank-4
+  groups=1 NCHW/OIHW public contract, requires one same-shape residual tensor,
+  records explicit `bias_add` epilogue metadata through candidate sets,
+  manifests, profile workloads, execution plans, support/source manifests, and
+  generated lowering, and launches through
+  `dinoml_cutlass_conv2d_bias_add_v1` with artifact-visible residual NCHW->NHWC
+  packing. Skeptical review found a base `conv2d_bias` shape-resolution
+  regression and stale plan wording; PM fixed those before merge and also fixed
+  the existing CPU reference call sites after the shared helper grew an explicit
+  residual parameter. Validation covered frontend/base regression checks, CPU
+  reference and generated CPU parity for the add slice, profiling metadata,
+  real support-library compile coverage, and focused float32 SIMT CUDA runtime
+  parity. This is useful Conv v1-core progress, but it is not grouped/depthwise/
+  transposed/3D Conv, sigmoid, add+activation chains, multiple residual inputs,
+  bfloat16, or broad fp16 residual runtime parity.
 - PM-reviewed and merged refreshed cached `openai/clip-vit-base-patch32` CUDA
   checkpoint evidence after the explicit QuickGELU fix. The opt-in full compiled
   CUDA smoke now asserts parity instead of a loose drift envelope on the
@@ -399,17 +415,21 @@ This file should be updated after each major loop.
 
 - Human steering on 2026-05-15 makes Conv the first lane. The next bounded Conv
   work should stay inside the existing `cutlass_conv` contract and build on the
-  new `conv2d_bias_relu` slice rather than drifting into alias polish or broad
-  plumbing. Highest-value follow-ons are: one additional fused epilogue with
-  clear v1 demand, but not `conv2d_bias_sigmoid` until the recorded CUTLASS Conv
-  epilogue ABI blocker is solved with a real `nvcc` build; broader
-  runtime coverage for the current epilogues, especially any bfloat16/float32
-  gaps beyond the admitted SIMT float32 path; or deeper
+  admitted `conv2d_bias_relu` and `conv2d_bias_add` slices rather than drifting
+  into alias polish or broad plumbing. Highest-value follow-ons are: one
+  additional fused epilogue with clear v1 demand, such as `conv2d_bias_add_relu`
+  only if it can complete the same frontend/provider/runtime/docs slice, but not
+  `conv2d_bias_sigmoid` until the recorded CUTLASS Conv epilogue ABI blocker is
+  solved with a real `nvcc` build; broader runtime coverage for the current
+  epilogues, especially fp16 residual runtime lanes beyond the current add
+  compile-boundary proof or any bfloat16/float32 gaps beyond the admitted SIMT
+  float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. The fused ReLU Conv path now has real profile/report/execution-plan
-  metadata coverage, but guarded/dynamic dispatch remains unsupported. Keep the
-  exact coverage honest: today only `conv2d_bias`,
-  explicit-zero `conv2d`, and fused `conv2d_bias_relu` are admitted on the
+  metadata coverage, and the residual add slice now has focused float32 SIMT
+  runtime parity, but guarded/dynamic dispatch remains unsupported. Keep the
+  exact coverage honest: today only `conv2d_bias`, explicit-zero `conv2d`,
+  fused `conv2d_bias_relu`, and fused `conv2d_bias_add` are admitted on the
   static rank-4 groups=1 path. The public no-bias `conv2d` bridge now has real
   fp16 TensorOp runtime parity across the same core candidate families as
   `conv2d_bias`; do not split it into a separate provider ABI without a fresh
@@ -1122,8 +1142,9 @@ This file should be updated after each major loop.
 2. Continue the bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` toward v1-core parity without widening
    public semantics. Human steering keeps Conv first: keep `conv2d`/explicit
-   zero-bias, `conv2d_bias`, and fused `conv2d_bias_relu` honest, then add one
-   bounded follow-on epilogue or no-bias/runtime-profile slice only if it
+   zero-bias, `conv2d_bias`, fused `conv2d_bias_relu`, and fused
+   `conv2d_bias_add` honest, then add one bounded follow-on epilogue or
+   no-bias/runtime-profile slice only if it
    includes frontend/admission, manifest/profile/execution-plan visibility,
    generated lowering, CUDA runtime parity, and checklist updates. The current
    useful direction is GEMM-like Conv maturity: candidate profiling/selection,

@@ -4,6 +4,22 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the Conv profiling/execution-plan proof gap for the already admitted
+  residual public surface `conv2d_bias_add` without changing provider/runtime
+  behavior. The focused profiling regressions now match the existing
+  `conv2d_bias_relu` and `conv2d_bias_add_relu` static-plan discipline: one
+  test proves static execution-plan application preserves explicit `bias_add`
+  epilogue metadata plus the selected candidate id/symbols in both
+  `required_kernels[*]` and `cutlass_conv_plan.selected_candidate`, and one
+  compile-path test proves generated lowering consumes that static selection by
+  writing the profiled candidate into `kernel_manifest.json`,
+  `kernel_codegen_plan.json`, `compile_config.json`, `manifest.json`, and
+  `debug/execution_plan.json` with the expected residual wrapper-stage launch
+  ABI `dinoml_cutlass_conv2d_bias_add_v1`. Validation reran the targeted
+  profiling/execution-plan regression slice only; no runtime/provider code
+  changes were needed. The remaining Conv maturity work should move to the next
+  small profile/candidate-selection or runtime-parity gap rather than revisiting
+  this residual static-plan path.
 - Admitted the next bounded Conv v1-style residual+activation epilogue as
   public `conv2d_bias_add_relu`. The slice keeps the existing static rank-4
   groups=1 NCHW/OIHW public contract, requires one same-shape residual tensor,

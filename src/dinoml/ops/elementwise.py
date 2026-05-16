@@ -73,6 +73,7 @@ FUSABLE_ELEMENTWISE_OPS = frozenset(ELEMENTWISE_BY_NAME)
 FLOAT_ELEMENTWISE_DTYPES = ("float16", "float32", "bfloat16")
 EQ_ELEMENTWISE_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "int32", "int64")
 ELEMENTWISE_OUTPUT_DTYPES = (*FLOAT_ELEMENTWISE_DTYPES, "bool")
+FUSED_ELEMENTWISE_RUNTIME_DTYPES = (*EQ_ELEMENTWISE_DTYPES, "bool")
 CAST_ELEMENTWISE_DTYPES = ELEMENTWISE_OUTPUT_DTYPES
 
 
@@ -144,7 +145,7 @@ def register_elementwise_ops(registry: OpRegistry) -> None:
                 "cpu": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cpu"),
             },
             variadic_inputs=True,
-            allowed_dtypes=ELEMENTWISE_OUTPUT_DTYPES,
+            allowed_dtypes=FUSED_ELEMENTWISE_RUNTIME_DTYPES,
             description="Internal fused elementwise subgraph generated into the model module.",
         )
     )

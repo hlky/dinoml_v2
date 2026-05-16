@@ -6,6 +6,7 @@ from dinoml.backends.cpu import execute_cpu
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
+from dinoml.runtime import load
 
 
 RELATIONAL_CASES = (
@@ -125,3 +126,18 @@ def test_eq_integer_generated_cpu_and_cuda_sources_preserve_integer_storage():
     assert "const int64_t* DINO_RESTRICT ptr_x" in cuda_source
     assert "const int64_t* DINO_RESTRICT ptr_y" in cuda_source
     assert "dinoml::math::eq(" in cuda_source
+
+
+def test_eq_int64_compiled_cpu_artifact_runs_without_float_rounding(tmp_path, monkeypatch):
+    spec = _trace_relational("eq", "int64")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "relational_eq_int64_cpu.dinoml")
+    session = load(artifact.path).create_session()
+    large = 2**54
+    x = np.array([[large, large + 1, large + 2], [large + 3, large + 4, large + 5]], dtype=np.int64)
+    y = np.array([[large, large + 2, large + 2]], dtype=np.int64)
+
+    actual = session.run_numpy({"x": x, "y": y})["out"]
+
+    assert actual.dtype == np.bool_
+    np.testing.assert_array_equal(actual, np.equal(x, y))

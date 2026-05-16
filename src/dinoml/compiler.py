@@ -728,6 +728,13 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
     }
+    fused_integer_eq_tensors = {
+        tensor_name
+        for node in ir["nodes"]
+        if _node_is_integer_eq_fused_elementwise(node, tensor_map)
+        for tensor_name in node.get("inputs", [])
+        if str(tensor_map[tensor_name]["dtype"]) in {"int32", "int64"}
+    }
     for node in ir["nodes"]:
         op_def = get_op_def(str(node["op"]))
         if target.name not in op_def.backend_kernels:
@@ -843,6 +850,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_input_tensors
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
+            and str(tensor["name"]) not in fused_integer_eq_tensors
         }
     )
     if unsupported:
@@ -870,6 +878,27 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             "View alias tensors cannot be written by kernels; metadata.views must describe "
             f"shape-only aliases of an owning tensor. Kernel outputs using view storage: {node_view_outputs}"
         )
+
+
+def _node_is_integer_eq_fused_elementwise(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    if node.get("op") != "fused_elementwise":
+        return False
+    sub_ops = node.get("attrs", {}).get("sub_ops", [])
+    if not isinstance(sub_ops, list) or not sub_ops:
+        return False
+    if any(str(sub_op.get("op")) != "eq" for sub_op in sub_ops):
+        return False
+    integer_inputs = [
+        str(tensor_map[name]["dtype"])
+        for name in node.get("inputs", [])
+        if name in tensor_map and str(tensor_map[name]["dtype"]) in {"int32", "int64"}
+    ]
+    if not integer_inputs:
+        return False
+    return all(dtype in {"int32", "int64"} for dtype in integer_inputs)
 
 
 def _validate_profile_shape_expressions(ir: Mapping[str, Any], target: Target) -> None:

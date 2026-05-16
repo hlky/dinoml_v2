@@ -39,6 +39,15 @@ added on top of it:
   FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
   TensorOp lanes, and proves fused `conv2d_bias_relu` on float32 SIMT plus the
   same fp16 TensorOp lane family.
+- A bounded `conv2d_bias_sigmoid` follow-up was explored and intentionally not
+  landed. CUTLASS does ship
+  `cutlass/epilogue/thread/linear_combination_sigmoid.h`, but the current
+  `cutlass::conv::device::ImplicitGemmConvolution` launcher wiring used for the
+  admitted Conv bias/bias_relu paths did not accept the same source-C/bias
+  argument construction once `LinearCombinationSigmoid` replaced the epilogue.
+  Real `nvcc` support-library compilation failed before runtime parity could
+  start, so no public sigmoid Conv op should exist until a provider/runtime
+  design compiles and passes a real CUDA parity test.
 
 ## Why this needs its own plan
 
@@ -338,7 +347,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
    explicit-zero bridge that reuses the `conv2d_bias` core path.
 2. Wider dtype coverage, starting with clean `float32`.
 3. Dynamic spatial bucket profiling and guarded execution-plan dispatch.
-4. Broader Conv2d epilogues or fused activation forms.
+4. Broader Conv2d epilogues or fused activation forms. A future sigmoid retry
+   must first solve the CUTLASS Conv epilogue ABI mismatch seen with
+   `LinearCombinationSigmoid`; do not add public/frontend-only sigmoid surface
+   before a real support-library `nvcc` build and runtime parity test pass.
 5. `conv3d` with a separate admission pass and explicit NDHWC design review.
 6. ROCm `ck_conv` parity using the same artifact-visible transform contract.
 7. Transposed/depthwise families with their own provider metadata and tests.

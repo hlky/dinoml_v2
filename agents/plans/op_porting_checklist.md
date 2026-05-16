@@ -640,6 +640,12 @@ behavior.
   epilogue parity: add/sigmoid/residual epilogues, broader float32 TensorOp
   runtime, bfloat16 Conv runtime, grouped/depthwise/transposed/3D Conv, and
   guarded/dynamic Conv dispatch remain unported.
+  A bounded `conv2d_bias_sigmoid` admission attempt was intentionally backed
+  out: the required CUTLASS header exists, but the current Conv
+  `device::ImplicitGemmConvolution` Fprop launcher/source-C bias wiring did not
+  compile under real support-library `nvcc` builds once
+  `LinearCombinationSigmoid` replaced the epilogue. Keep sigmoid unported until
+  that provider/runtime mismatch has a real CUDA compile-plus-parity proof.
   The static
   profile
   workload path records the same artifact-visible layout translation, weight

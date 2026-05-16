@@ -7,17 +7,17 @@ This file should be updated after each major loop.
 - Added focused fp16 CUDA runtime parity coverage for the just-landed
   residual Conv slice `conv2d_bias_add` without changing provider/runtime
   surface. The new CUDA-gated tests reuse the shared DinoML CUDA support cache,
-  compile real artifacts for the admitted fp16 TensorOp FewChannels `C=3` and
-  FixedChannels `C=4` lanes, assert explicit `bias_add` metadata
+  compile real artifacts for the admitted fp16 TensorOp FewChannels `C=3`,
+  FixedChannels `C=4`/`C=8`, and optimized aligned `C=16` lanes, assert
+  explicit `bias_add` metadata
   (`op=conv2d_bias_add`, `epilogue=bias_add`, residual output shape,
   `residual_pack` wrapper stage, selected TensorOp candidate id/symbol, and
   launch ABI `dinoml_cutlass_conv2d_bias_add_v1`), and compare runtime output
   against Torch `conv2d + bias + residual` with fp16 tolerances. Compact
   non-CUDA regression reran the float16 CPU-reference parity row. This closes
-  the immediate anti-drift gap for one few-channels lane and one fixed-channel
-  lane, but it is not a claim for C8/C16 residual runtime parity, bfloat16,
-  broader float32 TensorOp, grouped/depthwise/transposed/3D Conv, or richer
-  residual epilogues.
+  the immediate anti-drift gap for the full admitted fp16 residual TensorOp
+  lane family, but it is not a claim for bfloat16, broader float32 TensorOp,
+  grouped/depthwise/transposed/3D Conv, or richer residual epilogues.
 - PM-reviewed and merged the first bounded residual Conv epilogue slice as
   public `conv2d_bias_add`. The slice keeps the existing static rank-4
   groups=1 NCHW/OIHW public contract, requires one same-shape residual tensor,
@@ -435,19 +435,18 @@ This file should be updated after each major loop.
   only if it can complete the same frontend/provider/runtime/docs slice, but not
   `conv2d_bias_sigmoid` until the recorded CUTLASS Conv epilogue ABI blocker is
   solved with a real `nvcc` build; broader runtime coverage for the current
-  epilogues, especially fp16 residual runtime lanes beyond the current add
-  FewChannels `C=3` and FixedChannels `C=4` proofs or any bfloat16/float32
-  gaps beyond the admitted SIMT float32 path; or deeper
+  epilogues, especially bfloat16 or float32 TensorOp gaps beyond the admitted
+  SIMT float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. The fused ReLU Conv path now has real profile/report/execution-plan
   metadata coverage, and the residual add slice now has focused float32 SIMT
-  runtime parity, but guarded/dynamic dispatch remains unsupported. Keep the
-  exact coverage honest: today only `conv2d_bias`, explicit-zero `conv2d`,
-  fused `conv2d_bias_relu`, and fused `conv2d_bias_add` are admitted on the
-  static rank-4 groups=1 path. The public no-bias `conv2d` bridge now has real
-  fp16 TensorOp runtime parity across the same core candidate families as
-  `conv2d_bias`; do not split it into a separate provider ABI without a fresh
-  full admission slice.
+  runtime parity plus the full admitted fp16 TensorOp lane family, but
+  guarded/dynamic dispatch remains unsupported. Keep the exact coverage honest:
+  today only `conv2d_bias`, explicit-zero `conv2d`, fused `conv2d_bias_relu`,
+  and fused `conv2d_bias_add` are admitted on the static rank-4 groups=1 path.
+  The public no-bias `conv2d` bridge now has real fp16 TensorOp runtime parity
+  across the same core candidate families as `conv2d_bias`; do not split it
+  into a separate provider ABI without a fresh full admission slice.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time after
   the Conv lane is stable. The adapter now reaches cached-checkpoint
@@ -581,10 +580,9 @@ This file should be updated after each major loop.
   the main line when possible, and require PM review plus validation before
   merge and push.
 - Keep `cutlass_conv` bounded while tightening the now-static profiled path:
-  add C=8 runtime parity if useful, decide whether dynamic Conv buckets/guarded
-  dispatch need admission, and keep rejecting grouped/depthwise/transposed/3D,
-  hidden padding, persistent packed weights, and public NHWC semantics until a
-  separate design pass admits them.
+  decide whether dynamic Conv buckets/guarded dispatch need admission, and keep
+  rejecting grouped/depthwise/transposed/3D, hidden padding, persistent packed
+  weights, and public NHWC semantics until a separate design pass admits them.
 - Landed a bounded CLIP text encoder-layer composition slice without adding
   `CLIPTextModel`, a new op, or a flash provider path: focused regressions now
   prove one tiny float32 text encoder layer as

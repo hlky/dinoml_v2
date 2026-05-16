@@ -2002,6 +2002,7 @@ def _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
     expected_input_channels: int,
     expected_padded_input_channels: int,
     expected_padded_output_channels: int,
+    expected_selection_predicate: dict | None = None,
 ):
     spec = _trace_conv2d_bias_add(
         "float16",
@@ -2032,14 +2033,16 @@ def _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
     assert required["cutlass_conv_plan"]["selected_candidate"]["kernel_symbol"] == required["kernel_symbol"]
     assert required["cutlass_conv_plan"]["selected_candidate"]["opclass"] == "tensorop"
     assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == expected_iterator_algorithm
-    assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"] == {
-        "kind": "semantic_input_channels",
-        "input_channels": expected_input_channels,
-        "dtype": "float16",
-        "groups": 1,
-        "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
-        "padding_policy": "none",
-    }
+    if expected_selection_predicate is None:
+        expected_selection_predicate = {
+            "kind": "semantic_input_channels",
+            "input_channels": expected_input_channels,
+            "dtype": "float16",
+            "groups": 1,
+            "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+            "padding_policy": "none",
+        }
+    assert required["cutlass_conv_plan"]["selected_candidate"]["selection_predicate"] == expected_selection_predicate
     assert required["cutlass_conv_plan"]["weight_transform"]["channel_pad_multiple"] == 1
     assert required["cutlass_conv_plan"]["weight_transform"]["padded_input_channels"] == expected_padded_input_channels
     assert required["cutlass_conv_plan"]["weight_transform"]["padded_output_channels"] == expected_padded_output_channels
@@ -2125,6 +2128,62 @@ def test_conv2d_bias_add_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, 
         expected_input_channels=4,
         expected_padded_input_channels=4,
         expected_padded_output_channels=8,
+    )
+
+
+def test_conv2d_bias_add_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("fixed-channel CUTLASS Conv bias+add parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
+        tmp_path,
+        x_shape=(2, 8, 7, 8),
+        weight_shape=(8, 8, 3, 2),
+        bias_shape=(8,),
+        residual_shape=(2, 8, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_bias_add_cuda_fixed_c8.dinoml",
+        expected_candidate_suffix="fixed_channels_c8",
+        expected_kernel_suffix="tensorop_sm80_nhwc_ohwi_bias_fixed_channels_c8",
+        expected_iterator_algorithm="fixed_channels",
+        expected_input_channels=8,
+        expected_padded_input_channels=8,
+        expected_padded_output_channels=8,
+    )
+
+
+def test_conv2d_bias_add_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("optimized CUTLASS Conv bias+add parity requires nvcc and torch CUDA")
+
+    _assert_conv2d_bias_add_cuda_runtime_tensorop_matches_torch(
+        tmp_path,
+        x_shape=(2, 16, 7, 8),
+        weight_shape=(16, 16, 3, 2),
+        bias_shape=(16,),
+        residual_shape=(2, 16, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+        artifact_name="conv2d_bias_add_cuda_optimized_c16.dinoml",
+        expected_candidate_suffix="optimized_align8",
+        expected_kernel_suffix="tensorop_sm80_nhwc_ohwi_bias_optimized_align8",
+        expected_iterator_algorithm="optimized",
+        expected_input_channels=16,
+        expected_padded_input_channels=16,
+        expected_padded_output_channels=16,
+        expected_selection_predicate={
+            "kind": "natural_alignment",
+            "dtype": "float16",
+            "groups": 1,
+            "min_input_channels": 16,
+            "input_channels_multiple": 8,
+            "output_channels_multiple": 8,
+            "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+            "padding_policy": "none",
+        },
     )
 
 

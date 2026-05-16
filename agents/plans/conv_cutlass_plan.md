@@ -51,10 +51,10 @@ added on top of it:
   same fp16 TensorOp lane family. The new `conv2d_bias_add` slice deliberately
   stays inside that same bounded candidate family and now has focused
   compile/runtime proof on float32 SIMT general-shape parity, fp16 TensorOp
-  FewChannels `C=3`, fp16 TensorOp FixedChannels `C=4`, and real support-
-  library compile coverage for the fp16 residual path. Residual TensorOp
-  runtime proof for `C=8`, optimized aligned `C=16`, bfloat16, and broader
-  float32 TensorOp shapes remains open.
+  FewChannels `C=3`, fp16 TensorOp FixedChannels `C=4`/`C=8`, fp16 TensorOp
+  optimized aligned `C=16`, and real support-library compile coverage for the
+  fp16 residual path. Remaining open areas are bfloat16 and broader float32
+  TensorOp shapes.
 - A bounded `conv2d_bias_sigmoid` follow-up was explored and intentionally not
   landed. CUTLASS does ship
   `cutlass/epilogue/thread/linear_combination_sigmoid.h`, but the current

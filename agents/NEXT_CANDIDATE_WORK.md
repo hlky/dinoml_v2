@@ -4,6 +4,18 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the real CLIP-L checkpoint adapter-trace blocker caused by frontend
+  constant aliasing on ephemeral explicit-zero Conv bridges. `GraphBuilder` now
+  keys traced constants by the `Parameter` object itself instead of raw
+  `id(parameter)`, so long traces cannot reuse a garbage-collected parameter id
+  and accidentally hand a later `conv2d_bias` node a stale zero-bias constant
+  from an earlier bridge. A focused regression now monkeypatches `id(...)` to
+  collide on two distinct local `conv2d_zero_bias` parameters and proves the
+  frontend still emits separate `[4]` and `[1024]` constants plus distinct bias
+  inputs for the two no-bias `conv2d` nodes. Validation reran the targeted
+  frontend regression and the cached CLIP checkpoint adapter-state smoke lane;
+  this closes the known adapter-state admission blocker without broadening any
+  CLIP-L runtime, tokenizer/processor, or provider maturity claims.
 - Closed the next CLIP known-checkpoint usability gap at the processor/tokenizer
   boundary without changing runtime surface, provider claims, or model code.
   The new opt-in local-cache smoke

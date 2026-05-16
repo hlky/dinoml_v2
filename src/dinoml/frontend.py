@@ -184,7 +184,7 @@ class GraphBuilder:
         self.constants: List[Dict[str, Any]] = []
         self.constant_values: Dict[str, np.ndarray] = {}
         self.views: List[Dict[str, Any]] = []
-        self._constant_ids: Dict[int, Tensor] = {}
+        self._constant_tensors: Dict[Parameter, Tensor] = {}
         self._next_tensor_id = 0
         self._next_node_id = 0
 
@@ -215,9 +215,8 @@ class GraphBuilder:
         return tensor
 
     def constant(self, parameter: Parameter) -> Tensor:
-        key = id(parameter)
-        if key in self._constant_ids:
-            return self._constant_ids[key]
+        if parameter in self._constant_tensors:
+            return self._constant_tensors[parameter]
         base_name = parameter.name or f"constant_{len(self.constants)}"
         name = self._unique_name(base_name)
         tensor = Tensor(
@@ -244,7 +243,7 @@ class GraphBuilder:
         self.tensors[name] = _tensor_info(tensor)
         if parameter.value is not None:
             self.constant_values[name] = _normalize_constant_value(parameter.value, tensor.dtype, tensor.shape)
-        self._constant_ids[key] = tensor
+        self._constant_tensors[parameter] = tensor
         return tensor
 
     def emit(

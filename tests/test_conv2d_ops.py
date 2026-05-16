@@ -1,3 +1,4 @@
+import builtins
 import sys
 from pathlib import Path
 import shutil
@@ -38,6 +39,13 @@ class Conv2dModule(dml.Module):
             ),
             "out",
         )
+
+
+class TwoOutputChannelConv2dModule(dml.Module):
+    def forward(self, x, weight_small, weight_large):
+        y0 = dml.ops.output(dml.ops.conv2d(x, weight_small), "out0")
+        y1 = dml.ops.output(dml.ops.conv2d(x, weight_large), "out1")
+        return y0, y1
 
 
 def _trace_conv2d(
@@ -198,6 +206,42 @@ def test_conv2d_frontend_lowers_through_explicit_zero_bias_constant():
     [constant] = spec.ir["constants"]
     assert constant["shape"] == [4]
     np.testing.assert_array_equal(spec.constants[constant["name"]], np.zeros((4,), dtype=np.float32))
+
+
+def test_conv2d_frontend_keeps_distinct_explicit_zero_bias_constants_when_parameter_ids_collide(monkeypatch):
+    original_id = builtins.id
+
+    def fake_id(value):
+        if isinstance(value, dml.Parameter) and value.name == "conv2d_zero_bias":
+            return 424242
+        return original_id(value)
+
+    monkeypatch.setattr(builtins, "id", fake_id)
+
+    spec = dml.trace(
+        TwoOutputChannelConv2dModule(),
+        inputs={
+            "x": dml.TensorSpec((1, 3, 8, 8), "float32"),
+            "weight_small": dml.TensorSpec((4, 3, 3, 3), "float32"),
+            "weight_large": dml.TensorSpec((1024, 3, 1, 1), "float32"),
+        },
+        name="conv2d_distinct_zero_bias_constants",
+    )
+
+    zero_bias_shapes = {
+        constant["name"]: constant["shape"]
+        for constant in spec.ir["constants"]
+        if constant["name"].startswith("conv2d_zero_bias")
+    }
+    assert zero_bias_shapes == {
+        "conv2d_zero_bias": [4],
+        "conv2d_zero_bias_1": [1024],
+    }
+
+    zero_bias_inputs = [node["inputs"][2] for node in spec.ir["nodes"]]
+    assert zero_bias_inputs == ["conv2d_zero_bias", "conv2d_zero_bias_1"]
+    np.testing.assert_array_equal(spec.constants["conv2d_zero_bias"], np.zeros((4,), dtype=np.float32))
+    np.testing.assert_array_equal(spec.constants["conv2d_zero_bias_1"], np.zeros((1024,), dtype=np.float32))
 
 
 @pytest.mark.parametrize("dtype,atol,rtol", [("float32", 1e-6, 1e-6), ("float16", 1e-3, 1e-3)])

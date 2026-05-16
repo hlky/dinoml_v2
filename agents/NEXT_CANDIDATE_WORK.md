@@ -4,6 +4,22 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added a repo-visible cached-checkpoint CLIP workflow so the recent
+  full-checkpoint proofs are discoverable outside the test suite. The new
+  `examples/clip_checkpoint_workflow.py` defaults to cached
+  `openai/clip-vit-base-patch32`, imports the local `/workspace/transformers`
+  checkout, traces through the public CLIP adapter helpers, compiles a CPU or
+  CUDA artifact, runtime-loads it, runs deterministic synthetic inputs, and
+  prints a JSON parity summary with artifact paths, shapes, limits, allclose
+  flags, and max-absolute diffs. The README now points to this workflow and
+  updates the Conv runtime-support note to match the admitted bounded
+  `conv2d_bias` family. Validation reran
+  `tests/test_clip_checkpoint_workflow_example.py` from the PM side
+  (`3 passed in 103.98s`) plus `git diff --check`. This was directly prompted
+  by external-developer feedback that CLIP/Conv proofs were hard to discover;
+  it does not add tokenizer/processor runtime plumbing, broaden checkpoint
+  cache behavior beyond local files, or exercise the new workflow's CUDA path
+  in CI-style tests.
 - Advanced the known-checkpoint CLIP-L CUDA boundary from “unknown” to a real
   opt-in compiled artifact smoke. Cached `openai/clip-vit-large-patch14` now
   compiles, loads, and runs through the existing

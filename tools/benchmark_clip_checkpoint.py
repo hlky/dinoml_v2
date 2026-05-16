@@ -95,6 +95,16 @@ def run_benchmark(
         iters=iters,
         synchronize=synchronize,
     )
+    cuda_hot_path_result = None
+    if target == "cuda":
+        cuda_hot_path_result = _benchmark_dinoml_cuda_hot_paths(
+            artifact_path=artifact.path,
+            inputs=inputs,
+            output_shapes={name: tuple(value.shape) for name, value in dinoml_result["outputs"].items()},
+            warmup=warmup,
+            iters=iters,
+            synchronize=synchronize,
+        )
     transformers_result = _benchmark_transformers_forward(
         clip_model=clip_model,
         inputs=inputs,
@@ -111,6 +121,19 @@ def run_benchmark(
         name: clip_workflow._parity_entry(actual=actual[name], expected=expected[name], limit=limits[name])
         for name in clip_workflow.OUTPUT_NAMES
     }
+
+    timings_ms: dict[str, object] = {
+        "compile": _single_timing(compile_time_ms),
+        "runtime_load": dinoml_result["runtime_load"],
+        "session_create": dinoml_result["session_create"],
+        "dinoml_run_numpy": dinoml_result["latency"],
+        "transformers_forward": transformers_result["latency"],
+    }
+    if cuda_hot_path_result is not None:
+        timings_ms["dinoml_run_device_pointers"] = cuda_hot_path_result["run_device_pointers"]
+        run_torch = cuda_hot_path_result.get("run_torch")
+        if run_torch is not None:
+            timings_ms["dinoml_run_torch"] = run_torch
 
     report: dict[str, object] = {
         "name": "clip_checkpoint_benchmark",
@@ -130,13 +153,7 @@ def run_benchmark(
         "parity": parity,
         "allclose": {name: entry["allclose"] for name, entry in parity.items()},
         "max_abs_diff": {name: entry["max_abs_diff"] for name, entry in parity.items()},
-        "timings_ms": {
-            "compile": _single_timing(compile_time_ms),
-            "runtime_load": dinoml_result["runtime_load"],
-            "session_create": dinoml_result["session_create"],
-            "dinoml_run_numpy": dinoml_result["latency"],
-            "transformers_forward": transformers_result["latency"],
-        },
+        "timings_ms": timings_ms,
         "text_config": {
             "max_position_embeddings": int(text_config.max_position_embeddings),
             "projection_dim": int(text_config.projection_dim),
@@ -154,6 +171,25 @@ def run_benchmark(
             "inputs": "deterministic_synthetic_clip_checkpoint_workflow",
         },
     }
+    if cuda_hot_path_result is not None:
+        report["cuda_run_numpy_overhead_ms"] = {
+            "run_device_pointers": _timing_overhead_estimate(
+                total=dinoml_result["latency"],
+                hot_path=cuda_hot_path_result["run_device_pointers"],
+            ),
+        }
+        run_torch = cuda_hot_path_result.get("run_torch")
+        if run_torch is not None:
+            report["cuda_run_numpy_overhead_ms"]["run_torch"] = _timing_overhead_estimate(
+                total=dinoml_result["latency"],
+                hot_path=run_torch,
+            )
+        run_torch_error = cuda_hot_path_result.get("run_torch_error")
+        if run_torch_error is not None:
+            report["cuda_run_torch"] = {
+                "available": False,
+                "error": run_torch_error,
+            }
 
     if out is not None:
         out_path = Path(out).resolve()
@@ -238,6 +274,74 @@ def _benchmark_transformers_forward(
     }
 
 
+def _benchmark_dinoml_cuda_hot_paths(
+    *,
+    artifact_path: Path,
+    inputs: dict[str, np.ndarray],
+    output_shapes: dict[str, tuple[int, ...]],
+    warmup: int,
+    iters: int,
+    synchronize: Callable[[], None],
+) -> dict[str, object]:
+    torch = importlib.import_module("torch")
+
+    module = runtime.load(artifact_path)
+    session = module.create_session()
+    try:
+        torch_inputs = {
+            name: torch.from_numpy(value).to(device="cuda")
+            for name, value in inputs.items()
+        }
+        output_tensors = {
+            str(spec["name"]): torch.empty(
+                output_shapes[str(spec["name"])],
+                dtype=_torch_dtype_for_runtime_dtype(str(spec["dtype"]), torch),
+                device="cuda",
+            )
+            for spec in module.metadata["outputs"]
+        }
+        input_shapes = {
+            name: tuple(int(dim) for dim in value.shape)
+            for name, value in torch_inputs.items()
+        }
+        output_shapes = {
+            name: tuple(int(dim) for dim in value.shape)
+            for name, value in output_tensors.items()
+        }
+        input_ptrs = {
+            name: value.data_ptr()
+            for name, value in torch_inputs.items()
+        }
+        output_ptrs = {
+            name: value.data_ptr()
+            for name, value in output_tensors.items()
+        }
+
+        run_device_pointers = benchmark_ms(
+            lambda: session.run_device_pointers(input_ptrs, output_ptrs, input_shapes, output_shapes),
+            warmup=warmup,
+            iters=iters,
+            synchronize=synchronize,
+        )
+        result: dict[str, object] = {
+            "run_device_pointers": run_device_pointers,
+            "output_shapes": {name: list(shape) for name, shape in output_shapes.items()},
+        }
+        try:
+            result["run_torch"] = benchmark_ms(
+                lambda: session.run_torch(torch_inputs),
+                warmup=warmup,
+                iters=iters,
+                synchronize=synchronize,
+            )
+        except (RuntimeError, TypeError, ValueError) as exc:
+            result["run_torch_error"] = f"{type(exc).__name__}: {exc}"
+        return result
+    finally:
+        session.close()
+        module.close()
+
+
 def benchmark_ms(
     fn: Callable[[], None],
     *,
@@ -284,6 +388,33 @@ def _single_timing(elapsed_ms: float) -> dict[str, float | int]:
         "max": float(elapsed_ms),
         "stddev": 0.0,
     }
+
+
+def _timing_overhead_estimate(
+    *,
+    total: dict[str, float | int],
+    hot_path: dict[str, float | int],
+) -> dict[str, float]:
+    return {
+        "mean": float(total["mean"]) - float(hot_path["mean"]),
+        "median": float(total["median"]) - float(hot_path["median"]),
+    }
+
+
+def _torch_dtype_for_runtime_dtype(dtype: str, torch_module: object) -> object:
+    if dtype == "float16":
+        return torch_module.float16
+    if dtype == "float32":
+        return torch_module.float32
+    if dtype == "bfloat16":
+        return torch_module.bfloat16
+    if dtype == "int64":
+        return torch_module.int64
+    if dtype == "int32":
+        return torch_module.int32
+    if dtype == "bool":
+        return torch_module.bool
+    raise ValueError(f"Unsupported torch dtype for CUDA hot-path benchmark outputs: {dtype}")
 
 
 def _synchronize_for_target(target: str) -> Callable[[], None]:

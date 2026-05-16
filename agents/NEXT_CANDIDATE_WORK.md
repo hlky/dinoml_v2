@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Extended the cached-checkpoint CLIP benchmark JSON to expose CUDA-side
+  DinoML hot-path timings without changing model/runtime behavior. The CUDA
+  benchmark now always reports GPU-resident `Session.run_device_pointers`
+  latency using preallocated torch CUDA tensors plus explicit input/output
+  shapes, retains the existing `run_numpy` and Transformers timings, and emits
+  `cuda_run_numpy_overhead_ms` so `run_numpy` host/device staging overhead can
+  be compared directly against the device-pointer path. `Session.run_torch`
+  remains best-effort metadata only for this CLIP harness because current
+  CUDA torch entrypoint dtype checks reject CLIP `torch.int64` token inputs;
+  the report now records that unavailability instead of failing the benchmark.
+  Focused tests cover the CUDA schema and helper behavior with fakes, and the
+  cached CPU benchmark smoke still passes. This is benchmark instrumentation
+  only: no runtime dtype-policy change, no new CUDA frontend contract, and no
+  CLIP model parity surface expansion.
 - Added a repo-visible cached-checkpoint CLIP benchmark harness without
   changing CLIP model/runtime behavior. The new
   `tools/benchmark_clip_checkpoint.py` reuses the existing deterministic

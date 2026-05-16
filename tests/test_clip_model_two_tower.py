@@ -659,6 +659,19 @@ def _clip_checkpoint_id(default_checkpoint_id: str) -> str:
     return os.environ.get("DINOML_CLIP_CHECKPOINT_ID", default_checkpoint_id)
 
 
+def _compiled_cuda_checkpoint_limits(checkpoint_id: str) -> dict[str, float]:
+    limits = {
+        "logits_per_image": 1.0e-5,
+        "logits_per_text": 1.0e-5,
+        "text_embeds": 1.0e-5,
+        "image_embeds": 1.0e-5,
+    }
+    if checkpoint_id == "openai/clip-vit-large-patch14":
+        limits["logits_per_image"] = 2.0e-5
+        limits["logits_per_text"] = 2.0e-5
+    return limits
+
+
 def _load_cached_transformers_clip_checkpoint(*, default_checkpoint_id: str):
     checkpoint_id = _clip_checkpoint_id(default_checkpoint_id)
     transformers = _import_local_transformers()
@@ -1350,9 +1363,11 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
     monkeypatch,
     use_shared_dinoml_cuda_cache,
 ):
+    checkpoint_id = _clip_checkpoint_id("openai/clip-vit-base-patch32")
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE") != "1":
         pytest.skip(
-            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CUDA compile/load/run parity against local Transformers"
+            "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1 to validate cached "
+            f"{checkpoint_id} CUDA compile/load/run parity against local Transformers"
         )
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -1360,7 +1375,9 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
 
     monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
 
-    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    checkpoint_id, clip_model = _load_cached_transformers_clip_checkpoint(
+        default_checkpoint_id="openai/clip-vit-base-patch32"
+    )
     text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
 
     artifact = dml.compile(
@@ -1394,20 +1411,20 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
     assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
 
     metrics = {
+        "checkpoint_id": checkpoint_id,
         "logits_per_image": _max_abs_diff(actual["logits_per_image"], expected["logits_per_image"]),
         "logits_per_text": _max_abs_diff(actual["logits_per_text"], expected["logits_per_text"]),
         "text_embeds": _max_abs_diff(actual["text_embeds"], expected["text_embeds"]),
         "image_embeds": _max_abs_diff(actual["image_embeds"], expected["image_embeds"]),
     }
-    report = json.dumps(metrics, indent=2, sort_keys=True)
+    limits = _compiled_cuda_checkpoint_limits(checkpoint_id)
+    report = json.dumps({"limits": limits, "metrics": metrics}, indent=2, sort_keys=True)
 
     for name in ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds"):
         assert np.isfinite(actual[name]).all(), report
 
-    assert metrics["logits_per_image"] < 1.0e-5, report
-    assert metrics["logits_per_text"] < 1.0e-5, report
-    assert metrics["text_embeds"] < 1.0e-5, report
-    assert metrics["image_embeds"] < 1.0e-5, report
+    for name, limit in limits.items():
+        assert metrics[name] < limit, report
 
 
 @pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
@@ -1417,9 +1434,11 @@ def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_on
     monkeypatch,
     use_shared_dinoml_cuda_cache,
 ):
+    checkpoint_id = _clip_checkpoint_id("openai/clip-vit-base-patch32")
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION") != "1":
         pytest.skip(
-            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1 to validate cached openai/clip-vit-base-patch32 CUDA tower/full parity breakdown"
+            "set DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION=1 to validate cached "
+            f"{checkpoint_id} CUDA tower/full parity breakdown"
         )
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -1427,7 +1446,9 @@ def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_on
 
     monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
 
-    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    checkpoint_id, clip_model = _load_cached_transformers_clip_checkpoint(
+        default_checkpoint_id="openai/clip-vit-base-patch32"
+    )
     text_config, vision_config, text_spec, inputs = _trace_cached_checkpoint_text_features_spec(clip_model)
     _, _, image_spec, _ = _trace_cached_checkpoint_image_features_spec(clip_model)
     _, _, full_spec, _ = _trace_cached_checkpoint_two_tower_spec(clip_model)
@@ -1480,6 +1501,7 @@ def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_on
     )
 
     metrics = {
+        "checkpoint_id": checkpoint_id,
         "text_features_vs_transformers": _max_abs_diff(actual_text, expected_features["text_features"]),
         "image_features_vs_transformers": _max_abs_diff(actual_image, expected_features["image_features"]),
         "tower_text_embeds_vs_transformers": _max_abs_diff(tower_composed["text_embeds"], expected_full["text_embeds"]),

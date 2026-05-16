@@ -436,8 +436,8 @@ This file should be updated after each major loop.
   `conv2d_bias_sigmoid` until the recorded CUTLASS Conv epilogue ABI blocker is
   solved with a real `nvcc` build; broader runtime coverage for the current
   epilogues, especially fp16 residual runtime lanes beyond the current add
-  compile-boundary proof or any bfloat16/float32 gaps beyond the admitted SIMT
-  float32 path; or deeper
+  FewChannels `C=3` and FixedChannels `C=4` proofs or any bfloat16/float32
+  gaps beyond the admitted SIMT float32 path; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. The fused ReLU Conv path now has real profile/report/execution-plan
   metadata coverage, and the residual add slice now has focused float32 SIMT

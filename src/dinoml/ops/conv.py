@@ -12,7 +12,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelV
 
 
 CONV2D_BIAS_DTYPES = ("float16", "float32")
-CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add")
+CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
 
 
 def infer_conv2d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -74,13 +74,24 @@ def infer_conv2d_bias_add_shape_with_attrs(input_shapes: Sequence[Sequence[int]]
     return _infer_conv2d_bias_family_shape_with_attrs("conv2d_bias_add", input_shapes, attrs)
 
 
+def infer_conv2d_bias_add_relu_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_conv2d_bias_add_relu_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1), "padding": (0, 0), "dilation": (1, 1), "groups": 1},
+    )
+
+
+def infer_conv2d_bias_add_relu_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    return _infer_conv2d_bias_family_shape_with_attrs("conv2d_bias_add_relu", input_shapes, attrs)
+
+
 def _infer_conv2d_bias_family_shape_with_attrs(
     op_name: str,
     input_shapes: Sequence[Sequence[int]],
     attrs: Mapping[str, Any],
 ) -> list[int]:
     _validate_conv2d_bias_family_op_name(op_name)
-    expected_inputs = 4 if op_name == "conv2d_bias_add" else 3
+    expected_inputs = 4 if _conv2d_bias_family_has_residual(op_name) else 3
     if len(input_shapes) != expected_inputs:
         extra = ", and residual" if expected_inputs == 4 else ""
         raise ValueError(f"{op_name} expects activation, weight, bias{extra} inputs")
@@ -192,6 +203,30 @@ def resolve_conv2d_bias_add_shape(
     )
 
 
+def resolve_conv2d_bias_add_relu_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    bias_shape: Sequence[int],
+    residual_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    return _resolve_conv2d_bias_family_shape(
+        "conv2d_bias_add_relu",
+        input_shape,
+        weight_shape,
+        bias_shape,
+        residual_shape,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def _resolve_conv2d_bias_family_shape(
     op_name: str,
     input_shape: Sequence[int],
@@ -255,9 +290,9 @@ def _resolve_conv2d_bias_family_shape(
         "width",
     )
     output_shape = [batch, out_channels, out_height, out_width]
-    if op_name == "conv2d_bias_add":
+    if _conv2d_bias_family_has_residual(op_name):
         if residual_shape is None:
-            raise ValueError("conv2d_bias_add expects a residual input shape")
+            raise ValueError(f"{op_name} expects a residual input shape")
         if len(residual_shape) != 4:
             raise ValueError(f"{op_name} expects rank-4 residual, got rank {len(residual_shape)}")
         residual = [int(dim) for dim in residual_shape]
@@ -422,6 +457,33 @@ def register_conv_ops(registry: OpRegistry) -> None:
             ),
         )
     )
+    registry.register(
+        OpDef(
+            name="conv2d_bias_add_relu",
+            schema=OpSchema(
+                inputs=("x", "weight", "bias", "residual"),
+                attrs=(
+                    AttrDef("stride", "ints", required=True),
+                    AttrDef("padding", "ints", default=(0, 0)),
+                    AttrDef("dilation", "ints", default=(1, 1)),
+                    AttrDef("groups", "int", default=1),
+                ),
+            ),
+            infer_shape=infer_conv2d_bias_add_relu_shape,
+            infer_shape_with_attrs=infer_conv2d_bias_add_relu_shape_with_attrs,
+            allowed_dtypes=CONV2D_BIAS_DTYPES,
+            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias_add_relu"),
+            frontend=FrontendBinding("conv2d_bias_add_relu"),
+            description=(
+                "Bounded fused conv2d_bias_add_relu frontend for v1-style residual Conv: "
+                "public tensors stay NCHW/OIHW, groups remain 1, all tensors are static rank-4, "
+                "and the residual input must match the Conv output shape exactly. CPU reference "
+                "and compiled CPU artifacts apply bias, residual add, and trailing ReLU in one "
+                "generated loop, while CUDA keeps the fused residual+ReLU epilogue artifact-visible "
+                "through the CUTLASS Conv manifest/profile/execution-plan path."
+            ),
+        )
+    )
 
 
 def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
@@ -453,6 +515,11 @@ def _validate_conv2d_bias_family_op_name(op_name: str) -> None:
         raise ValueError(f"Unsupported conv2d bias family op {op_name!r}")
 
 
+def _conv2d_bias_family_has_residual(op_name: str) -> bool:
+    _validate_conv2d_bias_family_op_name(op_name)
+    return op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}
+
+
 __all__ = [
     "CONV2D_BIAS_FAMILY_OPS",
     "CONV2D_BIAS_DTYPES",
@@ -464,10 +531,13 @@ __all__ = [
     "infer_conv2d_bias_relu_shape_with_attrs",
     "infer_conv2d_bias_add_shape",
     "infer_conv2d_bias_add_shape_with_attrs",
+    "infer_conv2d_bias_add_relu_shape",
+    "infer_conv2d_bias_add_relu_shape_with_attrs",
     "normalize_conv2d_bias_attrs",
     "register_conv_ops",
     "resolve_conv2d_shape",
     "resolve_conv2d_bias_shape",
     "resolve_conv2d_bias_relu_shape",
     "resolve_conv2d_bias_add_shape",
+    "resolve_conv2d_bias_add_relu_shape",
 ]

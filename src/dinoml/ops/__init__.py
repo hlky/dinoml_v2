@@ -48,6 +48,7 @@ from dinoml.ops.conv import (
     CONV2D_BIAS_DTYPES,
     normalize_conv2d_bias_attrs,
     resolve_conv2d_shape,
+    resolve_conv2d_bias_add_relu_shape,
     resolve_conv2d_bias_shape,
     resolve_conv2d_bias_add_shape,
     resolve_conv2d_bias_relu_shape,
@@ -862,6 +863,30 @@ def _conv2d_bias_add_frontend(
     )
 
 
+def _conv2d_bias_add_relu_frontend(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    residual: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return _conv2d_bias_family_frontend(
+        "conv2d_bias_add_relu",
+        resolve_shape=resolve_conv2d_bias_add_relu_shape,
+        x=x,
+        weight=weight,
+        bias=bias,
+        residual=residual,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def _conv2d_bias_family_frontend(
     op_name: str,
     *,
@@ -1180,6 +1205,7 @@ globals()["avg_pool2d"] = _avg_pool2d_frontend
 globals()["conv2d"] = _conv2d_frontend
 globals()["conv2d_bias"] = _conv2d_bias_frontend
 globals()["conv2d_bias_add"] = _conv2d_bias_add_frontend
+globals()["conv2d_bias_add_relu"] = _conv2d_bias_add_relu_frontend
 globals()["conv2d_bias_relu"] = _conv2d_bias_relu_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
@@ -1260,6 +1286,7 @@ __all__ = list(dict.fromkeys([
     "conv2d",
     "conv2d_bias",
     "conv2d_bias_add",
+    "conv2d_bias_add_relu",
     "conv2d_bias_relu",
     "dynamic_slice",
     "full",

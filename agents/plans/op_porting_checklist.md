@@ -654,9 +654,20 @@ behavior.
   coverage, real support-library compile coverage, focused float32 SIMT CUDA
   runtime parity, and focused fp16 TensorOp CUDA runtime parity on the admitted
   FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
-  lanes. Broader float32 TensorOp runtime, bfloat16 Conv runtime,
-  grouped/depthwise/transposed/3D Conv, guarded/dynamic Conv dispatch, and
-  richer residual/add+activation Conv epilogues remain unported.
+  lanes. One bounded residual-plus-activation slice is now also admitted as
+  `conv2d_bias_add_relu`: it keeps that same public static rank-4 groups=1
+  NCHW/OIHW contract, requires the same-shape residual input, and records
+  explicit `bias_add_relu` epilogue plus residual-pack metadata through
+  candidate sets, manifests, profile workloads, execution plans, support-cache/
+  source-manifest provenance, generated lowering wrapper stages, and the launch
+  ABI `dinoml_cutlass_conv2d_bias_add_relu_v1`. Current proof is narrower than
+  the plain add slice: CPU reference plus generated CPU artifact parity,
+  profiling/execution-plan metadata coverage, real support-library compile
+  coverage on the float16 default path, and focused float32 SIMT CUDA runtime
+  parity. Broader float32 TensorOp runtime, fp16 residual+ReLU runtime,
+  bfloat16 Conv runtime, grouped/depthwise/transposed/3D Conv, guarded/dynamic
+  Conv dispatch, and richer residual/add+activation Conv epilogues remain
+  unported.
   A bounded `conv2d_bias_sigmoid` admission attempt was intentionally backed
   out: the required CUTLASS header exists, but the current Conv
   `device::ImplicitGemmConvolution` Fprop launcher/source-C bias wiring did not

@@ -14,6 +14,7 @@ from dinoml.ops.conv import (
     CONV2D_BIAS_DTYPES,
     CONV2D_BIAS_FAMILY_OPS,
     normalize_conv2d_bias_attrs,
+    resolve_conv2d_bias_add_relu_shape,
     resolve_conv2d_bias_add_shape,
     resolve_conv2d_bias_shape,
     resolve_conv2d_bias_relu_shape,
@@ -41,7 +42,7 @@ def render_launch(
         weight_ident = _c_ident(str(node["inputs"][1]))
         bias_ident = _c_ident(str(node["inputs"][2]))
         residual_clause = ""
-        if op_name == "conv2d_bias_add":
+        if _conv2d_bias_family_has_residual(op_name):
             residual_ident = _c_ident(str(node["inputs"][3]))
             residual_clause = f", ptr_{residual_ident}, runtime_numel_{residual_ident}"
         out_ident = _c_ident(str(node["outputs"][0]))
@@ -61,14 +62,14 @@ def render_launch(
     stages = cutlass_conv_wrapper_stages({"required_kernels": [item]})
     expected_stage_names = (
         ["activation_pack", "weight_pack", "residual_pack", "provider_launch", "output_unpack"]
-        if op_name == "conv2d_bias_add"
+        if _conv2d_bias_family_has_residual(op_name)
         else ["activation_pack", "weight_pack", "provider_launch", "output_unpack"]
     )
     if [str(stage.get("stage_name")) for stage in stages] != expected_stage_names:
         raise ValueError(f"{op_name} CUTLASS Conv wrapper stages are malformed")
 
     input_names = [str(name) for name in node.get("inputs", ())]
-    expected_inputs = 4 if op_name == "conv2d_bias_add" else 3
+    expected_inputs = 4 if _conv2d_bias_family_has_residual(op_name) else 3
     if len(input_names) != expected_inputs:
         raise ValueError(f"{op_name} CUDA lowering expects {expected_inputs} inputs")
     output_names = [str(name) for name in node.get("outputs", ())]
@@ -80,7 +81,7 @@ def render_launch(
         "bias": _c_ident(input_names[2]),
         "output": _c_ident(output_names[0]),
     }
-    if op_name == "conv2d_bias_add":
+    if _conv2d_bias_family_has_residual(op_name):
         roles["residual"] = _c_ident(input_names[3])
     _validate_runtime_shape_contract(op_name, tensor_map, input_names, output_names[0], item)
 
@@ -114,7 +115,7 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
     x = tensor_map[x_name]
     weight = tensor_map[weight_name]
     bias = tensor_map[bias_name]
-    residual = None if str(node["op"]) != "conv2d_bias_add" else tensor_map[str(node["inputs"][3])]
+    residual = None if not _conv2d_bias_family_has_residual(str(node["op"])) else tensor_map[str(node["inputs"][3])]
     output = tensor_map[out_name]
     attrs = _validate_cpu_contract(node, x, weight, bias, output, residual)
     batch, in_channels, in_height, in_width = [int(dim) for dim in x["shape"]]
@@ -154,7 +155,7 @@ def _cpu_function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping
     x = tensor_map[x_name]
     weight = tensor_map[weight_name]
     bias = tensor_map[bias_name]
-    residual = None if str(node["op"]) != "conv2d_bias_add" else tensor_map[str(node["inputs"][3])]
+    residual = None if not _conv2d_bias_family_has_residual(str(node["op"])) else tensor_map[str(node["inputs"][3])]
     output = tensor_map[out_name]
     attrs = _validate_cpu_contract(node, x, weight, bias, output, residual)
     signature = {
@@ -208,10 +209,23 @@ def _validate_cpu_contract(
         expected_shape = resolve_conv2d_bias_relu_shape(
             x["shape"], weight["shape"], bias["shape"], stride=stride, padding=padding, dilation=dilation, groups=groups
         )
-    else:
+    elif op_name == "conv2d_bias_add":
         if residual is None:
             raise ValueError("conv2d_bias_add CPU lowering requires a residual tensor")
         expected_shape = resolve_conv2d_bias_add_shape(
+            x["shape"],
+            weight["shape"],
+            bias["shape"],
+            residual["shape"],
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+    else:
+        if residual is None:
+            raise ValueError("conv2d_bias_add_relu CPU lowering requires a residual tensor")
+        expected_shape = resolve_conv2d_bias_add_relu_shape(
             x["shape"],
             weight["shape"],
             bias["shape"],
@@ -228,8 +242,8 @@ def _validate_cpu_contract(
         "padding": padding,
         "dilation": dilation,
         "groups": groups,
-        "apply_residual": op_name == "conv2d_bias_add",
-        "apply_relu": op_name == "conv2d_bias_relu",
+        "apply_residual": _conv2d_bias_family_has_residual(op_name),
+        "apply_relu": op_name in {"conv2d_bias_relu", "conv2d_bias_add_relu"},
     }
 
 
@@ -413,7 +427,7 @@ def _validate_runtime_shape_contract(
     x = tensor_map[x_name]
     weight = tensor_map[weight_name]
     bias = tensor_map[bias_name]
-    residual = None if op_name != "conv2d_bias_add" else tensor_map[input_names[3]]
+    residual = None if not _conv2d_bias_family_has_residual(op_name) else tensor_map[input_names[3]]
     output = tensor_map[output_name]
     expected = {
         "input_shape": x["shape"],
@@ -524,11 +538,25 @@ CONV2D_BIAS_ADD_LOWERING = OpLowering(
 )
 
 
+CONV2D_BIAS_ADD_RELU_LOWERING = OpLowering(
+    op_name="conv2d_bias_add_relu",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
+
+
 __all__ = [
     "CONV2D_BIAS_ADD_LOWERING",
+    "CONV2D_BIAS_ADD_RELU_LOWERING",
     "CONV2D_BIAS_LOWERING",
     "CONV2D_BIAS_RELU_LOWERING",
     "render_scaffold_wrapper_source",
     "render_scaffold_wrapper_stage",
     "render_scaffold_wrapper_stages",
 ]
+
+
+def _conv2d_bias_family_has_residual(op_name: str) -> bool:
+    return op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}

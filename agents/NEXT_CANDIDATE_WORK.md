@@ -4,6 +4,23 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Admitted the next bounded Conv v1-style residual+activation epilogue as
+  public `conv2d_bias_add_relu`. The slice keeps the existing static rank-4
+  groups=1 NCHW/OIHW public contract, requires one same-shape residual tensor,
+  records explicit `bias_add_relu` epilogue metadata
+  (`op=conv2d_bias_add_relu`, `epilogue=bias_add_relu`,
+  `epilogue_config={"inputs":["bias","d0"],"activation":"relu"}`,
+  residual output shape, `residual_pack` wrapper stage, and launch ABI
+  `dinoml_cutlass_conv2d_bias_add_relu_v1`) through candidate sets, manifests,
+  profile workloads, execution plans, support/source manifests, and generated
+  lowering, and reuses the existing artifact-visible residual NCHW->NHWC pack
+  stage. Validation covered frontend/base regression checks, CPU reference and
+  generated CPU parity, profiling/execution-plan metadata, real float16-path
+  support-library `nvcc` compile proof, and focused float32 SIMT CUDA runtime
+  parity against Torch `conv2d + bias + residual + relu`. This is useful Conv
+  v1-core progress, but it is not a claim for fp16 residual+ReLU runtime lane
+  coverage, bfloat16, broader float32 TensorOp, grouped/depthwise/transposed/
+  3D Conv, or richer residual chains.
 - Added focused fp16 CUDA runtime parity coverage for the just-landed
   residual Conv slice `conv2d_bias_add` without changing provider/runtime
   surface. The new CUDA-gated tests reuse the shared DinoML CUDA support cache,
@@ -429,21 +446,23 @@ This file should be updated after each major loop.
 
 - Human steering on 2026-05-15 makes Conv the first lane. The next bounded Conv
   work should stay inside the existing `cutlass_conv` contract and build on the
-  admitted `conv2d_bias_relu` and `conv2d_bias_add` slices rather than drifting
-  into alias polish or broad plumbing. Highest-value follow-ons are: one
-  additional fused epilogue with clear v1 demand, such as `conv2d_bias_add_relu`
-  only if it can complete the same frontend/provider/runtime/docs slice, but not
-  `conv2d_bias_sigmoid` until the recorded CUTLASS Conv epilogue ABI blocker is
-  solved with a real `nvcc` build; broader runtime coverage for the current
-  epilogues, especially bfloat16 or float32 TensorOp gaps beyond the admitted
-  SIMT float32 path; or deeper
+  admitted `conv2d_bias_relu`, `conv2d_bias_add`, and `conv2d_bias_add_relu`
+  slices rather than drifting into alias polish or broad plumbing.
+  Highest-value follow-ons are: broader runtime coverage for the current
+  epilogues, especially `conv2d_bias_add_relu` fp16 TensorOp lanes or bfloat16
+  and float32 TensorOp gaps beyond the admitted SIMT float32 path; a different
+  fused epilogue only if it can complete the same frontend/provider/runtime/
+  docs slice, but not `conv2d_bias_sigmoid` until the recorded CUTLASS Conv
+  epilogue ABI blocker is solved with a real `nvcc` build; or deeper
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. The fused ReLU Conv path now has real profile/report/execution-plan
-  metadata coverage, and the residual add slice now has focused float32 SIMT
-  runtime parity plus the full admitted fp16 TensorOp lane family, but
-  guarded/dynamic dispatch remains unsupported. Keep the exact coverage honest:
-  today only `conv2d_bias`, explicit-zero `conv2d`, fused `conv2d_bias_relu`,
-  and fused `conv2d_bias_add` are admitted on the static rank-4 groups=1 path.
+  metadata coverage, the residual add slice now has focused float32 SIMT
+  runtime parity plus the full admitted fp16 TensorOp lane family, and the
+  new residual+ReLU slice now has focused float32 SIMT runtime parity plus
+  float16-path compile proof, but guarded/dynamic dispatch remains unsupported.
+  Keep the exact coverage honest: today only `conv2d_bias`, explicit-zero
+  `conv2d`, fused `conv2d_bias_relu`, fused `conv2d_bias_add`, and fused
+  `conv2d_bias_add_relu` are admitted on the static rank-4 groups=1 path.
   The public no-bias `conv2d` bridge now has real fp16 TensorOp runtime parity
   across the same core candidate families as `conv2d_bias`; do not split it
   into a separate provider ABI without a fresh full admission slice.

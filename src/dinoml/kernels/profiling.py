@@ -421,7 +421,7 @@ def _append_conv_profile_workloads(
         return
     conv_plan = required_item.get("cutlass_conv_plan")
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
-    residual_name = str(node["inputs"][3]) if op_name == "conv2d_bias_add" else None
+    residual_name = str(node["inputs"][3]) if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"} else None
     normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
         conv_plan,
         node_id=str(node["id"]),

@@ -362,9 +362,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   admitted logical B layouts (`B[B, N, K]` for `rcr`, `B[B, K, N]` for `rrr`),
   and run naive loops for `float32`, `float16`, and `bfloat16`. This is enough
   for the compiled CLIP attention context matmul path. The same bounded CPU
-  bridge pattern now also covers `gemm_rcr_bias_fast_gelu` with the existing
-  `fast_gelu` semantics, `gemm_rcr_bias_quick_gelu` with CLIP QuickGELU
-  semantics `x * sigmoid(1.702 * x)`, and `conv2d_bias` with a static-shape
+  bridge pattern now also covers `gemm_rcr_bias_fast_gelu` with the
+  Transformers/v1 tanh-based `fast_gelu` semantics,
+  `gemm_rcr_bias_quick_gelu` with CLIP QuickGELU semantics
+  `x * sigmoid(1.702 * x)`, and `conv2d_bias` with a static-shape
   groups=1 naive NCHW/OIHW loop for `float32` and `float16`, so bounded CLIP
   vision and full two-tower CPU artifacts can now compile and run against
   local Transformers. Other compiled CPU BMM layouts remain intentionally

@@ -347,7 +347,7 @@ DINO_HD DINO_FORCEINLINE T gelu(T x) {
 template <typename T>
 DINO_HD DINO_FORCEINLINE T fast_gelu(T x) {
   const float xf = to_float(x);
-  return from_float<T>(xf * sigmoid_float(1.702f * xf));
+  return from_float<T>(0.5f * xf * (1.0f + tanhf(0.7978845608f * xf * (1.0f + 0.044715f * xf * xf))));
 }
 
 template <typename T>

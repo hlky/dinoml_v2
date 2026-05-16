@@ -69,6 +69,14 @@ class ReductionLastDim(dml.Module):
         return dml.ops.output(op(x, dim=-1, keepdim=self.keepdim, **self.attrs), "y")
 
 
+class UnaryElementwiseModule(dml.Module):
+    def __init__(self, op_name: str):
+        self.op_name = op_name
+
+    def forward(self, x):
+        return dml.ops.output(getattr(dml.ops, self.op_name)(x), "y")
+
+
 class PublicShapeViewOutputs(dml.Module):
     def forward(self, x, z):
         return {
@@ -185,6 +193,14 @@ class GemmBiasModule(dml.Module):
     def forward(self, a, b, bias):
         op = getattr(dml.ops, self.op_name)
         return dml.ops.output(op(a, b, bias), "y")
+
+
+def _fast_gelu_reference(x):
+    return 0.5 * x * (1.0 + np.tanh(0.7978845608 * x * (1.0 + 0.044715 * x * x)))
+
+
+def _quick_gelu_reference(x):
+    return x / (1.0 + np.exp(-1.702 * x))
 
 
 class GemmResidualModule(dml.Module):
@@ -4141,9 +4157,9 @@ def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_sha
     if activation == "gelu":
         result = 0.5 * result * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (result + 0.044715 * result * result * result)))
     elif activation == "fast_gelu":
-        result = result / (1.0 + np.exp(-1.702 * result))
+        result = _fast_gelu_reference(result)
     elif activation == "quick_gelu":
-        result = result / (1.0 + np.exp(-1.702 * result))
+        result = _quick_gelu_reference(result)
     elif activation == "sigmoid":
         result = 1.0 / (1.0 + np.exp(-result))
     elif activation == "tanh":
@@ -4175,10 +4191,86 @@ def test_cpu_reference_gemm_rcr_bias_quick_gelu_matches_numpy():
     b = rng.standard_normal((6, 8)).astype(np.float32)
     bias = rng.standard_normal((6,)).astype(np.float32)
     expected = a @ b.T + bias
-    expected = expected / (1.0 + np.exp(-1.702 * expected))
+    expected = _quick_gelu_reference(expected)
 
     actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-5, rtol=1e-5)
+
+
+def test_cpu_reference_fast_gelu_and_quick_gelu_are_distinct_transformers_formulas():
+    x = np.array([[-3.0, -1.25, -0.25], [0.25, 1.25, 3.0]], dtype=np.float32)
+    expected_fast = _fast_gelu_reference(x)
+    expected_quick = _quick_gelu_reference(x)
+
+    fast_spec = dml.trace(
+        UnaryElementwiseModule("fast_gelu"),
+        inputs={"x": dml.TensorSpec(x.shape, "float32")},
+        name="fast_gelu_transformers_formula_reference",
+    )
+    actual_fast = execute_cpu(fast_spec, {"x": x})["y"]
+
+    np.testing.assert_allclose(actual_fast, expected_fast.astype(np.float32), atol=1e-6, rtol=1e-6)
+    assert not np.allclose(expected_fast, expected_quick, atol=1e-6, rtol=1e-6)
+
+
+def test_cpu_artifact_runs_generated_fast_gelu_with_transformers_formula(tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    spec = dml.trace(
+        UnaryElementwiseModule("fast_gelu"),
+        inputs={"x": dml.TensorSpec([2, 3], "float32")},
+        name="fast_gelu_transformers_formula_cpu",
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "fast_gelu_transformers_formula_cpu.dinoml")
+
+    generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
+    assert "fast_gelu" in generated
+
+    x = np.array([[-3.0, -1.25, -0.25], [0.25, 1.25, 3.0]], dtype=np.float32)
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x})["y"]
+    finally:
+        session.close()
+        module.close()
+
+    np.testing.assert_allclose(actual, _fast_gelu_reference(x).astype(np.float32), atol=1e-6, rtol=1e-6)
+
+
+def test_cpu_reference_gemm_fast_gelu_and_quick_gelu_are_distinct_transformers_formulas():
+    a = np.array([[1.0], [-1.0], [2.0], [-2.0]], dtype=np.float32)
+    b = np.array([[1.5]], dtype=np.float32)
+    bias = np.array([0.25], dtype=np.float32)
+    pre_activation = a @ b.T + bias
+    expected_fast = _fast_gelu_reference(pre_activation)
+    expected_quick = _quick_gelu_reference(pre_activation)
+
+    fast_spec = dml.trace(
+        GemmBiasModule("gemm_rcr_bias_fast_gelu"),
+        inputs={
+            "a": dml.TensorSpec(a.shape, "float32"),
+            "b": dml.TensorSpec(b.shape, "float32"),
+            "bias": dml.TensorSpec([1], "float32"),
+        },
+        name="gemm_rcr_bias_fast_gelu_transformers_formula_reference",
+    )
+    quick_spec = dml.trace(
+        GemmBiasModule("gemm_rcr_bias_quick_gelu"),
+        inputs={
+            "a": dml.TensorSpec(a.shape, "float32"),
+            "b": dml.TensorSpec(b.shape, "float32"),
+            "bias": dml.TensorSpec([1], "float32"),
+        },
+        name="gemm_rcr_bias_quick_gelu_transformers_formula_reference",
+    )
+
+    actual_fast = execute_cpu(fast_spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual_quick = execute_cpu(quick_spec, {"a": a, "b": b, "bias": bias})["y"]
+
+    np.testing.assert_allclose(actual_fast, expected_fast.astype(np.float32), atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(actual_quick, expected_quick.astype(np.float32), atol=1e-6, rtol=1e-6)
+    assert not np.allclose(actual_fast, actual_quick, atol=1e-6, rtol=1e-6)
 
 
 def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
@@ -4273,7 +4365,8 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_fast_gelu_with_dynamic_fold
 
     generated = (artifact.path / "debug" / "generated_src" / "module.cpp").read_text(encoding="utf-8")
     assert "static int gemm_rcr_bias_fast_gelu_" in generated
-    assert "1.702f" in generated
+    assert "0.7978845608f" in generated
+    assert "std::tanh" in generated
 
     module = runtime.load(artifact.path)
     session = module.create_session()
@@ -4287,7 +4380,7 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_fast_gelu_with_dynamic_fold
             a = rng.standard_normal((2, tokens, 8)).astype(np.float32)
             a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
             expected = a_reference @ b_reference.T + bias_reference.reshape(1, 1, 6)
-            expected = expected / (1.0 + np.exp(-1.702 * expected))
+            expected = _fast_gelu_reference(expected)
             expected = array_from_storage(array_to_storage(expected, dtype), dtype)
             actual = session.run_numpy({"a": a, "b": b, "bias": bias})["y"]
             assert actual.shape == (2, tokens, 6)
@@ -4348,7 +4441,7 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_quick_gelu_with_dynamic_fol
             a = rng.standard_normal((2, tokens, 8)).astype(np.float32)
             a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
             expected = a_reference @ b_reference.T + bias_reference.reshape(1, 1, 6)
-            expected = expected / (1.0 + np.exp(-1.702 * expected))
+            expected = _quick_gelu_reference(expected)
             expected = array_from_storage(array_to_storage(expected, dtype), dtype)
             actual = session.run_numpy({"a": a, "b": b, "bias": bias})["y"]
             assert actual.shape == (2, tokens, 6)

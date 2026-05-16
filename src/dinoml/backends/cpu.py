@@ -455,7 +455,7 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
         result = 0.5 * x * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (x + 0.044715 * x * x * x)))
     elif op == "fast_gelu":
         x = inputs[0]
-        result = x / (1.0 + np.exp(-1.702 * x))
+        result = 0.5 * x * (1.0 + np.tanh(0.7978845608 * x * (1.0 + 0.044715 * x * x)))
     elif op == "softplus":
         result = np.log1p(np.exp(inputs[0]))
     elif op == "elu":
@@ -791,7 +791,7 @@ def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
     if activation == "gelu":
         return 0.5 * value * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (value + 0.044715 * value * value * value)))
     if activation == "fast_gelu":
-        return value / (1.0 + np.exp(-1.702 * value))
+        return 0.5 * value * (1.0 + np.tanh(0.7978845608 * value * (1.0 + 0.044715 * value * value)))
     if activation == "quick_gelu":
         return value / (1.0 + np.exp(-1.702 * value))
     if activation == "sigmoid":

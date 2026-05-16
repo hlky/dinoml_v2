@@ -48,7 +48,7 @@ static int {{ func }}(
       acc += dinoml::math::cast<float>(bias[col]);
 {% endif %}
 {% if activation == "fast_gelu" %}
-      acc = acc / (1.0f + std::exp(-1.702f * acc));
+      acc = 0.5f * acc * (1.0f + std::tanh(0.7978845608f * acc * (1.0f + 0.044715f * acc * acc)));
 {% elif activation == "quick_gelu" %}
       acc = acc / (1.0f + std::exp(-1.702f * acc));
 {% endif %}

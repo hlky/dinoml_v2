@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Audited `fast_gelu` and `quick_gelu` against the local
+  `/workspace/transformers` activation definitions and CLIP configs, then fixed
+  a real CPU semantic split bug without changing public op names or CLIP
+  routing. `fast_gelu` now uses the Transformers/v1 tanh/Hendrycks formula in
+  the Python CPU reference, shared generated math helper, and generated naive
+  CPU `gemm_rcr_bias_fast_gelu` epilogue, while `quick_gelu` remains the CLIP
+  QuickGELU formula `x * sigmoid(1.702 * x)` and CLIP adapters continue to
+  route `hidden_act="quick_gelu"` to `gemm_rcr_bias_quick_gelu`. Focused
+  regressions now prove standalone CPU `fast_gelu`, CPU GEMM fast/quick GELU,
+  and generated CPU GEMM epilogues stay distinct; validation reran the
+  activation-focused CPU slice plus frontend/provider and CLIP routing tests.
+  This does not broaden public op surface, add non-CLIP QuickGELU elementwise
+  API, or change CUTLASS `gemm_rcr_bias_quick_gelu` behavior.
 - Added a repo-visible cached-checkpoint CLIP workflow so the recent
   full-checkpoint proofs are discoverable outside the test suite. The new
   `examples/clip_checkpoint_workflow.py` defaults to cached
@@ -459,10 +472,10 @@ This file should be updated after each major loop.
   A reviewer-requested follow-up made the focused tests hermetic without
   relying on ambient `PYTHONPATH` and corrected stale CLIP plan language.
 - Landed the bounded naive compiled CPU bridge for `gemm_rcr_bias_fast_gelu`
-  and a deeper CLIP text CPU artifact proof. The existing `fast_gelu(x) =
-  x * sigmoid(1.702 * x)` epilogue now runs in generated CPU GEMM artifacts for
-  dynamic folded-`M` shapes and the two-layer CLIP text wrapper matches local
-  `/workspace/transformers` as a CPU artifact without explicit `position_ids`.
+  and a deeper CLIP text CPU artifact proof. The then-existing `fast_gelu`
+  epilogue ran in generated CPU GEMM artifacts for dynamic folded-`M` shapes,
+  and the two-layer CLIP text wrapper matched local `/workspace/transformers`
+  as a CPU artifact without explicit `position_ids`.
   Full two-tower CPU compilation now moves honestly to the vision-side
   `conv2d_bias` blocker. The loop also fixed a real generated-identifier drift:
   CPU/CUDA top-level lowering and op-local lowerings now share one

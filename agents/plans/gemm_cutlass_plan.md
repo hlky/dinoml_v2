@@ -80,9 +80,10 @@ The runtime GEMM port now wires model lowering into that support library:
    compiled CPU artifacts flatten `A[..., K]` into runtime `M` for GEMM, keep
    rank-3 `B x M x N` semantics for BMM, and run straightforward row-major
    loops for `float32`, `float16`, and `bfloat16`, including rank-1 or
-   `[1, N]` bias for the admitted GEMM bias epilogues, the in-tree
-   `fast_gelu(x) = x * sigmoid(1.702 * x)` epilogue for
-   `gemm_rcr_bias_fast_gelu`, zero-stride batch broadcast for both admitted
+   `[1, N]` bias for the admitted GEMM bias epilogues, the Transformers/v1
+   tanh-based `fast_gelu` epilogue for `gemm_rcr_bias_fast_gelu`, the distinct
+   CLIP QuickGELU `x * sigmoid(1.702 * x)` epilogue for
+   `gemm_rcr_bias_quick_gelu`, zero-stride batch broadcast for both admitted
    BMM layouts, and row-major-logical `B[B, K, N]` handling for `bmm_rrr`.
    This is an explicit bridge for CLIP CPU artifacts, not a library-backed
    provider path. Other compiled CPU GEMM/BMM families still reject until a

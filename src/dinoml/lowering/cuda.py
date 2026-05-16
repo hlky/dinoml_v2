@@ -147,10 +147,14 @@ def _cutlass_conv_declarations(stages: Iterable[Mapping[str, Any]]) -> list[dict
                 "    cudaStream_t stream);",
             ]
         elif stage_kind == "provider_launcher":
+            inputs = stage.get("inputs")
+            if not isinstance(inputs, (list, tuple)) or len(inputs) < 3:
+                continue
             args = [
                 "    const void* activation_nhwc,",
                 "    const void* weight_ohwi,",
                 "    const void* bias,",
+                *(["    const void* residual_nhwc,"] if len(inputs) > 3 else []),
                 "    void* output_nhwc,",
                 *["    int," for _ in _shape_args(stage)],
                 "    cudaStream_t stream);",

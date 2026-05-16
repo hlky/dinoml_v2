@@ -61,6 +61,29 @@ class Conv2dBiasModule(dml.Module):
         )
 
 
+class Conv2dBiasAddModule(dml.Module):
+    def __init__(self, stride=1, padding=0, dilation=1, groups=1):
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+
+    def forward(self, x, weight, bias, residual):
+        return dml.ops.output(
+            dml.ops.conv2d_bias_add(
+                x,
+                weight,
+                bias,
+                residual,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.groups,
+            ),
+            "out",
+        )
+
+
 class TwoConv2dBiasModule(dml.Module):
     def forward(self, x0, weight0, bias0, x1, weight1, bias1):
         y0 = dml.ops.output(dml.ops.conv2d_bias(x0, weight0, bias0, stride=(2, 1), padding=(1, 0)), "out0")
@@ -111,6 +134,29 @@ def _trace_conv2d_bias_relu(
         padding=padding,
         dilation=dilation,
         groups=groups,
+    )
+
+
+def _trace_conv2d_bias_add(
+    dtype="float32",
+    x_shape=(2, 3, 7, 8),
+    weight_shape=(4, 3, 3, 2),
+    bias_shape=(4,),
+    residual_shape=(2, 4, 4, 6),
+    stride=(2, 1),
+    padding=(1, 0),
+    dilation=(1, 2),
+    groups=1,
+):
+    return dml.trace(
+        Conv2dBiasAddModule(stride=stride, padding=padding, dilation=dilation, groups=groups),
+        inputs={
+            "x": dml.TensorSpec(x_shape, dtype),
+            "weight": dml.TensorSpec(weight_shape, dtype),
+            "bias": dml.TensorSpec(bias_shape, dtype),
+            "residual": dml.TensorSpec(residual_shape, dtype),
+        },
+        name=f"conv2d_bias_add_{dtype}",
     )
 
 
@@ -184,6 +230,13 @@ def _torch_conv2d_bias_reference(x, weight, bias, *, stride, padding, dilation):
 
 def _torch_conv2d_bias_relu_reference(x, weight, bias, *, stride, padding, dilation):
     return np.maximum(_torch_conv2d_bias_reference(x, weight, bias, stride=stride, padding=padding, dilation=dilation), 0.0)
+
+
+def _torch_conv2d_bias_add_reference(x, weight, bias, residual, *, stride, padding, dilation):
+    return _torch_conv2d_bias_reference(x, weight, bias, stride=stride, padding=padding, dilation=dilation) + np.asarray(
+        residual,
+        dtype=np.float32,
+    )
 
 
 def _expected_transform_helper_exports(layout_plan, *, status):
@@ -273,6 +326,31 @@ def test_conv2d_bias_relu_frontend_ir_preserves_nchw_oihw_attrs_and_dtype():
     node = spec.ir["nodes"][0]
     assert node["op"] == "conv2d_bias_relu"
     assert node["inputs"] == ["x", "weight", "bias"]
+    assert node["attrs"] == {
+        "stride": [2, 1],
+        "padding": [1, 0],
+        "dilation": [1, 2],
+        "groups": 1,
+    }
+
+
+def test_conv2d_bias_add_frontend_ir_preserves_residual_input_and_attrs():
+    spec = _trace_conv2d_bias_add(
+        "float32",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+
+    assert spec.ir["outputs"][0]["shape"] == [2, 4, 4, 6]
+    assert spec.ir["outputs"][0]["dtype"] == "float32"
+    node = spec.ir["nodes"][0]
+    assert node["op"] == "conv2d_bias_add"
+    assert node["inputs"] == ["x", "weight", "bias", "residual"]
     assert node["attrs"] == {
         "stride": [2, 1],
         "padding": [1, 0],
@@ -432,6 +510,89 @@ def test_cpu_artifact_runs_generated_naive_conv2d_bias_relu(dtype, atol, rtol, t
         module.close()
 
     assert actual.shape == expected.shape
+    np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
+
+
+@pytest.mark.parametrize("dtype,atol,rtol", [("float32", 1e-6, 1e-6), ("float16", 1e-3, 1e-3)])
+def test_cpu_reference_conv2d_bias_add_matches_torch(dtype, atol, rtol):
+    spec = _trace_conv2d_bias_add(
+        dtype,
+        x_shape=(2, 3, 6, 7),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 6, 4),
+        stride=(1, 2),
+        padding=(1, 1),
+        dilation=(2, 1),
+    )
+    x = _input((2, 3, 6, 7), dtype, -1.5, 2.5)
+    weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
+    bias = _input((4,), dtype, -0.5, 0.5)
+    residual = _input((2, 4, 6, 4), dtype, -0.25, 0.75)
+
+    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+    expected = _storage_roundtrip(
+        _torch_conv2d_bias_add_reference(
+            x,
+            weight,
+            bias,
+            residual,
+            stride=(1, 2),
+            padding=(1, 1),
+            dilation=(2, 1),
+        ),
+        dtype,
+    )
+    np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
+
+
+@pytest.mark.parametrize("dtype,atol,rtol", [("float32", 1e-6, 1e-6), ("float16", 1e-3, 1e-3)])
+def test_cpu_artifact_runs_generated_naive_conv2d_bias_add(dtype, atol, rtol, tmp_path, monkeypatch):
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    spec = _trace_conv2d_bias_add(
+        dtype,
+        x_shape=(2, 3, 6, 7),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 6, 4),
+        stride=(1, 2),
+        padding=(1, 1),
+        dilation=(2, 1),
+    )
+    artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"conv2d_bias_add_{dtype}_cpu.dinoml")
+
+    generated_sources = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((artifact.path / "debug" / "generated_src").rglob("*.cpp"))
+    )
+    assert "runtime_numel_residual" in generated_sources
+    assert "residual[out_index]" in generated_sources
+
+    x = _input((2, 3, 6, 7), dtype, -1.5, 2.5)
+    weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
+    bias = _input((4,), dtype, -0.5, 0.5)
+    residual = _input((2, 4, 6, 4), dtype, -0.25, 0.75)
+    expected = _storage_roundtrip(
+        _torch_conv2d_bias_add_reference(
+            x,
+            weight,
+            bias,
+            residual,
+            stride=(1, 2),
+            padding=(1, 1),
+            dilation=(2, 1),
+        ),
+        dtype,
+    )
+
+    module = runtime.load(artifact.path)
+    session = module.create_session()
+    try:
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+    finally:
+        session.close()
+        module.close()
+
     np.testing.assert_allclose(actual, expected, rtol=rtol, atol=atol)
 
 
@@ -713,6 +874,49 @@ def test_cutlass_conv2d_bias_relu_manifest_and_codegen_record_fused_epilogue(tmp
     assert required["kernel_symbol"] in module_source
 
 
+def test_cutlass_conv2d_bias_add_manifest_and_codegen_record_residual_epilogue(tmp_path):
+    spec = _trace_conv2d_bias_add(
+        "float16",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    target = {"name": "cuda", "arch": "sm_86", "no_tf32": True}
+    kernel_manifest = build_kernel_manifest(spec.ir, target)
+    [required] = kernel_manifest["required_kernels"]
+
+    assert required["op"] == "conv2d_bias_add"
+    assert required["candidate_set"]["epilogue"] == "bias_add"
+    assert required["candidate_set"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["candidate_set"]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert required["candidate_set"]["semantic_layout"]["residual"] == "nchw"
+    assert required["candidate_set"]["provider_layout"]["residual"] == "nhwc"
+    assert required["cutlass_conv_plan"]["residual_shape"] == [2, 4, 4, 6]
+    assert required["cutlass_conv_plan"]["epilogue"] == "bias_add"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_add"
+
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache")
+    assert [stage["stage_name"] for stage in codegen_plan.wrapper_stages] == [
+        "activation_pack",
+        "weight_pack",
+        "residual_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert codegen_plan.wrapper_stages[2]["tensor_role"] == "residual"
+    assert codegen_plan.wrapper_stages[3]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert codegen_plan.wrapper_stages[3]["inputs"][3]["name"] == "residual_nhwc"
+
+    module_source = render_cuda_module(spec.ir, kernel_manifest=kernel_manifest)
+    assert "conv2d_bias_add CUTLASS Conv provider launcher failed" in module_source
+    assert "ptr_residual" in module_source
+
+
 def test_cutlass_conv2d_bias_codegen_wrapper_stages_render_source_snippets(tmp_path):
     spec = _trace_conv2d_bias("float16")
     kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
@@ -968,6 +1172,36 @@ def test_cutlass_conv2d_bias_relu_profile_workload_records_fused_epilogue():
     assert payload["candidate"]["epilogue_config"] == {"inputs": ["bias"], "activation": "relu"}
 
 
+def test_cutlass_conv2d_bias_add_profile_workload_records_residual_epilogue():
+    spec = _trace_conv2d_bias_add(
+        "float16",
+        x_shape=(2, 3, 7, 8),
+        weight_shape=(4, 3, 3, 2),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 4, 6),
+        stride=(2, 1),
+        padding=(1, 0),
+        dilation=(1, 2),
+    )
+    target = {"name": "cuda", "arch": "sm_86", "no_tf32": True}
+    kernel_manifest = build_kernel_manifest(spec.ir, target)
+
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+
+    assert len(workloads) == 2
+    workload = next(item for item in workloads if item.candidate["cutlass"]["opclass"] == "tensorop")
+    assert workload.op == "conv2d_bias_add"
+    assert workload.residual_tensor == "residual"
+    assert workload.residual_shape == (2, 4, 4, 6)
+    assert workload.candidate_set_id == "cutlass_conv_conv2d_bias_add_float16_nhwc_ohwi_bias_add_v1"
+    assert workload.candidate["epilogue"] == "bias_add"
+    assert workload.candidate["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert workload.candidate["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    payload = workload.to_json()
+    assert payload["inputs"]["residual"] == [2, 4, 4, 6]
+    assert payload["candidate"]["epilogue"] == "bias_add"
+
+
 @pytest.mark.parametrize(
     ("x_shape", "weight_shape", "bias_shape", "expected_algorithms"),
     [
@@ -1163,6 +1397,48 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
     source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
     assert support_manifest["profiler_status"] == "bounded_runtime_profiler"
+
+
+def test_conv2d_bias_add_cuda_compile_builds_residual_wrapper_with_cutlass_runtime_boundary(tmp_path, monkeypatch):
+    spec = _trace_conv2d_bias_add("float16")
+    artifact_dir = tmp_path / "conv2d_bias_add_cuda.dinoml"
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    nvcc_available = shutil.which("nvcc") is not None
+    if nvcc_available:
+        dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+    else:
+        with pytest.raises(NotImplementedError, match="compiled support library"):
+            dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    expected_node_id = spec.ir["nodes"][0]["id"]
+    assert required["op"] == "conv2d_bias_add"
+    assert required["candidate_set"]["epilogue"] == "bias_add"
+    assert required["candidate_set"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["candidate_set"]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert required["cutlass_conv_plan"]["residual_shape"] == [2, 4, 4, 6]
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_add"
+
+    codegen_plan = read_json(artifact_dir / "kernel_codegen_plan.json")
+    assert [stage["stage_name"] for stage in codegen_plan["wrapper_stages"]] == [
+        "activation_pack",
+        "weight_pack",
+        "residual_pack",
+        "provider_launch",
+        "output_unpack",
+    ]
+    assert codegen_plan["wrapper_stages"][2]["tensor_role"] == "residual"
+    assert codegen_plan["wrapper_stages"][3]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
+    assert codegen_plan["wrapper_stages"][3]["inputs"][3]["name"] == "residual_nhwc"
+
+    support_cache_dir = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / kernel_manifest["support_cache_key"][:16]
+    support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
+    source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
+    assert support_manifest["used_candidate_plan"]["entries"][0]["candidate_set"]["launch_abi"] == (
+        "dinoml_cutlass_conv2d_bias_add_v1"
+    )
     assert "profiler_blocked_reason" not in support_manifest
     assert support_manifest["source_manifest"] == "../src/source_manifest.json"
     assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
@@ -1325,12 +1601,14 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
             x = _input((2, 3, 7, 8), "float16", -1.0, 1.0)
             weight = _input((4, 3, 3, 2), "float16", -0.5, 0.5)
             bias = _input((4,), "float16", -0.25, 0.25)
-            actual = session.run_numpy({"x": x, "weight": weight, "bias": bias})["out"]
+            residual = _input((2, 4, 4, 6), "float16", -0.2, 0.3)
+            actual = session.run_numpy({"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
             expected = _storage_roundtrip(
-                _torch_conv2d_bias_reference(
+                _torch_conv2d_bias_add_reference(
                     x,
                     weight,
                     bias,
+                    residual,
                     stride=(2, 1),
                     padding=(1, 0),
                     dilation=(1, 2),
@@ -1649,6 +1927,54 @@ def test_conv2d_bias_relu_cuda_runtime_float32_simt_general_shape_matches_torch(
             x,
             weight,
             bias,
+            stride=(1, 2),
+            padding=(1, 1),
+            dilation=(2, 1),
+        )
+        np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
+    finally:
+        session.close()
+        module.close()
+
+
+def test_conv2d_bias_add_cuda_runtime_float32_simt_general_shape_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+    if shutil.which("nvcc") is None or not torch.cuda.is_available():
+        pytest.skip("general float32 CUTLASS Conv bias+add parity requires nvcc and torch CUDA")
+
+    spec = _trace_conv2d_bias_add(
+        "float32",
+        x_shape=(2, 3, 6, 7),
+        weight_shape=(4, 3, 2, 3),
+        bias_shape=(4,),
+        residual_shape=(2, 4, 6, 4),
+        stride=(1, 2),
+        padding=(1, 1),
+        dilation=(2, 1),
+    )
+    artifact_dir = tmp_path / "conv2d_bias_add_float32_general_cuda.dinoml"
+
+    dml.compile(spec, dml.Target("cuda", arch="sm_86"), artifact_dir)
+
+    kernel_manifest = read_json(artifact_dir / "kernel_manifest.json")
+    [required] = kernel_manifest["required_kernels"]
+    assert required["selected_candidate_id"].endswith("simt_sm80_nhwc_ohwi_bias")
+    assert required["candidate_set"]["epilogue"] == "bias_add"
+    assert required["cutlass_conv_plan"]["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert required["cutlass_conv_plan"]["runtime"]["launcher"] == "cutlass_implicit_gemm_conv2d_fprop_bias_add"
+
+    module = runtime.load(artifact_dir, load_constants=False)
+    session = module.create_session()
+    try:
+        x = _input((2, 3, 6, 7), "float32", -1.0, 1.0)
+        weight = _input((4, 3, 2, 3), "float32", -0.5, 0.5)
+        bias = _input((4,), "float32", -0.25, 0.25)
+        residual = _input((2, 4, 6, 4), "float32", -0.2, 0.3)
+        actual = session.run_numpy({"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+        expected = _torch_conv2d_bias_add_reference(
+            x,
+            weight,
+            bias,
+            residual,
             stride=(1, 2),
             padding=(1, 1),
             dilation=(2, 1),

@@ -140,6 +140,23 @@ class Conv2dBiasModule(dml.Module):
         )
 
 
+class Conv2dBiasAddModule(dml.Module):
+    def forward(self, x, weight, bias, residual):
+        return dml.ops.output(
+            dml.ops.conv2d_bias_add(
+                x,
+                weight,
+                bias,
+                residual,
+                stride=(2, 1),
+                padding=(1, 0),
+                dilation=(1, 2),
+                groups=1,
+            ),
+            "y",
+        )
+
+
 class TwoConv2dBiasModule(dml.Module):
     def forward(self, x0, weight0, bias0, x1, weight1, bias1):
         y0 = dml.ops.output(dml.ops.conv2d_bias(x0, weight0, bias0, stride=(2, 1), padding=(1, 0)), "out0")
@@ -189,6 +206,23 @@ def _conv2d_bias_profile_workload():
 
 def _conv2d_bias_relu_profile_workload():
     return _conv2d_profile_workload("conv2d_bias_relu")
+
+
+def _conv2d_bias_add_profile_workload():
+    spec = dml.trace(
+        Conv2dBiasAddModule(),
+        inputs={
+            "x": dml.TensorSpec([2, 3, 7, 8], "float16"),
+            "weight": dml.TensorSpec([4, 3, 3, 2], "float16"),
+            "bias": dml.TensorSpec([4], "float16"),
+            "residual": dml.TensorSpec([2, 4, 4, 6], "float16"),
+        },
+        name="profile_conv2d_bias_add_scaffold",
+    )
+    kernel_manifest = build_kernel_manifest(spec.ir, DEFAULT_CUDA_TARGET)
+    workloads = build_profile_workloads(spec.ir, kernel_manifest)
+    workload = next(item for item in workloads if item.candidate_id == kernel_manifest["required_kernels"][0]["selected_candidate_id"])
+    return workload, kernel_manifest
 
 
 GEMM_BIAS_RESIDUAL_CASES = tuple(
@@ -583,6 +617,37 @@ def test_build_profile_workloads_supports_cutlass_conv_bias_relu_epilogue(tmp_pa
     assert key_payload["candidate_set_id"] == "cutlass_conv_conv2d_bias_relu_float16_nhwc_ohwi_bias_relu_v1"
     assert "bias_relu" in key_payload["kernel_symbol"]
     assert "bias_relu" in key_payload["profiler_symbol"]
+
+
+def test_build_profile_workloads_supports_cutlass_conv_bias_add_epilogue(tmp_path):
+    workload, kernel_manifest = _conv2d_bias_add_profile_workload()
+    codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+
+    assert workload.kernel_library == "cutlass_conv"
+    assert workload.op == "conv2d_bias_add"
+    assert workload.residual_tensor == "residual"
+    assert workload.residual_shape == (2, 4, 4, 6)
+    assert workload.candidate["epilogue"] == "bias_add"
+    assert workload.candidate["epilogue_config"] == {"inputs": ["bias", "d0"]}
+    assert workload.candidate_set_id == "cutlass_conv_conv2d_bias_add_float16_nhwc_ohwi_bias_add_v1"
+    assert kernel_manifest["required_kernels"][0]["cutlass_conv_plan"]["residual_shape"] == [2, 4, 4, 6]
+
+    key_payload = _profile_key_payload(
+        workload,
+        {"target": DEFAULT_CUDA_TARGET},
+        kernel_manifest,
+        codegen_plan,
+        context={
+            "fingerprint": {
+                "hardware_key": "hardware-key",
+                "support_libraries_key": "support-key",
+            }
+        },
+    )
+    assert key_payload["op"] == "conv2d_bias_add"
+    assert key_payload["candidate_set_id"] == "cutlass_conv_conv2d_bias_add_float16_nhwc_ohwi_bias_add_v1"
+    assert "bias_add" in key_payload["kernel_symbol"]
+    assert "bias_add" in key_payload["profiler_symbol"]
 
 
 def test_cutlass_conv_static_execution_plan_updates_manifest_and_conv_plan():

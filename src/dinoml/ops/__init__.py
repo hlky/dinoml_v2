@@ -49,6 +49,7 @@ from dinoml.ops.conv import (
     normalize_conv2d_bias_attrs,
     resolve_conv2d_shape,
     resolve_conv2d_bias_shape,
+    resolve_conv2d_bias_add_shape,
     resolve_conv2d_bias_relu_shape,
 )
 from dinoml.ops.embedding import embedding as _embedding_frontend
@@ -837,6 +838,30 @@ def _conv2d_bias_relu_frontend(
     )
 
 
+def _conv2d_bias_add_frontend(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    residual: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return _conv2d_bias_family_frontend(
+        "conv2d_bias_add",
+        resolve_shape=resolve_conv2d_bias_add_shape,
+        x=x,
+        weight=weight,
+        bias=bias,
+        residual=residual,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def _conv2d_bias_family_frontend(
     op_name: str,
     *,
@@ -844,6 +869,7 @@ def _conv2d_bias_family_frontend(
     x: Any,
     weight: Any,
     bias: Any,
+    residual: Any | None = None,
     stride: Any,
     padding: Any,
     dilation: Any,
@@ -853,6 +879,9 @@ def _conv2d_bias_family_frontend(
     weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
     bias_tensor = as_tensor(bias, dtype_hint=x_tensor.dtype)
     tensors = [x_tensor, weight_tensor, bias_tensor]
+    residual_tensor = None if residual is None else as_tensor(residual, dtype_hint=x_tensor.dtype)
+    if residual_tensor is not None:
+        tensors.append(residual_tensor)
     for tensor in tensors[1:]:
         if tensor.builder is not x_tensor.builder:
             raise ValueError("Cannot combine tensors from different DinoML traces")
@@ -866,23 +895,38 @@ def _conv2d_bias_family_frontend(
         raise ValueError(f"{op_name} expects rank-4 OIHW weight, got rank {weight_tensor.rank}")
     if bias_tensor.rank != 1:
         raise ValueError(f"{op_name} expects rank-1 bias, got rank {bias_tensor.rank}")
+    if residual_tensor is not None and residual_tensor.rank != 4:
+        raise ValueError(f"{op_name} expects rank-4 residual, got rank {residual_tensor.rank}")
     if any(tensor.dynamic for tensor in tensors):
-        raise ValueError(f"{op_name} currently supports only static activation, weight, and bias shapes")
+        expected = "activation, weight, bias, and residual" if residual_tensor is not None else "activation, weight, and bias"
+        raise ValueError(f"{op_name} currently supports only static {expected} shapes")
     normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv2d_bias_attrs(
         stride,
         padding,
         dilation,
         groups,
     )
-    out_shape = resolve_shape(
-        x_tensor.shape,
-        weight_tensor.shape,
-        bias_tensor.shape,
-        stride=normalized_stride,
-        padding=normalized_padding,
-        dilation=normalized_dilation,
-        groups=normalized_groups,
-    )
+    if residual_tensor is None:
+        out_shape = resolve_shape(
+            x_tensor.shape,
+            weight_tensor.shape,
+            bias_tensor.shape,
+            stride=normalized_stride,
+            padding=normalized_padding,
+            dilation=normalized_dilation,
+            groups=normalized_groups,
+        )
+    else:
+        out_shape = resolve_shape(
+            x_tensor.shape,
+            weight_tensor.shape,
+            bias_tensor.shape,
+            residual_tensor.shape,
+            stride=normalized_stride,
+            padding=normalized_padding,
+            dilation=normalized_dilation,
+            groups=normalized_groups,
+        )
     return x_tensor.builder.emit(
         op_name,
         tensors,
@@ -1135,6 +1179,7 @@ globals()["avg_pool1d"] = _avg_pool1d_frontend
 globals()["avg_pool2d"] = _avg_pool2d_frontend
 globals()["conv2d"] = _conv2d_frontend
 globals()["conv2d_bias"] = _conv2d_bias_frontend
+globals()["conv2d_bias_add"] = _conv2d_bias_add_frontend
 globals()["conv2d_bias_relu"] = _conv2d_bias_relu_frontend
 globals()["max_pool2d"] = _max_pool2d_frontend
 globals()["flip"] = _flip_frontend
@@ -1214,6 +1259,7 @@ __all__ = list(dict.fromkeys([
     "concatenate_tanh",
     "conv2d",
     "conv2d_bias",
+    "conv2d_bias_add",
     "conv2d_bias_relu",
     "dynamic_slice",
     "full",

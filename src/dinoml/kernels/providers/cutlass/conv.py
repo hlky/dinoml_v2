@@ -8,7 +8,7 @@ from dinoml.ir import canonical_json, dtype_nbytes
 
 CUTLASS_CONV_CANDIDATE_SET_SCHEMA_VERSION = 1
 CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
-CONV_OPS = ("conv2d_bias", "conv2d_bias_relu")
+CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add")
 CONV_SUPPORTED_DTYPES = ("float16", "float32")
 _CUTLASS_CONV_SIMT_SYMBOL_ID = "simt_sm80_nhwc_ohwi_bias"
 _CUTLASS_CONV_FEW_CHANNELS_SYMBOL_ID = "tensorop_sm80_nhwc_ohwi_bias_few_channels_c3"
@@ -27,13 +27,13 @@ _CUTLASS_CONV_RUNTIME_PROFILER_STATUS = "bounded_runtime_profiler"
 _CUTLASS_CONV_TRANSFORM_ABI = "dinoml_cutlass_layout_transform_v1"
 _CUTLASS_CONV_STUB_RETURN_CODE = 901
 _CUTLASS_CONV_STUB_PROFILE_MS = -1.0
-_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT = {
+_CUTLASS_CONV_BASE_SEMANTIC_LAYOUT = {
     "activation": "nchw",
     "weight": "oihw",
     "bias": "o",
     "output": "nchw",
 }
-_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT = {
+_CUTLASS_CONV_BASE_PROVIDER_LAYOUT = {
     "activation": "nhwc",
     "weight": "ohwi",
     "bias": "o",
@@ -42,14 +42,17 @@ _CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT = {
 _CUTLASS_CONV_EPILOGUE_BY_OP = {
     "conv2d_bias": "bias",
     "conv2d_bias_relu": "bias_relu",
+    "conv2d_bias_add": "bias_add",
 }
 _CUTLASS_CONV_RUNTIME_LAUNCHER_BY_OP = {
     "conv2d_bias": "cutlass_implicit_gemm_conv2d_fprop_bias",
     "conv2d_bias_relu": "cutlass_implicit_gemm_conv2d_fprop_bias_relu",
+    "conv2d_bias_add": "cutlass_implicit_gemm_conv2d_fprop_bias_add",
 }
 _CUTLASS_CONV_LAUNCH_ABI_BY_OP = {
     "conv2d_bias": "dinoml_cutlass_conv2d_bias_v1",
     "conv2d_bias_relu": "dinoml_cutlass_conv2d_bias_relu_v1",
+    "conv2d_bias_add": "dinoml_cutlass_conv2d_bias_add_v1",
 }
 
 
@@ -272,14 +275,7 @@ def cutlass_conv_candidate_compatible_with_plan(
     candidate_layouts = dict(candidate.get("layouts", {}))
     semantic_layout = dict(cutlass_conv_plan.get("semantic_layout", {}))
     provider_layout = dict(cutlass_conv_plan.get("provider_layout", {}))
-    expected_layouts = {
-        "activation_semantic": semantic_layout.get("activation"),
-        "weight_semantic": semantic_layout.get("weight"),
-        "output_semantic": semantic_layout.get("output"),
-        "activation_provider": provider_layout.get("activation"),
-        "weight_provider": provider_layout.get("weight"),
-        "output_provider": provider_layout.get("output"),
-    }
+    expected_layouts = _cutlass_conv_candidate_layouts(op_family or str(candidate.get("op", "conv2d_bias")))
     if candidate_layouts != expected_layouts:
         return False
     conv_config = dict(cutlass_conv_plan.get("conv_config", {}))
@@ -372,14 +368,7 @@ def _cutlass_conv_candidate(
         "epilogue": _conv_epilogue(op_name),
         "epilogue_config": _conv_epilogue_config(op_name),
         "launch_abi": _cutlass_conv_launch_abi(op_name),
-        "layouts": {
-            "activation_semantic": "nchw",
-            "weight_semantic": "oihw",
-            "output_semantic": "nchw",
-            "activation_provider": "nhwc",
-            "weight_provider": "ohwi",
-            "output_provider": "nhwc",
-        },
+        "layouts": _cutlass_conv_candidate_layouts(op_name),
         "cutlass": dict(cutlass),
         "selection_predicate": dict(selection_predicate),
         "optional": bool(optional),
@@ -424,8 +413,8 @@ def cutlass_conv_candidate_set(
         "epilogue": _conv_epilogue(op_name),
         "epilogue_config": _conv_epilogue_config(op_name),
         "launch_abi": _cutlass_conv_launch_abi(op_name),
-        "semantic_layout": {"activation": "nchw", "weight": "oihw", "bias": "o", "output": "nchw"},
-        "provider_layout": {"activation": "nhwc", "weight": "ohwi", "bias": "o", "output": "nhwc"},
+        "semantic_layout": _cutlass_conv_semantic_layout(op_name),
+        "provider_layout": _cutlass_conv_provider_layout(op_name),
         "supported_groups": [1],
         "supported_dtypes": list(CONV_SUPPORTED_DTYPES),
         "candidate_count": len(candidates),
@@ -587,13 +576,15 @@ def cutlass_conv_layout_plan(
 ) -> dict[str, Any]:
     op_name = str(node.get("op", ""))
     _validate_conv_op_name(op_name)
-    if op_name not in {"conv2d_bias", "conv2d_bias_relu"}:
+    if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add"}:
         raise ValueError(f"Unsupported CUTLASS conv scaffold op {node.get('op')!r}")
     x_name, weight_name, bias_name = [str(name) for name in node.get("inputs", ())[:3]]
+    residual_name = str(node.get("inputs", (None, None, None, ""))[3]) if op_name == "conv2d_bias_add" else None
     output_name = str(node.get("outputs", ("",))[0])
     x_shape = [int(dim) for dim in tensor_map[x_name]["shape"]]
     weight_shape = [int(dim) for dim in tensor_map[weight_name]["shape"]]
     bias_shape = [int(dim) for dim in tensor_map[bias_name]["shape"]]
+    residual_shape = None if residual_name is None else [int(dim) for dim in tensor_map[residual_name]["shape"]]
     output_shape = [int(dim) for dim in tensor_map[output_name]["shape"]]
     dtype = str(tensor_map[output_name]["dtype"])
     dtype_size = dtype_nbytes(dtype)
@@ -604,6 +595,18 @@ def cutlass_conv_layout_plan(
     temporary_buffers = [
         {"name": "activation_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(x_shape, dtype_size)},
         {"name": "weight_ohwi", "kind": "layout_pack", "layout": "ohwi", "nbytes": _nbytes(weight_shape, dtype_size)},
+        *(
+            [
+                {
+                    "name": "residual_nhwc",
+                    "kind": "layout_pack",
+                    "layout": "nhwc",
+                    "nbytes": _nbytes(output_shape, dtype_size),
+                }
+            ]
+            if residual_shape is not None
+            else []
+        ),
         {"name": "output_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(output_shape, dtype_size)},
     ]
     conv_config = {
@@ -630,8 +633,8 @@ def cutlass_conv_layout_plan(
         "dtype": dtype,
         "epilogue": _conv_epilogue(op_name),
         "epilogue_config": _conv_epilogue_config(op_name),
-        "semantic_layout": dict(_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT),
-        "provider_layout": dict(_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT),
+        "semantic_layout": _cutlass_conv_semantic_layout(op_name),
+        "provider_layout": _cutlass_conv_provider_layout(op_name),
         "layout_translation": {
             "input_pack": "nchw_to_nhwc_temporary",
             "output_unpack": "nhwc_to_nchw_temporary",
@@ -640,6 +643,15 @@ def cutlass_conv_layout_plan(
             "output_unpack_nbytes": _nbytes(output_shape, dtype_size),
             "input_pack_symbol": cutlass_conv_input_pack_symbol(dtype),
             "output_unpack_symbol": cutlass_conv_output_unpack_symbol(dtype),
+            **(
+                {
+                    "residual_pack": "nchw_to_nhwc_temporary",
+                    "residual_pack_nbytes": _nbytes(output_shape, dtype_size),
+                    "residual_pack_symbol": cutlass_conv_input_pack_symbol(dtype),
+                }
+                if residual_shape is not None
+                else {}
+            ),
         },
         "weight_transform": {
             "from": "oihw",
@@ -657,6 +669,7 @@ def cutlass_conv_layout_plan(
         "input_shape": x_shape,
         "weight_shape": weight_shape,
         "bias_shape": bias_shape,
+        **({"residual_shape": residual_shape} if residual_shape is not None else {}),
         "output_shape": output_shape,
         "workspace_nbytes": 0,
         "temporary_buffers": temporary_buffers,
@@ -700,8 +713,8 @@ def validate_cutlass_conv_scaffold_plan(
         )
     semantic_layout = dict(payload.get("semantic_layout", {}))
     provider_layout = dict(payload.get("provider_layout", {}))
-    expected_semantic_layout = dict(_CUTLASS_CONV_SCAFFOLD_SEMANTIC_LAYOUT)
-    expected_provider_layout = dict(_CUTLASS_CONV_SCAFFOLD_PROVIDER_LAYOUT)
+    expected_semantic_layout = _cutlass_conv_semantic_layout(op_family)
+    expected_provider_layout = _cutlass_conv_provider_layout(op_family)
     if semantic_layout != expected_semantic_layout:
         raise ValueError(
             f"CUTLASS Conv scaffold semantic_layout must be {expected_semantic_layout}, got {semantic_layout!r}"
@@ -713,6 +726,11 @@ def validate_cutlass_conv_scaffold_plan(
     x_shape = _validate_positive_shape(payload.get("input_shape"), rank=4, name="input_shape")
     weight_shape = _validate_positive_shape(payload.get("weight_shape"), rank=4, name="weight_shape")
     bias_shape = _validate_positive_shape(payload.get("bias_shape"), rank=1, name="bias_shape")
+    residual_shape = (
+        _validate_positive_shape(payload.get("residual_shape"), rank=4, name="residual_shape")
+        if op_family == "conv2d_bias_add"
+        else None
+    )
     output_shape = _validate_positive_shape(payload.get("output_shape"), rank=4, name="output_shape")
     dtype_size = dtype_nbytes(dtype)
     conv_config = dict(payload.get("conv_config", {}))
@@ -766,6 +784,11 @@ def validate_cutlass_conv_scaffold_plan(
             "CUTLASS Conv scaffold output/bias channels must match weight O: "
             f"bias={bias_shape[0]}, output C={output_shape[1]}, weight O={weight_shape[0]}"
         )
+    if residual_shape is not None and residual_shape != output_shape:
+        raise ValueError(
+            "CUTLASS Conv scaffold residual_shape must match output_shape for conv2d_bias_add: "
+            f"residual={residual_shape}, output={output_shape}"
+        )
     layout_translation = dict(payload.get("layout_translation", {}))
     expected_input_nbytes = _nbytes(x_shape, dtype_size)
     expected_output_nbytes = _nbytes(output_shape, dtype_size)
@@ -795,6 +818,19 @@ def validate_cutlass_conv_scaffold_plan(
             "CUTLASS Conv scaffold layout_translation.output_unpack_symbol mismatch: "
             f"expected {cutlass_conv_output_unpack_symbol(dtype)!r}, got {layout_translation.get('output_unpack_symbol')!r}"
         )
+    if op_family == "conv2d_bias_add":
+        if layout_translation.get("residual_pack") != "nchw_to_nhwc_temporary":
+            raise ValueError("CUTLASS Conv scaffold layout_translation.residual_pack must be 'nchw_to_nhwc_temporary'")
+        if int(layout_translation.get("residual_pack_nbytes", -1)) != expected_output_nbytes:
+            raise ValueError(
+                "CUTLASS Conv scaffold residual_pack_nbytes mismatch: "
+                f"expected {expected_output_nbytes}, got {layout_translation.get('residual_pack_nbytes')!r}"
+            )
+        if str(layout_translation.get("residual_pack_symbol")) != cutlass_conv_input_pack_symbol(dtype):
+            raise ValueError(
+                "CUTLASS Conv scaffold layout_translation.residual_pack_symbol mismatch: "
+                f"expected {cutlass_conv_input_pack_symbol(dtype)!r}, got {layout_translation.get('residual_pack_symbol')!r}"
+            )
     weight_transform = dict(payload.get("weight_transform", {}))
     expected_weight_nbytes = _nbytes(weight_shape, dtype_size)
     if weight_transform.get("from") != "oihw":
@@ -838,11 +874,12 @@ def validate_cutlass_conv_scaffold_plan(
     temporary_buffers = payload.get("temporary_buffers", ())
     if not isinstance(temporary_buffers, (list, tuple)):
         raise ValueError("CUTLASS Conv scaffold temporary_buffers must be a list")
-    expected_buffers = (
+    expected_buffers = [
         ("activation_nhwc", "layout_pack", "nhwc", expected_input_nbytes),
         ("weight_ohwi", "layout_pack", "ohwi", expected_weight_nbytes),
+        *([("residual_nhwc", "layout_pack", "nhwc", expected_output_nbytes)] if residual_shape is not None else []),
         ("output_nhwc", "layout_pack", "nhwc", expected_output_nbytes),
-    )
+    ]
     if len(temporary_buffers) != len(expected_buffers):
         raise ValueError(
             f"CUTLASS Conv scaffold temporary_buffers must contain {len(expected_buffers)} entries, "
@@ -886,14 +923,7 @@ def validate_cutlass_conv_scaffold_plan(
         )
     if candidate is not None:
         candidate_layouts = dict(candidate.get("layouts", {}))
-        expected_candidate_layouts = {
-            "activation_semantic": semantic_layout["activation"],
-            "weight_semantic": semantic_layout["weight"],
-            "output_semantic": semantic_layout["output"],
-            "activation_provider": provider_layout["activation"],
-            "weight_provider": provider_layout["weight"],
-            "output_provider": provider_layout["output"],
-        }
+        expected_candidate_layouts = _cutlass_conv_candidate_layouts(op_family)
         if candidate_layouts != expected_candidate_layouts:
             raise ValueError(
                 "CUTLASS Conv scaffold candidate layouts do not match transform plan: "
@@ -941,6 +971,8 @@ def validate_cutlass_conv_scaffold_plan(
     payload["input_shape"] = x_shape
     payload["weight_shape"] = weight_shape
     payload["bias_shape"] = bias_shape
+    if residual_shape is not None:
+        payload["residual_shape"] = residual_shape
     payload["output_shape"] = output_shape
     payload["temporary_buffers"] = normalized_buffers
     payload["workspace_nbytes"] = 0
@@ -1187,7 +1219,7 @@ def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str,
         "status": str(conv_plan["status"]),
         **({"blocked_reason": str(conv_plan["blocked_reason"])} if conv_plan.get("blocked_reason") else {}),
     }
-    return [
+    stages = [
         {
             **stage_common,
             "stage_index": 0,
@@ -1226,57 +1258,86 @@ def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str,
                 {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
             ],
         },
-        {
-            **stage_common,
-            "stage_index": 2,
-            "stage_name": "provider_launch",
-            "stage_kind": "provider_launcher",
-            "symbol": str(selected_candidate["kernel_symbol"]),
-            "launch_abi": str(selected_candidate["launch_abi"]),
-            "inputs": [
-                _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
-                _temporary_buffer_descriptor(temporary_buffers["weight_ohwi"]),
-                {"kind": "semantic_tensor", "role": "bias", "layout": "o"},
-            ],
-            "output": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
-            "shape_args": [
-                {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
-                {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
-                {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
-                {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
-                {"name": "out_h", "placeholder": "output_h", "value": int(output_shape[2])},
-                {"name": "out_w", "placeholder": "output_w", "value": int(output_shape[3])},
-                {"name": "out_c", "placeholder": "output_c", "value": int(output_shape[1])},
-                {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
-                {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
-                {"name": "stride_h", "placeholder": "stride_h", "value": int(conv_config["stride"][0])},
-                {"name": "stride_w", "placeholder": "stride_w", "value": int(conv_config["stride"][1])},
-                {"name": "pad_h", "placeholder": "pad_h", "value": int(conv_config["padding"][0])},
-                {"name": "pad_w", "placeholder": "pad_w", "value": int(conv_config["padding"][1])},
-                {"name": "dilation_h", "placeholder": "dilation_h", "value": int(conv_config["dilation"][0])},
-                {"name": "dilation_w", "placeholder": "dilation_w", "value": int(conv_config["dilation"][1])},
-            ],
-        },
-        {
-            **stage_common,
-            "stage_index": 3,
-            "stage_name": "output_unpack",
-            "stage_kind": "transform_helper",
-            "symbol": str(layout_translation["output_unpack_symbol"]),
-            "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
-            "tensor_role": "output",
-            "layout_from": "nhwc",
-            "layout_to": "nchw",
-            "source": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
-            "destination": {"kind": "semantic_tensor", "role": "output", "layout": "nchw"},
-            "shape_args": [
-                {"name": "n", "placeholder": "output_n", "value": int(output_shape[0])},
-                {"name": "c", "placeholder": "output_c", "value": int(output_shape[1])},
-                {"name": "h", "placeholder": "output_h", "value": int(output_shape[2])},
-                {"name": "w", "placeholder": "output_w", "value": int(output_shape[3])},
-            ],
-        },
     ]
+    provider_inputs = [
+        _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
+        _temporary_buffer_descriptor(temporary_buffers["weight_ohwi"]),
+        {"kind": "semantic_tensor", "role": "bias", "layout": "o"},
+    ]
+    if op_name == "conv2d_bias_add":
+        stages.append(
+            {
+                **stage_common,
+                "stage_index": 2,
+                "stage_name": "residual_pack",
+                "stage_kind": "transform_helper",
+                "symbol": str(layout_translation["residual_pack_symbol"]),
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+                "tensor_role": "residual",
+                "layout_from": "nchw",
+                "layout_to": "nhwc",
+                "source": {"kind": "semantic_tensor", "role": "residual", "layout": "nchw"},
+                "destination": _temporary_buffer_descriptor(temporary_buffers["residual_nhwc"]),
+                "shape_args": [
+                    {"name": "n", "placeholder": "output_n", "value": int(output_shape[0])},
+                    {"name": "c", "placeholder": "output_c", "value": int(output_shape[1])},
+                    {"name": "h", "placeholder": "output_h", "value": int(output_shape[2])},
+                    {"name": "w", "placeholder": "output_w", "value": int(output_shape[3])},
+                ],
+            }
+        )
+        provider_inputs.append(_temporary_buffer_descriptor(temporary_buffers["residual_nhwc"]))
+    stages.extend(
+        [
+            {
+                **stage_common,
+                "stage_index": len(stages),
+                "stage_name": "provider_launch",
+                "stage_kind": "provider_launcher",
+                "symbol": str(selected_candidate["kernel_symbol"]),
+                "launch_abi": str(selected_candidate["launch_abi"]),
+                "inputs": provider_inputs,
+                "output": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+                "shape_args": [
+                    {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
+                    {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
+                    {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
+                    {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
+                    {"name": "out_h", "placeholder": "output_h", "value": int(output_shape[2])},
+                    {"name": "out_w", "placeholder": "output_w", "value": int(output_shape[3])},
+                    {"name": "out_c", "placeholder": "output_c", "value": int(output_shape[1])},
+                    {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
+                    {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
+                    {"name": "stride_h", "placeholder": "stride_h", "value": int(conv_config["stride"][0])},
+                    {"name": "stride_w", "placeholder": "stride_w", "value": int(conv_config["stride"][1])},
+                    {"name": "pad_h", "placeholder": "pad_h", "value": int(conv_config["padding"][0])},
+                    {"name": "pad_w", "placeholder": "pad_w", "value": int(conv_config["padding"][1])},
+                    {"name": "dilation_h", "placeholder": "dilation_h", "value": int(conv_config["dilation"][0])},
+                    {"name": "dilation_w", "placeholder": "dilation_w", "value": int(conv_config["dilation"][1])},
+                ],
+            },
+            {
+                **stage_common,
+                "stage_index": len(stages) + 1,
+                "stage_name": "output_unpack",
+                "stage_kind": "transform_helper",
+                "symbol": str(layout_translation["output_unpack_symbol"]),
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+                "tensor_role": "output",
+                "layout_from": "nhwc",
+                "layout_to": "nchw",
+                "source": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+                "destination": {"kind": "semantic_tensor", "role": "output", "layout": "nchw"},
+                "shape_args": [
+                    {"name": "n", "placeholder": "output_n", "value": int(output_shape[0])},
+                    {"name": "c", "placeholder": "output_c", "value": int(output_shape[1])},
+                    {"name": "h", "placeholder": "output_h", "value": int(output_shape[2])},
+                    {"name": "w", "placeholder": "output_w", "value": int(output_shape[3])},
+                ],
+            },
+        ]
+    )
+    return stages
 
 
 def _nbytes(shape: list[int], dtype_size: int) -> int:
@@ -1326,6 +1387,39 @@ def _normalize_target_policy(target: Mapping[str, Any] | None) -> dict[str, Any]
         "no_tf32": bool(normalized_target.get("no_tf32", False)),
         "use_fp16_acc": bool(normalized_target.get("use_fp16_acc", False)),
     }
+
+
+def _cutlass_conv_semantic_layout(op_name: str) -> dict[str, str]:
+    _validate_conv_op_name(op_name)
+    layout = dict(_CUTLASS_CONV_BASE_SEMANTIC_LAYOUT)
+    if op_name == "conv2d_bias_add":
+        layout["residual"] = "nchw"
+    return layout
+
+
+def _cutlass_conv_provider_layout(op_name: str) -> dict[str, str]:
+    _validate_conv_op_name(op_name)
+    layout = dict(_CUTLASS_CONV_BASE_PROVIDER_LAYOUT)
+    if op_name == "conv2d_bias_add":
+        layout["residual"] = "nhwc"
+    return layout
+
+
+def _cutlass_conv_candidate_layouts(op_name: str) -> dict[str, str]:
+    semantic_layout = _cutlass_conv_semantic_layout(op_name)
+    provider_layout = _cutlass_conv_provider_layout(op_name)
+    layouts = {
+        "activation_semantic": semantic_layout["activation"],
+        "weight_semantic": semantic_layout["weight"],
+        "output_semantic": semantic_layout["output"],
+        "activation_provider": provider_layout["activation"],
+        "weight_provider": provider_layout["weight"],
+        "output_provider": provider_layout["output"],
+    }
+    if op_name == "conv2d_bias_add":
+        layouts["residual_semantic"] = semantic_layout["residual"]
+        layouts["residual_provider"] = provider_layout["residual"]
+    return layouts
 
 
 def _selected_cutlass_conv_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1444,10 +1538,16 @@ def _cutlass_conv_stub_source_exports(used_candidate_plan: Mapping[str, Any]) ->
 
 
 def _cutlass_conv_stub_launcher_source(symbol: str) -> str:
+    residual_signature = ""
+    residual_ignore = ""
+    if _cutlass_conv_symbol_requires_residual(symbol):
+        residual_signature = "    const void* residual_nhwc,\n"
+        residual_ignore = "  (void)residual_nhwc;\n"
     return f"""extern "C" int {symbol}(
     const void* activation_nhwc,
     const void* weight_ohwi,
     const void* bias,
+{residual_signature}\
     void* output_nhwc,
     int n,
     int h,
@@ -1468,6 +1568,7 @@ def _cutlass_conv_stub_launcher_source(symbol: str) -> str:
   (void)activation_nhwc;
   (void)weight_ohwi;
   (void)bias;
+{residual_ignore}\
   (void)output_nhwc;
   (void)n;
   (void)h;
@@ -1493,28 +1594,40 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
     dtype = str(candidate.get("dtype", ""))
     epilogue = str(candidate.get("epilogue", ""))
     iterator_algorithm = str(candidate.get("cutlass", {}).get("iterator_algorithm", "analytic"))
-    relu_suffix = "_relu" if epilogue == "bias_relu" else ""
-    if epilogue not in {"bias", "bias_relu"}:
+    residual_signature = ""
+    residual_check = ""
+    residual_arg = ""
+    if epilogue == "bias":
+        launch_suffix = ""
+    elif epilogue == "bias_relu":
+        launch_suffix = "_relu"
+    elif epilogue == "bias_add":
+        launch_suffix = "_add"
+        residual_signature = "    const void* residual_nhwc,\n"
+        residual_check = " || residual_nhwc == nullptr"
+        residual_arg = "      residual_nhwc,\n"
+    else:
         raise ValueError(f"Unsupported CUTLASS Conv epilogue {epilogue!r}")
     if dtype == "float32":
         if iterator_algorithm != "analytic":
             raise ValueError(f"Unsupported CUTLASS Conv float32 launcher iterator algorithm {iterator_algorithm!r}")
-        launch_function = f"dinoml_cutlass_conv_launch_fp32_simt_implicit_gemm_bias{relu_suffix}"
+        launch_function = f"dinoml_cutlass_conv_launch_fp32_simt_implicit_gemm_bias{launch_suffix}"
     elif iterator_algorithm == "few_channels":
-        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias{relu_suffix}"
+        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias{launch_suffix}"
     elif iterator_algorithm == "fixed_channels":
         input_channels = int(candidate.get("selection_predicate", {}).get("input_channels", 0) or 0)
         if input_channels not in _CUTLASS_CONV_FIXED_CHANNELS_SYMBOL_IDS:
             raise ValueError(f"Unsupported CUTLASS Conv fixed-channel launcher input channel count {input_channels}")
-        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c{input_channels}_bias{relu_suffix}"
+        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c{input_channels}_bias{launch_suffix}"
     elif iterator_algorithm == "optimized":
-        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias{relu_suffix}"
+        launch_function = f"dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias{launch_suffix}"
     else:
-        launch_function = f"dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias{relu_suffix}"
+        launch_function = f"dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias{launch_suffix}"
     return f"""extern "C" int {symbol}(
     const void* activation_nhwc,
     const void* weight_ohwi,
     const void* bias,
+{residual_signature}\
     void* output_nhwc,
     int n,
     int h,
@@ -1532,7 +1645,7 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
     int dilation_h,
     int dilation_w,
     cudaStream_t stream) {{
-  if (activation_nhwc == nullptr || weight_ohwi == nullptr || bias == nullptr || output_nhwc == nullptr) {{
+  if (activation_nhwc == nullptr || weight_ohwi == nullptr || bias == nullptr{residual_check} || output_nhwc == nullptr) {{
     return static_cast<int>(cudaErrorInvalidValue);
   }}
   if (n <= 0 || h <= 0 || w <= 0 || c <= 0 || out_h <= 0 || out_w <= 0 || out_c <= 0 ||
@@ -1544,6 +1657,7 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
       activation_nhwc,
       weight_ohwi,
       bias,
+{residual_arg}\
       output_nhwc,
       n,
       h,
@@ -1565,10 +1679,16 @@ def _cutlass_conv_runtime_launcher_source(symbol: str, candidate: Mapping[str, A
 
 
 def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
+    residual_signature = ""
+    residual_ignore = ""
+    if _cutlass_conv_symbol_requires_residual(symbol):
+        residual_signature = "    const void* residual_nhwc,\n"
+        residual_ignore = "  (void)residual_nhwc;\n"
     return f"""extern "C" float {symbol}(
     const void* activation_nhwc,
     const void* weight_ohwi,
     const void* bias,
+{residual_signature}\
     void* output_nhwc,
     int n,
     int h,
@@ -1590,6 +1710,7 @@ def _cutlass_conv_stub_profiler_source(symbol: str) -> str:
   (void)activation_nhwc;
   (void)weight_ohwi;
   (void)bias;
+{residual_ignore}\
   (void)output_nhwc;
   (void)n;
   (void)h;
@@ -1616,10 +1737,16 @@ def _cutlass_conv_runtime_profiler_source(symbol: str, candidate: Mapping[str, A
     launcher_symbol = str(candidate.get("kernel_symbol", ""))
     if not launcher_symbol:
         raise ValueError(f"CUTLASS Conv runtime profiler {symbol!r} is missing a launcher symbol")
+    residual_signature = ""
+    residual_arg = ""
+    if _cutlass_conv_epilogue_has_residual(str(candidate.get("epilogue", ""))):
+        residual_signature = "    const void* residual_nhwc,\n"
+        residual_arg = "        residual_nhwc,\n"
     return f"""extern "C" float {symbol}(
     const void* activation_nhwc,
     const void* weight_ohwi,
     const void* bias,
+{residual_signature}\
     void* output_nhwc,
     int n,
     int h,
@@ -1659,6 +1786,7 @@ def _cutlass_conv_runtime_profiler_source(symbol: str, candidate: Mapping[str, A
         activation_nhwc,
         weight_ohwi,
         bias,
+{residual_arg}\
         output_nhwc,
         n,
         h,
@@ -1705,9 +1833,13 @@ def _cutlass_conv_transform_runtime_support_source() -> str:
 #include "cutlass/cutlass.h"
 #include "cutlass/half.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
+#include "cutlass/conv/kernel/default_conv2d_fprop_with_broadcast.h"
 #include "cutlass/conv/device/implicit_gemm_convolution.h"
+#include "cutlass/epilogue/thread/activation.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
+#include "cutlass/epilogue/thread/linear_combination_residual_block.h"
 #include "cutlass/epilogue/thread/linear_combination_relu.h"
+#include "cutlass/functional.h"
 #include "cutlass/layout/tensor.h"
 
 namespace {
@@ -1876,6 +2008,15 @@ using DinomlCutlassConvFp16ReluEpilogue = cutlass::epilogue::thread::LinearCombi
     1,
     DinomlCutlassConvFp16Accumulator,
     DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16AddEpilogue = cutlass::epilogue::thread::LinearCombinationResidualBlock<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute,
+    DinomlCutlassConvFp16Element,
+    1,
+    cutlass::epilogue::thread::Identity,
+    cutlass::plus,
+    cutlass::epilogue::thread::Identity>;
 using DinomlCutlassConvFp16Kernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
     DinomlCutlassConvFp16Element,
     DinomlCutlassConvFp16Layout,
@@ -1918,10 +2059,33 @@ using DinomlCutlassConvFp16ReluKernel = typename cutlass::conv::kernel::DefaultC
     cutlass::conv::StrideSupport::kStrided,
     1,
     1>::Kernel;
+using DinomlCutlassConvFp16AddKernel = typename cutlass::conv::kernel::DefaultConv2dFpropWithBroadcast<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16MmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16ThreadblockShape,
+    DinomlCutlassConvFp16WarpShape,
+    DinomlCutlassConvFp16InstructionShape,
+    DinomlCutlassConvFp16AddEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    2,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kAnalytic,
+    cutlass::conv::StrideSupport::kStrided,
+    1,
+    1>::Kernel;
 using DinomlCutlassConvFp16ImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16Kernel>;
 using DinomlCutlassConvFp16ReluImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16ReluKernel>;
+using DinomlCutlassConvFp16AddImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16AddKernel>;
 
 using DinomlCutlassConvFp16FewChannelsMmaOp = cutlass::arch::OpClassTensorOp;
 using DinomlCutlassConvFp16FewChannelsThreadblockShape = cutlass::gemm::GemmShape<128, 128, 64>;
@@ -1937,6 +2101,15 @@ using DinomlCutlassConvFp16FewChannelsReluEpilogue = cutlass::epilogue::thread::
     1,
     DinomlCutlassConvFp16Accumulator,
     DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16FewChannelsAddEpilogue = cutlass::epilogue::thread::LinearCombinationResidualBlock<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute,
+    DinomlCutlassConvFp16Element,
+    1,
+    cutlass::epilogue::thread::Identity,
+    cutlass::plus,
+    cutlass::epilogue::thread::Identity>;
 using DinomlCutlassConvFp16FewChannelsKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
     DinomlCutlassConvFp16Element,
     DinomlCutlassConvFp16Layout,
@@ -1979,10 +2152,33 @@ using DinomlCutlassConvFp16FewChannelsReluKernel = typename cutlass::conv::kerne
     cutlass::conv::StrideSupport::kStrided,
     1,
     1>::Kernel;
+using DinomlCutlassConvFp16FewChannelsAddKernel = typename cutlass::conv::kernel::DefaultConv2dFpropWithBroadcast<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16FewChannelsMmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16FewChannelsThreadblockShape,
+    DinomlCutlassConvFp16FewChannelsWarpShape,
+    DinomlCutlassConvFp16FewChannelsInstructionShape,
+    DinomlCutlassConvFp16FewChannelsAddEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    2,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kFewChannels,
+    cutlass::conv::StrideSupport::kStrided,
+    1,
+    1>::Kernel;
 using DinomlCutlassConvFp16FewChannelsImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16FewChannelsKernel>;
 using DinomlCutlassConvFp16FewChannelsReluImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16FewChannelsReluKernel>;
+using DinomlCutlassConvFp16FewChannelsAddImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16FewChannelsAddKernel>;
 
 using DinomlCutlassConvFp16FixedChannelsMmaOp = cutlass::arch::OpClassTensorOp;
 using DinomlCutlassConvFp16FixedChannelsThreadblockShape = cutlass::gemm::GemmShape<128, 64, 32>;
@@ -1998,6 +2194,15 @@ using DinomlCutlassConvFp16FixedChannelsReluEpilogue = cutlass::epilogue::thread
     1,
     DinomlCutlassConvFp16Accumulator,
     DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16FixedChannelsAddEpilogue = cutlass::epilogue::thread::LinearCombinationResidualBlock<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute,
+    DinomlCutlassConvFp16Element,
+    1,
+    cutlass::epilogue::thread::Identity,
+    cutlass::plus,
+    cutlass::epilogue::thread::Identity>;
 template <int ChannelCount>
 using DinomlCutlassConvFp16FixedChannelsKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
     DinomlCutlassConvFp16Element,
@@ -2042,6 +2247,28 @@ using DinomlCutlassConvFp16FixedChannelsReluKernel = typename cutlass::conv::ker
     cutlass::conv::StrideSupport::kStrided,
     ChannelCount,
     ChannelCount>::Kernel;
+template <int ChannelCount>
+using DinomlCutlassConvFp16FixedChannelsAddKernel = typename cutlass::conv::kernel::DefaultConv2dFpropWithBroadcast<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16FixedChannelsMmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16FixedChannelsThreadblockShape,
+    DinomlCutlassConvFp16FixedChannelsWarpShape,
+    DinomlCutlassConvFp16FixedChannelsInstructionShape,
+    DinomlCutlassConvFp16FixedChannelsAddEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    3,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kFixedChannels,
+    cutlass::conv::StrideSupport::kStrided,
+    ChannelCount,
+    ChannelCount>::Kernel;
 
 using DinomlCutlassConvFp16OptimizedMmaOp = cutlass::arch::OpClassTensorOp;
 using DinomlCutlassConvFp16OptimizedThreadblockShape = cutlass::gemm::GemmShape<128, 128, 64>;
@@ -2057,6 +2284,15 @@ using DinomlCutlassConvFp16OptimizedReluEpilogue = cutlass::epilogue::thread::Li
     1,
     DinomlCutlassConvFp16Accumulator,
     DinomlCutlassConvFp16Compute>;
+using DinomlCutlassConvFp16OptimizedAddEpilogue = cutlass::epilogue::thread::LinearCombinationResidualBlock<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16Compute,
+    DinomlCutlassConvFp16Element,
+    1,
+    cutlass::epilogue::thread::Identity,
+    cutlass::plus,
+    cutlass::epilogue::thread::Identity>;
 using DinomlCutlassConvFp16OptimizedKernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
     DinomlCutlassConvFp16Element,
     DinomlCutlassConvFp16Layout,
@@ -2099,10 +2335,33 @@ using DinomlCutlassConvFp16OptimizedReluKernel = typename cutlass::conv::kernel:
     cutlass::conv::StrideSupport::kStrided,
     8,
     8>::Kernel;
+using DinomlCutlassConvFp16OptimizedAddKernel = typename cutlass::conv::kernel::DefaultConv2dFpropWithBroadcast<
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Element,
+    DinomlCutlassConvFp16Layout,
+    DinomlCutlassConvFp16Accumulator,
+    DinomlCutlassConvFp16OptimizedMmaOp,
+    DinomlCutlassConvFp16SmArch,
+    DinomlCutlassConvFp16OptimizedThreadblockShape,
+    DinomlCutlassConvFp16OptimizedWarpShape,
+    DinomlCutlassConvFp16OptimizedInstructionShape,
+    DinomlCutlassConvFp16OptimizedAddEpilogue,
+    DinomlCutlassConvFp16Swizzle,
+    3,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kOptimized,
+    cutlass::conv::StrideSupport::kStrided,
+    8,
+    8>::Kernel;
 using DinomlCutlassConvFp16OptimizedImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16OptimizedKernel>;
 using DinomlCutlassConvFp16OptimizedReluImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16OptimizedReluKernel>;
+using DinomlCutlassConvFp16OptimizedAddImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp16OptimizedAddKernel>;
 
 using DinomlCutlassConvFp32Element = float;
 using DinomlCutlassConvFp32Accumulator = float;
@@ -2124,6 +2383,15 @@ using DinomlCutlassConvFp32ReluEpilogue = cutlass::epilogue::thread::LinearCombi
     1,
     DinomlCutlassConvFp32Accumulator,
     DinomlCutlassConvFp32Compute>;
+using DinomlCutlassConvFp32AddEpilogue = cutlass::epilogue::thread::LinearCombinationResidualBlock<
+    DinomlCutlassConvFp32Element,
+    DinomlCutlassConvFp32Accumulator,
+    DinomlCutlassConvFp32Compute,
+    DinomlCutlassConvFp32Element,
+    1,
+    cutlass::epilogue::thread::Identity,
+    cutlass::plus,
+    cutlass::epilogue::thread::Identity>;
 using DinomlCutlassConvFp32Kernel = typename cutlass::conv::kernel::DefaultConv2dFprop<
     DinomlCutlassConvFp32Element,
     DinomlCutlassConvFp32Layout,
@@ -2166,10 +2434,33 @@ using DinomlCutlassConvFp32ReluKernel = typename cutlass::conv::kernel::DefaultC
     cutlass::conv::StrideSupport::kStrided,
     1,
     1>::Kernel;
+using DinomlCutlassConvFp32AddKernel = typename cutlass::conv::kernel::DefaultConv2dFpropWithBroadcast<
+    DinomlCutlassConvFp32Element,
+    DinomlCutlassConvFp32Layout,
+    DinomlCutlassConvFp32Element,
+    DinomlCutlassConvFp32Layout,
+    DinomlCutlassConvFp32Element,
+    DinomlCutlassConvFp32Layout,
+    DinomlCutlassConvFp32Accumulator,
+    DinomlCutlassConvFp32MmaOp,
+    DinomlCutlassConvFp32SmArch,
+    DinomlCutlassConvFp32ThreadblockShape,
+    DinomlCutlassConvFp32WarpShape,
+    DinomlCutlassConvFp32InstructionShape,
+    DinomlCutlassConvFp32AddEpilogue,
+    DinomlCutlassConvFp32Swizzle,
+    2,
+    cutlass::arch::OpMultiplyAdd,
+    cutlass::conv::IteratorAlgorithm::kAnalytic,
+    cutlass::conv::StrideSupport::kStrided,
+    1,
+    1>::Kernel;
 using DinomlCutlassConvFp32ImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp32Kernel>;
 using DinomlCutlassConvFp32ReluImplicitGemm =
     cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp32ReluKernel>;
+using DinomlCutlassConvFp32AddImplicitGemm =
+    cutlass::conv::device::ImplicitGemmConvolution<DinomlCutlassConvFp32AddKernel>;
 
 template <typename ImplicitGemm>
 int dinoml_cutlass_conv_launch_fp16_kernel_bias(
@@ -2307,6 +2598,142 @@ int dinoml_cutlass_conv_launch_fp32_kernel_bias(
        DinomlCutlassConvFp32Layout::Stride(0)},
       {static_cast<DinomlCutlassConvFp32Element*>(output_nhwc), output_layout},
       {DinomlCutlassConvFp32Compute(1), DinomlCutlassConvFp32Compute(1)}};
+  ImplicitGemm implicit_gemm;
+  cutlass::Status status = implicit_gemm.can_implement(arguments);
+  if (status != cutlass::Status::kSuccess) {
+    return 1000 + static_cast<int>(status);
+  }
+  status = implicit_gemm.initialize(arguments, nullptr, stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1100 + static_cast<int>(status);
+  }
+  status = implicit_gemm.run(stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1200 + static_cast<int>(status);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <typename ImplicitGemm>
+int dinoml_cutlass_conv_launch_fp16_kernel_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  cutlass::conv::Conv2dProblemSize problem_size(
+      n, h, w, c, out_c, kernel_h, kernel_w, out_h, out_w,
+      pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w,
+      cutlass::conv::Mode::kCrossCorrelation, 1, 1);
+  DinomlCutlassConvFp16Layout activation_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(n, h, w, c));
+  DinomlCutlassConvFp16Layout weight_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(out_c, kernel_h, kernel_w, c));
+  DinomlCutlassConvFp16Layout output_layout =
+      DinomlCutlassConvFp16Layout::packed(cutlass::Tensor4DCoord(n, out_h, out_w, out_c));
+  typename ImplicitGemm::Arguments arguments(
+      problem_size,
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(activation_nhwc)),
+       activation_layout},
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(weight_ohwi)),
+       weight_layout},
+      {const_cast<DinomlCutlassConvFp16Element*>(
+           static_cast<DinomlCutlassConvFp16Element const*>(residual_nhwc)),
+       output_layout},
+      {static_cast<DinomlCutlassConvFp16Element*>(output_nhwc), output_layout},
+      {DinomlCutlassConvFp16Compute(1), DinomlCutlassConvFp16Compute(1)},
+      cutlass::conv::SplitKMode::kSerial,
+      const_cast<DinomlCutlassConvFp16Element*>(
+          static_cast<DinomlCutlassConvFp16Element const*>(bias)),
+      nullptr,
+      0,
+      out_c);
+  ImplicitGemm implicit_gemm;
+  cutlass::Status status = implicit_gemm.can_implement(arguments);
+  if (status != cutlass::Status::kSuccess) {
+    return 1000 + static_cast<int>(status);
+  }
+  status = implicit_gemm.initialize(arguments, nullptr, stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1100 + static_cast<int>(status);
+  }
+  status = implicit_gemm.run(stream);
+  if (status != cutlass::Status::kSuccess) {
+    return 1200 + static_cast<int>(status);
+  }
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <typename ImplicitGemm>
+int dinoml_cutlass_conv_launch_fp32_kernel_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  cutlass::conv::Conv2dProblemSize problem_size(
+      n, h, w, c, out_c, kernel_h, kernel_w, out_h, out_w,
+      pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w,
+      cutlass::conv::Mode::kCrossCorrelation, 1, 1);
+  DinomlCutlassConvFp32Layout activation_layout =
+      DinomlCutlassConvFp32Layout::packed(cutlass::Tensor4DCoord(n, h, w, c));
+  DinomlCutlassConvFp32Layout weight_layout =
+      DinomlCutlassConvFp32Layout::packed(cutlass::Tensor4DCoord(out_c, kernel_h, kernel_w, c));
+  DinomlCutlassConvFp32Layout output_layout =
+      DinomlCutlassConvFp32Layout::packed(cutlass::Tensor4DCoord(n, out_h, out_w, out_c));
+  typename ImplicitGemm::Arguments arguments(
+      problem_size,
+      {const_cast<DinomlCutlassConvFp32Element*>(
+           static_cast<DinomlCutlassConvFp32Element const*>(activation_nhwc)),
+       activation_layout},
+      {const_cast<DinomlCutlassConvFp32Element*>(
+           static_cast<DinomlCutlassConvFp32Element const*>(weight_ohwi)),
+       weight_layout},
+      {const_cast<DinomlCutlassConvFp32Element*>(
+           static_cast<DinomlCutlassConvFp32Element const*>(residual_nhwc)),
+       output_layout},
+      {static_cast<DinomlCutlassConvFp32Element*>(output_nhwc), output_layout},
+      {DinomlCutlassConvFp32Compute(1), DinomlCutlassConvFp32Compute(1)},
+      cutlass::conv::SplitKMode::kSerial,
+      const_cast<DinomlCutlassConvFp32Element*>(
+          static_cast<DinomlCutlassConvFp32Element const*>(bias)),
+      nullptr,
+      0,
+      out_c);
   ImplicitGemm implicit_gemm;
   cutlass::Status status = implicit_gemm.can_implement(arguments);
   if (status != cutlass::Status::kSuccess) {
@@ -2515,6 +2942,33 @@ int dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias_relu(
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
+int dinoml_cutlass_conv_launch_fp16_simt_implicit_gemm_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias_add<DinomlCutlassConvFp16AddImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
 int dinoml_cutlass_conv_launch_fp32_simt_implicit_gemm_bias(
     const void* activation_nhwc,
     const void* weight_ohwi,
@@ -2582,6 +3036,33 @@ int dinoml_cutlass_conv_launch_fp32_simt_implicit_gemm_bias_relu(
     cudaStream_t stream) {
   return dinoml_cutlass_conv_launch_fp32_kernel_bias_relu<DinomlCutlassConvFp32ReluImplicitGemm>(
       activation_nhwc, weight_ohwi, bias, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
+int dinoml_cutlass_conv_launch_fp32_simt_implicit_gemm_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  return dinoml_cutlass_conv_launch_fp32_kernel_bias_add<DinomlCutlassConvFp32AddImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
@@ -2658,6 +3139,36 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias_relu(
   }
   return dinoml_cutlass_conv_launch_fp16_kernel_bias_relu<DinomlCutlassConvFp16FewChannelsReluImplicitGemm>(
       activation_nhwc, weight_ohwi, bias, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
+int dinoml_cutlass_conv_launch_fp16_tensorop_few_channels_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c != 3) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias_add<DinomlCutlassConvFp16FewChannelsAddImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
@@ -2786,6 +3297,38 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c4_bias_relu(
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
+int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c4_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c != 4) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  using ImplicitGemm = cutlass::conv::device::ImplicitGemmConvolution<
+      DinomlCutlassConvFp16FixedChannelsAddKernel<4>>;
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias_add<ImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
 int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c8_bias(
     const void* activation_nhwc,
     const void* weight_ohwi,
@@ -2858,6 +3401,38 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c8_bias_relu(
       DinomlCutlassConvFp16FixedChannelsReluKernel<8>>;
   return dinoml_cutlass_conv_launch_fp16_kernel_bias_relu<ImplicitGemm>(
       activation_nhwc, weight_ohwi, bias, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
+int dinoml_cutlass_conv_launch_fp16_tensorop_fixed_channels_c8_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c != 8) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  using ImplicitGemm = cutlass::conv::device::ImplicitGemmConvolution<
+      DinomlCutlassConvFp16FixedChannelsAddKernel<8>>;
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias_add<ImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
@@ -2937,6 +3512,36 @@ int dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias_relu(
       kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
 }
 
+int dinoml_cutlass_conv_launch_fp16_tensorop_optimized_bias_add(
+    const void* activation_nhwc,
+    const void* weight_ohwi,
+    const void* bias,
+    const void* residual_nhwc,
+    void* output_nhwc,
+    int n,
+    int h,
+    int w,
+    int c,
+    int out_h,
+    int out_w,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int dilation_h,
+    int dilation_w,
+    cudaStream_t stream) {
+  if (c < 16 || (c % 8) != 0 || (out_c % 8) != 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  return dinoml_cutlass_conv_launch_fp16_kernel_bias_add<DinomlCutlassConvFp16OptimizedAddImplicitGemm>(
+      activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c,
+      kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream);
+}
+
 }  // namespace"""
 
 
@@ -3000,7 +3605,17 @@ def _conv_epilogue_config(op_name: str) -> dict[str, Any]:
     config: dict[str, Any] = {"inputs": ["bias"]}
     if epilogue == "bias_relu":
         config["activation"] = "relu"
+    elif epilogue == "bias_add":
+        config["inputs"] = ["bias", "d0"]
     return config
+
+
+def _cutlass_conv_epilogue_has_residual(epilogue: str) -> bool:
+    return epilogue == "bias_add"
+
+
+def _cutlass_conv_symbol_requires_residual(symbol: str) -> bool:
+    return "_conv2d_bias_add_" in symbol
 
 
 def _cutlass_conv_runtime_launcher_name(op_name: str) -> str:

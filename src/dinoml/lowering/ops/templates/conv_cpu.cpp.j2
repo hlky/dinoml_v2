@@ -5,9 +5,13 @@ static int {{ func }}(
     int64_t runtime_numel_weight,
     const {{ storage_type }}* DINO_RESTRICT bias,
     int64_t runtime_numel_bias,
+{% if apply_residual %}
+    const {{ storage_type }}* DINO_RESTRICT residual,
+    int64_t runtime_numel_residual,
+{% endif %}
     {{ storage_type }}* DINO_RESTRICT out,
     int64_t runtime_numel_out) {
-  if (x == nullptr || weight == nullptr || bias == nullptr || out == nullptr) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || out == nullptr{% if apply_residual %} || residual == nullptr{% endif %}) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
   if (runtime_numel_x != {{ input_numel }}) {
@@ -19,6 +23,11 @@ static int {{ func }}(
   if (runtime_numel_bias != {{ bias_numel }}) {
     return dino_runtime_fail("{{ func }} runtime bias size mismatch");
   }
+{% if apply_residual %}
+  if (runtime_numel_residual != {{ residual_numel }}) {
+    return dino_runtime_fail("{{ func }} runtime residual size mismatch");
+  }
+{% endif %}
   if (runtime_numel_out != {{ output_numel }}) {
     return dino_runtime_fail("{{ func }} runtime output size mismatch");
   }
@@ -53,6 +62,9 @@ static int {{ func }}(
           }
           const int64_t out_index =
               ((batch * {{ out_channels }} + out_channel) * {{ out_height }} + out_h) * {{ out_width }} + out_w;
+{% if apply_residual %}
+          acc += dinoml::math::cast<float>(residual[out_index]);
+{% endif %}
 {% if apply_relu %}
           acc = acc > 0.0f ? acc : 0.0f;
 {% endif %}

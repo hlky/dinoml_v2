@@ -643,10 +643,18 @@ behavior.
   `debug/profile_report.json` plus `debug/execution_plan.json`; the real smoke
   intentionally tolerates low-confidence timing outcomes instead of claiming a
   consumable static selection when the profiled candidates are too close. This
-  does not claim general Conv
-  epilogue parity: add/sigmoid/residual epilogues, broader float32 TensorOp
-  runtime, bfloat16 Conv runtime, grouped/depthwise/transposed/3D Conv, and
-  guarded/dynamic Conv dispatch remain unported.
+  does not claim general Conv epilogue parity. One bounded residual slice is
+  now also admitted as `conv2d_bias_add`: it keeps the same public static
+  rank-4 groups=1 NCHW/OIHW contract, requires a same-shape residual input, and
+  records explicit `bias_add` epilogue plus residual-pack metadata through
+  candidate sets, manifests, profile workloads, execution plans, support-cache/
+  source-manifest provenance, generated lowering wrapper stages, and the launch
+  ABI `dinoml_cutlass_conv2d_bias_add_v1`. Current proof is intentionally
+  narrow: CPU reference plus generated CPU artifact parity, profiling metadata
+  coverage, real support-library compile coverage, and focused float32 SIMT
+  CUDA runtime parity. Broader float32 TensorOp runtime, bfloat16 Conv runtime,
+  grouped/depthwise/transposed/3D Conv, guarded/dynamic Conv dispatch, and
+  richer residual/add+activation Conv epilogues remain unported.
   A bounded `conv2d_bias_sigmoid` admission attempt was intentionally backed
   out: the required CUTLASS header exists, but the current Conv
   `device::ImplicitGemmConvolution` Fprop launcher/source-C bias wiring did not

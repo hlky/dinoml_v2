@@ -210,6 +210,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "avg_pool2d",
         "conv2d_bias",
         "conv2d_bias_relu",
+        "conv2d_bias_add",
         "max_pool2d",
         "concatenate",
         "stack",

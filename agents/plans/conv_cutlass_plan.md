@@ -28,17 +28,31 @@ added on top of it:
   `conv2d_bias`, but records fused `bias_relu` epilogue state through candidate
   sets, manifests, profile workloads, execution plans, support-cache/source
   manifests, and generated lowering.
+- `conv2d_bias_add` is now admitted as the first residual Conv slice. It keeps
+  the same static rank-4, `groups=1`, NCHW/OIHW public contract, adds a
+  same-shape residual tensor, and records explicit residual epilogue state
+  through candidate sets, manifests, profile workloads, execution plans,
+  support-cache/source manifests, generated lowering wrapper stages, and the
+  launch ABI `dinoml_cutlass_conv2d_bias_add_v1`. Because CUTLASS consumes the
+  residual in provider NHWC layout, the wrapper now materializes an explicit
+  `residual_pack` temporary alongside activation pack, weight pack, provider
+  launch, and output unpack stages.
 - Current CUDA runtime coverage for both `conv2d_bias` and `conv2d_bias_relu`
   is still deliberately narrow: fp16 SIMT, fp16 TensorOp few-channels
   (`C=3`), fp16 TensorOp fixed-channels (`C=4`/`C=8`), fp16 TensorOp optimized
   (`C >= 16` with aligned channels), and float32 SIMT only. Broader float32
-  TensorOp, bfloat16, add/sigmoid/residual epilogues, and grouped/depthwise/
-  transposed/3D Conv are not landed. Focused runtime parity currently proves
+  TensorOp, bfloat16, sigmoid, richer residual/add+activation epilogues, and
+  grouped/depthwise/transposed/3D Conv are not landed. Focused runtime parity
+  currently proves
   base `conv2d_bias` across the admitted fp16 TensorOp/SIMT lanes plus float32
   SIMT, proves the bridged public no-bias `conv2d` path on the fp16
   FewChannels `C=3`, FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`
   TensorOp lanes, and proves fused `conv2d_bias_relu` on float32 SIMT plus the
-  same fp16 TensorOp lane family.
+  same fp16 TensorOp lane family. The new `conv2d_bias_add` slice deliberately
+  stays inside that same bounded candidate family and currently has focused
+  compile/runtime proof on float32 SIMT general-shape parity plus real support-
+  library compile coverage for the fp16 few-channels shape used by the public
+  compile-boundary test.
 - A bounded `conv2d_bias_sigmoid` follow-up was explored and intentionally not
   landed. CUTLASS does ship
   `cutlass/epilogue/thread/linear_combination_sigmoid.h`, but the current
@@ -324,6 +338,31 @@ selection flow cleanly.
 
 These all deserve separate admission and design updates after the first bounded
 slice is proven.
+
+## First residual epilogue extension
+
+The next bounded extension after `conv2d_bias_relu` is now also admitted:
+
+- op: `conv2d_bias_add`
+- public semantics: unchanged from `conv2d_bias` plus one residual tensor that
+  must be static rank-4, same dtype, and exactly match the Conv output shape
+- manifest/profile/runtime identity: same provider family and candidate shapes
+  as `conv2d_bias`, but with explicit `epilogue=bias_add`,
+  `epilogue_config={"inputs":["bias","d0"]}`, `residual_shape=[N,C,H,W]`, and
+  launch ABI `dinoml_cutlass_conv2d_bias_add_v1`
+- CPU path: reference execution plus generated naive CPU artifact with explicit
+  residual add before the final store
+- CUDA/provider path: explicit residual NCHW -> NHWC temporary pack recorded in
+  `layout_translation`, `temporary_buffers`, wrapper stages, support-cache
+  manifests, source manifests, and generated lowering
+- validation proof: targeted non-CUDA parity, profiling metadata coverage, real
+  support-library compile coverage, and focused float32 SIMT runtime parity
+
+Residual risks remain intentionally narrow: only the already admitted fp16
+SIMT/few-channels/fixed-channels/optimized and float32 SIMT candidate family is
+covered, grouped/depthwise/transposed/3D Conv remain out of scope, and no
+broader residual epilogues (add+relu, add+activation chains, multiple residual
+inputs, or sigmoid) should be inferred from this slice.
 
 ## Design traps to avoid
 

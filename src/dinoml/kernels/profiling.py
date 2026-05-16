@@ -170,10 +170,12 @@ class ConvProfileWorkload:
     x_tensor: str
     weight_tensor: str
     bias_tensor: str
+    residual_tensor: str | None
     output_tensor: str
     x_shape: tuple[int, ...]
     weight_shape: tuple[int, ...]
     bias_shape: tuple[int, ...]
+    residual_shape: tuple[int, ...] | None
     output_shape: tuple[int, ...]
     conv_config: Mapping[str, Any]
     semantic_layout: Mapping[str, str]
@@ -205,6 +207,7 @@ class ConvProfileWorkload:
                 self.x_tensor: list(self.x_shape),
                 self.weight_tensor: list(self.weight_shape),
                 self.bias_tensor: list(self.bias_shape),
+                **({self.residual_tensor: list(self.residual_shape or ())} if self.residual_tensor is not None else {}),
             },
             "output": {self.output_tensor: list(self.output_shape)},
             "conv": dict(self.conv_config),
@@ -418,6 +421,7 @@ def _append_conv_profile_workloads(
         return
     conv_plan = required_item.get("cutlass_conv_plan")
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
+    residual_name = str(node["inputs"][3]) if op_name == "conv2d_bias_add" else None
     normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
         conv_plan,
         node_id=str(node["id"]),
@@ -436,6 +440,11 @@ def _append_conv_profile_workloads(
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
         weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
+        residual_shape = (
+            _runtime_tensor_shape(residual_name, tensor_map[residual_name], scenario.overrides, scenario.dim_values)
+            if residual_name is not None
+            else None
+        )
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
         for candidate in profile_candidates:
             workloads.append(
@@ -463,10 +472,12 @@ def _append_conv_profile_workloads(
                     x_tensor=x_name,
                     weight_tensor=weight_name,
                     bias_tensor=bias_name,
+                    residual_tensor=residual_name,
                     output_tensor=output_name,
                     x_shape=tuple(x_shape),
                     weight_shape=tuple(weight_shape),
                     bias_shape=tuple(bias_shape),
+                    residual_shape=None if residual_shape is None else tuple(residual_shape),
                     output_shape=tuple(output_shape),
                     conv_config=dict(normalized_conv_plan.get("conv_config", {})),
                     semantic_layout=dict(normalized_conv_plan.get("semantic_layout", {})),
@@ -2547,6 +2558,11 @@ class _CudaProfiler:
         activation = self._device_array(_random_storage((n, h, w, c), workload.dtype, rng))
         weight = self._device_array(_random_storage((weight_o, kernel_h, kernel_w, weight_i), workload.dtype, rng))
         bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+        residual = (
+            self._device_array(_random_storage((out_n, out_h, out_w, out_c), workload.dtype, rng))
+            if workload.residual_shape is not None
+            else None
+        )
         output = self._device_array(_zero_storage((out_n, out_h, out_w, out_c), workload.dtype))
         fn = getattr(self._cutlass_library("cutlass_conv"), workload.profiler_symbol)
         fn.restype = ctypes.c_float
@@ -2554,6 +2570,7 @@ class _CudaProfiler:
             ctypes.c_void_p,
             ctypes.c_void_p,
             ctypes.c_void_p,
+            *( [ctypes.c_void_p] if residual is not None else [] ),
             ctypes.c_void_p,
             *([ctypes.c_int] * 16),
             ctypes.c_void_p,
@@ -2563,6 +2580,7 @@ class _CudaProfiler:
                 activation,
                 weight,
                 bias,
+                *( [residual] if residual is not None else [] ),
                 output,
                 ctypes.c_int(n),
                 ctypes.c_int(h),

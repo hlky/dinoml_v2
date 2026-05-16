@@ -292,7 +292,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                 _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
-        elif node["op"] in {"conv2d_bias", "conv2d_bias_relu"}:
+        elif node["op"] in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
@@ -301,6 +301,7 @@ def execute_cpu(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, 
                     values[node["inputs"][0]],
                     values[node["inputs"][1]],
                     values[node["inputs"][2]],
+                    None if node["op"] != "conv2d_bias_add" else values[node["inputs"][3]],
                     node.get("attrs", {}),
                 ),
                 output_dtype,
@@ -897,7 +898,7 @@ def _execute_conv2d_bias(
     bias: np.ndarray,
     attrs: Mapping[str, object],
 ) -> np.ndarray:
-    return _execute_conv2d_bias_family("conv2d_bias", x, weight, bias, attrs)
+    return _execute_conv2d_bias_family("conv2d_bias", x, weight, bias, None, attrs)
 
 
 def _execute_conv2d_bias_relu(
@@ -906,7 +907,17 @@ def _execute_conv2d_bias_relu(
     bias: np.ndarray,
     attrs: Mapping[str, object],
 ) -> np.ndarray:
-    return _execute_conv2d_bias_family("conv2d_bias_relu", x, weight, bias, attrs)
+    return _execute_conv2d_bias_family("conv2d_bias_relu", x, weight, bias, None, attrs)
+
+
+def _execute_conv2d_bias_add(
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    residual: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    return _execute_conv2d_bias_family("conv2d_bias_add", x, weight, bias, residual, attrs)
 
 
 def _execute_conv2d_bias_family(
@@ -914,6 +925,7 @@ def _execute_conv2d_bias_family(
     x: np.ndarray,
     weight: np.ndarray,
     bias: np.ndarray,
+    residual: np.ndarray | None,
     attrs: Mapping[str, object],
 ) -> np.ndarray:
     stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1))]
@@ -935,10 +947,19 @@ def _execute_conv2d_bias_family(
         )
     out_height = (in_height + 2 * pad_h - dilation_h * (kernel_h - 1) - 1) // stride_h + 1
     out_width = (in_width + 2 * pad_w - dilation_w * (kernel_w - 1) - 1) // stride_w + 1
+    if op_name == "conv2d_bias_add":
+        if residual is None:
+            raise ValueError("conv2d_bias_add CPU reference requires a residual tensor")
+        if tuple(int(dim) for dim in residual.shape) != (batch, out_channels, out_height, out_width):
+            raise ValueError(
+                "conv2d_bias_add CPU reference residual shape must match the output shape "
+                f"({batch}, {out_channels}, {out_height}, {out_width}), got {tuple(int(dim) for dim in residual.shape)}"
+            )
     result = np.empty((batch, out_channels, out_height, out_width), dtype=np.float32)
     source = np.asarray(x, dtype=np.float32)
     filters = np.asarray(weight, dtype=np.float32)
     bias_values = np.asarray(bias, dtype=np.float32)
+    residual_values = None if residual is None else np.asarray(residual, dtype=np.float32)
     for n in range(batch):
         for oc in range(out_channels):
             for oh in range(out_height):
@@ -956,6 +977,8 @@ def _execute_conv2d_bias_family(
                                 if iw < 0 or iw >= in_width:
                                     continue
                                 total += float(source[n, ic, ih, iw] * filters[oc, ic, kh, kw])
+                    if op_name == "conv2d_bias_add":
+                        total += float(residual_values[n, oc, oh, ow])
                     if op_name == "conv2d_bias_relu":
                         total = max(total, 0.0)
                     result[n, oc, oh, ow] = total

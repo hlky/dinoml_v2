@@ -73,7 +73,10 @@ python -m dinoml.cli validate build/subpixel_upsample_cpu.dinoml --against examp
 ```
 
 Additional compact CPU workflows live under `examples/`, including
-`coordinate_ramp.py` for creation helpers feeding fused elementwise math.
+`coordinate_ramp.py` for creation helpers feeding fused elementwise math,
+`clip_model_workflow.py` for a bounded synthetic two-tower CLIP artifact proof,
+and `clip_checkpoint_workflow.py` for a cached local Hugging Face CLIP
+checkpoint compile/load/run parity workflow.
 
 For a compact CUDA linear workflow using existing explicit GEMM+bias ops,
 runtime-settable constants, a bucketed dynamic batch dimension, and a visible
@@ -131,11 +134,12 @@ key used for cache reuse and profiling fingerprints. The support cache also
 writes a `dinoml.support_source_manifest` at `src/source_manifest.json`, which
 maps the reviewable support source to candidate set keys, candidate config keys,
 launcher/profiler symbols, and support build units for later generated CUTLASS
-candidates. CUDA artifacts with the current `cutlass_conv` scaffold carry
-`libdinoml_cutlass_conv.so` only as a guarded support-stub boundary: generated
-modules can pack NCHW/OIHW inputs into NHWC/OHWI temporaries and call the
-selected Conv launcher symbol, but that launcher still returns an explicit
-unsupported status until a real CUTLASS Conv runtime lands.
+candidates. CUDA artifacts with `cutlass_conv` carry
+`libdinoml_cutlass_conv.so` as a real bounded runtime support library:
+generated modules can pack NCHW/OIHW inputs into NHWC/OHWI temporaries and run
+the admitted static groups=1 rank-4 `conv2d_bias` family through selected
+CUTLASS launchers, while broader Conv surface remains intentionally out of
+scope.
 
 Generated model code is a small Jinja2 wrapper that links against those
 libraries. It loads runtime metadata from `metadata.json` and contains launch

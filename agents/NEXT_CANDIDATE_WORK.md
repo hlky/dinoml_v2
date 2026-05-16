@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added a repo-visible cached-checkpoint CLIP benchmark harness without
+  changing CLIP model/runtime behavior. The new
+  `tools/benchmark_clip_checkpoint.py` reuses the existing deterministic
+  `examples/clip_checkpoint_workflow.py` checkpoint loading, synthetic inputs,
+  target limits, and parity helpers, then reports JSON for checkpoint id,
+  target, input/output shapes, parity/max absolute differences, compile time,
+  runtime load/session creation time, DinoML `run_numpy` latency, and local
+  Transformers forward latency. CUDA runs synchronize around timed sections and
+  keep the same cached local checkpoint assumptions as the workflow. Focused
+  tests cover CLI parsing, timing/schema helpers with stubbed runtime work, and
+  a guarded cached-base CPU benchmark smoke. This is benchmark instrumentation
+  only: no tokenizer/processor runtime plumbing, no broader CLIP checkpoint
+  support claim, and no provider/runtime behavior changes.
 - Closed the remaining real CUDA `profile_artifact(..., refresh=True)` proof
   gap for public no-bias `dml.ops.conv2d(...)` without adding a separate
   no-bias Conv provider ABI or broadening the static rank-4 groups=1 NCHW/OIHW

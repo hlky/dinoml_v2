@@ -4,6 +4,22 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the remaining profile-artifact proof gap for the newest admitted
+  residual-plus-activation Conv surface `conv2d_bias_add_relu` without changing
+  provider/runtime behavior or adding public op surface. The CUDA-gated smoke
+  now mirrors the existing `conv2d_bias_relu` and `conv2d_bias_add` artifact
+  profiling proofs: it compiles a tiny CUDA artifact, runs
+  `profile_artifact(..., refresh=True)`, and asserts both
+  `debug/profile_report.json` and `debug/execution_plan.json` preserve
+  `op=conv2d_bias_add_relu`, `epilogue=bias_add_relu`,
+  `epilogue_config={"inputs":["bias","d0"],"activation":"relu"}`, launch ABI
+  `dinoml_cutlass_conv2d_bias_add_relu_v1`, selected launcher/profiler symbol
+  identity, and the expected static-selection versus low-confidence behavior.
+  Validation reran that exact CUDA-gated smoke plus the closest
+  static-execution-plan and compile-lowering checks. The op-porting checklist
+  now reflects the stronger proof set; remaining Conv work should move to a new
+  concrete parity gap such as guarded/dynamic dispatch, broader dtype/runtime
+  coverage, or the next safe epilogue, not more artifact-profile repetition.
 - Closed the real CLIP-L checkpoint adapter-trace blocker caused by frontend
   constant aliasing on ephemeral explicit-zero Conv bridges. `GraphBuilder` now
   keys traced constants by the `Parameter` object itself instead of raw

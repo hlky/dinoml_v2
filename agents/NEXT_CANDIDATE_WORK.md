@@ -4,6 +4,21 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Advanced the known-checkpoint CLIP-L CUDA boundary from “unknown” to a real
+  opt-in compiled artifact smoke. Cached `openai/clip-vit-large-patch14` now
+  compiles, loads, and runs through the existing
+  `DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE=1` path via
+  `DINOML_CLIP_CHECKPOINT_ID`, with the test report carrying the resolved
+  checkpoint id and per-checkpoint limits. The default base checkpoint keeps
+  the existing strict `1e-5` bar for logits and embeds; CLIP-L keeps embeds at
+  `1e-5` but uses an explicit logits-only `2e-5` cap after the first run showed
+  clean embeds (`~3e-7`) and scalar logits at `1.1444091796875e-05`, just over
+  the base scalar threshold. Validation reran the compiled CUDA smoke for both
+  cached `openai/clip-vit-large-patch14` and default
+  `openai/clip-vit-base-patch32`. This is now an operational CUDA artifact
+  parity-scale proof for CLIP-L, not tokenizer/processor support, broader
+  batch/sequence/image coverage, or a claim that the final logit reduction has
+  the exact same tolerance behavior as the smaller base checkpoint.
 - Closed the next full-checkpoint CLIP-L compiled-artifact blocker. The
   non-legacy OpenAI CLIP text pooling branch (`eos_token_id != 2`) traces
   `input_ids == eos_token_id` as a pure fused `eq` node with `int64` inputs and

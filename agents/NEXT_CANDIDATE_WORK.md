@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged focused public no-bias `conv2d` CUDA runtime parity
+  coverage without adding a separate no-bias provider ABI. The new tests keep
+  `dml.ops.conv2d(...)` as the explicit-zero `conv2d_bias` bridge and prove the
+  bridge on real compiled CUDA artifacts for fp16 TensorOp FewChannels `C=3`,
+  FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`, with manifest
+  assertions preserving `source_op=conv2d`, `bias_mode=explicit_zero_constant`,
+  TensorOp candidate selection, and runtime parity against Torch. Worker
+  validation ran the full `tests/test_conv2d_ops.py` CUDA-heavy suite; PM
+  validation reran the explicit-zero bridge compile check plus a FixedChannels
+  C4 no-bias TensorOp runtime parity test. This keeps Conv first and advances
+  v1-core parity evidence for bias/no-bias without broadening groups/layouts.
 - PM-reviewed and merged a distinct CLIP-focused
   `gemm_rcr_bias_quick_gelu` fused GEMM slice without changing the existing
   `fast_gelu` surface. The new path carries explicit `quick_gelu` activation
@@ -363,7 +374,10 @@ This file should be updated after each major loop.
   execution-plan evidence around Conv candidate selection on CUDA-capable
   hardware. Keep the exact coverage honest: today only `conv2d_bias`,
   explicit-zero `conv2d`, and fused `conv2d_bias_relu` are admitted on the
-  static rank-4 groups=1 path.
+  static rank-4 groups=1 path. The public no-bias `conv2d` bridge now has real
+  fp16 TensorOp runtime parity across the same core candidate families as
+  `conv2d_bias`; do not split it into a separate provider ABI without a fresh
+  full admission slice.
 - Keep converting the bounded CLIPModel surface toward usable artifacts and
   local Transformers parity with one concrete, test-backed gap at a time after
   the Conv lane is stable. The adapter now reaches cached-checkpoint

@@ -4,6 +4,20 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Closed the next CLIP known-checkpoint usability gap at the processor/tokenizer
+  boundary without changing runtime surface, provider claims, or model code.
+  The new opt-in local-cache smoke
+  `DINOML_RUN_CLIP_CHECKPOINT_PROCESSOR_SMOKE=1` loads cached
+  `openai/clip-vit-base-patch32` model plus `CLIPProcessor` from the local
+  `/workspace/transformers` checkout with `local_files_only=True`, builds one
+  short prompt and one synthetic RGB PIL image, feeds the resulting processor
+  `input_ids`, `attention_mask`, and `pixel_values` into the existing adapted
+  `LegacyCLIPModel`, and compares DinoML CPU-reference logits/embeds against
+  local Transformers on those same processor outputs. The smoke skips clearly
+  when the cached processor/model or PIL-backed processor deps are unavailable.
+  This proves DinoML can consume real Hugging Face processor outputs at the
+  admitted boundary, but it is intentionally not runtime tokenizer/processor
+  plumbing, compiled artifact coverage, CLIP-L, interpolation, or loss support.
 - Closed the remaining user-visible profile-artifact gap for the already
   admitted residual Conv surface `conv2d_bias_add` without changing
   provider/runtime behavior. The new CUDA-gated smoke mirrors the existing

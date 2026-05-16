@@ -655,8 +655,12 @@ def _import_local_transformers():
     return transformers
 
 
+def _clip_checkpoint_id(default_checkpoint_id: str) -> str:
+    return os.environ.get("DINOML_CLIP_CHECKPOINT_ID", default_checkpoint_id)
+
+
 def _load_cached_transformers_clip_checkpoint(*, default_checkpoint_id: str):
-    checkpoint_id = os.environ.get("DINOML_CLIP_CHECKPOINT_ID", default_checkpoint_id)
+    checkpoint_id = _clip_checkpoint_id(default_checkpoint_id)
     transformers = _import_local_transformers()
     try:
         clip_model = transformers.CLIPModel.from_pretrained(checkpoint_id, local_files_only=True)
@@ -664,6 +668,55 @@ def _load_cached_transformers_clip_checkpoint(*, default_checkpoint_id: str):
         pytest.skip(f"checkpoint model {checkpoint_id!r} not available in local cache: {exc}")
     clip_model.eval()
     return checkpoint_id, clip_model
+
+
+def _load_cached_transformers_clip_processor(*, default_checkpoint_id: str):
+    checkpoint_id = _clip_checkpoint_id(default_checkpoint_id)
+    transformers = _import_local_transformers()
+    try:
+        processor = transformers.CLIPProcessor.from_pretrained(checkpoint_id, local_files_only=True)
+    except Exception as exc:
+        pytest.skip(f"checkpoint processor {checkpoint_id!r} not available in local cache or missing deps: {exc}")
+    return checkpoint_id, processor
+
+
+def _synthetic_clip_processor_image():
+    try:
+        from PIL import Image
+    except Exception as exc:
+        pytest.skip(f"PIL image support is required for the CLIP processor smoke: {exc}")
+
+    height, width = 43, 51
+    y = np.arange(height, dtype=np.int32).reshape(height, 1)
+    x = np.arange(width, dtype=np.int32).reshape(1, width)
+    red = ((x * 5 + 17) % 256).astype(np.uint8)
+    green = ((y * 7 + 29) % 256).astype(np.uint8)
+    blue = (((x + y) * 11 + 13) % 256).astype(np.uint8)
+    rgb = np.stack(
+        [
+            np.broadcast_to(red, (height, width)),
+            np.broadcast_to(green, (height, width)),
+            blue,
+        ],
+        axis=-1,
+    )
+    return Image.fromarray(rgb, mode="RGB")
+
+
+def _cached_checkpoint_processor_inputs(clip_processor):
+    processor_outputs = clip_processor(
+        text=["a bright geometric test image"],
+        images=[_synthetic_clip_processor_image()],
+        return_tensors="np",
+        padding=True,
+        truncation=True,
+    )
+    inputs = {
+        "input_ids": np.asarray(processor_outputs["input_ids"], dtype=np.int64),
+        "attention_mask": np.asarray(processor_outputs["attention_mask"], dtype=np.bool_),
+        "pixel_values": np.asarray(processor_outputs["pixel_values"], dtype=np.float32),
+    }
+    return processor_outputs, inputs
 
 
 def _cached_checkpoint_runtime_inputs(
@@ -1197,6 +1250,53 @@ def test_clip_model_transformers_checkpoint_runtime_smoke_local_cache_only():
         atol=2e-5,
         rtol=1e-5,
     )
+
+
+@pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")
+def test_clip_model_transformers_checkpoint_processor_smoke_local_cache_only(monkeypatch):
+    if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_PROCESSOR_SMOKE") != "1":
+        pytest.skip(
+            "set DINOML_RUN_CLIP_CHECKPOINT_PROCESSOR_SMOKE=1 to validate cached openai/clip-vit-base-patch32 CLIPProcessor outputs against DinoML CPU parity"
+        )
+    monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
+
+    _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
+    _, clip_processor = _load_cached_transformers_clip_processor(default_checkpoint_id="openai/clip-vit-base-patch32")
+
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
+    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
+    processor_outputs, inputs = _cached_checkpoint_processor_inputs(clip_processor)
+    seq_len = int(inputs["input_ids"].shape[1])
+
+    spec = dml.trace(
+        adapted_model,
+        inputs={
+            "input_ids": dml.TensorSpec(list(inputs["input_ids"].shape), "int64"),
+            "pixel_values": dml.TensorSpec(list(inputs["pixel_values"].shape), "float32"),
+            "attention_mask": dml.TensorSpec(list(inputs["attention_mask"].shape), "bool"),
+        },
+        name="clip_model_two_tower_transformers_cached_checkpoint_processor_smoke",
+    )
+    with np.errstate(over="ignore"):
+        actual = execute_cpu(spec, inputs)
+    expected = _cached_checkpoint_expected_outputs(clip_model, processor_outputs)
+
+    assert seq_len <= int(text_config.max_position_embeddings)
+    assert inputs["pixel_values"].shape == (
+        1,
+        int(vision_config.num_channels),
+        int(vision_config.image_size),
+        int(vision_config.image_size),
+    )
+    assert spec.ir["outputs"][0]["shape"] == [1, 1]
+    assert spec.ir["outputs"][1]["shape"] == [1, 1]
+    assert spec.ir["outputs"][2]["shape"] == [1, text_config.projection_dim]
+    assert spec.ir["outputs"][3]["shape"] == [1, vision_config.projection_dim]
+
+    np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["logits_per_text"], expected["logits_per_text"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=3e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=3e-5, rtol=1e-5)
 
 
 @pytest.mark.filterwarnings("ignore:overflow encountered in exp:RuntimeWarning")

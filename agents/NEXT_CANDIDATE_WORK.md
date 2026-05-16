@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- PM-reviewed and merged refreshed cached `openai/clip-vit-base-patch32` CUDA
+  checkpoint evidence after the explicit QuickGELU fix. The opt-in full compiled
+  CUDA smoke now asserts parity instead of a loose drift envelope on the
+  admitted batch-1 short-sequence synthetic-input smoke: refreshed max absolute
+  errors were about `7.63e-6` on logits, `1.94e-7` on text embeds, and
+  `3.02e-7` on image embeds. The tower/full breakdown now asserts standalone
+  text/image feature artifacts and recomposed logits are also parity-scale, and
+  the compact CUDA op audit is clean through the current provider-heavy
+  frontier: `layer_norm`, patch `conv2d_bias`, `gemm_rcr_bias`,
+  `gemm_rcr_bias_quick_gelu`, `bmm_rcr`, `softmax`, and `bmm_rrr`. This is not
+  a tokenizer/processor, CLIP-L, broader sequence/image, or generalized
+  checkpoint-family claim, but it does close the cached base-checkpoint CUDA
+  numerical blocker for the admitted smoke inputs.
 - PM-reviewed and merged stronger `conv2d_bias_relu` profiling and
   execution-plan evidence. The new tests prove fused `bias_relu` metadata
   survives static execution-plan application, compile-time execution-plan
@@ -407,14 +420,13 @@ This file should be updated after each major loop.
   config/state import, trace/manifest admission, a real cached
   `openai/clip-vit-base-patch32` CPU-reference runtime parity smoke, and a
   matching opt-in compiled CPU artifact smoke for the full two-tower base
-  checkpoint. The cached base checkpoint also now compiles, loads, and runs as
-  an opt-in CUDA artifact, but with a documented non-parity drift envelope. With
-  the distinct QuickGELU fused GEMM path landed, the next high-value CLIP CUDA
-  task is to rerun the cached base compiled-CUDA smoke/op audit and isolate the
-  next concrete drifty row, if any, without reopening the `fast_gelu` alias
-  question. The first known contrastive-head CUDA bug is now fixed in generated
-  `vector_norm`, and final normalization/logit assembly has been cross-checked
-  against tower recomposition.
+  checkpoint. The cached base checkpoint now also compiles, loads, and runs as
+  an opt-in CUDA artifact with parity-scale error on the admitted bounded smoke
+  inputs after the explicit QuickGELU fix. The next high-value CLIP CUDA task is
+  no longer this base-checkpoint drift investigation; broaden only by one honest
+  admission surface or audited helper row at a time, such as cached padding/mask
+  false-path helpers, pooling/layout helper rows, tokenizer/processor-adjacent
+  workflow proof, or a separate known-checkpoint/config slice.
   Keep local `/workspace/transformers` parity as the acceptance bar and keep all
   non-parity limits explicit.
 - If moving into runtime/provider work, tie it directly to a CLIP artifact test

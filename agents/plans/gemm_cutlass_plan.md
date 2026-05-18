@@ -12,10 +12,9 @@ Start with the two base dense layouts from v1:
 - `gemm_rrr`: A row-major, B row-major, C row-major.
 
 The v2 scaffold records these as CUTLASS-backed external kernel families in
-`dinoml.kernels.external`, and `dinoml.backends.cutlass` now generates a cached
-`libdinoml_cutlass_gemm.so` containing real `float32`, `float16`, and
-`bfloat16` CUTLASS launchers and profiler entrypoints for both families. Each
-family declares:
+`dinoml.kernels.external`, and the CUDA backend now builds cached op/dtype
+modules containing real `float32`, `float16`, and `bfloat16` CUTLASS launchers
+and profiler entrypoints for both families. Each family declares:
 
 - provider: `cutlass`
 - required libraries: `cutlass`, `cublaslt`
@@ -52,8 +51,15 @@ The CUTLASS slice adds:
 
 - `discover_cuda_libraries()` for CUDA/CUB/cuBLASLt/cuDNN/CUTLASS availability.
 - `build_external_kernel_plan()` for CUDA external kernel family metadata.
-- `ensure_cutlass_gemm_support_lib()` to generate and compile
-  `libdinoml_cutlass_gemm.so` once per CUDA arch/cache key.
+- The repo CMake `dinoml_cutlass_gemm` aggregate target builds op/dtype GEMM
+  static archives such as `libdinoml_cutlass_gemm_rcr_bias_float32.a` once per
+  CUDA architecture cache, instead of rendering/pruning a per-artifact GEMM
+  support source. Generated artifacts request only the archives referenced by
+  their kernel manifest and link them into the generated `module.so`; they do
+  not distribute CUTLASS GEMM support `.so` files. The target is gated by the
+  explicit `DINOML_ENABLE_CUTLASS_GEMM` CMake option and each archive is split
+  into a shared policy header plus chunked checked-in instantiation units so
+  CMake generators such as Ninja can parallelize selected archive builds.
 - Exported launcher/profiler symbols use long dtype names and CUTLASS
   candidate ids, for example
   `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_16816_256x128x32_s3_w4x2x1_f32_align8` and
@@ -72,9 +78,10 @@ The runtime GEMM port now wires model lowering into that support library:
    matrix tensors and compatible max-shape `K`.
 2. The kernel manifest records `cutlass_gemm` as an external support library
    with real launcher/profiler symbols.
-3. Generated CUDA model wrappers link `libdinoml_cutlass_gemm.so` and call the
-   cached launcher with runtime `M/N/K`, so smaller runtime `M/N` values use the
-   same max-shape artifact.
+3. Generated CUDA model wrappers link the selected
+   `libdinoml_cutlass_<op>_<dtype>.so` modules and call the cached launcher with
+   runtime `M/N/K`, so smaller runtime `M/N` values use the same max-shape
+   artifact.
 4. CPU now has a bounded naive generated path for `gemm_rcr`,
    `gemm_rcr_bias`, `gemm_rcr_bias_fast_gelu`, `bmm_rcr`, and `bmm_rrr`:
    compiled CPU artifacts flatten `A[..., K]` into runtime `M` for GEMM, keep
@@ -157,8 +164,8 @@ selecting the profiled BMM candidate in the kernel manifest. Conflicting BMM
 profile selections now generate guarded runtime dispatch on profiled batch/M/N/K
 shapes with pointer-alignment guards and default-launch fallback.
 
-`dinoml profile <artifact>` now executes exported profiler symbols for every
-manifest CUTLASS candidate, writes `debug/profile_report.json`, writes the first
+`dinoml profile <artifact>` now executes exported profiler symbols for the
+primary profile candidates, writes `debug/profile_report.json`, writes the first
 profile-selected `debug/execution_plan.json`, and caches results under the
 support-library cache. Profiling can repeat each workload sample and records
 median/mean/min/max/stddev timing statistics; the execution plan chooses the
@@ -182,7 +189,10 @@ workload. The context combines optional dense layout element alignment on either
 GEMM A/B operand, known tensor or layout storage offsets, current output and
 epilogue-input alignment metadata, and the profiled shape-derived cap. Candidate
 workloads whose CUTLASS A/B or epilogue alignment exceeds that context are
-pruned before timing. v2 also mirrors v1's shape-derived A/B alignment rule:
+pruned before timing, then profiling keeps only the highest remaining A/B
+alignment variant for each otherwise identical CUTLASS policy. Lower-alignment
+manifest candidates stay available as generated runtime fallbacks instead of
+being timed as duplicate policy candidates. v2 also mirrors v1's shape-derived A/B alignment rule:
 `gemm_rrr` caps candidate alignment by `gcd(K, N)`, `gemm_rcr` caps it by `K`,
 manifest defaults use static dimensions or dynamic `Dim.divisible_by`, and
 profiling workloads use each concrete bucket, override, or max-shape case.
@@ -208,21 +218,13 @@ can avoid reapplying residual operands or final activations incorrectly. The
 report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
-support manifests also record compile flags, NVCC version output, dependency header
-hashes, support source size/candidate-symbol counts, total NVCC wall time for the
-support build, and a provenance key that participates in support-cache reuse. The
-support cache writes a
-`dinoml.support_source_manifest` at `src/source_manifest.json` beside the rendered
-CUTLASS source; that manifest maps source files to the used candidate set keys,
-candidate config keys, launcher/profiler symbols, source metrics, and support
-build units so future generated candidates can be inspected without embedding
-generated source in model artifacts. Support-cache reuse now rejects cache hits
-when that source manifest is malformed, self-inconsistent, or stale against the
-current used candidate plan, including embedded used-plan payloads whose
-contents no longer hash to the stored `used_candidate_plan_key`, forcing a
-rebuild instead of reusing ambiguous provider provenance. The support source is
-currently rendered from a checked-in static source file and pruned to only the
-launcher/profiler symbols required by the manifest candidate plan. The first
+CUTLASS GEMM now uses repo CMake op/dtype module targets under the aggregate
+`dinoml_cutlass_gemm` target and records a compact `cutlass_gemm_manifest.json`
+for the CMake-built modules; the older per-artifact rendered/pruned GEMM
+support-source cache remains available only as a lower-level helper path and is
+no longer used by generated CUDA artifact builds. The CMake targets compile a
+shared policy header plus chunked checked-in instantiation units rather than one
+monolithic CUDA translation unit. The first
 epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.

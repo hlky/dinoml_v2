@@ -364,12 +364,6 @@ def _cutlass_layout_cpp(layout: str) -> str:
 def _cutlass_math_operator_cpp(math_operator: str) -> str:
     if math_operator == "multiply_add":
         return "cutlass::arch::OpMultiplyAdd"
-    if math_operator == "multiply_add_fast_f16":
-        return "cutlass::arch::OpMultiplyAddFastF16"
-    if math_operator == "multiply_add_fast_bf16":
-        return "cutlass::arch::OpMultiplyAddFastBF16"
-    if math_operator == "multiply_add_fast_f32":
-        return "cutlass::arch::OpMultiplyAddFastF32"
     raise ValueError(f"Unsupported CUTLASS BMM math operator: {math_operator!r}")
 
 

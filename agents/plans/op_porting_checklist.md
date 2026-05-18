@@ -308,11 +308,10 @@ normalization or softmax patterns, otherwise use custom block reductions.
   compiled CPU bridge: generated CPU artifacts flatten `A[..., K]` into runtime
   `M` and run a naive row-major loop over static/dynamic leading dims for
   `float32`, `float16`, and `bfloat16`. `gemm_rrr` still has CPU reference
-  execution only and no compiled CPU GEMM. Float32 candidate parity includes 221
-  default candidates: optional v1 SM80 regular TF32 TensorOp candidates,
-  optional fast TensorOp families for `multiply_add_fast_f16`,
-  `multiply_add_fast_bf16`, and 3xTF32 `multiply_add_fast_f32`, plus the exact
-  f32 SIMT fallback set. Reduced-precision tensor-op candidates are filtered by
+  execution only and no compiled CPU GEMM. Float32 candidate parity includes 68
+  default candidates: optional v1 SM80 regular TF32 TensorOp candidates plus the
+  exact f32 SIMT fallback set. FastF16/FastBF16/FastF32 TensorOp variants are
+  intentionally not admitted. Reduced-precision tensor-op candidates are filtered by
   CUTLASS SM80 thread-map divisibility for each op layout before entering
   manifests, so RRR excludes unbuildable N=96/160/224 tiles while RCR keeps the
   full reduced-precision tile set. The manifest carries target policy for

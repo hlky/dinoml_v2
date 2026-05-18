@@ -1161,6 +1161,7 @@ def ensure_cpu_support_libs(*, kernel_manifest: Mapping[str, object] | None = No
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:
+    cmd = _with_default_cmake_generator(cmd)
     proc = subprocess.run(cmd, cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if proc.returncode != 0:
         raise RuntimeError(
@@ -1169,3 +1170,13 @@ def _run_cmake(cmd: list[str], *, cwd: Path) -> None:
             f"stdout:\n{proc.stdout}\n"
             f"stderr:\n{proc.stderr}"
         )
+
+
+def _with_default_cmake_generator(cmd: list[str]) -> list[str]:
+    if len(cmd) < 2 or Path(cmd[0]).name != "cmake":
+        return cmd
+    if "--build" in cmd or "-G" in cmd:
+        return cmd
+    if "-S" not in cmd or shutil.which("ninja") is None:
+        return cmd
+    return [*cmd, "-G", "Ninja"]

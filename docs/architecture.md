@@ -221,12 +221,16 @@ target policy. Residual broadcast GEMMs use a local CUTLASS selector for
 TensorOp versus SIMT broadcast epilogues, so the same no-TF32 policy applies to
 those fused epilogues. The CUTLASS support cache also writes a
 `dinoml.support_source_manifest` at
-`src/source_manifest.json`, mapping the rendered support source to the candidate
-set keys, candidate config keys, launcher/profiler symbols, source metrics, and
-support build units actually required by the artifact. The support manifest also
-records source-size/candidate-symbol counts and total NVCC wall time for the
-build. The rendered support source is pruned from the checked-in CUTLASS source
-to the symbols required by the artifact's used candidate plan.
+`src/source_manifest.json`, mapping the selected candidate set/config keys,
+launcher/profiler symbols, and support build provenance into the artifact. GEMM
+artifacts now link CMake-built CUTLASS GEMM op/dtype static archives into the
+generated `module.so` rather than rendering and pruning a per-artifact GEMM
+support source or copying GEMM support `.so` files. The aggregate
+`dinoml_cutlass_gemm` target still builds the full archive set for release
+bundles, but artifact builds request only the archive targets referenced by
+their kernel manifest. Each archive is split into a checked-in common policy
+header plus chunked instantiation units so selected archive builds can
+parallelize under Ninja/CMake.
 
 Current reusable kernels are intentionally simple:
 
@@ -265,22 +269,24 @@ initialized; if an allocation or initialization copy fails, the partially
 initialized native session is destroyed before the error returns to Python.
 
 The first CUTLASS path is concrete but still intentionally compact:
-`dinoml.backends.cutlass` generates a cached `libdinoml_cutlass_gemm.so` with
+the CUDA backend builds and caches CMake CUTLASS GEMM op/dtype static archives with
 real CUTLASS `gemm_rcr`, `gemm_rrr`, bias, ReLU, and v1-style bias activation
-GEMM epilogue launchers, including `ELUp1`, plus first residual epilogue launchers and v1 RCR
-compound residual activation epilogue launchers and profiler entrypoints for
-`float32`, `float16`, and `bfloat16`.
-Public `dml.ops.gemm_*` lower into dtype-resolved calls to that support library,
-so model wrappers bind pointers/shapes and link `libdinoml_cutlass_gemm.so`
-without embedding a handwritten matmul. These ops preserve dynamic `M/N`
+GEMM epilogue launchers, including `ELUp1`, plus first residual epilogue
+launchers and v1 RCR compound residual activation epilogue launchers and
+profiler entrypoints for `float32`, `float16`, and `bfloat16`.
+Public `dml.ops.gemm_*` lower into dtype-resolved calls to those support
+archives, so model wrappers bind pointers/shapes and link only the needed
+`libdinoml_cutlass_<op>_<dtype>.a` files into `module.so` without embedding a handwritten
+matmul. These ops preserve dynamic `M/N`
 metadata and launch with runtime `M/N/K`; folded leading dimensions on
 `A[..., K]` are flattened into CUTLASS `m` while retaining logical `C[..., N]`
 shape metadata, with first RCR/RRR folded residual coverage for
 `gemm_{rcr,rrr}_bias_{add,add_relu,mul,add_add,mul_add,add_add_relu,mul_tanh,sigmoid_mul,sigmoid_mul_tanh}`.
 The bias epilogue accepts a rank-1 `N` bias or rank-2 `[1, N]` bias, and
 activation/residual epilogues instantiate CUTLASS thread epilogue functors
-directly. The checked-in macro-backed support source is rendered down to the
-used launcher/profiler symbols for each support build. Richer broadcast/visitor
+directly. The checked-in macro-backed GEMM support source is split into a shared
+policy header and many small instantiation units that CMake compiles into
+selective op/dtype support modules. Richer broadcast/visitor
 epilogues, broader non-trailing BMM broadcast forms, grouped GEMM, and public
 `matmul` layout selection remain follow-up work. Base `bmm_*` layouts now use a
 separate `cutlass_bmm` support library and profile path with batch-count,

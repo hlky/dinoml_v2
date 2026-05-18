@@ -1,0 +1,18 @@
+#include "../cutlass_gemm_common.cuh"
+
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x32_s2_w1x4x1_f32_align4, Sm80TensorOp64x256x32S2W1x4x1F16F32Align4GemmPolicy, 4)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x32_s2_w1x4x1_f32_align8, Sm80TensorOp64x256x32S2W1x4x1F16F32Align8GemmPolicy, 8)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x32_s4_w1x4x1_f32_align2, Sm80TensorOp64x256x32S4W1x4x1F16F32Align2GemmPolicy, 2)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x32_s4_w1x4x1_f32_align4, Sm80TensorOp64x256x32S4W1x4x1F16F32Align4GemmPolicy, 4)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x32_s4_w1x4x1_f32_align8, Sm80TensorOp64x256x32S4W1x4x1F16F32Align8GemmPolicy, 8)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s3_w1x4x1_f32_align2, Sm80TensorOp64x256x64S3W1x4x1F16F32Align2GemmPolicy, 2)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s3_w1x4x1_f32_align4, Sm80TensorOp64x256x64S3W1x4x1F16F32Align4GemmPolicy, 4)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s3_w1x4x1_f32_align8, Sm80TensorOp64x256x64S3W1x4x1F16F32Align8GemmPolicy, 8)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s4_w1x4x1_f32_align2, Sm80TensorOp64x256x64S4W1x4x1F16F32Align2GemmPolicy, 2)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s4_w1x4x1_f32_align4, Sm80TensorOp64x256x64S4W1x4x1F16F32Align4GemmPolicy, 4)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x256x64_s4_w1x4x1_f32_align8, Sm80TensorOp64x256x64S4W1x4x1F16F32Align8GemmPolicy, 8)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x64x32_s10_w2x2x1_f32_align2, Sm80TensorOp64x64x32S10W2x2x1F16F32Align2GemmPolicy, 2)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x64x32_s10_w2x2x1_f32_align4, Sm80TensorOp64x64x32S10W2x2x1F16F32Align4GemmPolicy, 4)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x64x32_s10_w2x2x1_f32_align8, Sm80TensorOp64x64x32S10W2x2x1F16F32Align8GemmPolicy, 8)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x64x64_s5_w2x2x1_f32_align2, Sm80TensorOp64x64x64S5W2x2x1F16F32Align2GemmPolicy, 2)
+DINOML_FORWARD_GEMM_BIAS_EXPORT(gemm_rcr_bias, bfloat16, __nv_bfloat16, cutlass::bfloat16_t, bf16, tensorop_sm80_16816_64x64x64_s5_w2x2x1_f32_align4, Sm80TensorOp64x64x64S5W2x2x1F16F32Align4GemmPolicy, 4)

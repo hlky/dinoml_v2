@@ -183,9 +183,6 @@ def _cutlass_policy_name(
     opclass_name = "TensorOp" if opclass == "tensorop" else "Simt"
     math_name = {
         "tf32": "TF32",
-        "fast_f16": "FastF16",
-        "fast_bf16": "FastBF16",
-        "tf32_fast_f32": "TF32FastF32",
         "f32": "F32",
     }.get(math, "F16")
     accumulator = accumulator_dtype.replace("float", "F").replace("bfloat", "BF").upper()
@@ -389,63 +386,6 @@ def _cutlass_sm80_tensorop_tf32_candidate_configs() -> tuple[dict[str, Any], ...
     )
 
 
-def _cutlass_sm80_tensorop_fast_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
-    return tuple(
-        _cutlass_candidate_config(
-            threadblock,
-            stages,
-            warp_count,
-            align,
-            dtype="float32",
-            accumulator_dtype="float32",
-            instruction=(16, 8, 8),
-            math="tf32_fast_f32",
-            optional=True,
-            math_operator="multiply_add_fast_f32",
-        )
-        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_FAST_F32_TILES
-        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
-    )
-
-
-def _cutlass_sm80_tensorop_fast_f16_candidate_configs() -> tuple[dict[str, Any], ...]:
-    return tuple(
-        _cutlass_candidate_config(
-            threadblock,
-            stages,
-            warp_count,
-            align,
-            dtype="float32",
-            accumulator_dtype="float32",
-            instruction=(16, 8, 8),
-            math="fast_f16",
-            optional=True,
-            math_operator="multiply_add_fast_f16",
-        )
-        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_1688_TILES
-        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
-    )
-
-
-def _cutlass_sm80_tensorop_fast_bf16_candidate_configs() -> tuple[dict[str, Any], ...]:
-    return tuple(
-        _cutlass_candidate_config(
-            threadblock,
-            stages,
-            warp_count,
-            align,
-            dtype="float32",
-            accumulator_dtype="float32",
-            instruction=(16, 8, 8),
-            math="fast_bf16",
-            optional=True,
-            math_operator="multiply_add_fast_bf16",
-        )
-        for threadblock, stages, warp_count in CUTLASS_SM80_TENSOROP_1688_TILES
-        for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS
-    )
-
-
 def _cutlass_sm80_simt_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
     return tuple(
         _cutlass_candidate_config(
@@ -467,9 +407,6 @@ def _cutlass_sm80_simt_f32_candidate_configs() -> tuple[dict[str, Any], ...]:
 CUTLASS_GEMM_CANDIDATE_CONFIGS = (
     *_cutlass_sm80_tensorop_16816_candidate_configs(),
     *_cutlass_sm80_tensorop_tf32_candidate_configs(),
-    *_cutlass_sm80_tensorop_fast_f16_candidate_configs(),
-    *_cutlass_sm80_tensorop_fast_bf16_candidate_configs(),
-    *_cutlass_sm80_tensorop_fast_f32_candidate_configs(),
     *_cutlass_sm80_simt_f32_candidate_configs(),
 )
 CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE = {
@@ -795,11 +732,12 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     ctype, element, old_suffix = _cutlass_export_dtype_args(dtype)
     symbol_id = str(candidate["symbol_id"])
     policy = str(candidate["cutlass_policy"])
+    align = int(candidate["cutlass"]["align"])
     epilogue = str(candidate["epilogue"])
     if epilogue == "linear_combination":
-        return f"DINOML_FORWARD_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
+        return f"DINOML_FORWARD_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy}, {align})"
     if epilogue == "bias":
-        return f"DINOML_FORWARD_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy})"
+        return f"DINOML_FORWARD_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy}, {align})"
     layout_b = "cutlass::layout::ColumnMajor" if "_rcr" in op_name else "cutlass::layout::RowMajor"
     ldb = "k" if "_rcr" in op_name else "n"
     if epilogue in {
@@ -812,16 +750,16 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     }:
         return (
             f"DINOML_FORWARD_GEMM_BIAS_RESIDUAL_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
-            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy}, {align})"
         )
     if epilogue in {"bias_add_add", "bias_add_add_relu", "bias_mul_add"}:
         return (
             f"DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
-            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+            f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy}, {align})"
         )
     return (
         f"DINOML_FORWARD_GEMM_BIAS_ACTIVATION_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
-        f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy})"
+        f"{layout_b}, {ldb}, {_cutlass_epilogue_alias(epilogue)}, {symbol_id}, {policy}, {align})"
     )
 
 
@@ -848,12 +786,6 @@ def _cutlass_cpp_element(dtype: str) -> str:
 def _cutlass_math_operator_cpp(math_operator: str) -> str:
     if math_operator == "multiply_add":
         return "cutlass::arch::OpMultiplyAdd"
-    if math_operator == "multiply_add_fast_f16":
-        return "cutlass::arch::OpMultiplyAddFastF16"
-    if math_operator == "multiply_add_fast_bf16":
-        return "cutlass::arch::OpMultiplyAddFastBF16"
-    if math_operator == "multiply_add_fast_f32":
-        return "cutlass::arch::OpMultiplyAddFastF32"
     raise ValueError(f"Unsupported CUTLASS math operator: {math_operator!r}")
 
 
@@ -914,6 +846,16 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
 def gemm_dtype_suffix(dtype: str) -> str:
     normalized = normalize_gemm_dtype(dtype)
     return GEMM_DTYPE_SUFFIXES[normalized]
+
+
+def cutlass_gemm_static_library_name(op_name: str, dtype: str) -> str:
+    normalized = normalize_gemm_dtype(dtype)
+    return f"libdinoml_cutlass_{op_name}_{normalized}.a"
+
+
+def cutlass_gemm_cmake_target(op_name: str, dtype: str) -> str:
+    normalized = normalize_gemm_dtype(dtype)
+    return f"dinoml_cutlass_gemm_{op_name}_{normalized}"
 
 
 def _selected_candidate(item: Mapping[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -981,6 +923,8 @@ __all__ = [
     "cutlass_gemm_candidate_set_id",
     "cutlass_gemm_candidates",
     "cutlass_gemm_default_candidate",
+    "cutlass_gemm_cmake_target",
+    "cutlass_gemm_static_library_name",
     "cutlass_gemm_profiler_symbol",
     "cutlass_gemm_split_k_supported",
     "cutlass_gemm_symbol",

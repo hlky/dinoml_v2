@@ -19,7 +19,11 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_layout_plan,
     validate_cutlass_conv_scaffold_plan,
 )
-from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidate_set, cutlass_gemm_candidates
+from dinoml.kernels.providers.cutlass.gemm import (
+    cutlass_gemm_candidate_set,
+    cutlass_gemm_candidates,
+    cutlass_gemm_static_library_name,
+)
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
     cutlass_bmm_static_alignment_context,
@@ -131,11 +135,14 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         seen.add(key)
         item = {
             "op": node["op"],
+            "dtype": dtype,
             "kernel_symbol": kernel_symbol,
             "kernel_library": resolved.library,
             "profiler_symbol": profiler_symbol,
             "has_profiler": op_def.profiler,
         }
+        if resolved.library == "cutlass_gemm":
+            item["support_archive"] = cutlass_gemm_static_library_name(str(node["op"]), dtype)
         if model_generated_source is not None:
             item["generated_source"] = dict(model_generated_source)
         if candidates:
@@ -943,7 +950,7 @@ def _with_kernel_manifest_cache_keys(manifest: Mapping[str, Any]) -> dict[str, A
 def build_support_manifest(
     *,
     target: Mapping[str, Any],
-    libraries: Mapping[str, str],
+    libraries: Mapping[str, Any],
     required_kernel_cache_key: str | None = None,
 ) -> dict[str, Any]:
     manifest = {

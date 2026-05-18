@@ -122,9 +122,7 @@ def _cutlass_candidates() -> list[Path]:
             candidates.append(Path(value))
     candidates.extend(
         [
-            Path("/workspace/dinoml_v2/third_party/cutlass"),
-            Path("/workspace/dinoml_v2/3rdparty/cutlass"),
-            Path("/workspace/dinoml/3rdparty/cutlass"),
+            Path(__file__).resolve().parents[3] / "third_party" / "cutlass",
         ]
     )
     return candidates

@@ -82,30 +82,29 @@ GEMM_BIAS_RESIDUAL_EPILOGUE_ALIASES = {
 }
 FLOAT32_CANDIDATE_MATH_COUNTS = {
     "tf32": 57,
-    "fast_f16": 57,
-    "fast_bf16": 57,
-    "tf32_fast_f32": 39,
     "f32": 11,
 }
-FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH = {
-    "fast_f16": "multiply_add_fast_f16",
-    "fast_bf16": "multiply_add_fast_bf16",
-    "tf32_fast_f32": "multiply_add_fast_f32",
-}
-FLOAT32_OPTIONAL_MATH_COUNTS = {
-    math: count for math, count in FLOAT32_CANDIDATE_MATH_COUNTS.items() if math != "f32"
-}
-FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH = {
-    "fast_f16": "cutlass::arch::OpMultiplyAddFastF16",
-    "fast_bf16": "cutlass::arch::OpMultiplyAddFastBF16",
-    "tf32_fast_f32": "cutlass::arch::OpMultiplyAddFastF32",
-}
+FLOAT32_OPTIONAL_MATH_COUNTS = {"tf32": 57}
 SPLIT_K_LAUNCH_ABIS = {"dinoml_cutlass_gemm_v1", "dinoml_cutlass_gemm_bias_v1"}
 SPLIT_K_RESIDUAL_EPILOGUES = {"bias_add", "bias_add_add", "bias_add_relu", "bias_add_add_relu"}
 SPLIT_K_RESIDUAL_LAUNCH_ABIS = {
     "dinoml_cutlass_gemm_bias_residual_v1",
     "dinoml_cutlass_gemm_bias_residual2_v1",
 }
+
+
+def _cutlass_gemm_source_text() -> str:
+    root = Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src"
+    common = (root / "cutlass_gemm_common.cuh").read_text(encoding="utf-8")
+    unit_text = []
+    for path in sorted((root / "cutlass_gemm_units").glob("*.cu")):
+        lines = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() != '#include "../cutlass_gemm_common.cuh"'
+        ]
+        unit_text.append("\n".join(lines))
+    return "\n\n".join([common, *unit_text]) + "\n"
 
 
 def _trace_gemm_bias_residual(op_name: str, layout: str, *, dtype: str = "float32"):
@@ -228,12 +227,7 @@ def _assert_float32_candidate_math_families(candidates):
     )
     assert {candidate["cutlass"]["opclass"] for candidate in candidates if candidate["optional"]} == {"tensorop"}
     assert {candidate["cutlass"]["opclass"] for candidate in candidates if not candidate["optional"]} == {"simt"}
-    for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
-        assert {
-            candidate["cutlass"].get("math_operator", "multiply_add")
-            for candidate in candidates
-            if candidate["cutlass"]["math"] == math
-        } == {math_operator}
+    assert all(candidate["cutlass"].get("math_operator", "multiply_add") == "multiply_add" for candidate in candidates)
 
 
 def test_pass_manager_runs_expected_pipeline():
@@ -801,7 +795,14 @@ def test_gemm_kernel_manifest_uses_cutlass_external_library(dtype, suffix):
     assert plan.profiler_symbols == (selected_profiler,)
     assert plan.candidate_profiler_symbols == tuple(candidate_profilers)
     assert plan.external_support_libraries[0]["name"] == "cutlass_gemm"
-    assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_gemm.so"
+    assert plan.external_support_libraries[0]["modules"] == [
+        {
+            "op": "gemm_rrr",
+            "dtype": dtype,
+            "archive": f"lib/libdinoml_cutlass_gemm_rrr_{dtype}.a",
+        }
+    ]
+    assert plan.external_support_libraries[0]["build_mode"] == "cmake_op_dtype_static_archives"
     assert len(plan.external_support_libraries[0]["used_candidate_plan_key"]) == 64
     assert plan.external_support_libraries[0]["candidate_set_keys"] == [required["candidate_set_key"]]
     assert plan.external_support_libraries[0]["candidate_config_keys"] == [
@@ -1362,9 +1363,7 @@ def test_gemm_kernel_manifest_filters_fp16_accumulation_policy():
     )
 
     generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=fp16_acc_manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
     rendered_support = render_cutlass_gemm_source(source, fp16_acc_support)
 
     assert fp16_required["kernel_symbol"] in generated
@@ -1405,9 +1404,7 @@ def test_gemm_kernel_manifest_no_tf32_selects_simt_float32_candidates():
     assert no_tf32_required["candidates"][-1]["symbol_id"] == "simt_sm80_f32_32x128x8_s5_w1x2x1_f32_align1"
 
     generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=no_tf32_manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
     rendered_support = render_cutlass_gemm_source(source, cutlass_gemm_used_candidate_plan(no_tf32_manifest))
 
     assert no_tf32_required["kernel_symbol"] in generated
@@ -1464,9 +1461,7 @@ def test_apply_execution_plan_selects_profiled_cutlass_candidate_for_lowering():
     plan = create_codegen_plan(selected_manifest, "/tmp/dinoml-test-cache")
     generated = render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
     rendered_support = render_cutlass_gemm_source(
-        (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-            encoding="utf-8"
-        ),
+        _cutlass_gemm_source_text(),
         cutlass_gemm_used_candidate_plan(selected_manifest),
     )
 
@@ -2261,7 +2256,7 @@ def test_cuda_lowering_rejects_split_k_for_non_additive_residual():
         render_cuda_module(lowered, generated_kernels=[], kernel_manifest=selected_manifest)
 
 
-def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():
+def test_cutlass_gemm_source_renderer_emits_float32_tf32_policy_aliases():
     import dinoml as dml
 
     class GemmModel(dml.Module):
@@ -2276,31 +2271,27 @@ def test_cutlass_gemm_source_renderer_emits_float32_fast_policy_aliases():
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     support = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, support)
 
     required = manifest["required_kernels"][0]
     _assert_float32_candidate_math_families(required["candidates"])
-    for math, math_operator in FLOAT32_OPTIONAL_FAST_OPERATOR_BY_MATH.items():
-        fast_candidate = next(
-            candidate
-            for candidate in required["candidates"]
-            if candidate["cutlass"]["math"] == math and candidate["cutlass"]["align"] == 4
-        )
-        policy_alias = _cutlass_rendered_policy_alias(rendered, fast_candidate["cutlass_policy"])
-        cutlass_operator = FLOAT32_OPTIONAL_FAST_CUTLASS_OPERATOR_BY_MATH[math]
+    tf32_candidate = next(
+        candidate
+        for candidate in required["candidates"]
+        if candidate["cutlass"]["math"] == "tf32" and candidate["cutlass"]["align"] == 4
+    )
+    policy_alias = _cutlass_rendered_policy_alias(rendered, tf32_candidate["cutlass_policy"])
 
-        assert fast_candidate["optional"] is True
-        assert fast_candidate["cutlass"]["math_operator"] == math_operator
-        assert fast_candidate["symbol_id"] in rendered
-        assert fast_candidate["cutlass_policy"] in rendered
-        assert re.search(r"Align4GemmPolicy$", fast_candidate["cutlass_policy"])
-        assert cutlass_operator in rendered
-        assert cutlass_operator in policy_alias
-        assert re.search(r"\n    4[,>]", policy_alias)
+    assert tf32_candidate["optional"] is True
+    assert tf32_candidate["cutlass"].get("math_operator", "multiply_add") == "multiply_add"
+    assert tf32_candidate["symbol_id"] in rendered
+    assert tf32_candidate["cutlass_policy"] in rendered
+    assert re.search(r"Align4GemmPolicy$", tf32_candidate["cutlass_policy"])
+    assert "cutlass::arch::OpMultiplyAddFast" not in rendered
+    assert "cutlass::arch::OpMultiplyAdd" in policy_alias
+    assert re.search(r"\n    4[,>]", policy_alias)
 
 
 def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
@@ -2318,7 +2309,7 @@ def test_cutlass_gemm_source_renderer_keeps_only_used_symbols():
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     used_plan = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(encoding="utf-8")
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, used_plan)
 
@@ -2336,9 +2327,7 @@ def test_cutlass_gemm_source_renderer_emits_elup1_epilogue_export():
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     support = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, support)
 
@@ -2358,9 +2347,7 @@ def test_cutlass_gemm_source_renderer_emits_quick_gelu_epilogue_export():
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     support = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, support)
 
@@ -2381,7 +2368,7 @@ def test_cutlass_gemm_source_renderer_emits_residual_epilogue_exports(op_name, l
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, DEFAULT_CUDA_TARGET)
     support = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(encoding="utf-8")
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, support)
 
@@ -2404,9 +2391,7 @@ def test_cutlass_gemm_source_renderer_emits_no_tf32_simt_residual_epilogue_expor
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {**DEFAULT_CUDA_TARGET, "no_tf32": True})
     support = cutlass_gemm_used_candidate_plan(manifest)
-    source = (Path(__file__).resolve().parents[1] / "kernels" / "cuda" / "src" / "cutlass_gemm.cu").read_text(
-        encoding="utf-8"
-    )
+    source = _cutlass_gemm_source_text()
 
     rendered = render_cutlass_gemm_source(source, support)
 

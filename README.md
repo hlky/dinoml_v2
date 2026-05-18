@@ -117,7 +117,6 @@ model.dinoml/
     libdinoml_runtime.so
     libdinoml_cuda_runtime.so
     libdinoml_cuda_kernels.so
-    libdinoml_cutlass_gemm.so
   debug/
     generated_src/
     pass_dumps/
@@ -127,14 +126,19 @@ model.dinoml/
 `libdinoml_cuda_kernels.so` are built with CMake and cached per CUDA architecture
 and required-kernel manifest under `~/.cache/dinoml_v2/support/`. CPU artifacts
 use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
-CUDA artifacts that need CUTLASS GEMM also carry `libdinoml_cutlass_gemm.so`;
-the cached support build writes `cutlass_gemm_manifest.json` with compile flags,
-NVCC version, dependency header hashes, source/library hashes, and a provenance
-key used for cache reuse and profiling fingerprints. The support cache also
-writes a `dinoml.support_source_manifest` at `src/source_manifest.json`, which
-maps the reviewable support source to candidate set keys, candidate config keys,
-launcher/profiler symbols, and support build units for later generated CUTLASS
-candidates. CUDA artifacts with `cutlass_conv` carry
+CUDA artifacts that need CUTLASS GEMM link the required op/dtype static archives
+into the generated `module.so`; they do not carry CUTLASS GEMM support `.so`
+files. The CMake aggregate target `dinoml_cutlass_gemm` builds every archive for
+release/prebuilt bundles, while artifact builds request only the archive targets
+referenced by the kernel manifest. These archives are cached once per CUDA
+architecture under `cutlass-gemm/cmake-full` instead of being rendered and
+pruned per artifact. The target compiles the shared GEMM policy header plus
+chunked checked-in instantiation units under `kernels/cuda/src/cutlass_gemm_units/`
+so Ninja/CMake can parallelize each archive build. Its
+`cutlass_gemm_manifest.json` records the CMake targets, source hash, and archive
+hashes used by profiling fingerprints. The CMake target is controlled by
+`-DDINOML_ENABLE_CUTLASS_GEMM=ON/OFF`. CUDA
+artifacts with `cutlass_conv` carry
 `libdinoml_cutlass_conv.so` as a real bounded runtime support library:
 generated modules can pack NCHW/OIHW inputs into NHWC/OHWI temporaries and run
 the admitted static groups=1 rank-4 `conv2d_bias` family through selected

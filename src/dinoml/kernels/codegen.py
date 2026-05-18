@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, cutlass_conv_wrapper_stages
-from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan
+from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_static_library_name, cutlass_gemm_used_candidate_plan
 from dinoml.libgguf_cuda import (
     LIBGGUF_CUDA_NATIVE_LIBRARY_ENV,
     file_sha256,
@@ -104,23 +104,26 @@ def _external_support_libraries(
     cache_root: Path,
     target_dir: str,
     support_key: str,
-) -> tuple[Mapping[str, str], ...]:
+) -> tuple[Mapping[str, Any], ...]:
     libraries = sorted({item["kernel_library"] for item in kernel_manifest["required_kernels"] if item["kernel_library"] not in {"model"}})
     result = []
     for library in libraries:
         if library == "cutlass_gemm":
-            cache_dir = cache_root / "support" / target_dir / "cutlass-gemm" / support_key
+            cache_dir = cache_root / "support" / target_dir / "cutlass-gemm" / "cmake-full"
             used_candidate_plan = cutlass_gemm_used_candidate_plan(kernel_manifest)
+            modules = _cutlass_gemm_modules(kernel_manifest)
             result.append(
                 {
                     "name": library,
                     "cache_dir": str(cache_dir),
-                    "library": "lib/libdinoml_cutlass_gemm.so",
+                    "modules": modules,
+                    "build_mode": "cmake_op_dtype_static_archives",
                     "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
                     "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
                 }
             )
         elif library == "cutlass_bmm":
@@ -191,6 +194,22 @@ def _external_support_libraries(
                 }
             )
     return tuple(result)
+
+
+def _cutlass_gemm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    modules = {}
+    for item in kernel_manifest["required_kernels"]:
+        if item.get("kernel_library") != "cutlass_gemm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or cutlass_gemm_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": f"lib/{archive}",
+        }
+    return [modules[key] for key in sorted(modules)]
 
 
 def _wrapper_stages(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:

@@ -33,6 +33,7 @@ from dinoml.kernels.profiling import (
     _profile_result,
     _profile_result_from_cache,
     _profile_timing,
+    _primary_alignment_profile_candidates,
     build_execution_plan,
     build_profile_workloads,
     parse_shape_overrides,
@@ -57,6 +58,36 @@ def _cutlass_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=No
     return len(_cutlass_candidates(dtype, op_name=op_name, target=target))
 
 
+def _cutlass_profile_candidates(
+    dtype: str,
+    *,
+    op_name: str = "gemm_rrr",
+    target=None,
+    max_alignment: int | None = None,
+) -> tuple[dict[str, object], ...]:
+    candidates = _cutlass_candidates(dtype, op_name=op_name, target=target)
+    if max_alignment is not None:
+        candidates = tuple(candidate for candidate in candidates if int(candidate["cutlass"]["align"]) <= max_alignment)
+    return tuple(_primary_alignment_profile_candidates(candidates))
+
+
+def _cutlass_profile_candidate_count(dtype: str, *, op_name: str = "gemm_rrr", target=None) -> int:
+    return len(_cutlass_profile_candidates(dtype, op_name=op_name, target=target))
+
+
+def _cutlass_bmm_profile_candidates(
+    dtype: str,
+    *,
+    op_name: str = "bmm_rrr",
+    target=None,
+    max_alignment: int | None = None,
+) -> tuple[dict[str, object], ...]:
+    candidates = _cutlass_bmm_candidates(dtype, op_name=op_name, target=target)
+    if max_alignment is not None:
+        candidates = tuple(candidate for candidate in candidates if int(candidate["cutlass"]["align"]) <= max_alignment)
+    return tuple(_primary_alignment_profile_candidates(candidates))
+
+
 def _execution_plan_key(plan):
     return hashlib.sha256(
         canonical_json({key: value for key, value in plan.items() if key != "execution_plan_key"}).encode("utf-8")
@@ -64,11 +95,11 @@ def _execution_plan_key(plan):
 
 
 def _assert_folded_residual_workload_alignment(workloads, *, layout: str, op_name: str) -> None:
-    full_candidate_count = _cutlass_candidate_count("float32", op_name=op_name)
+    primary_candidate_count = _cutlass_profile_candidate_count("float32", op_name=op_name)
     if layout == "rcr":
-        assert len(workloads) == full_candidate_count
+        assert len(workloads) == primary_candidate_count
     else:
-        assert len(workloads) < full_candidate_count
+        assert len(workloads) < primary_candidate_count
         assert {workload.candidate["cutlass"]["align"] for workload in workloads} == {1}
         assert all(
             workload.alignment_context["candidate_filter"]["max_operand_alignment"] == 1
@@ -333,7 +364,7 @@ def test_build_profile_workloads_uses_runtime_shape_overrides():
 
     workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (7, 32), "b": (32, 16)})
 
-    assert len(workloads) == _cutlass_candidate_count("float16")
+    assert len(workloads) == _cutlass_profile_candidate_count("float16")
     workload = workloads[0]
     assert workload.profiler_symbol == f"dinoml_profile_cutlass_gemm_rrr_float16_{_cutlass_default_symbol_id('float16')}"
     assert workload.dtype == "float16"
@@ -364,9 +395,7 @@ def test_build_profile_workloads_supports_cutlass_bmm_batch_broadcast_and_column
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     codegen_plan = create_codegen_plan(manifest, tmp_path / "cache").to_json()
-    expected_candidates = [
-        candidate for candidate in _cutlass_bmm_candidates("float32", op_name="bmm_ccc") if int(candidate["cutlass"]["align"]) <= 4
-    ]
+    expected_candidates = _cutlass_bmm_profile_candidates("float32", op_name="bmm_ccc", max_alignment=4)
 
     workloads = build_profile_workloads(lowered, manifest)
 
@@ -1175,9 +1204,10 @@ def test_profile_artifact_writes_cutlass_conv_report_cache_and_execution_plan(tm
     write_json(artifact / "kernel_codegen_plan.json", codegen_plan)
 
     class FakeCudaProfiler:
-        def __init__(self, artifact_dir, manifest_payload):
+        def __init__(self, artifact_dir, manifest_payload, codegen_plan_payload):
             self.artifact_dir = artifact_dir
             self.manifest_payload = manifest_payload
+            self.codegen_plan_payload = codegen_plan_payload
 
         def profile(self, workload, *, iterations, rng):
             elapsed = 0.10 if workload.candidate["selection_predicate"]["kind"] == "fallback" else 0.20
@@ -1763,7 +1793,7 @@ def test_build_profile_workloads_expands_dim_buckets():
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    candidate_count = _cutlass_candidate_count("float16")
+    candidate_count = _cutlass_profile_candidate_count("float16")
     assert len(workloads) == candidate_count * 6
     cases = {
         (workload.m, workload.n, workload.k, workload.shape_case_id, tuple(sorted(workload.dim_values.items())))
@@ -1807,7 +1837,7 @@ def test_build_profile_workloads_evaluates_sourceable_symbolic_expr_buckets():
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float16", op_name="gemm_rcr") * 5
+    assert len(workloads) == _cutlass_profile_candidate_count("float16", op_name="gemm_rcr") * 5
     assert {
         (workload.m, workload.n, workload.output_shape, workload.shape_case_id, tuple(sorted(workload.dim_values.items())))
         for workload in workloads
@@ -1831,7 +1861,7 @@ def test_build_profile_workloads_overrides_disable_bucket_expansion():
 
     workloads = build_profile_workloads(lowered, manifest, input_shapes={"a": (3, 32), "b": (32, 8)})
 
-    assert len(workloads) == _cutlass_candidate_count("float16") * 2
+    assert len(workloads) == _cutlass_profile_candidate_count("float16") * 2
     assert {(workload.m, workload.n, workload.k) for workload in workloads} == {(3, 8, 32)}
     assert {workload.split_k for workload in workloads} == {1, 2}
     assert {workload.shape_source for workload in workloads} == {"runtime_override"}
@@ -1850,7 +1880,7 @@ def test_build_profile_workloads_records_max_sourced_dynamic_dims_with_buckets()
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float16") * 2
+    assert len(workloads) == _cutlass_profile_candidate_count("float16") * 2
     assert {
         (workload.m, workload.n, workload.shape_case_id, tuple(sorted(workload.dim_sources.items())))
         for workload in workloads
@@ -1877,8 +1907,11 @@ def test_build_profile_workloads_bucket_expansion_preserves_shared_dim_values():
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32") * 2
-    case_inputs = {workload.shape_case_id: workload.to_json()["inputs"] for workload in workloads[: _cutlass_candidate_count("float32") * 2]}
+    assert len(workloads) == _cutlass_profile_candidate_count("float32") * 2
+    case_inputs = {
+        workload.shape_case_id: workload.to_json()["inputs"]
+        for workload in workloads[: _cutlass_profile_candidate_count("float32") * 2]
+    }
     assert case_inputs["bucket_batch=2"]["a"] == [2, 32]
     assert case_inputs["bucket_batch=2"]["d0"] == [2, 11]
     assert case_inputs["bucket_batch=4"]["a"] == [4, 32]
@@ -1917,7 +1950,7 @@ def test_build_profile_workloads_uses_manifest_selected_fp16_accumulation_policy
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float16", target=target)
+    assert len(workloads) == _cutlass_profile_candidate_count("float16", target=target)
     assert workloads
     assert {workload.candidate["accumulator_dtype"] for workload in workloads} == {"float16"}
     assert all("_f16_" in workload.kernel_symbol for workload in workloads)
@@ -2036,9 +2069,7 @@ def test_build_profile_workloads_filters_candidates_by_v1_rrr_shape_alignment():
     )
     lowered, _ = PassManager().run(spec.ir)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
-    expected_candidates = [
-        candidate for candidate in _cutlass_candidates("float32") if int(candidate["cutlass"]["align"]) <= 2
-    ]
+    expected_candidates = _cutlass_profile_candidates("float32", max_alignment=2)
 
     workloads = build_profile_workloads(lowered, manifest)
 
@@ -2069,9 +2100,7 @@ def test_build_profile_workloads_filters_candidates_by_layout_alignment():
     lowered, _ = PassManager().run(spec.ir)
     _set_tensor_layout_alignment(lowered, {"a", "b"}, 2)
     manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
-    expected_candidates = [
-        candidate for candidate in _cutlass_candidates("float32") if int(candidate["cutlass"]["align"]) <= 2
-    ]
+    expected_candidates = _cutlass_profile_candidates("float32", max_alignment=2)
 
     workloads = build_profile_workloads(lowered, manifest)
 
@@ -2180,7 +2209,7 @@ def test_build_profile_workloads_ignores_epilogue_input_layout_alignment_for_can
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    assert len(workloads) == _cutlass_profile_candidate_count("float32")
 
 
 def test_build_profile_workloads_rejects_layout_alignment_without_candidate():
@@ -2218,7 +2247,7 @@ def test_build_profile_workloads_supports_gemm_bias_epilogue(op_name, epilogue):
 
     workloads = build_profile_workloads(lowered, manifest)
 
-    assert len(workloads) == _cutlass_candidate_count("float32")
+    assert len(workloads) == _cutlass_profile_candidate_count("float32")
     workload = workloads[0]
     assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_{_cutlass_default_symbol_id('float32')}"
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
@@ -2249,8 +2278,8 @@ def test_build_profile_workloads_supports_gemm_residual_epilogue_inputs(op_name,
     workloads = build_profile_workloads(lowered, manifest)
 
     required = manifest["required_kernels"][0]
-    assert len(workloads) == len(required["candidates"])
-    assert len(workloads) == _cutlass_candidate_count("float32", op_name=op_name)
+    assert len(workloads) == _cutlass_profile_candidate_count("float32", op_name=op_name)
+    assert len(workloads) == _cutlass_profile_candidate_count("float32", op_name=op_name)
     workload = workloads[0]
     assert workload.profiler_symbol == f"dinoml_profile_cutlass_{op_name}_float32_{_cutlass_default_symbol_id('float32')}"
     assert workload.candidate_set_id == f"cutlass_{op_name}_float32_{epilogue}_v1"
@@ -2968,7 +2997,7 @@ def test_build_execution_plan_preserves_bucket_shape_metadata(tmp_path):
     kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
     workloads = build_profile_workloads(lowered, kernel_manifest)
-    candidate_count = _cutlass_candidate_count("float16")
+    candidate_count = _cutlass_profile_candidate_count("float16")
     case_a = _profile_result(workloads[0], 0.25, 5, profile_key="bucket-a", status="ok")
     case_b = _profile_result(workloads[candidate_count], 0.30, 5, profile_key="bucket-b", status="ok")
     report = {
@@ -3078,6 +3107,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     lowered, _ = PassManager().run(spec.ir)
     kernel_manifest = build_kernel_manifest(lowered, {"name": "cuda", "arch": "sm_86"})
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    gemm_archive = kernel_manifest["required_kernels"][0]["support_archive"]
     manifest = {
         "artifact_schema_version": 1,
         "runtime_abi_version": 7,
@@ -3087,18 +3117,14 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
             "graph": "graph.dinoir.json",
             "kernel_manifest": "kernel_manifest.json",
             "kernel_codegen_plan": "kernel_codegen_plan.json",
-            "cutlass_gemm_library": "lib/libdinoml_cutlass_gemm.so",
         },
     }
     artifact = tmp_path / "cached_profile_gemm.dinoml"
     artifact.mkdir()
-    artifact_lib = artifact / "lib" / "libdinoml_cutlass_gemm.so"
-    artifact_lib.parent.mkdir()
-    artifact_lib.write_bytes(b"artifact cutlass gemm")
     cache_dir = Path(codegen_plan["external_support_libraries"][0]["cache_dir"])
-    cache_lib = cache_dir / "lib" / "libdinoml_cutlass_gemm.so"
-    cache_lib.parent.mkdir(parents=True)
-    cache_lib.write_bytes(b"cached cutlass gemm")
+    cache_archive = cache_dir / "lib" / gemm_archive
+    cache_archive.parent.mkdir(parents=True)
+    cache_archive.write_bytes(b"cached cutlass gemm")
     write_json(
         cache_dir / "lib" / "cutlass_gemm_manifest.json",
         {
@@ -3106,7 +3132,7 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
             "target": {"name": "cuda", "arch": "sm_86"},
             "provider": "cutlass",
             "source_sha256": "source-hash",
-            "library_sha256": "library-hash",
+            "modules": [{"archive": f"lib/{gemm_archive}", "archive_sha256": "archive-hash"}],
             "source_manifest": "../src/source_manifest.json",
             "provenance_key": "provenance-hash",
             "build_fingerprint": "provenance-hash",
@@ -3163,9 +3189,8 @@ def test_profile_artifact_uses_cache_before_running(tmp_path, monkeypatch):
     assert key_payload is not None
     assert report["fingerprint"]["hardware_key"] == key_payload["hardware_fingerprint_key"]
     assert report["hardware_cache_key"] == key_payload["hardware_fingerprint_key"]
-    assert report["libraries"][0]["artifact_sha256"] == hashlib.sha256(b"artifact cutlass gemm").hexdigest()
     assert report["fingerprint"]["support_libraries"][0]["source_sha256"] == "source-hash"
-    assert report["fingerprint"]["support_libraries"][0]["library_sha256"] == "library-hash"
+    assert report["fingerprint"]["support_libraries"][0]["modules"][0]["archive_sha256"] == "archive-hash"
     assert report["fingerprint"]["support_libraries"][0]["source_manifest"] == "../src/source_manifest.json"
     assert report["fingerprint"]["support_libraries"][0]["provenance_key"] == "provenance-hash"
     assert report["fingerprint"]["support_libraries"][0]["build_fingerprint"] == "provenance-hash"
@@ -3206,6 +3231,7 @@ def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_pat
     lowered, _ = PassManager().run(spec.ir)
     kernel_manifest = build_kernel_manifest(lowered, target)
     codegen_plan = create_codegen_plan(kernel_manifest, tmp_path / "cache").to_json()
+    gemm_archive = kernel_manifest["required_kernels"][0]["support_archive"]
     manifest = {
         "artifact_schema_version": 1,
         "runtime_abi_version": 7,
@@ -3215,18 +3241,14 @@ def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_pat
             "graph": "graph.dinoir.json",
             "kernel_manifest": "kernel_manifest.json",
             "kernel_codegen_plan": "kernel_codegen_plan.json",
-            "cutlass_gemm_library": "lib/libdinoml_cutlass_gemm.so",
         },
     }
     artifact = tmp_path / "stale_key_profile_gemm.dinoml"
     artifact.mkdir()
-    artifact_lib = artifact / "lib" / "libdinoml_cutlass_gemm.so"
-    artifact_lib.parent.mkdir()
-    artifact_lib.write_bytes(b"artifact cutlass gemm")
     cache_dir = Path(codegen_plan["external_support_libraries"][0]["cache_dir"])
-    cache_lib = cache_dir / "lib" / "libdinoml_cutlass_gemm.so"
-    cache_lib.parent.mkdir(parents=True)
-    cache_lib.write_bytes(b"cached cutlass gemm")
+    cache_archive = cache_dir / "lib" / gemm_archive
+    cache_archive.parent.mkdir(parents=True)
+    cache_archive.write_bytes(b"cached cutlass gemm")
     write_json(
         cache_dir / "lib" / "cutlass_gemm_manifest.json",
         {
@@ -3234,7 +3256,7 @@ def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_pat
             "target": target,
             "provider": "cutlass",
             "source_sha256": "source-hash",
-            "library_sha256": "library-hash",
+            "modules": [{"archive": f"lib/{gemm_archive}", "archive_sha256": "archive-hash"}],
             "source_manifest": "../src/source_manifest.json",
             "provenance_key": "provenance-hash",
             "build_fingerprint": "provenance-hash",
@@ -3272,13 +3294,22 @@ def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_pat
     profile_calls = []
 
     class FakeProfiler:
-        def __init__(self, artifact_dir, manifest):
+        def __init__(self, artifact_dir, manifest, codegen_plan):
             self.artifact_dir = artifact_dir
             self.manifest = manifest
+            self.codegen_plan = codegen_plan
 
-        def profile(self, workload, *, iterations, rng):
-            profile_calls.append((workload.candidate_id, iterations))
-            return (0.125, workload.workspace_nbytes)
+        def profile_cutlass_gemm_problem(self, workload, *, iterations, repeats):
+            profile_calls.append((workload.op, workload.dtype, iterations, repeats))
+            return [
+                {
+                    "candidate": candidate_workload.candidate,
+                    "samples_ms": [0.125] * repeats,
+                    "workspace_nbytes": candidate_workload.workspace_nbytes,
+                }
+                for candidate_workload in workloads
+                if profiling_mod._same_cutlass_gemm_profile_problem(workload, candidate_workload)
+            ]
 
         def close(self):
             profile_calls.append(("close", 0))
@@ -3291,9 +3322,7 @@ def test_profile_artifact_rejects_cache_hit_with_mismatched_embedded_key(tmp_pat
     assert report["problems"][0]["status"] == "ok"
     assert report["problems"][0]["selected"]["reason"] == "only_candidate"
     profiled_calls = profile_calls[:-1]
-    assert len(profiled_calls) == len(workloads) * 3
-    assert {iterations for _, iterations in profiled_calls} == {3}
-    assert [candidate_id for candidate_id, _ in profiled_calls[::3]] == [workload.candidate_id for workload in workloads]
+    assert profiled_calls == [(workload.op, workload.dtype, 3, 3)]
     assert profile_calls[-1] == ("close", 0)
     refreshed_cache = profiling_mod._read_profile_cache(cache_path, target)
     assert refreshed_cache["entries"][profile_key]["key"] == key_payload
@@ -3375,9 +3404,9 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
     assert report["fingerprint"]["hardware_key"] == report["hardware_cache_key"]
     assert report["fingerprint"]["support_libraries_key"] == report["support_libraries_cache_key"]
     assert report["fingerprint"]["support_libraries"][0]["name"] == "cutlass_gemm"
-    assert report["libraries"][0]["artifact_sha256"]
-    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": _cutlass_candidate_count("float32"), "skipped": 0}
-    assert len(report["problems"]) == _cutlass_candidate_count("float32")
+    assert report["libraries"][0]["cache_modules"][0]["archive"].endswith(".a")
+    assert report["summary"] == {"cached": 0, "failed": 0, "profiled": _cutlass_profile_candidate_count("float32"), "skipped": 0}
+    assert len(report["problems"]) == _cutlass_profile_candidate_count("float32")
     workload = report["problems"][0]
     assert workload["status"] == "ok"
     assert workload["profiler_symbol"] == f"dinoml_profile_cutlass_gemm_rcr_float32_{_cutlass_default_symbol_id('float32')}"
@@ -3779,7 +3808,8 @@ def test_cli_compile_forwards_execution_plan(tmp_path, monkeypatch, capsys):
     assert "artifact.dinoml" in capsys.readouterr().out
 
 
-def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
+def test_compile_profile_profiles_before_single_module_build(tmp_path, monkeypatch):
+    bootstrap_calls = []
     build_calls = []
     lower_calls = []
     report_calls = []
@@ -3789,6 +3819,21 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
     def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
         lower_calls.append((spec, target.to_json(), str(artifact_dir), pass_manager))
         return lowered_ir, reports
+
+    def fake_bootstrap_artifact(
+        spec,
+        target,
+        *,
+        artifact_dir,
+        lowered_ir,
+        reports,
+        backend,
+        constant_load_policy,
+    ):
+        del backend
+        assert constant_load_policy == "eager"
+        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
+        bootstrap_calls.append((spec, target.to_json(), str(artifact_dir), lowered_ir, reports))
 
     def fake_build_artifact(
         spec,
@@ -3802,15 +3847,8 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
         execution_plan_payload,
         constant_load_policy,
     ):
-        del backend
+        del backend, generated_src_dir
         assert constant_load_policy == "eager"
-        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
-        stale_source = generated_src_dir / "stale_candidate_source.cu"
-        if execution_plan_payload is None:
-            generated_src_dir.mkdir(parents=True, exist_ok=True)
-            stale_source.write_text("// candidate-only source\n", encoding="utf-8")
-        else:
-            assert not stale_source.exists()
         build_calls.append(
             {
                 "spec": spec,
@@ -3841,6 +3879,7 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
         }
 
     monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_materialize_profile_bootstrap_artifact", fake_bootstrap_artifact)
     monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
     monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
 
@@ -3857,14 +3896,12 @@ def test_compile_profile_runs_two_phase_rebuild(tmp_path, monkeypatch):
 
     assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
     assert len(lower_calls) == 1
+    assert len(bootstrap_calls) == 1
     assert [call["execution_plan"] for call in build_calls] == [
-        None,
         {"schema_version": 1, "kind": "dinoml.execution_plan", "static_selections": [{"selection_key": "profile-selection"}]},
     ]
     assert build_calls[0]["lowered_ir"] is lowered_ir
-    assert build_calls[1]["lowered_ir"] is lowered_ir
     assert build_calls[0]["reports"] is reports
-    assert build_calls[1]["reports"] is reports
     assert report_calls == [(str(artifact.path), {"a": (4, 8)}, 7, 3, True)]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 1
 
@@ -3993,13 +4030,29 @@ def test_cuda_linear_profile_compile_consumes_profiled_execution_plan(tmp_path, 
     assert metadata["inputs"][0]["shape_spec"][0]["buckets"] == [1, VALIDATION_BATCH, 4]
 
 
-def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, monkeypatch):
+def test_compile_profile_builds_once_when_no_candidates(tmp_path, monkeypatch):
+    bootstrap_calls = []
     build_calls = []
     lower_calls = []
 
     def fake_lower_for_compile(spec, target, *, artifact_dir, pass_manager):
         lower_calls.append((spec, target.to_json(), str(artifact_dir), pass_manager))
         return {"name": "lowered-once"}, []
+
+    def fake_bootstrap_artifact(
+        spec,
+        target,
+        *,
+        artifact_dir,
+        lowered_ir,
+        reports,
+        backend,
+        constant_load_policy,
+    ):
+        del spec, target, lowered_ir, reports, backend
+        assert constant_load_policy == "eager"
+        (artifact_dir / "debug").mkdir(parents=True, exist_ok=True)
+        bootstrap_calls.append(str(artifact_dir))
 
     def fake_build_artifact(
         spec,
@@ -4041,6 +4094,7 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
         }
 
     monkeypatch.setattr(compiler_mod, "_lower_for_compile", fake_lower_for_compile)
+    monkeypatch.setattr(compiler_mod, "_materialize_profile_bootstrap_artifact", fake_bootstrap_artifact)
     monkeypatch.setattr(compiler_mod, "_build_artifact_from_lowered_ir", fake_build_artifact)
     monkeypatch.setattr(compiler_mod, "profile_artifact", fake_profile_artifact)
 
@@ -4048,6 +4102,7 @@ def test_compile_profile_keeps_initial_artifact_when_no_candidates(tmp_path, mon
 
     assert artifact.path == (tmp_path / "profiled.dinoml").resolve()
     assert len(lower_calls) == 1
+    assert len(bootstrap_calls) == 1
     assert build_calls == [None]
     assert read_json(artifact.path / "debug" / "bootstrap_profile_report.json")["execution_plan"]["selection_count"] == 0
 

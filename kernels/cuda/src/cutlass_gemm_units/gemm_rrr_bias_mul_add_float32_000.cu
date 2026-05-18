@@ -1,0 +1,13 @@
+#include "../cutlass_gemm_common.cuh"
+
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x128x8_s4_w4x2x1_f32_align1, Sm80Simt128x128x8S4W4x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x128x8_s5_w4x2x1_f32_align1, Sm80Simt128x128x8S5W4x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x256x8_s4_w2x4x1_f32_align1, Sm80Simt128x256x8S4W2x4x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x256x8_s5_w2x4x1_f32_align1, Sm80Simt128x256x8S5W2x4x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x32x8_s5_w2x1x1_f32_align1, Sm80Simt128x32x8S5W2x1x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_128x64x8_s5_w2x2x1_f32_align1, Sm80Simt128x64x8S5W2x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_256x128x8_s4_w4x2x1_f32_align1, Sm80Simt256x128x8S4W4x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_256x128x8_s5_w4x2x1_f32_align1, Sm80Simt256x128x8S5W4x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_32x128x8_s5_w1x2x1_f32_align1, Sm80Simt32x128x8S5W1x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_64x128x8_s5_w2x2x1_f32_align1, Sm80Simt64x128x8S5W2x2x1F32F32Align1GemmPolicy, 1)
+DINOML_FORWARD_GEMM_BIAS_RESIDUAL2_EXPORT(gemm_rrr_bias_mul_add, float32, float, float, cutlass::layout::RowMajor, n, BiasMulAddEpilogue, simt_sm80_f32_64x64x8_s5_w2x1x1_f32_align1, Sm80Simt64x64x8S5W2x1x1F32F32Align1GemmPolicy, 1)

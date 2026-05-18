@@ -23,7 +23,6 @@ from dinoml.kernels.providers.cutlass.conv import (
     render_cutlass_conv_scaffold_source,
     validate_cutlass_conv_scaffold_plan,
 )
-from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_used_candidate_plan, render_cutlass_gemm_source
 
 
 @dataclass(frozen=True)
@@ -40,30 +39,6 @@ class CutlassSupportScaffold:
     source: Path
     manifest: Path
     source_manifest: Path
-
-
-def ensure_cutlass_gemm_support_lib(
-    arch: str,
-    *,
-    cache_key: str | None = None,
-    used_candidate_plan: Mapping[str, Any] | None = None,
-) -> CutlassSupportLib:
-    return _ensure_cutlass_support_lib(
-        arch,
-        cache_key=cache_key,
-        used_candidate_plan=used_candidate_plan,
-        library_name="cutlass_gemm",
-        family_name="gemm_universal",
-        support_dir_name="cutlass-gemm",
-        source_name="dinoml_cutlass_gemm.cu",
-        library_file_name="libdinoml_cutlass_gemm.so",
-        manifest_file_name="cutlass_gemm_manifest.json",
-        repo_source=_repo_cutlass_gemm_source(),
-        render_source=render_cutlass_gemm_source,
-        used_candidate_plan_builder=cutlass_gemm_used_candidate_plan,
-        source_id="cutlass_gemm_static_default",
-        build_unit_id="cutlass_gemm_shared",
-    )
 
 
 def ensure_cutlass_bmm_support_lib(
@@ -403,14 +378,6 @@ def _ensure_cutlass_support_lib(
         manifest=manifest,
         source_manifest=source_manifest,
     )
-
-
-def _repo_cutlass_gemm_source() -> Path:
-    repo_root = Path(__file__).resolve().parents[3]
-    source = repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm.cu"
-    if not source.exists():
-        raise FileNotFoundError(f"Missing CUTLASS GEMM source: {source}")
-    return source
 
 
 def _repo_cutlass_bmm_source() -> Path:

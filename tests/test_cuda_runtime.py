@@ -845,9 +845,11 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
     source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
     generated = (artifact.path / "debug" / "generated_src" / "module.cu").read_text(encoding="utf-8")
 
-    assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
-    assert (artifact.path / "lib" / "libdinoml_cutlass_gemm.so").exists()
+    expected_archive = f"libdinoml_cutlass_{op_name}_{dtype}.a"
+    assert "cutlass_gemm_libraries" not in manifest["files"]
+    assert not list((artifact.path / "lib").glob("libdinoml_cutlass_gemm_*.so"))
     assert kernel_manifest["required_kernels"][0]["kernel_library"] == "cutlass_gemm"
+    assert kernel_manifest["required_kernels"][0]["support_archive"] == expected_archive
     symbol = f"dinoml_cutlass_{op_name}_{suffix}_{_cutlass_default_symbol_id(dtype)}"
     assert kernel_manifest["required_kernels"][0]["kernel_symbol"] == symbol
     assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == f"cutlass_{op_name}_{suffix}_linear_combination_v1"
@@ -1121,8 +1123,10 @@ def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_
     metadata = read_json(artifact.path / "metadata.json")
 
     required = kernel_manifest["required_kernels"][0]
-    assert manifest["files"]["cutlass_gemm_library"] == "lib/libdinoml_cutlass_gemm.so"
     assert required["kernel_library"] == "cutlass_gemm"
+    assert "cutlass_gemm_libraries" not in manifest["files"]
+    assert required["support_archive"] == "libdinoml_cutlass_gemm_rrr_bias_float32.a"
+    assert not list((artifact.path / "lib").glob("libdinoml_cutlass_gemm_*.so"))
     assert required["candidate_set_id"] == "cutlass_gemm_rrr_bias_float32_bias_v1"
     assert required["candidate_set"]["epilogue_config"]["inputs"] == ["bias"]
     assert required["candidate_set"]["target_policy"]["no_tf32"] is True

@@ -27,13 +27,13 @@ set_target_properties(dinoml_cuda_kernels PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
 )
 
-{% if cutlass_gemm_lib %}
-add_library(dinoml_cutlass_gemm SHARED IMPORTED GLOBAL)
-set_target_properties(dinoml_cutlass_gemm PROPERTIES
-  IMPORTED_LOCATION "{{ cutlass_gemm_lib }}"
+{% for cutlass_gemm_archive in cutlass_gemm_archives %}
+add_library(dinoml_cutlass_gemm_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_cutlass_gemm_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ cutlass_gemm_archive }}"
   INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
 )
-{% endif %}
+{% endfor %}
 
 {% if cutlass_bmm_lib %}
 add_library(dinoml_cutlass_bmm SHARED IMPORTED GLOBAL)
@@ -69,9 +69,9 @@ target_link_libraries(module PRIVATE
   dinoml_runtime
   dinoml_cuda_runtime
   dinoml_cuda_kernels
-{% if cutlass_gemm_lib %}
-  dinoml_cutlass_gemm
-{% endif %}
+{% for cutlass_gemm_archive in cutlass_gemm_archives %}
+  dinoml_cutlass_gemm_{{ loop.index0 }}
+{% endfor %}
 {% if cutlass_bmm_lib %}
   dinoml_cutlass_bmm
 {% endif %}

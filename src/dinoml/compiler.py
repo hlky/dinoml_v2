@@ -115,19 +115,17 @@ def _compile_with_profile(
         pass_manager=pass_manager,
     )
     _validate_profile_shape_expressions(lowered_ir, target)
-    initial_artifact = _build_artifact_from_lowered_ir(
+    _materialize_profile_bootstrap_artifact(
         spec,
         target,
         artifact_dir=artifact_dir,
-        generated_src_dir=generated_src_dir,
         lowered_ir=lowered_ir,
         reports=reports,
         backend=backend,
-        execution_plan_payload=None,
         constant_load_policy=constant_load_policy,
     )
     profile_report = profile_artifact(
-        initial_artifact.path,
+        artifact_dir,
         input_shapes=input_shapes,
         iterations=iterations,
         repeats=repeats,
@@ -136,10 +134,11 @@ def _compile_with_profile(
     execution_plan_summary = profile_report.get("execution_plan", {})
     if not isinstance(execution_plan_summary, Mapping) or not execution_plan_summary.get("path"):
         raise ValueError("Profiler did not produce an execution plan")
-    if int(execution_plan_summary.get("selection_count", 0) or 0) == 0:
-        write_json(initial_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
-        return initial_artifact
-    execution_plan_payload = read_json(Path(str(execution_plan_summary["path"])))
+    execution_plan_payload = (
+        read_json(Path(str(execution_plan_summary["path"])))
+        if int(execution_plan_summary.get("selection_count", 0) or 0) != 0
+        else None
+    )
     _reset_generated_sources(generated_src_dir)
     final_artifact = _build_artifact_from_lowered_ir(
         spec,
@@ -154,6 +153,99 @@ def _compile_with_profile(
     )
     write_json(final_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
     return final_artifact
+
+
+def _materialize_profile_bootstrap_artifact(
+    spec: ModelSpec,
+    target: Target,
+    *,
+    artifact_dir: Path,
+    lowered_ir: Mapping[str, Any],
+    reports: Sequence[Any],
+    backend: Any,
+    constant_load_policy: str,
+) -> None:
+    debug_dir = artifact_dir / "debug"
+    lowered_ir = dict(lowered_ir)
+    write_json(artifact_dir / "graph.dinoir.json", lowered_ir)
+    write_json(artifact_dir / "metadata.json", _runtime_metadata(lowered_ir))
+    encoded_constants_manifest = _encoded_constants_manifest(lowered_ir)
+    if encoded_constants_manifest is not None:
+        write_json(artifact_dir / "encoded_constants.json", encoded_constants_manifest)
+    else:
+        (artifact_dir / "encoded_constants.json").unlink(missing_ok=True)
+    kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    _validate_gguf_runtime_dequant_admission(lowered_ir, target, kernel_manifest)
+    write_json(artifact_dir / "kernel_manifest.json", kernel_manifest)
+    codegen_plan = create_codegen_plan(
+        kernel_manifest,
+        Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
+    )
+    write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
+    _materialize_manifest_only_support_scaffolds(kernel_manifest)
+    files = {
+        "graph": "graph.dinoir.json",
+        "metadata": "metadata.json",
+        "constants": "constants.bin",
+        "compile_config": "compile_config.json",
+        "kernel_manifest": "kernel_manifest.json",
+        "kernel_codegen_plan": "kernel_codegen_plan.json",
+    }
+    files.update(backend.support_libraries)
+    if encoded_constants_manifest is not None:
+        files["encoded_constants"] = "encoded_constants.json"
+    _copy_profile_support_libraries(target, artifact_dir, kernel_manifest, files)
+    write_json(
+        artifact_dir / "compile_config.json",
+        {
+            "target": target.to_json(),
+            "constant_load_policy": constant_load_policy,
+            "passes": [
+                {
+                    "name": report.name,
+                    "before_hash": report.before_hash,
+                    "after_hash": report.after_hash,
+                    "changed": report.changed,
+                }
+                for report in reports
+            ],
+        },
+    )
+    write_json(
+        artifact_dir / "manifest.json",
+        {
+            "artifact_schema_version": ARTIFACT_SCHEMA_VERSION,
+            "runtime_abi_version": RUNTIME_ABI_VERSION,
+            "name": spec.name,
+            "target": target.to_json(),
+            "constant_load_policy": constant_load_policy,
+            "files": files,
+            "graph_hash": graph_hash(lowered_ir),
+        },
+    )
+
+
+def _copy_profile_support_libraries(
+    target: Target,
+    artifact_dir: Path,
+    kernel_manifest: Mapping[str, Any],
+    files: dict[str, str],
+) -> None:
+    if target.name != "cuda":
+        return
+    from dinoml.backends.cuda import ensure_cuda_support_libs
+
+    support_libs = ensure_cuda_support_libs(target.arch, kernel_manifest=kernel_manifest)
+    artifact_lib_dir = artifact_dir / "lib"
+    artifact_lib_dir.mkdir(parents=True, exist_ok=True)
+    for source in (support_libs.runtime_lib, support_libs.cuda_runtime_lib, support_libs.kernels_lib):
+        shutil.copy2(source, artifact_lib_dir / source.name)
+    if support_libs.cutlass_bmm_lib is not None:
+        shutil.copy2(support_libs.cutlass_bmm_lib, artifact_lib_dir / support_libs.cutlass_bmm_lib.name)
+        files["cutlass_bmm_library"] = f"lib/{support_libs.cutlass_bmm_lib.name}"
+    if support_libs.cutlass_conv_lib is not None:
+        shutil.copy2(support_libs.cutlass_conv_lib, artifact_lib_dir / support_libs.cutlass_conv_lib.name)
+        files["cutlass_conv_library"] = f"lib/{support_libs.cutlass_conv_lib.name}"
 
 
 def _compile_once(
@@ -296,8 +388,6 @@ def _build_artifact_from_lowered_ir(
         "kernel_codegen_plan": "kernel_codegen_plan.json",
     }
     files.update(backend.support_libraries)
-    if _requires_kernel_library(kernel_manifest, "cutlass_gemm"):
-        files["cutlass_gemm_library"] = "lib/libdinoml_cutlass_gemm.so"
     if _requires_kernel_library(kernel_manifest, "cutlass_bmm"):
         files["cutlass_bmm_library"] = "lib/libdinoml_cutlass_bmm.so"
     if _requires_kernel_library(kernel_manifest, "cutlass_conv"):

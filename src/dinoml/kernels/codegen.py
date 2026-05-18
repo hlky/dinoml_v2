@@ -13,12 +13,8 @@ from dinoml.kernels.providers.cutlass.conv import (
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_static_library_name, cutlass_gemm_used_candidate_plan
 from dinoml.libgguf_cuda import (
-    LIBGGUF_CUDA_NATIVE_LIBRARY_ENV,
-    file_sha256,
     libgguf_provenance_key,
     libgguf_source_provenance,
-    libgguf_submodule_source_root,
-    resolve_libgguf_cuda_direct_link_library,
 )
 
 
@@ -169,23 +165,8 @@ def _external_support_libraries(
                 }
             )
     if _requires_gguf_cuda_native_library(kernel_manifest):
-        gguf_library = resolve_libgguf_cuda_direct_link_library()
-        source_root = libgguf_submodule_source_root(Path(__file__).resolve().parents[3])
-        if gguf_library is not None:
-            result.append(
-                {
-                    "name": "gguf_cuda_native",
-                    "origin_path": str(gguf_library),
-                    "library": f"lib/{gguf_library.name}",
-                    "symbols": ["libgguf_cuda_dequantize_rows_on_stream"],
-                    "link_mode": "direct",
-                    "source_kind": "env_override",
-                    "override_env": LIBGGUF_CUDA_NATIVE_LIBRARY_ENV,
-                    "library_kind": "static" if gguf_library.suffix == ".a" else "shared",
-                    "library_sha256": file_sha256(gguf_library),
-                }
-            )
-        elif source_root is not None:
+        source_root = Path(__file__).resolve().parents[3] / "third_party" / "libgguf"
+        if (source_root / "src" / "libgguf" / "libgguf_cuda" / "csrc" / "libgguf_cuda_native.cu").exists():
             source_provenance = libgguf_source_provenance(source_root)
             source_key = libgguf_provenance_key(source_provenance)
             cache_dir = cache_root / "support" / target_dir / "libgguf-cuda-native" / support_key
@@ -196,7 +177,7 @@ def _external_support_libraries(
                     "library": "lib/libgguf_cuda_native.a",
                     "manifest": "lib/libgguf_cuda_native_manifest.json",
                     "source_root": str(source_root),
-                    "source_kind": "vendored_submodule",
+                    "source_kind": "vendored_source",
                     "source_provenance_key": source_key,
                     "source_provenance": source_provenance,
                     "symbols": ["libgguf_cuda_dequantize_rows_on_stream"],

@@ -377,12 +377,12 @@ porting. It intentionally excludes the op inventory, which lives in
   loading installs those encoded bytes into CUDA constant storage, generated
   manifests expose a shared per-session `gguf_runtime_dequant_scratch`
   resource sized to the maximum lowered dense RHS requirement, and modules now
-  prefer a direct link against a native `libgguf_cuda_native` library built
-  from the repo-pinned `third_party/libgguf` submodule. The old explicit native
-  `libgguf_cuda_dequantize_rows_on_stream` function-pointer setter remains as a
-  bounded fallback/testing path, sessions own a separate dense dequant scratch
-  buffer, and lowering dequantizes on the session stream immediately before the
-  existing dense CUTLASS GEMM launch. The tested slice uses real libgguf `Q4_0`
+  require a direct link against DinoML's CMake-built `libgguf_cuda_native`
+  static archive from vendored libgguf CUDA sources. The old explicit native
+  function-pointer setter fallback is removed; sessions own a separate dense
+  dequant scratch buffer, and lowering dequantizes on the session stream
+  immediately before the existing dense CUTLASS GEMM launch. The tested slice
+  uses real libgguf `Q4_0`
   storage, includes dense-bias load/unload/reload coverage, and compares
   against a dense dequantized reference. Non-bias GEMM epilogues, `bfloat16`, direct fused
   dequant-in-kernel, prefetch/eviction, and new CPU/GPU residency policies

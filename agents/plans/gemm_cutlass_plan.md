@@ -106,13 +106,11 @@ handoff. The manifest also exposes the shared per-session
 `gguf_runtime_dequant_scratch` resource as a max-sized CUDA-device allocation
 derived from all lowered runtime-dequant GEMM plans in the artifact. Generated
 CUDA modules store the RHS constant as encoded bytes, allocate that
-session-owned dense dequant scratch buffer, and now prefer a reproducible
-direct link against a native `libgguf_cuda_native` artifact built from the
-repo-pinned `third_party/libgguf` submodule. Generated lowering calls
-`libgguf_cuda_dequantize_rows_on_stream(...)` directly when that native library
-is linked into the module, while keeping the old runtime-set
-`dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` boundary as an
-explicit fallback/testing path when direct linking is unavailable or disabled.
+session-owned dense dequant scratch buffer, and require a reproducible direct
+link against DinoML's CMake-built `libgguf_cuda_native` static archive from the
+vendored libgguf CUDA sources. Generated lowering calls
+`libgguf_cuda_dequantize_rows_on_stream(...)` directly; the old runtime-set
+function-pointer fallback is removed.
 This is intentionally not a general offload scheduler and does not cover
 non-bias GEMM epilogues, `bfloat16`, or direct in-kernel quantized RHS
 execution yet.

@@ -10,11 +10,9 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends import cuda as cuda_backend
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import ModelSpec, dtype_runtime_enum, read_json, write_json
-from dinoml.kernels import codegen as kernel_codegen
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
 
@@ -54,20 +52,10 @@ def _write_minimal_gguf_tensor(path, *, name, gguf_shape, qtype_value, payload):
     path.write_bytes(data)
 
 
-def _force_gguf_runtime_dequant_setter_fallback(monkeypatch):
-    monkeypatch.setattr(cuda_backend, "resolve_libgguf_cuda_direct_link_library", lambda: None)
-    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: None)
-    monkeypatch.setattr(cuda_backend, "libgguf_submodule_source_root", lambda _repo_root: None)
-    monkeypatch.setattr(kernel_codegen, "libgguf_submodule_source_root", lambda _repo_root: None)
-
-
 def _assert_gguf_runtime_dequant_generated_linkage(generated: str, manifest: dict, dequant_call: str, gemm_call: str) -> None:
-    direct_linked = "gguf_cuda_native_library" in manifest["files"]
-    if direct_linked:
-        assert 'extern "C" int libgguf_cuda_dequantize_rows_on_stream(' in generated
-        assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in generated
-    else:
-        assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" in generated
+    assert "gguf_cuda_native_library" in manifest["files"]
+    assert 'extern "C" int libgguf_cuda_dequantize_rows_on_stream(' in generated
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in generated
     assert dequant_call in generated
     assert generated.index(dequant_call) < generated.index(gemm_call)
 
@@ -640,78 +628,6 @@ def test_cuda_runtime_dequant_load_rejects_malformed_gguf_metadata_before_instal
     assert module.constant_load_state() == {"weight": False}
 
 
-def test_cuda_runtime_dequant_load_fails_before_install_when_native_launcher_missing(
-    monkeypatch, tmp_path
-):
-    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
-    module.artifact_dir = tmp_path
-    module.target_name = "cuda"
-    module.manifest = {"files": {"encoded_constants": "encoded_constants.json"}}
-    module.metadata = {
-        "constants": [{"name": "weight", "shape": [2, 32], "shape_spec": [2, 32], "dtype": "float32"}]
-    }
-    module._kernel_manifest = {
-        "required_kernels": [
-            {
-                "gguf_runtime_dequant": {
-                    "constant": "weight",
-                    "status": "lowered_runtime_dequant_scratch",
-                }
-            }
-        ]
-    }
-    module._constant_loaded = {"weight": False}
-    module._handle = ctypes.c_void_p(1)
-    module._set_libgguf_cuda_dequantize_rows_on_stream = lambda *args: None
-    installed = []
-    module._encoded_constant_setter = lambda *args: installed.append(args)
-    write_json(
-        tmp_path / "encoded_constants.json",
-        {
-            "schema_version": 1,
-            "kind": "dinoml.encoded_constants",
-            "constants": [
-                {
-                    "name": "weight",
-                    "dtype": "float32",
-                    "shape": [2, 32],
-                    "logical_nbytes": 2 * 32 * 4,
-                    "storage": {
-                        "kind": "gguf",
-                        "path": "weights.gguf",
-                        "tensor": "blk.0.ffn.weight",
-                        "logical_dtype": "float32",
-                        "shape": [2, 32],
-                        "qtype": "Q4_0",
-                        "encoded_nbytes": 64,
-                        "n_per_row": 32,
-                        "materialization": "dequantize_on_gpu_before_launch",
-                        "residency": "manual_runtime_load",
-                    },
-                }
-            ],
-        },
-    )
-    materialized = []
-
-    def materialize_gguf_runtime_dequant_encoded_bytes(constant_spec, storage):
-        materialized.append((str(constant_spec["name"]), str(storage["tensor"])))
-        return np.arange(64, dtype=np.uint8)
-
-    module._materialize_gguf_runtime_dequant_encoded_bytes = materialize_gguf_runtime_dequant_encoded_bytes
-    monkeypatch.setattr(runtime, "_libgguf_cuda_native_dequantize_rows_on_stream", lambda: None)
-
-    with pytest.raises(
-        RuntimeError,
-        match="GGUF runtime dequant requires libgguf native CUDA symbol libgguf_cuda_dequantize_rows_on_stream",
-    ):
-        module.load_encoded_constants(names=["weight"])
-
-    assert materialized == [("weight", "blk.0.ffn.weight")]
-    assert installed == []
-    assert module.constant_load_state() == {"weight": False}
-
-
 class DTypeFusedElementwise(dml.Module):
     def __init__(self, dtype: str):
         self.scale = dml.Parameter([4], dtype=dtype)
@@ -1218,9 +1134,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1312,9 +1225,6 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_d
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1440,11 +1350,6 @@ def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encod
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    dequant_fn_ptr = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
-    if dequant_fn_ptr is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1585,12 +1490,6 @@ def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encod
                 )
             )
 
-        module._check(
-            module._dll.dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
-                native_handle,
-                ctypes.c_void_p(dequant_fn_ptr),
-            )
-        )
         encoded_ptr = _copy_host_array_to_device(encoded)
         module._check(
             module._dll.dino_module_set_encoded_constant(
@@ -1637,32 +1536,12 @@ def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encod
 
         module._check(module._dll.dino_module_load(str(artifact.path).encode("utf-8"), ctypes.byref(native_handle)))
         module._check(module._dll.dino_session_create(native_handle, ctypes.byref(session_handle)))
-        with pytest.raises(
-            RuntimeError,
-            match="gemm_rrr_bias GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher",
-        ):
-            module._check(
-                module._dll.dino_module_set_encoded_constant(
-                    native_handle,
-                    b"weight",
-                    encoded_ptr,
-                    ctypes.c_size_t(encoded.nbytes),
-                )
-            )
-            module._check(
-                module._dll.dino_session_run(
-                    session_handle,
-                    inputs,
-                    ctypes.c_size_t(1),
-                    outputs,
-                    ctypes.c_size_t(1),
-                )
-            )
-
         module._check(
-            module._dll.dino_module_set_libgguf_cuda_dequantize_rows_on_stream(
+            module._dll.dino_module_set_encoded_constant(
                 native_handle,
-                ctypes.c_void_p(dequant_fn_ptr),
+                b"weight",
+                encoded_ptr,
+                ctypes.c_size_t(encoded.nbytes),
             )
         )
         reopened = _run_native_input(x0)
@@ -1691,9 +1570,6 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1778,9 +1654,6 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch_f
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1869,9 +1742,6 @@ def test_cuda_cutlass_gemm_rcr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1967,9 +1837,6 @@ def test_cuda_cutlass_multi_gemm_runtime_dequant_shares_session_scratch(tmp_path
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class MultiEncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -2101,9 +1968,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_lifecycle_cleanup(tmp_path, monke
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
     libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -2210,154 +2074,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_lifecycle_cleanup(tmp_path, monke
     np.testing.assert_allclose(second, expected1, atol=1e-4, rtol=1e-4)
     np.testing.assert_allclose(reloaded, expected0, atol=1e-4, rtol=1e-4)
 
-
-def test_cuda_cutlass_gemm_rrr_runtime_dequant_fails_when_launcher_cleared_after_load(
-    tmp_path, monkeypatch
-):
-    torch = pytest.importorskip("torch")
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA device is required")
-    if not discover_cuda_libraries()["cutlass"].available:
-        pytest.skip("CUTLASS headers are not available")
-    libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
-
-    class EncodedRhsGemm(dml.Module):
-        def __init__(self):
-            self.weight = dml.Parameter([32, 32], dtype="float32")
-
-        def forward(self, x):
-            return dml.ops.output(dml.ops.gemm_rrr(x, self.weight), "y")
-
-    rows = np.linspace(-1.5, 1.5, 32 * 32, dtype=np.float32).reshape(32, 32)
-    qtype = libgguf.GGMLQuantizationType.Q4_0
-    encoded = libgguf.quantize_rows(rows, qtype)
-    gguf_path = tmp_path / "weights.gguf"
-    _write_minimal_gguf_tensor(
-        gguf_path,
-        name="blk.0.ffn.weight",
-        gguf_shape=(32, 32),
-        qtype_value=int(qtype),
-        payload=encoded.tobytes(order="C"),
-    )
-    source = dml.gguf_constant(
-        gguf_path,
-        "blk.0.ffn.weight",
-        qtype="Q4_0",
-        encoded_nbytes=encoded.nbytes,
-        n_per_row=32,
-        materialization="dequantize_on_gpu_before_launch",
-        residency="manual_runtime_load",
-    )
-    traced = dml.trace(
-        EncodedRhsGemm(),
-        inputs={"x": dml.TensorSpec([2, 32], "float32")},
-        constants={"weight": source},
-        name="gguf_q4_0_runtime_dequant_gemm_rrr_launcher_missing",
-    )
-    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
-    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
-    artifact = dml.compile(
-        spec,
-        target,
-        tmp_path / "gguf_q4_0_runtime_dequant_gemm_rrr_launcher_missing.dinoml",
-        constant_load_policy="deferred",
-    )
-
-    x = np.linspace(-0.5, 0.75, 64, dtype=np.float32).reshape(2, 32)
-    module = runtime.load(artifact.path)
-    session = module.create_session()
-    try:
-        module.load_encoded_constants(["weight"])
-        assert module.constant_load_state() == {"weight": True}
-        module.set_libgguf_cuda_dequantize_rows_on_stream(ctypes.c_void_p(0))
-        with pytest.raises(
-            RuntimeError,
-            match="gemm_rrr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher",
-        ):
-            session.run_numpy({"x": x})
-        assert module.constant_load_state() == {"weight": True}
-    finally:
-        session.close()
-        module.close()
-
-
-def test_cuda_cutlass_gemm_rcr_runtime_dequant_fails_when_launcher_cleared_after_load_float16(
-    tmp_path, monkeypatch
-):
-    torch = pytest.importorskip("torch")
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA device is required")
-    if not discover_cuda_libraries()["cutlass"].available:
-        pytest.skip("CUTLASS headers are not available")
-    libgguf = pytest.importorskip("libgguf")
-    pytest.importorskip("libgguf.libgguf_cuda")
-    if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
-        pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
-
-    class EncodedRhsGemm(dml.Module):
-        def __init__(self):
-            self.weight = dml.Parameter([24, 32], dtype="float16")
-
-        def forward(self, x):
-            return dml.ops.output(dml.ops.gemm_rcr(x, self.weight), "y")
-
-    rows = np.linspace(-1.5, 1.5, 24 * 32, dtype=np.float32).reshape(24, 32)
-    qtype = libgguf.GGMLQuantizationType.Q4_0
-    encoded = libgguf.quantize_rows(rows, qtype)
-    gguf_path = tmp_path / "weights.gguf"
-    _write_minimal_gguf_tensor(
-        gguf_path,
-        name="blk.0.ffn.weight",
-        gguf_shape=(32, 24),
-        qtype_value=int(qtype),
-        payload=encoded.tobytes(order="C"),
-    )
-    source = dml.gguf_constant(
-        gguf_path,
-        "blk.0.ffn.weight",
-        logical_dtype="float16",
-        qtype="Q4_0",
-        encoded_nbytes=encoded.nbytes,
-        n_per_row=32,
-        materialization="dequantize_on_gpu_before_launch",
-        residency="manual_runtime_load",
-    )
-    traced = dml.trace(
-        EncodedRhsGemm(),
-        inputs={"x": dml.TensorSpec([2, 32], "float16")},
-        constants={"weight": source},
-        name="gguf_q4_0_runtime_dequant_gemm_rcr_launcher_missing_float16",
-    )
-    spec = ModelSpec(name=traced.name, ir=traced.ir, constants={"weight": source})
-    target = dml.Target("cuda", arch="sm_86", no_tf32=True)
-    artifact = dml.compile(
-        spec,
-        target,
-        tmp_path / "gguf_q4_0_runtime_dequant_gemm_rcr_launcher_missing_float16.dinoml",
-        constant_load_policy="deferred",
-    )
-
-    x = np.linspace(-0.5, 0.75, 64, dtype=np.float16).reshape(2, 32)
-    module = runtime.load(artifact.path)
-    session = module.create_session()
-    try:
-        module.load_encoded_constants(["weight"])
-        assert module.constant_load_state() == {"weight": True}
-        module.set_libgguf_cuda_dequantize_rows_on_stream(ctypes.c_void_p(0))
-        with pytest.raises(
-            RuntimeError,
-            match="gemm_rcr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher",
-        ):
-            session.run_numpy({"x": x})
-        assert module.constant_load_state() == {"weight": True}
-    finally:
-        session.close()
-        module.close()
 
 
 class VectorizableScalarChain(dml.Module):

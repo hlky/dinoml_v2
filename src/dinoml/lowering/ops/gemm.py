@@ -135,7 +135,6 @@ def render_launch(
                 b_ident=b_ident,
                 launch_b_ident=launch_b_ident,
                 dtype=dtype,
-                direct_linked=bool(kernel_manifest and kernel_manifest.get("gguf_cuda_native_library")),
             )
         )
     dispatches = _cutlass_dispatch_selections(manifest_item, str(node["id"]))
@@ -492,34 +491,20 @@ def _gguf_runtime_dequant_lines(
     b_ident: str,
     launch_b_ident: str,
     dtype: str,
-    direct_linked: bool,
 ) -> list[str]:
     output_dtype = 0 if dtype == "float32" else 1
     qtype_value = int(plan["qtype_value"])
     n_per_row = int(plan["n_per_row"])
     scratch_nbytes = int(plan["scratch_nbytes"])
     constant_name = str(plan["constant"])
-    dequant_call = (
-        "libgguf_cuda_dequantize_rows_on_stream"
-        if direct_linked
-        else "module->libgguf_cuda_dequantize_rows_on_stream"
-    )
-    lines = []
-    if not direct_linked:
-        lines.append(
-            f'if (module->libgguf_cuda_dequantize_rows_on_stream == nullptr) return dinoml::module::fail("{op_name} GGUF runtime dequant for constant {constant_name} requires native libgguf CUDA dequant launcher");'
-        )
-    lines.extend(
-        [
+    return [
         f'if (shape_{b_ident}_1 != {n_per_row}) return dinoml::module::fail("{op_name} GGUF runtime dequant n_per_row mismatch for constant {constant_name}");',
         f'if (session->gguf_dequant_scratch_nbytes < {scratch_nbytes}) return dinoml::module::fail("{op_name} GGUF runtime dequant scratch is too small");',
-        f"if (int err = {dequant_call}(module->const_{b_ident}, {qtype_value}, shape_{b_ident}_0, {n_per_row}, {output_dtype}, session->gguf_dequant_scratch, session->stream)) "
+        f"if (int err = libgguf_cuda_dequantize_rows_on_stream(module->const_{b_ident}, {qtype_value}, shape_{b_ident}_0, {n_per_row}, {output_dtype}, session->gguf_dequant_scratch, session->stream)) "
         f'return dinoml::module::fail("{op_name} GGUF runtime dequant failed for constant {constant_name}");',
         f"const DinoTensor* abi_{launch_b_ident} = nullptr;",
         f"const {cuda_storage_type(dtype)}* ptr_{launch_b_ident} = static_cast<const {cuda_storage_type(dtype)}*>(session->gguf_dequant_scratch);",
-        ]
-    )
-    return lines
+    ]
 
 
 def _cutlass_dispatch_guard(

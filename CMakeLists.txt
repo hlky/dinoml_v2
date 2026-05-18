@@ -12,6 +12,7 @@ set(DINOML_CUTLASS_BMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUT
 option(DINOML_ENABLE_CUTLASS_CONV "Build CUTLASS Conv support library" ON)
 option(DINOML_ENABLE_CUTLASS_CONV_PROFILER "Build CUTLASS Conv profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_CONV_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS Conv CMake targets to link into the profiler, or ALL for every target")
+option(DINOML_ENABLE_LIBGGUF_CUDA "Build libgguf CUDA runtime-dequant support archive" OFF)
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
 else()
@@ -570,5 +571,73 @@ if(DINOML_ENABLE_CUDA)
         add_custom_target(dinoml_cutlass_conv_profilers DEPENDS ${DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT})
       endif()
     endif()
+  endif()
+
+  if(DINOML_ENABLE_LIBGGUF_CUDA)
+    set(DINOML_LIBGGUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libgguf)
+    set(DINOML_LIBGGUF_CUDA_SRC ${DINOML_LIBGGUF_ROOT}/src/libgguf/libgguf_cuda/csrc)
+    file(GLOB DINOML_LIBGGUF_CUDA_QUANT_SOURCES CONFIGURE_DEPENDS
+      ${DINOML_LIBGGUF_CUDA_SRC}/cuda_quantize*.cu
+    )
+    file(GLOB DINOML_LIBGGUF_CUDA_DEQUANT_SOURCES CONFIGURE_DEPENDS
+      ${DINOML_LIBGGUF_CUDA_SRC}/cuda_dequantize*.cu
+    )
+    list(REMOVE_ITEM DINOML_LIBGGUF_CUDA_QUANT_SOURCES
+      ${DINOML_LIBGGUF_CUDA_SRC}/cuda_quantize.cu
+    )
+    list(REMOVE_ITEM DINOML_LIBGGUF_CUDA_DEQUANT_SOURCES
+      ${DINOML_LIBGGUF_CUDA_SRC}/cuda_dequantize.cu
+    )
+    add_library(dinoml_libgguf_cuda_quant_objects OBJECT ${DINOML_LIBGGUF_CUDA_QUANT_SOURCES})
+    set_target_properties(dinoml_libgguf_cuda_quant_objects PROPERTIES
+      POSITION_INDEPENDENT_CODE ON
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
+    )
+    target_include_directories(dinoml_libgguf_cuda_quant_objects
+      PRIVATE
+        ${DINOML_LIBGGUF_CUDA_SRC}
+        ${DINOML_LIBGGUF_ROOT}/include
+        ${DINOML_LIBGGUF_ROOT}/csrc/common
+    )
+    target_compile_definitions(dinoml_libgguf_cuda_quant_objects PRIVATE LIBGGUF_CUDA_NO_C10=1)
+    target_compile_options(dinoml_libgguf_cuda_quant_objects PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+
+    add_library(dinoml_libgguf_cuda_dequant_objects OBJECT ${DINOML_LIBGGUF_CUDA_DEQUANT_SOURCES})
+    set_target_properties(dinoml_libgguf_cuda_dequant_objects PROPERTIES
+      POSITION_INDEPENDENT_CODE ON
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
+    )
+    target_include_directories(dinoml_libgguf_cuda_dequant_objects
+      PRIVATE
+        ${DINOML_LIBGGUF_CUDA_SRC}
+        ${DINOML_LIBGGUF_ROOT}/include
+        ${DINOML_LIBGGUF_ROOT}/csrc/common
+    )
+    target_compile_definitions(dinoml_libgguf_cuda_dequant_objects PRIVATE LIBGGUF_CUDA_NO_C10=1)
+    target_compile_options(dinoml_libgguf_cuda_dequant_objects PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+
+    add_library(libgguf_cuda_native STATIC
+      ${DINOML_LIBGGUF_CUDA_SRC}/libgguf_cuda_native.cu
+      $<TARGET_OBJECTS:dinoml_libgguf_cuda_quant_objects>
+      $<TARGET_OBJECTS:dinoml_libgguf_cuda_dequant_objects>
+    )
+    set_target_properties(libgguf_cuda_native PROPERTIES
+      CUDA_STANDARD 17
+      CUDA_STANDARD_REQUIRED ON
+      OUTPUT_NAME "gguf_cuda_native"
+      CUDA_SEPARABLE_COMPILATION OFF
+    )
+    target_include_directories(libgguf_cuda_native
+      PUBLIC
+        ${DINOML_LIBGGUF_CUDA_SRC}
+      PRIVATE
+        ${DINOML_LIBGGUF_ROOT}/include
+        ${DINOML_LIBGGUF_ROOT}/csrc/common
+    )
+    target_compile_definitions(libgguf_cuda_native PRIVATE LIBGGUF_CUDA_NO_C10=1)
+    target_compile_options(libgguf_cuda_native PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--fmad=false>)
+    target_link_libraries(libgguf_cuda_native PUBLIC CUDA::cudart)
   endif()
 endif()

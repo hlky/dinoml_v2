@@ -400,12 +400,8 @@ def test_cuda_gemm_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm():
 
     assert "void* gguf_dequant_scratch = nullptr;" in source
     assert "dino_module_set_encoded_constant" in source
-    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" in source
-    assert (
-        'return dinoml::module::fail("gemm_rrr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
-        in source
-    )
-    dequant_call = "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in source
+    dequant_call = "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
     gemm_call = "ptr_x, ptr_weight_dequant"
     assert dequant_call in source
     assert gemm_call in source
@@ -420,11 +416,8 @@ def test_cuda_gemm_rcr_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm()
     source = render_cuda_module(ir, kernel_manifest=manifest)
 
     assert "void* gguf_dequant_scratch = nullptr;" in source
-    assert (
-        'return dinoml::module::fail("gemm_rcr GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
-        in source
-    )
-    dequant_call = "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in source
+    dequant_call = "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)"
     gemm_call = "ptr_x, ptr_weight_dequant"
     assert dequant_call in source
     assert gemm_call in source
@@ -435,7 +428,7 @@ def test_cuda_gemm_lowering_emits_direct_libgguf_call_when_native_library_is_lin
     spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
     ir = _renderable_ir(spec)
     manifest = build_kernel_manifest(ir, CUDA_TARGET)
-    manifest["gguf_cuda_native_library"] = "lib/gguf_cuda_native.so"
+    manifest["gguf_cuda_native_library"] = "lib/libgguf_cuda_native.a"
 
     source = render_cuda_module(ir, kernel_manifest=manifest)
 
@@ -448,39 +441,17 @@ def test_cuda_gemm_lowering_emits_direct_libgguf_call_when_native_library_is_lin
     assert "module->libgguf_cuda_dequantize_rows_on_stream" not in source
 
 
-def test_codegen_plan_records_direct_linked_libgguf_cuda_native(monkeypatch, tmp_path):
-    spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
-    manifest = build_kernel_manifest(_renderable_ir(spec), CUDA_TARGET)
-    manifest = _with_kernel_manifest_cache_keys(deepcopy(manifest))
-    native_library = tmp_path / "gguf_cuda_native.so"
-    native_library.write_bytes(b"fake")
-    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: native_library)
-
-    plan = create_codegen_plan(manifest, tmp_path)
-
-    support_entries = [entry for entry in plan.external_support_libraries if entry["name"] == "gguf_cuda_native"]
-    assert len(support_entries) == 1
-    assert support_entries[0]["origin_path"] == str(native_library)
-    assert support_entries[0]["library"] == f"lib/{native_library.name}"
-    assert support_entries[0]["link_mode"] == "direct"
-    assert support_entries[0]["source_kind"] == "env_override"
-
-
 def test_codegen_plan_records_vendored_libgguf_provenance(monkeypatch, tmp_path):
     spec = _encoded_rhs_spec(materialization="dequantize_on_gpu_before_launch")
     manifest = build_kernel_manifest(_renderable_ir(spec), CUDA_TARGET)
     manifest = _with_kernel_manifest_cache_keys(deepcopy(manifest))
-    source_root = tmp_path / "third_party" / "libgguf"
-    source_root.mkdir(parents=True)
     source_provenance = {
         "schema_version": 1,
-        "source_kind": "vendored_submodule",
+        "source_kind": "vendored_source",
         "git_revision": "abc123",
         "tracked_source_hash": "def456",
     }
     source_key = "feedfacecafebeef0011223344556677"
-    monkeypatch.setattr(kernel_codegen, "resolve_libgguf_cuda_direct_link_library", lambda: None)
-    monkeypatch.setattr(kernel_codegen, "libgguf_submodule_source_root", lambda _repo_root: source_root)
     monkeypatch.setattr(kernel_codegen, "libgguf_source_provenance", lambda _source_root: source_provenance)
     monkeypatch.setattr(kernel_codegen, "libgguf_provenance_key", lambda _provenance: source_key)
 
@@ -488,7 +459,7 @@ def test_codegen_plan_records_vendored_libgguf_provenance(monkeypatch, tmp_path)
 
     support_entries = [entry for entry in plan.external_support_libraries if entry["name"] == "gguf_cuda_native"]
     assert len(support_entries) == 1
-    assert support_entries[0]["source_kind"] == "vendored_submodule"
+    assert support_entries[0]["source_kind"] == "vendored_source"
     assert support_entries[0]["source_provenance"] == source_provenance
     assert support_entries[0]["source_provenance_key"] == source_key
     support_key = manifest.get("support_cache_key", manifest["cache_key"])[:16]
@@ -502,7 +473,7 @@ def test_libgguf_native_cache_manifest_rejects_stale_library_or_source(tmp_path)
     library.write_bytes(b"first")
     source_provenance = {
         "schema_version": 1,
-        "source_kind": "vendored_submodule",
+        "source_kind": "vendored_source",
         "git_revision": "abc123",
     }
     source_key = "source-key"
@@ -545,14 +516,14 @@ def test_libgguf_native_cache_manifest_rejects_stale_library_or_source(tmp_path)
         pytest.param(
             _encoded_rrr_bias_rhs_spec,
             "gemm_rrr_bias",
-            "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+            "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
             "ptr_x, ptr_weight_dequant, ptr_bias, ",
             id="rrr",
         ),
         pytest.param(
             _encoded_rcr_bias_rhs_spec,
             "gemm_rcr_bias",
-            "module->libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
+            "libgguf_cuda_dequantize_rows_on_stream(module->const_weight, 2, shape_weight_0, 32, 0, session->gguf_dequant_scratch, session->stream)",
             "ptr_x, ptr_weight_dequant, ptr_bias, ",
             id="rcr",
         ),
@@ -571,10 +542,7 @@ def test_cuda_gemm_bias_lowering_emits_runtime_gguf_dequant_before_cutlass_gemm(
     source = render_cuda_module(ir, kernel_manifest=manifest)
 
     assert "void* gguf_dequant_scratch = nullptr;" in source
-    assert (
-        f'return dinoml::module::fail("{op_name} GGUF runtime dequant for constant weight requires native libgguf CUDA dequant launcher");'
-        in source
-    )
+    assert "dino_module_set_libgguf_cuda_dequantize_rows_on_stream" not in source
     assert dequant_call in source
     assert gemm_call in source
     assert source.index(dequant_call) < source.index(gemm_call)

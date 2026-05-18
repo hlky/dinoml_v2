@@ -19,8 +19,6 @@ from dinoml.libgguf_cuda import (
     file_sha256,
     libgguf_provenance_key,
     libgguf_source_provenance,
-    libgguf_submodule_source_root,
-    resolve_libgguf_cuda_direct_link_library,
 )
 from dinoml.lowering.cuda import render_cuda_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
@@ -163,8 +161,10 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
             "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
             "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
             "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
+            "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
             f"-DCMAKE_CUDA_ARCHITECTURES={_cmake_arch(arch)}",
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+            f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
         ],
         cwd=repo_root,
     )
@@ -190,7 +190,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     if _requires_kernel_library(kernel_manifest, "cutlass_conv"):
         cutlass_conv_archives = _ensure_cmake_cutlass_conv_archives(arch, kernel_manifest)
     if _requires_gguf_cuda_native_library(kernel_manifest):
-        gguf_cuda_native_lib, gguf_cuda_native_manifest = _ensure_libgguf_cuda_native_library(
+        gguf_cuda_native_lib, gguf_cuda_native_manifest = _ensure_cmake_libgguf_cuda_native_archive(
             arch,
             cache_root=cache_root,
             cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
@@ -207,6 +207,8 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         libraries["cutlass_bmm_static"] = [archive.name for archive in cutlass_bmm_archives]
     if cutlass_conv_archives:
         libraries["cutlass_conv_static"] = [archive.name for archive in cutlass_conv_archives]
+    if gguf_cuda_native_lib is not None:
+        libraries["gguf_cuda_native_static"] = gguf_cuda_native_lib.name
     default_target = {"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"}
     support_target = dict(kernel_manifest.get("target", default_target)) if kernel_manifest is not None else default_target
     write_json(
@@ -263,6 +265,7 @@ def _ensure_cmake_cutlass_gemm_archives(arch: str, kernel_manifest: Mapping[str,
                 "-DDINOML_ENABLE_CUTLASS_GEMM=ON",
                 "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
+                "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -356,6 +359,7 @@ def _ensure_cmake_cutlass_bmm_archives(arch: str, kernel_manifest: Mapping[str, 
                 "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_BMM=ON",
                 "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
+                "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -449,6 +453,7 @@ def _ensure_cmake_cutlass_conv_archives(arch: str, kernel_manifest: Mapping[str,
                 "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_CONV=ON",
+                "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -590,26 +595,18 @@ def _cmake_library_kind(path: Path) -> str:
     return "STATIC" if path.suffix == ".a" else "SHARED"
 
 
-def _first_existing(paths: tuple[Path, ...]) -> Path | None:
-    for path in paths:
-        if path.exists():
-            return path
-    return None
-
-
-def _ensure_libgguf_cuda_native_library(
+def _ensure_cmake_libgguf_cuda_native_archive(
     arch: str,
     *,
     cache_root: Path,
     cache_key: str,
     repo_root: Path,
 ) -> tuple[Path | None, Path | None]:
-    explicit_library = resolve_libgguf_cuda_direct_link_library()
-    if explicit_library is not None:
-        return explicit_library, None
-    source_root = libgguf_submodule_source_root(repo_root)
-    if source_root is None:
-        return None, None
+    source_root = repo_root / "third_party" / "libgguf"
+    if not (source_root / "src" / "libgguf" / "libgguf_cuda" / "csrc" / "libgguf_cuda_native.cu").exists():
+        raise RuntimeError(
+            "GGUF runtime dequant requires vendored libgguf CUDA sources under third_party/libgguf"
+        )
     source_provenance = libgguf_source_provenance(source_root)
     source_key = libgguf_provenance_key(source_provenance)
     support_root = (
@@ -624,34 +621,36 @@ def _ensure_libgguf_cuda_native_library(
     lib_dir = support_root / "lib"
     manifest_path = lib_dir / "libgguf_cuda_native_manifest.json"
     lib_dir.mkdir(parents=True, exist_ok=True)
-    cached = _first_existing(
-        (
-            lib_dir / "libgguf_cuda_native.a",
-            lib_dir / "gguf_cuda_native.so",
-            lib_dir / "libgguf_cuda_native.so",
-        )
-    )
-    if cached is not None and _libgguf_native_cache_manifest_valid(
+    archive = lib_dir / "libgguf_cuda_native.a"
+    if archive.exists() and _libgguf_native_cache_manifest_valid(
         manifest_path,
-        library=cached,
+        library=archive,
         source_provenance=source_provenance,
         source_key=source_key,
     ):
-        return cached, manifest_path
-    _run_cmake(
-        [
-            "cmake",
-            "-S",
-            str(source_root),
-            "-B",
-            str(build_dir),
-            "-DCMAKE_BUILD_TYPE=Release",
-            f"-DCMAKE_CUDA_ARCHITECTURES={_cmake_arch(arch)}",
-            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
-            f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
-        ],
-        cwd=source_root,
-    )
+        return archive, manifest_path
+    _prepare_cmake_build_dir(build_dir)
+    if not archive.exists() or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=ON",
+                "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
+                "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
+                "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
+                "-DDINOML_ENABLE_LIBGGUF_CUDA=ON",
+                f"-DCMAKE_CUDA_ARCHITECTURES={_cmake_arch(arch)}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
     _run_cmake(
         [
             "cmake",
@@ -661,32 +660,31 @@ def _ensure_libgguf_cuda_native_library(
             "libgguf_cuda_native",
             "--parallel",
         ],
-        cwd=source_root,
+        cwd=repo_root,
     )
-    built = _first_existing(
-        (
-            lib_dir / "libgguf_cuda_native.a",
-            lib_dir / "gguf_cuda_native.so",
-            lib_dir / "libgguf_cuda_native.so",
-        )
-    )
-    if built is None:
-        return None, None
+    if not archive.exists():
+        raise RuntimeError(f"Expected libgguf_cuda_native under {lib_dir}, but it was not produced")
     write_json(
         manifest_path,
         {
             "schema_version": 1,
             "name": "gguf_cuda_native",
             "link_mode": "direct",
-            "library": built.name,
-            "library_path": str(built),
-            "library_kind": "static" if built.suffix == ".a" else "shared",
-            "library_sha256": file_sha256(built),
+            "build_mode": "cmake_static_archive",
+            "library": archive.name,
+            "library_path": str(archive),
+            "library_kind": "static",
+            "library_sha256": file_sha256(archive),
             "source_provenance_key": source_key,
             "source_provenance": source_provenance,
+            "compile": {
+                "system": "cmake",
+                "targets": ["libgguf_cuda_native"],
+                "build_dir": str(build_dir),
+            },
         },
     )
-    return built, manifest_path
+    return archive, manifest_path
 
 
 def _libgguf_native_cache_manifest_valid(

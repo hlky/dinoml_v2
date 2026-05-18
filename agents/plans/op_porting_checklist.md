@@ -540,11 +540,9 @@ normalization or softmax patterns, otherwise use custom block reductions.
   `materialization="dequantize_on_gpu_before_launch"` and
   `residency="manual_runtime_load"` for `float32`/`float16` dense outputs.
   Generated CUDA stores the constant as encoded bytes, allocates a separate
-  session-owned dense RHS scratch buffer, and prefers a direct link against the
-  native `libgguf_cuda_native` artifact built from the repo-pinned
-  `third_party/libgguf` submodule. The runtime-set native
-  `libgguf_cuda_dequantize_rows_on_stream` launcher remains as a bounded
-  fallback/testing path when direct linking is unavailable or disabled. Focused
+  session-owned dense RHS scratch buffer, and requires a direct link against
+  DinoML's CMake-built `libgguf_cuda_native` static archive from the vendored
+  libgguf CUDA sources. The runtime-set native launcher fallback is removed. Focused
   CUDA coverage uses real libgguf `Q4_0` storage and compares the runtime path
   against a dense dequantized reference. Epilogues, `bfloat16`, broad offload
   scheduling, and direct in-kernel quantized RHS execution remain out of scope.

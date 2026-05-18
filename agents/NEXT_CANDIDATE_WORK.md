@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Cleaned up the GGUF runtime-dequant support boundary so CUDA artifacts no
+  longer expose or depend on
+  `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()`. DinoML CMake now
+  owns explicit libgguf CUDA object/static-archive targets from vendored
+  libgguf sources, generated modules directly call the linked
+  `libgguf_cuda_dequantize_rows_on_stream(...)` symbol, and Python runtime code
+  no longer resolves native libgguf CUDA symbols through `ctypes`; Python
+  libgguf/Torch dequant remains available only for load-time dense
+  materialization before a run. Focused tests/docs were updated to pin the
+  direct-link contract and remove the old fallback expectations.
 - Extended the cached-checkpoint CLIP benchmark JSON to expose CUDA-side
   DinoML hot-path timings without changing model/runtime behavior. The CUDA
   benchmark now always reports GPU-resident `Session.run_device_pointers`
@@ -766,22 +776,16 @@ This file should be updated after each major loop.
   limits: text-only wrapper, explicit `position_ids`, static traced sequence
   length, tokenizer-prepared EOS presence assumption, no vision tower, and no
   full contrastive wrapper artifact workflow yet.
-- Replaced the GGUF CUDA runtime-dequant native boundary with a reproducible
-  direct-link default: the repo now vendors `third_party/libgguf` as a pinned
-  submodule from `https://github.com/hlky/libgguf`, CUDA module builds compile
-  and link the native `libgguf_cuda_native` artifact from that submodule into
-  GGUF runtime-dequant artifacts, generated lowering calls
-  `libgguf_cuda_dequantize_rows_on_stream(...)` directly when linked, and
-  artifact metadata/codegen plans record the linked native library plus source
-  provenance and cache manifests. The runtime fallback no longer treats static
-  archives as `ctypes.CDLL` candidates, cached native builds are invalidated on
-  source/library provenance changes, and the old
-  `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` path remains only
-  as an explicit fallback/testing boundary when direct linking is unavailable or
-  deliberately disabled. Focused planning/unit coverage plus CUDA-gated runtime
-  regressions cover the direct-link default, forced fallback compatibility, and
-  stale-cache/static-archive guardrails without widening GGUF policy, epilogue
-  coverage, or public provider admission.
+- Replaced the GGUF CUDA runtime-dequant native boundary with a required
+  direct-link path: DinoML CMake now owns explicit libgguf CUDA object/archive
+  targets from vendored libgguf sources, CUDA module builds link the resulting
+  `libgguf_cuda_native` static archive into GGUF runtime-dequant artifacts, and
+  generated lowering calls `libgguf_cuda_dequantize_rows_on_stream(...)`
+  directly. The runtime function-pointer setter fallback and Python `ctypes`
+  native-symbol resolver are removed; Python libgguf/Torch CUDA dequant remains
+  only for load-time dense materialization before a run. Focused planning/unit
+  coverage now pins the direct archive path without widening GGUF policy,
+  epilogue coverage, or public provider admission.
 - Use worktrees for independent branches if running parallel agents. Keep
   feature write sets disjoint, keep shared queue/tracking doc reconciliation on
   the main line when possible, and require PM review plus validation before
@@ -941,15 +945,12 @@ This file should be updated after each major loop.
   existing `manifest/codegen scaffold only` boundary before module build.
 - Closed the remaining native-boundary regression gap around the bounded GGUF
   runtime-dequant CUDA slice without widening policy: direct native
-  `dino_module_load()` now has CUDA-gated coverage for a mixed dense-bias plus
+  `dino_module_load()` has CUDA-gated coverage for a mixed dense-bias plus
   encoded GGUF RHS `gemm_rrr_bias` artifact, proving that native module load
-  autoloads only the dense bias, native encoded-weight installation plus the
-  explicit `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()` hook make
-  the lowered runtime-dequant path runnable, native
-  `dino_module_unload_constants()` / `dino_module_load_constants()` preserve the
-  installed dequantizer pointer while requiring only the encoded weight to be
-  reinstalled, and a freshly reopened native module handle again requires
-  reinstalling the dequantizer hook before the same encoded bytes can run.
+  autoloads only the dense bias, native encoded-weight installation makes the
+  directly linked lowered runtime-dequant path runnable, and native
+  `dino_module_unload_constants()` / `dino_module_load_constants()` require
+  only the encoded weight to be reinstalled.
 - Closed the skeptical-reviewer follow-ups on the bounded GGUF
   runtime-dequant scratch-resource slice without widening policy: support
   library cache keys no longer churn from generated-module/runtime

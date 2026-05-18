@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml import libgguf_cuda
 from dinoml import runtime
 from dinoml.backends.cpu import execute_cpu
 from dinoml.constant_sources import MaterializedConstant
@@ -2364,60 +2363,6 @@ def test_runtime_load_encoded_constants_materializes_gguf_metadata(monkeypatch, 
     module.load_encoded_constants()
 
     np.testing.assert_array_equal(captured["weight"], values)
-
-
-def test_libgguf_cuda_native_dequantize_rows_on_stream_caches_cdll(monkeypatch):
-    cache_key = "/tmp/fake_libgguf_cuda_native.so"
-    call_count = 0
-    callback_type = ctypes.CFUNCTYPE(
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_int64,
-        ctypes.c_int64,
-        ctypes.c_int64,
-        ctypes.c_int,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-    )
-
-    @callback_type
-    def launcher(_device_input, _qtype, _rows, _n_per_row, _output_dtype, _device_output, _stream):
-        return 0
-
-    class FakeLibrary:
-        libgguf_cuda_dequantize_rows_on_stream = launcher
-
-    def fake_cdll(path, *args, **kwargs):
-        nonlocal call_count
-        assert path == cache_key
-        call_count += 1
-        return FakeLibrary()
-
-    monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
-    monkeypatch.setattr(runtime, "resolve_libgguf_cuda_symbol_library", lambda: Path(cache_key))
-    monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_CACHE", {})
-    monkeypatch.setattr(runtime, "_LIBGGUF_CUDA_NATIVE_LIBRARIES", [])
-
-    first = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
-    second = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
-
-    assert first is not None
-    assert second == first
-    assert call_count == 1
-
-
-def test_libgguf_cuda_symbol_resolver_ignores_static_archive_for_runtime_fallback(monkeypatch, tmp_path):
-    extension = tmp_path / "_C_gguf.so"
-    archive = tmp_path / "libgguf_cuda_native.a"
-    extension.write_bytes(b"dynamic")
-    archive.write_bytes(b"static")
-    monkeypatch.setenv("LIBGGUF_CUDA_EXTENSION", str(extension))
-    monkeypatch.delenv("LIBGGUF_CUDA_NATIVE_LIBRARY", raising=False)
-
-    assert libgguf_cuda.resolve_libgguf_cuda_symbol_library() == extension
-
-    monkeypatch.setenv("LIBGGUF_CUDA_NATIVE_LIBRARY", str(archive))
-    assert libgguf_cuda.resolve_libgguf_cuda_symbol_library() == extension
 
 
 def test_runtime_load_encoded_constants_resolves_artifact_relative_gguf_path(monkeypatch, tmp_path):

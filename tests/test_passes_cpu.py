@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from dinoml import Target, compile
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.bmm import BMM_BASE_OPS, BMM_OPS
@@ -458,7 +458,7 @@ def test_cpu_reference_matches_numpy_formula():
 
     spec = build_spec()
     inputs = build_validation_inputs()
-    actual = execute_cpu(spec, inputs)["y"]
+    actual = reference_numpy(spec, inputs)["y"]
     expected = numpy_reference(inputs)["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)

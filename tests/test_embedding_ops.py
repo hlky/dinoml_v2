@@ -5,7 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.frontend import GraphBuilder
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
@@ -99,7 +99,7 @@ def test_cpu_reference_embedding_matches_expected(dtype, expected_dtype):
     table = _table(dtype)
     indices = _indices()
 
-    actual = execute_cpu(spec, {"table": table, "indices": indices})["out"]
+    actual = reference_numpy(spec, {"table": table, "indices": indices})["out"]
     expected = _reference_embedding(table, indices, dtype=dtype)
 
     assert actual.dtype == expected_dtype
@@ -111,7 +111,7 @@ def test_cpu_reference_embedding_accepts_int32_indices():
     table = _table("float32")
     indices = _indices("int32")
 
-    actual = execute_cpu(spec, {"table": table, "indices": indices})["out"]
+    actual = reference_numpy(spec, {"table": table, "indices": indices})["out"]
 
     np.testing.assert_array_equal(actual, _reference_embedding(table, indices, dtype="float32"))
 

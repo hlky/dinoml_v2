@@ -15,7 +15,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import read_json
 from dinoml.shapes import Dim
 
@@ -257,7 +257,7 @@ def test_conv2d_cpu_reference_matches_torch(dtype, atol, rtol):
     x = _input((2, 3, 6, 7), dtype, -1.5, 2.5)
     weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight})["out"]
     expected = _storage_roundtrip(
         _torch_conv2d_reference(
             x,

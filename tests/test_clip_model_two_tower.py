@@ -16,7 +16,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.models.clip import (
@@ -976,14 +976,14 @@ def test_clip_model_get_text_and_image_features_match_local_transformers():
     assert image_spec.ir["outputs"][0]["shape"] == [IMAGE_BATCH, PROJECTION]
 
     expected = _reference_outputs()
-    actual_text = execute_cpu(
+    actual_text = reference_numpy(
         text_spec,
         {
             "input_ids": _input_ids(),
             "attention_mask": _attention_mask(),
         },
     )["text_features"]
-    actual_image = execute_cpu(image_spec, {"pixel_values": _pixel_values()})["image_features"]
+    actual_image = reference_numpy(image_spec, {"pixel_values": _pixel_values()})["image_features"]
 
     np.testing.assert_allclose(actual_text, expected["text_features"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual_image, expected["image_features"], atol=1e-5, rtol=1e-5)
@@ -1007,7 +1007,7 @@ def test_clip_model_transformers_adapter_matches_local_transformers_cpu_referenc
         },
         name="clip_model_two_tower_transformers_adapter",
     )
-    actual = execute_cpu(
+    actual = reference_numpy(
         spec,
         {
             "input_ids": _input_ids(),
@@ -1076,7 +1076,7 @@ def test_clip_model_transformers_adapter_non_2_eos_matches_local_transformers_cp
         "pixel_values": _pixel_values(),
         "attention_mask": _attention_mask(),
     }
-    actual = execute_cpu(spec, inputs)
+    actual = reference_numpy(spec, inputs)
 
     text_inputs = {
         "input_ids": torch.from_numpy(inputs["input_ids"]),
@@ -1231,7 +1231,7 @@ def test_clip_model_transformers_checkpoint_runtime_smoke_local_cache_only():
     text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
 
     with np.errstate(over="ignore"):
-        actual = execute_cpu(spec, inputs)
+        actual = reference_numpy(spec, inputs)
     expected = _cached_checkpoint_expected_outputs(clip_model, inputs)
 
     assert spec.ir["outputs"][0]["shape"] == [1, 1]
@@ -1291,7 +1291,7 @@ def test_clip_model_transformers_checkpoint_processor_smoke_local_cache_only(mon
         name="clip_model_two_tower_transformers_cached_checkpoint_processor_smoke",
     )
     with np.errstate(over="ignore"):
-        actual = execute_cpu(spec, inputs)
+        actual = reference_numpy(spec, inputs)
     expected = _cached_checkpoint_expected_outputs(clip_model, processor_outputs)
 
     assert seq_len <= int(text_config.max_position_embeddings)
@@ -1618,7 +1618,7 @@ def test_clip_model_two_tower_logits_and_normalized_embeds_match_local_transform
     assert spec.ir["outputs"][2]["shape"] == [TEXT_BATCH, PROJECTION]
     assert spec.ir["outputs"][3]["shape"] == [IMAGE_BATCH, PROJECTION]
 
-    actual = execute_cpu(
+    actual = reference_numpy(
         spec,
         {
             "input_ids": _input_ids(),
@@ -1660,7 +1660,7 @@ def test_clip_model_zero_layer_text_tower_matches_local_transformers():
     assert node_ops.count("bmm_rrr") == 0
     assert node_ops.count("exp") == 1
 
-    actual = execute_cpu(
+    actual = reference_numpy(
         spec,
         {
             "input_ids": _input_ids(),

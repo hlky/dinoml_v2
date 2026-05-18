@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.layout import dense_layout
 from dinoml.lowering.ops import render_generated_kernels
@@ -112,7 +112,7 @@ def test_cpu_reference_slice_scatter(dtype, expected_dtype):
     x = _input(dtype)
     update = _update(dtype)
 
-    actual = execute_cpu(spec, {"x": x, "update": update})["out"]
+    actual = reference_numpy(spec, {"x": x, "update": update})["out"]
 
     expected = _expected_scatter(x, update, dtype)
     assert actual.dtype == expected_dtype

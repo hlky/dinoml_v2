@@ -11,7 +11,7 @@ import pytest
 import dinoml as dml
 from dinoml import runtime
 from dinoml.backends.cuda_libraries import discover_cuda_libraries
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import ModelSpec, dtype_runtime_enum, read_json, write_json
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_candidates
 
@@ -88,7 +88,7 @@ def test_cuda_artifact_runs_without_torch(tmp_path):
     assert "if (!session->external_stream)" in generated_text
 
     inputs = build_validation_inputs()
-    expected = execute_cpu(spec, inputs)
+    expected = reference_numpy(spec, inputs)
 
     module = runtime.load(artifact.path)
     assert module.metadata == read_json(artifact.path / "metadata.json")
@@ -136,7 +136,7 @@ def test_runtime_constant_update_changes_output(tmp_path):
     module.close()
 
     np.testing.assert_allclose(actual["y"], np.zeros([2, 3, 4], dtype=np.float32), atol=1e-6, rtol=0)
-    np.testing.assert_allclose(reloaded["y"], execute_cpu(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(reloaded["y"], reference_numpy(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
 
     module = runtime.load(artifact.path, load_constants=False)
     assert module.constant_load_state() == expected_unloaded
@@ -150,7 +150,7 @@ def test_runtime_constant_update_changes_output(tmp_path):
     finally:
         session.close()
         module.close()
-    np.testing.assert_allclose(deferred["y"], execute_cpu(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
+    np.testing.assert_allclose(deferred["y"], reference_numpy(spec, inputs)["y"], atol=1e-4, rtol=1e-4)
 
 
 def _build_cuda_mixed_dense_and_manual_encoded_constant_artifact(monkeypatch, tmp_path, *, constant_load_policy="eager"):

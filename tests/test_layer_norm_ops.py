@@ -5,7 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.frontend import GraphBuilder
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
@@ -127,7 +127,7 @@ def test_cpu_reference_layer_norm_matches_expected(dtype, atol, rtol):
     weight = (rng.standard_normal((8,)).astype(np.float32) * 0.5) + 1.0
     bias = (rng.standard_normal((8,)).astype(np.float32) * 0.25) - 0.1
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight, "bias": bias})["out"]
     expected = _reference_layer_norm(x, weight, bias, eps=1e-5, dtype=dtype)
 
     assert actual.shape == expected.shape

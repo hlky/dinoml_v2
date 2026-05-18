@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.runtime import load
@@ -65,7 +65,7 @@ def test_clip_legacy_text_pooling_frontend_ir_and_cpu_reference():
     assert spec.ir["metadata"]["views"]["views"][0]["source"] == spec.ir["nodes"][1]["outputs"][0]
     np.testing.assert_array_equal(np.argmax(input_ids, axis=-1), np.array([2, 1, 5], dtype=np.int64))
 
-    actual = execute_cpu(spec, {"input_ids": input_ids, "hidden_states": hidden_states})["out"]
+    actual = reference_numpy(spec, {"input_ids": input_ids, "hidden_states": hidden_states})["out"]
 
     assert actual.dtype == np.float32
     np.testing.assert_array_equal(actual, _expected_pooled_hidden_states(input_ids, hidden_states))

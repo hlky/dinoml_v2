@@ -11,7 +11,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPVisionConfig, LegacyCLIPVisionModelWithProjection
@@ -190,7 +190,7 @@ def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
     assert spec.ir["outputs"][1]["shape"] == [BATCH, HIDDEN]
     assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
 
-    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
+    actual = reference_numpy(spec, {"pixel_values": _pixel_values()})
     expected = _reference_outputs(0)
 
     np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
@@ -293,7 +293,7 @@ def test_clip_vision_wrapper_one_layer_matches_local_transformers():
     assert spec.ir["outputs"][1]["shape"] == [BATCH, HIDDEN]
     assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
 
-    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
+    actual = reference_numpy(spec, {"pixel_values": _pixel_values()})
     expected = _reference_outputs(1)
 
     np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)
@@ -328,7 +328,7 @@ def test_clip_vision_wrapper_two_layer_matches_local_transformers():
     assert spec.ir["outputs"][1]["shape"] == [BATCH, HIDDEN]
     assert spec.ir["outputs"][2]["shape"] == [BATCH, PROJECTION]
 
-    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})
+    actual = reference_numpy(spec, {"pixel_values": _pixel_values()})
     expected = _reference_outputs(2)
 
     np.testing.assert_allclose(actual["last_hidden_state"], expected["last_hidden_state"], atol=1e-5, rtol=1e-5)

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.passes import PassManager, validate_ir
 
@@ -80,7 +80,7 @@ def test_clip_text_mlp_frontend_ir_and_cpu_reference_match_numpy():
     assert spec.ir["outputs"][0]["shape"] == [BATCH, SEQ_LEN, HIDDEN]
     assert spec.ir["outputs"][0]["dtype"] == "float32"
 
-    actual = execute_cpu(spec, {"hidden_states": hidden_states})["out"]
+    actual = reference_numpy(spec, {"hidden_states": hidden_states})["out"]
     expected = _reference_clip_text_mlp(hidden_states)
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)

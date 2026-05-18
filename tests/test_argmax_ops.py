@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -76,7 +76,7 @@ def test_cpu_reference_argmax(dtype):
     spec = _trace(dtype)
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     assert actual.dtype == np.int64
     np.testing.assert_array_equal(actual, _expected(x))
@@ -86,7 +86,7 @@ def test_argmax_ties_return_first_index():
     spec = _trace("float32", shape=(2, 4))
     x = np.array([[1.0, 3.0, 3.0, 2.0], [5.0, 5.0, 4.0, 5.0]], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     np.testing.assert_array_equal(actual, np.array([1, 0], dtype=np.int64))
 
@@ -99,8 +99,8 @@ def test_argmax_keepdim_and_scalar_fallback_shape():
 
     assert keepdim_spec.ir["outputs"][0]["shape"] == [2, 1]
     assert scalar_spec.ir["outputs"][0]["shape"] == [1]
-    np.testing.assert_array_equal(execute_cpu(keepdim_spec, {"x": keepdim_x})["out"], [[1], [2]])
-    np.testing.assert_array_equal(execute_cpu(scalar_spec, {"x": scalar_x})["out"], [1])
+    np.testing.assert_array_equal(reference_numpy(keepdim_spec, {"x": keepdim_x})["out"], [[1], [2]])
+    np.testing.assert_array_equal(reference_numpy(scalar_spec, {"x": scalar_x})["out"], [1])
 
 
 @pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool", "int32", "int64"])
@@ -238,7 +238,7 @@ def test_argmax_frontend_ir_and_runtime_allow_bounded_integer_inputs(dtype, tmp_
     assert spec.ir["outputs"][0]["dtype"] == "int64"
 
     values = np.array([[1, 7, 7, 3, 0], [4, 4, 2, 9, 9]], dtype=np.int64).astype(dtype)
-    np.testing.assert_array_equal(execute_cpu(spec, {"x": values})["out"], np.array([1, 3], dtype=np.int64))
+    np.testing.assert_array_equal(reference_numpy(spec, {"x": values})["out"], np.array([1, 3], dtype=np.int64))
 
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / f"argmax_{dtype}_bounded_cpu.dinoml")
     session = load(artifact.path).create_session()
@@ -260,7 +260,7 @@ def test_argmax_clip_legacy_eot_pooling_regression_with_int64_ids():
         dtype=np.int64,
     )
 
-    actual = execute_cpu(spec, {"x": input_ids})["out"]
+    actual = reference_numpy(spec, {"x": input_ids})["out"]
 
     np.testing.assert_array_equal(actual, np.array([2, 1, 0], dtype=np.int64))
 

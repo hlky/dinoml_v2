@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.passes.validation import ValidationError
@@ -54,7 +54,7 @@ def test_cpu_reference_relational_ops_return_bool_arrays(op_name, np_op):
     x = np.array([[0.0, 1.0, 2.0], [3.0, np.nan, 5.0]], dtype=np.float32)
     y = np.array([[0.0, 2.0, 2.0]], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"x": x, "y": y})["out"]
+    actual = reference_numpy(spec, {"x": x, "y": y})["out"]
 
     assert actual.dtype == np.bool_
     np.testing.assert_array_equal(actual, np_op(x, y))
@@ -67,7 +67,7 @@ def test_eq_accepts_integer_inputs_without_float_rounding(dtype):
     x = np.array([[large, large + 1, large + 2], [large + 3, large + 4, large + 5]], dtype=dtype)
     y = np.array([[large, large + 2, large + 2]], dtype=dtype)
 
-    actual = execute_cpu(spec, {"x": x, "y": y})["out"]
+    actual = reference_numpy(spec, {"x": x, "y": y})["out"]
 
     assert actual.dtype == np.bool_
     np.testing.assert_array_equal(actual, np.equal(x, y))

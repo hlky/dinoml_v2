@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -50,7 +50,7 @@ def test_full_frontend_ir_preserves_shape_spec_dtype_and_attrs():
 def test_cpu_reference_full(dtype, fill_value, expected_dtype):
     spec = _trace_full([2, 3], fill_value, dtype)
 
-    actual = execute_cpu(spec, {})["out"]
+    actual = reference_numpy(spec, {})["out"]
 
     expected = np.full([2, 3], fill_value, dtype=np.bool_ if dtype == "bool" else np.float32)
     if dtype in {"float16", "bfloat16"}:

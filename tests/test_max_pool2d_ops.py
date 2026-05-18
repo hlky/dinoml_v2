@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -93,7 +93,7 @@ def test_cpu_reference_max_pool2d(dtype):
     spec = _trace_max_pool2d(dtype, kernel_size=(2, 3), stride=(1, 2), padding=(1, 1), shape=shape)
     x = _input(shape, dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _storage_roundtrip(_np_max_pool2d(x, (2, 3), stride=(1, 2), padding=(1, 1)), dtype)
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=0.0)
@@ -104,7 +104,7 @@ def test_cpu_reference_max_pool2d_uses_negative_infinity_padding():
     spec = _trace_max_pool2d("float32", kernel_size=1, stride=1, padding=2, shape=shape)
     x = np.array([[[[3.5]]]], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _np_max_pool2d(x, 1, stride=1, padding=2)
     assert np.isneginf(actual[0, 0, 0, 0])

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -80,7 +80,7 @@ def test_cpu_reference_where_executes_broadcast():
     x = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
     y = np.array([[10.0, 20.0, 30.0], [40.0, 50.0, 60.0]], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"condition": condition, "x": x, "y": y})["out"]
+    actual = reference_numpy(spec, {"condition": condition, "x": x, "y": y})["out"]
 
     assert actual.dtype == np.float32
     np.testing.assert_array_equal(actual, np.where(condition, x, y))
@@ -90,7 +90,7 @@ def test_cpu_reference_where_executes_bool_values_with_broadcast():
     spec = _trace_where("bool")
     condition, x, y = _where_inputs("bool")
 
-    actual = execute_cpu(spec, {"condition": condition, "x": x, "y": y})["out"]
+    actual = reference_numpy(spec, {"condition": condition, "x": x, "y": y})["out"]
 
     assert actual.dtype == np.bool_
     np.testing.assert_array_equal(actual, np.where(condition, x, y))

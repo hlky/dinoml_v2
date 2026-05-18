@@ -17,7 +17,7 @@ import numpy as np
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPModel, LegacyCLIPTextConfig, LegacyCLIPVisionConfig
@@ -438,12 +438,12 @@ def _run_compiled_cpu_artifact(
 def run_example(*, artifact_dir: str | Path | None = None) -> dict[str, object]:
     inputs = build_validation_inputs()
     spec = build_spec()
-    eager_outputs = execute_cpu(spec, inputs)
-    text_only = execute_cpu(
+    eager_outputs = reference_numpy(spec, inputs)
+    text_only = reference_numpy(
         build_text_features_spec(),
         {"input_ids": inputs["input_ids"], "attention_mask": inputs["attention_mask"]},
     )["text_features"]
-    image_only = execute_cpu(build_image_features_spec(), {"pixel_values": inputs["pixel_values"]})["image_features"]
+    image_only = reference_numpy(build_image_features_spec(), {"pixel_values": inputs["pixel_values"]})["image_features"]
     transformers_outputs = reference_outputs()
     artifact_outputs, artifact_summary = _run_compiled_cpu_artifact(Path(artifact_dir) if artifact_dir is not None else None, spec=spec, inputs=inputs)
     summary = inspect_workflow()
@@ -458,8 +458,8 @@ def run_example(*, artifact_dir: str | Path | None = None) -> dict[str, object]:
         "image_features": _tensor_parity(image_only, transformers_outputs["image_features"]),
     }
     summary["parity"] = {
-        "execute_cpu_vs_transformers": _output_parity(eager_outputs, transformers_outputs),
-        "artifact_vs_execute_cpu": _output_parity(artifact_outputs, eager_outputs),
+        "reference_numpy_vs_transformers": _output_parity(eager_outputs, transformers_outputs),
+        "artifact_vs_reference_numpy": _output_parity(artifact_outputs, eager_outputs),
         "artifact_vs_transformers": _output_parity(artifact_outputs, transformers_outputs),
     }
     summary["text_features"] = _round_array(text_only)

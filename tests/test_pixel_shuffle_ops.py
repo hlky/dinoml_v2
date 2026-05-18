@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
 from dinoml.runtime import load
@@ -117,7 +117,7 @@ def test_cpu_reference_pixel_shuffle_ops_match_numpy(op_name, trace_fn, shape, e
     spec = trace_fn(shape=shape, dtype=dtype)
     x = _input(shape, dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
     expected = expected_fn(x, 2)
     assert actual.dtype == expected_dtype
     assert spec.ir["outputs"][0]["shape"] == list(expected.shape)

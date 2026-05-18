@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import ModelSpec
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.passes import PassManager, validate_ir
@@ -52,14 +52,14 @@ def test_gelu_new_helper_matches_gelu_frontend_ir_and_lowering():
     lowered_spec = ModelSpec(helper.name, lowered, helper.constants)
     x = np.linspace(-3.0, 3.0, 30, dtype=np.float32).reshape(2, 3, 5)
     expected = _reference_gelu_new(x)
-    np.testing.assert_allclose(execute_cpu(lowered_spec, {"x": x})["out"], expected, atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(reference_numpy(lowered_spec, {"x": x})["out"], expected, atol=1e-6, rtol=1e-6)
 
 
 def test_gelu_new_cpu_reference_matches_hf_tanh_formula():
     spec = _trace_gelu("gelu_new")
     x = np.linspace(-4.0, 4.0, 30, dtype=np.float32).reshape(2, 3, 5)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     np.testing.assert_allclose(actual, _reference_gelu_new(x), atol=1e-6, rtol=1e-6)
 

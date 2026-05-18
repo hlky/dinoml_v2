@@ -4,7 +4,7 @@ import shutil
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -378,7 +378,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula(
         dtype=dtype,
     )
 
-    actual = execute_cpu(spec, {})
+    actual = reference_numpy(spec, {})
 
     assert actual["cos"].dtype == expected_cos.dtype
     assert actual["sin"].dtype == expected_sin.dtype
@@ -410,7 +410,7 @@ def test_cpu_reference_get_1d_rotary_pos_embed_matches_formula_for_static_tensor
         dtype="float32",
     )
 
-    actual = execute_cpu(spec, {"pos": positions})
+    actual = reference_numpy(spec, {"pos": positions})
 
     np.testing.assert_allclose(actual["cos"], expected_cos, atol=1e-6, rtol=1e-6)
     np.testing.assert_allclose(actual["sin"], expected_sin, atol=1e-6, rtol=1e-6)

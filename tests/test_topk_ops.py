@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.layout import dense_layout
 from dinoml.lowering.ops import render_generated_kernels
@@ -111,7 +111,7 @@ def test_cpu_reference_topk_supported_dtypes(dtype):
     spec = _trace(dtype, k=2, named=True)
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})
+    actual = reference_numpy(spec, {"x": x})
 
     assert actual["indices"].dtype == np.int64
     assert actual["values"].dtype == _numpy_result_dtype(dtype)
@@ -123,7 +123,7 @@ def test_topk_ties_return_lower_indices_first_and_values_descending():
     spec = _trace("float32", shape=(2, 5), k=4, named=True)
     x = np.array([[3.0, 1.0, 3.0, 2.0, 3.0], [5.0, 5.0, 4.0, 5.0, 3.0]], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"x": x})
+    actual = reference_numpy(spec, {"x": x})
 
     np.testing.assert_array_equal(actual["indices"], np.array([[0, 2, 4, 3], [0, 1, 3, 2]], dtype=np.int64))
     np.testing.assert_array_equal(actual["values"], np.array([[3.0, 3.0, 3.0, 2.0], [5.0, 5.0, 5.0, 4.0]], dtype=np.float32))

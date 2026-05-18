@@ -5,7 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.passes import PassManager, validate_ir
 
@@ -84,7 +84,7 @@ def test_clip_text_embeddings_frontend_ir_and_cpu_reference_match_numpy(
     assert spec.ir["outputs"][0]["shape_spec"] == [2, 6, 4]
     assert spec.ir["outputs"][0]["dtype"] == "float32"
 
-    actual = execute_cpu(
+    actual = reference_numpy(
         spec,
         {
             "token_table": token_table,

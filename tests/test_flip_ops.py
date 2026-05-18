@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -66,7 +66,7 @@ def test_cpu_reference_flip(dtype, expected_dtype):
     spec = _trace_flip(dtype, dims=(0, 2), shape=(2, 3, 2))
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _storage_roundtrip(np.flip(x, axis=(0, 2)).copy(), dtype)
     assert actual.dtype == expected_dtype

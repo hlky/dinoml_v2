@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -90,7 +90,7 @@ def test_cpu_reference_pad(dtype, value, expected_dtype):
     spec = _trace_pad(dtype, pad=(1, 2, 1, 0), value=value, shape=(2, 3, 2))
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _storage_roundtrip(_np_pad(x, [1, 2, 1, 0], value), dtype)
     assert actual.dtype == expected_dtype

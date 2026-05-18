@@ -9,7 +9,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.constant_sources import MaterializedConstant
 from dinoml.ir import (
     IR_SCHEMA_VERSION,
@@ -489,7 +489,7 @@ def test_cpu_artifact_uses_shared_runtime_and_generated_elementwise(tmp_path):
     assert per_op_source.read_text(encoding="utf-8") in generated
 
     inputs = build_validation_inputs()
-    expected = execute_cpu(spec, inputs)
+    expected = reference_numpy(spec, inputs)
     expected_loaded = {constant["name"]: True for constant in spec.ir["constants"]}
     expected_unloaded = {constant["name"]: False for constant in spec.ir["constants"]}
 
@@ -554,7 +554,7 @@ def test_cpu_artifact_deferred_constant_load_policy(tmp_path):
     assert manifest["constant_load_policy"] == "deferred"
 
     inputs = build_validation_inputs()
-    expected = execute_cpu(spec, inputs)
+    expected = reference_numpy(spec, inputs)
     expected_loaded = {constant["name"]: True for constant in spec.ir["constants"]}
     expected_unloaded = {constant["name"]: False for constant in spec.ir["constants"]}
     module = runtime.load(artifact.path)
@@ -597,7 +597,7 @@ def test_cpu_constant_reload_failure_preserves_resident_values(tmp_path):
     truncated_path.write_bytes(bytes(partial_reload[: bias["offset"] + bias["nbytes"] - 1]))
 
     inputs = build_validation_inputs()
-    expected = execute_cpu(spec, inputs)
+    expected = reference_numpy(spec, inputs)
     module = runtime.load(artifact.path)
     session = module.create_session()
     try:
@@ -2806,7 +2806,7 @@ def test_cpu_generated_fused_elementwise_supports_reduced_precision(tmp_path, dt
     assert "compute_t = float" in generated
 
     x = np.random.default_rng(13).standard_normal((2, 3, 4)).astype(np.float32)
-    expected = execute_cpu(spec.bind_constants(runtime_constants), {"x": x})["y"]
+    expected = reference_numpy(spec.bind_constants(runtime_constants), {"x": x})["y"]
 
     module = runtime.load(artifact.path)
     session = module.create_session()
@@ -2835,7 +2835,7 @@ def test_cpu_generated_fused_elementwise_supports_generic_subgraph(tmp_path):
     assert "dinoml::math::relu" in generated
 
     inputs = build_validation_inputs()
-    expected = execute_cpu(spec, inputs)
+    expected = reference_numpy(spec, inputs)
 
     module = runtime.load(artifact.path)
     session = module.create_session()
@@ -3603,7 +3603,7 @@ def test_cpu_reference_softmax_matches_stable_numpy():
     shifted = x - np.max(x, axis=-1, keepdims=True)
     expected = np.exp(shifted) / np.sum(np.exp(shifted), axis=-1, keepdims=True)
 
-    actual = execute_cpu(spec, {"x": x})["y"]
+    actual = reference_numpy(spec, {"x": x})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
 
@@ -3690,7 +3690,7 @@ def test_cpu_reference_reductions_match_numpy(op_name, numpy_op):
     )
     x = np.random.default_rng(41).standard_normal((3, 5, 7)).astype(np.float32)
     expected = numpy_op(x, axis=-1).astype(np.float32)
-    actual = execute_cpu(spec, {"x": x})["y"]
+    actual = reference_numpy(spec, {"x": x})["y"]
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
 
 
@@ -3717,7 +3717,7 @@ def test_cpu_reference_gemm_matches_numpy(op_name, a_shape, b_shape, dtype, atol
     a_reference = array_from_storage(array_to_storage(a, dtype), dtype).astype(np.float32)
     b_reference = array_from_storage(array_to_storage(b, dtype), dtype).astype(np.float32)
     expected = array_from_storage(array_to_storage(a_reference @ (b_reference if op_name == "gemm_rrr" else b_reference.T), dtype), dtype)
-    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 
@@ -3756,7 +3756,7 @@ def test_cpu_reference_bmm_base_layouts_match_numpy(op_name, a_shape, b_shape, l
         result = np.swapaxes(result, -1, -2)
     expected = array_from_storage(array_to_storage(result, dtype), dtype)
 
-    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
@@ -3791,7 +3791,7 @@ def test_cpu_reference_bmm_add_layouts_match_numpy(op_name, a_shape, b_shape, la
         result = np.swapaxes(result, -1, -2)
     expected = array_from_storage(array_to_storage(result + d0_reference, dtype), dtype)
 
-    actual = execute_cpu(spec, {"a": a, "b": b, "d0": d0})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b, "d0": d0})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
@@ -3812,7 +3812,7 @@ def test_cpu_reference_bmm_add_bias_broadcast_matches_numpy():
     d0 = rng.standard_normal((5,)).astype(np.float32)
     expected = (np.matmul(a, b) + d0).astype(np.float32)
 
-    actual = execute_cpu(spec, {"a": a, "b": b, "d0": d0})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b, "d0": d0})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
@@ -3861,7 +3861,7 @@ def test_cpu_reference_bmm_direct_helpers_match_numpy(module, inputs, arrays, ex
     if expected.endswith("_add"):
         result = result + values["d0"]
 
-    actual = execute_cpu(spec, values)["y"]
+    actual = reference_numpy(spec, values)["y"]
 
     np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
@@ -3877,7 +3877,7 @@ def test_cpu_reference_bmm_batch_broadcast_matches_numpy():
     b = rng.standard_normal((2, 5, 4)).astype(np.float32)
     expected = np.matmul(a, np.swapaxes(b, -1, -2)).astype(np.float32)
 
-    actual = execute_cpu(spec, {"a": a, "b": b})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b})["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
@@ -3917,7 +3917,7 @@ def test_cpu_reference_gemm_bias_matches_numpy(op_name, a_shape, b_shape, dtype,
     if op_name.endswith("_bias_relu"):
         result = np.maximum(result, 0.0)
     expected = array_from_storage(array_to_storage(result, dtype), dtype)
-    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=atol, rtol=rtol)
 
 
@@ -3990,7 +3990,7 @@ def test_cpu_reference_gemm_bias_residual_epilogues_match_numpy(op_name, layout,
         raise AssertionError(f"Unhandled residual GEMM op: {op_name}")
     expected = result.astype(np.float32)
 
-    actual = execute_cpu(spec, inputs)["y"]
+    actual = reference_numpy(spec, inputs)["y"]
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
@@ -4035,7 +4035,7 @@ def test_cpu_reference_gemm_single_residual_folded_m_matches_numpy(op_name, layo
     else:
         result = np.tanh((1.0 / (1.0 + np.exp(-result))) * inputs["d0"])
 
-    actual = execute_cpu(spec, inputs)["y"]
+    actual = reference_numpy(spec, inputs)["y"]
 
     np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
@@ -4076,7 +4076,7 @@ def test_cpu_reference_gemm_dual_residual_folded_m_matches_numpy(op_name, layout
     else:
         result = np.maximum(result + inputs["d0"] + inputs["d1"], 0.0)
 
-    actual = execute_cpu(spec, inputs)["y"]
+    actual = reference_numpy(spec, inputs)["y"]
 
     np.testing.assert_allclose(actual, result.astype(np.float32), atol=1e-5, rtol=1e-5)
 
@@ -4117,7 +4117,7 @@ def test_cpu_reference_gemm_bias_activation_matches_numpy(layout, a_shape, b_sha
         result = np.where(result >= 0.0, result + 1.0, np.exp(result))
     expected = result.astype(np.float32)
 
-    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
 
@@ -4138,7 +4138,7 @@ def test_cpu_reference_gemm_rcr_bias_quick_gelu_matches_numpy():
     expected = a @ b.T + bias
     expected = _quick_gelu_reference(expected)
 
-    actual = execute_cpu(spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual = reference_numpy(spec, {"a": a, "b": b, "bias": bias})["y"]
     np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
@@ -4152,7 +4152,7 @@ def test_cpu_reference_fast_gelu_and_quick_gelu_are_distinct_transformers_formul
         inputs={"x": dml.TensorSpec(x.shape, "float32")},
         name="fast_gelu_transformers_formula_reference",
     )
-    actual_fast = execute_cpu(fast_spec, {"x": x})["y"]
+    actual_fast = reference_numpy(fast_spec, {"x": x})["y"]
 
     np.testing.assert_allclose(actual_fast, expected_fast.astype(np.float32), atol=1e-6, rtol=1e-6)
     assert not np.allclose(expected_fast, expected_quick, atol=1e-6, rtol=1e-6)
@@ -4209,8 +4209,8 @@ def test_cpu_reference_gemm_fast_gelu_and_quick_gelu_are_distinct_transformers_f
         name="gemm_rcr_bias_quick_gelu_transformers_formula_reference",
     )
 
-    actual_fast = execute_cpu(fast_spec, {"a": a, "b": b, "bias": bias})["y"]
-    actual_quick = execute_cpu(quick_spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual_fast = reference_numpy(fast_spec, {"a": a, "b": b, "bias": bias})["y"]
+    actual_quick = reference_numpy(quick_spec, {"a": a, "b": b, "bias": bias})["y"]
 
     np.testing.assert_allclose(actual_fast, expected_fast.astype(np.float32), atol=1e-6, rtol=1e-6)
     np.testing.assert_allclose(actual_quick, expected_quick.astype(np.float32), atol=1e-6, rtol=1e-6)

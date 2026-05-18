@@ -384,7 +384,7 @@ the PM-refreshed cached `openai/clip-vit-base-patch32` checkpoint.
 - The proof stays intentionally narrow: batch size 1, short traced text length
   `min(4, max_position_embeddings)`, synthetic already-shaped `pixel_values`,
   and CPU reference execution only. It traces the adapter-built
-  `LegacyCLIPModel`, runs DinoML `execute_cpu`, runs the same cached
+  `LegacyCLIPModel`, runs DinoML `reference_numpy`, runs the same cached
   Transformers checkpoint locally, and compares `logits_per_text`,
   `logits_per_image`, `text_embeds`, and `image_embeds`.
 - This is a tractable cached runtime parity proof for the CPU reference path,

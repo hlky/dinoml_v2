@@ -12,7 +12,7 @@ if str(REPO_SRC) not in sys.path:
     sys.path.insert(0, str(REPO_SRC))
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPTextConfig, LegacyCLIPTextModelWithProjection
@@ -244,7 +244,7 @@ def test_clip_text_wrapper_get_text_features_matches_local_transformers(
     if include_position_ids:
         inputs["position_ids"] = _position_ids()
 
-    actual = execute_cpu(spec, inputs)["text_features"]
+    actual = reference_numpy(spec, inputs)["text_features"]
     expected = _reference_outputs(
         eos_token_id=eos_token_id,
         include_position_ids=include_position_ids,
@@ -291,7 +291,7 @@ def test_clip_text_wrapper_zero_layer_matches_local_transformers(
     if include_position_ids:
         inputs["position_ids"] = _position_ids()
 
-    actual = execute_cpu(spec, inputs)["text_features"]
+    actual = reference_numpy(spec, inputs)["text_features"]
     expected = _reference_outputs(
         eos_token_id=eos_token_id,
         include_position_ids=include_position_ids,

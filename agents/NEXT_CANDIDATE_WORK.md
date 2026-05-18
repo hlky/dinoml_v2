@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Moved the eager NumPy graph interpreter out of `dinoml.backends.cpu` into
+  `dinoml.reference.reference_numpy`, leaving `backends/cpu.py` focused on
+  compiled CPU artifact support-library/module construction. Tests, examples,
+  and workflow docs now import the reference path directly, so reference
+  validation no longer reads as backend validation. As the first test-layout
+  slice, cast coverage is split into `tests/ir/test_cast_ir_ops.py` for
+  frontend/IR/reference behavior and `tests/cpu/test_cast_cpu_ops.py` for
+  generated CPU lowering/runtime behavior; `tests/cuda/` now exists as the
+  CUDA destination for future compiled-runtime tests. Remaining work is a
+  mechanical, opportunistic migration of other top-level op tests into
+  intent-specific directories, not a behavior change.
 - Cleaned up the GGUF runtime-dequant support boundary so CUDA artifacts no
   longer expose or depend on
   `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()`. DinoML CMake now
@@ -364,7 +375,7 @@ This file should be updated after each major loop.
   `DINOML_RUN_CLIP_CHECKPOINT_RUNTIME_SMOKE=1`, uses
   `transformers.CLIPModel.from_pretrained(..., local_files_only=True)`, builds
   DinoML `LegacyCLIPModel` through the adapter, traces a batch-1 short-sequence
-  input that respects the checkpoint config, runs DinoML `execute_cpu`, and
+  input that respects the checkpoint config, runs DinoML `reference_numpy`, and
   compares `logits_per_image`, `logits_per_text`, `text_embeds`, and
   `image_embeds` against local Transformers. This proves real cached
   checkpoint parity for the CPU reference path only; it is not a tokenizer/

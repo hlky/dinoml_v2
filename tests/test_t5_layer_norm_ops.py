@@ -5,7 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -82,7 +82,7 @@ def test_cpu_reference_t5_layer_norm_matches_expected(dtype, atol, rtol):
     x = (rng.standard_normal((2, 4, 8)).astype(np.float32) * 1.5) + 0.25
     weight = (rng.standard_normal((8,)).astype(np.float32) * 0.5) + 1.0
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight})["out"]
     expected = _reference_t5_layer_norm(x, weight, eps=1e-5, dtype=dtype)
 
     assert actual.shape == expected.shape

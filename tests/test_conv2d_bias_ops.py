@@ -15,7 +15,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
@@ -467,7 +467,7 @@ def test_cpu_reference_conv2d_bias_matches_torch(dtype, atol, rtol):
     weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
     bias = _input((4,), dtype, -0.5, 0.5)
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight, "bias": bias})["out"]
 
     expected = _storage_roundtrip(
         _torch_conv2d_bias_reference(
@@ -541,7 +541,7 @@ def test_cpu_reference_conv2d_bias_relu_matches_torch(dtype, atol, rtol):
     weight = _input((4, 3, 2, 3), dtype, -0.75, 1.25)
     bias = _input((4,), dtype, -0.5, 0.5)
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight, "bias": bias})["out"]
 
     expected = _storage_roundtrip(
         _torch_conv2d_bias_relu_reference(
@@ -621,7 +621,7 @@ def test_cpu_reference_conv2d_bias_add_matches_torch(dtype, atol, rtol):
     bias = _input((4,), dtype, -0.5, 0.5)
     residual = _input((2, 4, 6, 4), dtype, -0.25, 0.75)
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
     expected = _storage_roundtrip(
         _torch_conv2d_bias_add_reference(
             x,
@@ -703,7 +703,7 @@ def test_cpu_reference_conv2d_bias_add_relu_matches_torch(dtype, atol, rtol):
     bias = _input((4,), dtype, -0.5, 0.5)
     residual = _input((2, 4, 6, 4), dtype, -0.25, 0.75)
 
-    actual = execute_cpu(spec, {"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
+    actual = reference_numpy(spec, {"x": x, "weight": weight, "bias": bias, "residual": residual})["out"]
     expected = _storage_roundtrip(
         _torch_conv2d_bias_add_relu_reference(
             x,

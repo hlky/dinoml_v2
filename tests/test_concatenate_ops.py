@@ -5,7 +5,7 @@ import shutil
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -89,7 +89,7 @@ def test_cpu_reference_concatenate(dtype, expected_dtype):
     spec = _trace_concatenate(dtype, dim=1, shapes=([1, 2, 1], [1, 3, 1], [1, 1, 1]))
     inputs = _inputs(dtype)
 
-    actual = execute_cpu(spec, inputs)["out"]
+    actual = reference_numpy(spec, inputs)["out"]
 
     expected = _storage_roundtrip(np.concatenate([inputs["x"], inputs["y"], inputs["z"]], axis=1), dtype)
     assert actual.dtype == expected_dtype

@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -33,7 +33,7 @@ def test_clip_text_workflow_example_proves_wrapper_and_artifact_state(
     spec = example["build_spec"](eos_token_id=eos_token_id)
     inputs = example["build_validation_inputs"](eos_token_id=eos_token_id)
 
-    actual = execute_cpu(spec, inputs)["text_features"]
+    actual = reference_numpy(spec, inputs)["text_features"]
     expected = example["reference_outputs"](eos_token_id=eos_token_id)
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 

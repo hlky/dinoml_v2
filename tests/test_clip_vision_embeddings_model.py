@@ -12,7 +12,7 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPVisionEmbeddings, LegacyCLIPVisionEmbeddingsConfig
@@ -170,7 +170,7 @@ def test_clip_vision_embeddings_wrapper_matches_local_transformers():
     assert spec.ir["outputs"][0]["shape_spec"] == [BATCH, NUM_PATCHES + 1, HIDDEN]
     assert spec.ir["outputs"][0]["dtype"] == "float32"
 
-    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})["embeddings"]
+    actual = reference_numpy(spec, {"pixel_values": _pixel_values()})["embeddings"]
     expected = _reference_embeddings()
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
@@ -190,7 +190,7 @@ def test_clip_vision_patch_projection_zero_bias_matches_transformers_bias_free_c
     np.testing.assert_array_equal(spec.constants[zero_bias_name], np.zeros((HIDDEN,), dtype=np.float32))
     assert spec.ir["outputs"][0]["shape"] == [BATCH, HIDDEN, IMAGE_SIZE // PATCH_SIZE, IMAGE_SIZE // PATCH_SIZE]
 
-    actual = execute_cpu(spec, {"pixel_values": _pixel_values()})["patches"]
+    actual = reference_numpy(spec, {"pixel_values": _pixel_values()})["patches"]
     expected = _reference_patch_projection()
 
     np.testing.assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)

@@ -4,7 +4,7 @@ import shutil
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
@@ -179,7 +179,7 @@ def test_get_timestep_embedding_supports_embedding_dim_one_zero_column():
     spec = _trace_timestep_embedding(dtype="float32", embedding_dim=1)
     timesteps = np.array([0.5, 1.5, -2.0, 4.0], dtype=np.float32)
 
-    actual = execute_cpu(spec, {"timesteps": timesteps})["out"]
+    actual = reference_numpy(spec, {"timesteps": timesteps})["out"]
 
     np.testing.assert_array_equal(actual, np.zeros((4, 1), dtype=np.float32))
 
@@ -255,7 +255,7 @@ def test_cpu_reference_get_timestep_embedding_matches_formula(
         dtype=dtype,
     )
 
-    actual = execute_cpu(spec, {"timesteps": timesteps})["out"]
+    actual = reference_numpy(spec, {"timesteps": timesteps})["out"]
 
     assert actual.shape == (4, embedding_dim)
     assert actual.dtype == expected.dtype

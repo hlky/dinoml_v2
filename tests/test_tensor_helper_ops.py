@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import ModelSpec
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.passes import PassManager, validate_ir
@@ -62,7 +62,7 @@ def test_concatenate_fast_matches_concatenate_frontend_ir_and_runtime():
         "y": (10 + np.arange(12, dtype=np.float32)).reshape(2, 3, 2),
     }
     expected = np.concatenate([inputs["x"], inputs["y"]], axis=2)
-    np.testing.assert_array_equal(execute_cpu(helper, inputs)["out"], expected)
+    np.testing.assert_array_equal(reference_numpy(helper, inputs)["out"], expected)
 
 
 def test_concatenate_tanh_composes_concatenate_then_elementwise_tanh_and_lowers_to_fused():
@@ -89,7 +89,7 @@ def test_concatenate_tanh_composes_concatenate_then_elementwise_tanh_and_lowers_
     }
     lowered_spec = ModelSpec(spec.name, lowered, spec.constants)
     expected = np.tanh(np.concatenate([inputs["x"], inputs["y"]], axis=2)).astype(np.float32)
-    np.testing.assert_allclose(execute_cpu(lowered_spec, inputs)["out"], expected, atol=1e-6, rtol=1e-6)
+    np.testing.assert_allclose(reference_numpy(lowered_spec, inputs)["out"], expected, atol=1e-6, rtol=1e-6)
 
 
 def test_expand_static_shape_matches_expand_frontend_ir_and_runtime():
@@ -104,7 +104,7 @@ def test_expand_static_shape_matches_expand_frontend_ir_and_runtime():
 
     x = np.array([[0.0, 1.0, 2.0]], dtype=np.float32)
     expected = np.broadcast_to(x, [2, 3]).copy()
-    np.testing.assert_array_equal(execute_cpu(helper, {"x": x})["out"], expected)
+    np.testing.assert_array_equal(reference_numpy(helper, {"x": x})["out"], expected)
 
 
 def test_helper_errors_delegate_to_existing_validation():

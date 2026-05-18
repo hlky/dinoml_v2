@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources, render_generated_kernels
@@ -202,7 +202,7 @@ def test_cpu_reference_specialized_permute_float32(op_name, shape, dims, _out_sh
     spec = _trace_specialized_permute(op_name, shape=shape)
     x = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = np.transpose(x, axes=dims).copy()
     assert actual.dtype == np.float32
@@ -237,7 +237,7 @@ def test_cpu_reference_permute(dtype, expected_dtype):
     spec = _trace_permute(dtype, dims=(2, 0, 1), shape=(2, 3, 2))
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _storage_roundtrip(np.transpose(x, axes=(2, 0, 1)).copy(), dtype)
     assert actual.dtype == expected_dtype
@@ -257,7 +257,7 @@ def test_cpu_reference_transpose(dtype, expected_dtype):
     spec = _trace_transpose(dtype, dim0=-1, dim1=0, shape=(2, 3, 2))
     x = _input(dtype)
 
-    actual = execute_cpu(spec, {"x": x})["out"]
+    actual = reference_numpy(spec, {"x": x})["out"]
 
     expected = _storage_roundtrip(np.swapaxes(x, -1, 0).copy(), dtype)
     assert actual.dtype == expected_dtype

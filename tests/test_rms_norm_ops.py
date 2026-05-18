@@ -5,7 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.frontend import GraphBuilder, Parameter
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.ops.definitions import OP_REGISTRY
@@ -104,7 +104,7 @@ def test_rms_norm_cpu_reference_matches_expected(dtype, atol, rtol, use_weight):
         weight = (rng.standard_normal((8,)).astype(np.float32) * 0.5) + 1.0
         inputs["weight"] = weight
 
-    actual = execute_cpu(spec, inputs)["out"]
+    actual = reference_numpy(spec, inputs)["out"]
     expected = _reference_rms_norm(x, weight, eps=1e-5, dtype=dtype)
 
     assert actual.shape == expected.shape

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -84,7 +84,7 @@ def test_cpu_reference_gather(dtype, expected_dtype):
     x = _input(dtype)
     index = _index()
 
-    actual = execute_cpu(spec, {"x": x, "index": index})["out"]
+    actual = reference_numpy(spec, {"x": x, "index": index})["out"]
 
     expected = _expected_gather(x, index, dtype)
     assert actual.dtype == expected_dtype
@@ -96,7 +96,7 @@ def test_cpu_reference_gather_accepts_int32_index():
     x = _input("float32")
     index = _index("int32")
 
-    actual = execute_cpu(spec, {"x": x, "index": index})["out"]
+    actual = reference_numpy(spec, {"x": x, "index": index})["out"]
 
     np.testing.assert_array_equal(actual, _expected_gather(x, index, "float32"))
 

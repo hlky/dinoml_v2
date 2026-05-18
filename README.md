@@ -187,6 +187,11 @@ python -m dinoml.cli profile build/model.dinoml --iterations 20 --repeats 3
 python -m dinoml.cli compile model.py --target cuda --profile --profile-repeats 3 --out build/model-profiled.dinoml
 ```
 
+Tests are gradually moving toward intent-specific directories:
+`tests/ir/` for frontend/IR/reference NumPy behavior, `tests/cpu/` for compiled
+CPU artifacts, and `tests/cuda/` for compiled CUDA/runtime coverage. Legacy
+top-level test files still exist while that migration continues.
+
 Generated artifacts, support-library build products, benchmark output, and local
 profile data are ignored by git. Use `tmp/` for scratch generated modules when
 reviewing codegen.

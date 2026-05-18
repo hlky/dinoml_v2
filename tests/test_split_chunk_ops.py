@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.passes import PassManager, validate_ir
 from dinoml.runtime import load
 from dinoml.shapes import Dim
@@ -89,8 +89,8 @@ def test_cpu_reference_split_and_chunk():
     split_spec = _trace_split([2, 3], dim=1, named=True)
     chunk_spec = _trace_chunk(3, dim=1, shape=(2, 5, 3), named=True)
 
-    split_actual = execute_cpu(split_spec, {"x": x})
-    chunk_actual = execute_cpu(chunk_spec, {"x": x})
+    split_actual = reference_numpy(split_spec, {"x": x})
+    chunk_actual = reference_numpy(chunk_spec, {"x": x})
 
     np.testing.assert_array_equal(split_actual["part_0"], x[:, :2, :])
     np.testing.assert_array_equal(split_actual["part_1"], x[:, 2:, :])

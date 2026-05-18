@@ -12,7 +12,7 @@ if str(REPO_SRC) not in sys.path:
 
 import numpy as np
 
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 
 
 EXAMPLE = REPO_ROOT / "examples" / "clip_model_workflow.py"
@@ -36,7 +36,7 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
     spec = example["build_spec"]()
     inputs = example["build_validation_inputs"]()
 
-    actual = execute_cpu(spec, inputs)
+    actual = reference_numpy(spec, inputs)
     expected = example["reference_outputs"]()
 
     np.testing.assert_allclose(actual["logits_per_image"], expected["logits_per_image"], atol=1e-5, rtol=1e-5)
@@ -44,14 +44,14 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
     np.testing.assert_allclose(actual["text_embeds"], expected["text_embeds"], atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(actual["image_embeds"], expected["image_embeds"], atol=1e-5, rtol=1e-5)
 
-    text_only = execute_cpu(
+    text_only = reference_numpy(
         example["build_text_features_spec"](),
         {
             "input_ids": inputs["input_ids"],
             "attention_mask": inputs["attention_mask"],
         },
     )["text_features"]
-    image_only = execute_cpu(
+    image_only = reference_numpy(
         example["build_image_features_spec"](),
         {"pixel_values": inputs["pixel_values"]},
     )["image_features"]

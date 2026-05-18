@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.passes import PassManager, validate_ir
 
@@ -105,7 +105,7 @@ def test_clip_contrastive_head_frontend_ir_and_cpu_reference_match_numpy(output_
     assert spec.ir["outputs"][0]["dtype"] == "float32"
     assert spec.ir["outputs"][0]["name"] == expected_name
 
-    actual = execute_cpu(
+    actual = reference_numpy(
         spec,
         {
             "text_features": text_features,

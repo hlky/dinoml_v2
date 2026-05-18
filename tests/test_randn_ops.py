@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.ir import array_from_storage, array_to_storage
 from dinoml.lowering.ops import render_generated_kernels
 from dinoml.passes import PassManager, validate_ir
@@ -57,9 +57,9 @@ def test_cpu_reference_randn_is_seed_deterministic(dtype, expected_dtype):
     spec_b = _trace_randn([2, 3], dtype, 17)
     spec_c = _trace_randn([2, 3], dtype, 18)
 
-    actual_a = execute_cpu(spec_a, {})["out"]
-    actual_b = execute_cpu(spec_b, {})["out"]
-    actual_c = execute_cpu(spec_c, {})["out"]
+    actual_a = reference_numpy(spec_a, {})["out"]
+    actual_b = reference_numpy(spec_b, {})["out"]
+    actual_c = reference_numpy(spec_c, {})["out"]
 
     assert actual_a.dtype == expected_dtype
     np.testing.assert_array_equal(actual_a, actual_b)
@@ -89,7 +89,7 @@ def test_randn_generated_cpu_source_and_runtime(tmp_path, dtype):
     finally:
         session.close()
 
-    expected = _storage_roundtrip(execute_cpu(spec, {})["out"], dtype)
+    expected = _storage_roundtrip(reference_numpy(spec, {})["out"], dtype)
     if dtype == "float32":
         np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
     else:

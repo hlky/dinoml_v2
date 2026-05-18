@@ -7,7 +7,7 @@ from collections import Counter
 import numpy as np
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import collect_generated_sources
 from dinoml.models.clip import LegacyCLIPTextConfig, LegacyCLIPTextModelWithProjection
@@ -199,7 +199,7 @@ def inspect_workflow(*, eos_token_id: int = 2) -> dict[str, object]:
 
 def run_example(*, eos_token_id: int = 2) -> dict[str, object]:
     inputs = build_validation_inputs(eos_token_id=eos_token_id)
-    actual = execute_cpu(build_spec(eos_token_id=eos_token_id), inputs)["text_features"]
+    actual = reference_numpy(build_spec(eos_token_id=eos_token_id), inputs)["text_features"]
     summary = inspect_workflow(eos_token_id=eos_token_id)
     summary["inputs"] = {
         "input_ids": inputs["input_ids"].tolist(),

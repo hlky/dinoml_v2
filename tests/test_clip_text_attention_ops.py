@@ -3,7 +3,7 @@ import math
 import numpy as np
 
 import dinoml as dml
-from dinoml.backends.cpu import execute_cpu
+from dinoml.reference import reference_numpy
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.passes import PassManager, validate_ir
 
@@ -206,7 +206,7 @@ def test_clip_text_attention_static_causal_mask_constant_cpu_reference():
     assert spec.ir["outputs"][0]["shape"] == [BATCH, SEQ_LEN, HIDDEN]
     assert spec.ir["outputs"][0]["dtype"] == "float32"
 
-    actual = execute_cpu(spec, {"hidden_states": hidden_states})["out"]
+    actual = reference_numpy(spec, {"hidden_states": hidden_states})["out"]
     expected = _reference_attention(hidden_states)
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
@@ -227,7 +227,7 @@ def test_clip_text_attention_bool_padding_mask_cpu_reference():
     assert node_ops.count("where") == 1
     assert node_ops.count("full") == 2
 
-    actual = execute_cpu(spec, {"hidden_states": hidden_states, "attention_mask": attention_mask})["out"]
+    actual = reference_numpy(spec, {"hidden_states": hidden_states, "attention_mask": attention_mask})["out"]
     expected = _reference_attention(hidden_states, attention_mask=attention_mask)
 
     np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)

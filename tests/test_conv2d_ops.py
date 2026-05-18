@@ -274,7 +274,6 @@ def test_conv2d_cpu_reference_matches_torch(dtype, atol, rtol):
 
 @pytest.mark.parametrize("dtype,atol,rtol", [("float32", 1e-6, 1e-6), ("float16", 1e-3, 1e-3)])
 def test_conv2d_cpu_artifact_reuses_generated_conv2d_bias_bridge(dtype, atol, rtol, tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_conv2d(
         dtype,
         x_shape=(2, 3, 6, 7),
@@ -314,7 +313,6 @@ def test_conv2d_cpu_artifact_reuses_generated_conv2d_bias_bridge(dtype, atol, rt
 
 
 def test_conv2d_cuda_compile_records_explicit_zero_bias_bridge(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_conv2d(
         "float16",
         x_shape=(2, 3, 7, 8),
@@ -343,7 +341,7 @@ def test_conv2d_cuda_compile_records_explicit_zero_bias_bridge(tmp_path, monkeyp
     assert required["cutlass_conv_plan"]["selected_candidate"]["iterator_algorithm"] == "few_channels"
 
 
-def test_conv2d_cuda_runtime_few_channels_c3_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+def test_conv2d_cuda_runtime_few_channels_c3_matches_torch(tmp_path):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("few-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -362,7 +360,7 @@ def test_conv2d_cuda_runtime_few_channels_c3_matches_torch(tmp_path, use_shared_
     )
 
 
-def test_conv2d_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+def test_conv2d_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -381,7 +379,7 @@ def test_conv2d_cuda_runtime_fixed_channels_c4_matches_torch(tmp_path, use_share
     )
 
 
-def test_conv2d_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+def test_conv2d_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("fixed-channel CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -399,7 +397,7 @@ def test_conv2d_cuda_runtime_fixed_channels_c8_matches_torch(tmp_path, use_share
     )
 
 
-def test_conv2d_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_shared_dinoml_cuda_cache):
+def test_conv2d_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path):
     if shutil.which("nvcc") is None or not torch.cuda.is_available():
         pytest.skip("optimized CUTLASS Conv runtime parity requires nvcc and torch CUDA")
 
@@ -420,7 +418,6 @@ def test_conv2d_cuda_runtime_optimized_aligned_c16_matches_torch(tmp_path, use_s
 
 @pytest.mark.skipif(not torch.cuda.is_available() or shutil.which("nvcc") is None, reason="CUDA runtime smoke requires torch CUDA and nvcc")
 def test_conv2d_cuda_runtime_smoke_matches_torch(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_conv2d(
         "float32",
         x_shape=(1, 3, 4, 4),

@@ -3385,7 +3385,6 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = dml.trace(
         GemmModule("gemm_rcr"),
@@ -3431,14 +3430,12 @@ def test_cuda_profile_artifact_writes_cutlass_gemm_report(tmp_path, monkeypatch)
 def test_cuda_profile_artifact_writes_cutlass_conv_no_bias_bridge_report_and_execution_plan(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
 
     spec = _conv2d_no_bias_profile_spec()
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "profile_conv2d_no_bias.dinoml")
@@ -3496,14 +3493,12 @@ def test_cuda_profile_artifact_writes_cutlass_conv_no_bias_bridge_report_and_exe
 def test_cuda_profile_artifact_writes_cutlass_conv_bias_relu_report_and_execution_plan(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
 
     spec = dml.trace(
         Conv2dBiasModule("conv2d_bias_relu"),
@@ -3559,14 +3554,12 @@ def test_cuda_profile_artifact_writes_cutlass_conv_bias_relu_report_and_executio
 def test_cuda_profile_artifact_writes_cutlass_conv_bias_add_report_and_execution_plan(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
 
     spec = dml.trace(
         Conv2dBiasAddModule(),
@@ -3626,14 +3619,12 @@ def test_cuda_profile_artifact_writes_cutlass_conv_bias_add_report_and_execution
 def test_cuda_profile_artifact_writes_cutlass_conv_bias_add_relu_report_and_execution_plan(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(use_shared_dinoml_cuda_cache))
 
     spec = dml.trace(
         Conv2dBiasAddReluModule(),

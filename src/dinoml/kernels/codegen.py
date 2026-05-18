@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan
+from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_cmake_target, cutlass_bmm_static_library_name, cutlass_bmm_used_candidate_plan
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan, cutlass_conv_wrapper_stages
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_static_library_name, cutlass_gemm_used_candidate_plan
 from dinoml.libgguf_cuda import (
@@ -127,18 +127,21 @@ def _external_support_libraries(
                 }
             )
         elif library == "cutlass_bmm":
-            cache_dir = cache_root / "support" / target_dir / "cutlass-bmm" / support_key
+            cache_dir = cache_root / "support" / target_dir / "cutlass-bmm" / "cmake-full"
             used_candidate_plan = cutlass_bmm_used_candidate_plan(kernel_manifest)
+            modules = _cutlass_bmm_modules(kernel_manifest)
             result.append(
                 {
                     "name": library,
                     "cache_dir": str(cache_dir),
-                    "library": "lib/libdinoml_cutlass_bmm.so",
+                    "modules": modules,
+                    "build_mode": "cmake_op_dtype_static_archives",
                     "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
                     "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
                 }
             )
         elif library == "cutlass_conv":
@@ -194,6 +197,23 @@ def _external_support_libraries(
                 }
             )
     return tuple(result)
+
+
+def _cutlass_bmm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    modules = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_bmm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = cutlass_bmm_static_library_name(op_name, dtype)
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": f"lib/{archive}",
+            "target": cutlass_bmm_cmake_target(op_name, dtype),
+        }
+    return [modules[key] for key in sorted(modules)]
 
 
 def _cutlass_gemm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:

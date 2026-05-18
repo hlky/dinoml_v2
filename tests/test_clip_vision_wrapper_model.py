@@ -199,7 +199,6 @@ def test_clip_vision_wrapper_zero_layer_matches_local_transformers():
 
 
 def test_clip_vision_wrapper_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(1)
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_model_with_projection_cpu.dinoml")
 

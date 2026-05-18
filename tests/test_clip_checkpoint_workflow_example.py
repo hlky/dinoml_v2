@@ -97,7 +97,6 @@ def test_clip_checkpoint_workflow_cli_cpu_smoke_cached_base(tmp_path):
 
     artifact_dir = tmp_path / "clip_checkpoint_workflow_cpu.dinoml"
     env = os.environ.copy()
-    env["DINOML_CACHE_DIR"] = str(tmp_path / "cache")
     env["HF_HOME"] = "/workspace/.cache/huggingface"
     result = subprocess.run(
         [

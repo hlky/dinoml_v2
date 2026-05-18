@@ -33,6 +33,16 @@ def cutlass_bmm_profiler_symbol(op_name: str, dtype: str) -> str:
     return f"dinoml_profile_cutlass_{op_name}_{normalized_dtype}_{default_symbol_id}"
 
 
+def cutlass_bmm_static_library_name(op_name: str, dtype: str) -> str:
+    normalized_dtype = normalize_bmm_dtype(dtype)
+    return f"libdinoml_cutlass_{op_name}_{normalized_dtype}.a"
+
+
+def cutlass_bmm_cmake_target(op_name: str, dtype: str) -> str:
+    normalized_dtype = normalize_bmm_dtype(dtype)
+    return f"dinoml_cutlass_bmm_{op_name}_{normalized_dtype}"
+
+
 def cutlass_bmm_candidates(
     op_name: str,
     dtype: str,
@@ -394,8 +404,10 @@ __all__ = [
     "cutlass_bmm_candidate_set",
     "cutlass_bmm_candidate_set_id",
     "cutlass_bmm_candidates",
+    "cutlass_bmm_cmake_target",
     "cutlass_bmm_profiler_symbol",
     "cutlass_bmm_symbol",
+    "cutlass_bmm_static_library_name",
     "cutlass_bmm_used_candidate_plan",
     "render_cutlass_bmm_source",
 ]

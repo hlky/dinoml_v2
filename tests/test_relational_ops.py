@@ -130,7 +130,6 @@ def test_eq_integer_generated_cpu_and_cuda_sources_preserve_integer_storage():
 
 def test_eq_int64_compiled_cpu_artifact_runs_without_float_rounding(tmp_path, monkeypatch):
     spec = _trace_relational("eq", "int64")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "relational_eq_int64_cpu.dinoml")
     session = load(artifact.path).create_session()
     large = 2**54

@@ -54,12 +54,12 @@ The CUTLASS slice adds:
 - The repo CMake `dinoml_cutlass_gemm` aggregate target builds op/dtype GEMM
   static archives such as `libdinoml_cutlass_gemm_rcr_bias_float32.a` once per
   CUDA architecture cache, instead of rendering/pruning a per-artifact GEMM
-  support source. Generated artifacts request only the archives referenced by
-  their kernel manifest and link them into the generated `module.so`; they do
-  not distribute CUTLASS GEMM support `.so` files. The target is gated by the
-  explicit `DINOML_ENABLE_CUTLASS_GEMM` CMake option and each archive is split
-  into a shared policy header plus chunked checked-in instantiation units so
-  CMake generators such as Ninja can parallelize selected archive builds.
+  support source. The matching `dinoml_cutlass_bmm` targets do the same for BMM
+  op/dtype archives such as `libdinoml_cutlass_bmm_rrr_float32.a`. Generated
+  artifacts request only the archives referenced by their kernel manifest and
+  link them into the generated `module.so`; they do not distribute CUTLASS
+  GEMM/BMM support `.so` files. The targets are gated by explicit
+  `DINOML_ENABLE_CUTLASS_GEMM` and `DINOML_ENABLE_CUTLASS_BMM` CMake options.
 - Exported launcher/profiler symbols use long dtype names and CUTLASS
   candidate ids, for example
   `dinoml_cutlass_gemm_rrr_float16_tensorop_sm80_16816_256x128x32_s3_w4x2x1_f32_align8` and
@@ -157,8 +157,12 @@ leading `1`s are squeezed. The launcher passes `d0` as CUTLASS source C, uses
 zero source-C stride/leading-dimension for trailing bias, writes the result to
 the output tensor, and profiles/selects candidates with `d0` in the epilogue
 alignment context. BMM profiling workloads now feed `dinoml profile`
-reports/cache using the BMM profiler ABI, batch count, batch strides, leading
-dimensions, epilogue inputs, and batch-aware execution-plan shape keys.
+reports/cache through native op/dtype profilers such as
+`dinoml_cutlass_bmm_profiler_bmm_rrr_float32`, which allocate each BMM problem
+once, filter the candidate table by operand/epilogue alignment, run all
+remaining candidates, and return candidate timing rows to Python bindings.
+Reports/cache preserve batch count, batch strides, leading dimensions,
+epilogue inputs, and batch-aware execution-plan shape keys.
 Confident static BMM profile selections are consumed during compile by
 selecting the profiled BMM candidate in the kernel manifest. Conflicting BMM
 profile selections now generate guarded runtime dispatch on profiled batch/M/N/K
@@ -218,13 +222,12 @@ can avoid reapplying residual operands or final activations incorrectly. The
 report/cache key records a
 best-effort CUDA hardware/toolchain fingerprint, support-library source/binary
 hashes, support-build provenance, and the candidate set/config keys. CUTLASS
-CUTLASS GEMM now uses repo CMake op/dtype module targets under the aggregate
-`dinoml_cutlass_gemm` target and records a compact `cutlass_gemm_manifest.json`
-for the CMake-built modules; the older per-artifact rendered/pruned GEMM
-support-source cache remains available only as a lower-level helper path and is
-no longer used by generated CUDA artifact builds. The CMake targets compile a
-shared policy header plus chunked checked-in instantiation units rather than one
-monolithic CUDA translation unit. The first
+GEMM and BMM now use repo CMake op/dtype archive targets and compact
+`cutlass_gemm_manifest.json` / `cutlass_bmm_manifest.json` records for the
+CMake-built support cache; generated CUDA artifact builds no longer use
+per-artifact rendered/pruned GEMM/BMM support `.so` libraries. The GEMM CMake
+targets compile a shared policy header plus chunked checked-in instantiation
+units rather than one monolithic CUDA translation unit. The first
 epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.

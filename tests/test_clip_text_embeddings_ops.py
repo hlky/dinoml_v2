@@ -99,7 +99,6 @@ def test_clip_text_embeddings_frontend_ir_and_cpu_reference_match_numpy(
 
 
 def test_clip_text_embeddings_generated_cpu_runtime_supports_broadcast_position_ids(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(position_ids_shape=(6,), position_ids_dtype="int64")
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
@@ -142,8 +141,6 @@ def test_clip_text_embeddings_generated_cuda_runtime_supports_batched_position_i
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(position_ids_shape=(2, 6), position_ids_dtype="int32")
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)

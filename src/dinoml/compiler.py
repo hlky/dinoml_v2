@@ -240,9 +240,6 @@ def _copy_profile_support_libraries(
     artifact_lib_dir.mkdir(parents=True, exist_ok=True)
     for source in (support_libs.runtime_lib, support_libs.cuda_runtime_lib, support_libs.kernels_lib):
         shutil.copy2(source, artifact_lib_dir / source.name)
-    if support_libs.cutlass_bmm_lib is not None:
-        shutil.copy2(support_libs.cutlass_bmm_lib, artifact_lib_dir / support_libs.cutlass_bmm_lib.name)
-        files["cutlass_bmm_library"] = f"lib/{support_libs.cutlass_bmm_lib.name}"
     if support_libs.cutlass_conv_lib is not None:
         shutil.copy2(support_libs.cutlass_conv_lib, artifact_lib_dir / support_libs.cutlass_conv_lib.name)
         files["cutlass_conv_library"] = f"lib/{support_libs.cutlass_conv_lib.name}"
@@ -388,8 +385,6 @@ def _build_artifact_from_lowered_ir(
         "kernel_codegen_plan": "kernel_codegen_plan.json",
     }
     files.update(backend.support_libraries)
-    if _requires_kernel_library(kernel_manifest, "cutlass_bmm"):
-        files["cutlass_bmm_library"] = "lib/libdinoml_cutlass_bmm.so"
     if _requires_kernel_library(kernel_manifest, "cutlass_conv"):
         files["cutlass_conv_library"] = "lib/libdinoml_cutlass_conv.so"
     if encoded_constants_manifest is not None:

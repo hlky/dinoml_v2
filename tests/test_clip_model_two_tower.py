@@ -1319,7 +1319,6 @@ def test_clip_model_transformers_checkpoint_compiled_cpu_smoke_local_cache_only(
             "set DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CPU_SMOKE=1 to validate cached openai/clip-vit-base-patch32 compiled CPU parity against local Transformers"
         )
     monkeypatch.setenv("HF_HOME", "/workspace/.cache/huggingface")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     _, clip_model = _load_cached_transformers_clip_checkpoint(default_checkpoint_id="openai/clip-vit-base-patch32")
     text_config, vision_config, spec, inputs = _trace_cached_checkpoint_two_tower_spec(clip_model)
@@ -1361,7 +1360,6 @@ def test_clip_model_transformers_checkpoint_compiled_cpu_smoke_local_cache_only(
 def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     checkpoint_id = _clip_checkpoint_id("openai/clip-vit-base-patch32")
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_COMPILED_CUDA_SMOKE") != "1":
@@ -1432,7 +1430,6 @@ def test_clip_model_transformers_checkpoint_compiled_cuda_smoke_local_cache_only
 def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_only(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     checkpoint_id = _clip_checkpoint_id("openai/clip-vit-base-patch32")
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_DRIFT_ISOLATION") != "1":
@@ -1567,7 +1564,6 @@ def test_clip_model_transformers_checkpoint_cuda_parity_breakdown_local_cache_on
 def test_clip_model_transformers_checkpoint_cuda_op_audit_local_cache_only(
     tmp_path,
     monkeypatch,
-    use_shared_dinoml_cuda_cache,
 ):
     if os.environ.get("DINOML_RUN_CLIP_CHECKPOINT_CUDA_OP_AUDIT") != "1":
         pytest.skip(
@@ -1681,7 +1677,6 @@ def test_clip_model_zero_layer_text_tower_matches_local_transformers():
 
 
 def test_clip_model_two_tower_zero_text_zero_vision_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = dml.trace(
         LegacyCLIPModel(_text_config(num_hidden_layers=0), _vision_config(num_hidden_layers=0), WEIGHTS),
         inputs={
@@ -1718,7 +1713,6 @@ def test_clip_model_two_tower_zero_text_zero_vision_cpu_artifact_matches_local_t
 
 
 def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_model()
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_model_two_tower_cpu.dinoml")
 
@@ -1754,7 +1748,7 @@ def test_clip_model_two_tower_cpu_artifact_matches_local_transformers(tmp_path, 
     os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL") != "1",
     reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_MODEL=1 to run the expensive CUDA CLIP full-model smoke",
 )
-def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_path, use_shared_dinoml_cuda_cache):
+def test_clip_model_two_tower_generated_cuda_runtime_matches_transformers(tmp_path):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")

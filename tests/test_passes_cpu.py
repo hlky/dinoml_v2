@@ -844,7 +844,15 @@ def test_bmm_kernel_manifest_uses_cutlass_external_library():
     assert required["candidates"][0]["cutlass"]["api"] == "device_gemm_batched"
     assert required["candidates"][0]["layouts"] == {"a": "column", "b": "column", "c": "column"}
     assert plan.external_support_libraries[0]["name"] == "cutlass_bmm"
-    assert plan.external_support_libraries[0]["library"] == "lib/libdinoml_cutlass_bmm.so"
+    assert plan.external_support_libraries[0]["modules"] == [
+        {
+            "op": "bmm_ccc",
+            "dtype": "float32",
+            "archive": "lib/libdinoml_cutlass_bmm_ccc_float32.a",
+            "target": "dinoml_cutlass_bmm_bmm_ccc_float32",
+        }
+    ]
+    assert plan.external_support_libraries[0]["build_mode"] == "cmake_op_dtype_static_archives"
 
     launch = render_launch("cuda", lowered["nodes"][0], tensor_map, kernel_manifest=manifest)
     assert "batch dimension mismatch" in launch

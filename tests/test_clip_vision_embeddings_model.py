@@ -197,7 +197,6 @@ def test_clip_vision_patch_projection_zero_bias_matches_transformers_bias_free_c
 
 
 def test_clip_vision_embeddings_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_vision_embeddings_cpu.dinoml")
 
@@ -256,7 +255,7 @@ def test_clip_vision_embeddings_manifest_keeps_conv_provider_and_model_kernels_h
 
 
 def test_clip_vision_patch_projection_exact_float32_cuda_runtime_boundary_matches_transformers(
-    tmp_path, use_shared_dinoml_cuda_cache
+    tmp_path
 ):
     torch = pytest.importorskip("torch")
 

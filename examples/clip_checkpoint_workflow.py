@@ -92,13 +92,6 @@ def _load_cached_transformers_clip_checkpoint(
     return clip_model
 
 
-def _ensure_local_dinoml_cache_dir() -> Path:
-    cache_dir = Path(os.environ.get("DINOML_CACHE_DIR", REPO_ROOT / "tmp" / "dinoml_cache")).resolve()
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    os.environ["DINOML_CACHE_DIR"] = str(cache_dir)
-    return cache_dir
-
-
 def _checkpoint_is_available(
     *,
     checkpoint_id: str,
@@ -213,7 +206,7 @@ def run_workflow(
     target = str(target)
     transformers_src = Path(transformers_src).resolve()
     hf_home = Path(hf_home).resolve()
-    cache_dir = _ensure_local_dinoml_cache_dir()
+    cache_dir = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")).resolve()
     if target == "cuda":
         if shutil.which("nvcc") is None:
             raise RuntimeError("nvcc is required for --target cuda")

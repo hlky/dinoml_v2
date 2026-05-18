@@ -341,7 +341,7 @@ def test_cuda_artifact_runs_generated_layer_norm(tmp_path):
     ],
 )
 def test_cuda_artifact_runs_generated_layer_norm_at_clip_base_shapes_against_torch(
-    tmp_path, use_shared_dinoml_cuda_cache, label, x_shape
+    tmp_path, label, x_shape
 ):
     spec = _trace_layer_norm(dtype="float32", x_shape=x_shape, weight_shape=(x_shape[-1],), bias_shape=(x_shape[-1],), eps=1e-5)
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / f"{label}_layer_norm_cuda.dinoml")

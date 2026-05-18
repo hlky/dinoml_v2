@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import os
 import shutil
 import statistics
 import sys
@@ -62,7 +63,7 @@ def run_benchmark(
     target = str(target)
     transformers_src = Path(transformers_src).resolve()
     hf_home = Path(hf_home).resolve()
-    cache_dir = clip_workflow._ensure_local_dinoml_cache_dir()
+    cache_dir = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")).resolve()
     synchronize = _synchronize_for_target(target)
 
     if target == "cuda":

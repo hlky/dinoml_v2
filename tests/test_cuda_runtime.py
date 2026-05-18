@@ -831,7 +831,6 @@ def test_cuda_cutlass_gemm_runtime_matches_torch(tmp_path, monkeypatch, op_name,
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     torch_dtype_obj = getattr(torch, torch_dtype)
     spec = dml.trace(
@@ -940,7 +939,6 @@ def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch, d0_sh
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = dml.trace(
         BmmAddModule(),
@@ -956,7 +954,8 @@ def test_cuda_cutlass_bmm_add_runtime_matches_torch(tmp_path, monkeypatch, d0_sh
     kernel_manifest = read_json(artifact.path / "kernel_manifest.json")
 
     symbol = kernel_manifest["required_kernels"][0]["kernel_symbol"]
-    assert manifest["files"]["cutlass_bmm_library"] == "lib/libdinoml_cutlass_bmm.so"
+    assert "cutlass_bmm_library" not in manifest["files"]
+    assert not sorted((artifact.path / "lib").glob("libdinoml_cutlass_bmm*.so"))
     assert symbol.startswith("dinoml_cutlass_bmm_rrr_add_float32_")
     assert kernel_manifest["required_kernels"][0]["candidate_set_id"] == "cutlass_bmm_rrr_add_float32_add_v1"
     assert kernel_manifest["required_kernels"][0]["candidate_set"]["epilogue_config"]["launch_abi"] == "dinoml_cutlass_bmm_add_v1"
@@ -1003,7 +1002,6 @@ def test_cuda_cutlass_gemm_bias_runtime_matches_torch(
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     torch_dtype_obj = getattr(torch, torch_dtype)
     spec = dml.trace(
@@ -1071,7 +1069,6 @@ def test_cuda_cutlass_gemm_supports_dynamic_mn_shapes(tmp_path, monkeypatch, op_
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     batch = dml.Dim("batch", min=1, max=16)
     tokens = dml.Dim("tokens", min=1, max=24)
@@ -1104,7 +1101,6 @@ def test_cuda_cutlass_linear_model_uses_runtime_constants_and_dynamic_batch(tmp_
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     from examples.cuda_linear import (
         IN_FEATURES,
@@ -1185,7 +1181,6 @@ def test_cuda_cutlass_gemm_no_tf32_runtime_matches_torch(tmp_path, monkeypatch):
         pytest.skip("CUDA device is required")
     if not discover_cuda_libraries()["cutlass"].available:
         pytest.skip("CUTLASS headers are not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     target = dml.Target("cuda", arch="sm_86", no_tf32=True)
     spec = dml.trace(
@@ -1226,7 +1221,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1321,7 +1315,6 @@ def test_cuda_cutlass_gemm_rrr_bias_runtime_dequant_load_unload_reload_matches_d
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1451,7 +1444,6 @@ def test_cuda_native_runtime_dequant_rrr_bias_reload_requires_reinstalling_encod
     dequant_fn_ptr = runtime._libgguf_cuda_native_dequantize_rows_on_stream()
     if dequant_fn_ptr is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsBiasGemm(dml.Module):
@@ -1702,7 +1694,6 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch(t
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1790,7 +1781,6 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequantizes_gguf_q4_0_rhs_before_launch_f
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -1882,7 +1872,6 @@ def test_cuda_cutlass_gemm_rcr_bias_runtime_dequantizes_gguf_q4_0_rhs_before_lau
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsBiasGemm(dml.Module):
         def __init__(self):
@@ -1981,7 +1970,6 @@ def test_cuda_cutlass_multi_gemm_runtime_dequant_shares_session_scratch(tmp_path
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class MultiEncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -2116,7 +2104,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_lifecycle_cleanup(tmp_path, monke
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class EncodedRhsGemm(dml.Module):
         def __init__(self):
@@ -2236,7 +2223,6 @@ def test_cuda_cutlass_gemm_rrr_runtime_dequant_fails_when_launcher_cleared_after
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsGemm(dml.Module):
@@ -2311,7 +2297,6 @@ def test_cuda_cutlass_gemm_rcr_runtime_dequant_fails_when_launcher_cleared_after
     pytest.importorskip("libgguf.libgguf_cuda")
     if runtime._libgguf_cuda_native_dequantize_rows_on_stream() is None:
         pytest.skip("libgguf CUDA native dequantize ABI is not available")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     _force_gguf_runtime_dequant_setter_fallback(monkeypatch)
 
     class EncodedRhsGemm(dml.Module):

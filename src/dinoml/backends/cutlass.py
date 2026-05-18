@@ -16,7 +16,6 @@ from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, write_json
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.manifest import KERNEL_ABI_VERSION, PROFILE_CACHE_SCHEMA_VERSION, build_external_kernel_plan
-from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_used_candidate_plan, render_cutlass_bmm_source
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_used_candidate_plan,
     normalize_cutlass_conv_used_candidate_plan,
@@ -39,30 +38,6 @@ class CutlassSupportScaffold:
     source: Path
     manifest: Path
     source_manifest: Path
-
-
-def ensure_cutlass_bmm_support_lib(
-    arch: str,
-    *,
-    cache_key: str | None = None,
-    used_candidate_plan: Mapping[str, Any] | None = None,
-) -> CutlassSupportLib:
-    return _ensure_cutlass_support_lib(
-        arch,
-        cache_key=cache_key,
-        used_candidate_plan=used_candidate_plan,
-        library_name="cutlass_bmm",
-        family_name="bmm_strided",
-        support_dir_name="cutlass-bmm",
-        source_name="dinoml_cutlass_bmm.cu",
-        library_file_name="libdinoml_cutlass_bmm.so",
-        manifest_file_name="cutlass_bmm_manifest.json",
-        repo_source=_repo_cutlass_bmm_source(),
-        render_source=render_cutlass_bmm_source,
-        used_candidate_plan_builder=cutlass_bmm_used_candidate_plan,
-        source_id="cutlass_bmm_static_default",
-        build_unit_id="cutlass_bmm_shared",
-    )
 
 
 def ensure_cutlass_conv_support_scaffold(
@@ -378,14 +353,6 @@ def _ensure_cutlass_support_lib(
         manifest=manifest,
         source_manifest=source_manifest,
     )
-
-
-def _repo_cutlass_bmm_source() -> Path:
-    repo_root = Path(__file__).resolve().parents[3]
-    source = repo_root / "kernels" / "cuda" / "src" / "cutlass_bmm.cu"
-    if not source.exists():
-        raise FileNotFoundError(f"Missing CUTLASS BMM source: {source}")
-    return source
 
 
 def _repo_cutlass_conv_scaffold_source() -> Path:

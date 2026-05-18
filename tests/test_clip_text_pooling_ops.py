@@ -72,7 +72,6 @@ def test_clip_legacy_text_pooling_frontend_ir_and_cpu_reference():
 
 
 def test_clip_legacy_text_pooling_generated_cpu_source_and_runtime(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
@@ -107,8 +106,6 @@ def test_clip_legacy_text_pooling_generated_cuda_source_and_runtime(tmp_path, mo
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace()
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)

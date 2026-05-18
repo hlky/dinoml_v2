@@ -235,8 +235,6 @@ def test_clip_text_attention_bool_padding_mask_cpu_reference():
 
 def test_clip_text_attention_cpu_artifact_with_padding_mask_matches_reference(tmp_path, monkeypatch):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_with_padding_mask()
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_attention_cpu.dinoml")
 

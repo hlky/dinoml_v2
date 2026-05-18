@@ -33,7 +33,6 @@ def test_clip_model_workflow_bridge_kernel_detection_is_exact():
 
 def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, monkeypatch):
     example = _load_example()
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = example["build_spec"]()
     inputs = example["build_validation_inputs"]()
 
@@ -124,7 +123,6 @@ def test_clip_model_workflow_example_proves_bounded_two_tower_surface(tmp_path, 
 def test_clip_model_workflow_example_script_smoke(tmp_path):
     artifact_dir = tmp_path / "clip_model_workflow_cli_cpu.dinoml"
     env = os.environ.copy()
-    env["DINOML_CACHE_DIR"] = str(tmp_path / "cache")
     result = subprocess.run(
         [sys.executable, str(EXAMPLE), "--artifact-dir", str(artifact_dir)],
         cwd=REPO_ROOT,

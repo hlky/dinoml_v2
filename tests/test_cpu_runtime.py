@@ -4214,7 +4214,6 @@ def test_cpu_reference_fast_gelu_and_quick_gelu_are_distinct_transformers_formul
 
 
 def test_cpu_artifact_runs_generated_fast_gelu_with_transformers_formula(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = dml.trace(
         UnaryElementwiseModule("fast_gelu"),
@@ -4287,8 +4286,6 @@ def test_cpu_compile_rejects_cuda_only_gemm(tmp_path):
 def test_cpu_artifact_runs_generated_naive_gemm_with_dynamic_folded_m(tmp_path, monkeypatch, op_name):
     from dinoml import runtime
 
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
-
     class DynamicGemmModule(dml.Module):
         def forward(self, a, b, bias=None):
             if bias is None:
@@ -4344,8 +4341,6 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_fast_gelu_with_dynamic_fold
     rtol,
 ):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class DynamicFastGeluGemmModule(dml.Module):
         def forward(self, a, b, bias):
@@ -4406,8 +4401,6 @@ def test_cpu_artifact_runs_generated_naive_gemm_bias_quick_gelu_with_dynamic_fol
     rtol,
 ):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class DynamicQuickGeluGemmModule(dml.Module):
         def forward(self, a, b, bias):
@@ -4477,8 +4470,6 @@ def test_cpu_artifact_runs_generated_naive_bmm_with_dynamic_token_shape(
     rtol,
 ):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     token_dim = dml.Dim("tokens", min=1, max=8)
     spec = dml.trace(
         BmmModule(op_name),
@@ -4538,8 +4529,6 @@ def test_cpu_artifact_runs_generated_naive_bmm_with_batch_broadcast(
     expected_shape,
 ):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = dml.trace(
         BmmModule(op_name),
         inputs={

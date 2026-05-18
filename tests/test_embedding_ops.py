@@ -224,7 +224,6 @@ def test_embedding_generated_sources_accept_int32_indices_and_reduced_precision_
 
 
 def test_cpu_artifact_runs_generated_embedding_with_dynamic_batch(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     batch = dml.Dim("batch", min=1, max=4)
     spec = dml.trace(
         EmbeddingModule(),
@@ -254,7 +253,6 @@ def test_cpu_artifact_runs_generated_embedding_with_dynamic_batch(tmp_path, monk
 
 
 def test_embedding_generated_cpu_runtime_rejects_oob_index(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_embedding(dtype="float32")
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "embedding_oob_cpu.dinoml")
     module = runtime.load(artifact.path)
@@ -275,7 +273,6 @@ def test_cuda_artifact_runs_generated_embedding(tmp_path, monkeypatch):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     spec = _trace_embedding(dtype="float32", index_dtype="int32", table_shape=(8, 5), index_shape=(2, 3))
     artifact = dml.compile(spec, dml.Target("cuda", arch="sm_86"), tmp_path / "embedding_cuda.dinoml")

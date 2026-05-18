@@ -6,6 +6,9 @@ option(DINOML_ENABLE_CUDA "Build CUDA runtime and kernel libraries" ON)
 option(DINOML_ENABLE_CUTLASS_GEMM "Build CUTLASS GEMM support library" ON)
 option(DINOML_ENABLE_CUTLASS_GEMM_PROFILER "Build CUTLASS GEMM profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_GEMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS GEMM CMake targets to link into the profiler, or ALL for every target")
+option(DINOML_ENABLE_CUTLASS_BMM "Build CUTLASS BMM support library" ON)
+option(DINOML_ENABLE_CUTLASS_BMM_PROFILER "Build CUTLASS BMM profiler binary and Python binding" ON)
+set(DINOML_CUTLASS_BMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS BMM CMake targets to link into the profiler, or ALL for every target")
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
 else()
@@ -257,6 +260,160 @@ if(DINOML_ENABLE_CUDA)
       endforeach()
       if(DINOML_CUTLASS_GEMM_PROFILER_TARGETS_BUILT)
         add_custom_target(dinoml_cutlass_gemm_profilers DEPENDS ${DINOML_CUTLASS_GEMM_PROFILER_TARGETS_BUILT})
+      endif()
+    endif()
+  endif()
+
+  if(DINOML_ENABLE_CUTLASS_BMM)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(DINOML_CUTLASS_BMM_OPS
+      bmm_ccc bmm_ccr bmm_crc bmm_crr bmm_rcc bmm_rcr bmm_rrc bmm_rrr
+      bmm_ccc_add bmm_ccr_add bmm_crc_add bmm_crr_add bmm_rcc_add bmm_rcr_add bmm_rrc_add bmm_rrr_add
+    )
+    set(DINOML_CUTLASS_BMM_DTYPES float32 float16 bfloat16)
+    set(DINOML_CUTLASS_BMM_TARGETS)
+    foreach(_cutlass_bmm_op IN LISTS DINOML_CUTLASS_BMM_OPS)
+      foreach(_cutlass_bmm_dtype IN LISTS DINOML_CUTLASS_BMM_DTYPES)
+        set(_cutlass_bmm_group_id "${_cutlass_bmm_op}_${_cutlass_bmm_dtype}")
+        set(_cutlass_bmm_target "dinoml_cutlass_bmm_${_cutlass_bmm_group_id}")
+        set(_cutlass_bmm_source "${CMAKE_CURRENT_BINARY_DIR}/cutlass_bmm_units/${_cutlass_bmm_group_id}.cu")
+        add_custom_command(
+          OUTPUT ${_cutlass_bmm_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_bmm_unit.py
+            --op ${_cutlass_bmm_op}
+            --dtype ${_cutlass_bmm_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_bmm.cu
+            --output ${_cutlass_bmm_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_bmm_unit.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_bmm.cu
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/bmm.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/gemm.py
+          VERBATIM
+        )
+        add_library(${_cutlass_bmm_target} STATIC ${_cutlass_bmm_source})
+        target_include_directories(${_cutlass_bmm_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/tools/util/include
+        )
+        target_compile_options(${_cutlass_bmm_target}
+          PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+            $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=20012>
+        )
+        set_target_properties(${_cutlass_bmm_target} PROPERTIES
+          OUTPUT_NAME "dinoml_cutlass_${_cutlass_bmm_group_id}"
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CUTLASS_BMM_TARGETS ${_cutlass_bmm_target})
+      endforeach()
+    endforeach()
+    add_custom_target(dinoml_cutlass_bmm DEPENDS ${DINOML_CUTLASS_BMM_TARGETS})
+
+    if(DINOML_ENABLE_CUTLASS_BMM_PROFILER)
+      find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+      if(NOT pybind11_DIR)
+        execute_process(
+          COMMAND ${Python3_EXECUTABLE} -m pybind11 --cmakedir
+          OUTPUT_VARIABLE _DINOML_PYBIND11_DIR
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_DINOML_PYBIND11_DIR)
+          set(pybind11_DIR "${_DINOML_PYBIND11_DIR}" CACHE PATH "pybind11 CMake package directory")
+        endif()
+      endif()
+      find_package(pybind11 CONFIG REQUIRED)
+      set(DINOML_CUTLASS_BMM_PROFILER_LINK_TARGETS)
+      if(DINOML_CUTLASS_BMM_PROFILER_TARGETS STREQUAL "ALL")
+        set(DINOML_CUTLASS_BMM_PROFILER_LINK_TARGETS ${DINOML_CUTLASS_BMM_TARGETS})
+      elseif(DINOML_CUTLASS_BMM_PROFILER_TARGETS)
+        foreach(_cutlass_bmm_profiler_target IN LISTS DINOML_CUTLASS_BMM_PROFILER_TARGETS)
+          if(NOT TARGET ${_cutlass_bmm_profiler_target})
+            message(FATAL_ERROR "Unknown CUTLASS BMM profiler target: ${_cutlass_bmm_profiler_target}")
+          endif()
+          list(APPEND DINOML_CUTLASS_BMM_PROFILER_LINK_TARGETS ${_cutlass_bmm_profiler_target})
+        endforeach()
+      endif()
+
+      set(DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT)
+      foreach(_cutlass_bmm_target IN LISTS DINOML_CUTLASS_BMM_PROFILER_LINK_TARGETS)
+        string(REGEX REPLACE "^dinoml_cutlass_bmm_" "" _cutlass_bmm_profiler_group_id "${_cutlass_bmm_target}")
+        if(NOT _cutlass_bmm_profiler_group_id MATCHES "^(.+)_(float32|float16|bfloat16)$")
+          message(FATAL_ERROR "Could not derive CUTLASS BMM profiler op/dtype from target: ${_cutlass_bmm_target}")
+        endif()
+        set(_cutlass_bmm_profiler_op "${CMAKE_MATCH_1}")
+        set(_cutlass_bmm_profiler_dtype "${CMAKE_MATCH_2}")
+        set(_cutlass_bmm_profiler_output "dinoml_cutlass_bmm_profiler_${_cutlass_bmm_profiler_group_id}")
+        set(_cutlass_bmm_profiler_bind_target "${_cutlass_bmm_profiler_output}_bind")
+        set(_cutlass_bmm_profiler_exe_target "${_cutlass_bmm_profiler_output}")
+        set(_cutlass_bmm_profiler_dispatch_source
+          "${CMAKE_CURRENT_BINARY_DIR}/cutlass_bmm_profiler_dispatch/${_cutlass_bmm_profiler_group_id}.cu"
+        )
+        add_custom_command(
+          OUTPUT ${_cutlass_bmm_profiler_dispatch_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_bmm_profiler_dispatch.py
+            --op ${_cutlass_bmm_profiler_op}
+            --dtype ${_cutlass_bmm_profiler_dtype}
+            --output ${_cutlass_bmm_profiler_dispatch_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_bmm_profiler_dispatch.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/cutlass_bmm_profiler_core.cuh
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/bmm.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/gemm.py
+          VERBATIM
+        )
+        set(_cutlass_bmm_profiler_linker_flags
+          "LINKER:--whole-archive"
+          "$<TARGET_FILE:${_cutlass_bmm_target}>"
+          "LINKER:--no-whole-archive"
+        )
+        add_library(${_cutlass_bmm_profiler_bind_target} MODULE
+          tools/cutlass_bmm_profiler_pybind.cu
+          ${_cutlass_bmm_profiler_dispatch_source}
+        )
+        target_include_directories(${_cutlass_bmm_profiler_bind_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+        target_link_libraries(${_cutlass_bmm_profiler_bind_target} PRIVATE pybind11::module CUDA::cudart ${CMAKE_DL_LIBS})
+        target_link_options(${_cutlass_bmm_profiler_bind_target} PRIVATE ${_cutlass_bmm_profiler_linker_flags})
+        target_compile_options(${_cutlass_bmm_profiler_bind_target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+        target_compile_definitions(${_cutlass_bmm_profiler_bind_target}
+          PRIVATE DINOML_CUTLASS_BMM_PROFILER_PY_MODULE=${_cutlass_bmm_profiler_bind_target}
+        )
+        set_target_properties(${_cutlass_bmm_profiler_bind_target} PROPERTIES
+          PREFIX ""
+          OUTPUT_NAME "${_cutlass_bmm_profiler_output}_bind"
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+
+        add_executable(${_cutlass_bmm_profiler_exe_target}
+          tools/cutlass_bmm_profiler_main.cu
+          ${_cutlass_bmm_profiler_dispatch_source}
+        )
+        target_include_directories(${_cutlass_bmm_profiler_exe_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+        target_link_libraries(${_cutlass_bmm_profiler_exe_target} PRIVATE CUDA::cudart ${CMAKE_DL_LIBS})
+        target_link_options(${_cutlass_bmm_profiler_exe_target} PRIVATE ${_cutlass_bmm_profiler_linker_flags})
+        target_compile_options(${_cutlass_bmm_profiler_exe_target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+        set_target_properties(${_cutlass_bmm_profiler_exe_target} PROPERTIES
+          OUTPUT_NAME "${_cutlass_bmm_profiler_output}"
+          ENABLE_EXPORTS ON
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+        add_dependencies(${_cutlass_bmm_profiler_bind_target} ${_cutlass_bmm_target})
+        add_dependencies(${_cutlass_bmm_profiler_exe_target} ${_cutlass_bmm_target})
+        list(APPEND DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT
+          ${_cutlass_bmm_profiler_bind_target}
+          ${_cutlass_bmm_profiler_exe_target}
+        )
+      endforeach()
+      if(DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT)
+        add_custom_target(dinoml_cutlass_bmm_profilers DEPENDS ${DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT})
       endif()
     endif()
   endif()

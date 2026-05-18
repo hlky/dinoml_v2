@@ -147,7 +147,7 @@ def test_fast_gelu_and_quick_gelu_gemm_surfaces_remain_distinct():
 
 
 @pytest.mark.skipif(shutil.which("nvcc") is None, reason="nvcc is required")
-def test_clip_text_mlp_quick_gelu_generated_cuda_runtime_matches_reference(tmp_path, use_shared_dinoml_cuda_cache):
+def test_clip_text_mlp_quick_gelu_generated_cuda_runtime_matches_reference(tmp_path):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA device is required")

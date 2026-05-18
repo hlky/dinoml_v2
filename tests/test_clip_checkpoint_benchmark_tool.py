@@ -85,7 +85,6 @@ def test_clip_checkpoint_benchmark_summary_schema_with_stubbed_runtime(monkeypat
     }
     artifact_dir = tmp_path / "clip.dinoml"
 
-    monkeypatch.setattr(clip_workflow, "_ensure_local_dinoml_cache_dir", lambda: tmp_path / "cache")
     monkeypatch.setattr(clip_workflow, "_load_cached_transformers_clip_checkpoint", lambda **_: object())
     monkeypatch.setattr(
         clip_workflow,
@@ -184,7 +183,6 @@ def test_clip_checkpoint_benchmark_cuda_report_includes_hot_path_timings(monkeyp
             "stddev": 0.0,
         }
 
-    monkeypatch.setattr(clip_workflow, "_ensure_local_dinoml_cache_dir", lambda: tmp_path / "cache")
     monkeypatch.setattr(clip_workflow, "_load_cached_transformers_clip_checkpoint", lambda **_: object())
     monkeypatch.setattr(
         clip_workflow,
@@ -416,7 +414,6 @@ def test_clip_checkpoint_benchmark_cli_cpu_smoke_cached_base(tmp_path):
     artifact_dir = tmp_path / "clip_checkpoint_benchmark_cpu.dinoml"
     report_path = tmp_path / "benchmark.json"
     env = os.environ.copy()
-    env["DINOML_CACHE_DIR"] = str(tmp_path / "cache")
     env["HF_HOME"] = "/workspace/.cache/huggingface"
     result = subprocess.run(
         [

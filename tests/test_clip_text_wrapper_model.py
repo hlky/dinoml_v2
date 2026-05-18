@@ -303,8 +303,6 @@ def test_clip_text_wrapper_zero_layer_matches_local_transformers(
 
 def test_clip_text_wrapper_zero_layer_cpu_artifact_matches_local_transformers(tmp_path, monkeypatch):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(num_hidden_layers=0)
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_zero_layer_cpu.dinoml")
 
@@ -328,8 +326,6 @@ def test_clip_text_wrapper_zero_layer_cpu_artifact_matches_local_transformers(tm
 
 def test_clip_text_wrapper_cpu_artifact_with_encoder_layers_matches_local_transformers(tmp_path, monkeypatch):
     from dinoml import runtime
-
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace(include_position_ids=False, num_hidden_layers=2)
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "clip_text_wrapper_cpu.dinoml")
 
@@ -407,7 +403,7 @@ def test_clip_text_wrapper_manifest_keeps_provider_and_model_kernels_honest(eos_
     os.environ.get("DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER") != "1",
     reason="set DINOML_RUN_EXPENSIVE_CUDA_CLIP_WRAPPER=1 to run the expensive CUDA wrapper runtime smoke",
 )
-def test_clip_text_wrapper_generated_cuda_runtime_matches_local_transformers(tmp_path, use_shared_dinoml_cuda_cache):
+def test_clip_text_wrapper_generated_cuda_runtime_matches_local_transformers(tmp_path):
     from dinoml import runtime
 
     torch = pytest.importorskip("torch")

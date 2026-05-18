@@ -904,10 +904,10 @@ def profile_artifact(
         index = 0
         while index < len(workloads):
             workload = workloads[index]
-            if workload.kernel_library == "cutlass_gemm":
+            if workload.kernel_library in {"cutlass_gemm", "cutlass_bmm"}:
                 group = [workload]
                 index += 1
-                while index < len(workloads) and _same_cutlass_gemm_profile_problem(workload, workloads[index]):
+                while index < len(workloads) and _same_cutlass_native_profile_problem(workload, workloads[index]):
                     group.append(workloads[index])
                     index += 1
                 missing_workloads = []
@@ -932,11 +932,18 @@ def profile_artifact(
                     continue
                 if profiler is None:
                     profiler = _CudaProfiler(artifact_dir, manifest, codegen_plan)
-                profiled_rows = profiler.profile_cutlass_gemm_problem(
-                    workload,
-                    iterations=iterations,
-                    repeats=repeats,
-                )
+                if workload.kernel_library == "cutlass_gemm":
+                    profiled_rows = profiler.profile_cutlass_gemm_problem(
+                        workload,
+                        iterations=iterations,
+                        repeats=repeats,
+                    )
+                else:
+                    profiled_rows = profiler.profile_cutlass_bmm_problem(
+                        workload,
+                        iterations=iterations,
+                        repeats=repeats,
+                    )
                 rows_by_candidate = {str(row["candidate"].get("candidate_id")): row for row in profiled_rows}
                 for candidate_workload in missing_workloads:
                     key_payload = missing_payloads[candidate_workload.candidate_id]
@@ -1214,13 +1221,13 @@ def _validate_profile_runtime_shape(
     return actual_shape
 
 
-def _same_cutlass_gemm_profile_problem(
+def _same_cutlass_native_profile_problem(
     first: GemmProfileWorkload | ConvProfileWorkload,
     second: GemmProfileWorkload | ConvProfileWorkload,
 ) -> bool:
-    if first.kernel_library != "cutlass_gemm" or second.kernel_library != "cutlass_gemm":
+    if first.kernel_library != second.kernel_library or first.kernel_library not in {"cutlass_gemm", "cutlass_bmm"}:
         return False
-    return (
+    same = (
         first.node_id == second.node_id
         and first.op == second.op
         and first.dtype == second.dtype
@@ -1234,6 +1241,26 @@ def _same_cutlass_gemm_profile_problem(
         and first.bias_shape == second.bias_shape
         and first.residual_shapes == second.residual_shapes
     )
+    if not same or first.kernel_library != "cutlass_bmm":
+        return same
+    return (
+        first.batch_count == second.batch_count
+        and first.batch_stride_a == second.batch_stride_a
+        and first.batch_stride_b == second.batch_stride_b
+        and first.batch_stride_d0 == second.batch_stride_d0
+        and first.batch_stride_c == second.batch_stride_c
+        and first.lda == second.lda
+        and first.ldb == second.ldb
+        and first.ldd0 == second.ldd0
+        and first.ldc == second.ldc
+    )
+
+
+def _same_cutlass_gemm_profile_problem(
+    first: GemmProfileWorkload | ConvProfileWorkload,
+    second: GemmProfileWorkload | ConvProfileWorkload,
+) -> bool:
+    return _same_cutlass_native_profile_problem(first, second) and first.kernel_library == "cutlass_gemm"
 
 
 def _named_dim_leaves(dim: Any) -> list[Mapping[str, Any]]:
@@ -1519,14 +1546,6 @@ def _profile_libraries(
             if value not in (None, ""):
                 entry[key] = value
 
-    if "cutlass_bmm_library" in files:
-        path = artifact_dir / files["cutlass_bmm_library"]
-        merge(
-            "cutlass_bmm",
-            path=str(path.resolve()),
-            artifact_path=str(path.resolve()),
-            artifact_sha256=_file_sha256(path),
-        )
     for item in codegen_plan.get("external_support_libraries", []):
         name = str(item["name"])
         cache_dir = Path(str(item.get("cache_dir", ""))) if item.get("cache_dir") else None
@@ -2482,10 +2501,10 @@ class _CutlassGemmProfiler:
         }
 
     @classmethod
-    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassGemmProfiler":
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassGemmProfiler | None":
         item = _external_support_library(codegen_plan, "cutlass_gemm")
         if item is None:
-            raise RuntimeError("CUTLASS GEMM profiler requested but codegen plan has no cutlass_gemm support entry")
+            return None
         cache_dir = Path(str(item["cache_dir"]))
         modules = item.get("modules")
         if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
@@ -2558,6 +2577,92 @@ class _CutlassGemmProfiler:
         return results
 
 
+class _CutlassBmmProfiler:
+    def __init__(self, modules: Mapping[tuple[str, str], Any], candidates: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]]):
+        self._modules = dict(modules)
+        self._candidates = {
+            key: {str(candidate.get("profiler_symbol")): dict(candidate) for candidate in value}
+            for key, value in candidates.items()
+        }
+
+    @classmethod
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassBmmProfiler | None":
+        item = _external_support_library(codegen_plan, "cutlass_bmm")
+        if item is None:
+            return None
+        cache_dir = Path(str(item["cache_dir"]))
+        modules = item.get("modules")
+        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+            raise RuntimeError("CUTLASS BMM profiler support entry has no op/dtype modules")
+        loaded = {}
+        for module in modules:
+            if not isinstance(module, Mapping):
+                raise RuntimeError("CUTLASS BMM profiler support entry has malformed op/dtype module metadata")
+            op = str(module.get("op", ""))
+            dtype = str(module.get("dtype", ""))
+            if not op or not dtype:
+                raise RuntimeError("CUTLASS BMM profiler support entry is missing op/dtype metadata")
+            module_path = _cutlass_bmm_profiler_extension(cache_dir, op=op, dtype=dtype)
+            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_cutlass_bmm_profiler_{op}_{dtype}_bind")
+        candidates_by_key = {}
+        raw_entries = item.get("entries", [])
+        if isinstance(raw_entries, Sequence) and not isinstance(raw_entries, (str, bytes)):
+            for entry in raw_entries:
+                if isinstance(entry, Mapping):
+                    op = str(entry.get("op", ""))
+                    dtype = str(entry.get("dtype", ""))
+                    candidates = entry.get("candidates", [])
+                    if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
+                        candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        return cls(loaded, candidates_by_key)
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        module = self._modules.get((workload.op, workload.dtype))
+        if module is None:
+            raise RuntimeError(f"CUTLASS BMM profiler for {workload.op}/{workload.dtype} is not loaded")
+        raw_results = module.profile_bmm(
+            dtype=str(workload.dtype),
+            batch_count=int(workload.batch_count or 1),
+            m=int(workload.m),
+            n=int(workload.n),
+            k=int(workload.k),
+            batch_stride_a=int(workload.batch_stride_a or 0),
+            batch_stride_b=int(workload.batch_stride_b or 0),
+            batch_stride_d0=int(workload.batch_stride_d0 or 0),
+            batch_stride_c=int(workload.batch_stride_c or 0),
+            lda=int(workload.lda or 0),
+            ldb=int(workload.ldb or 0),
+            ldd0=int(workload.ldd0 or 0),
+            ldc=int(workload.ldc or 0),
+            iterations=int(iterations),
+            repeats=int(repeats),
+            max_operand_alignment=int(workload.alignment_context.get("candidate_filter", {}).get("max_operand_alignment") or 0),
+            residual_count=len(workload.residual_shapes),
+            a_elements=int(np.prod(workload.a_shape, dtype=np.int64)),
+            b_elements=int(np.prod(workload.b_shape, dtype=np.int64)),
+            d0_elements=(int(np.prod(workload.residual_shapes[0], dtype=np.int64)) if workload.residual_shapes else 0),
+            c_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
+            seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(workload.m), str(workload.n), str(workload.k)),
+        )
+        candidates = self._candidates.get((workload.op, workload.dtype), {})
+        results = []
+        for raw in raw_results:
+            profiler_symbol = str(raw["profiler_symbol"])
+            candidate = candidates.get(profiler_symbol)
+            if candidate is None:
+                continue
+            results.append(
+                {
+                    "candidate": candidate,
+                    "samples_ms": [float(sample) for sample in raw["samples_ms"]],
+                    "workspace_nbytes": int(raw["workspace_nbytes"]),
+                }
+            )
+        if not results:
+            raise RuntimeError(f"CUTLASS BMM profiler for {workload.op}/{workload.dtype} returned no usable candidate timings")
+        return results
+
+
 def _external_support_library(codegen_plan: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
     for item in codegen_plan.get("external_support_libraries", []):
         if isinstance(item, Mapping) and item.get("name") == name:
@@ -2577,6 +2682,18 @@ def _cutlass_gemm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) ->
     if not candidates:
         raise RuntimeError(
             f"CUTLASS GEMM profiler binding is missing from {out_dir}. "
+            f"Build the CMake target `{stem}_bind` for this CUDA architecture."
+        )
+    return candidates[0]
+
+
+def _cutlass_bmm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
+    out_dir = cache_dir / "lib"
+    stem = f"dinoml_cutlass_bmm_profiler_{op}_{dtype}"
+    candidates = sorted(out_dir.glob(f"{stem}_bind*.so"))
+    if not candidates:
+        raise RuntimeError(
+            f"CUTLASS BMM profiler binding is missing from {out_dir}. "
             f"Build the CMake target `{stem}_bind` for this CUDA architecture."
         )
     return candidates[0]
@@ -2604,7 +2721,7 @@ class _CudaProfiler:
     def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
         files = manifest["files"]
         global_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(ctypes, "RTLD_NOW", 0)
-        needs_ctypes_runtime = "cutlass_bmm_library" in files or "cutlass_conv_library" in files
+        needs_ctypes_runtime = "cutlass_conv_library" in files
         self._runtime = (
             ctypes.CDLL(str(artifact_dir / files["runtime_library"]), mode=global_mode)
             if needs_ctypes_runtime
@@ -2616,11 +2733,7 @@ class _CudaProfiler:
             else None
         )
         self._cutlass_gemm_profiler = _CutlassGemmProfiler.from_codegen_plan(codegen_plan)
-        self._cutlass_bmm = (
-            ctypes.CDLL(str(artifact_dir / files["cutlass_bmm_library"]), mode=global_mode)
-            if "cutlass_bmm_library" in files
-            else None
-        )
+        self._cutlass_bmm_profiler = _CutlassBmmProfiler.from_codegen_plan(codegen_plan)
         self._cutlass_conv = (
             ctypes.CDLL(str(artifact_dir / files["cutlass_conv_library"]), mode=global_mode)
             if "cutlass_conv_library" in files
@@ -2654,18 +2767,25 @@ class _CudaProfiler:
         rng: np.random.Generator,
     ) -> tuple[float, int]:
         if workload.kernel_library == "cutlass_bmm":
-            return self._profile_bmm(workload, iterations=iterations, rng=rng)
+            del rng
+            rows = self.profile_cutlass_bmm_problem(workload, iterations=iterations, repeats=1)
+            first = rows[0]
+            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
         if workload.kernel_library == "cutlass_conv":
             return self._profile_conv(workload, iterations=iterations, rng=rng)
         if workload.kernel_library != "cutlass_gemm":
             raise RuntimeError(f"Unsupported profiler library {workload.kernel_library!r}")
         del rng
+        if self._cutlass_gemm_profiler is None:
+            raise RuntimeError("CUTLASS GEMM profiler requested but codegen plan has no cutlass_gemm support entry")
         rows = self._cutlass_gemm_profiler.profile(workload, iterations=iterations, repeats=1)
         first = rows[0]
         return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
 
     def profile_gemm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         del rng
+        if self._cutlass_gemm_profiler is None:
+            raise RuntimeError("CUTLASS GEMM profiler requested but codegen plan has no cutlass_gemm support entry")
         rows = self._cutlass_gemm_profiler.profile(workload, iterations=iterations, repeats=1)
         first = rows[0]
         return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
@@ -2677,103 +2797,20 @@ class _CudaProfiler:
         iterations: int,
         repeats: int,
     ) -> list[dict[str, Any]]:
+        if self._cutlass_gemm_profiler is None:
+            raise RuntimeError("CUTLASS GEMM profiler requested but codegen plan has no cutlass_gemm support entry")
         return self._cutlass_gemm_profiler.profile(workload, iterations=iterations, repeats=repeats)
 
-    def _profile_bmm(self, workload: GemmProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
-        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
-        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
-        residuals = [
-            self._device_array(_random_storage(shape, workload.dtype, rng))
-            for shape in workload.residual_shapes
-        ]
-        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-        fn = getattr(self._cutlass_library("cutlass_bmm"), workload.profiler_symbol)
-        fn.restype = ctypes.c_float
-        if residuals:
-            if len(residuals) != 1:
-                raise RuntimeError(f"CUTLASS BMM profiler only supports one add epilogue input for {workload.op}")
-            fn.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int64,
-                ctypes.c_int64,
-                ctypes.c_int64,
-                ctypes.c_int64,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_void_p,
-            ]
-            elapsed_ms = float(
-                fn(
-                    a,
-                    b,
-                    residuals[0],
-                    c,
-                    ctypes.c_int(int(workload.batch_count or 1)),
-                    ctypes.c_int(workload.m),
-                    ctypes.c_int(workload.n),
-                    ctypes.c_int(workload.k),
-                    ctypes.c_int64(int(workload.batch_stride_a or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_b or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_d0 or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
-                    ctypes.c_int(int(workload.lda or 0)),
-                    ctypes.c_int(int(workload.ldb or 0)),
-                    ctypes.c_int(int(workload.ldd0 or 0)),
-                    ctypes.c_int(int(workload.ldc or 0)),
-                    ctypes.c_int(iterations),
-                    ctypes.c_void_p(0),
-                )
-            )
-        else:
-            fn.argtypes = [
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_void_p,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int64,
-                ctypes.c_int64,
-                ctypes.c_int64,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_int,
-                ctypes.c_void_p,
-            ]
-            elapsed_ms = float(
-                fn(
-                    a,
-                    b,
-                    c,
-                    ctypes.c_int(int(workload.batch_count or 1)),
-                    ctypes.c_int(workload.m),
-                    ctypes.c_int(workload.n),
-                    ctypes.c_int(workload.k),
-                    ctypes.c_int64(int(workload.batch_stride_a or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_b or 0)),
-                    ctypes.c_int64(int(workload.batch_stride_c or 0)),
-                    ctypes.c_int(int(workload.lda or 0)),
-                    ctypes.c_int(int(workload.ldb or 0)),
-                    ctypes.c_int(int(workload.ldc or 0)),
-                    ctypes.c_int(iterations),
-                    ctypes.c_void_p(0),
-                )
-            )
-        if elapsed_ms < 0.0:
-            raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
-        return elapsed_ms, int(workload.workspace_nbytes)
+    def profile_cutlass_bmm_problem(
+        self,
+        workload: GemmProfileWorkload,
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if self._cutlass_bmm_profiler is None:
+            raise RuntimeError("CUTLASS BMM profiler requested but codegen plan has no cutlass_bmm support entry")
+        return self._cutlass_bmm_profiler.profile(workload, iterations=iterations, repeats=repeats)
 
     def _profile_conv(self, workload: ConvProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
         n, c, h, w = (int(dim) for dim in workload.x_shape)
@@ -2837,8 +2874,6 @@ class _CudaProfiler:
         return elapsed_ms, int(workload.workspace_nbytes)
 
     def _cutlass_library(self, library: str, *, workload: GemmProfileWorkload | ConvProfileWorkload | None = None) -> ctypes.CDLL:
-        if library == "cutlass_bmm" and self._cutlass_bmm is not None:
-            return self._cutlass_bmm
         if library == "cutlass_conv" and self._cutlass_conv is not None:
             return self._cutlass_conv
         raise RuntimeError(f"Artifact does not contain required {library} support library")

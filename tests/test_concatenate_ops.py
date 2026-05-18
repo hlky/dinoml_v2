@@ -98,7 +98,6 @@ def test_cpu_reference_concatenate(dtype, expected_dtype):
 
 @pytest.mark.parametrize("dtype", ["float32", "float16", "bfloat16", "bool"])
 def test_concatenate_generated_cpu_source_and_runtime(tmp_path, monkeypatch, dtype):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
     spec = _trace_concatenate(dtype, dim=1, shapes=([1, 2, 1], [1, 3, 1], [1, 1, 1]))
     lowered, _ = PassManager().run(spec.ir)
     validate_ir(lowered)
@@ -160,7 +159,6 @@ def test_concatenate_generated_cuda_source_uses_wrapper_parameter_names_for_fuse
 
 
 def test_concatenate_cpu_artifact_handles_tensor_names_with_numeric_suffixes(tmp_path, monkeypatch):
-    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
 
     class SuffixedConcatenateModule(dml.Module):
         def forward(self, x_0, y_0):

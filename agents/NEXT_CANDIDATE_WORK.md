@@ -4,17 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
-- Moved the eager NumPy graph interpreter out of `dinoml.backends.cpu` into
-  `dinoml.reference.reference_numpy`, leaving `backends/cpu.py` focused on
-  compiled CPU artifact support-library/module construction. Tests, examples,
-  and workflow docs now import the reference path directly, so reference
-  validation no longer reads as backend validation. As the first test-layout
-  slice, cast coverage is split into `tests/ir/test_cast_ir_ops.py` for
-  frontend/IR/reference behavior and `tests/cpu/test_cast_cpu_ops.py` for
-  generated CPU lowering/runtime behavior; `tests/cuda/` now exists as the
-  CUDA destination for future compiled-runtime tests. Remaining work is a
-  mechanical, opportunistic migration of other top-level op tests into
-  intent-specific directories, not a behavior change.
+- Rebuilt the test suite around intent-specific contract coverage after moving
+  the eager NumPy graph interpreter out of `dinoml.backends.cpu` into
+  `dinoml.reference.reference_numpy`. `tests/ir/` now checks frontend/IR shape
+  and reference-executor contracts, `tests/cpu/` compiles and runs CPU
+  artifacts against the reference, and `tests/cuda/` compiles and runs CUDA
+  artifacts when the CUDA toolchain is present. The fresh matrix covers the
+  current broadly supported op families across IR/CPU/CUDA, with provider-gap
+  exceptions for GEMM/BMM/Conv kept to IR admission coverage. The rewrite also
+  fixed two codegen bugs caught by compiled tests: fused elementwise float
+  literals now render valid C++ (`0.0f` instead of `0f`), and CUDA stack wrapper
+  launches pass wrapper parameters rather than module-scope pointer names.
 - Cleaned up the GGUF runtime-dequant support boundary so CUDA artifacts no
   longer expose or depend on
   `dino_module_set_libgguf_cuda_dequantize_rows_on_stream()`. DinoML CMake now
@@ -300,10 +300,10 @@ This file should be updated after each major loop.
   FixedChannels `C=4`/`C=8`, and optimized aligned `C=16`, with manifest
   assertions preserving `source_op=conv2d`, `bias_mode=explicit_zero_constant`,
   TensorOp candidate selection, and runtime parity against Torch. Worker
-  validation ran the full `tests/test_conv2d_ops.py` CUDA-heavy suite; PM
-  validation reran the explicit-zero bridge compile check plus a FixedChannels
-  C4 no-bias TensorOp runtime parity test. This keeps Conv first and advances
-  v1-core parity evidence for bias/no-bias without broadening groups/layouts.
+  validation ran the then-current legacy Conv CUDA-heavy suite; PM validation
+  reran the explicit-zero bridge compile check plus a FixedChannels C4 no-bias
+  TensorOp runtime parity test. This keeps Conv first and advances v1-core
+  parity evidence for bias/no-bias without broadening groups/layouts.
 - PM-reviewed and merged a distinct CLIP-focused
   `gemm_rcr_bias_quick_gelu` fused GEMM slice without changing the existing
   `fast_gelu` surface. The new path carries explicit `quick_gelu` activation
@@ -1147,12 +1147,11 @@ This file should be updated after each major loop.
   and helper-only admission stays honest by keeping `gelu_new` out of
   `OP_REGISTRY` while delegating unsupported dtype rejection to `gelu`.
 - Closed the reviewer-noted reduced-precision CUDA runtime gap for the bounded
-  `t5_layer_norm` slice: `float16` and `bfloat16` now have a numeric CUDA
-  runtime parity regression in `tests/test_t5_layer_norm_ops.py`, using the
-  existing trace/reference helpers and the generated CUDA artifact path. The
-  source-side fp32-accumulation assertions stayed in place, so the bounded
-  T5/RMSNorm contract remains unchanged while the reduced-precision runtime
-  path is now exercised directly.
+  `t5_layer_norm` slice: `float16` and `bfloat16` gained numeric CUDA runtime
+  parity coverage using the existing trace/reference helpers and the generated
+  CUDA artifact path. The source-side fp32-accumulation assertions stayed in
+  place, so the bounded T5/RMSNorm contract remains unchanged while the
+  reduced-precision runtime path is now exercised directly.
 - Landed the first bounded normalization slice away from the Conv metadata
   lane: public `t5_layer_norm` now covers the T5/RMSNorm-style form
   `x * rsqrt(mean(x^2) + eps) * weight` over rank >= 1 dense tensors with a

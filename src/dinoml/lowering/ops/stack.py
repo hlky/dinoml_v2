@@ -97,7 +97,7 @@ def _input_params(node: Mapping[str, Any], storage_type: str) -> list[dict[str, 
 
 
 def _input_args(node: Mapping[str, Any]) -> str:
-    return ", ".join(f"ptr_{_c_ident(name)}" for name in node["inputs"])
+    return ", ".join(f"x{idx}" for idx, _ in enumerate(node["inputs"]))
 
 
 def _null_checks(node: Mapping[str, Any]) -> str:

@@ -752,7 +752,8 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   `t5_layer_norm`; helper-level regressions now explicitly cover weighted and
   unweighted dynamic-leading-dimension CPU artifact execution plus reduced-
   precision (`float16`/`bfloat16`) CUDA runtime parity with fp32 accumulation
-  in `tests/test_rms_norm_ops.py`. Out of scope for this bounded helper slice:
+  through the normalization contract case under `tests/ir/`, `tests/cpu/`, and
+  `tests/cuda/`. Out of scope for this bounded helper slice:
   dynamic hidden size, non-rank-1 weights, mixed builder/dtype inputs, full
   LayerNorm mean/bias semantics, grouped/batched/fused variants, and any new
   provider or profiler surface.
@@ -766,8 +767,8 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   bias: `x * rsqrt(mean(x^2) + eps) * weight`. Out of scope for this bounded
   slice: missing/optional affine weights, dynamic hidden size, full LayerNorm
   mean/bias semantics, grouped/batched/fused variants, and provider/library
-  claims. Reduced-precision CUDA runtime parity is now covered by a numeric
-  `float16`/`bfloat16` regression in `tests/test_t5_layer_norm_ops.py`.
+  claims. Reduced-precision CUDA runtime parity is now covered by the
+  normalization contract case in `tests/cuda/`.
 - [x] `layer_norm`: bounded public `dml.ops.layer_norm(x, weight, bias,
   eps=1e-5)` port for rank >= 1 dense tensors with a positive static last
   dimension and required rank-1 affine weight/bias tensors `[hidden]`, across
@@ -776,11 +777,10 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   leading-dimension shape metadata while flattening those leading dims into
   rows at runtime. Semantics match standard affine LayerNorm over the last
   dimension with mean subtraction and variance normalization:
-  `(x - mean(x)) * rsqrt(var(x) + eps) * weight + bias`. Focused regressions in
-  `tests/test_layer_norm_ops.py` cover traced/lowered IR ownership, validation,
-  generated-source/kernel-manifest provenance, CPU artifact runtime across
-  dynamic leading dims, CUDA compile/runtime parity, and reduced-precision
-  (`float16`/`bfloat16`) fp32-accumulation behavior. Out of scope for this
+  `(x - mean(x)) * rsqrt(var(x) + eps) * weight + bias`. The normalization
+  contract cases under `tests/ir/`, `tests/cpu/`, and `tests/cuda/` cover
+  traced/lowered IR ownership, CPU artifact runtime, and CUDA compile/runtime
+  parity. Out of scope for this
   bounded slice: optional affine tensors, dynamic hidden size, grouped/batched/
   fused normalization variants, and provider/library claims.
 - [ ] Remaining LayerNorm family: `group_layernorm`,

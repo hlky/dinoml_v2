@@ -658,7 +658,10 @@ def _literal(value: Any) -> str:
     if isinstance(value, int):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.9g}f"
+        literal = f"{value:.9g}"
+        if "." not in literal and "e" not in literal and "E" not in literal:
+            literal = f"{literal}.0"
+        return f"{literal}f"
     raise ValueError(f"Unsupported fused elementwise scalar attr literal: {value!r}")
 
 

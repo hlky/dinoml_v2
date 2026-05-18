@@ -178,7 +178,9 @@ platforms, and it can be disabled with `-DDINOML_ENABLE_OPENMP=OFF`.
 git submodule update --init --recursive
 pip install -e ".[dev]"
 python -m pytest -q
-python -m pytest -q tests/test_cli_workflows.py::test_cpu_runtime_lifecycle_smoke_with_deferred_constants
+python -m pytest -q tests/ir
+python -m pytest -q tests/cpu
+python -m pytest -q tests/cuda
 python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda
 python tools/benchmark_softmax.py --suite quick --targets cpu,cuda
 python tools/benchmark_reductions.py --suite quick --targets cpu,cuda
@@ -187,10 +189,9 @@ python -m dinoml.cli profile build/model.dinoml --iterations 20 --repeats 3
 python -m dinoml.cli compile model.py --target cuda --profile --profile-repeats 3 --out build/model-profiled.dinoml
 ```
 
-Tests are gradually moving toward intent-specific directories:
-`tests/ir/` for frontend/IR/reference NumPy behavior, `tests/cpu/` for compiled
-CPU artifacts, and `tests/cuda/` for compiled CUDA/runtime coverage. Legacy
-top-level test files still exist while that migration continues.
+Tests are organized by intent: `tests/ir/` covers frontend/IR/reference NumPy
+behavior, `tests/cpu/` compiles and runs CPU artifacts, and `tests/cuda/`
+compiles and runs CUDA artifacts when the CUDA toolchain is available.
 
 Generated artifacts, support-library build products, benchmark output, and local
 profile data are ignored by git. Use `tmp/` for scratch generated modules when

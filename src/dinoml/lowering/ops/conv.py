@@ -60,12 +60,14 @@ def render_launch(
     if item is None:
         raise ValueError(f"{op_name} CUDA lowering requires a CUTLASS Conv manifest entry")
     stages = cutlass_conv_wrapper_stages({"required_kernels": [item]})
-    expected_stage_names = (
-        ["activation_pack", "weight_pack", "residual_pack", "provider_launch", "output_unpack"]
-        if _conv2d_bias_family_has_residual(op_name)
-        else ["activation_pack", "weight_pack", "provider_launch", "output_unpack"]
-    )
-    if [str(stage.get("stage_name")) for stage in stages] != expected_stage_names:
+    stage_names = [str(stage.get("stage_name")) for stage in stages]
+    expected_stage_names = ["activation_pack"]
+    if "weight_pack" in stage_names:
+        expected_stage_names.append("weight_pack")
+    if _conv2d_bias_family_has_residual(op_name):
+        expected_stage_names.append("residual_pack")
+    expected_stage_names.extend(["provider_launch", "output_unpack"])
+    if stage_names != expected_stage_names:
         raise ValueError(f"{op_name} CUTLASS Conv wrapper stages are malformed")
 
     input_names = [str(name) for name in node.get("inputs", ())]
@@ -86,7 +88,7 @@ def render_launch(
     _validate_runtime_shape_contract(op_name, tensor_map, input_names, output_names[0], item)
 
     lines = [
-        f'// CUTLASS Conv wrapper lowering for {op_name}: NCHW/OIHW semantic tensors are packed to NHWC/OHWI before the provider call.',
+        f'// CUTLASS Conv wrapper lowering for {op_name}: public NCHW tensors enter a provider-internal NHWC Conv plan.',
     ]
     for stage in stages:
         lines.extend(_render_runtime_stage(stage, roles=roles))
@@ -258,11 +260,11 @@ def _render_cpu_template(name: str, context: Mapping[str, Any]) -> str:
     return env.get_template(name).render(**context)
 
 
-def render_scaffold_wrapper_stage(stage: Mapping[str, Any]) -> str:
+def render_conv_wrapper_stage(stage: Mapping[str, Any]) -> str:
     stage_kind = str(stage.get("stage_kind", ""))
     symbol = str(stage.get("symbol", ""))
     if not symbol:
-        raise ValueError("CUTLASS Conv scaffold wrapper stage is missing a symbol")
+        raise ValueError("CUTLASS Conv wrapper stage is missing a symbol")
     if stage_kind == "transform_helper":
         source = _descriptor_placeholder(stage.get("source"))
         destination = _descriptor_placeholder(stage.get("destination"))
@@ -274,7 +276,7 @@ def render_scaffold_wrapper_stage(stage: Mapping[str, Any]) -> str:
     if stage_kind == "provider_launcher":
         inputs = stage.get("inputs")
         if not isinstance(inputs, (list, tuple)):
-            raise ValueError("CUTLASS Conv scaffold provider_launcher stage inputs must be a list")
+            raise ValueError("CUTLASS Conv provider_launcher stage inputs must be a list")
         output = _descriptor_placeholder(stage.get("output"))
         pointer_args = [_descriptor_placeholder(item) for item in inputs]
         shape_args = _shape_placeholders(stage)
@@ -286,7 +288,7 @@ def render_scaffold_wrapper_stage(stage: Mapping[str, Any]) -> str:
             f"  return {status_name};\n"
             f"}}"
         )
-    raise ValueError(f"Unsupported CUTLASS Conv scaffold wrapper stage kind {stage_kind!r}")
+    raise ValueError(f"Unsupported CUTLASS Conv wrapper stage kind {stage_kind!r}")
 
 
 def _render_runtime_stage(stage: Mapping[str, Any], *, roles: Mapping[str, str]) -> list[str]:
@@ -316,7 +318,7 @@ def _render_runtime_stage(stage: Mapping[str, Any], *, roles: Mapping[str, str])
         if str(stage.get("status", "")) == "bounded_runtime":
             failure_message = f"{op_name} CUTLASS Conv provider launcher failed"
         else:
-            failure_message = f"{op_name} CUTLASS Conv provider launcher is unsupported by the current scaffold"
+            failure_message = f"{op_name} CUTLASS Conv provider launcher is unsupported by the current Conv implementation"
         return [
             f"int {status_name} = {symbol}({', '.join([*pointer_args, output, *shape_args, 'session->stream'])});",
             f"if ({status_name} != 0) {{",
@@ -442,32 +444,32 @@ def _validate_runtime_shape_contract(
             raise ValueError(f"{op_name} CUTLASS Conv manifest {field} does not match lowered tensor shape")
 
 
-def render_scaffold_wrapper_stages(stages: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[str]:
-    return [render_scaffold_wrapper_stage(stage) for stage in stages]
+def render_conv_wrapper_stages(stages: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]) -> list[str]:
+    return [render_conv_wrapper_stage(stage) for stage in stages]
 
 
-def render_scaffold_wrapper_source(
+def render_conv_wrapper_source(
     stages: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
     *,
     op_name: str | None = None,
     node_id: str | None = None,
 ) -> str:
     if not stages:
-        raise ValueError("CUTLASS Conv scaffold wrapper source requires at least one stage")
+        raise ValueError("CUTLASS Conv wrapper source requires at least one stage")
     first_stage = stages[0]
     op_name = str(op_name or first_stage.get("op") or "conv2d_bias")
     node_id = None if node_id is None and first_stage.get("node_id") is None else str(node_id or first_stage.get("node_id"))
     snippet_lines = []
     for stage in stages:
-        snippet_lines.extend(render_scaffold_wrapper_stage(stage).splitlines())
+        snippet_lines.extend(render_conv_wrapper_stage(stage).splitlines())
     function_suffix = _c_ident(node_id or op_name)
     lines = [
-        "// CUTLASS Conv scaffold only: emitted for artifact/source inspection.",
+        "// CUTLASS Conv only: emitted for artifact/source inspection.",
         "// This debug wrapper snippet is intentionally not compiled into the runtime module.",
         f"// op: {op_name}",
         f"// node_id: {node_id or '<unknown>'}",
         "#if 0",
-        f'extern "C" int dinoml_cutlass_conv_wrapper_scaffold_{function_suffix}(cudaStream_t stream) {{',
+        f'extern "C" int dinoml_cutlass_conv_wrapper_{function_suffix}(cudaStream_t stream) {{',
     ]
     lines.extend(f"  {line}" for line in snippet_lines)
     lines.extend(
@@ -483,30 +485,30 @@ def render_scaffold_wrapper_source(
 
 def _descriptor_placeholder(descriptor: Any) -> str:
     if not isinstance(descriptor, Mapping):
-        raise ValueError(f"Malformed CUTLASS Conv scaffold descriptor: {descriptor!r}")
+        raise ValueError(f"Malformed CUTLASS Conv descriptor: {descriptor!r}")
     kind = str(descriptor.get("kind", ""))
     if kind == "semantic_tensor":
         role = str(descriptor.get("role", ""))
         if role not in {"activation", "weight", "bias", "output"}:
             if role != "residual":
-                raise ValueError(f"Unsupported CUTLASS Conv scaffold semantic tensor role {role!r}")
+                raise ValueError(f"Unsupported CUTLASS Conv semantic tensor role {role!r}")
         return f"ptr_{role}"
     if kind == "temporary_buffer":
         name = str(descriptor.get("name", ""))
         if not name:
-            raise ValueError("CUTLASS Conv scaffold temporary buffer descriptor is missing name")
+            raise ValueError("CUTLASS Conv temporary buffer descriptor is missing name")
         return f"tmp_{_c_ident(name)}"
-    raise ValueError(f"Unsupported CUTLASS Conv scaffold descriptor kind {kind!r}")
+    raise ValueError(f"Unsupported CUTLASS Conv descriptor kind {kind!r}")
 
 
 def _shape_placeholders(stage: Mapping[str, Any]) -> list[str]:
     raw_args = stage.get("shape_args")
     if not isinstance(raw_args, (list, tuple)):
-        raise ValueError("CUTLASS Conv scaffold wrapper stage shape_args must be a list")
+        raise ValueError("CUTLASS Conv wrapper stage shape_args must be a list")
     placeholders = []
     for item in raw_args:
         if not isinstance(item, Mapping) or not str(item.get("placeholder", "")):
-            raise ValueError(f"Malformed CUTLASS Conv scaffold shape arg descriptor: {item!r}")
+            raise ValueError(f"Malformed CUTLASS Conv shape arg descriptor: {item!r}")
         placeholders.append(str(item["placeholder"]))
     return placeholders
 
@@ -552,9 +554,9 @@ __all__ = [
     "CONV2D_BIAS_ADD_RELU_LOWERING",
     "CONV2D_BIAS_LOWERING",
     "CONV2D_BIAS_RELU_LOWERING",
-    "render_scaffold_wrapper_source",
-    "render_scaffold_wrapper_stage",
-    "render_scaffold_wrapper_stages",
+    "render_conv_wrapper_source",
+    "render_conv_wrapper_stage",
+    "render_conv_wrapper_stages",
 ]
 
 

@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence
 
-from dinoml.backends.cutlass import ensure_cutlass_conv_support_scaffold
+import numpy as np
+
 from dinoml.backends.registry import get_backend_spec
 from dinoml.backends.target import Target
 from dinoml.ir import (
@@ -34,8 +35,7 @@ from dinoml.constant_sources import (
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
-from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
-from dinoml.lowering.ops.conv import render_scaffold_wrapper_source
+from dinoml.lowering.ops.conv import render_conv_wrapper_source
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
@@ -182,7 +182,6 @@ def _materialize_profile_bootstrap_artifact(
         Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
     )
     write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
-    _materialize_manifest_only_support_scaffolds(kernel_manifest)
     files = {
         "graph": "graph.dinoir.json",
         "metadata": "metadata.json",
@@ -240,9 +239,6 @@ def _copy_profile_support_libraries(
     artifact_lib_dir.mkdir(parents=True, exist_ok=True)
     for source in (support_libs.runtime_lib, support_libs.cuda_runtime_lib, support_libs.kernels_lib):
         shutil.copy2(source, artifact_lib_dir / source.name)
-    if support_libs.cutlass_conv_lib is not None:
-        shutil.copy2(support_libs.cutlass_conv_lib, artifact_lib_dir / support_libs.cutlass_conv_lib.name)
-        files["cutlass_conv_library"] = f"lib/{support_libs.cutlass_conv_lib.name}"
 
 
 def _compile_once(
@@ -304,7 +300,7 @@ def _lower_for_compile(
     manager = pass_manager or PassManager()
     lowered_ir, reports = manager.run(spec.ir, dump_dir=artifact_dir / "debug" / "pass_dumps")
     _validate_mvp_runtime_contract(lowered_ir, target)
-    return _write_constants(artifact_dir, lowered_ir, spec.constants), reports
+    return _write_constants(artifact_dir, lowered_ir, spec.constants, target=target), reports
 
 
 def _build_artifact_from_lowered_ir(
@@ -363,17 +359,16 @@ def _build_artifact_from_lowered_ir(
         Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
     )
     codegen_plan_payload = codegen_plan.to_json()
-    wrapper_scaffold_sources = _materialize_wrapper_stage_debug_sources(
+    wrapper_sources = _materialize_wrapper_debug_sources(
         artifact_dir=artifact_dir,
         generated_src_dir=generated_src_dir,
         target=codegen_plan.target,
         wrapper_stages=codegen_plan.wrapper_stages,
     )
-    if wrapper_scaffold_sources:
-        codegen_plan_payload["wrapper_scaffold_manifest"] = "debug/generated_src/scaffold_source_manifest.json"
-        codegen_plan_payload["wrapper_scaffold_sources"] = wrapper_scaffold_sources
+    if wrapper_sources:
+        codegen_plan_payload["wrapper_manifest"] = "debug/generated_src/conv_wrapper_source_manifest.json"
+        codegen_plan_payload["wrapper_sources"] = wrapper_sources
     write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan_payload)
-    _materialize_manifest_only_support_scaffolds(kernel_manifest)
 
     files = {
         "graph": "graph.dinoir.json",
@@ -385,8 +380,6 @@ def _build_artifact_from_lowered_ir(
         "kernel_codegen_plan": "kernel_codegen_plan.json",
     }
     files.update(backend.support_libraries)
-    if _requires_kernel_library(kernel_manifest, "cutlass_conv"):
-        files["cutlass_conv_library"] = "lib/libdinoml_cutlass_conv.so"
     if encoded_constants_manifest is not None:
         files["encoded_constants"] = "encoded_constants.json"
 
@@ -425,7 +418,7 @@ def _load_execution_plan(execution_plan: str | Path | Mapping[str, Any] | None) 
     return read_json(Path(execution_plan))
 
 
-def _materialize_wrapper_stage_debug_sources(
+def _materialize_wrapper_debug_sources(
     *,
     artifact_dir: Path,
     generated_src_dir: Path,
@@ -434,7 +427,7 @@ def _materialize_wrapper_stage_debug_sources(
 ) -> list[dict[str, Any]]:
     stage_groups = _group_wrapper_stages(wrapper_stages)
     if not stage_groups:
-        (generated_src_dir / "scaffold_source_manifest.json").unlink(missing_ok=True)
+        (generated_src_dir / "conv_wrapper_source_manifest.json").unlink(missing_ok=True)
         return []
     sources: list[dict[str, Any]] = []
     for stages in stage_groups:
@@ -443,24 +436,24 @@ def _materialize_wrapper_stage_debug_sources(
         node_id = None if first_stage.get("node_id") is None else str(first_stage.get("node_id"))
         source_key = canonical_json(
             {
-                "kind": "cutlass_conv_wrapper_scaffold",
+                "kind": "cutlass_conv_wrapper",
                 "op": op_name,
                 "node_id": node_id,
                 "stages": [dict(stage) for stage in stages],
             }
         )
         source_hash = hashlib.sha256(source_key.encode("utf-8")).hexdigest()[:16]
-        file_name = f"{_scaffold_file_stem(node_id=node_id, op_name=op_name)}_{source_hash}.cu"
-        emitted_source_path = Path("debug") / "generated_src" / "scaffolds" / op_name / file_name
+        file_name = f"{_wrapper_file_stem(node_id=node_id, op_name=op_name)}_{source_hash}.cu"
+        emitted_source_path = Path("debug") / "generated_src" / "conv_wrappers" / op_name / file_name
         full_source_path = artifact_dir / emitted_source_path
         full_source_path.parent.mkdir(parents=True, exist_ok=True)
         full_source_path.write_text(
-            render_scaffold_wrapper_source(stages, op_name=op_name, node_id=node_id),
+            render_conv_wrapper_source(stages, op_name=op_name, node_id=node_id),
             encoding="utf-8",
         )
         sources.append(
             {
-                "source_kind": "cutlass_conv_wrapper_scaffold",
+                "source_kind": "cutlass_conv_wrapper",
                 "kernel_library": str(first_stage.get("kernel_library") or "cutlass_conv"),
                 "op": op_name,
                 "node_id": node_id,
@@ -476,11 +469,11 @@ def _materialize_wrapper_stage_debug_sources(
         )
     manifest = {
         "schema_version": 1,
-        "kind": "dinoml.wrapper_scaffold_source_manifest",
+        "kind": "dinoml.conv_wrapper_source_manifest",
         "target": dict(target),
         "sources": sources,
     }
-    (generated_src_dir / "scaffold_source_manifest.json").write_text(
+    (generated_src_dir / "conv_wrapper_source_manifest.json").write_text(
         canonical_json(manifest),
         encoding="utf-8",
     )
@@ -509,11 +502,11 @@ def _group_wrapper_stages(
     return groups
 
 
-def _scaffold_file_stem(*, node_id: str | None, op_name: str) -> str:
+def _wrapper_file_stem(*, node_id: str | None, op_name: str) -> str:
     base = node_id or op_name
     pieces = [char if char.isalnum() else "_" for char in str(base)]
     stem = "".join(pieces).strip("_")
-    return stem or "cutlass_conv_wrapper_scaffold"
+    return stem or "cutlass_conv_wrapper"
 
 
 def _validate_constant_load_policy(policy: str) -> str:
@@ -594,23 +587,8 @@ def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
     return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
 
 
-def _materialize_manifest_only_support_scaffolds(kernel_manifest: Mapping[str, Any]) -> None:
-    target = kernel_manifest.get("target")
-    if not isinstance(target, Mapping) or target.get("name") != "cuda":
-        return
-    if not _requires_kernel_library(dict(kernel_manifest), "cutlass_conv"):
-        return
-    arch = str(target.get("arch", ""))
-    if not arch:
-        return
-    ensure_cutlass_conv_support_scaffold(
-        arch,
-        cache_key=str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]))[:16],
-        used_candidate_plan=cutlass_conv_used_candidate_plan(kernel_manifest),
-    )
-
-
-def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any]) -> Dict:
+def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any], *, target: Target) -> Dict:
+    prepacked_conv_weights = _cuda_cutlass_conv_weight_constants(ir) if target.name == "cuda" else set()
     offset = 0
     constant_infos = []
     with (artifact_dir / "constants.bin").open("wb") as handle:
@@ -631,7 +609,18 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any])
                 expected_dtype = dtype_numpy(str(constant["dtype"]))
                 if array.dtype != expected_dtype:
                     raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
-                data = array.tobytes(order="C")
+            if constant["tensor"] in prepacked_conv_weights:
+                if array.ndim != 4:
+                    raise ValueError(f"CUTLASS Conv weight constant {name} must be rank-4 OIHW before packing")
+                array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
+                constant = dict(constant)
+                constant["storage"] = {
+                    **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
+                    "kind": "cutlass_conv_weight",
+                    "logical_layout": "oihw",
+                    "storage_layout": "ohwi",
+                }
+            data = array.tobytes(order="C")
             constant = dict(constant)
             constant["offset"] = offset
             constant["nbytes"] = len(data)
@@ -646,6 +635,21 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any])
     ir["constants"] = constant_infos
     ir.setdefault("metadata", {})["constants_nbytes"] = offset
     return ir
+
+
+def _cuda_cutlass_conv_weight_constants(ir: Mapping[str, Any]) -> set[str]:
+    constants = {str(item["tensor"]) for item in ir.get("constants", [])}
+    result: set[str] = set()
+    for node in ir.get("nodes", []):
+        if str(node.get("op", "")) not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
+            continue
+        inputs = node.get("inputs", ())
+        if not isinstance(inputs, Sequence) or len(inputs) < 2:
+            continue
+        weight = str(inputs[1])
+        if weight in constants:
+            result.add(weight)
+    return result
 
 
 def _writes_encoded_gguf_runtime_dequant_constant(value: Any) -> bool:

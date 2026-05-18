@@ -43,13 +43,13 @@ set_target_properties(dinoml_cutlass_bmm_{{ loop.index0 }} PROPERTIES
 )
 {% endfor %}
 
-{% if cutlass_conv_lib %}
-add_library(dinoml_cutlass_conv SHARED IMPORTED GLOBAL)
-set_target_properties(dinoml_cutlass_conv PROPERTIES
-  IMPORTED_LOCATION "{{ cutlass_conv_lib }}"
+{% for cutlass_conv_archive in cutlass_conv_archives %}
+add_library(dinoml_cutlass_conv_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_cutlass_conv_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ cutlass_conv_archive }}"
   INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
 )
-{% endif %}
+{% endfor %}
 
 {% if gguf_cuda_native_lib %}
 add_library(dinoml_libgguf_cuda_native {{ gguf_cuda_native_lib_kind }} IMPORTED GLOBAL)
@@ -75,9 +75,9 @@ target_link_libraries(module PRIVATE
 {% for cutlass_bmm_archive in cutlass_bmm_archives %}
   dinoml_cutlass_bmm_{{ loop.index0 }}
 {% endfor %}
-{% if cutlass_conv_lib %}
-  dinoml_cutlass_conv
-{% endif %}
+{% for cutlass_conv_archive in cutlass_conv_archives %}
+  dinoml_cutlass_conv_{{ loop.index0 }}
+{% endfor %}
 {% if gguf_cuda_native_lib %}
   dinoml_libgguf_cuda_native
 {% endif %}

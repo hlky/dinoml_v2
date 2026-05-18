@@ -9,14 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from dinoml.backends.cutlass import (
-    ensure_cutlass_conv_support_scaffold,
-)
 from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import read_json, write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_cmake_target, cutlass_bmm_static_library_name, cutlass_bmm_used_candidate_plan
-from dinoml.kernels.providers.cutlass.conv import cutlass_conv_used_candidate_plan
+from dinoml.kernels.providers.cutlass.conv import cutlass_conv_cmake_target, cutlass_conv_static_library_name
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_cmake_target, cutlass_gemm_static_library_name
 from dinoml.libgguf_cuda import (
     file_sha256,
@@ -36,7 +33,7 @@ class SupportLibs:
     kernels_lib: Path
     cutlass_gemm_archives: tuple[Path, ...]
     cutlass_bmm_archives: tuple[Path, ...]
-    cutlass_conv_lib: Path | None
+    cutlass_conv_archives: tuple[Path, ...]
     gguf_cuda_native_lib: Path | None
     gguf_cuda_native_manifest: Path | None
     runtime_include: Path
@@ -58,7 +55,6 @@ def build_cuda_module(
     runtime_lib = artifact_lib_dir / support_libs.runtime_lib.name
     cuda_runtime_lib = artifact_lib_dir / support_libs.cuda_runtime_lib.name
     kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
-    cutlass_conv_lib = None if support_libs.cutlass_conv_lib is None else artifact_lib_dir / support_libs.cutlass_conv_lib.name
     gguf_cuda_native_lib = (
         None if support_libs.gguf_cuda_native_lib is None else artifact_lib_dir / support_libs.gguf_cuda_native_lib.name
     )
@@ -70,8 +66,6 @@ def build_cuda_module(
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.cuda_runtime_lib, cuda_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
-    if support_libs.cutlass_conv_lib is not None and cutlass_conv_lib is not None:
-        shutil.copy2(support_libs.cutlass_conv_lib, cutlass_conv_lib)
     if support_libs.gguf_cuda_native_lib is not None and gguf_cuda_native_lib is not None:
         shutil.copy2(support_libs.gguf_cuda_native_lib, gguf_cuda_native_lib)
     if support_libs.gguf_cuda_native_manifest is not None and gguf_cuda_native_manifest is not None:
@@ -101,7 +95,7 @@ def build_cuda_module(
                 "kernels_lib": str(kernels_lib),
                 "cutlass_gemm_archives": [str(path) for path in support_libs.cutlass_gemm_archives],
                 "cutlass_bmm_archives": [str(path) for path in support_libs.cutlass_bmm_archives],
-                "cutlass_conv_lib": "" if cutlass_conv_lib is None else str(cutlass_conv_lib),
+                "cutlass_conv_archives": [str(path) for path in support_libs.cutlass_conv_archives],
                 "gguf_cuda_native_lib": "" if gguf_cuda_native_lib is None else str(gguf_cuda_native_lib),
                 "gguf_cuda_native_lib_kind": "" if gguf_cuda_native_lib is None else _cmake_library_kind(gguf_cuda_native_lib),
                 "runtime_include": str(support_libs.runtime_include),
@@ -152,7 +146,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     kernels_lib = lib_dir / "libdinoml_cuda_kernels.so"
     cutlass_gemm_archives: tuple[Path, ...] = ()
     cutlass_bmm_archives: tuple[Path, ...] = ()
-    cutlass_conv_lib = None
+    cutlass_conv_archives: tuple[Path, ...] = ()
     gguf_cuda_native_lib = None
     gguf_cuda_native_manifest = None
 
@@ -168,6 +162,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
             "-DDINOML_ENABLE_CUDA=ON",
             "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
             "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
+            "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
             f"-DCMAKE_CUDA_ARCHITECTURES={_cmake_arch(arch)}",
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
         ],
@@ -193,17 +188,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     if _requires_kernel_library(kernel_manifest, "cutlass_bmm"):
         cutlass_bmm_archives = _ensure_cmake_cutlass_bmm_archives(arch, kernel_manifest)
     if _requires_kernel_library(kernel_manifest, "cutlass_conv"):
-        cutlass_support = ensure_cutlass_conv_support_scaffold(
-            arch,
-            cache_key=kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])[:16],
-            used_candidate_plan=cutlass_conv_used_candidate_plan(kernel_manifest),
-        )
-        cutlass_conv_lib = cutlass_support.manifest.parent / "libdinoml_cutlass_conv.so"
-        if not cutlass_conv_lib.exists():
-            raise NotImplementedError(
-                "CUTLASS Conv support scaffold did not produce a compiled support library; "
-                "nvcc is required before generated CUDA module build can link the guarded Conv wrapper"
-            )
+        cutlass_conv_archives = _ensure_cmake_cutlass_conv_archives(arch, kernel_manifest)
     if _requires_gguf_cuda_native_library(kernel_manifest):
         gguf_cuda_native_lib, gguf_cuda_native_manifest = _ensure_libgguf_cuda_native_library(
             arch,
@@ -220,8 +205,8 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         libraries["cutlass_gemm_static"] = [archive.name for archive in cutlass_gemm_archives]
     if cutlass_bmm_archives:
         libraries["cutlass_bmm_static"] = [archive.name for archive in cutlass_bmm_archives]
-    if cutlass_conv_lib is not None:
-        libraries["cutlass_conv"] = cutlass_conv_lib.name
+    if cutlass_conv_archives:
+        libraries["cutlass_conv_static"] = [archive.name for archive in cutlass_conv_archives]
     default_target = {"name": "cuda", "arch": f"sm_{_cmake_arch(arch)}"}
     support_target = dict(kernel_manifest.get("target", default_target)) if kernel_manifest is not None else default_target
     write_json(
@@ -238,7 +223,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         kernels_lib=kernels_lib,
         cutlass_gemm_archives=cutlass_gemm_archives,
         cutlass_bmm_archives=cutlass_bmm_archives,
-        cutlass_conv_lib=cutlass_conv_lib,
+        cutlass_conv_archives=cutlass_conv_archives,
         gguf_cuda_native_lib=gguf_cuda_native_lib,
         gguf_cuda_native_manifest=gguf_cuda_native_manifest,
         runtime_include=repo_root / "runtime" / "include",
@@ -277,6 +262,7 @@ def _ensure_cmake_cutlass_gemm_archives(arch: str, kernel_manifest: Mapping[str,
                 "-DDINOML_ENABLE_CUDA=ON",
                 "-DDINOML_ENABLE_CUTLASS_GEMM=ON",
                 "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
+                "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -369,6 +355,7 @@ def _ensure_cmake_cutlass_bmm_archives(arch: str, kernel_manifest: Mapping[str, 
                 "-DDINOML_ENABLE_CUDA=ON",
                 "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_BMM=ON",
+                "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -433,6 +420,99 @@ def _required_cutlass_bmm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[d
             "dtype": dtype,
             "archive": archive,
             "target": cutlass_bmm_cmake_target(op_name, dtype),
+        }
+    return tuple(modules[key] for key in sorted(modules))
+
+
+def _ensure_cmake_cutlass_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    require_cuda_library("cutlass")
+    repo_root = _repo_root()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_num = _cmake_arch(arch)
+    support_root = cache_root / "support" / f"cuda-{arch_num}" / "cutlass-conv" / "cmake-full"
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    modules = _required_cutlass_conv_modules(kernel_manifest)
+    archives = tuple(lib_dir / module["archive"] for module in modules)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_cmake_build_dir(build_dir)
+    if any(not archive.exists() for archive in archives) or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=ON",
+                "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
+                "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
+                "-DDINOML_ENABLE_CUTLASS_CONV=ON",
+                f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
+    targets = [module["target"] for module in modules]
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            *targets,
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    missing = [str(archive) for archive in archives if not archive.exists()]
+    if missing:
+        raise RuntimeError(f"Expected CMake-built CUTLASS Conv static archives, but these were not produced: {missing}")
+    write_json(
+        lib_dir / "cutlass_conv_manifest.json",
+        {
+            "schema_version": 3,
+            "target": {"name": "cuda", "arch": f"sm_{arch_num}"},
+            "provider": "cutlass",
+            "library_name": "cutlass_conv",
+            "family": "conv2d_fprop",
+            "build_mode": "cmake_op_dtype_static_archives",
+            "modules": [
+                {
+                    **module,
+                    "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                }
+                for module in modules
+            ],
+            "source": "kernels/cuda/src/cutlass_conv.cu",
+            "source_sha256": file_sha256(repo_root / "kernels" / "cuda" / "src" / "cutlass_conv.cu"),
+            "compile": {
+                "system": "cmake",
+                "targets": targets,
+                "build_dir": str(build_dir),
+            },
+            "cache_key": "cmake-full",
+        },
+    )
+    return archives
+
+
+def _required_cutlass_conv_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
+    modules = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "cutlass_conv":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = cutlass_conv_static_library_name(op_name, dtype)
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": archive,
+            "target": cutlass_conv_cmake_target(op_name, dtype),
         }
     return tuple(modules[key] for key in sorted(modules))
 

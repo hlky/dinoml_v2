@@ -9,6 +9,9 @@ set(DINOML_CUTLASS_GEMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CU
 option(DINOML_ENABLE_CUTLASS_BMM "Build CUTLASS BMM support library" ON)
 option(DINOML_ENABLE_CUTLASS_BMM_PROFILER "Build CUTLASS BMM profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_BMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS BMM CMake targets to link into the profiler, or ALL for every target")
+option(DINOML_ENABLE_CUTLASS_CONV "Build CUTLASS Conv support library" ON)
+option(DINOML_ENABLE_CUTLASS_CONV_PROFILER "Build CUTLASS Conv profiler binary and Python binding" ON)
+set(DINOML_CUTLASS_CONV_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS Conv CMake targets to link into the profiler, or ALL for every target")
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
 else()
@@ -414,6 +417,157 @@ if(DINOML_ENABLE_CUDA)
       endforeach()
       if(DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT)
         add_custom_target(dinoml_cutlass_bmm_profilers DEPENDS ${DINOML_CUTLASS_BMM_PROFILER_TARGETS_BUILT})
+      endif()
+    endif()
+  endif()
+
+  if(DINOML_ENABLE_CUTLASS_CONV)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(DINOML_CUTLASS_CONV_OPS
+      conv2d_bias conv2d_bias_relu conv2d_bias_add conv2d_bias_add_relu
+    )
+    set(DINOML_CUTLASS_CONV_DTYPES float32 float16)
+    set(DINOML_CUTLASS_CONV_TARGETS)
+    foreach(_cutlass_conv_op IN LISTS DINOML_CUTLASS_CONV_OPS)
+      foreach(_cutlass_conv_dtype IN LISTS DINOML_CUTLASS_CONV_DTYPES)
+        set(_cutlass_conv_group_id "${_cutlass_conv_op}_${_cutlass_conv_dtype}")
+        set(_cutlass_conv_target "dinoml_cutlass_conv_${_cutlass_conv_group_id}")
+        set(_cutlass_conv_source "${CMAKE_CURRENT_BINARY_DIR}/cutlass_conv_units/${_cutlass_conv_group_id}.cu")
+        add_custom_command(
+          OUTPUT ${_cutlass_conv_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_conv_unit.py
+            --op ${_cutlass_conv_op}
+            --dtype ${_cutlass_conv_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_conv.cu
+            --output ${_cutlass_conv_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_conv_unit.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_conv.cu
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/conv.py
+          VERBATIM
+        )
+        add_library(${_cutlass_conv_target} STATIC ${_cutlass_conv_source})
+        target_include_directories(${_cutlass_conv_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/tools/util/include
+        )
+        target_compile_options(${_cutlass_conv_target}
+          PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+            $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=20012>
+        )
+        set_target_properties(${_cutlass_conv_target} PROPERTIES
+          OUTPUT_NAME "dinoml_cutlass_${_cutlass_conv_group_id}"
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CUTLASS_CONV_TARGETS ${_cutlass_conv_target})
+      endforeach()
+    endforeach()
+    add_custom_target(dinoml_cutlass_conv DEPENDS ${DINOML_CUTLASS_CONV_TARGETS})
+
+    if(DINOML_ENABLE_CUTLASS_CONV_PROFILER)
+      find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+      if(NOT pybind11_DIR)
+        execute_process(
+          COMMAND ${Python3_EXECUTABLE} -m pybind11 --cmakedir
+          OUTPUT_VARIABLE _DINOML_PYBIND11_DIR
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_DINOML_PYBIND11_DIR)
+          set(pybind11_DIR "${_DINOML_PYBIND11_DIR}" CACHE PATH "pybind11 CMake package directory")
+        endif()
+      endif()
+      find_package(pybind11 CONFIG REQUIRED)
+      set(DINOML_CUTLASS_CONV_PROFILER_LINK_TARGETS)
+      if(DINOML_CUTLASS_CONV_PROFILER_TARGETS STREQUAL "ALL")
+        set(DINOML_CUTLASS_CONV_PROFILER_LINK_TARGETS ${DINOML_CUTLASS_CONV_TARGETS})
+      elseif(DINOML_CUTLASS_CONV_PROFILER_TARGETS)
+        foreach(_cutlass_conv_profiler_target IN LISTS DINOML_CUTLASS_CONV_PROFILER_TARGETS)
+          if(NOT TARGET ${_cutlass_conv_profiler_target})
+            message(FATAL_ERROR "Unknown CUTLASS Conv profiler target: ${_cutlass_conv_profiler_target}")
+          endif()
+          list(APPEND DINOML_CUTLASS_CONV_PROFILER_LINK_TARGETS ${_cutlass_conv_profiler_target})
+        endforeach()
+      endif()
+
+      set(DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT)
+      foreach(_cutlass_conv_target IN LISTS DINOML_CUTLASS_CONV_PROFILER_LINK_TARGETS)
+        string(REGEX REPLACE "^dinoml_cutlass_conv_" "" _cutlass_conv_profiler_group_id "${_cutlass_conv_target}")
+        if(NOT _cutlass_conv_profiler_group_id MATCHES "^(.+)_(float32|float16)$")
+          message(FATAL_ERROR "Could not derive CUTLASS Conv profiler op/dtype from target: ${_cutlass_conv_target}")
+        endif()
+        set(_cutlass_conv_profiler_op "${CMAKE_MATCH_1}")
+        set(_cutlass_conv_profiler_dtype "${CMAKE_MATCH_2}")
+        set(_cutlass_conv_profiler_output "dinoml_cutlass_conv_profiler_${_cutlass_conv_profiler_group_id}")
+        set(_cutlass_conv_profiler_bind_target "${_cutlass_conv_profiler_output}_bind")
+        set(_cutlass_conv_profiler_exe_target "${_cutlass_conv_profiler_output}")
+        set(_cutlass_conv_profiler_dispatch_source
+          "${CMAKE_CURRENT_BINARY_DIR}/cutlass_conv_profiler_dispatch/${_cutlass_conv_profiler_group_id}.cu"
+        )
+        add_custom_command(
+          OUTPUT ${_cutlass_conv_profiler_dispatch_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_conv_profiler_dispatch.py
+            --op ${_cutlass_conv_profiler_op}
+            --dtype ${_cutlass_conv_profiler_dtype}
+            --output ${_cutlass_conv_profiler_dispatch_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_conv_profiler_dispatch.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/cutlass_conv_profiler_core.cuh
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/conv.py
+          VERBATIM
+        )
+        set(_cutlass_conv_profiler_linker_flags
+          "LINKER:--whole-archive"
+          "$<TARGET_FILE:${_cutlass_conv_target}>"
+          "LINKER:--no-whole-archive"
+        )
+        add_library(${_cutlass_conv_profiler_bind_target} MODULE
+          tools/cutlass_conv_profiler_pybind.cu
+          ${_cutlass_conv_profiler_dispatch_source}
+        )
+        target_include_directories(${_cutlass_conv_profiler_bind_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+        target_link_libraries(${_cutlass_conv_profiler_bind_target} PRIVATE pybind11::module CUDA::cudart ${CMAKE_DL_LIBS})
+        target_link_options(${_cutlass_conv_profiler_bind_target} PRIVATE ${_cutlass_conv_profiler_linker_flags})
+        target_compile_options(${_cutlass_conv_profiler_bind_target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+        target_compile_definitions(${_cutlass_conv_profiler_bind_target}
+          PRIVATE DINOML_CUTLASS_CONV_PROFILER_PY_MODULE=${_cutlass_conv_profiler_bind_target}
+        )
+        set_target_properties(${_cutlass_conv_profiler_bind_target} PROPERTIES
+          PREFIX ""
+          OUTPUT_NAME "${_cutlass_conv_profiler_output}_bind"
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+
+        add_executable(${_cutlass_conv_profiler_exe_target}
+          tools/cutlass_conv_profiler_main.cu
+          ${_cutlass_conv_profiler_dispatch_source}
+        )
+        target_include_directories(${_cutlass_conv_profiler_exe_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tools)
+        target_link_libraries(${_cutlass_conv_profiler_exe_target} PRIVATE CUDA::cudart ${CMAKE_DL_LIBS})
+        target_link_options(${_cutlass_conv_profiler_exe_target} PRIVATE ${_cutlass_conv_profiler_linker_flags})
+        target_compile_options(${_cutlass_conv_profiler_exe_target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>)
+        set_target_properties(${_cutlass_conv_profiler_exe_target} PROPERTIES
+          OUTPUT_NAME "${_cutlass_conv_profiler_output}"
+          ENABLE_EXPORTS ON
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+        add_dependencies(${_cutlass_conv_profiler_bind_target} ${_cutlass_conv_target})
+        add_dependencies(${_cutlass_conv_profiler_exe_target} ${_cutlass_conv_target})
+        list(APPEND DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT
+          ${_cutlass_conv_profiler_bind_target}
+          ${_cutlass_conv_profiler_exe_target}
+        )
+      endforeach()
+      if(DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT)
+        add_custom_target(dinoml_cutlass_conv_profilers DEPENDS ${DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT})
       endif()
     endif()
   endif()

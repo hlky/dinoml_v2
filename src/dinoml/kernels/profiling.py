@@ -32,7 +32,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
 from dinoml.kernels.providers.cutlass.conv import (
     CONV_OPS,
     cutlass_conv_candidate_compatible_with_plan,
-    validate_cutlass_conv_scaffold_plan,
+    validate_cutlass_conv_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.definitions import get_op_def
@@ -227,8 +227,8 @@ class ConvProfileWorkload:
                 else {}
             ),
             "profile_variant": {
-                "kind": str(self.candidate.get("status", "manifest_scaffold_only")),
-                "profiler_status": str(self.candidate.get("profiler_status", "unsupported_stub")),
+                "kind": str(self.candidate.get("status", "runtime")),
+                "profiler_status": str(self.candidate.get("profiler_status", "runtime_profiler")),
             },
             "shape_case": {
                 "source": self.shape_source,
@@ -388,7 +388,7 @@ def _unsupported_profile_workload_reason(workload: GemmProfileWorkload | ConvPro
     if workload.kernel_library != "cutlass_conv":
         return None
     profiler_status = str(workload.candidate.get("profiler_status", ""))
-    if profiler_status == "bounded_runtime_profiler":
+    if profiler_status in {"runtime_profiler", "bounded_runtime_profiler"}:
         return None
     return f"CUTLASS Conv profile workload for {workload.op} candidate {workload.candidate_id} has unsupported profiler_status={profiler_status!r}."
 
@@ -431,7 +431,7 @@ def _append_conv_profile_workloads(
     conv_plan = required_item.get("cutlass_conv_plan")
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
     residual_name = str(node["inputs"][3]) if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"} else None
-    normalized_conv_plan = validate_cutlass_conv_scaffold_plan(
+    normalized_conv_plan = validate_cutlass_conv_plan(
         conv_plan,
         node_id=str(node["id"]),
     )
@@ -904,7 +904,7 @@ def profile_artifact(
         index = 0
         while index < len(workloads):
             workload = workloads[index]
-            if workload.kernel_library in {"cutlass_gemm", "cutlass_bmm"}:
+            if workload.kernel_library in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
                 group = [workload]
                 index += 1
                 while index < len(workloads) and _same_cutlass_native_profile_problem(workload, workloads[index]):
@@ -938,8 +938,14 @@ def profile_artifact(
                         iterations=iterations,
                         repeats=repeats,
                     )
-                else:
+                elif workload.kernel_library == "cutlass_bmm":
                     profiled_rows = profiler.profile_cutlass_bmm_problem(
+                        workload,
+                        iterations=iterations,
+                        repeats=repeats,
+                    )
+                else:
+                    profiled_rows = profiler.profile_cutlass_conv_problem(
                         workload,
                         iterations=iterations,
                         repeats=repeats,
@@ -1225,8 +1231,23 @@ def _same_cutlass_native_profile_problem(
     first: GemmProfileWorkload | ConvProfileWorkload,
     second: GemmProfileWorkload | ConvProfileWorkload,
 ) -> bool:
-    if first.kernel_library != second.kernel_library or first.kernel_library not in {"cutlass_gemm", "cutlass_bmm"}:
+    if first.kernel_library != second.kernel_library or first.kernel_library not in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
         return False
+    if first.kernel_library == "cutlass_conv":
+        if not isinstance(first, ConvProfileWorkload) or not isinstance(second, ConvProfileWorkload):
+            return False
+        return (
+            first.node_id == second.node_id
+            and first.op == second.op
+            and first.dtype == second.dtype
+            and first.candidate_set_key == second.candidate_set_key
+            and first.x_shape == second.x_shape
+            and first.weight_shape == second.weight_shape
+            and first.bias_shape == second.bias_shape
+            and first.residual_shape == second.residual_shape
+            and first.output_shape == second.output_shape
+            and first.conv_config == second.conv_config
+        )
     same = (
         first.node_id == second.node_id
         and first.op == second.op
@@ -2663,6 +2684,101 @@ class _CutlassBmmProfiler:
         return results
 
 
+class _CutlassConvProfiler:
+    def __init__(self, modules: Mapping[tuple[str, str], Any], candidates: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]]):
+        self._modules = dict(modules)
+        self._candidates = {
+            key: {str(candidate.get("profiler_symbol")): dict(candidate) for candidate in value}
+            for key, value in candidates.items()
+        }
+
+    @classmethod
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassConvProfiler | None":
+        item = _external_support_library(codegen_plan, "cutlass_conv")
+        if item is None:
+            return None
+        cache_dir = Path(str(item["cache_dir"]))
+        modules = item.get("modules")
+        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+            raise RuntimeError("CUTLASS Conv profiler support entry has no op/dtype modules")
+        loaded = {}
+        for module in modules:
+            if not isinstance(module, Mapping):
+                raise RuntimeError("CUTLASS Conv profiler support entry has malformed op/dtype module metadata")
+            op = str(module.get("op", ""))
+            dtype = str(module.get("dtype", ""))
+            if not op or not dtype:
+                raise RuntimeError("CUTLASS Conv profiler support entry is missing op/dtype metadata")
+            module_path = _cutlass_conv_profiler_extension(cache_dir, op=op, dtype=dtype)
+            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_cutlass_conv_profiler_{op}_{dtype}_bind")
+        candidates_by_key = {}
+        raw_entries = item.get("entries", [])
+        if isinstance(raw_entries, Sequence) and not isinstance(raw_entries, (str, bytes)):
+            for entry in raw_entries:
+                if isinstance(entry, Mapping):
+                    op = str(entry.get("op", ""))
+                    candidate_set = entry.get("candidate_set", {})
+                    dtype = str(candidate_set.get("dtype", ""))
+                    candidates = entry.get("candidates", [])
+                    if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
+                        candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        return cls(loaded, candidates_by_key)
+
+    def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        module = self._modules.get((workload.op, workload.dtype))
+        if module is None:
+            raise RuntimeError(f"CUTLASS Conv profiler for {workload.op}/{workload.dtype} is not loaded")
+        n, c, h, w = (int(dim) for dim in workload.x_shape)
+        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+        weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+        if out_n != n or weight_i != c or weight_o != out_c:
+            raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
+        stride = [int(value) for value in workload.conv_config.get("stride", ())]
+        padding = [int(value) for value in workload.conv_config.get("padding", ())]
+        dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
+        if len(stride) != 2 or len(padding) != 2 or len(dilation) != 2:
+            raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
+        raw_results = module.profile_conv(
+            dtype=str(workload.dtype),
+            n=n,
+            h=h,
+            w=w,
+            c=c,
+            out_h=out_h,
+            out_w=out_w,
+            out_c=out_c,
+            kernel_h=kernel_h,
+            kernel_w=kernel_w,
+            stride_h=stride[0],
+            stride_w=stride[1],
+            pad_h=padding[0],
+            pad_w=padding[1],
+            dilation_h=dilation[0],
+            dilation_w=dilation[1],
+            iterations=int(iterations),
+            repeats=int(repeats),
+            residual_count=(1 if workload.residual_shape is not None else 0),
+            seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_h), str(out_w), str(out_c)),
+        )
+        candidates = self._candidates.get((workload.op, workload.dtype), {})
+        results = []
+        for raw in raw_results:
+            profiler_symbol = str(raw["profiler_symbol"])
+            candidate = candidates.get(profiler_symbol)
+            if candidate is None:
+                continue
+            results.append(
+                {
+                    "candidate": candidate,
+                    "samples_ms": [float(sample) for sample in raw["samples_ms"]],
+                    "workspace_nbytes": int(raw["workspace_nbytes"]),
+                }
+            )
+        if not results:
+            raise RuntimeError(f"CUTLASS Conv profiler for {workload.op}/{workload.dtype} returned no usable candidate timings")
+        return results
+
+
 def _external_support_library(codegen_plan: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
     for item in codegen_plan.get("external_support_libraries", []):
         if isinstance(item, Mapping) and item.get("name") == name:
@@ -2699,6 +2815,18 @@ def _cutlass_bmm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> 
     return candidates[0]
 
 
+def _cutlass_conv_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
+    out_dir = cache_dir / "lib"
+    stem = f"dinoml_cutlass_conv_profiler_{op}_{dtype}"
+    candidates = sorted(out_dir.glob(f"{stem}_bind*.so"))
+    if not candidates:
+        raise RuntimeError(
+            f"CUTLASS Conv profiler binding is missing from {out_dir}. "
+            f"Build the CMake target `{stem}_bind` for this CUDA architecture."
+        )
+    return candidates[0]
+
+
 def _load_python_extension(path: Path, module_name: str) -> Any:
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
@@ -2721,7 +2849,7 @@ class _CudaProfiler:
     def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
         files = manifest["files"]
         global_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(ctypes, "RTLD_NOW", 0)
-        needs_ctypes_runtime = "cutlass_conv_library" in files
+        needs_ctypes_runtime = False
         self._runtime = (
             ctypes.CDLL(str(artifact_dir / files["runtime_library"]), mode=global_mode)
             if needs_ctypes_runtime
@@ -2734,11 +2862,7 @@ class _CudaProfiler:
         )
         self._cutlass_gemm_profiler = _CutlassGemmProfiler.from_codegen_plan(codegen_plan)
         self._cutlass_bmm_profiler = _CutlassBmmProfiler.from_codegen_plan(codegen_plan)
-        self._cutlass_conv = (
-            ctypes.CDLL(str(artifact_dir / files["cutlass_conv_library"]), mode=global_mode)
-            if "cutlass_conv_library" in files
-            else None
-        )
+        self._cutlass_conv_profiler = _CutlassConvProfiler.from_codegen_plan(codegen_plan)
         self._buffers: list[ctypes.c_void_p] = []
         if self._runtime is not None and self._cuda_runtime is not None:
             self._runtime.dino_get_last_error.restype = ctypes.c_char_p
@@ -2772,7 +2896,10 @@ class _CudaProfiler:
             first = rows[0]
             return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
         if workload.kernel_library == "cutlass_conv":
-            return self._profile_conv(workload, iterations=iterations, rng=rng)
+            del rng
+            rows = self.profile_cutlass_conv_problem(workload, iterations=iterations, repeats=1)
+            first = rows[0]
+            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
         if workload.kernel_library != "cutlass_gemm":
             raise RuntimeError(f"Unsupported profiler library {workload.kernel_library!r}")
         del rng
@@ -2812,70 +2939,18 @@ class _CudaProfiler:
             raise RuntimeError("CUTLASS BMM profiler requested but codegen plan has no cutlass_bmm support entry")
         return self._cutlass_bmm_profiler.profile(workload, iterations=iterations, repeats=repeats)
 
-    def _profile_conv(self, workload: ConvProfileWorkload, *, iterations: int, rng: np.random.Generator) -> tuple[float, int]:
-        n, c, h, w = (int(dim) for dim in workload.x_shape)
-        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
-        weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
-        if out_n != n or weight_i != c or weight_o != out_c:
-            raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
-        stride = [int(value) for value in workload.conv_config.get("stride", ())]
-        padding = [int(value) for value in workload.conv_config.get("padding", ())]
-        dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
-        if len(stride) != 2 or len(padding) != 2 or len(dilation) != 2:
-            raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
-        activation = self._device_array(_random_storage((n, h, w, c), workload.dtype, rng))
-        weight = self._device_array(_random_storage((weight_o, kernel_h, kernel_w, weight_i), workload.dtype, rng))
-        bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
-        residual = (
-            self._device_array(_random_storage((out_n, out_h, out_w, out_c), workload.dtype, rng))
-            if workload.residual_shape is not None
-            else None
-        )
-        output = self._device_array(_zero_storage((out_n, out_h, out_w, out_c), workload.dtype))
-        fn = getattr(self._cutlass_library("cutlass_conv"), workload.profiler_symbol)
-        fn.restype = ctypes.c_float
-        fn.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            *( [ctypes.c_void_p] if residual is not None else [] ),
-            ctypes.c_void_p,
-            *([ctypes.c_int] * 16),
-            ctypes.c_void_p,
-        ]
-        elapsed_ms = float(
-            fn(
-                activation,
-                weight,
-                bias,
-                *( [residual] if residual is not None else [] ),
-                output,
-                ctypes.c_int(n),
-                ctypes.c_int(h),
-                ctypes.c_int(w),
-                ctypes.c_int(c),
-                ctypes.c_int(out_h),
-                ctypes.c_int(out_w),
-                ctypes.c_int(out_c),
-                ctypes.c_int(kernel_h),
-                ctypes.c_int(kernel_w),
-                ctypes.c_int(stride[0]),
-                ctypes.c_int(stride[1]),
-                ctypes.c_int(padding[0]),
-                ctypes.c_int(padding[1]),
-                ctypes.c_int(dilation[0]),
-                ctypes.c_int(dilation[1]),
-                ctypes.c_int(iterations),
-                ctypes.c_void_p(0),
-            )
-        )
-        if elapsed_ms < 0.0:
-            raise RuntimeError(f"CUTLASS profiler {workload.profiler_symbol} failed")
-        return elapsed_ms, int(workload.workspace_nbytes)
+    def profile_cutlass_conv_problem(
+        self,
+        workload: ConvProfileWorkload,
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if self._cutlass_conv_profiler is None:
+            raise RuntimeError("CUTLASS Conv profiler requested but codegen plan has no cutlass_conv support entry")
+        return self._cutlass_conv_profiler.profile(workload, iterations=iterations, repeats=repeats)
 
     def _cutlass_library(self, library: str, *, workload: GemmProfileWorkload | ConvProfileWorkload | None = None) -> ctypes.CDLL:
-        if library == "cutlass_conv" and self._cutlass_conv is not None:
-            return self._cutlass_conv
         raise RuntimeError(f"Artifact does not contain required {library} support library")
 
     def _cutlass_workspace_nbytes(self, workload: GemmProfileWorkload, cutlass: ctypes.CDLL) -> int:

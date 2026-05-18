@@ -15,7 +15,6 @@ if str(REPO_SRC) not in sys.path:
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.backends.cutlass import ensure_cutlass_conv_support_scaffold
 from dinoml.backends.cpu import execute_cpu
 from dinoml.ir import array_from_storage, array_to_storage, read_json
 from dinoml.kernels.codegen import create_codegen_plan
@@ -962,7 +961,15 @@ def test_cutlass_conv2d_bias_scaffold_records_layout_transform_metadata(tmp_path
     codegen_plan = create_codegen_plan(manifest, tmp_path / "cache")
     [support_lib] = codegen_plan.external_support_libraries
     assert support_lib["name"] == "cutlass_conv"
-    assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
+    assert support_lib["build_mode"] == "cmake_op_dtype_static_archives"
+    assert support_lib["modules"] == [
+        {
+            "op": "conv2d_bias",
+            "dtype": "float16",
+            "archive": "lib/libdinoml_cutlass_conv2d_bias_float16.a",
+            "target": "dinoml_cutlass_conv_conv2d_bias_float16",
+        }
+    ]
     assert support_lib["used_candidate_plan_key"] == used_plan["used_candidate_plan_key"]
     assert support_lib["candidate_config_keys"] == [candidate["candidate_config_key"] for candidate in candidates]
     assert support_lib["transform_helper_symbols"] == [
@@ -1518,46 +1525,6 @@ def test_cutlass_conv2d_bias_codegen_plan_rejects_candidate_layout_drift(tmp_pat
         create_codegen_plan(kernel_manifest, tmp_path / "cache")
 
 
-@pytest.mark.parametrize(
-    ("mutator", "error_match"),
-    [
-        (
-            lambda used_plan: used_plan["entries"][0]["candidates"][1]["layouts"].__setitem__("activation_provider", "nchw"),
-            r"candidate\.layouts mismatch",
-        ),
-        (
-            lambda used_plan: used_plan["entries"][0]["candidates"][1].__setitem__("dtype", "float32"),
-            r"(candidate\.(candidate_config_key|kernel_symbol|profiler_symbol|dtype) mismatch|selected candidate_id is not emitted)",
-        ),
-    ],
-)
-def test_cutlass_conv_support_scaffold_rejects_mutated_used_plan_candidate_before_writing_manifests(
-    tmp_path,
-    monkeypatch,
-    mutator,
-    error_match,
-):
-    spec = _trace_conv2d_bias("float16")
-    kernel_manifest = build_kernel_manifest(spec.ir, {"name": "cuda", "arch": "sm_86"})
-    used_plan = cutlass_conv_used_candidate_plan(kernel_manifest)
-    mutator(used_plan)
-
-    support_root = (
-        tmp_path
-        / "cache"
-        / "support"
-        / "cuda-86"
-        / "cutlass-conv"
-        / str(used_plan["support_cache_key"])[:16]
-    )
-
-    with pytest.raises(ValueError, match=error_match):
-        ensure_cutlass_conv_support_scaffold("sm_86", used_candidate_plan=used_plan)
-
-    assert not (support_root / "lib" / "cutlass_conv_manifest.json").exists()
-    assert not (support_root / "src" / "source_manifest.json").exists()
-
-
 def test_conv2d_bias_cpu_compile_builds_generated_bridge(tmp_path, monkeypatch):
     spec = _trace_conv2d_bias("float32")
     artifact = dml.compile(spec, dml.Target("cpu"), tmp_path / "conv2d_bias_cpu.dinoml")
@@ -1595,7 +1562,15 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     codegen_plan = read_json(artifact_dir / "kernel_codegen_plan.json")
     [support_lib] = codegen_plan["external_support_libraries"]
     assert support_lib["name"] == "cutlass_conv"
-    assert support_lib["library"] == "lib/libdinoml_cutlass_conv.so"
+    assert support_lib["build_mode"] == "cmake_op_dtype_static_archives"
+    assert support_lib["modules"] == [
+        {
+            "op": "conv2d_bias",
+            "dtype": "float16",
+            "archive": "lib/libdinoml_cutlass_conv2d_bias_float16.a",
+            "target": "dinoml_cutlass_conv_conv2d_bias_float16",
+        }
+    ]
     assert [stage["stage_name"] for stage in codegen_plan["wrapper_stages"]] == [
         "activation_pack",
         "weight_pack",
@@ -1634,11 +1609,10 @@ def test_conv2d_bias_cuda_compile_builds_guarded_wrapper_with_cutlass_runtime_bo
     assert scaffold_manifest["target"]["name"] == "cuda"
     assert scaffold_manifest["target"]["arch"] == "sm_86"
     assert scaffold_manifest["sources"] == codegen_plan["wrapper_scaffold_sources"]
-    support_cache_dir = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / kernel_manifest["support_cache_key"][:16]
+    support_cache_dir = Path.home() / ".cache" / "dinoml_v2" / "support" / "cuda-86" / "cutlass-conv" / "cmake-full"
     assert Path(support_lib["cache_dir"]) == support_cache_dir
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
-    source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
-    assert support_manifest["profiler_status"] == "bounded_runtime_profiler"
+    assert support_manifest["build_mode"] == "cmake_op_dtype_static_archives"
 
 
 def test_conv2d_bias_add_cuda_compile_builds_residual_wrapper_with_cutlass_runtime_boundary(tmp_path, monkeypatch):
@@ -1674,153 +1648,10 @@ def test_conv2d_bias_add_cuda_compile_builds_residual_wrapper_with_cutlass_runti
     assert codegen_plan["wrapper_stages"][3]["launch_abi"] == "dinoml_cutlass_conv2d_bias_add_v1"
     assert codegen_plan["wrapper_stages"][3]["inputs"][3]["name"] == "residual_nhwc"
 
-    support_cache_dir = tmp_path / "cache" / "support" / "cuda-86" / "cutlass-conv" / kernel_manifest["support_cache_key"][:16]
+    support_cache_dir = Path.home() / ".cache" / "dinoml_v2" / "support" / "cuda-86" / "cutlass-conv" / "cmake-full"
     support_manifest = read_json(support_cache_dir / "lib" / "cutlass_conv_manifest.json")
-    source_manifest = read_json(support_cache_dir / "src" / "source_manifest.json")
-    assert support_manifest["used_candidate_plan"]["entries"][0]["candidate_set"]["launch_abi"] == (
-        "dinoml_cutlass_conv2d_bias_add_v1"
-    )
-    assert "profiler_blocked_reason" not in support_manifest
-    assert support_manifest["source_manifest"] == "../src/source_manifest.json"
-    assert support_manifest["library"] == "libdinoml_cutlass_conv.so"
-    export_status = support_manifest["status"]
-    expected_candidate_config_keys = [candidate["candidate_config_key"] for candidate in required["candidates"]]
-    expected_exports = [
-        *_expected_transform_helper_exports(required["cutlass_conv_plan"], status=export_status),
-        *[
-            {
-                "kind": "launcher",
-                "symbol": candidate["kernel_symbol"],
-                "launch_abi": candidate["launch_abi"],
-                "status": export_status,
-                "candidate_status": "bounded_runtime",
-                "success_return_code": 0,
-            }
-            for candidate in required["candidates"]
-        ],
-        *[
-            {
-                "kind": "profiler",
-                "symbol": candidate["profiler_symbol"],
-                "launch_abi": candidate["launch_abi"],
-                "status": export_status,
-                "profiler_status": "bounded_runtime_profiler",
-                "success_return_min_ms": 0.0,
-            }
-            for candidate in sorted(required["candidates"], key=lambda item: item["profiler_symbol"])
-        ],
-    ]
-    assert support_manifest["exports"] == expected_exports
-    assert support_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
-    assert support_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
-    assert support_manifest["used_candidate_plan"]["candidate_config_keys"] == expected_candidate_config_keys
-    assert source_manifest["kind"] == "dinoml.support_source_manifest"
-    assert source_manifest["provider"] == "cutlass"
-    assert source_manifest["library"] == "cutlass_conv"
-    assert source_manifest["used_candidate_plan"]["entries"][0]["node_id"] == expected_node_id
-    assert source_manifest["used_candidate_plan"]["entries"][0]["cutlass_conv_plan"] == required["cutlass_conv_plan"]
-    assert source_manifest["used_candidate_plan"]["candidate_config_keys"] == expected_candidate_config_keys
-    assert source_manifest["sources"][0]["source_role"] == "support_library"
-    assert source_manifest["sources"][0]["candidate_set_keys"] == [required["candidate_set_key"]]
-    assert source_manifest["sources"][0]["candidate_config_keys"] == sorted(expected_candidate_config_keys)
-    source_symbols = {item["name"] for item in source_manifest["sources"][0]["symbols"]}
-    helper_symbols = {
-        required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"],
-        required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"],
-        required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"],
-    }
-    assert helper_symbols.issubset(source_symbols)
-    assert {candidate["kernel_symbol"] for candidate in required["candidates"]}.issubset(source_symbols)
-    assert {candidate["profiler_symbol"] for candidate in required["candidates"]}.issubset(source_symbols)
-    helper_entries = [item for item in source_manifest["sources"][0]["symbols"] if item["kind"] == "transform_helper"]
-    assert [(item["tensor_role"], item["name"]) for item in helper_entries] == [
-        ("activation", required["cutlass_conv_plan"]["layout_translation"]["input_pack_symbol"]),
-        ("output", required["cutlass_conv_plan"]["layout_translation"]["output_unpack_symbol"]),
-        ("weight", required["cutlass_conv_plan"]["weight_transform"]["pack_symbol"]),
-    ]
-    if shutil.which("nvcc") is None:
-        assert support_manifest["status"] == "source_bounded_runtime"
-        assert support_manifest["compile"]["status"] == "source_bounded_runtime"
-        assert support_manifest["compile"]["blocked_reason"] == "nvcc_unavailable"
-        assert "library_sha256" not in support_manifest
-        assert not (support_cache_dir / "lib" / "libdinoml_cutlass_conv.so").exists()
-        assert not (artifact_dir / "module.so").exists()
-        return
-    assert support_manifest["status"] == "compiled_bounded_runtime"
-    assert len(support_manifest["library_sha256"]) == 64
-    assert support_manifest["compile"]["status"] == "compiled_bounded_runtime"
-    assert support_manifest["compile"]["command"][0] == "nvcc"
-    assert any("cutlass/include" in root for root in support_manifest["compile"]["include_roots"])
-    support_library = support_cache_dir / "lib" / "libdinoml_cutlass_conv.so"
-    assert support_library.exists()
-    stub = ctypes.CDLL(str(support_library))
-    stub.dinoml_cutlass_conv_stub_status.restype = ctypes.c_int
-    assert stub.dinoml_cutlass_conv_stub_status() == 901
-    launcher = getattr(stub, required["kernel_symbol"])
-    launcher.restype = ctypes.c_int
-    launcher.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        *([ctypes.c_int] * 15),
-        ctypes.c_void_p,
-    ]
-    assert launcher(
-        None,
-        None,
-        None,
-        None,
-        2,
-        7,
-        8,
-        3,
-        4,
-        6,
-        4,
-        3,
-        2,
-        2,
-        1,
-        1,
-        0,
-        1,
-        2,
-        None,
-    ) != 0
-    profiler = getattr(stub, required["profiler_symbol"])
-    profiler.restype = ctypes.c_float
-    profiler.argtypes = [
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        ctypes.c_void_p,
-        *([ctypes.c_int] * 16),
-        ctypes.c_void_p,
-    ]
-    assert profiler(
-        None,
-        None,
-        None,
-        None,
-        2,
-        7,
-        8,
-        3,
-        4,
-        6,
-        4,
-        3,
-        2,
-        2,
-        1,
-        1,
-        0,
-        1,
-        2,
-        5,
-        None,
-    ) == pytest.approx(-1.0)
+    assert support_manifest["build_mode"] == "cmake_op_dtype_static_archives"
+    assert support_manifest["modules"][0]["target"] == "dinoml_cutlass_conv_conv2d_bias_add_float16"
     artifact_manifest = read_json(artifact_dir / "manifest.json")
     assert artifact_manifest["files"]["cutlass_conv_library"] == "lib/libdinoml_cutlass_conv.so"
     assert (artifact_dir / "lib" / "libdinoml_cutlass_conv.so").exists()

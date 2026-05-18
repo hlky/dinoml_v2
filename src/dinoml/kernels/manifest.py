@@ -17,7 +17,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_compatible_with_plan,
     cutlass_conv_candidates,
     cutlass_conv_layout_plan,
-    validate_cutlass_conv_scaffold_plan,
+    validate_cutlass_conv_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import (
     cutlass_gemm_candidate_set,
@@ -774,7 +774,7 @@ def _apply_cutlass_conv_static_selection(
     *,
     strict: bool,
 ) -> bool:
-    conv_plan = validate_cutlass_conv_scaffold_plan(
+    conv_plan = validate_cutlass_conv_plan(
         item.get("cutlass_conv_plan"),
         node_id=str(item.get("node_id", "")) if item.get("node_id") is not None else None,
     )

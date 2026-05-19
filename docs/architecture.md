@@ -245,7 +245,14 @@ Current reusable kernels are intentionally simple:
   HIP artifact wrapper is admitted yet
 - common: `dinoml/math.h` exposes inline `dinoml::math::<name>` scalar helpers
   that generated fused kernels call on CPU and CUDA. The helpers are templated
-  so dtype-specific elementwise lowering has a place to land next.
+  and HIP-aware so dtype-specific elementwise lowering has a place to land next.
+
+Generated-code target facts live in `dinoml.lowering.target_specs`, following
+the useful v1 pattern of keeping backend names, source extensions, stream/error
+helpers, and storage types outside individual op lowerings. CPU and CUDA remain
+the only admitted generated-module targets. ROCm facts are registered there so
+future HIP templates can share code with CUDA, but the ROCm backend still raises
+before any op lowering or generated HIP artifact wrapper is claimed.
 
 Performance-sensitive ports should carry a benchmark harness before they grow a
 larger policy surface. The current examples are

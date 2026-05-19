@@ -136,10 +136,13 @@ porting. It intentionally excludes the op inventory, which lives in
   contexts and CUDA/ROCm target definitions. V2 now has a typed CPU/CUDA
   `BackendSpec` registry plus an initial ROCm `gfx1201` scaffold for target
   defaults, dtype validation, support libraries, build dispatch, and first
-  CUTLASS GEMM policy flags for optional TF32 and fp16 accumulation. Missing
-  pieces: richer backend capability metadata for profiler generation,
-  external-library availability, layout support, and admitted ROCm op/runtime
-  parity. CUDA GEMM now resolves
+  CUTLASS GEMM policy flags for optional TF32 and fp16 accumulation. Generated
+  lowering also has a smaller v1-style target spec table for CPU/CUDA/ROCm
+  source extensions, stream/error helpers, and storage types, with ROCm facts
+  present but `generated_module_admitted=False` until a real HIP artifact path
+  is validated. Missing pieces: richer backend capability metadata for profiler
+  generation, external-library availability, layout support, and admitted ROCm
+  op/runtime parity. CUDA GEMM now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, v1-style

@@ -3,24 +3,18 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from pathlib import Path
 from typing import Any, Mapping
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.lowering.ops.template_rendering import render_op_template
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.ops.creation import CREATION_DTYPES
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
+from dinoml.lowering.target_specs import LoweringTargetSpec, lowering_target_spec, storage_type
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    context = _context(target, node, tensor_map)
-    if target == "cpu":
-        return _render_template("full_cpu.cpp.j2", context)
-    if target == "cuda":
-        return _render_template("full_cuda.cu.j2", context)
-    raise ValueError(f"Unsupported full target: {target}")
+    spec = _supported_target_spec(target)
+    return render_op_template(f"full_{spec.op_template_flavor}.j2", _context(spec, node, tensor_map))
 
 
 def render_launch(
@@ -30,19 +24,17 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
+    spec = _supported_target_spec(target)
     func = _function_name(node, tensor_map)
     out = _c_ident(node["outputs"][0])
     args = f"ptr_{out}, runtime_numel_{out}"
-    if target == "cpu":
+    if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({args}, session->stream)) return err;"
-    raise ValueError(f"Unsupported full target: {target}")
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported full target: {target}")
+    _supported_target_spec(target)
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -51,18 +43,26 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
     return _function_name(node, tensor_map)
 
 
-def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _context(spec: LoweringTargetSpec, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     output_tensor = tensor_map[node["outputs"][0]]
     _validate_node_contract(node, output_tensor)
     dtype = str(output_tensor["dtype"])
-    storage_type = cpu_storage_type(dtype) if target == "cpu" else cuda_storage_type(dtype)
-    return {
+    context = {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
-        "storage_type": storage_type,
+        "storage_type": storage_type(dtype, spec.name),
         "fill_literal": _float_literal(float(node.get("attrs", {}).get("fill_value", 0.0))),
         "block_size": 256,
     }
+    if spec.is_gpu:
+        context.update(
+            {
+                "gpu_stream_type": spec.stream_type,
+                "gpu_check_macro": spec.check_macro,
+                "gpu_last_error_call": spec.last_error_call,
+            }
+        )
+    return context
 
 
 def _validate_node_contract(node: Mapping[str, Any], output_tensor: Mapping[str, Any]) -> None:
@@ -99,15 +99,14 @@ def _float_literal(value: float) -> str:
     return f"{literal}f"
 
 
-def _render_template(name: str, context: Mapping[str, Any]) -> str:
-    env = Environment(
-        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
-        undefined=StrictUndefined,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        keep_trailing_newline=True,
-    )
-    return env.get_template(name).render(**context)
+def _supported_target_spec(target: str) -> LoweringTargetSpec:
+    try:
+        spec = lowering_target_spec(target)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported full target: {target}") from exc
+    if not spec.generated_module_admitted:
+        raise ValueError(f"Unsupported full target: {target}")
+    return spec
 
 
 FULL_LOWERING = OpLowering(

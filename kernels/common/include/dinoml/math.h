@@ -11,6 +11,11 @@
 #endif
 #define DINO_HD __host__ __device__
 #define DINO_FORCEINLINE __forceinline__
+#elif defined(__HIPCC__)
+#include <hip/hip_bfloat16.h>
+#include <hip/hip_fp16.h>
+#define DINO_HD __host__ __device__
+#define DINO_FORCEINLINE __forceinline__
 #else
 #define DINO_HD
 #define DINO_FORCEINLINE inline
@@ -18,7 +23,7 @@
 
 namespace dinoml::math {
 
-#if !defined(__CUDACC__)
+#if !defined(__CUDACC__) && !defined(__HIPCC__)
 struct float16 {
   uint16_t bits = 0;
 };
@@ -147,7 +152,29 @@ DINO_HD DINO_FORCEINLINE __nv_bfloat16 cast<__nv_bfloat16, float>(float x) {
 #endif
 #endif
 
-#if !defined(__CUDACC__)
+#if defined(__HIPCC__)
+template <>
+DINO_HD DINO_FORCEINLINE float cast<float, half>(half x) {
+  return __half2float(x);
+}
+
+template <>
+DINO_HD DINO_FORCEINLINE half cast<half, float>(float x) {
+  return __float2half_rn(x);
+}
+
+template <>
+DINO_HD DINO_FORCEINLINE float cast<float, hip_bfloat16>(hip_bfloat16 x) {
+  return static_cast<float>(x);
+}
+
+template <>
+DINO_HD DINO_FORCEINLINE hip_bfloat16 cast<hip_bfloat16, float>(float x) {
+  return hip_bfloat16(x);
+}
+#endif
+
+#if !defined(__CUDACC__) && !defined(__HIPCC__)
 template <>
 DINO_FORCEINLINE float cast<float, float16>(float16 x) {
   return half_bits_to_float(x.bits);
@@ -212,7 +239,7 @@ DINO_HD DINO_FORCEINLINE float sigmoid_float(float x) {
 }
 
 DINO_HD DINO_FORCEINLINE bool is_nan_float(float x) {
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIPCC__)
   return isnan(x);
 #else
   return std::isnan(x);
@@ -220,7 +247,7 @@ DINO_HD DINO_FORCEINLINE bool is_nan_float(float x) {
 }
 
 DINO_HD DINO_FORCEINLINE bool is_inf_float(float x) {
-#if defined(__CUDACC__)
+#if defined(__CUDACC__) || defined(__HIPCC__)
   return isinf(x);
 #else
   return std::isinf(x);

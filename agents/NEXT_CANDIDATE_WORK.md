@@ -4,6 +4,15 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added the first v1-inspired cross-backend lowering metadata slice without
+  admitting ROCm op support: generated-code target facts now live in
+  `dinoml.lowering.target_specs`, `full`/`arange` use shared template loading
+  plus a parameterized GPU template for CUDA stream/error/storage names, and
+  the common `dinoml/math.h` / `tensor_accessor.h` headers are HIP-aware for
+  future shared HIP kernels. ROCm target facts are visible (`.hip`,
+  `hipStream_t`, `DINO_ROCM_CHECK`, HIP `half`/`hip_bfloat16` storage names), but
+  `generated_module_admitted=False` keeps the existing compile fence until a
+  real generated HIP artifact proof lands.
 - Tightened the ROCm scaffold environment contract after review: ROCm support
   builds now assume the developer has activated `.venv/rocm`, resolve the SDK
   through the active `rocm_sdk` package before `hipconfig` so PyTorch-style
@@ -1389,11 +1398,13 @@ This file should be updated after each major loop.
 ## Ranked Backlog
 
 1. Continue the ROCm backend lane from the new scaffold by wiring one minimal
-   generated HIP artifact path and runtime smoke on `gfx1201`. Start with an
-   already-understood generated op family such as fused elementwise `float32`;
-   require artifact-visible support libraries, generated source, copied runtime
-   libraries, and a real `.venv/rocm` compile/load/run proof before broadening
-   dtype/op/provider claims.
+   generated HIP artifact path and runtime smoke on `gfx1201`. Build on the
+   shared lowering target specs/common HIP-aware headers instead of introducing
+   separate CUDA/HIP op copies. Start with an already-understood generated op
+   family such as fused elementwise `float32`; require artifact-visible support
+   libraries, generated source, copied runtime libraries, and a real
+   `.venv/rocm` compile/load/run proof before broadening dtype/op/provider
+   claims.
 2. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the

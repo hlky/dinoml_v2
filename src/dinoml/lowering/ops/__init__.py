@@ -43,6 +43,7 @@ from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
 from dinoml.lowering.ops.stack import STACK_LOWERING
 from dinoml.lowering.ops.t5_layer_norm import T5_LAYER_NORM_LOWERING
 from dinoml.lowering.ops.topk import TOPK_LOWERINGS
+from dinoml.lowering.target_specs import generated_source_extension
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 
@@ -184,11 +185,10 @@ def collect_generated_sources(
 
 
 def _source_extension(target: str) -> str:
-    if target == "cpu":
-        return "cpp"
-    if target == "cuda":
-        return "cu"
-    raise ValueError(f"Unsupported generated source target: {target}")
+    try:
+        return generated_source_extension(target)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported generated source target: {target}") from exc
 
 
 def _source_hash(source_key: str) -> str:

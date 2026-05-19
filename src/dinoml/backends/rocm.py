@@ -11,6 +11,9 @@ from typing import Any, Mapping
 from dinoml.backends.registry import _shared_library_name
 from dinoml.ir import write_json
 from dinoml.kernels.manifest import build_support_manifest
+from dinoml.lowering.gpu import render_template
+from dinoml.lowering.rocm import render_rocm_module
+from dinoml.lowering.ops import collect_generated_sources
 
 
 _CMAKE_ENV: dict[str, str] | None = None
@@ -52,11 +55,68 @@ def build_rocm_module(
     generated_src_dir: Path,
     kernel_manifest: Mapping[str, Any],
 ) -> Mapping[str, str] | None:
-    del ir, target, artifact_dir, generated_src_dir, kernel_manifest
-    raise NotImplementedError(
-        "ROCm is registered as a distinct target/toolchain scaffold, but no ROCm op lowering "
-        "or generated HIP module build is admitted yet"
+    support_libs = ensure_rocm_support_libs(target.arch, kernel_manifest=kernel_manifest)
+    artifact_lib_dir = artifact_dir / "lib"
+    artifact_lib_dir.mkdir(parents=True, exist_ok=True)
+    runtime_lib = artifact_lib_dir / support_libs.runtime_lib.name
+    rocm_runtime_lib = artifact_lib_dir / support_libs.rocm_runtime_lib.name
+    kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
+    shutil.copy2(support_libs.runtime_lib, runtime_lib)
+    shutil.copy2(support_libs.rocm_runtime_lib, rocm_runtime_lib)
+    shutil.copy2(support_libs.kernels_lib, kernels_lib)
+
+    generated_src_dir.mkdir(parents=True, exist_ok=True)
+    tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
+    generated_sources = collect_generated_sources(
+        "rocm",
+        ir["nodes"],
+        tensor_map,
+        generated_src_dir=generated_src_dir,
     )
+    (generated_src_dir / "module.hip").write_text(
+        render_rocm_module(ir, generated_kernels=generated_sources["kernels"], kernel_manifest=kernel_manifest),
+        encoding="utf-8",
+    )
+    repo_root = _repo_root()
+    (generated_src_dir / "CMakeLists.txt").write_text(
+        render_template(
+            "rocm_module_cmake.txt.j2",
+            {
+                "rocm_sdk_cmake": _cmake_path(repo_root / "cmake" / "DinoMLROCmSdk.cmake"),
+                "runtime_lib": _cmake_path(runtime_lib),
+                "rocm_runtime_lib": _cmake_path(rocm_runtime_lib),
+                "kernels_lib": _cmake_path(kernels_lib),
+                "runtime_implib": _cmake_path(_import_library_path(support_libs.runtime_lib)),
+                "rocm_runtime_implib": _cmake_path(_import_library_path(support_libs.rocm_runtime_lib)),
+                "kernels_implib": _cmake_path(_import_library_path(support_libs.kernels_lib)),
+                "runtime_include": _cmake_path(support_libs.runtime_include),
+                "common_include": _cmake_path(support_libs.common_include),
+                "kernels_include": _cmake_path(support_libs.kernels_include),
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    build_dir = generated_src_dir / "build"
+    _run_cmake(
+        [
+            "cmake",
+            "-S",
+            str(generated_src_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+            f"-DCMAKE_HIP_ARCHITECTURES={_cmake_arch(target.arch)}",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={artifact_dir}",
+            f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={artifact_dir}",
+        ],
+        cwd=artifact_dir,
+    )
+    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
+    module_lib = artifact_dir / "module.so"
+    if not module_lib.exists():
+        raise RuntimeError(f"Expected ROCm generated module at {module_lib}, but it was not produced")
+    return None
 
 
 def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | None = None) -> RocmSupportLibs:
@@ -127,6 +187,19 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "rocm" / "include",
     )
+
+
+def _import_library_path(shared_library: Path) -> Path | None:
+    if os.name != "nt":
+        return None
+    candidate = shared_library.with_suffix(".lib")
+    return candidate if candidate.exists() else None
+
+
+def _cmake_path(path: Path | None) -> str:
+    if path is None:
+        return ""
+    return path.resolve().as_posix()
 
 
 def _repo_root() -> Path:

@@ -14,7 +14,7 @@ from dinoml.lowering.target_specs import (
 from dinoml.ops.creation import Arange, Full
 
 
-def test_lowering_target_specs_include_rocm_without_generated_module_admission():
+def test_lowering_target_specs_include_rocm_with_generated_module_admission():
     rocm = lowering_target_spec("rocm")
 
     assert rocm.source_extension == "hip"
@@ -24,8 +24,8 @@ def test_lowering_target_specs_include_rocm_without_generated_module_admission()
     assert rocm.last_error_call == "hipGetLastError()"
     assert rocm.storage_type("float16") == "half"
     assert rocm.storage_type("bfloat16") == "dinoml::bfloat16"
-    assert not rocm.generated_module_admitted
-    assert admitted_generated_targets() == ("cpu", "cuda")
+    assert rocm.generated_module_admitted
+    assert admitted_generated_targets() == ("cpu", "cuda", "rocm")
 
 
 def test_storage_type_helpers_delegate_to_target_specs():
@@ -59,11 +59,17 @@ def test_creation_gpu_templates_use_backend_spec_names():
 
     full_source = render_full_kernel("cuda", full_node, full_tensor_map)
     arange_source = render_arange_kernel("cuda", arange_node, arange_tensor_map)
+    rocm_full_source = render_full_kernel("rocm", full_node, full_tensor_map)
+    rocm_arange_source = render_arange_kernel("rocm", arange_node, arange_tensor_map)
 
     assert "cudaStream_t stream" in full_source
     assert "DINO_CUDA_CHECK(cudaGetLastError())" in full_source
     assert "cudaStream_t stream" in arange_source
     assert "DINO_CUDA_CHECK(cudaGetLastError())" in arange_source
+    assert "hipStream_t stream" in rocm_full_source
+    assert "DINO_ROCM_CHECK(hipGetLastError())" in rocm_full_source
+    assert "hipStream_t stream" in rocm_arange_source
+    assert "DINO_ROCM_CHECK(hipGetLastError())" in rocm_arange_source
 
 
 def test_creation_registry_points_cuda_to_shared_gpu_templates():
@@ -71,9 +77,6 @@ def test_creation_registry_points_cuda_to_shared_gpu_templates():
     assert Arange.backend_kernels["cuda"].source_template == "arange_gpu.j2"
 
 
-def test_rocm_target_facts_do_not_admit_rocm_creation_kernels_yet():
-    tensor_map = {"y": {"shape": [2], "dtype": "float32"}}
-    node = {"op": "full", "inputs": [], "outputs": ["y"], "attrs": {"shape": [2], "fill_value": 1.0}}
-
-    with pytest.raises(ValueError, match="Unsupported full target: rocm"):
-        render_full_kernel("rocm", node, tensor_map)
+def test_creation_ops_do_not_claim_public_rocm_support_yet():
+    assert "rocm" not in Full.backend_kernels
+    assert "rocm" not in Arange.backend_kernels

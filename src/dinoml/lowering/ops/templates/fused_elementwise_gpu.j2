@@ -53,7 +53,7 @@ __global__ void {{ kernel }}({{ kernel_params }}, int64_t total) {
 }
 {% endif %}
 
-static int {{ func }}({{ call_params }}, cudaStream_t stream) {
+static int {{ func }}({{ call_params }}, {{ gpu_stream_type }} stream) {
   const int block = {{ block_size }};
 {% if suffix_inner_extent %}
   dim3 grid(static_cast<unsigned int>(({{ suffix_inner_extent }} + block - 1) / block), static_cast<unsigned int>((runtime_total + {{ suffix_inner_extent }} - 1) / {{ suffix_inner_extent }}));
@@ -72,6 +72,6 @@ static int {{ func }}({{ call_params }}, cudaStream_t stream) {
   {{ kernel }}<<<grid, block, 0, stream>>>({{ kernel_arg_names }}, runtime_total);
 {% endif %}
 {% endif %}
-  DINO_CUDA_CHECK(cudaGetLastError());
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
   return 0;
 }

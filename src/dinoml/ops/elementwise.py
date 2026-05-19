@@ -563,8 +563,9 @@ class FusedElementwise(OpDef):
     schema = OpSchema(attrs=(AttrDef("sub_ops", "list[dict]", required=True),))
     infer_shape = infer_elementwise
     backend_kernels = {
-        "cuda": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cuda"),
+        "cuda": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_gpu"),
         "cpu": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_cpu"),
+        "rocm": KernelBinding("generated_fused_elementwise", "model", source_template="fused_elementwise_gpu"),
     }
     variadic_inputs = True
     allowed_dtypes = FUSED_ELEMENTWISE_RUNTIME_DTYPES

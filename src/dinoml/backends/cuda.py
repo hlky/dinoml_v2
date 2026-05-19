@@ -20,7 +20,8 @@ from dinoml.libgguf_cuda import (
     libgguf_provenance_key,
     libgguf_source_provenance,
 )
-from dinoml.lowering.cuda import render_cuda_module, render_template
+from dinoml.lowering.gpu import render_template
+from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.ops import collect_generated_sources
 
 

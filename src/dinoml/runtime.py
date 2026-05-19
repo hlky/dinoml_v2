@@ -79,6 +79,14 @@ CUDA_GGUF_DEQUANT_QTYPES = frozenset(
 )
 
 
+def _target_device_type(target_name: str) -> int:
+    if target_name == "cuda":
+        return DINO_DEVICE_CUDA
+    if target_name == "rocm":
+        return DINO_DEVICE_ROCM
+    return DINO_DEVICE_CPU
+
+
 def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
     return RuntimeModule(Path(path), load_constants=load_constants)
 
@@ -126,6 +134,9 @@ class RuntimeModule:
         if "cuda_runtime_library" in files:
             cuda_runtime_lib = artifact_dir / files["cuda_runtime_library"]
             self._cuda_runtime_dll = ctypes.CDLL(str(cuda_runtime_lib), mode=global_load_mode)
+        elif "rocm_runtime_library" in files:
+            rocm_runtime_lib = artifact_dir / files["rocm_runtime_library"]
+            self._cuda_runtime_dll = ctypes.CDLL(str(rocm_runtime_lib), mode=global_load_mode)
         self._kernels_dll = ctypes.CDLL(str(kernels_lib), mode=global_load_mode)
         self._dll = ctypes.CDLL(str(module_path), mode=local_load_mode)
         self._configure_symbols()
@@ -544,7 +555,7 @@ class RuntimeModule:
             self._mark_constant_loaded(name, True)
             return
         if self._cuda_runtime_dll is None:
-            raise RuntimeError("CUDA runtime library is not loaded")
+            raise RuntimeError("device runtime library is not loaded")
         ptr = ctypes.c_void_p()
         self._check_cuda_runtime(
             self._cuda_runtime_dll.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(array.nbytes))
@@ -554,7 +565,7 @@ class RuntimeModule:
             actual_shape,
             dtype_enum,
             nbytes=array.nbytes,
-            device_type=DINO_DEVICE_CUDA,
+            device_type=_target_device_type(str(self.target_name)),
         )
         primary_error = False
         try:
@@ -588,8 +599,8 @@ class RuntimeModule:
         if name not in constants:
             raise ValueError(f"Unknown constant: {name}")
         self._require_open()
-        if self.target_name != "cuda":
-            raise RuntimeError("set_constant_device_pointer is only available for CUDA artifacts")
+        if self.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("set_constant_device_pointer is only available for GPU artifacts")
         constant_spec = constants[name]
         actual_shape = validate_runtime_shape(name, shape, constant_spec)
         normalized_dtype = normalize_dtype(str(dtype))
@@ -602,7 +613,7 @@ class RuntimeModule:
             actual_shape,
             dtype_runtime_enum(normalized_dtype),
             nbytes=nbytes,
-            device_type=DINO_DEVICE_CUDA,
+            device_type=_target_device_type(str(self.target_name)),
         )
         self._check(self._dll.dino_module_set_constant(self._handle, name.encode("utf-8"), ctypes.byref(tensor)))
         self._mark_constant_loaded(name, True)
@@ -755,7 +766,7 @@ class RuntimeModule:
 
     def _check_cuda_runtime(self, err: int) -> None:
         if err:
-            self._check(err, error_dlls=(self._cuda_runtime_dll,))
+            self._check(err, error_dlls=(self._cuda_runtime_dll, self._runtime_dll))
 
     def _require_open(self) -> None:
         if not getattr(self, "_handle", None):
@@ -921,8 +932,8 @@ class Session:
         output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
     ) -> None:
         self._require_open()
-        if self.module.target_name != "cuda":
-            raise RuntimeError("run_device_pointers is only available for CUDA artifacts")
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("run_device_pointers is only available for GPU artifacts")
         _require_mapping(inputs, "device input pointers")
         _require_mapping(outputs, "device output pointers")
         if input_shapes is not None:
@@ -955,7 +966,7 @@ class Session:
                 actual_shape,
                 dtype_runtime_enum(str(spec["dtype"])),
                 nbytes=_shape_nbytes(actual_shape, str(spec["dtype"])),
-                device_type=DINO_DEVICE_CUDA,
+                device_type=_target_device_type(str(self.module.target_name)),
             )
             shape_buffers.extend(keepalive)
             input_tensors[idx] = tensor
@@ -975,7 +986,7 @@ class Session:
                 actual_shape,
                 dtype_runtime_enum(str(spec["dtype"])),
                 nbytes=_shape_nbytes(actual_shape, str(spec["dtype"])),
-                device_type=DINO_DEVICE_CUDA,
+                device_type=_target_device_type(str(self.module.target_name)),
             )
             shape_buffers.extend(keepalive)
             output_tensors[idx] = tensor
@@ -1136,7 +1147,7 @@ class Session:
                 array.shape,
                 dtype_runtime_enum(str(spec["dtype"])),
                 nbytes=array.nbytes,
-                device_type=DINO_DEVICE_CUDA,
+                device_type=_target_device_type(str(self.module.target_name)),
             )
             shape_buffers.extend(keepalive)
             input_tensors[idx] = tensor
@@ -1149,7 +1160,7 @@ class Session:
                 array.shape,
                 dtype_runtime_enum(str(spec["dtype"])),
                 nbytes=array.nbytes,
-                device_type=DINO_DEVICE_CUDA,
+                device_type=_target_device_type(str(self.module.target_name)),
             )
             shape_buffers.extend(keepalive)
             output_tensors[idx] = tensor
@@ -1239,7 +1250,7 @@ class Session:
         return index
 
     def _shape_buffer_report_unavailable_on_external_stream(self, output_name: str) -> bool:
-        if self.module.target_name != "cuda" or not getattr(self, "_external_stream", False):
+        if self.module.target_name not in {"cuda", "rocm"} or not getattr(self, "_external_stream", False):
             return False
         report_metadata = self.module.metadata.get("output_shape_reports", {})
         reports = report_metadata.get("reports", []) if isinstance(report_metadata, MappingABC) else []

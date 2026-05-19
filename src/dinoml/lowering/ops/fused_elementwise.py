@@ -10,8 +10,8 @@ import numpy as np
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import canonical_json, dtype_nbytes
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.target_specs import LoweringTargetSpec, lowering_target_spec, storage_type
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME
 
 
@@ -20,15 +20,16 @@ class _VectorPlan:
     width: int = 1
     bytes: int = 0
     cpp_type: str = ""
+
+
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target == "cpu":
-        return _render_template("fused_elementwise_cpu.cpp.j2", _context(node, tensor_map, target=target))
-    if target == "cuda":
-        return _render_template("fused_elementwise_cuda.cu.j2", _context(node, tensor_map, target=target))
-    raise ValueError(f"Unsupported fused_elementwise target: {target}")
+    spec = _supported_target_spec(target)
+    if not spec.is_gpu:
+        return _render_template("fused_elementwise_cpu.cpp.j2", _context(node, tensor_map, spec=spec))
+    return _render_template("fused_elementwise_gpu.j2", _context(node, tensor_map, spec=spec))
 
 
 def render_launch(
@@ -41,21 +42,21 @@ def render_launch(
     func = _function_name(node)
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_shape_ident = f"shape_{_c_ident(node['outputs'][0])}"
-    inputs = _inputs(node, tensor_map, output_shape, target=target)
-    outputs = [_output_info(name, tensor_map, target=target) for name in node["outputs"]]
+    spec = _supported_target_spec(target)
+    inputs = _inputs(node, tensor_map, output_shape, spec=spec)
+    outputs = [_output_info(name, tensor_map, spec=spec) for name in node["outputs"]]
     args = _kernel_arg_names(inputs, outputs, output_shape=output_shape, output_shape_ident=output_shape_ident).split(", ")
     args.append(_runtime_total_expr(node, tensor_map))
     if target == "cpu":
         return f"if (int err = {func}({', '.join(args)})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({', '.join(args)}, session->stream)) return err;"
+    if spec.is_gpu:
+        return f"if (int err = {func}({', '.join(args)}, {spec.stream_expr})) return err;"
     raise ValueError(f"Unsupported fused_elementwise target: {target}")
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
     del tensor_map
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported fused_elementwise target: {target}")
+    _supported_target_spec(target)
     return f"{target}:{_function_name(node)}"
 
 
@@ -64,26 +65,31 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
     return _function_name(node)
 
 
-def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
+def _context(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    *,
+    spec: LoweringTargetSpec,
+) -> dict[str, Any]:
     output_shape = tensor_map[node["outputs"][0]]["shape"]
     output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
     compute_dtype = _fused_compute_dtype(node, tensor_map, output_dtype)
     func = _function_name(node)
-    storage_type = _storage_type(output_dtype, target=target)
-    compute_type = _compute_type(compute_dtype, node, target=target)
+    resolved_storage_type = _storage_type(output_dtype, spec=spec)
+    compute_type = _compute_type(compute_dtype, node, spec=spec)
     storage_alias = f"{func}_storage_t"
     compute_alias = f"{func}_compute_t"
-    inputs = _inputs(node, tensor_map, output_shape, target=target)
-    outputs = [_output_info(name, tensor_map, target=target) for name in node["outputs"]]
+    inputs = _inputs(node, tensor_map, output_shape, spec=spec)
+    outputs = [_output_info(name, tensor_map, spec=spec) for name in node["outputs"]]
     output_shape_ident = f"shape_{outputs[0]['ident']}"
-    vector_plan = _cuda_vector_plan(inputs, outputs, output_shape, output_dtype) if target == "cuda" else _VectorPlan()
+    vector_plan = _gpu_vector_plan(inputs, outputs, output_shape, output_dtype) if spec.is_gpu else _VectorPlan()
     suffix_inner_extent = None if vector_plan.width > 1 else _suffix_inner_extent(inputs, output_shape)
-    return {
+    context = {
         "func": func,
         "kernel": f"{func}_kernel",
         "total": _numel(output_shape),
         "suffix_inner_extent": suffix_inner_extent,
-        "broadcast_helpers": _broadcast_helpers(inputs, output_shape, device=target == "cuda"),
+        "broadcast_helpers": _broadcast_helpers(inputs, output_shape, device=spec.is_gpu),
         "accessor_decls": _accessor_decls(inputs, outputs),
         "kernel_params": _kernel_params(
             inputs,
@@ -95,11 +101,11 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         "call_params": f"{_kernel_params(inputs, outputs, output_shape=output_shape, storage_type=storage_alias, output_shape_ident=output_shape_ident)}, int64_t runtime_total",
         "kernel_arg_names": _kernel_arg_names(inputs, outputs, output_shape=output_shape, output_shape_ident=output_shape_ident),
         "null_check": _null_check(inputs, outputs),
-        "storage_type": storage_type,
+        "storage_type": resolved_storage_type,
         "compute_type": compute_type,
         "storage_alias": storage_alias,
         "compute_alias": compute_alias,
-        "use_fp32_acc": compute_type == "float" and storage_type != "float",
+        "use_fp32_acc": compute_type == "float" and resolved_storage_type != "float",
         "scalar_body": _scalar_body(
             inputs,
             outputs,
@@ -135,9 +141,18 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         )
         if vector_plan.width > 1
         else "",
-        "elements_per_thread": _cuda_elements_per_thread(node, output_shape) if target == "cuda" else 1,
-        "block_size": _cuda_block_size() if target == "cuda" else 1,
+        "elements_per_thread": _gpu_elements_per_thread(node, output_shape) if spec.is_gpu else 1,
+        "block_size": _gpu_block_size() if spec.is_gpu else 1,
     }
+    if spec.is_gpu:
+        context.update(
+            {
+                "gpu_stream_type": spec.stream_type,
+                "gpu_check_macro": spec.check_macro,
+                "gpu_last_error_call": spec.last_error_call,
+            }
+        )
+    return context
 
 
 def _inputs(
@@ -145,7 +160,7 @@ def _inputs(
     tensor_map: Mapping[str, Mapping[str, Any]],
     output_shape: Sequence[int],
     *,
-    target: str,
+    spec: LoweringTargetSpec,
 ) -> list[dict[str, Any]]:
     result = []
     for name in node["inputs"]:
@@ -159,7 +174,7 @@ def _inputs(
                 "ident": _c_ident(name),
                 "shape": shape,
                 "dtype": dtype,
-                "storage_type": _storage_type(dtype, target=target),
+                "storage_type": _storage_type(dtype, spec=spec),
                 "numel": input_numel,
                 "index_kind": index_kind,
                 "broadcast_func": _broadcast_function_name(node, name),
@@ -171,9 +186,9 @@ def _inputs(
     return result
 
 
-def _output_info(name: str, tensor_map: Mapping[str, Mapping[str, Any]], *, target: str) -> dict[str, Any]:
+def _output_info(name: str, tensor_map: Mapping[str, Mapping[str, Any]], *, spec: LoweringTargetSpec) -> dict[str, Any]:
     dtype = str(tensor_map[name]["dtype"])
-    return {"name": name, "ident": _c_ident(name), "dtype": dtype, "storage_type": _storage_type(dtype, target=target)}
+    return {"name": name, "ident": _c_ident(name), "dtype": dtype, "storage_type": _storage_type(dtype, spec=spec)}
 
 
 def _broadcast_helpers(inputs: Sequence[Mapping[str, Any]], output_shape: Sequence[int], *, device: bool = False) -> list[str]:
@@ -463,31 +478,34 @@ def _suffix_inner_extent(inputs: Sequence[Mapping[str, Any]], output_shape: Sequ
     return inner_extent
 
 
-def _cuda_elements_per_thread(node: Mapping[str, Any], output_shape: Sequence[int]) -> int:
-    override = os.environ.get("DINOML_CUDA_ELEMENTWISE_EPT")
+def _gpu_elements_per_thread(node: Mapping[str, Any], output_shape: Sequence[int]) -> int:
+    override = os.environ.get("DINOML_GPU_ELEMENTWISE_EPT") or os.environ.get("DINOML_CUDA_ELEMENTWISE_EPT")
     if override:
         value = int(override)
         if value <= 0:
-            raise ValueError("DINOML_CUDA_ELEMENTWISE_EPT must be positive")
+            raise ValueError("DINOML_GPU_ELEMENTWISE_EPT must be positive")
         return value
     del node, output_shape
     return 1
 
 
-def _cuda_block_size() -> int:
-    value = int(os.environ.get("DINOML_CUDA_ELEMENTWISE_BLOCK", "256"))
+def _gpu_block_size() -> int:
+    value = int(os.environ.get("DINOML_GPU_ELEMENTWISE_BLOCK") or os.environ.get("DINOML_CUDA_ELEMENTWISE_BLOCK", "256"))
     if value <= 0:
-        raise ValueError("DINOML_CUDA_ELEMENTWISE_BLOCK must be positive")
+        raise ValueError("DINOML_GPU_ELEMENTWISE_BLOCK must be positive")
     return value
 
 
-def _cuda_vector_plan(
+def _gpu_vector_plan(
     inputs: Sequence[Mapping[str, Any]],
     outputs: Sequence[Mapping[str, Any]],
     output_shape: Sequence[int],
     output_dtype: str,
 ) -> _VectorPlan:
-    width_override = os.environ.get("DINOML_CUDA_ELEMENTWISE_VECTOR_WIDTH", "auto").lower()
+    width_override = (
+        os.environ.get("DINOML_GPU_ELEMENTWISE_VECTOR_WIDTH")
+        or os.environ.get("DINOML_CUDA_ELEMENTWISE_VECTOR_WIDTH", "auto")
+    ).lower()
     if width_override in {"0", "1", "off", "false", "none"}:
         return _VectorPlan()
     supported_dtype = output_dtype in {"float16", "float32", "bfloat16"}
@@ -507,9 +525,12 @@ def _cuda_vector_plan(
         if total % width != 0:
             raise ValueError(f"Requested vector width {width}, but element count {total} is not divisible by it")
         vector_bytes = width * element_nbytes
-        return _VectorPlan(width=width, bytes=vector_bytes, cpp_type=_cuda_vector_type(output_dtype, vector_bytes))
+        return _VectorPlan(width=width, bytes=vector_bytes, cpp_type=_gpu_vector_type(output_dtype, vector_bytes))
 
-    max_vector_bytes = int(os.environ.get("DINOML_CUDA_ELEMENTWISE_VECTOR_BYTES", "16"))
+    max_vector_bytes = int(
+        os.environ.get("DINOML_GPU_ELEMENTWISE_VECTOR_BYTES")
+        or os.environ.get("DINOML_CUDA_ELEMENTWISE_VECTOR_BYTES", "16")
+    )
     if max_vector_bytes <= 0:
         return _VectorPlan()
     for vector_bytes in (16, 8, 4):
@@ -517,11 +538,11 @@ def _cuda_vector_plan(
             continue
         width = vector_bytes // element_nbytes
         if width > 1 and total % width == 0:
-            return _VectorPlan(width=width, bytes=vector_bytes, cpp_type=_cuda_vector_type(output_dtype, vector_bytes))
+            return _VectorPlan(width=width, bytes=vector_bytes, cpp_type=_gpu_vector_type(output_dtype, vector_bytes))
     return _VectorPlan()
 
 
-def _cuda_vector_type(dtype: str, vector_bytes: int) -> str:
+def _gpu_vector_type(dtype: str, vector_bytes: int) -> str:
     if dtype == "float32":
         if vector_bytes == 16:
             return "float4"
@@ -533,23 +554,23 @@ def _cuda_vector_type(dtype: str, vector_bytes: int) -> str:
         return "uint2"
     if vector_bytes == 4:
         return "uint32_t"
-    raise ValueError(f"Unsupported CUDA raw vector byte width: {vector_bytes}")
+    raise ValueError(f"Unsupported GPU raw vector byte width: {vector_bytes}")
 
 
-def _compute_type(dtype: str, node: Mapping[str, Any], *, target: str) -> str:
+def _compute_type(dtype: str, node: Mapping[str, Any], *, spec: LoweringTargetSpec) -> str:
     policy = str(node.get("attrs", {}).get("accumulation", os.environ.get("DINOML_ELEMENTWISE_ACCUM", "auto"))).lower()
-    storage_type = _storage_type(dtype, target=target)
-    if target == "cpu" and dtype in {"float16", "bfloat16"}:
+    resolved_storage_type = _storage_type(dtype, spec=spec)
+    if not spec.is_gpu and dtype in {"float16", "bfloat16"}:
         return "float"
     if policy in {"storage", "native"}:
-        return storage_type
+        return resolved_storage_type
     if policy in {"fp32", "float32"}:
         return "float"
     if policy != "auto":
         raise ValueError(f"Unsupported fused_elementwise accumulation policy: {policy!r}")
     if dtype in {"float16", "bfloat16"}:
         return "float"
-    return storage_type
+    return resolved_storage_type
 
 
 def _fused_compute_dtype(
@@ -572,12 +593,18 @@ def _sub_op_result_type(sub_op: Mapping[str, Any], static_output_dtype: str | No
     return compute_type
 
 
-def _storage_type(dtype: str, *, target: str) -> str:
-    if target == "cpu":
-        return cpu_storage_type(dtype)
-    if target == "cuda":
-        return cuda_storage_type(dtype)
-    raise ValueError(f"Unsupported fused_elementwise target: {target}")
+def _storage_type(dtype: str, *, spec: LoweringTargetSpec) -> str:
+    return storage_type(dtype, spec.name)
+
+
+def _supported_target_spec(target: str) -> LoweringTargetSpec:
+    try:
+        spec = lowering_target_spec(target)
+    except ValueError as exc:
+        raise ValueError(f"Unsupported fused_elementwise target: {target}") from exc
+    if not spec.generated_module_admitted:
+        raise ValueError(f"Unsupported fused_elementwise target: {target}")
+    return spec
 
 
 def _render_template(name: str, context: Mapping[str, Any]) -> str:

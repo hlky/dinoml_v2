@@ -13,7 +13,10 @@ import dinoml as dml
 from dinoml.backends import get_backend_spec, registered_backend_names
 from dinoml.backends import rocm as rocm_backend
 from dinoml.backends.rocm import ensure_rocm_support_libs
+from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.ops.elementwise import FusedElementwise
+from dinoml.runtime import load
 from tests.cases import elementwise_case
 
 
@@ -147,6 +150,7 @@ def test_rocm_runtime_paths_prefer_current_python_rocm_sdk_module(tmp_path, monk
 
 def test_rocm_runtime_paths_allow_regular_hip_sdk_without_rocm_sdk(monkeypatch):
     monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
+    monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)
 
     assert rocm_backend._rocm_runtime_paths() == []
 
@@ -190,11 +194,11 @@ def test_visual_studio_environment_filters_vcvars_payload(monkeypatch):
     }
 
 
-def test_rocm_compile_fails_before_claiming_any_op_support(tmp_path):
-    case = elementwise_case()
+def test_rocm_fused_elementwise_is_publicly_admitted():
+    binding = FusedElementwise.backend_kernels["rocm"]
 
-    with pytest.raises(NotImplementedError, match="rocm backend does not support op fused_elementwise"):
-        dml.compile(case.build_spec(), dml.Target("rocm"), tmp_path / "elementwise_rocm.dinoml")
+    assert binding.library == "model"
+    assert binding.source_template == "fused_elementwise_gpu"
 
 
 @pytest.mark.skipif(
@@ -210,6 +214,37 @@ def test_rocm_support_libraries_build_with_real_toolchain(tmp_path, monkeypatch)
     assert libs.rocm_runtime_lib.exists()
     assert libs.kernels_lib.exists()
     assert (Path(libs.rocm_runtime_lib).parent / "support_manifest.json").exists()
+
+
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_MODULE_COMPILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_MODULE_COMPILE_SMOKE=1 with rocm-sdk on the active Python/PATH",
+)
+def test_rocm_fused_elementwise_module_compiles_with_real_toolchain(tmp_path, monkeypatch):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+    case = elementwise_case()
+
+    artifact = dml.compile(case.build_spec(), dml.Target("rocm"), tmp_path / "elementwise_rocm.dinoml")
+
+    assert (artifact.path / "module.so").exists()
+    if os.name == "nt":
+        assert not list(artifact.path.glob("amdhip*.dll"))
+        assert not list((artifact.path / "lib").glob("amdhip*.dll"))
+    manifest = read_json(artifact.path / "manifest.json")
+    assert manifest["target"]["name"] == "rocm"
+    assert manifest["files"]["rocm_runtime_library"].endswith("dinoml_rocm_runtime.dll" if os.name == "nt" else "libdinoml_rocm_runtime.so")
+    source_manifest = read_json(artifact.path / "debug" / "generated_src" / "source_manifest.json")
+    assert source_manifest["target"] == "rocm"
+    assert {source["op"] for source in source_manifest["sources"]} == {"fused_elementwise"}
+    assert all(str(source["emitted_source_path"]).endswith(".hip") for source in source_manifest["sources"])
+
+    module = load(artifact.path, load_constants=False)
+    try:
+        assert module.target_name == "rocm"
+    finally:
+        module.close()
 
 
 @pytest.mark.skipif(
@@ -285,6 +320,14 @@ def _find_hipcc() -> Path | None:
     if local.exists():
         return local
     return None
+
+
+def _rocm_module_compile_toolchain_available() -> bool:
+    if rocm_backend._rocm_sdk_command() is not None:
+        return True
+    if shutil.which("hipconfig") is not None:
+        return True
+    return bool(os.environ.get("ROCM_PATH") or os.environ.get("HIP_PATH"))
 
 
 def _wait_for_path(path: Path, *, timeout_s: float) -> None:

@@ -1,0 +1,83 @@
+cmake_minimum_required(VERSION 3.24)
+
+include("{{ rocm_sdk_cmake }}")
+dinoml_configure_rocm_sdk()
+
+if(DINOML_ROCM_LLVM_BIN AND NOT DEFINED CMAKE_CXX_COMPILER)
+  if(WIN32)
+    set(_DINOML_ROCM_CXX_CANDIDATES
+      "${DINOML_ROCM_LLVM_BIN}/clang++.exe"
+      "${DINOML_ROCM_LLVM_BIN}/amdclang++.exe"
+    )
+  else()
+    set(_DINOML_ROCM_CXX_CANDIDATES
+      "${DINOML_ROCM_LLVM_BIN}/clang++"
+      "${DINOML_ROCM_LLVM_BIN}/amdclang++"
+    )
+  endif()
+  foreach(_DINOML_ROCM_CXX IN LISTS _DINOML_ROCM_CXX_CANDIDATES)
+    if(EXISTS "${_DINOML_ROCM_CXX}")
+      set(CMAKE_CXX_COMPILER "${_DINOML_ROCM_CXX}" CACHE FILEPATH "C++ compiler")
+      break()
+    endif()
+  endforeach()
+endif()
+
+project(DinoMLGeneratedRocmModule LANGUAGES CXX HIP)
+
+find_package(hip CONFIG REQUIRED)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_HIP_STANDARD 17)
+set(CMAKE_HIP_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+add_library(dinoml_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_runtime PROPERTIES
+  IMPORTED_LOCATION "{{ runtime_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+{% if runtime_implib %}
+  IMPORTED_IMPLIB "{{ runtime_implib }}"
+{% endif %}
+)
+
+add_library(dinoml_rocm_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_rocm_runtime PROPERTIES
+  IMPORTED_LOCATION "{{ rocm_runtime_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+{% if rocm_runtime_implib %}
+  IMPORTED_IMPLIB "{{ rocm_runtime_implib }}"
+{% endif %}
+)
+
+add_library(dinoml_rocm_kernels SHARED IMPORTED GLOBAL)
+set_target_properties(dinoml_rocm_kernels PROPERTIES
+  IMPORTED_LOCATION "{{ kernels_lib }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+{% if kernels_implib %}
+  IMPORTED_IMPLIB "{{ kernels_implib }}"
+{% endif %}
+)
+
+add_library(module SHARED module.hip)
+target_include_directories(module PRIVATE
+  "{{ runtime_include }}"
+  "{{ common_include }}"
+  "{{ kernels_include }}"
+)
+target_link_libraries(module PRIVATE
+  dinoml_runtime
+  dinoml_rocm_runtime
+  dinoml_rocm_kernels
+  hip::host
+  hip::device
+)
+set_target_properties(module PROPERTIES
+  OUTPUT_NAME module
+  PREFIX ""
+  SUFFIX ".so"
+  BUILD_RPATH "$ORIGIN/lib"
+  INSTALL_RPATH "$ORIGIN/lib"
+  HIP_SEPARABLE_COMPILATION OFF
+)

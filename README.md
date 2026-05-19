@@ -132,9 +132,11 @@ files. The CMake aggregate target `dinoml_cutlass_gemm` builds every archive for
 release/prebuilt bundles, while artifact builds request only the archive targets
 referenced by the kernel manifest. These archives are cached once per CUDA
 architecture under `cutlass-gemm/cmake-full` instead of being rendered and
-pruned per artifact. The target compiles the shared GEMM policy header plus
-chunked checked-in instantiation units under `kernels/cuda/src/cutlass_gemm_units/`
-so Ninja/CMake can parallelize each archive build. Its
+pruned per artifact. The target generates chunked op/dtype instantiation
+sources from `kernels/cuda/src/cutlass_gemm.cu` under the CMake build tree,
+matching the BMM/Conv support-library flow while preserving GEMM compile
+parallelism and keeping shared CUTLASS helpers in
+`kernels/cuda/src/cutlass_common.cuh`. Its
 `cutlass_gemm_manifest.json` records the CMake targets, source hash, and archive
 hashes used by profiling fingerprints. The CMake target is controlled by
 `-DDINOML_ENABLE_CUTLASS_GEMM=ON/OFF`. CUDA

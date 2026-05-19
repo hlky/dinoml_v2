@@ -446,25 +446,6 @@ struct AlignedGemmPolicy : BasePolicy {
   static int const kAlignmentB = Alignment;
 };
 
-template <typename Element>
-struct BiasGemmPolicySelector {
-  using Policy = Sm80TensorOp256x128x16S3W4x2x1TF32F32GemmPolicy;
-};
-
-template <>
-struct BiasGemmPolicySelector<cutlass::half_t> {
-  using Policy = Sm80TensorOp256x128x32S3W4x2x1F16F32GemmPolicy;
-};
-
-template <>
-struct BiasGemmPolicySelector<cutlass::bfloat16_t> {
-  using Policy = Sm80TensorOp256x128x32S3W4x2x1F16F32GemmPolicy;
-};
-
-template <typename Element>
-using BiasGemmPolicy = typename BiasGemmPolicySelector<Element>::Policy;
-
-
 template <typename Storage, typename Element>
 Element const* cutlass_ptr(Storage const* ptr) {
   static_assert(sizeof(Storage) == sizeof(Element), "CUTLASS storage type size mismatch");

@@ -6,6 +6,7 @@ option(DINOML_ENABLE_CUDA "Build CUDA runtime and kernel libraries" ON)
 option(DINOML_ENABLE_CUTLASS_GEMM "Build CUTLASS GEMM support library" ON)
 option(DINOML_ENABLE_CUTLASS_GEMM_PROFILER "Build CUTLASS GEMM profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_GEMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS GEMM CMake targets to link into the profiler, or ALL for every target")
+set(DINOML_CUTLASS_GEMM_CHUNK_SIZE 16 CACHE STRING "Number of CUTLASS GEMM export instantiations per generated CUDA source chunk")
 option(DINOML_ENABLE_CUTLASS_BMM "Build CUTLASS BMM support library" ON)
 option(DINOML_ENABLE_CUTLASS_BMM_PROFILER "Build CUTLASS BMM profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_BMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS BMM CMake targets to link into the profiler, or ALL for every target")
@@ -107,46 +108,100 @@ if(DINOML_ENABLE_CUDA)
   )
 
   if(DINOML_ENABLE_CUTLASS_GEMM)
-    file(GLOB DINOML_CUTLASS_GEMM_SOURCES CONFIGURE_DEPENDS
-      kernels/cuda/src/cutlass_gemm_units/*.cu
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if(DINOML_CUTLASS_GEMM_CHUNK_SIZE LESS 1)
+      message(FATAL_ERROR "DINOML_CUTLASS_GEMM_CHUNK_SIZE must be positive")
+    endif()
+    set(DINOML_CUTLASS_GEMM_OPS
+      gemm_rcr gemm_rrr
+      gemm_rcr_bias gemm_rrr_bias
+      gemm_rcr_bias_relu gemm_rrr_bias_relu
+      gemm_rcr_bias_gelu gemm_rrr_bias_gelu
+      gemm_rcr_bias_fast_gelu gemm_rrr_bias_fast_gelu
+      gemm_rcr_bias_quick_gelu
+      gemm_rcr_bias_sigmoid gemm_rrr_bias_sigmoid
+      gemm_rcr_bias_tanh gemm_rrr_bias_tanh
+      gemm_rcr_bias_swish gemm_rrr_bias_swish
+      gemm_rcr_bias_hardswish gemm_rrr_bias_hardswish
+      gemm_rcr_bias_elup1 gemm_rrr_bias_elup1
+      gemm_rcr_bias_add gemm_rrr_bias_add
+      gemm_rcr_bias_add_add gemm_rrr_bias_add_add
+      gemm_rcr_bias_mul gemm_rrr_bias_mul
+      gemm_rcr_bias_mul_add gemm_rrr_bias_mul_add
+      gemm_rcr_bias_add_relu gemm_rrr_bias_add_relu
+      gemm_rcr_bias_add_add_relu gemm_rrr_bias_add_add_relu
+      gemm_rcr_bias_sigmoid_mul gemm_rrr_bias_sigmoid_mul
+      gemm_rcr_bias_sigmoid_mul_tanh gemm_rrr_bias_sigmoid_mul_tanh
+      gemm_rcr_bias_mul_tanh gemm_rrr_bias_mul_tanh
     )
-    set(DINOML_CUTLASS_GEMM_UNIT_GROUPS)
-    foreach(_cutlass_gemm_source IN LISTS DINOML_CUTLASS_GEMM_SOURCES)
-      get_filename_component(_cutlass_gemm_stem "${_cutlass_gemm_source}" NAME_WE)
-      if(NOT _cutlass_gemm_stem MATCHES "^(.+)_(float32|float16|bfloat16)_[0-9][0-9][0-9]$")
-        message(FATAL_ERROR "Unexpected CUTLASS GEMM unit filename: ${_cutlass_gemm_source}")
-      endif()
-      set(_cutlass_gemm_unit_group "${CMAKE_MATCH_1}_${CMAKE_MATCH_2}")
-      string(MAKE_C_IDENTIFIER "${_cutlass_gemm_unit_group}" _cutlass_gemm_unit_group_id)
-      list(APPEND DINOML_CUTLASS_GEMM_UNIT_GROUPS "${_cutlass_gemm_unit_group_id}")
-      list(APPEND DINOML_CUTLASS_GEMM_SOURCES_${_cutlass_gemm_unit_group_id} "${_cutlass_gemm_source}")
-      set(DINOML_CUTLASS_GEMM_OUTPUT_${_cutlass_gemm_unit_group_id} "dinoml_cutlass_${_cutlass_gemm_unit_group}")
-    endforeach()
-    list(REMOVE_DUPLICATES DINOML_CUTLASS_GEMM_UNIT_GROUPS)
-
+    set(DINOML_CUTLASS_GEMM_DTYPES float32 float16 bfloat16)
+    set(DINOML_CUTLASS_GEMM_GENERATOR_DEPS
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_gemm_unit.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_gemm.cu
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_common.cuh
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/gemm.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/gemm.py
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DINOML_CUTLASS_GEMM_GENERATOR_DEPS})
+    set(_cutlass_gemm_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/cutlass_gemm_units")
+    set(_cutlass_gemm_chunk_manifest "${_cutlass_gemm_generated_dir}/chunks.cmake")
+    execute_process(
+      COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_gemm_unit.py
+        --ops ${DINOML_CUTLASS_GEMM_OPS}
+        --dtypes ${DINOML_CUTLASS_GEMM_DTYPES}
+        --chunk-size ${DINOML_CUTLASS_GEMM_CHUNK_SIZE}
+        --write-cmake-chunk-manifest ${_cutlass_gemm_chunk_manifest}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    include(${_cutlass_gemm_chunk_manifest})
     set(DINOML_CUTLASS_GEMM_TARGETS)
-    foreach(_cutlass_gemm_unit_group_id IN LISTS DINOML_CUTLASS_GEMM_UNIT_GROUPS)
-      set(_cutlass_gemm_target "dinoml_cutlass_gemm_${_cutlass_gemm_unit_group_id}")
-      add_library(${_cutlass_gemm_target} STATIC
-        ${DINOML_CUTLASS_GEMM_SOURCES_${_cutlass_gemm_unit_group_id}}
-      )
-      target_include_directories(${_cutlass_gemm_target}
-        PRIVATE
-          ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src
-          ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
-          ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/tools/util/include
-      )
-      target_compile_options(${_cutlass_gemm_target}
-        PRIVATE
-          $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
-          $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
-          $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=20012>
-      )
-      set_target_properties(${_cutlass_gemm_target} PROPERTIES
-        OUTPUT_NAME ${DINOML_CUTLASS_GEMM_OUTPUT_${_cutlass_gemm_unit_group_id}}
-        CUDA_SEPARABLE_COMPILATION OFF
-      )
-      list(APPEND DINOML_CUTLASS_GEMM_TARGETS ${_cutlass_gemm_target})
+    foreach(_cutlass_gemm_op IN LISTS DINOML_CUTLASS_GEMM_OPS)
+      foreach(_cutlass_gemm_dtype IN LISTS DINOML_CUTLASS_GEMM_DTYPES)
+        set(_cutlass_gemm_group_id "${_cutlass_gemm_op}_${_cutlass_gemm_dtype}")
+        set(_cutlass_gemm_target "dinoml_cutlass_gemm_${_cutlass_gemm_group_id}")
+        set(_cutlass_gemm_chunk_var "DINOML_CUTLASS_GEMM_CHUNKS_${_cutlass_gemm_group_id}")
+        set(_cutlass_gemm_chunk_files ${${_cutlass_gemm_chunk_var}})
+        if(NOT _cutlass_gemm_chunk_files)
+          message(FATAL_ERROR "CUTLASS GEMM generator returned no chunks for ${_cutlass_gemm_group_id}")
+        endif()
+        set(_cutlass_gemm_sources)
+        foreach(_cutlass_gemm_chunk_file IN LISTS _cutlass_gemm_chunk_files)
+          list(APPEND _cutlass_gemm_sources "${_cutlass_gemm_generated_dir}/${_cutlass_gemm_chunk_file}")
+        endforeach()
+        add_custom_command(
+          OUTPUT ${_cutlass_gemm_sources}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_cutlass_gemm_unit.py
+            --op ${_cutlass_gemm_op}
+            --dtype ${_cutlass_gemm_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_gemm.cu
+            --output-dir ${_cutlass_gemm_generated_dir}
+            --chunk-size ${DINOML_CUTLASS_GEMM_CHUNK_SIZE}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS ${DINOML_CUTLASS_GEMM_GENERATOR_DEPS}
+          VERBATIM
+        )
+        add_library(${_cutlass_gemm_target} STATIC ${_cutlass_gemm_sources})
+        target_include_directories(${_cutlass_gemm_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/tools/util/include
+        )
+        target_compile_options(${_cutlass_gemm_target}
+          PRIVATE
+            $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
+            $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+            $<$<COMPILE_LANGUAGE:CUDA>:-diag-suppress=20012>
+        )
+        set_target_properties(${_cutlass_gemm_target} PROPERTIES
+          OUTPUT_NAME "dinoml_cutlass_${_cutlass_gemm_group_id}"
+          CUDA_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CUTLASS_GEMM_TARGETS ${_cutlass_gemm_target})
+      endforeach()
     endforeach()
     add_custom_target(dinoml_cutlass_gemm DEPENDS ${DINOML_CUTLASS_GEMM_TARGETS})
 

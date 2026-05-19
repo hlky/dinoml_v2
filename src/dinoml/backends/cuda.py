@@ -24,6 +24,9 @@ from dinoml.lowering.cuda import render_cuda_module, render_template
 from dinoml.lowering.ops import collect_generated_sources
 
 
+CUTLASS_GEMM_CMAKE_CHUNK_SIZE = 16
+
+
 @dataclass(frozen=True)
 class SupportLibs:
     runtime_lib: Path
@@ -266,6 +269,7 @@ def _ensure_cmake_cutlass_gemm_archives(arch: str, kernel_manifest: Mapping[str,
                 "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
                 "-DDINOML_ENABLE_CUTLASS_CONV=OFF",
                 "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
+                f"-DDINOML_CUTLASS_GEMM_CHUNK_SIZE={CUTLASS_GEMM_CMAKE_CHUNK_SIZE}",
                 f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
@@ -304,12 +308,13 @@ def _ensure_cmake_cutlass_gemm_archives(arch: str, kernel_manifest: Mapping[str,
                 }
                 for module in modules
             ],
-            "source": "kernels/cuda/src/cutlass_gemm_units",
+            "source": "kernels/cuda/src/cutlass_gemm.cu",
             "source_sha256": _cutlass_gemm_source_sha256(repo_root),
             "compile": {
                 "system": "cmake",
                 "targets": targets,
                 "build_dir": str(build_dir),
+                "gemm_chunk_size": CUTLASS_GEMM_CMAKE_CHUNK_SIZE,
             },
             "cache_key": "cmake-full",
         },
@@ -524,8 +529,11 @@ def _required_cutlass_conv_modules(kernel_manifest: Mapping[str, Any]) -> tuple[
 
 def _cutlass_gemm_source_sha256(repo_root: Path) -> str:
     source_paths = [
-        repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm_common.cuh",
-        *sorted((repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm_units").glob("*.cu")),
+        repo_root / "kernels" / "cuda" / "src" / "cutlass_common.cuh",
+        repo_root / "kernels" / "cuda" / "src" / "cutlass_gemm.cu",
+        repo_root / "tools" / "generate_cutlass_gemm_unit.py",
+        repo_root / "src" / "dinoml" / "kernels" / "families" / "gemm.py",
+        repo_root / "src" / "dinoml" / "kernels" / "providers" / "cutlass" / "gemm.py",
     ]
     digest = hashlib.sha256()
     for path in source_paths:

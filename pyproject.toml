@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dinoml"
 version = "0.2.0"
-description = "DinoML v2 vertical-slice compiler/runtime"
+description = "DinoML v2"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -24,6 +24,3 @@ validate = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.pytest.ini_options]
-norecursedirs = ["agents", "third_party", "tmp", "build", "dist", ".git"]

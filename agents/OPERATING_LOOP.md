@@ -17,19 +17,23 @@ This repository uses docs as project memory and tests as truth.
 
 2. Inspect recent commits and current tests.
 
-3. Pick one bounded slice of work.
+3. Check whether the current user request names external or private context.
+   Use authenticated/local access first, and ask before substituting or skipping
+   that source.
 
-4. Use subagents to investigate, implement, and review.
+4. Pick one bounded slice of work.
 
-5. Validate with targeted tests.
+5. Use subagents to investigate, implement, and review.
 
-6. Update docs/checklists.
+6. Validate with targeted tests.
 
-7. Commit.
+7. Update docs/checklists.
 
-8. Update Codex Progress.
+8. Commit.
 
-9. Repeat.
+9. Update Codex Progress.
+
+10. Repeat.
 
 ## Work Selection Rules
 
@@ -45,3 +49,5 @@ Avoid:
 - new architecture exceptions
 - provider-specific shortcuts that bypass manifests or execution plans
 - stale documentation
+- turning fixable access/auth/path ambiguity into a broad workaround or skipped
+  user-requested source

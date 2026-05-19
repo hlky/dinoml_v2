@@ -22,14 +22,38 @@ At the beginning of each work loop:
 
 1. Review the current repository state and recent commits.
 2. Read the steering docs under `agents/`.
-3. Read active plans under `agents/plans/`.
-4. Pick one bounded, high-value task.
-5. Use subagents for investigation, implementation, and review when useful.
-6. Validate the work with targeted tests or explain why validation could not be run.
-7. Update relevant docs/checklists, including `agents/NEXT_CANDIDATE_WORK.md` when the ranked queue changes.
-8. Commit completed work with a clear summary.
-9. Update Codex Progress.
-10. Continue the loop unless blocked.
+3. Check whether the current user request names external or private context;
+   use authenticated/local access first, and ask before substituting or
+   skipping it.
+4. Read active plans under `agents/plans/`.
+5. Pick one bounded, high-value task.
+6. Use subagents for investigation, implementation, and review when useful.
+7. Validate the work with targeted tests or explain why validation could not be run.
+8. Update relevant docs/checklists, including `agents/NEXT_CANDIDATE_WORK.md` when the ranked queue changes.
+9. Commit completed work with a clear summary.
+10. Update Codex Progress.
+11. Continue the loop unless blocked.
+
+## Monitored autonomy and clarification gates
+
+Autonomy means continuing through known work, not silently changing direction
+when a user-specified source, repo, dependency, artifact, or design input cannot
+be accessed or interpreted.
+
+Use `request_user_input` before continuing when:
+
+- A user names a specific private repo, branch, file, tool, package, config, or
+  artifact and authenticated/local access fails or is ambiguous.
+- A simple access/auth/path problem would otherwise cause the agent to skip the
+  requested source, use an unrelated public substitute, or design a workaround.
+- The next step would materially change the requested direction, support claim,
+  backend/provider choice, or acceptance bar.
+- The docs and the user's current instruction point in different directions.
+
+Before asking, try the appropriate authenticated/local access path when obvious,
+such as `gh` or the GitHub connector for private GitHub repositories. If that
+access fails, ask for direction instead of inferring from public web 404s, search
+misses, missing local files, or unauthenticated tooling errors.
 
 ## Required reading
 

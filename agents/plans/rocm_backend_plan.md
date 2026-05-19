@@ -20,16 +20,26 @@ local Windows environment plus the `hlky/rocm_windows` investigation at commit
 
 ## Windows ROCm Packaging Rules
 
-- Prefer `DINOML_ROCM_PYTHON_EXECUTABLE` or the active `.venv/rocm` Python and
-  resolve SDK paths via `python -m rocm_sdk path --root/--cmake/--bin`.
-- Run `python -m rocm_sdk init` before CMake configuration so the devel payload
-  is extracted.
+- Activate `.venv/rocm` before ROCm builds. The active environment must put
+  `rocm-sdk`, `hipconfig`, `hipcc`, and `amdclang++` on `PATH`; do not split SDK
+  resolution through a separate Python executable override. If the active
+  Python environment has the `rocm_sdk` package but no console script, the
+  resolver may use `python -m rocm_sdk` from `PATH`.
+- Prefer the active `rocm_sdk` package before `hipconfig`. Released PyTorch ROCm
+  wheels can expose `hipconfig` paths under `_rocm_sdk_core`, while CMake needs
+  the devel payload under `_rocm_sdk_devel` for headers, CMake packages, tools,
+  and device libraries.
+- Run `rocm-sdk init` before CMake configuration so the devel payload is
+  extracted. Regular HIP SDK installs that do not carry the `rocm_sdk` package
+  should fall through to `hipconfig`/`HIP_PATH`/`ROCM_PATH`.
 - Set `HIP_PLATFORM=amd`, `HIP_PATH`, `ROCM_PATH`, and CMake prefix paths from
   the resolved SDK root.
 - Use `CMAKE_HIP_ARCHITECTURES=gfx1201` for the local card unless a later
   validated detection path proves otherwise.
-- On Windows, import the Visual Studio x64 environment and make `rc.exe`
-  discoverable before configuring Ninja/CMake HIP builds.
+- On Windows, import only the Visual Studio x64 environment keys required by
+  clang/MSVC linking: `PATH`, `INCLUDE`, `LIB`, `LIBPATH`, and the VS/Windows
+  SDK root/version variables. `rc.exe` is also resolved explicitly before
+  configuring Ninja/CMake HIP builds.
 - Pass the ROCm device bitcode directory when available; pip/venv SDKs expose it
   under `_rocm_sdk_devel/lib/llvm/amdgcn/bitcode`.
 

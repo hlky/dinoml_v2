@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -14,6 +13,24 @@ from dinoml.kernels.manifest import build_support_manifest
 
 
 _CMAKE_ENV: dict[str, str] | None = None
+
+_VISUAL_STUDIO_ENV_KEYS = frozenset(
+    {
+        "INCLUDE",
+        "LIB",
+        "LIBPATH",
+        "PATH",
+        "VCINSTALLDIR",
+        "VCToolsInstallDir",
+        "VCToolsVersion",
+        "VSINSTALLDIR",
+        "WindowsLibPath",
+        "WindowsSdkBinPath",
+        "WindowsSdkDir",
+        "WindowsSDKLibVersion",
+        "WindowsSDKVersion",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -62,7 +79,6 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         "-DCMAKE_BUILD_TYPE=Release",
         "-DDINOML_ENABLE_CUDA=OFF",
         "-DDINOML_ENABLE_ROCM=ON",
-        f"-DDINOML_ROCM_PYTHON_EXECUTABLE={_rocm_python_executable()}",
         f"-DCMAKE_HIP_ARCHITECTURES={_cmake_arch(arch)}",
         f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
         f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -148,14 +164,17 @@ def _with_default_cmake_generator(cmd: list[str]) -> list[str]:
         return cmd
     if "--build" in cmd or "-G" in cmd:
         return cmd
-    if "-S" not in cmd or shutil.which("ninja") is None:
+    if "-S" not in cmd:
         return cmd
+    if shutil.which("ninja") is None:
+        raise RuntimeError(
+            "ROCm support builds require Ninja on PATH. Activate the ROCm development "
+            "environment or install the DinoML dev dependencies into that environment."
+        )
     return [*cmd, "-G", "Ninja"]
 
 
 def _prepare_cmake_build_dir(build_dir: Path) -> None:
-    if shutil.which("ninja") is None:
-        return
     cache_path = build_dir / "CMakeCache.txt"
     if not cache_path.exists():
         return
@@ -179,16 +198,15 @@ def _cmake_env() -> dict[str, str]:
     env = os.environ.copy()
     if os.name == "nt":
         env.update(_visual_studio_environment())
-    _prepend_paths(env, _rocm_runtime_paths())
+        _prepend_paths(env, _rocm_runtime_paths())
     _CMAKE_ENV = env
     return dict(env)
 
 
 def _rocm_runtime_paths() -> list[str]:
-    rocm_python = _rocm_python_executable()
-    paths = [str(Path(rocm_python).resolve().parent)]
-    root = _run_python_rocm_sdk_path("--root")
-    bin_dir = _run_python_rocm_sdk_path("--bin")
+    paths = []
+    root = _run_rocm_sdk_path("--root")
+    bin_dir = _run_rocm_sdk_path("--bin")
     if bin_dir:
         paths.append(bin_dir)
     if root:
@@ -196,9 +214,12 @@ def _rocm_runtime_paths() -> list[str]:
     return paths
 
 
-def _run_python_rocm_sdk_path(arg: str) -> str | None:
+def _run_rocm_sdk_path(arg: str) -> str | None:
+    rocm_sdk = _rocm_sdk_command()
+    if rocm_sdk is None:
+        return None
     proc = subprocess.run(
-        [_rocm_python_executable(), "-m", "rocm_sdk", "path", arg],
+        [*rocm_sdk, "path", arg],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
@@ -209,8 +230,26 @@ def _run_python_rocm_sdk_path(arg: str) -> str | None:
     return value or None
 
 
-def _rocm_python_executable() -> str:
-    return os.environ.get("DINOML_ROCM_PYTHON_EXECUTABLE") or sys.executable
+def _rocm_sdk_command() -> list[str] | None:
+    rocm_sdk = shutil.which("rocm-sdk") or shutil.which("rocm_sdk")
+    if rocm_sdk is not None:
+        return [rocm_sdk]
+    python = shutil.which("python") or shutil.which("python3")
+    if python is None:
+        return None
+    proc = subprocess.run(
+        [
+            python,
+            "-c",
+            "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('rocm_sdk') else 1)",
+        ],
+        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    if proc.returncode != 0:
+        return None
+    return [python, "-m", "rocm_sdk"]
 
 
 def _prepend_paths(env: dict[str, str], paths: list[str]) -> None:
@@ -247,7 +286,7 @@ def _visual_studio_environment() -> dict[str, str]:
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
-        if key:
+        if key in _VISUAL_STUDIO_ENV_KEYS:
             values[key] = value
     return values
 

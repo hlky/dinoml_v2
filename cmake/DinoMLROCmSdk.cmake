@@ -2,7 +2,7 @@
 #
 # Provider order:
 #   1. Explicit DINOML_ROCM_* cache variables.
-#   2. pip/venv ROCm SDK via python -m rocm_sdk.
+#   2. Active pip/venv ROCm SDK via rocm-sdk or python -m rocm_sdk on PATH.
 #   3. Regular HIP installs via hipconfig.
 #   4. ROCM_PATH/HIP_PATH and platform defaults.
 
@@ -66,18 +66,35 @@ function(_dinoml_rocm_windows_install_roots out_roots)
   set(${out_roots} "${_roots}" PARENT_SCOPE)
 endfunction()
 
-function(_dinoml_rocm_python out_python)
-  if(DINOML_ROCM_PYTHON_EXECUTABLE)
-    set(${out_python} "${DINOML_ROCM_PYTHON_EXECUTABLE}" PARENT_SCOPE)
+function(_dinoml_rocm_sdk out_rocm_sdk)
+  find_program(_DINOML_ROCM_SDK NAMES rocm-sdk rocm_sdk)
+  if(_DINOML_ROCM_SDK)
+    set(${out_rocm_sdk} "${_DINOML_ROCM_SDK}" PARENT_SCOPE)
     return()
   endif()
+
   find_program(_DINOML_ROCM_PYTHON NAMES python python3)
-  set(${out_python} "${_DINOML_ROCM_PYTHON}" PARENT_SCOPE)
+  if(NOT _DINOML_ROCM_PYTHON)
+    set(${out_rocm_sdk} "" PARENT_SCOPE)
+    return()
+  endif()
+
+  execute_process(
+    COMMAND "${_DINOML_ROCM_PYTHON}" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('rocm_sdk') else 1)"
+    RESULT_VARIABLE _rocm_sdk_module_result
+    OUTPUT_QUIET
+    ERROR_QUIET
+  )
+  if(_rocm_sdk_module_result EQUAL 0)
+    set(${out_rocm_sdk} "${_DINOML_ROCM_PYTHON};-m;rocm_sdk" PARENT_SCOPE)
+  else()
+    set(${out_rocm_sdk} "" PARENT_SCOPE)
+  endif()
 endfunction()
 
 function(_dinoml_rocm_try_rocm_sdk out_root out_cmake out_bin out_llvm_bin)
-  _dinoml_rocm_python(_python)
-  if(NOT _python)
+  _dinoml_rocm_sdk(_rocm_sdk)
+  if(NOT _rocm_sdk)
     set(${out_root} "" PARENT_SCOPE)
     set(${out_cmake} "" PARENT_SCOPE)
     set(${out_bin} "" PARENT_SCOPE)
@@ -85,10 +102,10 @@ function(_dinoml_rocm_try_rocm_sdk out_root out_cmake out_bin out_llvm_bin)
     return()
   endif()
 
-  execute_process(COMMAND "${_python}" -m rocm_sdk init ERROR_QUIET OUTPUT_QUIET)
-  _dinoml_rocm_run(_root_result _root "${_python}" -m rocm_sdk path --root)
-  _dinoml_rocm_run(_cmake_result _cmake "${_python}" -m rocm_sdk path --cmake)
-  _dinoml_rocm_run(_bin_result _bin "${_python}" -m rocm_sdk path --bin)
+  execute_process(COMMAND ${_rocm_sdk} init ERROR_QUIET OUTPUT_QUIET)
+  _dinoml_rocm_run(_root_result _root ${_rocm_sdk} path --root)
+  _dinoml_rocm_run(_cmake_result _cmake ${_rocm_sdk} path --cmake)
+  _dinoml_rocm_run(_bin_result _bin ${_rocm_sdk} path --bin)
   if(NOT _root_result EQUAL 0 OR NOT _cmake_result EQUAL 0 OR NOT _bin_result EQUAL 0)
     set(${out_root} "" PARENT_SCOPE)
     set(${out_cmake} "" PARENT_SCOPE)

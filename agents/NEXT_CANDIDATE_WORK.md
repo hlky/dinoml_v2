@@ -4,9 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Tightened the ROCm scaffold environment contract after review: ROCm support
+  builds now assume the developer has activated `.venv/rocm`, resolve the SDK
+  through the active `rocm_sdk` package before `hipconfig` so PyTorch-style
+  installs use `_rocm_sdk_devel` rather than `_rocm_sdk_core`, remove the
+  separate `DINOML_ROCM_PYTHON_EXECUTABLE` path, require Ninja for ROCm support
+  builds, and filter the imported Visual Studio environment to the MSVC/Windows
+  SDK keys needed for clang/link/rc instead of copying every `vcvars64.bat`
+  value.
 - Added the first honest ROCm backend scaffold for the Windows `.venv/rocm`
   lane. `Target("rocm")` now resolves to `gfx1201`, the CLI lists `rocm`, CMake
-  resolves pip/venv ROCm SDK layouts through `python -m rocm_sdk`, and the HIP
+  resolves pip/venv ROCm SDK layouts through `rocm-sdk` on `PATH`, and the HIP
   support-library smoke builds `dinoml_runtime`, `dinoml_rocm_runtime`, and
   `dinoml_rocm_kernels` with the local toolchain. The scaffold deliberately
   raises before claiming any ROCm op lowering or generated HIP artifact support.

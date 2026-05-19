@@ -206,14 +206,13 @@ the canonical upstream development home is the ROCm monorepo under
 provider groundwork only and does not by itself broaden the supported ROCm
 runtime surface.
 
-On Windows ROCm development, the pip/venv SDK layout is resolved through
-`python -m rocm_sdk` rather than assuming a system install. The support-library
-smoke can run from any Python environment with `pytest` installed while using
-the ROCm venv explicitly for SDK resolution:
+On Windows ROCm development, activate the ROCm venv before building. The
+pip/venv SDK layout is resolved from the active `rocm_sdk` package or
+`rocm-sdk` command rather than a separate Python executable override:
 
 ```powershell
+. .venv/rocm/Scripts/Activate.ps1
 $env:PYTHONPATH = (Get-Location).Path + "\src"
-$env:DINOML_ROCM_PYTHON_EXECUTABLE = (Resolve-Path ".venv/rocm/Scripts/python.exe").Path
 $env:DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE = "1"
 python -m pytest -q tests/backends/test_rocm_scaffold.py
 ```

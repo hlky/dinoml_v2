@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
+import numpy as np
+
+from dinoml.frontend import Parameter, Tensor, as_tensor
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidates,
     cutlass_conv_profiler_symbol,
     cutlass_conv_symbol,
 )
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpRegistry, OpSchema
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
 CONV2D_BIAS_DTYPES = ("float16", "float32")
@@ -373,119 +376,6 @@ def _normalize_pair(value: Any, name: str) -> tuple[int, int]:
     raise ValueError(f"{name} must be an integer or pair of integers, got {value!r}")
 
 
-def register_conv_ops(registry: OpRegistry) -> None:
-    registry.register(
-        OpDef(
-            name="conv2d_bias",
-            schema=OpSchema(
-                inputs=("x", "weight", "bias"),
-                attrs=(
-                    AttrDef("stride", "ints", required=True),
-                    AttrDef("padding", "ints", default=(0, 0)),
-                    AttrDef("dilation", "ints", default=(1, 1)),
-                    AttrDef("groups", "int", default=1),
-                ),
-            ),
-            infer_shape=infer_conv2d_bias_shape,
-            infer_shape_with_attrs=infer_conv2d_bias_shape_with_attrs,
-            allowed_dtypes=CONV2D_BIAS_DTYPES,
-            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias"),
-            frontend=FrontendBinding("conv2d_bias"),
-            description=(
-                "Bounded conv2d_bias frontend with public NCHW/OIHW semantics, "
-                "groups=1 only, static rank-4 shapes, and CPU reference execution. "
-                "Compiled CPU artifacts now also have a bounded generated naive "
-                "runtime for the admitted float16/float32 contract. CUDA compile "
-                "emits artifact-visible CUTLASS Conv pack/launch/unpack metadata, "
-                "materializes the support boundary when possible, and runs "
-                "correctness-first static groups=1 CUTLASS launchers for "
-                "float32 SIMT and the bounded float16 SIMT/TensorOp candidates."
-            ),
-        )
-    )
-    registry.register(
-        OpDef(
-            name="conv2d_bias_relu",
-            schema=OpSchema(
-                inputs=("x", "weight", "bias"),
-                attrs=(
-                    AttrDef("stride", "ints", required=True),
-                    AttrDef("padding", "ints", default=(0, 0)),
-                    AttrDef("dilation", "ints", default=(1, 1)),
-                    AttrDef("groups", "int", default=1),
-                ),
-            ),
-            infer_shape=infer_conv2d_bias_relu_shape,
-            infer_shape_with_attrs=infer_conv2d_bias_relu_shape_with_attrs,
-            allowed_dtypes=CONV2D_BIAS_DTYPES,
-            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias_relu"),
-            frontend=FrontendBinding("conv2d_bias_relu"),
-            description=(
-                "Bounded fused conv2d_bias_relu frontend sharing the public NCHW/OIHW, "
-                "groups=1, static rank-4 Conv contract. CPU reference and compiled CPU "
-                "artifacts apply the ReLU epilogue in the same generated Conv loop, while "
-                "CUDA compile/profile/runtime keep the fused bias+ReLU CUTLASS Conv choice "
-                "artifact-visible through the same manifest/profile/execution-plan path as "
-                "`conv2d_bias`."
-            ),
-        )
-    )
-    registry.register(
-        OpDef(
-            name="conv2d_bias_add",
-            schema=OpSchema(
-                inputs=("x", "weight", "bias", "residual"),
-                attrs=(
-                    AttrDef("stride", "ints", required=True),
-                    AttrDef("padding", "ints", default=(0, 0)),
-                    AttrDef("dilation", "ints", default=(1, 1)),
-                    AttrDef("groups", "int", default=1),
-                ),
-            ),
-            infer_shape=infer_conv2d_bias_add_shape,
-            infer_shape_with_attrs=infer_conv2d_bias_add_shape_with_attrs,
-            allowed_dtypes=CONV2D_BIAS_DTYPES,
-            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias_add"),
-            frontend=FrontendBinding("conv2d_bias_add"),
-            description=(
-                "Bounded fused conv2d_bias_add frontend for v1-style residual Conv: "
-                "public tensors stay NCHW/OIHW, groups remain 1, all tensors are static rank-4, "
-                "and the residual input must match the Conv output shape exactly. CPU reference "
-                "and compiled CPU artifacts apply bias and residual add in one generated loop, "
-                "while CUDA keeps the fused residual epilogue artifact-visible "
-                "through the CUTLASS Conv manifest/profile/execution-plan path."
-            ),
-        )
-    )
-    registry.register(
-        OpDef(
-            name="conv2d_bias_add_relu",
-            schema=OpSchema(
-                inputs=("x", "weight", "bias", "residual"),
-                attrs=(
-                    AttrDef("stride", "ints", required=True),
-                    AttrDef("padding", "ints", default=(0, 0)),
-                    AttrDef("dilation", "ints", default=(1, 1)),
-                    AttrDef("groups", "int", default=1),
-                ),
-            ),
-            infer_shape=infer_conv2d_bias_add_relu_shape,
-            infer_shape_with_attrs=infer_conv2d_bias_add_relu_shape_with_attrs,
-            allowed_dtypes=CONV2D_BIAS_DTYPES,
-            backend_kernels=_cutlass_conv_backend_kernels("conv2d_bias_add_relu"),
-            frontend=FrontendBinding("conv2d_bias_add_relu"),
-            description=(
-                "Bounded fused conv2d_bias_add_relu frontend for v1-style residual Conv: "
-                "public tensors stay NCHW/OIHW, groups remain 1, all tensors are static rank-4, "
-                "and the residual input must match the Conv output shape exactly. CPU reference "
-                "and compiled CPU artifacts apply bias, residual add, and trailing ReLU in one "
-                "generated loop, while CUDA keeps the fused residual+ReLU epilogue artifact-visible "
-                "through the CUTLASS Conv manifest/profile/execution-plan path."
-            ),
-        )
-    )
-
-
 def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
     return {
         "cpu": KernelBinding(
@@ -510,6 +400,404 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
     }
 
 
+def _conv2d_bias_family_forward(
+    op_name: str,
+    *,
+    resolve_shape: Callable[..., list[int]],
+    x: Any,
+    weight: Any,
+    bias: Any,
+    residual: Any | None = None,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: int,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    bias_tensor = as_tensor(bias, dtype_hint=x_tensor.dtype)
+    tensors = [x_tensor, weight_tensor, bias_tensor]
+    residual_tensor = None if residual is None else as_tensor(residual, dtype_hint=x_tensor.dtype)
+    if residual_tensor is not None:
+        tensors.append(residual_tensor)
+    for tensor in tensors[1:]:
+        if tensor.builder is not x_tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if tensor.dtype != x_tensor.dtype:
+            raise ValueError(f"{op_name} dtype mismatch: {x_tensor.dtype} vs {tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank != 4:
+        raise ValueError(f"{op_name} expects rank-4 NCHW activation, got rank {x_tensor.rank}")
+    if weight_tensor.rank != 4:
+        raise ValueError(f"{op_name} expects rank-4 OIHW weight, got rank {weight_tensor.rank}")
+    if bias_tensor.rank != 1:
+        raise ValueError(f"{op_name} expects rank-1 bias, got rank {bias_tensor.rank}")
+    if residual_tensor is not None and residual_tensor.rank != 4:
+        raise ValueError(f"{op_name} expects rank-4 residual, got rank {residual_tensor.rank}")
+    if any(tensor.dynamic for tensor in tensors):
+        expected = "activation, weight, bias, and residual" if residual_tensor is not None else "activation, weight, and bias"
+        raise ValueError(f"{op_name} currently supports only static {expected} shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv2d_bias_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    if residual_tensor is None:
+        out_shape = resolve_shape(
+            x_tensor.shape,
+            weight_tensor.shape,
+            bias_tensor.shape,
+            stride=normalized_stride,
+            padding=normalized_padding,
+            dilation=normalized_dilation,
+            groups=normalized_groups,
+        )
+    else:
+        out_shape = resolve_shape(
+            x_tensor.shape,
+            weight_tensor.shape,
+            bias_tensor.shape,
+            residual_tensor.shape,
+            stride=normalized_stride,
+            padding=normalized_padding,
+            dilation=normalized_dilation,
+            groups=normalized_groups,
+        )
+    return x_tensor.builder.emit(
+        op_name,
+        tensors,
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+        },
+        shape_spec=out_shape,
+    )
+
+
+@op_def
+class Conv2dBias(OpDef):
+    name = "conv2d_bias"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_conv2d_bias_shape
+    infer_shape_with_attrs = infer_conv2d_bias_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _cutlass_conv_backend_kernels("conv2d_bias")
+    frontend = FrontendBinding("conv2d_bias")
+    description = (
+        "Bounded conv2d_bias frontend with public NCHW/OIHW semantics, "
+        "groups=1 only, static rank-4 shapes, and CPU reference execution. "
+        "Compiled CPU artifacts now also have a bounded generated naive "
+        "runtime for the admitted float16/float32 contract. CUDA compile "
+        "emits artifact-visible CUTLASS Conv pack/launch/unpack metadata, "
+        "materializes the support boundary when possible, and runs "
+        "correctness-first static groups=1 CUTLASS launchers for "
+        "float32 SIMT and the bounded float16 SIMT/TensorOp candidates."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        bias: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _conv2d_bias_family_forward(
+            "conv2d_bias",
+            resolve_shape=resolve_conv2d_bias_shape,
+            x=x,
+            weight=weight,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+
+
+@op_def
+class Conv2dBiasRelu(OpDef):
+    name = "conv2d_bias_relu"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_conv2d_bias_relu_shape
+    infer_shape_with_attrs = infer_conv2d_bias_relu_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _cutlass_conv_backend_kernels("conv2d_bias_relu")
+    frontend = FrontendBinding("conv2d_bias_relu")
+    description = (
+        "Bounded fused conv2d_bias_relu frontend sharing the public NCHW/OIHW, "
+        "groups=1, static rank-4 Conv contract. CPU reference and compiled CPU "
+        "artifacts apply the ReLU epilogue in the same generated Conv loop, while "
+        "CUDA compile/profile/runtime keep the fused bias+ReLU CUTLASS Conv choice "
+        "artifact-visible through the same manifest/profile/execution-plan path as "
+        "`conv2d_bias`."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        bias: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _conv2d_bias_family_forward(
+            "conv2d_bias_relu",
+            resolve_shape=resolve_conv2d_bias_relu_shape,
+            x=x,
+            weight=weight,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+
+
+@op_def
+class Conv2dBiasAdd(OpDef):
+    name = "conv2d_bias_add"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias", "residual"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_conv2d_bias_add_shape
+    infer_shape_with_attrs = infer_conv2d_bias_add_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _cutlass_conv_backend_kernels("conv2d_bias_add")
+    frontend = FrontendBinding("conv2d_bias_add")
+    description = (
+        "Bounded fused conv2d_bias_add frontend for v1-style residual Conv: "
+        "public tensors stay NCHW/OIHW, groups remain 1, all tensors are static rank-4, "
+        "and the residual input must match the Conv output shape exactly. CPU reference "
+        "and compiled CPU artifacts apply bias and residual add in one generated loop, "
+        "while CUDA keeps the fused residual epilogue artifact-visible "
+        "through the CUTLASS Conv manifest/profile/execution-plan path."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        bias: Any,
+        residual: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _conv2d_bias_family_forward(
+            "conv2d_bias_add",
+            resolve_shape=resolve_conv2d_bias_add_shape,
+            x=x,
+            weight=weight,
+            bias=bias,
+            residual=residual,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+
+
+@op_def
+class Conv2dBiasAddRelu(OpDef):
+    name = "conv2d_bias_add_relu"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias", "residual"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_conv2d_bias_add_relu_shape
+    infer_shape_with_attrs = infer_conv2d_bias_add_relu_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _cutlass_conv_backend_kernels("conv2d_bias_add_relu")
+    frontend = FrontendBinding("conv2d_bias_add_relu")
+    description = (
+        "Bounded fused conv2d_bias_add_relu frontend for v1-style residual Conv: "
+        "public tensors stay NCHW/OIHW, groups remain 1, all tensors are static rank-4, "
+        "and the residual input must match the Conv output shape exactly. CPU reference "
+        "and compiled CPU artifacts apply bias, residual add, and trailing ReLU in one "
+        "generated loop, while CUDA keeps the fused residual+ReLU epilogue artifact-visible "
+        "through the CUTLASS Conv manifest/profile/execution-plan path."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        bias: Any,
+        residual: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _conv2d_bias_family_forward(
+            "conv2d_bias_add_relu",
+            resolve_shape=resolve_conv2d_bias_add_relu_shape,
+            x=x,
+            weight=weight,
+            bias=bias,
+            residual=residual,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+
+
+def conv2d(
+    x: Any,
+    weight: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if weight_tensor.builder is not x_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if weight_tensor.dtype != x_tensor.dtype:
+        raise ValueError(f"conv2d dtype mismatch: {x_tensor.dtype} vs {weight_tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"conv2d does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank != 4:
+        raise ValueError(f"conv2d expects rank-4 NCHW activation, got rank {x_tensor.rank}")
+    if weight_tensor.rank != 4:
+        raise ValueError(f"conv2d expects rank-4 OIHW weight, got rank {weight_tensor.rank}")
+    if x_tensor.dynamic or weight_tensor.dynamic:
+        raise ValueError("conv2d currently supports only static activation and weight shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv2d_bias_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    out_shape = resolve_conv2d_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    zero_bias = as_tensor(
+        Parameter(
+            [int(weight_tensor.shape[0])],
+            dtype=x_tensor.dtype,
+            name="conv2d_zero_bias",
+            value=np.zeros((int(weight_tensor.shape[0]),), dtype=np.float32),
+        ),
+        dtype_hint=x_tensor.dtype,
+    )
+    return x_tensor.builder.emit(
+        "conv2d_bias",
+        [x_tensor, weight_tensor, zero_bias],
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+            "bias_mode": "explicit_zero_constant",
+            "source_op": "conv2d",
+        },
+        shape_spec=out_shape,
+    )
+
+
+def conv2d_bias(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return Conv2dBias.forward(x, weight, bias, stride, padding, dilation, groups)
+
+
+def conv2d_bias_relu(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return Conv2dBiasRelu.forward(x, weight, bias, stride, padding, dilation, groups)
+
+
+def conv2d_bias_add(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    residual: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return Conv2dBiasAdd.forward(x, weight, bias, residual, stride, padding, dilation, groups)
+
+
+def conv2d_bias_add_relu(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    residual: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return Conv2dBiasAddRelu.forward(x, weight, bias, residual, stride, padding, dilation, groups)
+
+
 def _validate_conv2d_bias_family_op_name(op_name: str) -> None:
     if op_name not in CONV2D_BIAS_FAMILY_OPS:
         raise ValueError(f"Unsupported conv2d bias family op {op_name!r}")
@@ -521,8 +809,17 @@ def _conv2d_bias_family_has_residual(op_name: str) -> bool:
 
 
 __all__ = [
+    "Conv2dBias",
+    "Conv2dBiasAdd",
+    "Conv2dBiasAddRelu",
+    "Conv2dBiasRelu",
     "CONV2D_BIAS_FAMILY_OPS",
     "CONV2D_BIAS_DTYPES",
+    "conv2d",
+    "conv2d_bias",
+    "conv2d_bias_add",
+    "conv2d_bias_add_relu",
+    "conv2d_bias_relu",
     "infer_conv2d_shape",
     "infer_conv2d_shape_with_attrs",
     "infer_conv2d_bias_shape",
@@ -534,7 +831,6 @@ __all__ = [
     "infer_conv2d_bias_add_relu_shape",
     "infer_conv2d_bias_add_relu_shape_with_attrs",
     "normalize_conv2d_bias_attrs",
-    "register_conv_ops",
     "resolve_conv2d_shape",
     "resolve_conv2d_bias_shape",
     "resolve_conv2d_bias_relu_shape",

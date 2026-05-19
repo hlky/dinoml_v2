@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 
 
 REDUCTION_OPS = ("reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm")
@@ -133,126 +133,210 @@ def resolve_topk_shape(shape: Sequence[int], k: Any, dim: Any, largest: bool, so
     return [int(dim) for dim in out_shape]
 
 
-def register_reduction_ops(registry: OpRegistry) -> None:
-    for op_name in REDUCTION_OPS:
-        attrs = [AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)]
-        allowed_dtypes = REDUCTION_DTYPES
-        description = "Dense reduction over a static last dimension with fp32 accumulation."
-        if op_name == "var":
-            attrs.append(AttrDef("unbiased", "bool", False))
-            allowed_dtypes = ("float32",)
-            description = "Dense float32 variance reduction over a static last dimension."
-        elif op_name == "vector_norm":
-            attrs.append(AttrDef("ord", "float", 2.0))
-            allowed_dtypes = ("float32",)
-            description = "Dense float32 vector norm reduction over a static last dimension."
-        registry.register(
-            OpDef(
-                name=op_name,
-                schema=OpSchema(inputs=("x",), attrs=tuple(attrs)),
-                infer_shape=infer_reduction,
-                infer_shape_with_attrs=infer_reduction_for_attrs,
-                backend_kernels={
-                    "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
-                    "cpu": KernelBinding("generated_reduction", "model", source_template="reduction_cpu"),
-                },
-                allowed_dtypes=allowed_dtypes,
-                description=description,
-            )
-        )
-    registry.register(
-        OpDef(
-            name="argmax",
-            schema=OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False))),
-            infer_shape=infer_argmax_shape,
-            infer_shape_with_attrs=infer_argmax_shape_with_attrs,
-            backend_kernels={
-                "cuda": KernelBinding("generated_argmax", "model", source_template="argmax_cuda"),
-                "cpu": KernelBinding("generated_argmax", "model", source_template="argmax_cpu"),
-            },
-            frontend=FrontendBinding("argmax"),
-            allowed_dtypes=ARGMAX_DTYPES,
-            description="Dense argmax over a positive static last dimension, returning int64 indices.",
-        )
+_REDUCTION_SCHEMA = OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)))
+_REDUCTION_KERNELS = {
+    "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
+    "cpu": KernelBinding("generated_reduction", "model", source_template="reduction_cpu"),
+}
+
+
+class _ReductionOp(OpDef):
+    schema = _REDUCTION_SCHEMA
+    infer_shape = infer_reduction
+    infer_shape_with_attrs = infer_reduction_for_attrs
+    backend_kernels = _REDUCTION_KERNELS
+    allowed_dtypes = REDUCTION_DTYPES
+    description = "Dense reduction over a static last dimension with fp32 accumulation."
+
+
+@op_def
+class ReduceSum(_ReductionOp):
+    name = "reduce_sum"
+    frontend = FrontendBinding(name)
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
+        return _reduction(cls.name, x, dim, keepdim)
+
+
+@op_def
+class ReduceMax(_ReductionOp):
+    name = "reduce_max"
+    frontend = FrontendBinding(name)
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
+        return _reduction(cls.name, x, dim, keepdim)
+
+
+@op_def
+class ReduceMin(_ReductionOp):
+    name = "reduce_min"
+    frontend = FrontendBinding(name)
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
+        return _reduction(cls.name, x, dim, keepdim)
+
+
+@op_def
+class ReduceMean(_ReductionOp):
+    name = "reduce_mean"
+    frontend = FrontendBinding(name)
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
+        return _reduction(cls.name, x, dim, keepdim)
+
+
+@op_def
+class Var(OpDef):
+    name = "var"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("dim", "int", -1),
+            AttrDef("keepdim", "bool", False),
+            AttrDef("unbiased", "bool", False),
+        ),
     )
-    for op_name in TOPK_INTERNAL_OPS:
-        registry.register(
-            OpDef(
-                name=op_name,
-                schema=OpSchema(
-                    inputs=("x",),
-                    attrs=(
-                        AttrDef("k", "int", required=True),
-                        AttrDef("dim", "int", -1),
-                        AttrDef("largest", "bool", True),
-                        AttrDef("sorted", "bool", True),
-                    ),
-                ),
-                infer_shape=infer_topk_shape,
-                infer_shape_with_attrs=infer_topk_shape_with_attrs,
-                backend_kernels={
-                    "cuda": KernelBinding("generated_topk", "model", source_template="topk_cuda"),
-                    "cpu": KernelBinding("generated_topk", "model", source_template="topk_cpu"),
-                },
-                allowed_dtypes=TOPK_DTYPES,
-                description="Internal dense topk over a positive static last dimension.",
-            )
+    infer_shape = infer_reduction
+    infer_shape_with_attrs = infer_reduction_for_attrs
+    backend_kernels = _REDUCTION_KERNELS
+    frontend = FrontendBinding("var")
+    allowed_dtypes = ("float32",)
+    description = "Dense float32 variance reduction over a static last dimension."
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False, unbiased: bool = False) -> Tensor:
+        return _reduction(cls.name, x, dim, keepdim, {"unbiased": bool(unbiased)})
+
+
+@op_def
+class VectorNorm(OpDef):
+    name = "vector_norm"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("dim", "int", -1),
+            AttrDef("keepdim", "bool", False),
+            AttrDef("ord", "float", 2.0),
+        ),
+    )
+    infer_shape = infer_reduction
+    infer_shape_with_attrs = infer_reduction_for_attrs
+    backend_kernels = _REDUCTION_KERNELS
+    frontend = FrontendBinding("vector_norm")
+    allowed_dtypes = ("float32",)
+    description = "Dense float32 vector norm reduction over a static last dimension."
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False, ord: float = 2.0) -> Tensor:
+        if float(ord) != 2.0:
+            raise NotImplementedError("vector_norm currently supports only ord=2")
+        return _reduction(cls.name, x, dim, keepdim, {"ord": 2.0})
+
+
+@op_def
+class Argmax(OpDef):
+    name = "argmax"
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)))
+    infer_shape = infer_argmax_shape
+    infer_shape_with_attrs = infer_argmax_shape_with_attrs
+    backend_kernels = {
+        "cuda": KernelBinding("generated_argmax", "model", source_template="argmax_cuda"),
+        "cpu": KernelBinding("generated_argmax", "model", source_template="argmax_cpu"),
+    }
+    frontend = FrontendBinding("argmax")
+    allowed_dtypes = ARGMAX_DTYPES
+    description = "Dense argmax over a positive static last dimension, returning int64 indices."
+
+    @classmethod
+    def forward(cls, x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
+        tensor = as_tensor(x, dtype_hint="float32")
+        if tensor.dtype not in ARGMAX_DTYPES:
+            raise ValueError(f"argmax does not support dtype {tensor.dtype}")
+        if tensor.dynamic:
+            raise ValueError("argmax currently supports only static input shapes")
+        axis = normalize_argmax_dim(dim, tensor.rank)
+        if axis != tensor.rank - 1:
+            raise NotImplementedError("argmax currently supports only the last dimension")
+        if not isinstance(tensor.shape_spec[axis], int):
+            raise ValueError("argmax currently requires a static last dimension")
+        out_shape = resolve_argmax_shape(tensor.shape, axis, bool(keepdim))
+        out_shape_spec = list(tensor.shape_spec)
+        if keepdim:
+            out_shape_spec[axis] = 1
+        else:
+            del out_shape_spec[axis]
+            if not out_shape_spec:
+                out_shape_spec = [1]
+        return tensor.builder.emit(
+            "argmax",
+            [tensor],
+            out_shape,
+            "int64",
+            {"dim": axis, "keepdim": bool(keepdim)},
+            shape_spec=out_shape_spec,
         )
+
+
+class _TopkOp(OpDef):
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("k", "int", required=True),
+            AttrDef("dim", "int", -1),
+            AttrDef("largest", "bool", True),
+            AttrDef("sorted", "bool", True),
+        ),
+    )
+    infer_shape = infer_topk_shape
+    infer_shape_with_attrs = infer_topk_shape_with_attrs
+    backend_kernels = {
+        "cuda": KernelBinding("generated_topk", "model", source_template="topk_cuda"),
+        "cpu": KernelBinding("generated_topk", "model", source_template="topk_cpu"),
+    }
+    allowed_dtypes = TOPK_DTYPES
+    description = "Internal dense topk over a positive static last dimension."
+
+
+@op_def
+class TopkValues(_TopkOp):
+    name = "topk_values"
+
+
+@op_def
+class TopkIndices(_TopkOp):
+    name = "topk_indices"
 
 
 def reduce_sum(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
-    return _reduction("reduce_sum", x, dim, keepdim)
+    return ReduceSum.forward(x, dim, keepdim)
 
 
 def reduce_max(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
-    return _reduction("reduce_max", x, dim, keepdim)
+    return ReduceMax.forward(x, dim, keepdim)
 
 
 def reduce_min(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
-    return _reduction("reduce_min", x, dim, keepdim)
+    return ReduceMin.forward(x, dim, keepdim)
 
 
 def reduce_mean(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
-    return _reduction("reduce_mean", x, dim, keepdim)
+    return ReduceMean.forward(x, dim, keepdim)
 
 
 def var(x: object, dim: int = -1, keepdim: bool = False, unbiased: bool = False) -> Tensor:
-    return _reduction("var", x, dim, keepdim, {"unbiased": bool(unbiased)})
+    return Var.forward(x, dim, keepdim, unbiased)
 
 
 def vector_norm(x: object, dim: int = -1, keepdim: bool = False, ord: float = 2.0) -> Tensor:
-    if float(ord) != 2.0:
-        raise NotImplementedError("vector_norm currently supports only ord=2")
-    return _reduction("vector_norm", x, dim, keepdim, {"ord": 2.0})
+    return VectorNorm.forward(x, dim, keepdim, ord)
 
 
 def argmax(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
-    tensor = as_tensor(x, dtype_hint="float32")
-    if tensor.dtype not in ARGMAX_DTYPES:
-        raise ValueError(f"argmax does not support dtype {tensor.dtype}")
-    if tensor.dynamic:
-        raise ValueError("argmax currently supports only static input shapes")
-    axis = normalize_argmax_dim(dim, tensor.rank)
-    if axis != tensor.rank - 1:
-        raise NotImplementedError("argmax currently supports only the last dimension")
-    if not isinstance(tensor.shape_spec[axis], int):
-        raise ValueError("argmax currently requires a static last dimension")
-    out_shape = resolve_argmax_shape(tensor.shape, axis, bool(keepdim))
-    out_shape_spec = list(tensor.shape_spec)
-    if keepdim:
-        out_shape_spec[axis] = 1
-    else:
-        del out_shape_spec[axis]
-        if not out_shape_spec:
-            out_shape_spec = [1]
-    return tensor.builder.emit(
-        "argmax",
-        [tensor],
-        out_shape,
-        "int64",
-        {"dim": axis, "keepdim": bool(keepdim)},
-        shape_spec=out_shape_spec,
-    )
+    return Argmax.forward(x, dim, keepdim)
 
 
 def topk(x: object, k: int, dim: int = -1, largest: bool = True, sorted: bool = True) -> tuple[Tensor, Tensor]:

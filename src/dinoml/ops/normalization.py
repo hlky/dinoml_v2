@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from dinoml.frontend import Tensor, as_tensor
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+import numpy as np
+
+from dinoml.frontend import Parameter, Tensor, as_tensor
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 
 
 NORMALIZATION_DTYPES = ("float16", "float32", "bfloat16")
@@ -23,41 +25,74 @@ def infer_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
     return list(shapes[0])
 
 
-def register_normalization_ops(registry: OpRegistry) -> None:
-    registry.register(
-        OpDef(
-            name="t5_layer_norm",
-            schema=OpSchema(inputs=("x", "weight"), attrs=(AttrDef("eps", "float", 1e-6),)),
-            infer_shape=infer_t5_layer_norm,
-            backend_kernels={
-                "cuda": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cuda"),
-                "cpu": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cpu"),
-            },
-            frontend=FrontendBinding("t5_layer_norm"),
+@op_def
+class T5LayerNorm(OpDef):
+    name = "t5_layer_norm"
+    schema = OpSchema(inputs=("x", "weight"), attrs=(AttrDef("eps", "float", 1e-6),))
+    infer_shape = infer_t5_layer_norm
+    backend_kernels = {
+        "cuda": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cuda"),
+        "cpu": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cpu"),
+    }
+    frontend = FrontendBinding("t5_layer_norm")
+    allowed_dtypes = T5_LAYER_NORM_DTYPES
+    description = (
+        "Bounded T5/RMS-style layer normalization over the last static dimension with fp32 accumulation, "
+        "rank >= 1 inputs, and a required affine weight shaped [hidden]."
+    )
+
+    @classmethod
+    def forward(cls, x: object, weight: object, eps: float = 1e-6) -> Tensor:
+        x_tensor, weight_tensor, _ = _validate_affine_norm_inputs(
+            "t5_layer_norm",
+            x,
+            weight,
             allowed_dtypes=T5_LAYER_NORM_DTYPES,
-            description=(
-                "Bounded T5/RMS-style layer normalization over the last static dimension with fp32 accumulation, "
-                "rank >= 1 inputs, and a required affine weight shaped [hidden]."
-            ),
         )
+        return x_tensor.builder.emit(
+            "t5_layer_norm",
+            [x_tensor, weight_tensor],
+            x_tensor.shape,
+            x_tensor.dtype,
+            {"eps": float(eps)},
+            shape_spec=x_tensor.shape_spec,
+        )
+
+
+@op_def
+class LayerNorm(OpDef):
+    name = "layer_norm"
+    schema = OpSchema(inputs=("x", "weight", "bias"), attrs=(AttrDef("eps", "float", 1e-5),))
+    infer_shape = infer_layer_norm
+    backend_kernels = {
+        "cuda": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cuda"),
+        "cpu": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cpu"),
+    }
+    frontend = FrontendBinding("layer_norm")
+    allowed_dtypes = LAYER_NORM_DTYPES
+    description = (
+        "Bounded affine LayerNorm over the last static dimension with fp32 accumulation, "
+        "rank >= 1 inputs, and required rank-1 affine weight/bias tensors shaped [hidden]."
     )
-    registry.register(
-        OpDef(
-            name="layer_norm",
-            schema=OpSchema(inputs=("x", "weight", "bias"), attrs=(AttrDef("eps", "float", 1e-5),)),
-            infer_shape=infer_layer_norm,
-            backend_kernels={
-                "cuda": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cuda"),
-                "cpu": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cpu"),
-            },
-            frontend=FrontendBinding("layer_norm"),
+
+    @classmethod
+    def forward(cls, x: object, weight: object, bias: object, eps: float = 1e-5) -> Tensor:
+        x_tensor, weight_tensor, bias_tensor = _validate_affine_norm_inputs(
+            "layer_norm",
+            x,
+            weight,
+            bias,
             allowed_dtypes=LAYER_NORM_DTYPES,
-            description=(
-                "Bounded affine LayerNorm over the last static dimension with fp32 accumulation, "
-                "rank >= 1 inputs, and required rank-1 affine weight/bias tensors shaped [hidden]."
-            ),
         )
-    )
+        assert bias_tensor is not None
+        return x_tensor.builder.emit(
+            "layer_norm",
+            [x_tensor, weight_tensor, bias_tensor],
+            x_tensor.shape,
+            x_tensor.dtype,
+            {"eps": float(eps)},
+            shape_spec=x_tensor.shape_spec,
+        )
 
 
 def _validate_affine_norm_inputs(
@@ -111,36 +146,38 @@ def _validate_affine_norm_inputs(
 
 
 def t5_layer_norm(x: object, weight: object, eps: float = 1e-6) -> Tensor:
-    x_tensor, weight_tensor, _ = _validate_affine_norm_inputs(
-        "t5_layer_norm",
-        x,
-        weight,
-        allowed_dtypes=T5_LAYER_NORM_DTYPES,
-    )
-    return x_tensor.builder.emit(
-        "t5_layer_norm",
-        [x_tensor, weight_tensor],
-        x_tensor.shape,
-        x_tensor.dtype,
-        {"eps": float(eps)},
-        shape_spec=x_tensor.shape_spec,
-    )
+    return T5LayerNorm.forward(x, weight, eps)
 
 
 def layer_norm(x: object, weight: object, bias: object, eps: float = 1e-5) -> Tensor:
-    x_tensor, weight_tensor, bias_tensor = _validate_affine_norm_inputs(
-        "layer_norm",
-        x,
-        weight,
-        bias,
-        allowed_dtypes=LAYER_NORM_DTYPES,
-    )
-    assert bias_tensor is not None
-    return x_tensor.builder.emit(
-        "layer_norm",
-        [x_tensor, weight_tensor, bias_tensor],
-        x_tensor.shape,
-        x_tensor.dtype,
-        {"eps": float(eps)},
-        shape_spec=x_tensor.shape_spec,
-    )
+    return LayerNorm.forward(x, weight, bias, eps)
+
+
+def rms_norm(x: object, weight: object | None = None, eps: float = 1e-6) -> Tensor:
+    x_tensor = as_tensor(x, dtype_hint="float32")
+    if x_tensor.dtype not in T5_LAYER_NORM_DTYPES:
+        raise ValueError(f"rms_norm does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank < 1:
+        raise ValueError("rms_norm requires rank >= 1 input")
+    if not isinstance(x_tensor.shape_spec[-1], int):
+        raise ValueError("rms_norm currently requires a static last dimension")
+    hidden = int(x_tensor.shape[-1])
+    if hidden <= 0:
+        raise ValueError("rms_norm last dimension must be positive")
+    if weight is None:
+        weight = Parameter([hidden], dtype=x_tensor.dtype, value=np.ones((hidden,), dtype=np.float32))
+    return T5LayerNorm.forward(x_tensor, weight, eps)
+
+
+__all__ = [
+    "LAYER_NORM_DTYPES",
+    "LayerNorm",
+    "NORMALIZATION_DTYPES",
+    "T5_LAYER_NORM_DTYPES",
+    "T5LayerNorm",
+    "infer_layer_norm",
+    "infer_t5_layer_norm",
+    "layer_norm",
+    "rms_norm",
+    "t5_layer_norm",
+]

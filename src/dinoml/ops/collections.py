@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from math import isfinite, prod
 from typing import Any, Mapping, Sequence
 
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+from dinoml.frontend import Parameter, Tensor, as_tensor
+from dinoml.ops.elementwise import tanh
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
+from dinoml.ops.shape_views import reshape
 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
@@ -615,253 +619,800 @@ def resolve_pad_shape(input_shape: Sequence[int], pad: Any) -> list[int]:
     return [dim + left[axis] + right[axis] for axis, dim in enumerate(output_shape)]
 
 
-def register_collection_ops(registry: OpRegistry) -> None:
-    registry.register(
-        OpDef(
-            name="concatenate",
-            schema=OpSchema(
-                inputs=("x0",),
-                attrs=(AttrDef("dim", "int", default=0),),
-            ),
-            infer_shape=infer_concatenate_shape,
-            infer_shape_with_attrs=infer_concatenate_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("concatenate"),
-            variadic_inputs=True,
-            description="Materialize a dense concatenation copy along a static dimension.",
-        )
+@op_def
+class Concatenate(OpDef):
+    name = "concatenate"
+    schema = OpSchema(
+        inputs=("x0",),
+        attrs=(AttrDef("dim", "int", default=0),),
     )
-    registry.register(
-        OpDef(
-            name="stack",
-            schema=OpSchema(
-                inputs=("x0",),
-                attrs=(AttrDef("dim", "int", default=0),),
-            ),
-            infer_shape=infer_stack_shape,
-            infer_shape_with_attrs=infer_stack_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("stack"),
-            variadic_inputs=True,
-            description="Materialize a dense stack copy by inserting a static dimension.",
-        )
+    infer_shape = infer_concatenate_shape
+    infer_shape_with_attrs = infer_concatenate_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("concatenate")
+    variadic_inputs = True
+    description = "Materialize a dense concatenation copy along a static dimension."
+
+    @classmethod
+    def forward(cls, inputs: Any, dim: int = 0) -> Tensor:
+        return concatenate(inputs, dim)
+
+
+@op_def
+class Stack(OpDef):
+    name = "stack"
+    schema = OpSchema(
+        inputs=("x0",),
+        attrs=(AttrDef("dim", "int", default=0),),
     )
-    registry.register(
-        OpDef(
-            name="flip",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(AttrDef("dims", "ints", required=True),),
-            ),
-            infer_shape=infer_flip_shape,
-            infer_shape_with_attrs=infer_flip_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("flip"),
-            description="Materialize a dense copy that reverses one or more static dimensions.",
-        )
+    infer_shape = infer_stack_shape
+    infer_shape_with_attrs = infer_stack_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("stack")
+    variadic_inputs = True
+    description = "Materialize a dense stack copy by inserting a static dimension."
+
+    @classmethod
+    def forward(cls, inputs: Any, dim: int = 0) -> Tensor:
+        return stack(inputs, dim)
+
+
+@op_def
+class Flip(OpDef):
+    name = "flip"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(AttrDef("dims", "ints", required=True),),
     )
-    registry.register(
-        OpDef(
-            name="repeat_interleave",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(AttrDef("repeats", "int", required=True), AttrDef("dim", "int", required=True)),
-            ),
-            infer_shape=infer_repeat_interleave_shape,
-            infer_shape_with_attrs=infer_repeat_interleave_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("repeat_interleave"),
-            description="Materialize a dense bounded repeat-interleave copy along a static dimension.",
-        )
+    infer_shape = infer_flip_shape
+    infer_shape_with_attrs = infer_flip_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("flip")
+    description = "Materialize a dense copy that reverses one or more static dimensions."
+
+    @classmethod
+    def forward(cls, x: Any, dims: Any) -> Tensor:
+        return flip(x, dims)
+
+
+@op_def
+class RepeatInterleave(OpDef):
+    name = "repeat_interleave"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(AttrDef("repeats", "int", required=True), AttrDef("dim", "int", required=True)),
     )
-    registry.register(
-        OpDef(
-            name="permute",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(AttrDef("dims", "ints", required=True),),
-            ),
-            infer_shape=infer_permute_shape,
-            infer_shape_with_attrs=infer_permute_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("permute"),
-            description="Materialize a dense bounded copy with permuted static dimensions.",
-        )
+    infer_shape = infer_repeat_interleave_shape
+    infer_shape_with_attrs = infer_repeat_interleave_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("repeat_interleave")
+    description = "Materialize a dense bounded repeat-interleave copy along a static dimension."
+
+    @classmethod
+    def forward(cls, x: Any, repeats: Any, dim: Any) -> Tensor:
+        return repeat_interleave(x, repeats, dim)
+
+
+@op_def
+class Permute(OpDef):
+    name = "permute"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(AttrDef("dims", "ints", required=True),),
     )
-    for op_name, dims in SPECIALIZED_PERMUTE_DIMS.items():
-        rank = len(dims)
-        registry.register(
-            OpDef(
-                name=op_name,
-                schema=OpSchema(
-                    inputs=("x",),
-                    attrs=(AttrDef("dims", "ints", default=tuple(dims)),),
-                ),
-                infer_shape=infer_permute_shape,
-                infer_shape_with_attrs=lambda input_shapes, attrs, *, _op_name=op_name: infer_specialized_permute_shape_with_attrs(
-                    input_shapes,
-                    attrs,
-                    op_name=_op_name,
-                ),
-                allowed_dtypes=COLLECTION_DTYPES,
-                backend_kernels={
-                    "cpu": KernelBinding(
-                        symbol=f"generated_{op_name}",
-                        library="model",
-                        source_template="permute_cpu.cpp.j2",
-                    ),
-                    "cuda": KernelBinding(
-                        symbol=f"generated_{op_name}",
-                        library="model",
-                        source_template="permute_cuda.cu.j2",
-                    ),
-                },
-                frontend=FrontendBinding(op_name, default_attrs={"dims": list(dims)}),
-                description=(
-                    f"Materialize a dense bounded copy for the fixed {list(dims)} permutation on rank-{rank} static tensors."
-                ),
-            )
-        )
-    registry.register(
-        OpDef(
-            name="dynamic_slice",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(
-                    AttrDef("start_indices", "ints", required=True),
-                    AttrDef("slice_sizes", "ints", required=True),
-                ),
-            ),
-            infer_shape=infer_dynamic_slice_shape,
-            infer_shape_with_attrs=infer_dynamic_slice_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("dynamic_slice"),
-            description="Materialize a dense bounded slice copy with static starts and sizes.",
-        )
+    infer_shape = infer_permute_shape
+    infer_shape_with_attrs = infer_permute_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("permute")
+    description = "Materialize a dense bounded copy with permuted static dimensions."
+
+    @classmethod
+    def forward(cls, x: Any, dims: Any) -> Tensor:
+        return permute(x, dims)
+
+
+class _SpecializedPermute(OpDef):
+    infer_shape = infer_permute_shape
+    allowed_dtypes = COLLECTION_DTYPES
+
+
+def _specialized_permute_shape_with_attrs(op_name: str):
+    return lambda input_shapes, attrs: infer_specialized_permute_shape_with_attrs(input_shapes, attrs, op_name=op_name)
+
+
+@op_def
+class Permute021(_SpecializedPermute):
+    _dims = SPECIALIZED_PERMUTE_DIMS["permute021"]
+    name = "permute021"
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dims", "ints", default=tuple(_dims)),))
+    infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
+    description = "Materialize a dense bounded copy for the fixed [0, 2, 1] permutation on rank-3 static tensors."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return permute021(x)
+
+
+@op_def
+class Permute0213(_SpecializedPermute):
+    _dims = SPECIALIZED_PERMUTE_DIMS["permute0213"]
+    name = "permute0213"
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dims", "ints", default=tuple(_dims)),))
+    infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
+    description = "Materialize a dense bounded copy for the fixed [0, 2, 1, 3] permutation on rank-4 static tensors."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return permute0213(x)
+
+
+@op_def
+class Permute102(_SpecializedPermute):
+    _dims = SPECIALIZED_PERMUTE_DIMS["permute102"]
+    name = "permute102"
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dims", "ints", default=tuple(_dims)),))
+    infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
+    description = "Materialize a dense bounded copy for the fixed [1, 0, 2] permutation on rank-3 static tensors."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return permute102(x)
+
+
+@op_def
+class Permute210(_SpecializedPermute):
+    _dims = SPECIALIZED_PERMUTE_DIMS["permute210"]
+    name = "permute210"
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dims", "ints", default=tuple(_dims)),))
+    infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
+    description = "Materialize a dense bounded copy for the fixed [2, 1, 0] permutation on rank-3 static tensors."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return permute210(x)
+
+
+@op_def
+class DynamicSlice(OpDef):
+    name = "dynamic_slice"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("start_indices", "ints", required=True),
+            AttrDef("slice_sizes", "ints", required=True),
+        ),
     )
-    registry.register(
-        OpDef(
-            name="index_select",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(
-                    AttrDef("dim", "int", required=True),
-                    AttrDef("indices", "ints", required=True),
-                ),
-            ),
-            infer_shape=infer_index_select_shape,
-            infer_shape_with_attrs=infer_index_select_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("index_select"),
-            description="Materialize a dense bounded select copy along one static dimension using static integer indices.",
-        )
+    infer_shape = infer_dynamic_slice_shape
+    infer_shape_with_attrs = infer_dynamic_slice_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("dynamic_slice")
+    description = "Materialize a dense bounded slice copy with static starts and sizes."
+
+    @classmethod
+    def forward(cls, x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
+        return dynamic_slice(x, start_indices, slice_sizes)
+
+
+@op_def
+class IndexSelect(OpDef):
+    name = "index_select"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("dim", "int", required=True),
+            AttrDef("indices", "ints", required=True),
+        ),
     )
-    registry.register(
-        OpDef(
-            name="gather",
-            schema=OpSchema(
-                inputs=("x", "index"),
-                attrs=(AttrDef("dim", "int", required=True),),
-            ),
-            infer_shape=infer_gather_shape,
-            infer_shape_with_attrs=infer_gather_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("gather"),
-            description="Materialize a dense bounded gather copy using a static-shape integer index tensor.",
-        )
+    infer_shape = infer_index_select_shape
+    infer_shape_with_attrs = infer_index_select_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("index_select")
+    description = "Materialize a dense bounded select copy along one static dimension using static integer indices."
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, indices: Any) -> Tensor:
+        return index_select(x, dim, indices)
+
+
+@op_def
+class Gather(OpDef):
+    name = "gather"
+    schema = OpSchema(
+        inputs=("x", "index"),
+        attrs=(AttrDef("dim", "int", required=True),),
     )
-    registry.register(
-        OpDef(
-            name="batch_gather",
-            schema=OpSchema(inputs=("x", "indices")),
-            infer_shape=infer_batch_gather_shape,
-            infer_shape_with_attrs=infer_batch_gather_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("batch_gather"),
-            description="Materialize a dense bounded batch gather from axis 1 using static-shape integer indices.",
-        )
+    infer_shape = infer_gather_shape
+    infer_shape_with_attrs = infer_gather_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("gather")
+    description = "Materialize a dense bounded gather copy using a static-shape integer index tensor."
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, index: Any) -> Tensor:
+        return gather(x, dim, index)
+
+
+@op_def
+class BatchGather(OpDef):
+    name = "batch_gather"
+    schema = OpSchema(inputs=("x", "indices"))
+    infer_shape = infer_batch_gather_shape
+    infer_shape_with_attrs = infer_batch_gather_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("batch_gather")
+    description = "Materialize a dense bounded batch gather from axis 1 using static-shape integer indices."
+
+    @classmethod
+    def forward(cls, x: Any, indices: Any) -> Tensor:
+        return batch_gather(x, indices)
+
+
+@op_def
+class SliceScatter(OpDef):
+    name = "slice_scatter"
+    schema = OpSchema(
+        inputs=("x", "update"),
+        attrs=(AttrDef("start_indices", "ints", required=True),),
     )
-    registry.register(
-        OpDef(
-            name="slice_scatter",
-            schema=OpSchema(
-                inputs=("x", "update"),
-                attrs=(AttrDef("start_indices", "ints", required=True),),
-            ),
-            infer_shape=infer_slice_scatter_shape,
-            infer_shape_with_attrs=infer_slice_scatter_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("slice_scatter"),
-            description="Materialize a dense bounded scatter-update copy with static starts.",
-        )
+    infer_shape = infer_slice_scatter_shape
+    infer_shape_with_attrs = infer_slice_scatter_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("slice_scatter")
+    description = "Materialize a dense bounded scatter-update copy with static starts."
+
+    @classmethod
+    def forward(cls, x: Any, update: Any, start_indices: Any) -> Tensor:
+        return slice_scatter(x, update, start_indices)
+
+
+@op_def
+class Pad(OpDef):
+    name = "pad"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("pad", "ints", required=True),
+            AttrDef("value", "float", default=0.0),
+        ),
     )
-    registry.register(
-        OpDef(
-            name="pad",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(
-                    AttrDef("pad", "ints", required=True),
-                    AttrDef("value", "float", default=0.0),
-                ),
-            ),
-            infer_shape=infer_pad_shape,
-            infer_shape_with_attrs=infer_pad_shape_with_attrs,
-            allowed_dtypes=COLLECTION_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("pad"),
-            description="Materialize a dense static constant-padding copy using PyTorch F.pad pair order.",
-        )
+    infer_shape = infer_pad_shape
+    infer_shape_with_attrs = infer_pad_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("pad")
+    description = "Materialize a dense static constant-padding copy using PyTorch F.pad pair order."
+
+    @classmethod
+    def forward(cls, x: Any, pad_width: Any, value: Any = 0.0) -> Tensor:
+        return pad(x, pad_width, value)
+
+
+def concatenate(inputs: Any, dim: int = 0) -> Tensor:
+    tensors = _as_tensor_sequence(inputs, "concatenate")
+    dtype = _check_collection_tensors("concatenate", tensors)
+    if any(tensor.dynamic for tensor in tensors):
+        raise ValueError("concatenate currently supports only static input shapes")
+    normalized_dim = normalize_concatenate_dim(dim, tensors[0].rank)
+    out_shape = infer_concatenate_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
+    return tensors[0].builder.emit(
+        "concatenate",
+        tensors,
+        out_shape,
+        dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape,
     )
+
+
+def concatenate_fast(inputs: Any, dim: int = 0) -> Tensor:
+    return concatenate(inputs, dim)
+
+
+def concatenate_tanh(inputs: Any, dim: int = 0) -> Tensor:
+    return tanh(concatenate(inputs, dim))
+
+
+def stack(inputs: Any, dim: int = 0) -> Tensor:
+    tensors = _as_tensor_sequence(inputs, "stack")
+    dtype = _check_collection_tensors("stack", tensors)
+    if any(tensor.dynamic for tensor in tensors):
+        raise ValueError("stack currently supports only static input shapes")
+    normalized_dim = normalize_stack_dim(dim, tensors[0].rank)
+    out_shape = infer_stack_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
+    return tensors[0].builder.emit(
+        "stack",
+        tensors,
+        out_shape,
+        dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
+def flip(x: Any, dims: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"flip does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("flip currently supports only static input shapes")
+    normalized_dims = normalize_flip_dims(dims, tensor.rank)
+    return tensor.builder.emit(
+        "flip",
+        [tensor],
+        tensor.shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=tensor.shape_spec,
+    )
+
+
+def repeat_interleave(x: Any, repeats: Any, dim: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"repeat_interleave does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("repeat_interleave currently supports only static input shapes")
+    normalized_dim = normalize_repeat_interleave_dim(dim, tensor.rank)
+    normalized_repeats = normalize_repeat_interleave_repeats(repeats)
+    out_shape = infer_repeat_interleave_shape_with_attrs(
+        [tensor.shape],
+        {"repeats": normalized_repeats, "dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "repeat_interleave",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"repeats": normalized_repeats, "dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
+def permute(x: Any, dims: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"permute does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("permute currently supports only static input shapes")
+    normalized_dims = normalize_permute_dims(dims, tensor.rank)
+    out_shape = infer_permute_shape_with_attrs([tensor.shape], {"dims": normalized_dims})
+    out_shape_spec = [_copy_shape_dim(tensor.shape_spec[axis]) for axis in normalized_dims]
+    return tensor.builder.emit(
+        "permute",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=out_shape_spec,
+    )
+
+
+def permute021(x: Any) -> Tensor:
+    return _specialized_permute("permute021", x)
+
+
+def permute0213(x: Any) -> Tensor:
+    return _specialized_permute("permute0213", x)
+
+
+def permute102(x: Any) -> Tensor:
+    return _specialized_permute("permute102", x)
+
+
+def permute210(x: Any) -> Tensor:
+    return _specialized_permute("permute210", x)
+
+
+def pixel_shuffle(x: Any, upscale_factor: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.rank != 4:
+        raise ValueError(f"pixel_shuffle expects rank-4 input [N, C, H, W], got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("pixel_shuffle currently supports only static input shapes")
+    factor = _normalize_pixel_factor(upscale_factor, "pixel_shuffle upscale_factor")
+    batch, channels_in, height, width = tensor.shape
+    channel_factor = factor * factor
+    if channels_in % channel_factor != 0:
+        raise ValueError(
+            f"pixel_shuffle input channels {channels_in} must be divisible by upscale_factor^2 ({channel_factor})"
+        )
+    channels_out = channels_in // channel_factor
+    reshaped = reshape(tensor, [batch, channels_out, factor, factor, height, width])
+    shuffled = permute(reshaped, (0, 1, 4, 2, 5, 3))
+    return reshape(shuffled, [batch, channels_out, height * factor, width * factor])
+
+
+def pixel_unshuffle(x: Any, downscale_factor: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.rank != 4:
+        raise ValueError(f"pixel_unshuffle expects rank-4 input [N, C, H, W], got rank {tensor.rank}")
+    if tensor.dynamic:
+        raise ValueError("pixel_unshuffle currently supports only static input shapes")
+    factor = _normalize_pixel_factor(downscale_factor, "pixel_unshuffle downscale_factor")
+    batch, channels, height_in, width_in = tensor.shape
+    if height_in % factor != 0:
+        raise ValueError(f"pixel_unshuffle input height {height_in} must be divisible by downscale_factor {factor}")
+    if width_in % factor != 0:
+        raise ValueError(f"pixel_unshuffle input width {width_in} must be divisible by downscale_factor {factor}")
+    height_out = height_in // factor
+    width_out = width_in // factor
+    reshaped = reshape(tensor, [batch, channels, height_out, factor, width_out, factor])
+    unshuffled = permute(reshaped, (0, 1, 3, 5, 2, 4))
+    return reshape(unshuffled, [batch, channels * factor * factor, height_out, width_out])
+
+
+def dynamic_slice(x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"dynamic_slice does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("dynamic_slice currently supports only static input shapes")
+    normalized_starts, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, tensor.shape)
+    out_shape = infer_dynamic_slice_shape_with_attrs(
+        [tensor.shape],
+        {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
+    )
+    return tensor.builder.emit(
+        "dynamic_slice",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
+        shape_spec=out_shape,
+    )
+
+
+def index_select(x: Any, dim: Any, indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"index_select does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("index_select currently supports only static input shapes")
+    normalized_dim, normalized_indices = normalize_index_select_attrs(dim, indices, tensor.shape)
+    out_shape = infer_index_select_shape_with_attrs(
+        [tensor.shape],
+        {"dim": normalized_dim, "indices": normalized_indices},
+    )
+    return tensor.builder.emit(
+        "index_select",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim, "indices": normalized_indices},
+        shape_spec=out_shape,
+    )
+
+
+def gather(x: Any, dim: Any, index: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    if tensor.builder is not index_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"gather does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"gather index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic:
+        raise ValueError("gather currently supports only static input and index shapes")
+    normalized_dim = normalize_gather_attrs(dim, tensor.shape, index_tensor.shape)
+    out_shape = infer_gather_shape_with_attrs(
+        [tensor.shape, index_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "gather",
+        [tensor, index_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape,
+    )
+
+
+def batch_gather(x: Any, indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(indices)
+    if tensor.builder is not index_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"batch_gather does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"batch_gather indices must have dtype int64 or int32, got {index_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic:
+        raise ValueError("batch_gather currently supports only static input and index shapes")
+    normalize_batch_gather_attrs(tensor.shape, index_tensor.shape)
+    out_shape = infer_batch_gather_shape_with_attrs([tensor.shape, index_tensor.shape], {})
+    return tensor.builder.emit(
+        "batch_gather",
+        [tensor, index_tensor],
+        out_shape,
+        tensor.dtype,
+        {},
+        shape_spec=out_shape,
+    )
+
+
+def slice_scatter(x: Any, update: Any, start_indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
+    dtype = _check_collection_tensors("slice_scatter", [tensor, update_tensor])
+    if tensor.dynamic or update_tensor.dynamic:
+        raise ValueError("slice_scatter currently supports only static input shapes")
+    normalized_starts = normalize_slice_scatter_attrs(start_indices, tensor.shape, update_tensor.shape)
+    out_shape = infer_slice_scatter_shape_with_attrs(
+        [tensor.shape, update_tensor.shape],
+        {"start_indices": normalized_starts},
+    )
+    return tensor.builder.emit(
+        "slice_scatter",
+        [tensor, update_tensor],
+        out_shape,
+        dtype,
+        {"start_indices": normalized_starts},
+        shape_spec=tensor.shape_spec,
+    )
+
+
+def slice_reshape_scatter(x: Any, update: Any, start_indices: Any, slice_shape: Any) -> Tensor:
+    tensor = as_tensor(x)
+    update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
+    normalized_shape = _normalize_slice_reshape_scatter_shape(slice_shape, tensor.rank, update_tensor.numel)
+    reshaped_update = reshape(update_tensor, normalized_shape)
+    return slice_scatter(tensor, reshaped_update, start_indices)
+
+
+def split(x: Any, split_size_or_sections: Any, dim: Any = 0) -> tuple[Tensor, ...]:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"split does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("split currently supports only static input shapes")
+    normalized_dim = normalize_split_dim(dim, tensor.rank)
+    sections = normalize_split_sections(split_size_or_sections, tensor.shape[normalized_dim])
+    return _slice_sections(tensor, sections, normalized_dim)
+
+
+def chunk(x: Any, chunks: Any, dim: Any = 0) -> tuple[Tensor, ...]:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"chunk does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("chunk currently supports only static input shapes")
+    normalized_dim = normalize_split_dim(dim, tensor.rank)
+    normalized_chunks = normalize_chunk_count(chunks)
+    sections = chunk_sections(tensor.shape[normalized_dim], normalized_chunks)
+    return _slice_sections(tensor, sections, normalized_dim)
+
+
+def pad(x: Any, pad: Any, value: Any = 0.0) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"pad does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("pad currently supports only static input shapes")
+    normalize_pad_widths(pad, tensor.rank)
+    normalized_pad = [int(value) for value in pad]
+    out_shape = infer_pad_shape_with_attrs([tensor.shape], {"pad": normalized_pad})
+    if tensor.dtype == "bool":
+        if not isinstance(value, (bool, int, float)):
+            raise ValueError(f"pad value must be a constant scalar, got {value!r}")
+        if isinstance(value, float) and not isfinite(float(value)):
+            raise ValueError("pad value must be finite")
+        normalized_value: bool | float = bool(value)
+    else:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise ValueError(f"pad value must be a constant numeric scalar, got {value!r}")
+        if not isfinite(float(value)):
+            raise ValueError("pad value must be finite")
+        normalized_value = float(value)
+    return tensor.builder.emit(
+        "pad",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"pad": normalized_pad, "value": normalized_value},
+        shape_spec=out_shape,
+    )
+
+
+def pad_last_dim(x: Any, left: Any, right: Any, value: Any = 0.0) -> Tensor:
+    if not isinstance(left, int) or isinstance(left, bool):
+        raise ValueError(f"pad_last_dim left must be a non-negative integer, got {left!r}")
+    if not isinstance(right, int) or isinstance(right, bool):
+        raise ValueError(f"pad_last_dim right must be a non-negative integer, got {right!r}")
+    return pad(x, [int(left), int(right)], value=value)
+
+
+def transpose(x: Any, dim0: Any, dim1: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"transpose does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("transpose currently supports only static input shapes")
+    normalized_dim0, normalized_dim1 = normalize_transpose_dims(dim0, dim1, tensor.rank)
+    dims = list(range(tensor.rank))
+    dims[normalized_dim0], dims[normalized_dim1] = dims[normalized_dim1], dims[normalized_dim0]
+    return permute(tensor, dims)
+
+
+def _as_tensor_sequence(inputs: Any, op_name: str) -> list[Tensor]:
+    if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
+        raise ValueError(f"{op_name} expects a non-empty sequence of tensors")
+    if not inputs:
+        raise ValueError(f"{op_name} expects a non-empty sequence of tensors")
+    first = as_tensor(inputs[0])
+    return [first, *(as_tensor(value, dtype_hint=first.dtype) for value in inputs[1:])]
+
+
+def _check_collection_tensors(op_name: str, tensors: Sequence[Tensor]) -> str:
+    first = tensors[0]
+    for tensor in tensors[1:]:
+        if tensor.builder is not first.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if tensor.dtype != first.dtype:
+            raise ValueError(f"{op_name} dtype mismatch: {first.dtype} vs {tensor.dtype}")
+    if first.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {first.dtype}")
+    return first.dtype
+
+
+def _specialized_permute(op_name: str, x: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError(f"{op_name} currently supports only static input shapes")
+    fixed_dims = SPECIALIZED_PERMUTE_DIMS[op_name]
+    if tensor.rank != len(fixed_dims):
+        raise ValueError(f"{op_name} expects rank-{len(fixed_dims)} input, got rank {tensor.rank}")
+    normalized_dims = list(fixed_dims)
+    out_shape = infer_permute_shape_with_attrs([tensor.shape], {"dims": normalized_dims})
+    out_shape_spec = [_copy_shape_dim(tensor.shape_spec[axis]) for axis in normalized_dims]
+    return tensor.builder.emit(
+        op_name,
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        {"dims": normalized_dims},
+        shape_spec=out_shape_spec,
+    )
+
+
+def _normalize_pixel_factor(factor: Any, name: str) -> int:
+    if not isinstance(factor, int) or isinstance(factor, bool):
+        raise ValueError(f"{name} must be a positive integer")
+    if factor <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return int(factor)
+
+
+def _normalize_slice_reshape_scatter_shape(slice_shape: Any, rank: int, update_numel: int) -> list[int]:
+    if not isinstance(slice_shape, (list, tuple)):
+        raise ValueError(f"slice_reshape_scatter slice_shape must be a sequence of integers, got {slice_shape!r}")
+    normalized: list[int] = []
+    for dim in slice_shape:
+        if not isinstance(dim, int) or isinstance(dim, bool):
+            raise ValueError(f"slice_reshape_scatter slice_shape must contain only integers, got {slice_shape!r}")
+        if dim <= 0:
+            raise ValueError(f"slice_reshape_scatter slice_shape dimensions must be positive, got {dim}")
+        normalized.append(int(dim))
+    if len(normalized) != rank:
+        raise ValueError(f"slice_reshape_scatter slice_shape rank {len(normalized)} must match input rank {rank}")
+    if int(prod(normalized)) != int(update_numel):
+        raise ValueError(
+            f"slice_reshape_scatter slice_shape {normalized} must preserve update element count {int(update_numel)}"
+        )
+    return normalized
+
+
+def _slice_sections(tensor: Tensor, sections: Sequence[int], dim: int) -> tuple[Tensor, ...]:
+    outputs = []
+    start = 0
+    for section in sections:
+        starts = [0] * tensor.rank
+        sizes = list(tensor.shape)
+        starts[dim] = start
+        sizes[dim] = section
+        outputs.append(dynamic_slice(tensor, starts, sizes))
+        start += section
+    return tuple(outputs)
+
+
+def _copy_shape_dim(dim: Any) -> Any:
+    return dict(dim) if isinstance(dim, Mapping) else dim
 
 
 __all__ = [
+    "BatchGather",
     "COLLECTION_DTYPES",
+    "Concatenate",
+    "DynamicSlice",
+    "Flip",
     "GATHER_INDEX_DTYPES",
+    "Gather",
+    "IndexSelect",
+    "Pad",
+    "Permute",
+    "Permute021",
+    "Permute0213",
+    "Permute102",
+    "Permute210",
+    "RepeatInterleave",
     "SPECIALIZED_PERMUTE_DIMS",
+    "SliceScatter",
+    "Stack",
+    "batch_gather",
+    "chunk",
+    "concatenate",
+    "concatenate_fast",
+    "concatenate_tanh",
+    "dynamic_slice",
+    "flip",
+    "gather",
+    "index_select",
     "infer_batch_gather_shape",
     "infer_batch_gather_shape_with_attrs",
     "infer_concatenate_shape",
@@ -885,6 +1436,21 @@ __all__ = [
     "infer_specialized_permute_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
+    "pad",
+    "pad_last_dim",
+    "permute",
+    "permute021",
+    "permute0213",
+    "permute102",
+    "permute210",
+    "pixel_shuffle",
+    "pixel_unshuffle",
+    "repeat_interleave",
+    "slice_reshape_scatter",
+    "slice_scatter",
+    "split",
+    "stack",
+    "transpose",
     "chunk_sections",
     "normalize_batch_gather_attrs",
     "normalize_chunk_count",
@@ -905,7 +1471,6 @@ __all__ = [
     "normalize_split_sections",
     "normalize_stack_dim",
     "normalize_transpose_dims",
-    "register_collection_ops",
     "resolve_batch_gather_shape",
     "resolve_concatenate_shape",
     "resolve_dynamic_slice_shape",

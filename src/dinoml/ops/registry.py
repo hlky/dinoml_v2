@@ -117,7 +117,22 @@ class OpRegistry:
         self.definitions: Dict[str, OpDef] = {}
         self.frontends: Dict[str, str] = {}
 
-    def register(self, op_def: OpDef) -> OpDef:
+    def register(self, op_def: OpDef | type[OpDef]) -> OpDef:
+        if isinstance(op_def, type):
+            op_cls = op_def
+            op_def = OpDef(
+                name=op_cls.name,
+                schema=op_cls.schema,
+                infer_shape=op_cls.infer_shape,
+                allowed_dtypes=getattr(op_cls, "allowed_dtypes", ("float32",)),
+                backend_kernels=getattr(op_cls, "backend_kernels", {}),
+                frontend=getattr(op_cls, "frontend", None),
+                profiler=getattr(op_cls, "profiler", False),
+                variadic_inputs=getattr(op_cls, "variadic_inputs", False),
+                accepted_input_counts=getattr(op_cls, "accepted_input_counts", None),
+                description=getattr(op_cls, "description", ""),
+                infer_shape_with_attrs=getattr(op_cls, "infer_shape_with_attrs", None),
+            )
         if op_def.name in self.definitions:
             raise ValueError(f"Duplicate op registration: {op_def.name}")
         if op_def.frontend is not None:
@@ -146,3 +161,12 @@ class OpRegistry:
 
     def op_defs(self) -> Iterable[OpDef]:
         return self.definitions.values()
+
+
+OP_REGISTRY = OpRegistry()
+
+
+def op_def(op_cls: type[OpDef]) -> type[OpDef]:
+    OP_REGISTRY.register(op_cls)
+    return op_cls
+

@@ -668,10 +668,7 @@ def _render_generated_cutlass_gemm_source(source: str, used_candidate_plan: Mapp
     if not symbols:
         raise ValueError("CUTLASS GEMM used candidate plan does not contain any symbols")
     lines = source.rstrip().splitlines()
-    try:
-        first_export = next(index for index, line in enumerate(lines) if line.startswith("DINOML_FORWARD_GEMM"))
-    except StopIteration as exc:
-        raise ValueError("CUTLASS GEMM generated source does not contain export invocations") from exc
+    first_export = next((index for index, line in enumerate(lines) if line.startswith("DINOML_FORWARD_GEMM")), len(lines))
     generated_lines = lines[first_export:]
     available = {symbol for line in generated_lines for symbol in _generated_export_symbols(line)}
     dynamic_policy_aliases = []

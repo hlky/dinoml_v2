@@ -4,6 +4,17 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Finished the CUTLASS source-layout refactor around the intended provider
+  files: `kernels/cuda/src/` now carries `cutlass_bmm.cu`, `cutlass_conv.cu`,
+  `cutlass_gemm.cu`, and shared `cutlass_common.cuh`, while the checked-in
+  `cutlass_gemm_units/` instantiation directory has been removed. CMake now
+  generates chunked GEMM op/dtype instantiation sources from `cutlass_gemm.cu`
+  under the build tree using `tools/generate_cutlass_gemm_unit.py`, matching
+  the existing BMM/Conv generated-unit flow while preserving GEMM compile
+  parallelism and the existing op/dtype static archive target names. GEMM
+  support provenance now hashes the shared common
+  header, GEMM template, generator, and GEMM candidate/provider descriptors so
+  profile/support manifests notice source or generation changes.
 - Rebuilt the test suite around intent-specific contract coverage after moving
   the eager NumPy graph interpreter out of `dinoml.backends.cpu` into
   `dinoml.reference.reference_numpy`. `tests/ir/` now checks frontend/IR shape

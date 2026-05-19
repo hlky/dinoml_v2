@@ -53,7 +53,9 @@ The CUTLASS slice adds:
 - `build_external_kernel_plan()` for CUDA external kernel family metadata.
 - The repo CMake `dinoml_cutlass_gemm` aggregate target builds op/dtype GEMM
   static archives such as `libdinoml_cutlass_gemm_rcr_bias_float32.a` once per
-  CUDA architecture cache, instead of rendering/pruning a per-artifact GEMM
+  CUDA architecture cache, generating chunked op/dtype instantiation sources
+  from `kernels/cuda/src/cutlass_gemm.cu` at CMake build time instead of
+  carrying checked-in unit sources or rendering/pruning a per-artifact GEMM
   support source. The matching `dinoml_cutlass_bmm` targets do the same for BMM
   op/dtype archives such as `libdinoml_cutlass_bmm_rrr_float32.a`. Generated
   artifacts request only the archives referenced by their kernel manifest and
@@ -224,8 +226,10 @@ GEMM and BMM now use repo CMake op/dtype archive targets and compact
 `cutlass_gemm_manifest.json` / `cutlass_bmm_manifest.json` records for the
 CMake-built support cache; generated CUDA artifact builds no longer use
 per-artifact rendered/pruned GEMM/BMM support `.so` libraries. The GEMM CMake
-targets compile a shared policy header plus chunked checked-in instantiation
-units rather than one monolithic CUDA translation unit. The first
+targets generate chunked op/dtype instantiation sources from `cutlass_gemm.cu`
+using the same candidate metadata renderer that feeds manifests and profilers,
+with provider-shared helper definitions kept in `cutlass_common.cuh` and chunk
+boundaries kept in the build tree for practical compile parallelism. The first
 epilogue slice uses a structured GEMM descriptor split:
 `dinoml.kernels.families.gemm` owns layout/shape/epilogue contracts and
 `dinoml.kernels.providers.cutlass.gemm` owns CUTLASS symbol/candidate metadata.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from importlib import import_module
 from pathlib import Path
 from types import MappingProxyType
@@ -43,6 +44,14 @@ class BackendSpec:
         return getattr(module, function_name)
 
 
+def _shared_library_name(stem: str) -> str:
+    if os.name == "nt":
+        return f"{stem}.dll"
+    if os.uname().sysname == "Darwin":
+        return f"lib{stem}.dylib"
+    return f"lib{stem}.so"
+
+
 _BACKENDS: dict[str, BackendSpec] = {
     "cpu": BackendSpec(
         name="cpu",
@@ -75,6 +84,22 @@ _BACKENDS: dict[str, BackendSpec] = {
                 "runtime_library": "lib/libdinoml_runtime.so",
                 "cuda_runtime_library": "lib/libdinoml_cuda_runtime.so",
                 "kernel_library": "lib/libdinoml_cuda_kernels.so",
+            }
+        ),
+    ),
+    "rocm": BackendSpec(
+        name="rocm",
+        default_arch="gfx1201",
+        supported_dtypes=frozenset({"float16", "float32", "bfloat16", "bool"}),
+        build_function="dinoml.backends.rocm.build_rocm_module",
+        cmake=CMakeCapabilities(
+            support_build_targets=("dinoml_runtime", "dinoml_rocm_runtime", "dinoml_rocm_kernels"),
+        ),
+        support_libraries=MappingProxyType(
+            {
+                "runtime_library": f"lib/{_shared_library_name('dinoml_runtime')}",
+                "rocm_runtime_library": f"lib/{_shared_library_name('dinoml_rocm_runtime')}",
+                "kernel_library": f"lib/{_shared_library_name('dinoml_rocm_kernels')}",
             }
         ),
     ),

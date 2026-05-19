@@ -48,7 +48,7 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
     target = dict(kernel_manifest["target"])
     target_name = target["name"]
     arch = target.get("arch", "native").replace("sm_", "")
-    target_dir = f"{target_name}-{arch}" if target_name == "cuda" else target_name
+    target_dir = f"{target_name}-{arch}" if target_name in {"cuda", "rocm"} else target_name
     kernel_symbols = tuple(item["kernel_symbol"] for item in kernel_manifest["required_kernels"])
     profiler_symbols = tuple(
         item["profiler_symbol"]

@@ -25,6 +25,7 @@ enum DinoDtype {
 enum DinoDeviceType {
   DINO_DEVICE_CPU = 0,
   DINO_DEVICE_CUDA = 1,
+  DINO_DEVICE_ROCM = 2,
 };
 
 enum DinoTensorFlags {

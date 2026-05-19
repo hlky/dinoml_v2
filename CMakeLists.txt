@@ -1,5 +1,31 @@
 cmake_minimum_required(VERSION 3.24)
 
+option(DINOML_ENABLE_ROCM "Build ROCm runtime and kernel libraries" OFF)
+
+if(DINOML_ENABLE_ROCM)
+  include(cmake/DinoMLROCmSdk.cmake)
+  dinoml_configure_rocm_sdk()
+  if(DINOML_ROCM_LLVM_BIN AND NOT DEFINED CMAKE_CXX_COMPILER)
+    if(WIN32)
+      set(_DINOML_ROCM_CXX_CANDIDATES
+        "${DINOML_ROCM_LLVM_BIN}/clang++.exe"
+        "${DINOML_ROCM_LLVM_BIN}/amdclang++.exe"
+      )
+    else()
+      set(_DINOML_ROCM_CXX_CANDIDATES
+        "${DINOML_ROCM_LLVM_BIN}/clang++"
+        "${DINOML_ROCM_LLVM_BIN}/amdclang++"
+      )
+    endif()
+    foreach(_DINOML_ROCM_CXX IN LISTS _DINOML_ROCM_CXX_CANDIDATES)
+      if(EXISTS "${_DINOML_ROCM_CXX}")
+        set(CMAKE_CXX_COMPILER "${_DINOML_ROCM_CXX}" CACHE FILEPATH "C++ compiler")
+        break()
+      endif()
+    endforeach()
+  endif()
+endif()
+
 project(DinoMLV2 LANGUAGES CXX)
 
 option(DINOML_ENABLE_CUDA "Build CUDA runtime and kernel libraries" ON)
@@ -30,6 +56,13 @@ if(DINOML_ENABLE_CUDA)
   find_package(CUDAToolkit REQUIRED)
   set(CMAKE_CUDA_STANDARD 17)
   set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+endif()
+
+if(DINOML_ENABLE_ROCM)
+  enable_language(HIP)
+  find_package(hip CONFIG REQUIRED)
+  set(CMAKE_HIP_STANDARD 17)
+  set(CMAKE_HIP_STANDARD_REQUIRED ON)
 endif()
 
 add_library(dinoml_runtime SHARED
@@ -69,6 +102,55 @@ set_target_properties(dinoml_cpu_kernels PROPERTIES
   BUILD_RPATH "$ORIGIN"
   INSTALL_RPATH "$ORIGIN"
 )
+
+if(DINOML_ENABLE_ROCM)
+  add_library(dinoml_rocm_runtime SHARED
+    runtime/src/runtime_rocm.hip
+  )
+  target_include_directories(dinoml_rocm_runtime
+    PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+  )
+  target_link_libraries(dinoml_rocm_runtime
+    PUBLIC dinoml_runtime hip::host hip::device
+  )
+  set_target_properties(dinoml_rocm_runtime PROPERTIES
+    OUTPUT_NAME dinoml_rocm_runtime
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN"
+    HIP_SEPARABLE_COMPILATION OFF
+  )
+
+  add_library(dinoml_rocm_kernels SHARED
+    kernels/rocm/src/kernels.hip
+  )
+  target_include_directories(dinoml_rocm_kernels
+    PUBLIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+  )
+  target_link_libraries(dinoml_rocm_kernels
+    PUBLIC dinoml_runtime dinoml_rocm_runtime hip::host hip::device
+  )
+  set_target_properties(dinoml_rocm_kernels PROPERTIES
+    OUTPUT_NAME dinoml_rocm_kernels
+    BUILD_RPATH "$ORIGIN"
+    INSTALL_RPATH "$ORIGIN"
+    HIP_SEPARABLE_COMPILATION OFF
+  )
+
+  if(TARGET hip::amdhip64)
+    foreach(_dinoml_rocm_target IN ITEMS dinoml_rocm_runtime dinoml_rocm_kernels)
+      add_custom_command(TARGET ${_dinoml_rocm_target} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+                "$<TARGET_FILE:hip::amdhip64>"
+                "$<TARGET_FILE_DIR:${_dinoml_rocm_target}>"
+        VERBATIM
+      )
+    endforeach()
+  endif()
+endif()
 
 if(DINOML_ENABLE_CUDA)
   add_library(dinoml_cuda_runtime SHARED

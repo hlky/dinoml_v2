@@ -46,6 +46,7 @@ class _DinoTensor(ctypes.Structure):
 
 DINO_DEVICE_CPU = 0
 DINO_DEVICE_CUDA = 1
+DINO_DEVICE_ROCM = 2
 DINO_TENSOR_FLAG_CONTIGUOUS = 1
 CUDA_GGUF_DEQUANT_QTYPES = frozenset(
     {

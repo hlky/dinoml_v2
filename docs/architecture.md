@@ -30,11 +30,12 @@ generated model code into the kernel library.
   declares its default architecture, runtime dtype surface, build entrypoint,
   CMake capabilities, and artifact support libraries.
 - `runtime/`
-  Stable common ABI plus CUDA runtime helper library.
+  Stable common ABI plus CUDA and ROCm runtime helper libraries.
 - `kernels/`
-  Reusable CPU/CUDA kernel libraries plus shared headers such as
-  `dinoml/math.h`. Model artifacts link against reusable kernels and embed only
-  model-specific generated kernels, such as fused-elementwise combinations.
+  Reusable CPU/CUDA kernel libraries, the ROCm scaffold library, and shared
+  headers such as `dinoml/math.h`. Model artifacts link against reusable
+  kernels and embed only model-specific generated kernels, such as
+  fused-elementwise combinations.
 
 ## Frontend Contract
 
@@ -105,6 +106,7 @@ Current dtype support matrix:
 | CUDA runtime constants | yes | yes | yes |
 | CUDA softmax/reductions | yes | no | no |
 | CUTLASS GEMM runtime | yes | yes | yes |
+| ROCm target/toolchain scaffold | registered only | registered only | registered only |
 
 GGUF-backed constants are artifact-visible encoded storage with dense logical
 dtypes. `RuntimeModule.load_encoded_constants()` keeps the dense runtime ABI:
@@ -238,6 +240,9 @@ Current reusable kernels are intentionally simple:
 - CUDA: reusable `libdinoml_cuda_kernels.so` for future stable primitives
 - CPU: reusable `libdinoml_cpu_kernels.so`; OpenMP is optional and can be
   disabled with `-DDINOML_ENABLE_OPENMP=OFF`
+- ROCm: reusable `dinoml_rocm_runtime` and `dinoml_rocm_kernels` support-library
+  targets build through the HIP toolchain, but no ROCm op lowering or generated
+  HIP artifact wrapper is admitted yet
 - common: `dinoml/math.h` exposes inline `dinoml::math::<name>` scalar helpers
   that generated fused kernels call on CPU and CUDA. The helpers are templated
   so dtype-specific elementwise lowering has a place to land next.
@@ -464,12 +469,15 @@ Targets validate through the typed backend registry in
 - artifact support-library paths emitted into `manifest.json`
 
 `dinoml.backends.Target` reads defaults from this registry, so
-`dml.Target("cuda")` maps to `sm_86` and `dml.Target("cpu")` maps to `native`.
+`dml.Target("cuda")` maps to `sm_86`, `dml.Target("cpu")` maps to `native`,
+and the initial ROCm scaffold maps `dml.Target("rocm")` to `gfx1201`.
 `dinoml.compiler.compile` also uses the same spec for runtime dtype validation,
 manifest library entries, and backend build dispatch. Lowering and per-op
 support still live under `dinoml.lowering` and `dinoml.lowering.ops`; the backend
 registry is only the connection point between a target name, build support, and
-lowered artifact generation.
+lowered artifact generation. The ROCm backend currently stops at that boundary:
+its support libraries can be built with the HIP SDK, while model compilation
+raises before claiming any ROCm op support.
 
 ## Fused Elementwise Slice
 
@@ -499,9 +507,9 @@ The next foundations to settle before broad op porting are:
 
 - richer backend capability metadata for profilers, external libraries, layout
   support, and future ROCm/Metal/Vulkan parity. V2 now has a typed
-  `BackendSpec` registry for CPU/CUDA target defaults, dtype validation,
-  support libraries, build dispatch, and the first CUTLASS GEMM target policy
-  knobs (`no_tf32`, `use_fp16_acc`).
+  `BackendSpec` registry for CPU/CUDA target defaults plus the first ROCm
+  scaffold, dtype validation, support libraries, build dispatch, and the first
+  CUTLASS GEMM target policy knobs (`no_tf32`, `use_fp16_acc`).
 - runtime/container contract for allocators, graph mode, metadata,
   output-shape reporting, and externally supplied shape buffers. V2 now exposes
   `dino_session_set_stream(DinoSession*, void*)`; CUDA generated modules store a

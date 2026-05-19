@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 
 import dinoml as dml
+from dinoml.backends import registered_backend_names
 from dinoml import runtime
 from dinoml.ir import read_json
 from dinoml.kernels.profiling import parse_shape_overrides, profile_artifact
@@ -22,11 +23,15 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("model", help="Python model file defining build_spec()")
     compile_parser.add_argument(
         "--target",
-        choices=("cpu", "cuda"),
+        choices=registered_backend_names(),
         default="cpu",
         help="Compile target backend (default: cpu)",
     )
-    compile_parser.add_argument("--arch", default="sm_86", help="CUDA architecture when --target cuda is used")
+    compile_parser.add_argument(
+        "--arch",
+        default=None,
+        help="Target architecture; defaults come from the backend registry (CUDA sm_86, ROCm gfx1201)",
+    )
     compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
     compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")

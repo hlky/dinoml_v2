@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added the first honest ROCm backend scaffold for the Windows `.venv/rocm`
+  lane. `Target("rocm")` now resolves to `gfx1201`, the CLI lists `rocm`, CMake
+  resolves pip/venv ROCm SDK layouts through `python -m rocm_sdk`, and the HIP
+  support-library smoke builds `dinoml_runtime`, `dinoml_rocm_runtime`, and
+  `dinoml_rocm_kernels` with the local toolchain. The scaffold deliberately
+  raises before claiming any ROCm op lowering or generated HIP artifact support.
+  Validation covered registration/codegen-plan fences plus the opt-in real ROCm
+  support build under `.venv/rocm`.
 - Added ROCm Composable Kernel as a plain third-party source submodule under
   `third_party/composable_kernel`, pinned to AMD's `rocm-7.2.3` release tag
   from the `ROCm/composable_kernel` mirror. The docs now record why the mirror
@@ -671,6 +679,12 @@ This file should be updated after each major loop.
 
 ## Next Recommended Lane
 
+- Human steering on 2026-05-19 makes ROCm backend integration the active lane.
+  The next bounded ROCm task should admit exactly one generated HIP artifact
+  slice, preferably fused-elementwise `float32`, using `.venv/rocm` as the
+  validation environment and keeping the current unsupported-op fence for every
+  surface that is not proven. Do not treat the checked-in CK source or the
+  support-library smoke as runtime/provider support.
 - Human steering on 2026-05-15 makes Conv the first lane. The next bounded Conv
   work should stay inside the existing `cutlass_conv` contract and build on the
   admitted `conv2d_bias_relu`, `conv2d_bias_add`, and `conv2d_bias_add_relu`
@@ -1366,7 +1380,13 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Keep the small/custom-op lane on honest helper or bounded-op slices:
+1. Continue the ROCm backend lane from the new scaffold by wiring one minimal
+   generated HIP artifact path and runtime smoke on `gfx1201`. Start with an
+   already-understood generated op family such as fused elementwise `float32`;
+   require artifact-visible support libraries, generated source, copied runtime
+   libraries, and a real `.venv/rocm` compile/load/run proof before broadening
+   dtype/op/provider claims.
+2. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the
    newly runtime-hardened helper-only `rms_norm` slice in place, and the now-
@@ -1388,7 +1408,7 @@ This file should be updated after each major loop.
    blocker; do not use it as a reason to widen unrelated integer tensor
    support or claim broader CLIP pooling parity before non-2 EOS matching and
    the pooled hidden-state gather path are actually covered.
-2. Continue the bounded ConvNd provider slice described in
+3. Continue the bounded ConvNd provider slice described in
    `agents/plans/conv_cutlass_plan.md` toward v1-core parity without widening
    public semantics. Human steering keeps Conv first: keep `conv2d`/explicit
    zero-bias, `conv2d_bias`, fused `conv2d_bias_relu`, and fused
@@ -1402,11 +1422,11 @@ This file should be updated after each major loop.
    Keep the work narrow:
    no conv3d, no transposed/depthwise/grouped expansion, no hidden channel
    padding, no runtime-set packed weights, and no public NHWC toggle.
-3. Revisit CUTLASS/provider maturity only for another bounded compile-visible
+4. Revisit CUTLASS/provider maturity only for another bounded compile-visible
    robustness slice if a new concrete stale-payload edge appears in an existing
    cache/test area; otherwise keep provider-cache work paused and avoid
    speculative broadening.
-4. Add one more bounded GGUF regression only if another concrete loader or
+5. Add one more bounded GGUF regression only if another concrete loader or
    native/runtime contract edge appears, preferably around runtime load-plan
    edge cases or mixed dense/manual encoded constants on the lowered
    runtime-dequant path rather than broadening the runtime surface.

@@ -17,9 +17,11 @@ python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examp
 
 The `validate` extra installs the PyTorch dependency used by example reference
 checks. `compile` defaults to the CPU target; pass `--target cuda --arch sm_86`
-when building a CUDA artifact. The model argument is a Python file that defines
-`build_spec()`. After compiling the artifact, the same CPU module can be loaded
-and run directly through the Python runtime API:
+when building a CUDA artifact. `--target rocm` is registered as a distinct
+toolchain scaffold with default arch `gfx1201`, but no ROCm op lowering or
+generated HIP artifact build is admitted yet. The model argument is a Python
+file that defines `build_spec()`. After compiling the artifact, the same CPU
+module can be loaded and run directly through the Python runtime API:
 
 ```sh
 python - <<'PY'
@@ -126,6 +128,11 @@ model.dinoml/
 `libdinoml_cuda_kernels.so` are built with CMake and cached per CUDA architecture
 and required-kernel manifest under `~/.cache/dinoml_v2/support/`. CPU artifacts
 use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
+The ROCm scaffold can also build `dinoml_runtime`, `dinoml_rocm_runtime`, and
+`dinoml_rocm_kernels` support libraries under a `support/rocm-gfx1201/...`
+cache directory, using the platform library suffix (`.dll` on Windows). Those
+ROCm libraries are not copied into model artifacts until a generated HIP module
+path and op lowering are admitted.
 CUDA artifacts that need CUTLASS GEMM link the required op/dtype static archives
 into the generated `module.so`; they do not carry CUTLASS GEMM support `.so`
 files. The CMake aggregate target `dinoml_cutlass_gemm` builds every archive for
@@ -198,6 +205,18 @@ the canonical upstream development home is the ROCm monorepo under
 `ROCm/rocm-libraries/projects/composablekernel`. The checked-out CK source is
 provider groundwork only and does not by itself broaden the supported ROCm
 runtime surface.
+
+On Windows ROCm development, the pip/venv SDK layout is resolved through
+`python -m rocm_sdk` rather than assuming a system install. The support-library
+smoke can run from any Python environment with `pytest` installed while using
+the ROCm venv explicitly for SDK resolution:
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path + "\src"
+$env:DINOML_ROCM_PYTHON_EXECUTABLE = (Resolve-Path ".venv/rocm/Scripts/python.exe").Path
+$env:DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE = "1"
+python -m pytest -q tests/backends/test_rocm_scaffold.py
+```
 
 Tests are organized by intent: `tests/ir/` covers frontend/IR/reference NumPy
 behavior, `tests/cpu/` compiles and runs CPU artifacts, and `tests/cuda/`

@@ -411,6 +411,10 @@ Only after `conv2d_bias` is real and boring should follow-up work consider:
    before a real support-library `nvcc` build and runtime parity test pass.
 5. `conv3d` with a separate admission pass and explicit NDHWC design review.
 6. ROCm `ck_conv` parity using the same artifact-visible transform contract.
+   The CK source tree is now available as `third_party/composable_kernel`,
+   pinned to the AMD `rocm-7.2.3` release tag from the read-only mirror; future
+   ROCm provider work should still treat AMD's monorepo path
+   `projects/composablekernel` as canonical upstream context.
 7. Transposed/depthwise families with their own provider metadata and tests.
 
 ## Current status

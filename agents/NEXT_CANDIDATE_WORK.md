@@ -4,6 +4,14 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added ROCm Composable Kernel as a plain third-party source submodule under
+  `third_party/composable_kernel`, pinned to AMD's `rocm-7.2.3` release tag
+  from the `ROCm/composable_kernel` mirror. The docs now record why the mirror
+  is used instead of a sparse checkout of the ROCm monorepo: AMD's canonical
+  source is `ROCm/rocm-libraries/projects/composablekernel`, but the mirror
+  keeps CK at repository root and avoids hidden local sparse-checkout state in
+  fresh clones or CI. This is dependency provenance only and does not broaden
+  any ROCm provider/runtime support surface.
 - Finished the CUTLASS source-layout refactor around the intended provider
   files: `kernels/cuda/src/` now carries `cutlass_bmm.cu`, `cutlass_conv.cu`,
   `cutlass_gemm.cu`, and shared `cutlass_common.cuh`, while the checked-in

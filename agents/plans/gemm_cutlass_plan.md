@@ -317,6 +317,14 @@ with:
 git submodule update --init --recursive
 ```
 
+ROCm Composable Kernel source is also carried as a plain submodule under
+`third_party/composable_kernel`, pinned to AMD's `rocm-7.2.3` release tag from
+the `ROCm/composable_kernel` mirror. AMD's canonical development home is now
+the ROCm monorepo path `ROCm/rocm-libraries/projects/composablekernel`, but the
+mirror keeps CK at repository root and avoids requiring sparse-checkout state in
+fresh clones or CI. This is source provenance for future CK provider work only;
+it does not make any ROCm GEMM/BMM/Conv runtime path available yet.
+
 Support builds enable NVCC `--split-compile=<effective-cpu-count>` when the
 local compiler supports it. The default mirrors v1-style cgroup quota handling
 and prefers physical Linux cores when CPU topology is available. Set

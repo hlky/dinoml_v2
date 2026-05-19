@@ -4,3 +4,6 @@
 [submodule "third_party/libgguf"]
 	path = third_party/libgguf
 	url = https://github.com/hlky/libgguf
+[submodule "third_party/composable_kernel"]
+	path = third_party/composable_kernel
+	url = https://github.com/ROCm/composable_kernel.git

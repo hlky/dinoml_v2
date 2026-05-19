@@ -191,6 +191,14 @@ python -m dinoml.cli profile build/model.dinoml --iterations 20 --repeats 3
 python -m dinoml.cli compile model.py --target cuda --profile --profile-repeats 3 --out build/model-profiled.dinoml
 ```
 
+The repo currently carries third-party source submodules for CUTLASS, libgguf,
+and ROCm Composable Kernel. CK is vendored from AMD's
+`ROCm/composable_kernel` mirror and pinned to the `rocm-7.2.3` release tag;
+the canonical upstream development home is the ROCm monorepo under
+`ROCm/rocm-libraries/projects/composablekernel`. The checked-out CK source is
+provider groundwork only and does not by itself broaden the supported ROCm
+runtime surface.
+
 Tests are organized by intent: `tests/ir/` covers frontend/IR/reference NumPy
 behavior, `tests/cpu/` compiles and runs CPU artifacts, and `tests/cuda/`
 compiles and runs CUDA artifacts when the CUDA toolchain is available.

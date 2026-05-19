@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
 
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+from dinoml.frontend import Parameter, Tensor, as_tensor
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
+from dinoml.ops.shape_views import reshape
 
 
 BROADCAST_DTYPES = ("float16", "float32", "bfloat16", "bool")
@@ -46,25 +48,86 @@ def resolve_expand_shape(input_shape: Sequence[int], requested_shape: Any) -> li
     return output_shape
 
 
-def register_broadcasting_ops(registry: OpRegistry) -> None:
-    registry.register(
-        OpDef(
-            name="expand",
-            schema=OpSchema(
-                inputs=("x",),
-                attrs=(AttrDef("shape", "shape", required=True),),
-            ),
-            infer_shape=infer_expand_shape,
-            infer_shape_with_attrs=infer_expand_shape_with_attrs,
-            allowed_dtypes=BROADCAST_DTYPES,
-            backend_kernels={
-                "cpu": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cpu.cpp.j2"),
-                "cuda": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cuda.cu.j2"),
-            },
-            frontend=FrontendBinding("expand"),
-            description="Materialize a dense broadcast of a tensor to a static shape.",
-        )
+@op_def
+class Expand(OpDef):
+    name = "expand"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(AttrDef("shape", "shape", required=True),),
     )
+    infer_shape = infer_expand_shape
+    infer_shape_with_attrs = infer_expand_shape_with_attrs
+    allowed_dtypes = BROADCAST_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cuda.cu.j2"),
+    }
+    frontend = FrontendBinding("expand")
+    description = "Materialize a dense broadcast of a tensor to a static shape."
+
+    @classmethod
+    def forward(cls, x: Any, shape: Any) -> Tensor:
+        tensor = as_tensor(x)
+        if tensor.dtype not in BROADCAST_DTYPES:
+            raise ValueError(f"expand does not support dtype {tensor.dtype}")
+        if tensor.dynamic:
+            raise ValueError("expand currently supports only static input shapes")
+        out_shape = resolve_expand_shape(tensor.shape, shape)
+        return tensor.builder.emit(
+            "expand",
+            [tensor],
+            out_shape,
+            tensor.dtype,
+            {"shape": list(shape)},
+            shape_spec=out_shape,
+        )
 
 
-__all__ = ["BROADCAST_DTYPES", "infer_expand_shape", "infer_expand_shape_with_attrs", "register_broadcasting_ops", "resolve_expand_shape"]
+def expand(x: Any, shape: Any) -> Tensor:
+    return Expand.forward(x, shape)
+
+
+def expand_static_shape(x: Any, shape: Any) -> Tensor:
+    return Expand.forward(x, shape)
+
+
+def meshgrid(inputs: Any, indexing: str = "ij") -> tuple[Tensor, ...]:
+    if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
+        raise ValueError("meshgrid expects a non-empty sequence of tensors")
+    if not inputs:
+        raise ValueError("meshgrid expects a non-empty sequence of tensors")
+    if indexing != "ij":
+        raise NotImplementedError('meshgrid currently supports indexing="ij" only')
+    first = as_tensor(inputs[0])
+    tensors = [first, *(as_tensor(value, dtype_hint=first.dtype) for value in inputs[1:])]
+    for tensor in tensors[1:]:
+        if tensor.builder is not first.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if tensor.dtype != first.dtype:
+            raise ValueError(f"meshgrid dtype mismatch: {first.dtype} vs {tensor.dtype}")
+    if first.dtype not in BROADCAST_DTYPES:
+        raise ValueError(f"meshgrid does not support dtype {first.dtype}")
+    for tensor in tensors:
+        if tensor.rank != 1:
+            raise ValueError(f"meshgrid expects rank-1 inputs, got rank {tensor.rank}")
+        if tensor.dynamic:
+            raise ValueError("meshgrid currently supports only static input shapes")
+    grid_shape = [tensor.shape[0] for tensor in tensors]
+    outputs = []
+    for axis, tensor in enumerate(tensors):
+        view_shape = [1] * len(tensors)
+        view_shape[axis] = tensor.shape[0]
+        outputs.append(expand(reshape(tensor, view_shape), grid_shape))
+    return tuple(outputs)
+
+
+__all__ = [
+    "BROADCAST_DTYPES",
+    "Expand",
+    "expand",
+    "expand_static_shape",
+    "infer_expand_shape",
+    "infer_expand_shape_with_attrs",
+    "meshgrid",
+    "resolve_expand_shape",
+]

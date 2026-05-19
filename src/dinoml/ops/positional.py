@@ -4,7 +4,8 @@ import math
 from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import GraphBuilder, Tensor, as_tensor
-from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpRegistry, OpSchema
+from dinoml.ir import normalize_dtype
+from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 
 
 GET_TIMESTEP_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
@@ -183,82 +184,125 @@ def infer_get_1d_rotary_pos_embed_component_shape_spec(
     return [_copy_shape_dim(input_shape_spec[0]), rotary_output_cols(normalized)]
 
 
-def register_positional_ops(registry: OpRegistry) -> None:
-    registry.register(
-        OpDef(
-            name="get_timestep_embedding",
-            schema=OpSchema(
-                inputs=("timesteps",),
-                attrs=(
-                    AttrDef("embedding_dim", "int", required=True),
-                    AttrDef("flip_sin_to_cos", "bool", False),
-                    AttrDef("downscale_freq_shift", "float", 1.0),
-                    AttrDef("scale", "float", 1.0),
-                    AttrDef("max_period", "float", 10000.0),
-                ),
-            ),
-            infer_shape=infer_get_timestep_embedding,
-            infer_shape_with_attrs=infer_get_timestep_embedding_with_attrs,
-            backend_kernels={
-                "cpu": KernelBinding(
-                    symbol="generated_get_timestep_embedding",
-                    library="model",
-                    source_template="get_timestep_embedding_cpu.cpp.j2",
-                ),
-                "cuda": KernelBinding(
-                    symbol="generated_get_timestep_embedding",
-                    library="model",
-                    source_template="get_timestep_embedding_cuda.cu.j2",
-                ),
-            },
-            frontend=FrontendBinding("get_timestep_embedding"),
-            allowed_dtypes=GET_TIMESTEP_EMBEDDING_DTYPES,
-            description=(
-                "Diffusers/v1 sinusoidal timestep embedding for rank-1 dense float timesteps with "
-                "generated CPU/CUDA kernels, fp32 internal math, odd-dimension zero padding, and "
-                "optional sin/cos half flipping."
-            ),
-        )
+@op_def
+class GetTimestepEmbedding(OpDef):
+    name = "get_timestep_embedding"
+    schema = OpSchema(
+        inputs=("timesteps",),
+        attrs=(
+            AttrDef("embedding_dim", "int", required=True),
+            AttrDef("flip_sin_to_cos", "bool", False),
+            AttrDef("downscale_freq_shift", "float", 1.0),
+            AttrDef("scale", "float", 1.0),
+            AttrDef("max_period", "float", 10000.0),
+        ),
     )
-    for op_name, output_kind in zip(GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS, ("cos", "sin"), strict=True):
-        registry.register(
-            OpDef(
-                name=op_name,
-                schema=OpSchema(
-                    inputs=(),
-                    attrs=(
-                        AttrDef("dim", "int", required=True),
-                        AttrDef("theta", "float", 10000.0),
-                        AttrDef("use_real", "bool", True),
-                        AttrDef("linear_factor", "float", 1.0),
-                        AttrDef("ntk_factor", "float", 1.0),
-                        AttrDef("repeat_interleave_real", "bool", True),
-                        AttrDef("sequence_length", "int", 0),
-                        AttrDef("output_kind", "str", output_kind),
-                    ),
-                ),
-                infer_shape=infer_get_1d_rotary_pos_embed_component,
-                infer_shape_with_attrs=infer_get_1d_rotary_pos_embed_component_with_attrs,
-                accepted_input_counts=(0, 1),
-                backend_kernels={
-                    "cpu": KernelBinding(
-                        symbol="generated_get_1d_rotary_pos_embed",
-                        library="model",
-                        source_template="get_1d_rotary_pos_embed_cpu.cpp.j2",
-                    ),
-                    "cuda": KernelBinding(
-                        symbol="generated_get_1d_rotary_pos_embed",
-                        library="model",
-                        source_template="get_1d_rotary_pos_embed_cuda.cu.j2",
-                    ),
-                },
-                allowed_dtypes=GET_1D_ROTARY_POS_EMBED_DTYPES,
-                description=(
-                    "Internal generated 1D rotary table component over rank-1 float32 positions with "
-                    "fp32 internal math and float16/float32/bfloat16 output storage."
-                ),
-            )
+    infer_shape = infer_get_timestep_embedding
+    infer_shape_with_attrs = infer_get_timestep_embedding_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding(
+            symbol="generated_get_timestep_embedding",
+            library="model",
+            source_template="get_timestep_embedding_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            symbol="generated_get_timestep_embedding",
+            library="model",
+            source_template="get_timestep_embedding_cuda.cu.j2",
+        ),
+    }
+    frontend = FrontendBinding("get_timestep_embedding")
+    allowed_dtypes = GET_TIMESTEP_EMBEDDING_DTYPES
+    description = (
+        "Diffusers/v1 sinusoidal timestep embedding for rank-1 dense float timesteps with "
+        "generated CPU/CUDA kernels, fp32 internal math, odd-dimension zero padding, and "
+        "optional sin/cos half flipping."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        timesteps: Any,
+        embedding_dim: int,
+        flip_sin_to_cos: bool = False,
+        downscale_freq_shift: float = 1.0,
+        scale: float = 1.0,
+        max_period: float = 10000.0,
+    ) -> Tensor:
+        timestep_tensor = as_tensor(timesteps, dtype_hint="float32")
+        if timestep_tensor.dtype not in GET_TIMESTEP_EMBEDDING_DTYPES:
+            raise ValueError(f"get_timestep_embedding does not support dtype {timestep_tensor.dtype}")
+        if timestep_tensor.rank != 1:
+            raise ValueError(f"get_timestep_embedding expects rank-1 timesteps, got rank {timestep_tensor.rank}")
+
+        attrs = normalize_get_timestep_embedding_attrs(
+            embedding_dim=embedding_dim,
+            flip_sin_to_cos=flip_sin_to_cos,
+            downscale_freq_shift=downscale_freq_shift,
+            scale=scale,
+            max_period=max_period,
         )
+        output_shape = infer_get_timestep_embedding_with_attrs([timestep_tensor.shape], attrs)
+        output_shape_spec = [_copy_shape_dim(timestep_tensor.shape_spec[0]), int(attrs["embedding_dim"])]
+        return timestep_tensor.builder.emit(
+            "get_timestep_embedding",
+            [timestep_tensor],
+            output_shape,
+            timestep_tensor.dtype,
+            attrs,
+            shape_spec=output_shape_spec,
+        )
+
+
+def _rotary_component_schema(output_kind: str) -> OpSchema:
+    return OpSchema(
+        inputs=(),
+        attrs=(
+            AttrDef("dim", "int", required=True),
+            AttrDef("theta", "float", 10000.0),
+            AttrDef("use_real", "bool", True),
+            AttrDef("linear_factor", "float", 1.0),
+            AttrDef("ntk_factor", "float", 1.0),
+            AttrDef("repeat_interleave_real", "bool", True),
+            AttrDef("sequence_length", "int", 0),
+            AttrDef("output_kind", "str", output_kind),
+        ),
+    )
+
+
+class _Get1dRotaryPosEmbedComponent(OpDef):
+    infer_shape = infer_get_1d_rotary_pos_embed_component
+    infer_shape_with_attrs = infer_get_1d_rotary_pos_embed_component_with_attrs
+    accepted_input_counts = (0, 1)
+    backend_kernels = {
+        "cpu": KernelBinding(
+            symbol="generated_get_1d_rotary_pos_embed",
+            library="model",
+            source_template="get_1d_rotary_pos_embed_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            symbol="generated_get_1d_rotary_pos_embed",
+            library="model",
+            source_template="get_1d_rotary_pos_embed_cuda.cu.j2",
+        ),
+    }
+    allowed_dtypes = GET_1D_ROTARY_POS_EMBED_DTYPES
+    description = (
+        "Internal generated 1D rotary table component over rank-1 float32 positions with "
+        "fp32 internal math and float16/float32/bfloat16 output storage."
+    )
+
+
+@op_def
+class Get1dRotaryPosEmbedCos(_Get1dRotaryPosEmbedComponent):
+    name = "get_1d_rotary_pos_embed_cos"
+    schema = _rotary_component_schema("cos")
+
+
+@op_def
+class Get1dRotaryPosEmbedSin(_Get1dRotaryPosEmbedComponent):
+    name = "get_1d_rotary_pos_embed_sin"
+    schema = _rotary_component_schema("sin")
 
 
 def get_timestep_embedding(
@@ -269,29 +313,83 @@ def get_timestep_embedding(
     scale: float = 1.0,
     max_period: float = 10000.0,
 ) -> Tensor:
-    timestep_tensor = as_tensor(timesteps, dtype_hint="float32")
-    if timestep_tensor.dtype not in GET_TIMESTEP_EMBEDDING_DTYPES:
-        raise ValueError(f"get_timestep_embedding does not support dtype {timestep_tensor.dtype}")
-    if timestep_tensor.rank != 1:
-        raise ValueError(f"get_timestep_embedding expects rank-1 timesteps, got rank {timestep_tensor.rank}")
+    return GetTimestepEmbedding.forward(
+        timesteps,
+        embedding_dim,
+        flip_sin_to_cos,
+        downscale_freq_shift,
+        scale,
+        max_period,
+    )
 
-    attrs = normalize_get_timestep_embedding_attrs(
-        embedding_dim=embedding_dim,
-        flip_sin_to_cos=flip_sin_to_cos,
-        downscale_freq_shift=downscale_freq_shift,
-        scale=scale,
-        max_period=max_period,
+
+def get_1d_rotary_pos_embed(
+    dim: int,
+    pos: Any,
+    theta: float = 10000.0,
+    use_real: bool = True,
+    linear_factor: float = 1.0,
+    ntk_factor: float = 1.0,
+    repeat_interleave_real: bool = True,
+    dtype: str = "float32",
+) -> tuple[Tensor, Tensor]:
+    output_dtype = normalize_dtype(dtype)
+    if output_dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
+        raise ValueError(f"get_1d_rotary_pos_embed does not support dtype {output_dtype}")
+    normalized_attrs = normalize_get_1d_rotary_pos_embed_attrs(
+        dim=dim,
+        theta=theta,
+        use_real=use_real,
+        linear_factor=linear_factor,
+        ntk_factor=ntk_factor,
+        repeat_interleave_real=repeat_interleave_real,
+        output_kind="cos",
     )
-    output_shape = infer_get_timestep_embedding_with_attrs([timestep_tensor.shape], attrs)
-    output_shape_spec = [_copy_shape_dim(timestep_tensor.shape_spec[0]), int(attrs["embedding_dim"])]
-    return timestep_tensor.builder.emit(
-        "get_timestep_embedding",
-        [timestep_tensor],
-        output_shape,
-        timestep_tensor.dtype,
-        attrs,
-        shape_spec=output_shape_spec,
+
+    sequence_length: int | None = None
+    if isinstance(pos, int) and not isinstance(pos, bool):
+        sequence_length = int(pos)
+        if sequence_length <= 0:
+            raise ValueError("get_1d_rotary_pos_embed integer pos must be a positive sequence length")
+        pos_tensor = None
+    else:
+        pos_tensor = as_tensor(pos, dtype_hint="float32")
+        if pos_tensor.dtype not in GET_1D_ROTARY_POS_EMBED_DTYPES:
+            raise ValueError(f"get_1d_rotary_pos_embed does not support pos dtype {pos_tensor.dtype}")
+        if pos_tensor.rank != 1:
+            raise ValueError(f"get_1d_rotary_pos_embed expects rank-1 pos tensor, got rank {pos_tensor.rank}")
+        if int(pos_tensor.shape[0]) <= 0:
+            raise ValueError("get_1d_rotary_pos_embed pos length must be positive")
+        if pos_tensor.dtype != "float32":
+            from dinoml.ops.cast import cast
+
+            pos_tensor = cast(pos_tensor, "float32")
+
+    cos_out = emit_get_1d_rotary_pos_embed_component(
+        pos_tensor,
+        dim=int(normalized_attrs["dim"]),
+        theta=float(normalized_attrs["theta"]),
+        use_real=bool(normalized_attrs["use_real"]),
+        linear_factor=float(normalized_attrs["linear_factor"]),
+        ntk_factor=float(normalized_attrs["ntk_factor"]),
+        repeat_interleave_real=bool(normalized_attrs["repeat_interleave_real"]),
+        sequence_length=sequence_length if pos_tensor is None else None,
+        output_kind="cos",
+        dtype=output_dtype,
     )
+    sin_out = emit_get_1d_rotary_pos_embed_component(
+        pos_tensor,
+        dim=int(normalized_attrs["dim"]),
+        theta=float(normalized_attrs["theta"]),
+        use_real=bool(normalized_attrs["use_real"]),
+        linear_factor=float(normalized_attrs["linear_factor"]),
+        ntk_factor=float(normalized_attrs["ntk_factor"]),
+        repeat_interleave_real=bool(normalized_attrs["repeat_interleave_real"]),
+        sequence_length=sequence_length if pos_tensor is None else None,
+        output_kind="sin",
+        dtype=output_dtype,
+    )
+    return cos_out, sin_out
 
 
 def emit_get_1d_rotary_pos_embed_component(
@@ -351,13 +449,15 @@ def _copy_shape_dim(dim: Any) -> Any:
     if isinstance(dim, Mapping):
         return dict(dim)
     return dim
-
-
 __all__ = [
     "GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS",
     "GET_1D_ROTARY_POS_EMBED_DTYPES",
     "GET_TIMESTEP_EMBEDDING_DTYPES",
+    "Get1dRotaryPosEmbedCos",
+    "Get1dRotaryPosEmbedSin",
+    "GetTimestepEmbedding",
     "emit_get_1d_rotary_pos_embed_component",
+    "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
     "infer_get_1d_rotary_pos_embed_component",
     "infer_get_1d_rotary_pos_embed_component_shape_spec",
@@ -366,6 +466,5 @@ __all__ = [
     "infer_get_timestep_embedding_with_attrs",
     "normalize_get_1d_rotary_pos_embed_attrs",
     "normalize_get_timestep_embedding_attrs",
-    "register_positional_ops",
     "rotary_output_cols",
 ]

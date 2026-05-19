@@ -111,6 +111,8 @@ class OpDef:
             return self.infer_shape_with_attrs(input_shapes, attrs or {})
         return self.infer_shape(input_shapes)
 
+    def forward(self, *args, **kwds):
+        raise NotImplementedError("Subclass must implement `__call__`.")
 
 class OpRegistry:
     def __init__(self) -> None:

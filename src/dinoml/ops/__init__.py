@@ -78,6 +78,8 @@ from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueez
 from dinoml.ops.softmax import softmax
 from dinoml.ops.where import where as _where_frontend
 
+from dinoml.ops.cast import cast
+
 def emit_registered_op(op_name: str, *args: Any, attrs: Mapping[str, Any] | None = None) -> Tensor:
     op_def = get_op_def(op_name)
     if not op_def.accepts_input_count(len(args)):
@@ -111,22 +113,6 @@ def make_frontend_op(op_name: str) -> Callable[..., Tensor]:
     _frontend.__doc__ = op_def.description
     return _frontend
 
-
-def _cast_frontend(x: Any, dtype: str) -> Tensor:
-    dtype = normalize_dtype(dtype)
-    if dtype not in CAST_ELEMENTWISE_DTYPES:
-        raise ValueError(f"cast does not support dtype {dtype}")
-    input_tensor = as_tensor(x)
-    if input_tensor.dtype not in CAST_ELEMENTWISE_DTYPES:
-        raise ValueError(f"cast does not support input dtype {input_tensor.dtype}")
-    return input_tensor.builder.emit(
-        "cast",
-        [input_tensor],
-        input_tensor.shape,
-        dtype,
-        {"dtype": dtype},
-        shape_spec=input_tensor.shape_spec,
-    )
 
 
 def _gelu_new_frontend(x: Any) -> Tensor:
@@ -1172,7 +1158,6 @@ for _frontend_name in OP_REGISTRY.frontend_names():
     globals()[_frontend_name] = make_frontend_op(_op_def.name)
 
 globals()["where"] = _where_frontend
-globals()["cast"] = _cast_frontend
 globals()["gelu_new"] = _gelu_new_frontend
 globals()["rms_norm"] = _rms_norm_frontend
 globals()["get_1d_rotary_pos_embed"] = _get_1d_rotary_pos_embed_frontend

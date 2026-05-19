@@ -246,13 +246,18 @@ Current reusable kernels are intentionally simple:
 - common: `dinoml/math.h` exposes inline `dinoml::math::<name>` scalar helpers
   that generated fused kernels call on CPU and CUDA. The helpers are templated
   and HIP-aware so dtype-specific elementwise lowering has a place to land next.
+  `dinoml/device.h` is the v1-style CUDA/HIP device abstraction layer for
+  generated GPU code, exposing `dinoml::bfloat16`, `dinoml::DeviceStream`, and
+  small load/data macros without forcing every op template to spell CUDA or HIP
+  runtime type names directly.
 
 Generated-code target facts live in `dinoml.lowering.target_specs`, following
 the useful v1 pattern of keeping backend names, source extensions, stream/error
 helpers, and storage types outside individual op lowerings. CPU and CUDA remain
 the only admitted generated-module targets. ROCm facts are registered there so
-future HIP templates can share code with CUDA, but the ROCm backend still raises
-before any op lowering or generated HIP artifact wrapper is claimed.
+future HIP templates can share code with CUDA through the shared device header,
+but the ROCm backend still raises before any op lowering or generated HIP
+artifact wrapper is claimed.
 
 Performance-sensitive ports should carry a benchmark harness before they grow a
 larger policy surface. The current examples are
@@ -484,7 +489,10 @@ support still live under `dinoml.lowering` and `dinoml.lowering.ops`; the backen
 registry is only the connection point between a target name, build support, and
 lowered artifact generation. The ROCm backend currently stops at that boundary:
 its support libraries can be built with the HIP SDK, while model compilation
-raises before claiming any ROCm op support.
+raises before claiming any ROCm op support. Windows ROCm support builds prefer
+the active Python interpreter's `rocm_sdk` package before PATH-level Python
+fallbacks, so direct `.venv/rocm/Scripts/python.exe` test runs resolve the local
+pip SDK rather than a system ROCm install.
 
 ## Fused Elementwise Slice
 

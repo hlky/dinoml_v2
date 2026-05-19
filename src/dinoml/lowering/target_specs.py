@@ -20,7 +20,7 @@ _CUDA_STORAGE_TYPES = MappingProxyType(
     {
         "float32": "float",
         "float16": "half",
-        "bfloat16": "__nv_bfloat16",
+        "bfloat16": "dinoml::bfloat16",
         "int32": "int32_t",
         "int64": "int64_t",
         "bool": "bool",
@@ -31,7 +31,7 @@ _ROCM_STORAGE_TYPES = MappingProxyType(
     {
         "float32": "float",
         "float16": "half",
-        "bfloat16": "hip_bfloat16",
+        "bfloat16": "dinoml::bfloat16",
         "int32": "int32_t",
         "int64": "int64_t",
         "bool": "bool",

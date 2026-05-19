@@ -23,7 +23,7 @@ def test_lowering_target_specs_include_rocm_without_generated_module_admission()
     assert rocm.check_macro == "DINO_ROCM_CHECK"
     assert rocm.last_error_call == "hipGetLastError()"
     assert rocm.storage_type("float16") == "half"
-    assert rocm.storage_type("bfloat16") == "hip_bfloat16"
+    assert rocm.storage_type("bfloat16") == "dinoml::bfloat16"
     assert not rocm.generated_module_admitted
     assert admitted_generated_targets() == ("cpu", "cuda")
 
@@ -33,8 +33,8 @@ def test_storage_type_helpers_delegate_to_target_specs():
     assert storage_type("float16", "cuda") == "half"
     assert storage_type("float16", "rocm") == "half"
     assert cpu_storage_type("bfloat16") == "dinoml::math::bfloat16"
-    assert cuda_storage_type("bfloat16") == "__nv_bfloat16"
-    assert rocm_storage_type("bfloat16") == "hip_bfloat16"
+    assert cuda_storage_type("bfloat16") == "dinoml::bfloat16"
+    assert rocm_storage_type("bfloat16") == "dinoml::bfloat16"
 
 
 def test_generated_source_extensions_come_from_target_specs():

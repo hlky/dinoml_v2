@@ -1,5 +1,6 @@
 #pragma once
 
+#include <dinoml/device.h>
 #include <dinoml/runtime_rocm.h>
 
 namespace dinoml::rocm {

@@ -1,14 +1,11 @@
 #pragma once
 
+#include <dinoml/device.h>
+
 #include <cstdint>
 
-#if defined(__CUDACC__) || defined(__HIPCC__)
-#define DINO_ACCESS_HD __host__ __device__
-#define DINO_ACCESS_INLINE __forceinline__
-#else
-#define DINO_ACCESS_HD
-#define DINO_ACCESS_INLINE inline
-#endif
+#define DINO_ACCESS_HD DINO_DEVICE_HD
+#define DINO_ACCESS_INLINE DINO_DEVICE_FORCEINLINE
 
 namespace dinoml::access {
 

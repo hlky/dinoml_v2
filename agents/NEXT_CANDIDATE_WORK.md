@@ -10,9 +10,22 @@ This file should be updated after each major loop.
   plus a parameterized GPU template for CUDA stream/error/storage names, and
   the common `dinoml/math.h` / `tensor_accessor.h` headers are HIP-aware for
   future shared HIP kernels. ROCm target facts are visible (`.hip`,
-  `hipStream_t`, `DINO_ROCM_CHECK`, HIP `half`/`hip_bfloat16` storage names), but
+  `hipStream_t`, `DINO_ROCM_CHECK`, HIP-backed `half`/`dinoml::bfloat16`
+  storage names), but
   `generated_module_admitted=False` keeps the existing compile fence until a
-  real generated HIP artifact proof lands.
+  real generated HIP artifact proof lands. Added an opt-in real `hipcc`
+  header-compile smoke for `device.h`, `runtime_rocm.h`, `math.h`, and
+  `tensor_accessor.h` under `DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE=1`, so the
+  shared-header ROCm compile check is now in pytest instead of only being a
+  manual validation command. The shared `dinoml/device.h` now carries the v1-
+  style CUDA/HIP aliases (`dinoml::bfloat16`, `dinoml::DeviceStream`, `LDG`)
+  that generated GPU code should use instead of spelling backend-specific
+  types in every op. Installing `pytest` into `.venv/rocm` exposed one real
+  environment bug: direct `.venv/rocm/Scripts/python.exe` smoke runs were still
+  resolving ROCm through PATH/system defaults instead of the active interpreter.
+  The Python ROCm backend now tries `sys.executable -m rocm_sdk` before PATH
+  Python fallbacks, and the opt-in real support-library smoke passes from the
+  ROCm venv.
 - Tightened the ROCm scaffold environment contract after review: ROCm support
   builds now assume the developer has activated `.venv/rocm`, resolve the SDK
   through the active `rocm_sdk` package before `hipconfig` so PyTorch-style

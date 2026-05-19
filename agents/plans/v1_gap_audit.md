@@ -140,9 +140,11 @@ porting. It intentionally excludes the op inventory, which lives in
   lowering also has a smaller v1-style target spec table for CPU/CUDA/ROCm
   source extensions, stream/error helpers, and storage types, with ROCm facts
   present but `generated_module_admitted=False` until a real HIP artifact path
-  is validated. Missing pieces: richer backend capability metadata for profiler
-  generation, external-library availability, layout support, and admitted ROCm
-  op/runtime parity. CUDA GEMM now resolves
+  is validated. The shared `dinoml/device.h` header now provides the first
+  v1-style CUDA/HIP aliases for generated GPU code. Missing pieces: richer
+  backend capability metadata for profiler generation, external-library
+  availability, layout support, and admitted ROCm op/runtime parity. CUDA GEMM
+  now resolves
   `float32`/`float16`/`bfloat16` launcher variants through op-owned kernel
   bindings, and the first explicit profiler runner consumes those variants for
   explicit CUTLASS tensor-op candidate sets, including bias, ReLU, v1-style

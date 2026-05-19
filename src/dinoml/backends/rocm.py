@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -234,9 +235,20 @@ def _rocm_sdk_command() -> list[str] | None:
     rocm_sdk = shutil.which("rocm-sdk") or shutil.which("rocm_sdk")
     if rocm_sdk is not None:
         return [rocm_sdk]
-    python = shutil.which("python") or shutil.which("python3")
-    if python is None:
-        return None
+    seen = set()
+    for python in (sys.executable, shutil.which("python"), shutil.which("python3")):
+        if not python:
+            continue
+        normalized = os.path.normcase(os.path.abspath(python))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if _python_has_rocm_sdk(python):
+            return [python, "-m", "rocm_sdk"]
+    return None
+
+
+def _python_has_rocm_sdk(python: str) -> bool:
     proc = subprocess.run(
         [
             python,
@@ -247,9 +259,7 @@ def _rocm_sdk_command() -> list[str] | None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    if proc.returncode != 0:
-        return None
-    return [python, "-m", "rocm_sdk"]
+    return proc.returncode == 0
 
 
 def _prepend_paths(env: dict[str, str], paths: list[str]) -> None:

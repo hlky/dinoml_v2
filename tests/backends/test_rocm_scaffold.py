@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -93,12 +95,43 @@ def test_rocm_runtime_paths_can_use_active_python_rocm_sdk_module(tmp_path, monk
         return None
 
     monkeypatch.setattr(rocm_backend.shutil, "which", fake_which)
+    monkeypatch.setattr(rocm_backend.sys, "executable", "current-python-without-rocm-sdk.exe")
 
     def fake_run(cmd, *, text, stdout, stderr):
         del text, stdout, stderr
+        if cmd[:2] == ["current-python-without-rocm-sdk.exe", "-c"]:
+            return subprocess.CompletedProcess(cmd, 1)
         if cmd[:2] == ["python.exe", "-c"]:
             return subprocess.CompletedProcess(cmd, 0)
         assert cmd[:4] == ["python.exe", "-m", "rocm_sdk", "path"]
+        if cmd[-1] == "--root":
+            value = sdk_root
+        elif cmd[-1] == "--bin":
+            value = sdk_bin
+        else:
+            raise AssertionError(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout=str(value))
+
+    monkeypatch.setattr(rocm_backend.subprocess, "run", fake_run)
+
+    assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
+
+
+def test_rocm_runtime_paths_prefer_current_python_rocm_sdk_module(tmp_path, monkeypatch):
+    sdk_root = tmp_path / "sdk"
+    sdk_bin = sdk_root / "bin"
+    llvm_bin = sdk_root / "lib" / "llvm" / "bin"
+    sdk_bin.mkdir(parents=True)
+    llvm_bin.mkdir(parents=True)
+
+    monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
+    monkeypatch.setattr(rocm_backend.sys, "executable", "active-python.exe")
+
+    def fake_run(cmd, *, text, stdout, stderr):
+        del text, stdout, stderr
+        if cmd[:2] == ["active-python.exe", "-c"]:
+            return subprocess.CompletedProcess(cmd, 0)
+        assert cmd[:4] == ["active-python.exe", "-m", "rocm_sdk", "path"]
         if cmd[-1] == "--root":
             value = sdk_root
         elif cmd[-1] == "--bin":
@@ -177,3 +210,86 @@ def test_rocm_support_libraries_build_with_real_toolchain(tmp_path, monkeypatch)
     assert libs.rocm_runtime_lib.exists()
     assert libs.kernels_lib.exists()
     assert (Path(libs.rocm_runtime_lib).parent / "support_manifest.json").exists()
+
+
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE=1 with hipcc or .venv/rocm available",
+)
+def test_rocm_common_headers_compile_with_real_hipcc(tmp_path):
+    hipcc = _find_hipcc()
+    if hipcc is None:
+        pytest.skip("hipcc not found on PATH, HIPCC, or .venv/rocm/Scripts")
+    repo_root = Path(__file__).resolve().parents[2]
+    source = tmp_path / "dinoml_rocm_header_smoke.hip"
+    obj = tmp_path / ("dinoml_rocm_header_smoke.obj" if os.name == "nt" else "dinoml_rocm_header_smoke.o")
+    source.write_text(
+        r"""
+#include <dinoml/device.h>
+#include <dinoml/runtime_rocm.h>
+#include <dinoml/math.h>
+#include <dinoml/tensor_accessor.h>
+
+extern "C" __global__ void dinoml_rocm_header_smoke_kernel(float* y, half* h, dinoml::bfloat16* b) {
+  y[0] = dinoml::math::to_float(h[0]) + dinoml::math::to_float(b[0]);
+  h[0] = dinoml::math::from_float<half>(y[0]);
+  b[0] = dinoml::math::from_float<dinoml::bfloat16>(y[0]);
+  dinoml::access::TensorAccessor accessor;
+  y[1] = static_cast<float>(accessor.index(0)) + LDG(y);
+}
+
+extern "C" int dinoml_rocm_header_smoke_launch(float* y, half* h, dinoml::bfloat16* b, dinoml::DeviceStream stream) {
+  dinoml_rocm_header_smoke_kernel<<<1, 1, 0, stream>>>(y, h, b);
+  DINO_ROCM_CHECK(hipGetLastError());
+  return 0;
+}
+""",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [
+            str(hipcc),
+            "--offload-arch=" + os.environ.get("DINOML_ROCM_TEST_ARCH", "gfx1201"),
+            "-std=c++17",
+            "-I",
+            str(repo_root / "runtime" / "include"),
+            "-I",
+            str(repo_root / "kernels" / "common" / "include"),
+            "-c",
+            str(source),
+            "-o",
+            str(obj),
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    _wait_for_path(obj, timeout_s=10.0)
+    assert proc.returncode == 0 and obj.exists(), (
+        f"hipcc failed to compile ROCm header smoke\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    )
+
+
+def _find_hipcc() -> Path | None:
+    configured = os.environ.get("HIPCC")
+    if configured:
+        path = Path(configured)
+        if path.exists():
+            return path
+    found = shutil.which("hipcc")
+    if found is not None:
+        return Path(found)
+    repo_root = Path(__file__).resolve().parents[2]
+    suffix = "hipcc.exe" if os.name == "nt" else "hipcc"
+    local = repo_root / ".venv" / "rocm" / "Scripts" / suffix
+    if local.exists():
+        return local
+    return None
+
+
+def _wait_for_path(path: Path, *, timeout_s: float) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.1)

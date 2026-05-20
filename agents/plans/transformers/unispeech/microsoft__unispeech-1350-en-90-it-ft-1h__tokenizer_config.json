@@ -1,1 +1,0 @@
-{"unk_token": "<unk>", "bos_token": "<s>", "eos_token": "</s>", "pad_token": "<pad>", "word_delimiter_token": null, "phone_delimiter_token": " ", "do_phonemize": true, "phonemizer_lang": "it", "phonemizer_backend": "espeak", "tokenizer_class": "Wav2Vec2PhonemeCTCTokenizer"}

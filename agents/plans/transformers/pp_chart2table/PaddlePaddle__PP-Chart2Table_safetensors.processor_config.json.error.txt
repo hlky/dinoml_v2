@@ -1,1 +1,0 @@
-FAILED PaddlePaddle/PP-Chart2Table_safetensors/processor_config.json: Response status code does not indicate success: 404 (Not Found).

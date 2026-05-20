@@ -1,6 +1,0 @@
-model_id	arch	hidden	intermediate	layers	heads	kv_heads	head_dim	max_pos	vocab	activation	attention_bias	mlp_bias	pooling	dtype	source
-EuroBERT/EuroBERT-210m	EuroBertForMaskedLM	768	3072	12	12	12	64 inferred	8192	128256	silu	false	false default	n/a	float32	config.json + source defaults
-EuroBERT/EuroBERT-610m	EuroBertForMaskedLM	1152	4096	26	18	6	64 inferred	8192	128256	silu	false	false default	n/a	float32	config.json + source defaults
-EuroBERT/EuroBERT-2.1B	EuroBertForMaskedLM	2304	6144	32	18	6	128 inferred	8192	128256	silu	false	false default	n/a	float32	config.json + source defaults
-Ludo33/eurobert210m_Mobilite_v1	EuroBertForSequenceClassification	768	3072	12	12	12	64	8192	128256	silu	false	false	late via clf_pooling	float32	config.json
-luissattelmayer/EuroBERT-immigration-binary-german	EuroBertForSequenceClassification	768	3072	12	12	12	64	8192	128256	silu	false	false	late via clf_pooling	float32	config.json

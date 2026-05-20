@@ -1,8 +1,0 @@
-{
-  "image_token": "<image>",
-  "video_token": "<video>",
-  "num_additional_image_tokens": 1,
-  "patch_size": 14,
-  "processor_class": "LlavaNextVideoProcessor",
-  "vision_feature_select_strategy": "default"
-}

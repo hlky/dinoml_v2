@@ -1,8 +1,0 @@
-{
-    "model_type": "sesame",
-    "backbone_flavor": "llama-1B",
-    "decoder_flavor": "llama-100M",
-    "text_vocab_size": 128256,
-    "audio_vocab_size": 2051,
-    "audio_num_codebooks": 32
-}

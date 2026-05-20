@@ -1,1 +1,0 @@
-FETCH FAILED https://huggingface.co/lightonai/LightOnOCR-2-1B-bbox-soup/resolve/main/preprocessor_config.json :: Response status code does not indicate success: 404 (Not Found).

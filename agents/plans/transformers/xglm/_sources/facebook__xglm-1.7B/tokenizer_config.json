@@ -1,1 +1,0 @@
-{"bos_token": "<s>", "eos_token": "</s>", "sep_token": "</s>", "cls_token": "<s>", "unk_token": "<unk>", "pad_token": "<pad>", "sp_model_kwargs": {}, "additional_special_tokens": ["<madeupword0>", "<madeupword1>", "<madeupword2>", "<madeupword3>", "<madeupword4>", "<madeupword5>", "<madeupword6>"], "tokenizer_class": "XGLMTokenizer"}

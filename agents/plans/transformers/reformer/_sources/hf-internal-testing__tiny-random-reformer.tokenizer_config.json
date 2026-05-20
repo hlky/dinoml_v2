@@ -1,1 +1,0 @@
-{"eos_token": "</s>", "unk_token": "<unk>", "additional_special_tokens": [], "model_max_length": 524288, "special_tokens_map_file": null, "name_or_path": "google/reformer-crime-and-punishment", "tokenizer_class": "ReformerTokenizer"}

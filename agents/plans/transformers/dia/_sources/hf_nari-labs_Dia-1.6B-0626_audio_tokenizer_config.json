@@ -1,4 +1,0 @@
-{
-  "audio_tokenizer_class": "DacModel",
-  "audio_tokenizer_name_or_path": "descript/dac_44khz"
-}

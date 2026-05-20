@@ -1,3 +1,0 @@
-https://huggingface.co/BarathwajAnandan/cohere-transcribe-03-2026-CoreML-fp16/resolve/main/config.json
-404
-Response status code does not indicate success: 404 (Not Found).

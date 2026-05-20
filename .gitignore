@@ -46,3 +46,6 @@ profile_cache.json
 .idea/
 .vscode/
 *.swp
+
+# Codex
+.codex/

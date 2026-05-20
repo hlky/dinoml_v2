@@ -17,11 +17,12 @@ python -m dinoml.cli validate build/fused_elementwise_cpu.dinoml --against examp
 
 The `validate` extra installs the PyTorch dependency used by example reference
 checks. `compile` defaults to the CPU target; pass `--target cuda --arch sm_86`
-when building a CUDA artifact. `--target rocm` is registered as a distinct
-toolchain scaffold with default arch `gfx1201`, but no ROCm op lowering or
-generated HIP artifact build is admitted yet. The model argument is a Python
-file that defines `build_spec()`. After compiling the artifact, the same CPU
-module can be loaded and run directly through the Python runtime API:
+when building a CUDA artifact. `--target rocm` is admitted for the simple
+generated-template op families when run from the ROCm venv; provider-backed
+GEMM/BMM/Conv and CK paths are still not ROCm runtime surface. The model
+argument is a Python file that defines `build_spec()`. After compiling the
+artifact, the same CPU module can be loaded and run directly through the Python
+runtime API:
 
 ```sh
 python - <<'PY'
@@ -127,12 +128,12 @@ model.dinoml/
 `libdinoml_runtime.so`, `libdinoml_cuda_runtime.so`, and
 `libdinoml_cuda_kernels.so` are built with CMake and cached per CUDA architecture
 and required-kernel manifest under `~/.cache/dinoml_v2/support/`. CPU artifacts
-use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`.
-The ROCm scaffold can also build `dinoml_runtime`, `dinoml_rocm_runtime`, and
-`dinoml_rocm_kernels` support libraries under a `support/rocm-gfx1201/...`
-cache directory, using the platform library suffix (`.dll` on Windows). Those
-ROCm libraries are not copied into model artifacts until a generated HIP module
-path and op lowering are admitted.
+use `libdinoml_runtime.so` plus `libdinoml_cpu_kernels.so`. ROCm artifacts for
+the admitted simple generated-template op families use the same common runtime
+plus `dinoml_rocm_runtime` and `dinoml_rocm_kernels` support libraries under a
+`support/rocm-gfx1201/...` cache directory, using the platform library suffix
+(`.dll` on Windows). That support is still limited to generated HIP model
+wrappers and does not admit CK or other ROCm provider kernels.
 CUDA artifacts that need CUTLASS GEMM link the required op/dtype static archives
 into the generated `module.so`; they do not carry CUTLASS GEMM support `.so`
 files. The CMake aggregate target `dinoml_cutlass_gemm` builds every archive for
@@ -215,11 +216,15 @@ pip/venv SDK layout is resolved from the active `rocm_sdk` package or
 $env:PYTHONPATH = (Get-Location).Path + "\src"
 $env:DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE = "1"
 python -m pytest -q tests/backends/test_rocm_scaffold.py
+$env:DINOML_RUN_ROCM_CONTRACTS = "1"
+python -m pytest -q tests/rocm/test_contracts.py
 ```
 
 Tests are organized by intent: `tests/ir/` covers frontend/IR/reference NumPy
 behavior, `tests/cpu/` compiles and runs CPU artifacts, and `tests/cuda/`
 compiles and runs CUDA artifacts when the CUDA toolchain is available.
+`tests/rocm/` contains opt-in `.venv/rocm` contracts that compile, load, run,
+and reference-check generated ROCm artifacts on the local HIP toolchain.
 
 Generated artifacts, support-library build products, benchmark output, and local
 profile data are ignored by git. Use `tmp/` for scratch generated modules when

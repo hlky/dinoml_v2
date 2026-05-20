@@ -34,7 +34,7 @@ helpers, and exact flash/memory-efficient attention variants.
 - [x] `gelu` - v2 native frontend op, tanh approximation.
 - [x] `gelu_new` - bounded public frontend helper that rewrites to the existing
   tanh-approximation `gelu` op, so it inherits the current fused-elementwise
-  CPU/CUDA lowering without adding a new kernel family or provider surface.
+  CPU/CUDA/ROCm lowering without adding a new kernel family or provider surface.
 - [x] Runtime shape buffers for dynamic shape validation and generic
   fused-elementwise broadcasting.
 
@@ -42,6 +42,11 @@ helpers, and exact flash/memory-efficient attention variants.
 
 These should be reusable building blocks. They generally map to `torch` or
 `torch.nn.functional` semantics for reference tests.
+
+ROCm status: simple generated-template families now share GPU templates between
+CUDA and ROCm and are covered by `tests/rocm/test_contracts.py`, which compiles,
+loads, runs, and reference-checks every non-provider standard case from the
+ROCm venv. Provider-backed GEMM/BMM/Conv and CK paths remain unported on ROCm.
 
 ### Elementwise, Activations, and Scalar Math
 
@@ -54,12 +59,14 @@ These should be reusable building blocks. They generally map to `torch` or
   v1 parity work: jagged broadcasting, broader CPU/vector accessors, scalar
   dtype promotion, and exhaustive edge-case tests.
 - [x] `fused_elementwise`: connected registered unary/binary elementwise
-  subgraphs lower to model-generated CPU/CUDA kernels that call
+  subgraphs lower to model-generated CPU/CUDA/ROCm kernels that call
   `dinoml::math::<name>` helpers. CPU and CUDA support float32, float16, and
-  bfloat16 storage; CUDA has optional fp32 accumulation and vectorized dense
-  paths, while CPU reduced precision always computes in fp32 for now. Runtime
-  shape buffers support generic broadcasting, and standalone relational fused
-  outputs use bool storage while keeping float inputs typed as float pointers.
+  bfloat16 storage, and the ROCm generated path shares the same simple storage
+  surface through HIP aliases. CUDA has optional fp32 accumulation and vectorized
+  dense paths, while CPU reduced precision always computes in fp32 for now.
+  Runtime shape buffers support generic broadcasting, and standalone relational
+  fused outputs use bool storage while keeping float inputs typed as float
+  pointers.
   Public `cast(x, dtype)` is also covered for dense one-input casts between
   `float32`, `float16`, `bfloat16`, and `bool`, preserving shape/spec and
   lowering through fused elementwise with mixed input/output pointer types.
@@ -139,15 +146,15 @@ epilogues where possible.
   lengths, `xy` indexing, mixed dtypes, and non-rank-1 inputs remain out of
   scope. `full` is now available for non-empty positive static dense shapes with
   `float32`, `float16`, `bfloat16`, and `bool` storage, using CPU reference
-  execution plus generated CPU/CUDA fill kernels.
+  execution plus generated CPU/CUDA/ROCm fill kernels.
   `arange` is available for non-empty static ranges with positive and negative
   steps across `float32`, `float16`, and `bfloat16` storage, using CPU reference
-  execution plus generated CPU/CUDA kernels. `randn` is available for non-empty
-  positive static dense shapes across `float32`, `float16`, and `bfloat16`
-  storage, using an explicit integer `seed` attr and stateless generated
-  CPU/CUDA kernels. Dynamic shapes, zero-sized creation outputs, and integer
-  arange/randn dtypes remain out of scope for this bounded port. `cast` is
-  available for dense tensor casts across the current generated
+  execution plus generated CPU/CUDA/ROCm kernels. `randn` is available for
+  non-empty positive static dense shapes across `float32`, `float16`, and
+  `bfloat16` storage, using an explicit integer `seed` attr and stateless
+  generated CPU/CUDA/ROCm kernels. Dynamic shapes, zero-sized creation outputs,
+  and integer arange/randn dtypes remain out of scope for this bounded port.
+  `cast` is available for dense tensor casts across the current generated
   float/reduced-precision/bool storage surface.
 - [ ] Selection/scatter: remaining bounded gap is `masked_select`; a bounded
   admission pass deferred it rather than adding public surface. PyTorch/v1
@@ -225,7 +232,7 @@ epilogues where possible.
   static `slice_shape`, then reuses `slice_scatter`; dynamic shapes and
   view-of-view reshape inputs remain limited by existing shape-view lowering.
   `where` is available for dense bool-condition plus matching
-  float/reduced-precision/bool `x`/`y` through fused elementwise CPU/CUDA
+  float/reduced-precision/bool `x`/`y` through fused elementwise CPU/CUDA/ROCm
   generation. `eq` additionally supports bounded `int32`/`int64` inputs with
   bool outputs through the same fused-elementwise path; the other relational
   ops remain float/reduced-precision-input only for now.
@@ -270,7 +277,7 @@ add xsimd or `std::simd` only where measurable.
   `reduce_sum` for dense contiguous `float32`, `float16`, and `bfloat16`
   tensors over a positive static last dimension, with negative dim
   normalization and `keepdim`. Reduced-precision storage uses fp32 accumulation
-  and stores output back to the input dtype. CPU and CUDA use generated row
+  and stores output back to the input dtype. CPU, CUDA, and ROCm use generated row
   reductions and validate against NumPy/Torch-style semantics. CUDA includes a
   warp-per-row path for static reductions up to `K=1024` and a shared-memory
   fallback for larger reductions. Remaining parity work: non-last dimensions,
@@ -282,7 +289,8 @@ add xsimd or `std::simd` only where measurable.
   normalization and `keepdim`. `var` defaults to population variance and
   exposes an `unbiased` flag; `vector_norm` currently supports L2 norm only.
 - [x] `softmax`: initial public `dml.ops.softmax(x, dim=-1)` port for dense
-  contiguous `float32`, `float16`, and `bfloat16` tensors on CPU and CUDA.
+  contiguous `float32`, `float16`, and `bfloat16` tensors on CPU, CUDA, and
+  ROCm.
   Current implementation supports only the last dimension with a positive static
   reduction extent, uses stable max-subtract/exp/sum normalization, and targets
   attention-row shapes such as `[batch_heads * queries, keys]`. Reduced-precision
@@ -700,7 +708,7 @@ behavior.
 - [ ] Pooling: `avg_pool1d_compress_time`.
 - [x] `avg_pool1d`: bounded public `dml.ops.avg_pool1d(x, kernel_size,
   stride=None, padding=0)` for rank-3 NCL static-shape `float32`, `float16`,
-  and `bfloat16` tensors. CPU reference and generated CPU/CUDA kernels use
+  and `bfloat16` tensors. CPU reference and generated CPU/CUDA/ROCm kernels use
   fp32 accumulation and store back to the input dtype. Semantics are fixed to
   PyTorch floor output shape with zero padding included in the `kernel_size`
   divisor; `ceil_mode`, `count_include_pad=False`, `divisor_override`, dynamic
@@ -708,7 +716,7 @@ behavior.
   scope.
 - [x] `avg_pool2d`: bounded public `dml.ops.avg_pool2d(x, kernel_size,
   stride=None, padding=0)` for rank-4 NCHW static-shape `float32`,
-  `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA
+  `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA/ROCm
   kernels use fp32 accumulation and store back to the input dtype. Semantics are
   fixed to PyTorch floor output shape with zero padding included in the
   `kernel_h * kernel_w` divisor; `ceil_mode`, `count_include_pad=False`,
@@ -716,7 +724,7 @@ behavior.
   scope.
 - [x] `max_pool2d`: bounded public `dml.ops.max_pool2d(x, kernel_size,
   stride=None, padding=0)` for rank-4 NCHW static-shape `float32`,
-  `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA
+  `float16`, and `bfloat16` tensors. CPU reference and generated CPU/CUDA/ROCm
   kernels compare in fp32 and store back to the input dtype. Semantics are
   fixed to PyTorch floor output shape with implicit negative-infinity padding;
   dynamic shapes, bool/integer tensors, dilation, `ceil_mode`, and
@@ -725,8 +733,8 @@ behavior.
   ranked static tensors. `pad` uses PyTorch/F.pad trailing-pair order and accepts
   non-empty even-length non-negative non-bool integer pad widths, with output
   shape statically expanded and dtype preserved across float32/float16/bfloat16/
-  bool storage. CPU reference plus generated CPU/CUDA copy/fill kernels are in
-  place. Out of scope for this port: dynamic shapes, non-constant modes,
+  bool storage. CPU reference plus generated CPU/CUDA/ROCm copy/fill kernels are
+  in place. Out of scope for this port: dynamic shapes, non-constant modes,
   negative pads/cropping, integer dtypes, and layout packing helpers.
 - [ ] Padding/layout packing: `nhwc3to4`, `nhwc3to8`, `ndhwc3to8`,
   `prepare_for_transposed_conv2d`.
@@ -748,7 +756,7 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   while the weightless path materializes a same-dtype static ones vector
   `[hidden]` and then delegates to that same bounded T5/RMS kernel path. It
   inherits the existing fp32 accumulation semantics, dynamic leading-dimension
-  support, CPU reference execution, and generated CPU/CUDA lowering from
+  support, CPU reference execution, and generated CPU/CUDA/ROCm lowering from
   `t5_layer_norm`; helper-level regressions now explicitly cover weighted and
   unweighted dynamic-leading-dimension CPU artifact execution plus reduced-
   precision (`float16`/`bfloat16`) CUDA runtime parity with fp32 accumulation
@@ -761,7 +769,7 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   eps=1e-6)` port for rank >= 1 dense tensors with a positive static last
   dimension and required rank-1 affine weight `[hidden]`, across `float32`,
   `float16`, and `bfloat16` input/output storage. CPU reference plus generated
-  CPU/CUDA kernels use fp32 accumulation and preserve dynamic leading-dimension
+  CPU/CUDA/ROCm kernels use fp32 accumulation and preserve dynamic leading-dimension
   shape metadata while flattening those leading dims into rows at runtime.
   Semantics match the T5/RMSNorm-style form with no mean subtraction and no
   bias: `x * rsqrt(mean(x^2) + eps) * weight`. Out of scope for this bounded
@@ -773,7 +781,7 @@ the CPU target. Packing helpers are likely custom copy kernels. Use
   eps=1e-5)` port for rank >= 1 dense tensors with a positive static last
   dimension and required rank-1 affine weight/bias tensors `[hidden]`, across
   `float32`, `float16`, and `bfloat16` input/output storage. CPU reference plus
-  generated CPU/CUDA kernels use fp32 accumulation and preserve dynamic
+  generated CPU/CUDA/ROCm kernels use fp32 accumulation and preserve dynamic
   leading-dimension shape metadata while flattening those leading dims into
   rows at runtime. Semantics match standard affine LayerNorm over the last
   dimension with mean subtraction and variance normalization:
@@ -830,7 +838,7 @@ when compile-time constants make that practical.
   supports `float32`/`float16`/`bfloat16` table storage plus `int64`/`int32`
   indices with rank >= 1, preserves dynamic leading index dims in the output
   shape-spec, returns output shaped `indices.shape + [hidden]`, and keeps the
-  output dtype equal to the table dtype. Generated CPU/CUDA lowering and CPU
+  output dtype equal to the table dtype. Generated CPU/CUDA/ROCm lowering and CPU
   reference execution now include explicit runtime output-size checks plus
   out-of-bounds index rejection, with focused regressions covering frontend/IR
   shape and dtype, int32/int64 indices, validation failures, generated-source
@@ -843,7 +851,7 @@ when compile-time constants make that practical.
   `gelu` op; see the V2 MVP activation notes above for the helper-only
   contract.
 - [x] `get_timestep_embedding` - bounded registered positional op with
-  generated CPU and CUDA kernels for rank-1 dense
+  generated CPU, CUDA, and ROCm kernels for rank-1 dense
   `float32`/`float16`/`bfloat16` timesteps, positive integer
   `embedding_dim`, finite `downscale_freq_shift`/`scale`, positive finite
   `max_period`, and a non-zero `half_dim - downscale_freq_shift` denominator
@@ -884,15 +892,15 @@ when compile-time constants make that practical.
   either synthesize integer positions internally from an admitted static
   `sequence_length` attr or take float32 tensor positions, perform the
   frequency/trig math in fp32, preserve dynamic `S` in output shape-spec
-  metadata for the tensor-input path, and cover generated CPU/CUDA lowering
-  plus focused CPU/CUDA parity tests including dynamic tensor-position CUDA
-  runtime reuse across multiple sequence lengths. Remaining bounds: the public
+  metadata for the tensor-input path, and cover generated CPU/CUDA/ROCm lowering
+  plus focused CPU/CUDA parity tests and the shared ROCm simple-op contract,
+  including dynamic tensor-position CUDA runtime reuse across multiple sequence lengths. Remaining bounds: the public
   wrapper itself still lives outside `OP_REGISTRY` because multi-output
   frontend registration is not available yet, and v1-style single two-output
   kernel launch parity should wait for real multi-output IR/runtime support.
 
 Library hints: no major external kernel library is expected to own these. Use
-common primitive composition for CPU/CUDA first; add fused kernels only if these
+common primitive composition for CPU/CUDA/ROCm first; add fused kernels only if these
 become profiler-visible.
 
 ### Filtering and Resampling Helpers

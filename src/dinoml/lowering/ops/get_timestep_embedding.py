@@ -8,19 +8,20 @@ from typing import Any, Mapping
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.ops.template_rendering import supported_target_spec
 from dinoml.ops.positional import GET_TIMESTEP_EMBEDDING_DTYPES, normalize_get_timestep_embedding_attrs
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    spec = supported_target_spec(target, "get_timestep_embedding")
     context = _context(target, node, tensor_map)
-    if target == "cpu":
+    if not spec.is_gpu:
         return _render_template("get_timestep_embedding_cpu.cpp.j2", context)
-    if target == "cuda":
-        return _render_template("get_timestep_embedding_cuda.cu.j2", context)
-    raise ValueError(f"Unsupported get_timestep_embedding target: {target}")
+    context.update(spec.gpu_template_context())
+    return _render_template("get_timestep_embedding_gpu.j2", context)
 
 
 def render_launch(
@@ -30,20 +31,18 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
+    spec = supported_target_spec(target, "get_timestep_embedding")
     func = _function_name(node, tensor_map)
     timesteps = _c_ident(node["inputs"][0])
     out = _c_ident(node["outputs"][0])
     args = f"ptr_{timesteps}, ptr_{out}, runtime_numel_{timesteps}, runtime_numel_{out}"
-    if target == "cpu":
+    if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({args}, session->stream)) return err;"
-    raise ValueError(f"Unsupported get_timestep_embedding target: {target}")
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported get_timestep_embedding target: {target}")
+    supported_target_spec(target, "get_timestep_embedding")
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -57,7 +56,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[node["outputs"][0]]
     normalized_attrs = _validate_node_contract(node, input_tensor, output_tensor)
     dtype = str(input_tensor["dtype"])
-    storage_type = cpu_storage_type(dtype) if target == "cpu" else cuda_storage_type(dtype)
+    storage_type = target_storage_type(dtype, target)
     embedding_dim = int(normalized_attrs["embedding_dim"])
     half_dim = embedding_dim // 2
     denominator = 1.0 if half_dim == 0 else (float(half_dim) - float(normalized_attrs["downscale_freq_shift"]))

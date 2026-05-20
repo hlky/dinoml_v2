@@ -8,8 +8,9 @@ from typing import Any, Mapping
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.ops.template_rendering import supported_target_spec
 from dinoml.ops.positional import (
     GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS,
     GET_1D_ROTARY_POS_EMBED_DTYPES,
@@ -20,12 +21,12 @@ from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    spec = supported_target_spec(target, "get_1d_rotary_pos_embed")
     context = _context(target, node, tensor_map)
-    if target == "cpu":
+    if not spec.is_gpu:
         return _render_template("get_1d_rotary_pos_embed_cpu.cpp.j2", context)
-    if target == "cuda":
-        return _render_template("get_1d_rotary_pos_embed_cuda.cu.j2", context)
-    raise ValueError(f"Unsupported get_1d_rotary_pos_embed target: {target}")
+    context.update(spec.gpu_template_context())
+    return _render_template("get_1d_rotary_pos_embed_gpu.j2", context)
 
 
 def render_launch(
@@ -35,6 +36,7 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
+    spec = supported_target_spec(target, "get_1d_rotary_pos_embed")
     func = _function_name(node, tensor_map)
     out = _c_ident(node["outputs"][0])
     if node["inputs"]:
@@ -45,16 +47,13 @@ def render_launch(
         runtime_pos = str(int(node.get("attrs", {}).get("sequence_length", 0)))
         pos_ptr = "nullptr"
     args = f"{pos_ptr}, ptr_{out}, {runtime_pos}, runtime_numel_{out}"
-    if target == "cpu":
+    if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({args}, session->stream)) return err;"
-    raise ValueError(f"Unsupported get_1d_rotary_pos_embed target: {target}")
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported get_1d_rotary_pos_embed target: {target}")
+    supported_target_spec(target, "get_1d_rotary_pos_embed")
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -68,8 +67,8 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[node["outputs"][0]]
     normalized_attrs = _validate_node_contract(node, input_tensor, output_tensor)
     output_dtype = str(output_tensor["dtype"])
-    input_storage_type = cpu_storage_type("float32") if target == "cpu" else cuda_storage_type("float32")
-    output_storage_type = cpu_storage_type(output_dtype) if target == "cpu" else cuda_storage_type(output_dtype)
+    input_storage_type = target_storage_type("float32", target)
+    output_storage_type = target_storage_type(output_dtype, target)
     rotary_dim = int(normalized_attrs["dim"]) // 2
     scaled_theta = float(normalized_attrs["theta"]) * float(normalized_attrs["ntk_factor"])
     return {

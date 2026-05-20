@@ -4,6 +4,16 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Admitted ROCm generated HIP modules for the simple generated-template op
+  families. CUDA-only `*_cuda.cu.j2` simple templates were moved to shared
+  `*_gpu.j2` templates using explicit target facts for stream type, error
+  checks, async memset, storage type, and warp shuffle masks; ROCm op registry
+  entries now route those simple ops through the shared lowering path. Added an
+  opt-in ROCm artifact contract under `tests/rocm/` that compiles, loads, runs,
+  and reference-checks every non-provider standard case from `.venv/rocm`.
+  The test uses the normal cache instead of patching `DINOML_CACHE_DIR`.
+  Provider-backed GEMM/BMM/Conv and CK remain outside the admitted ROCm runtime
+  surface.
 - Added the first v1-inspired cross-backend lowering metadata slice without
   admitting ROCm op support: generated-code target facts now live in
   `dinoml.lowering.target_specs`, `full`/`arange` use shared template loading
@@ -11,9 +21,8 @@ This file should be updated after each major loop.
   the common `dinoml/math.h` / `tensor_accessor.h` headers are HIP-aware for
   future shared HIP kernels. ROCm target facts are visible (`.hip`,
   `hipStream_t`, `DINO_ROCM_CHECK`, HIP-backed `half`/`dinoml::bfloat16`
-  storage names), but
-  `generated_module_admitted=False` keeps the existing compile fence until a
-  real generated HIP artifact proof lands. Added an opt-in real `hipcc`
+  storage names), and this scaffold has since been superseded by the admitted
+  simple generated HIP artifact path recorded above. Added an opt-in real `hipcc`
   header-compile smoke for `device.h`, `runtime_rocm.h`, `math.h`, and
   `tensor_accessor.h` under `DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE=1`, so the
   shared-header ROCm compile check is now in pytest instead of only being a
@@ -38,8 +47,8 @@ This file should be updated after each major loop.
   lane. `Target("rocm")` now resolves to `gfx1201`, the CLI lists `rocm`, CMake
   resolves pip/venv ROCm SDK layouts through `rocm-sdk` on `PATH`, and the HIP
   support-library smoke builds `dinoml_runtime`, `dinoml_rocm_runtime`, and
-  `dinoml_rocm_kernels` with the local toolchain. The scaffold deliberately
-  raises before claiming any ROCm op lowering or generated HIP artifact support.
+  `dinoml_rocm_kernels` with the local toolchain. This was the pre-admission
+  scaffold before the later generated HIP artifact path landed.
   Validation covered registration/codegen-plan fences plus the opt-in real ROCm
   support build under `.venv/rocm`.
 - Added ROCm Composable Kernel as a plain third-party source submodule under
@@ -710,11 +719,12 @@ This file should be updated after each major loop.
 ## Next Recommended Lane
 
 - Human steering on 2026-05-19 makes ROCm backend integration the active lane.
-  The next bounded ROCm task should admit exactly one generated HIP artifact
-  slice, preferably fused-elementwise `float32`, using `.venv/rocm` as the
-  validation environment and keeping the current unsupported-op fence for every
-  surface that is not proven. Do not treat the checked-in CK source or the
-  support-library smoke as runtime/provider support.
+  The simple generated-template ROCm surface is now admitted with real
+  `.venv/rocm` compile/load/run contracts. The next bounded ROCm task should
+  either harden that surface with targeted edge cases or start a provider-backed
+  lane such as CK only with artifact-visible manifest/support/generated
+  lowering/runtime/parity proof. Do not treat the checked-in CK source or the
+  simple-template contract as GEMM/BMM/Conv provider support.
 - Human steering on 2026-05-15 makes Conv the first lane. The next bounded Conv
   work should stay inside the existing `cutlass_conv` contract and build on the
   admitted `conv2d_bias_relu`, `conv2d_bias_add`, and `conv2d_bias_add_relu`
@@ -1410,14 +1420,12 @@ This file should be updated after each major loop.
 
 ## Ranked Backlog
 
-1. Continue the ROCm backend lane from the new scaffold by wiring one minimal
-   generated HIP artifact path and runtime smoke on `gfx1201`. Build on the
-   shared lowering target specs/common HIP-aware headers instead of introducing
-   separate CUDA/HIP op copies. Start with an already-understood generated op
-   family such as fused elementwise `float32`; require artifact-visible support
-   libraries, generated source, copied runtime libraries, and a real
-   `.venv/rocm` compile/load/run proof before broadening dtype/op/provider
-   claims.
+1. Continue the ROCm backend lane after the admitted simple generated-template
+   surface by hardening edge coverage or starting exactly one provider-backed
+   path with full proof. Any CK/GEMM/BMM/Conv ROCm work must include
+   artifact-visible support libraries, generated lowering, copied runtime
+   libraries, and a real `.venv/rocm` compile/load/run numeric proof before
+   broadening dtype/op/provider claims.
 2. Keep the small/custom-op lane on honest helper or bounded-op slices:
    with `gelu_new`, the now-registered generated `get_timestep_embedding`, the
    completed bounded `get_1d_rotary_pos_embed` component-op slice, and the

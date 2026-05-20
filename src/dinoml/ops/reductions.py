@@ -135,7 +135,8 @@ def resolve_topk_shape(shape: Sequence[int], k: Any, dim: Any, largest: bool, so
 
 _REDUCTION_SCHEMA = OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)))
 _REDUCTION_KERNELS = {
-    "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_cuda"),
+    "cuda": KernelBinding("generated_reduction", "model", source_template="reduction_gpu"),
+    "rocm": KernelBinding("generated_reduction", "model", source_template="reduction_gpu"),
     "cpu": KernelBinding("generated_reduction", "model", source_template="reduction_cpu"),
 }
 
@@ -244,7 +245,8 @@ class Argmax(OpDef):
     infer_shape = infer_argmax_shape
     infer_shape_with_attrs = infer_argmax_shape_with_attrs
     backend_kernels = {
-        "cuda": KernelBinding("generated_argmax", "model", source_template="argmax_cuda"),
+        "cuda": KernelBinding("generated_argmax", "model", source_template="argmax_gpu"),
+        "rocm": KernelBinding("generated_argmax", "model", source_template="argmax_gpu"),
         "cpu": KernelBinding("generated_argmax", "model", source_template="argmax_cpu"),
     }
     frontend = FrontendBinding("argmax")
@@ -294,7 +296,8 @@ class _TopkOp(OpDef):
     infer_shape = infer_topk_shape
     infer_shape_with_attrs = infer_topk_shape_with_attrs
     backend_kernels = {
-        "cuda": KernelBinding("generated_topk", "model", source_template="topk_cuda"),
+        "cuda": KernelBinding("generated_topk", "model", source_template="topk_gpu"),
+        "rocm": KernelBinding("generated_topk", "model", source_template="topk_gpu"),
         "cpu": KernelBinding("generated_topk", "model", source_template="topk_cpu"),
     }
     allowed_dtypes = TOPK_DTYPES

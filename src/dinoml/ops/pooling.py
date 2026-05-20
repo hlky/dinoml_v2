@@ -252,7 +252,8 @@ class AvgPool1d(OpDef):
     allowed_dtypes = POOLING_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_avg_pool1d", library="model", source_template="avg_pool1d_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_avg_pool1d", library="model", source_template="avg_pool1d_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_avg_pool1d", library="model", source_template="avg_pool1d_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_avg_pool1d", library="model", source_template="avg_pool1d_gpu.j2"),
     }
     frontend = FrontendBinding("avg_pool1d")
     description = (
@@ -297,7 +298,8 @@ class AvgPool2d(OpDef):
     allowed_dtypes = POOLING_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_avg_pool2d", library="model", source_template="avg_pool2d_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_avg_pool2d", library="model", source_template="avg_pool2d_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_avg_pool2d", library="model", source_template="avg_pool2d_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_avg_pool2d", library="model", source_template="avg_pool2d_gpu.j2"),
     }
     frontend = FrontendBinding("avg_pool2d")
     description = (
@@ -342,7 +344,8 @@ class MaxPool2d(OpDef):
     allowed_dtypes = POOLING_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_max_pool2d", library="model", source_template="max_pool2d_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_max_pool2d", library="model", source_template="max_pool2d_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_max_pool2d", library="model", source_template="max_pool2d_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_max_pool2d", library="model", source_template="max_pool2d_gpu.j2"),
     }
     frontend = FrontendBinding("max_pool2d")
     description = (

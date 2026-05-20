@@ -208,7 +208,12 @@ class GetTimestepEmbedding(OpDef):
         "cuda": KernelBinding(
             symbol="generated_get_timestep_embedding",
             library="model",
-            source_template="get_timestep_embedding_cuda.cu.j2",
+            source_template="get_timestep_embedding_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            symbol="generated_get_timestep_embedding",
+            library="model",
+            source_template="get_timestep_embedding_gpu.j2",
         ),
     }
     frontend = FrontendBinding("get_timestep_embedding")
@@ -283,7 +288,12 @@ class _Get1dRotaryPosEmbedComponent(OpDef):
         "cuda": KernelBinding(
             symbol="generated_get_1d_rotary_pos_embed",
             library="model",
-            source_template="get_1d_rotary_pos_embed_cuda.cu.j2",
+            source_template="get_1d_rotary_pos_embed_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            symbol="generated_get_1d_rotary_pos_embed",
+            library="model",
+            source_template="get_1d_rotary_pos_embed_gpu.j2",
         ),
     }
     allowed_dtypes = GET_1D_ROTARY_POS_EMBED_DTYPES

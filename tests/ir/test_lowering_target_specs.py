@@ -11,7 +11,8 @@ from dinoml.lowering.target_specs import (
     lowering_target_spec,
     storage_type,
 )
-from dinoml.ops.creation import Arange, Full
+from dinoml.ops.creation import Arange, Full, Randn
+from dinoml.ops.pooling import AvgPool1d
 
 
 def test_lowering_target_specs_include_rocm_with_generated_module_admission():
@@ -22,6 +23,8 @@ def test_lowering_target_specs_include_rocm_with_generated_module_admission():
     assert rocm.stream_type == "hipStream_t"
     assert rocm.check_macro == "DINO_ROCM_CHECK"
     assert rocm.last_error_call == "hipGetLastError()"
+    assert rocm.memset_async == "hipMemsetAsync"
+    assert rocm.warp_full_mask == "0xffffffffffffffffull"
     assert rocm.storage_type("float16") == "half"
     assert rocm.storage_type("bfloat16") == "dinoml::bfloat16"
     assert rocm.generated_module_admitted
@@ -75,8 +78,11 @@ def test_creation_gpu_templates_use_backend_spec_names():
 def test_creation_registry_points_cuda_to_shared_gpu_templates():
     assert Full.backend_kernels["cuda"].source_template == "full_gpu.j2"
     assert Arange.backend_kernels["cuda"].source_template == "arange_gpu.j2"
+    assert Randn.backend_kernels["cuda"].source_template == "randn_gpu.j2"
 
 
-def test_creation_ops_do_not_claim_public_rocm_support_yet():
-    assert "rocm" not in Full.backend_kernels
-    assert "rocm" not in Arange.backend_kernels
+def test_simple_generated_ops_claim_rocm_shared_gpu_templates():
+    assert Full.backend_kernels["rocm"].source_template == "full_gpu.j2"
+    assert Arange.backend_kernels["rocm"].source_template == "arange_gpu.j2"
+    assert Randn.backend_kernels["rocm"].source_template == "randn_gpu.j2"
+    assert AvgPool1d.backend_kernels["rocm"].source_template == "avg_pool1d_gpu.j2"

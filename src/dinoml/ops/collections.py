@@ -631,7 +631,8 @@ class Concatenate(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_concatenate", library="model", source_template="concatenate_gpu.j2"),
     }
     frontend = FrontendBinding("concatenate")
     variadic_inputs = True
@@ -654,7 +655,8 @@ class Stack(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_stack", library="model", source_template="stack_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_stack", library="model", source_template="stack_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_stack", library="model", source_template="stack_gpu.j2"),
     }
     frontend = FrontendBinding("stack")
     variadic_inputs = True
@@ -677,7 +679,8 @@ class Flip(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_flip", library="model", source_template="flip_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_flip", library="model", source_template="flip_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_flip", library="model", source_template="flip_gpu.j2"),
     }
     frontend = FrontendBinding("flip")
     description = "Materialize a dense copy that reverses one or more static dimensions."
@@ -699,7 +702,8 @@ class RepeatInterleave(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_repeat_interleave", library="model", source_template="repeat_interleave_gpu.j2"),
     }
     frontend = FrontendBinding("repeat_interleave")
     description = "Materialize a dense bounded repeat-interleave copy along a static dimension."
@@ -721,7 +725,8 @@ class Permute(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_permute", library="model", source_template="permute_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_permute", library="model", source_template="permute_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_permute", library="model", source_template="permute_gpu.j2"),
     }
     frontend = FrontendBinding("permute")
     description = "Materialize a dense bounded copy with permuted static dimensions."
@@ -748,7 +753,8 @@ class Permute021(_SpecializedPermute):
     infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_permute021", library="model", source_template="permute_gpu.j2"),
     }
     frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
     description = "Materialize a dense bounded copy for the fixed [0, 2, 1] permutation on rank-3 static tensors."
@@ -766,7 +772,8 @@ class Permute0213(_SpecializedPermute):
     infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_permute0213", library="model", source_template="permute_gpu.j2"),
     }
     frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
     description = "Materialize a dense bounded copy for the fixed [0, 2, 1, 3] permutation on rank-4 static tensors."
@@ -784,7 +791,8 @@ class Permute102(_SpecializedPermute):
     infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_permute102", library="model", source_template="permute_gpu.j2"),
     }
     frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
     description = "Materialize a dense bounded copy for the fixed [1, 0, 2] permutation on rank-3 static tensors."
@@ -802,7 +810,8 @@ class Permute210(_SpecializedPermute):
     infer_shape_with_attrs = _specialized_permute_shape_with_attrs(name)
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_permute210", library="model", source_template="permute_gpu.j2"),
     }
     frontend = FrontendBinding(name, default_attrs={"dims": list(_dims)})
     description = "Materialize a dense bounded copy for the fixed [2, 1, 0] permutation on rank-3 static tensors."
@@ -827,7 +836,8 @@ class DynamicSlice(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_dynamic_slice", library="model", source_template="dynamic_slice_gpu.j2"),
     }
     frontend = FrontendBinding("dynamic_slice")
     description = "Materialize a dense bounded slice copy with static starts and sizes."
@@ -852,7 +862,8 @@ class IndexSelect(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_index_select", library="model", source_template="index_select_gpu.j2"),
     }
     frontend = FrontendBinding("index_select")
     description = "Materialize a dense bounded select copy along one static dimension using static integer indices."
@@ -874,7 +885,8 @@ class Gather(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_gather", library="model", source_template="gather_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_gather", library="model", source_template="gather_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_gather", library="model", source_template="gather_gpu.j2"),
     }
     frontend = FrontendBinding("gather")
     description = "Materialize a dense bounded gather copy using a static-shape integer index tensor."
@@ -893,7 +905,8 @@ class BatchGather(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_batch_gather", library="model", source_template="gather_gpu.j2"),
     }
     frontend = FrontendBinding("batch_gather")
     description = "Materialize a dense bounded batch gather from axis 1 using static-shape integer indices."
@@ -915,7 +928,8 @@ class SliceScatter(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_slice_scatter", library="model", source_template="slice_scatter_gpu.j2"),
     }
     frontend = FrontendBinding("slice_scatter")
     description = "Materialize a dense bounded scatter-update copy with static starts."
@@ -940,7 +954,8 @@ class Pad(OpDef):
     allowed_dtypes = COLLECTION_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_pad", library="model", source_template="pad_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_pad", library="model", source_template="pad_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_pad", library="model", source_template="pad_gpu.j2"),
     }
     frontend = FrontendBinding("pad")
     description = "Materialize a dense static constant-padding copy using PyTorch F.pad pair order."

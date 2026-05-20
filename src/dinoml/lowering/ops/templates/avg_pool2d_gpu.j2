@@ -35,7 +35,7 @@ static int {{ func }}(
     const {{ storage_type }}* DINO_RESTRICT x,
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_numel,
-    cudaStream_t stream) {
+    {{ gpu_stream_type }} stream) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
@@ -44,7 +44,7 @@ static int {{ func }}(
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
   if (grid > 0) {
     {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
-    DINO_CUDA_CHECK(cudaGetLastError());
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
   return 0;
 }

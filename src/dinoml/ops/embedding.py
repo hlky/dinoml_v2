@@ -55,7 +55,12 @@ class Embedding(OpDef):
         "cuda": KernelBinding(
             symbol="generated_embedding",
             library="model",
-            source_template="embedding_cuda.cu.j2",
+            source_template="embedding_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            symbol="generated_embedding",
+            library="model",
+            source_template="embedding_gpu.j2",
         ),
     }
     frontend = FrontendBinding("embedding")

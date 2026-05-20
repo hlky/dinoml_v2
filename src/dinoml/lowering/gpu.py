@@ -91,6 +91,9 @@ def render_gpu_module(
             "launches": [render_launch(target_name, node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]],
             "output_materializations": _output_materializations(views, target_name=target_name),
             "output_shape_reports": _output_shape_report_contexts(ir, tensor_map=tensor_map),
+            "cutlass_conv_temporaries": [],
+            "external_kernel_declarations": [],
+            "cutlass_workspace": None,
             **template_kwargs,
         },
     )

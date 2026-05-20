@@ -60,7 +60,8 @@ class Expand(OpDef):
     allowed_dtypes = BROADCAST_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_expand", library="model", source_template="expand_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_expand", library="model", source_template="expand_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_expand", library="model", source_template="expand_gpu.j2"),
     }
     frontend = FrontendBinding("expand")
     description = "Materialize a dense broadcast of a tensor to a static shape."

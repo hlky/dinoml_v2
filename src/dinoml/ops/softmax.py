@@ -20,7 +20,8 @@ class Softmax(OpDef):
     schema = OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1),))
     infer_shape = infer_softmax
     backend_kernels = {
-        "cuda": KernelBinding("generated_softmax", "model", source_template="softmax_cuda"),
+        "cuda": KernelBinding("generated_softmax", "model", source_template="softmax_gpu"),
+        "rocm": KernelBinding("generated_softmax", "model", source_template="softmax_gpu"),
         "cpu": KernelBinding("generated_softmax", "model", source_template="softmax_cpu"),
     }
     frontend = FrontendBinding("softmax")

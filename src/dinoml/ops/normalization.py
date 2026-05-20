@@ -31,7 +31,8 @@ class T5LayerNorm(OpDef):
     schema = OpSchema(inputs=("x", "weight"), attrs=(AttrDef("eps", "float", 1e-6),))
     infer_shape = infer_t5_layer_norm
     backend_kernels = {
-        "cuda": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cuda"),
+        "cuda": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_gpu"),
+        "rocm": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_gpu"),
         "cpu": KernelBinding("generated_t5_layer_norm", "model", source_template="t5_layer_norm_cpu"),
     }
     frontend = FrontendBinding("t5_layer_norm")
@@ -65,7 +66,8 @@ class LayerNorm(OpDef):
     schema = OpSchema(inputs=("x", "weight", "bias"), attrs=(AttrDef("eps", "float", 1e-5),))
     infer_shape = infer_layer_norm
     backend_kernels = {
-        "cuda": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cuda"),
+        "cuda": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_gpu"),
+        "rocm": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_gpu"),
         "cpu": KernelBinding("generated_layer_norm", "model", source_template="layer_norm_cpu"),
     }
     frontend = FrontendBinding("layer_norm")

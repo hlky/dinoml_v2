@@ -78,6 +78,7 @@ class Full(OpDef):
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_full", library="model", source_template="full_cpu.cpp.j2"),
         "cuda": KernelBinding(symbol="generated_full", library="model", source_template="full_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_full", library="model", source_template="full_gpu.j2"),
     }
     frontend = FrontendBinding("full")
     description = "Create a dense tensor filled with a scalar value."
@@ -125,6 +126,7 @@ class Arange(OpDef):
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_arange", library="model", source_template="arange_cpu.cpp.j2"),
         "cuda": KernelBinding(symbol="generated_arange", library="model", source_template="arange_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_arange", library="model", source_template="arange_gpu.j2"),
     }
     frontend = FrontendBinding("arange")
     description = "Create a dense 1D tensor from a static numeric range."
@@ -169,7 +171,8 @@ class Randn(OpDef):
     allowed_dtypes = RANDN_DTYPES
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_randn", library="model", source_template="randn_cpu.cpp.j2"),
-        "cuda": KernelBinding(symbol="generated_randn", library="model", source_template="randn_cuda.cu.j2"),
+        "cuda": KernelBinding(symbol="generated_randn", library="model", source_template="randn_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_randn", library="model", source_template="randn_gpu.j2"),
     }
     frontend = FrontendBinding("randn")
     description = "Create a dense tensor of deterministic standard normal samples."

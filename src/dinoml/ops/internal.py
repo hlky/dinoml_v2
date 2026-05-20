@@ -19,6 +19,7 @@ class ShapeBufferCountTrue(OpDef):
     backend_kernels = {
         "cpu": KernelBinding(symbol="generated_shape_buffer_count_true", library="model"),
         "cuda": KernelBinding(symbol="generated_shape_buffer_count_true", library="model"),
+        "rocm": KernelBinding(symbol="generated_shape_buffer_count_true", library="model"),
     }
     description = (
         "Internal fixture op that counts true bool elements and publishes "

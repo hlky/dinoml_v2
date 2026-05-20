@@ -5,18 +5,20 @@ local Windows environment plus the `hlky/rocm_windows` investigation at commit
 `9594294` (`Handle versioned Windows HIP SDK roots`), including
 `scripts/Build-Probe.ps1` and `cmake/DinoMLROCmSdk.cmake`.
 
-## Current Scaffold
+## Current Status
 
 - Default ROCm target: `dml.Target("rocm")` resolves to `gfx1201`, matching the
   local AMD Radeon RX 9070 XT report from `rocm_sdk targets`.
 - The repo has a dedicated ROCm backend spec, CMake SDK resolver, HIP runtime
-  helper library, and empty reusable ROCm kernel library.
+  helper library, and reusable ROCm kernel library.
 - The support-library smoke builds `dinoml_runtime`, `dinoml_rocm_runtime`, and
   `dinoml_rocm_kernels` through `.venv/rocm` and writes a support manifest under
   the ROCm support cache.
-- Model compilation for `Target("rocm")` still raises before claiming any op
-  support. No ROCm generated HIP artifact wrapper, op lowering, runtime Python
-  execution path, or CK provider path is admitted yet.
+- Model compilation for `Target("rocm")` now admits the simple
+  generated-template op families through shared GPU templates rendered as HIP
+  sources. The opt-in ROCm contract compiles, loads, runs, and reference-checks
+  every non-provider standard case on the local `.venv/rocm` toolchain.
+- CK and provider-backed GEMM/BMM/Conv paths are still not admitted on ROCm.
 
 ## Windows ROCm Packaging Rules
 
@@ -46,18 +48,22 @@ local Windows environment plus the `hlky/rocm_windows` investigation at commit
 ## Validation Ladder
 
 1. Keep `tests/backends/test_rocm_scaffold.py` green without the real toolchain
-   smoke, proving target registration and the honest unsupported-op fence.
+   smoke, proving target registration and backend support contracts.
 2. With `.venv/rocm` active, run the opt-in support-library smoke:
    `DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE=1 python -m pytest -q tests/backends/test_rocm_scaffold.py`.
-3. Admit exactly one generated HIP artifact slice, likely fused elementwise,
-   only after generated source, CMake module build, library copying, and runtime
-   execution are all visible in tests.
-4. Add provider work such as CK only after the backend can compile and run a
-   minimal model artifact on ROCm.
+3. With `.venv/rocm` active, run the opt-in generated artifact contract:
+   `DINOML_RUN_ROCM_CONTRACTS=1 python -m pytest -q tests/rocm/test_contracts.py`.
+   This is the acceptance gate for simple generated-template ROCm ops because it
+   compiles real artifacts, loads them through the runtime, executes on the HIP
+   device, and compares against `reference_numpy`.
+4. Add provider work such as CK only after it has the same artifact-visible
+   compile/load/run proof and does not piggyback on the simple-template
+   contract.
 
 ## Next Bounded Step
 
-Wire a minimal generated HIP module path for one already-supported op family,
-preferably fused elementwise `float32`, and prove it with a real `.venv/rocm`
-compile/load/run smoke on `gfx1201`. Keep the failure mode explicit for every
-other op and dtype combination.
+Keep the ROCm lane honest by either hardening the admitted simple generated
+surface with focused edge cases or starting one provider-backed lane such as CK
+GEMM only when its manifest, support build, generated lowering, runtime load,
+and numeric parity proof can all land together. Do not claim GEMM/BMM/Conv ROCm
+support from the simple-template contract.

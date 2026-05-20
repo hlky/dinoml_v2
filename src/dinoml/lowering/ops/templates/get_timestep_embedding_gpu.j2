@@ -34,7 +34,7 @@ static int {{ func }}(
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_timesteps,
     int64_t runtime_total,
-    cudaStream_t stream) {
+    {{ gpu_stream_type }} stream) {
   if (timesteps == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
@@ -46,6 +46,6 @@ static int {{ func }}(
   const int64_t total = runtime_total;
   const int grid = static_cast<int>((total + block - 1) / block);
   {{ kernel }}<<<grid, block, 0, stream>>>(timesteps, y, runtime_timesteps);
-  DINO_CUDA_CHECK(cudaGetLastError());
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
   return 0;
 }

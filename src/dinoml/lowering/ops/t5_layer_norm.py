@@ -7,19 +7,20 @@ from typing import Any, Mapping
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.ops.template_rendering import supported_target_spec
 from dinoml.ops.normalization import T5_LAYER_NORM_DTYPES
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    context = _context(node, tensor_map)
-    if target == "cpu":
+    spec = supported_target_spec(target, "t5_layer_norm")
+    context = _context(target, node, tensor_map)
+    if not spec.is_gpu:
         return _render_template("t5_layer_norm_cpu.cpp.j2", context)
-    if target == "cuda":
-        return _render_template("t5_layer_norm_cuda.cu.j2", context)
-    raise ValueError(f"Unsupported t5_layer_norm target: {target}")
+    context.update(spec.gpu_template_context())
+    return _render_template("t5_layer_norm_gpu.j2", context)
 
 
 def render_launch(
@@ -29,21 +30,19 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
+    spec = supported_target_spec(target, "t5_layer_norm")
     func = _function_name(node, tensor_map)
     x = _c_ident(node["inputs"][0])
     weight = _c_ident(node["inputs"][1])
     out = _c_ident(node["outputs"][0])
     args = f"ptr_{x}, ptr_{weight}, ptr_{out}, runtime_numel_{out}"
-    if target == "cpu":
+    if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({args}, session->stream)) return err;"
-    raise ValueError(f"Unsupported t5_layer_norm target: {target}")
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported t5_layer_norm target: {target}")
+    supported_target_spec(target, "t5_layer_norm")
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -52,7 +51,7 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
     return _function_name(node, tensor_map)
 
 
-def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     x_tensor = tensor_map[node["inputs"][0]]
     weight_tensor = tensor_map[node["inputs"][1]]
     output_tensor = tensor_map[node["outputs"][0]]
@@ -63,8 +62,8 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
         "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
-        "cpu_storage_type": cpu_storage_type(dtype),
-        "cuda_storage_type": cuda_storage_type(dtype),
+        "cpu_storage_type": target_storage_type(dtype, "cpu"),
+        "storage_type": target_storage_type(dtype, target),
         "cols": cols,
         "eps": float(node.get("attrs", {}).get("eps", 1e-6)),
         "block_size": _cuda_block_size(cols),

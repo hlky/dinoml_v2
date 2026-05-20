@@ -1,8 +1,6 @@
-#include <assert.h>
-
 __global__ void {{ kernel }}(
     const {{ storage_type }}* DINO_RESTRICT x,
-    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT update,
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_numel) {
   const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
@@ -13,19 +11,19 @@ __global__ void {{ kernel }}(
 
 static int {{ func }}(
     const {{ storage_type }}* DINO_RESTRICT x,
-    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT update,
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_numel,
-    cudaStream_t stream) {
-  if (x == nullptr || index == nullptr || y == nullptr) {
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || update == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
   const int block = {{ block_size }};
   const int64_t grid64 = (runtime_numel + block - 1) / block;
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
   if (grid > 0) {
-    {{ kernel }}<<<grid, block, 0, stream>>>(x, index, y, runtime_numel);
-    DINO_CUDA_CHECK(cudaGetLastError());
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, update, y, runtime_numel);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
   return 0;
 }

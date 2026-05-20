@@ -1,7 +1,7 @@
 {% if use_warp_kernel %}
 __global__ void {{ warp_kernel }}(
-    const {{ cuda_storage_type }}* DINO_RESTRICT x,
-    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   constexpr int cols_per_thread = {{ cols_per_thread }};
@@ -30,22 +30,22 @@ __global__ void {{ warp_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    const float value = __shfl_down_sync(0xffffffffu, acc, offset);
+    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, acc, offset);
     acc = {{ partial_combine_expr }};
 {% if two_accumulators %}
-    sum_sq_acc += __shfl_down_sync(0xffffffffu, sum_sq_acc, offset);
+    sum_sq_acc += __shfl_down_sync({{ gpu_warp_full_mask }}, sum_sq_acc, offset);
 {% endif %}
   }
 
   if (lane == 0) {
-    y[row] = dinoml::math::cast<{{ cuda_storage_type }}>({{ final_expr }});
+    y[row] = dinoml::math::cast<{{ storage_type }}>({{ final_expr }});
   }
 }
 
 {% endif %}
 __global__ void {{ kernel }}(
-    const {{ cuda_storage_type }}* DINO_RESTRICT x,
-    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
     int64_t rows) {
   constexpr int64_t cols = {{ cols }};
   extern __shared__ float shared[];
@@ -89,15 +89,15 @@ __global__ void {{ kernel }}(
 {% if two_accumulators %}
     sum_sq_acc = shared[blockDim.x];
 {% endif %}
-    y[row] = dinoml::math::cast<{{ cuda_storage_type }}>({{ final_expr }});
+    y[row] = dinoml::math::cast<{{ storage_type }}>({{ final_expr }});
   }
 }
 
 static int {{ func }}(
-    const {{ cuda_storage_type }}* DINO_RESTRICT x,
-    {{ cuda_storage_type }}* DINO_RESTRICT y,
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_rows,
-    cudaStream_t stream) {
+    {{ gpu_stream_type }} stream) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
@@ -109,6 +109,6 @@ static int {{ func }}(
   const int block = {{ block_size }};
   {{ kernel }}<<<static_cast<unsigned int>(runtime_rows), block, block * sizeof(float) * {{ 2 if two_accumulators else 1 }}, stream>>>(x, y, runtime_rows);
 {% endif %}
-  DINO_CUDA_CHECK(cudaGetLastError());
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
   return 0;
 }

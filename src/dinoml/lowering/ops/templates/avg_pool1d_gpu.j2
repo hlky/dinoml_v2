@@ -5,32 +5,21 @@ __global__ void {{ kernel }}(
   const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
   for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
     int64_t remaining = idx;
-    const int64_t ow = remaining % {{ out_width }};
-    remaining = remaining / {{ out_width }};
-    const int64_t oh = remaining % {{ out_height }};
-    remaining = remaining / {{ out_height }};
+    const int64_t ol = remaining % {{ out_length }};
+    remaining = remaining / {{ out_length }};
     const int64_t oc = remaining % {{ out_c }};
     remaining = remaining / {{ out_c }};
     const int64_t on = remaining;
-    float max_value = -INFINITY;
-    for (int64_t kh = 0; kh < {{ kernel_h }}; ++kh) {
-      const int64_t ih = oh * {{ stride_h }} + kh - {{ pad_h }};
-      if (ih < 0 || ih >= {{ height }}) {
+    float sum = 0.0f;
+    for (int64_t kl = 0; kl < {{ kernel_size }}; ++kl) {
+      const int64_t il = ol * {{ stride }} + kl - {{ padding }};
+      if (il < 0 || il >= {{ length }}) {
         continue;
       }
-      for (int64_t kw = 0; kw < {{ kernel_w }}; ++kw) {
-        const int64_t iw = ow * {{ stride_w }} + kw - {{ pad_w }};
-        if (iw < 0 || iw >= {{ width }}) {
-          continue;
-        }
-        const int64_t input_idx = ((on * {{ c }} + oc) * {{ height }} + ih) * {{ width }} + iw;
-        const float value = dinoml::math::cast<float>(x[input_idx]);
-        if (value > max_value) {
-          max_value = value;
-        }
-      }
+      const int64_t input_idx = (on * {{ c }} + oc) * {{ length }} + il;
+      sum += dinoml::math::cast<float>(x[input_idx]);
     }
-    y[idx] = dinoml::math::cast<{{ storage_type }}>(max_value);
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(sum / {{ divisor }}.0f);
   }
 }
 
@@ -38,7 +27,7 @@ static int {{ func }}(
     const {{ storage_type }}* DINO_RESTRICT x,
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_numel,
-    cudaStream_t stream) {
+    {{ gpu_stream_type }} stream) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
@@ -47,7 +36,7 @@ static int {{ func }}(
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
   if (grid > 0) {
     {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
-    DINO_CUDA_CHECK(cudaGetLastError());
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
   return 0;
 }

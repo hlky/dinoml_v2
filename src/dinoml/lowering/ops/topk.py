@@ -7,19 +7,20 @@ from typing import Any, Mapping
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
+from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.lowering.ops.base import OpLowering
+from dinoml.lowering.ops.template_rendering import supported_target_spec
 from dinoml.ops.reductions import TOPK_DTYPES, normalize_topk_dim, resolve_topk_shape
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    spec = supported_target_spec(target, "topk")
     context = _context(target, node, tensor_map)
-    if target == "cpu":
+    if not spec.is_gpu:
         return _render_template("topk_cpu.cpp.j2", context)
-    if target == "cuda":
-        return _render_template("topk_cuda.cu.j2", context)
-    raise ValueError(f"Unsupported topk target: {target}")
+    context.update(spec.gpu_template_context())
+    return _render_template("topk_gpu.j2", context)
 
 
 def render_launch(
@@ -29,20 +30,18 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
+    spec = supported_target_spec(target, "topk")
     func = _function_name(node, tensor_map)
     inp = _c_ident(node["inputs"][0])
     out = _c_ident(node["outputs"][0])
     args = f"ptr_{inp}, ptr_{out}, runtime_numel_{out}"
-    if target == "cpu":
+    if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
-    if target == "cuda":
-        return f"if (int err = {func}({args}, session->stream)) return err;"
-    raise ValueError(f"Unsupported topk target: {target}")
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target not in {"cpu", "cuda"}:
-        raise ValueError(f"Unsupported topk target: {target}")
+    supported_target_spec(target, "topk")
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -56,7 +55,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[node["outputs"][0]]
     _validate_node_contract(node, input_tensor, output_tensor)
     input_dtype = str(input_tensor["dtype"])
-    input_storage_type = cpu_storage_type(input_dtype) if target == "cpu" else cuda_storage_type(input_dtype)
+    input_storage_type = target_storage_type(input_dtype, target)
     output_storage_type = _output_storage_type(target, node["op"], input_dtype)
     return {
         "func": _function_name(node, tensor_map),
@@ -110,7 +109,7 @@ def _validate_node_contract(
 def _output_storage_type(target: str, op_name: str, input_dtype: str) -> str:
     if op_name == "topk_indices":
         return "int64_t"
-    return cpu_storage_type(input_dtype) if target == "cpu" else cuda_storage_type(input_dtype)
+    return target_storage_type(input_dtype, target)
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

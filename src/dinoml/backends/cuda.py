@@ -90,7 +90,7 @@ def build_cuda_module(
     )
     (generated_src_dir / "CMakeLists.txt").write_text(
         render_template(
-            "cuda_module_cmake.txt.j2",
+            "gpu_module_cmake.txt.j2",
             {
                 "runtime_lib": str(runtime_lib),
                 "cuda_runtime_lib": str(cuda_runtime_lib),

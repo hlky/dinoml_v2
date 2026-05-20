@@ -56,7 +56,7 @@ def render_gpu_module(
         _lowered_gguf_runtime_dequant_constant_names(kernel_manifest) if target_name == "cuda" else set()
     )
     return render_template(
-        "cuda_module.cu.j2",
+        "gpu_module.cu.j2",
         {
             **config,
             "input_count": len(ir["inputs"]),

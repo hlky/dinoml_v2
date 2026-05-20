@@ -188,22 +188,11 @@ def test_generated_module_templates_export_native_session_benchmark():
     repo_root = Path(__file__).resolve().parents[1]
     for template in (
         repo_root / "src" / "dinoml" / "templates" / "cpu_module.cpp.j2",
-        repo_root / "src" / "dinoml" / "templates" / "cuda_module.cu.j2",
+        repo_root / "src" / "dinoml" / "templates" / "gpu_module.cu.j2",
     ):
         text = template.read_text(encoding="utf-8")
         assert "DINO_EXPORT int dino_session_benchmark" in text
         assert "dino_session_run(session, inputs, num_inputs, outputs, num_outputs)" in text
-
-
-def _has_cxx_compiler() -> bool:
-    if os.name == "nt":
-        return True
-    return bool(
-        os.environ.get("CXX")
-        or shutil.which("cl")
-        or shutil.which("clang++")
-        or shutil.which("g++")
-    )
 
 
 class BenchmarkModule(dml.Module):
@@ -211,7 +200,6 @@ class BenchmarkModule(dml.Module):
         return dml.ops.output(dml.ops.relu(x + 1.0), "y")
 
 
-@pytest.mark.skipif(not _has_cxx_compiler(), reason="C++ compiler is required for CPU artifact smoke")
 def test_compiled_cpu_artifact_exposes_session_benchmark(tmp_path):
     spec = dml.trace(
         BenchmarkModule(),

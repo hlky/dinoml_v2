@@ -55,6 +55,14 @@ def render_gpu_module(
     lowered_runtime_dequant_constants = (
         _lowered_gguf_runtime_dequant_constant_names(kernel_manifest) if target_name == "cuda" else set()
     )
+    generated_kernel_sources = list(generated_kernels) if generated_kernels is not None else render_generated_kernels(target_name, ir["nodes"], tensor_map)
+    launches = [render_launch(target_name, node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]]
+    output_shape_reports = _output_shape_report_contexts(ir, tensor_map=tensor_map)
+    shape_buffer_idents = _required_shape_buffer_idents(
+        tensor_map=tensor_map,
+        launches=launches,
+        output_shape_reports=output_shape_reports,
+    )
     return render_template(
         "gpu_module.cu.j2",
         {
@@ -71,11 +79,13 @@ def render_gpu_module(
             ],
             "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
             "temporaries": [_temporary_context(item) for item in temporaries],
-            "shape_buffers": [shape_buffer_context(item) for item in ir["tensors"]],
+            "shape_buffers": [
+                shape_buffer_context(item)
+                for item in ir["tensors"]
+                if _c_ident(str(item["name"])) in shape_buffer_idents
+            ],
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
-            "generated_kernels": list(generated_kernels)
-            if generated_kernels is not None
-            else render_generated_kernels(target_name, ir["nodes"], tensor_map),
+            "generated_kernels": generated_kernel_sources,
             "gguf_dequant_scratch": _gguf_dequant_scratch_context(kernel_manifest) if target_name == "cuda" else None,
             "pointer_decls": list(
                 _pointer_decls(
@@ -86,11 +96,12 @@ def render_gpu_module(
                     temporaries=temporaries,
                     views=views,
                     tensor_map=tensor_map,
+                    shape_buffer_idents=shape_buffer_idents,
                 )
             ),
-            "launches": [render_launch(target_name, node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]],
+            "launches": launches,
             "output_materializations": _output_materializations(views, target_name=target_name),
-            "output_shape_reports": _output_shape_report_contexts(ir, tensor_map=tensor_map),
+            "output_shape_reports": output_shape_reports,
             "cutlass_conv_temporaries": [],
             "external_kernel_declarations": [],
             "cutlass_workspace": None,
@@ -274,6 +285,7 @@ def _pointer_decls(
     temporaries: Iterable[Mapping[str, Any]],
     views: Iterable[Mapping[str, Any]],
     tensor_map: Mapping[str, Mapping[str, Any]],
+    shape_buffer_idents: set[str],
 ) -> Iterable[str]:
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
     view_by_tensor = {str(view["tensor"]): view for view in views}
@@ -288,8 +300,9 @@ def _pointer_decls(
         yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(dinoml::module::tensor_data(inputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
-        yield f"{check_macro}({memcpy}(session->shape_{ident}, inputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
-        yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        if ident in shape_buffer_idents:
+            yield f"{check_macro}({memcpy}(session->shape_{ident}, inputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(inputs[{idx}]);"
     for tensor_name in constant_tensors:
         ident = _c_ident(tensor_name)
@@ -298,8 +311,9 @@ def _pointer_decls(
         yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(rank):
             yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
-        yield f"{check_macro}({memcpy}(session->shape_{ident}, module->const_shape_{ident}.data(), sizeof(int64_t) * {rank}, {memcpy_h2d}));"
-        yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        if ident in shape_buffer_idents:
+            yield f"{check_macro}({memcpy}(session->shape_{ident}, module->const_shape_{ident}.data(), sizeof(int64_t) * {rank}, {memcpy_h2d}));"
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, rank)};"
         yield (
             f"const {cpp_type}* ptr_{ident} = "
@@ -312,9 +326,10 @@ def _pointer_decls(
         yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
-        yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
-        yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
-        yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        if ident in shape_buffer_idents:
+            yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
+            yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
         yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(session->tmp_{ident});"
     for tensor_name, idx in output_map.items():
@@ -326,8 +341,9 @@ def _pointer_decls(
         yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(dinoml::module::tensor_data(outputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
-        yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
-        yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        if ident in shape_buffer_idents:
+            yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(outputs[{idx}]);"
     for view in views:
         tensor_name = str(view["tensor"])
@@ -340,13 +356,16 @@ def _pointer_decls(
         if output_idx is None:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
                 yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
-            yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
-            yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+            if ident in shape_buffer_idents:
+                yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
+                yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
         else:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
                 yield f"const int64_t shape_{ident}_{axis} = outputs[{int(output_idx)}].shape[{axis}];"
-            yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{int(output_idx)}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
-        yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+            if ident in shape_buffer_idents:
+                yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{int(output_idx)}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
         yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident};"
 
@@ -417,6 +436,26 @@ def _output_shape_report_contexts(
             }
         )
     return reports
+
+
+def _required_shape_buffer_idents(
+    *,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    launches: Iterable[str],
+    output_shape_reports: Iterable[Mapping[str, Any]],
+) -> set[str]:
+    idents = {_c_ident(str(name)) for name in tensor_map}
+    required: set[str] = set()
+    launch_text = "\n".join(launches)
+    for ident in idents:
+        if re.search(rf"(?<![A-Za-z0-9_])shape_{re.escape(ident)}(?![A-Za-z0-9_])", launch_text):
+            required.add(ident)
+        if re.search(rf"session->shape_{re.escape(ident)}(?![A-Za-z0-9_])", launch_text):
+            required.add(ident)
+    for report in output_shape_reports:
+        if report.get("source") == "shape_buffer":
+            required.add(str(report["ident"]))
+    return required
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

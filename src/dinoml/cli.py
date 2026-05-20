@@ -9,6 +9,8 @@ from typing import Any
 import numpy as np
 
 import dinoml as dml
+from dinoml.benchmarks.ops import run_benchmark_suite, write_report
+from dinoml.benchmarks.torch_ops import run_torch_benchmark_suite, write_torch_report
 from dinoml.backends import registered_backend_names
 from dinoml import runtime
 from dinoml.ir import read_json
@@ -59,6 +61,31 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
     benchmark_parser.add_argument("--out")
 
+    benchmark_ops_parser = subparsers.add_parser("benchmark-ops")
+    benchmark_ops_parser.add_argument("target", choices=registered_backend_names())
+    benchmark_ops_parser.add_argument(
+        "--arch",
+        default=None,
+        help="Target architecture; defaults come from the backend registry (CUDA sm_86, ROCm gfx1201)",
+    )
+    benchmark_ops_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
+    benchmark_ops_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
+    benchmark_ops_parser.add_argument("--warmup", type=int, default=5)
+    benchmark_ops_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
+    benchmark_ops_parser.add_argument("--only", action="append", default=[], help="Benchmark a case, op, or template name; repeatable")
+    benchmark_ops_parser.add_argument("--artifacts", help="Directory for compiled per-op artifacts")
+    benchmark_ops_parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary artifacts when --artifacts is not set")
+    benchmark_ops_parser.add_argument("--fail-fast", action="store_true")
+    benchmark_ops_parser.add_argument("--out")
+
+    benchmark_torch_ops_parser = subparsers.add_parser("benchmark-torch-ops")
+    benchmark_torch_ops_parser.add_argument("--device", default="cpu", help="PyTorch device to benchmark on")
+    benchmark_torch_ops_parser.add_argument("--warmup", type=int, default=5)
+    benchmark_torch_ops_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
+    benchmark_torch_ops_parser.add_argument("--only", action="append", default=[], help="Benchmark a case, op, or template name; repeatable")
+    benchmark_torch_ops_parser.add_argument("--fail-fast", action="store_true")
+    benchmark_torch_ops_parser.add_argument("--out")
+
     profile_parser = subparsers.add_parser("profile")
     profile_parser.add_argument("artifact")
     profile_parser.add_argument("--iterations", type=int, default=20)
@@ -77,6 +104,10 @@ def main(argv: list[str] | None = None) -> int:
         return _validate(args)
     if args.command == "benchmark":
         return _benchmark(args)
+    if args.command == "benchmark-ops":
+        return _benchmark_ops(args)
+    if args.command == "benchmark-torch-ops":
+        return _benchmark_torch_ops(args)
     if args.command == "profile":
         return _profile(args)
     raise AssertionError(args.command)
@@ -211,6 +242,39 @@ def _benchmark(args: argparse.Namespace) -> int:
         out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
+
+
+def _benchmark_ops(args: argparse.Namespace) -> int:
+    report = run_benchmark_suite(
+        args.target,
+        output_dir=args.artifacts,
+        warmup=args.warmup,
+        iterations=args.iterations,
+        only=args.only or None,
+        arch=args.arch,
+        no_tf32=args.no_tf32,
+        use_fp16_acc=args.use_fp16_acc,
+        keep_artifacts=args.keep_artifacts,
+        fail_fast=args.fail_fast,
+    )
+    if args.out:
+        write_report(report, args.out)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["summary"]["error"] == 0 else 1
+
+
+def _benchmark_torch_ops(args: argparse.Namespace) -> int:
+    report = run_torch_benchmark_suite(
+        device=args.device,
+        warmup=args.warmup,
+        iterations=args.iterations,
+        only=args.only or None,
+        fail_fast=args.fail_fast,
+    )
+    if args.out:
+        write_torch_report(report, args.out)
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["summary"]["error"] == 0 else 1
 
 
 def _profile(args: argparse.Namespace) -> int:

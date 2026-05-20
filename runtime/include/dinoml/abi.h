@@ -70,5 +70,15 @@ DINO_EXPORT int dino_session_get_output_shape(
     size_t output_index,
     int64_t* out_shape,
     size_t* inout_ndim);
+DINO_EXPORT int dino_session_benchmark(
+    DinoSession* session,
+    const DinoTensor* inputs,
+    size_t num_inputs,
+    DinoTensor* outputs,
+    size_t num_outputs,
+    size_t warmup_runs,
+    size_t measured_runs,
+    double* out_elapsed_ms,
+    size_t out_elapsed_count);
 
 }

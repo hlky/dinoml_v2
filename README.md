@@ -195,6 +195,7 @@ python tools/benchmark_fused_elementwise.py --suite quick --targets cpu,cuda
 python tools/benchmark_softmax.py --suite quick --targets cpu,cuda
 python tools/benchmark_reductions.py --suite quick --targets cpu,cuda
 python tools/benchmark_clip_checkpoint.py --target cpu --warmup 1 --iters 3
+python -m dinoml.cli benchmark build/model.dinoml --against examples/fused_elementwise.py --warmup 5 --iterations 20
 python -m dinoml.cli profile build/model.dinoml --iterations 20 --repeats 3
 python -m dinoml.cli compile model.py --target cuda --profile --profile-repeats 3 --out build/model-profiled.dinoml
 ```
@@ -219,6 +220,11 @@ python -m pytest -q tests/backends/test_rocm_scaffold.py
 $env:DINOML_RUN_ROCM_CONTRACTS = "1"
 python -m pytest -q tests/rocm/test_contracts.py
 ```
+
+CPU artifact builds on Windows use the Visual Studio 2022 CMake generator with
+the `x64` platform by default so MSVC is discovered even when `cl.exe` is not on
+`PATH`. Set `DINOML_CMAKE_GENERATOR` and optionally
+`DINOML_CMAKE_GENERATOR_PLATFORM` to override that local generator choice.
 
 Tests are organized by intent: `tests/ir/` covers frontend/IR/reference NumPy
 behavior, `tests/cpu/` compiles and runs CPU artifacts, and `tests/cuda/`

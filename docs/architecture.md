@@ -269,6 +269,13 @@ compare DinoML CPU/CUDA hot C ABI execution against NumPy and Torch references,
 write JSON timing results under `tmp/`, and copy generated sources to
 `tmp/.../generated_review/` for codegen inspection.
 `tools/benchmark_reductions.py` follows the same pattern for row reductions.
+Generated CPU/CUDA/ROCm modules also export `dino_session_benchmark`, which
+loops around the same `dino_session_run` ABI used by normal execution, records
+per-iteration elapsed milliseconds after warmup, and is exposed through
+`Session.benchmark_numpy(...)`, `Session.benchmark_device_pointers(...)`, and
+`dinoml benchmark <artifact> --against <inputs.py>`. This is the generic
+full-artifact benchmark path for whole models, distinct from provider-candidate
+profiling and the older per-kernel benchmark scripts.
 For CUDA softmax, v2 now has small v1-inspired static last-dim policies: a
 warp-per-row register path for odd/tail `K`, a float2/float4 packed
 local-register path for selected divisible `K`, and a shared-memory fallback for
@@ -494,6 +501,11 @@ lowered artifact generation. The ROCm backend now compiles and runs the simple
 generated-template op families through shared GPU templates and HIP support
 libraries, with opt-in artifact contracts under `tests/rocm/`; CK and
 provider-backed GEMM/BMM/Conv are still outside the admitted ROCm surface.
+The CPU backend uses Ninja by default on non-Windows hosts when available, but
+uses the Visual Studio 2022 `x64` CMake generator on Windows so support-library
+and generated-module builds can resolve MSVC without relying on a pre-activated
+developer shell. `DINOML_CMAKE_GENERATOR` and
+`DINOML_CMAKE_GENERATOR_PLATFORM` override that default.
 Windows ROCm support builds prefer the active Python interpreter's `rocm_sdk`
 package before PATH-level Python fallbacks, so direct
 `.venv/rocm/Scripts/python.exe` test runs resolve the local pip SDK rather than

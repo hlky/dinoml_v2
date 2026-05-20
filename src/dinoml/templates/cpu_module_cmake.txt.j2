@@ -17,13 +17,21 @@ add_library(dinoml_runtime SHARED IMPORTED GLOBAL)
 set_target_properties(dinoml_runtime PROPERTIES
   IMPORTED_LOCATION "{{ runtime_lib }}"
   INTERFACE_INCLUDE_DIRECTORIES "{{ runtime_include }}"
+{% if runtime_implib %}
+  IMPORTED_IMPLIB "{{ runtime_implib }}"
+{% endif %}
 )
 
+{% if link_kernels_lib %}
 add_library(dinoml_cpu_kernels SHARED IMPORTED GLOBAL)
 set_target_properties(dinoml_cpu_kernels PROPERTIES
   IMPORTED_LOCATION "{{ kernels_lib }}"
   INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+{% if kernels_implib %}
+  IMPORTED_IMPLIB "{{ kernels_implib }}"
+{% endif %}
 )
+{% endif %}
 
 add_library(module SHARED module.cpp)
 target_include_directories(module PRIVATE
@@ -33,7 +41,9 @@ target_include_directories(module PRIVATE
 )
 target_link_libraries(module PRIVATE
   dinoml_runtime
+{% if link_kernels_lib %}
   dinoml_cpu_kernels
+{% endif %}
 )
 if(DINOML_ENABLE_OPENMP)
   find_package(OpenMP QUIET)

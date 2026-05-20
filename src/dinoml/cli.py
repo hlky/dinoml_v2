@@ -52,6 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser.add_argument("--atol", type=float, default=1e-4)
     validate_parser.add_argument("--rtol", type=float, default=1e-4)
 
+    benchmark_parser = subparsers.add_parser("benchmark")
+    benchmark_parser.add_argument("artifact")
+    benchmark_parser.add_argument("--against", help="Python model file defining build_validation_inputs()")
+    benchmark_parser.add_argument("--warmup", type=int, default=5)
+    benchmark_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
+    benchmark_parser.add_argument("--out")
+
     profile_parser = subparsers.add_parser("profile")
     profile_parser.add_argument("artifact")
     profile_parser.add_argument("--iterations", type=int, default=20)
@@ -68,6 +75,8 @@ def main(argv: list[str] | None = None) -> int:
         return _inspect(args)
     if args.command == "validate":
         return _validate(args)
+    if args.command == "benchmark":
+        return _benchmark(args)
     if args.command == "profile":
         return _profile(args)
     raise AssertionError(args.command)
@@ -152,6 +161,55 @@ def _validate(args: argparse.Namespace) -> int:
     if failures:
         raise RuntimeError("; ".join(failures))
     print("validation ok")
+    return 0
+
+
+def _benchmark(args: argparse.Namespace) -> int:
+    rt_module = runtime.load(args.artifact, load_constants=True)
+    session = None
+    try:
+        input_specs = rt_module.metadata["inputs"]
+        if args.against is None:
+            if input_specs:
+                raise RuntimeError("benchmark requires --against for artifacts with inputs")
+            inputs = {}
+        else:
+            model_module = _load_python_file(Path(args.against))
+            if not hasattr(model_module, "build_validation_inputs"):
+                raise RuntimeError(f"{args.against} must define build_validation_inputs()")
+            inputs = model_module.build_validation_inputs()
+        session = rt_module.create_session()
+        summary = session.benchmark_numpy(inputs, warmup=args.warmup, iterations=args.iterations)
+        report = {
+            "artifact": str(Path(args.artifact)),
+            "target": rt_module.target_name,
+            "inputs": [
+                {
+                    "name": str(spec["name"]),
+                    "shape": list(inputs[str(spec["name"])].shape) if str(spec["name"]) in inputs else list(spec["shape"]),
+                    "dtype": str(spec["dtype"]),
+                }
+                for spec in input_specs
+            ],
+            "outputs": [
+                {
+                    "name": str(spec["name"]),
+                    "shape": list(spec["shape"]),
+                    "dtype": str(spec["dtype"]),
+                }
+                for spec in rt_module.metadata["outputs"]
+            ],
+            "session_run": summary,
+        }
+    finally:
+        if session is not None:
+            session.close()
+        rt_module.close()
+    if args.out:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    print(json.dumps(report, indent=2, sort_keys=True))
     return 0
 
 

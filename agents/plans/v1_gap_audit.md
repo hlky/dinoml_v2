@@ -130,6 +130,11 @@ porting. It intentionally excludes the op inventory, which lives in
   input/output pointer, count, validation, and constant-readiness checks, so
   failed attempted runs do not expose stale post-run shapes from an earlier
   successful execution.
+  Generated modules now also expose a native `dino_session_benchmark` loop
+  beside `dino_session_run`, and Python exposes it through session-level
+  NumPy/device-pointer benchmark helpers plus `dinoml benchmark`, so full
+  artifacts can measure the same native run boundary as individual hot-path
+  scripts without adding provider-selection semantics.
   The remaining graph, pool, profiling, and broader allocator contracts should
   grow before op-specific runtime assumptions spread.
 - Target/backend registry: v1 registers targets and backend ops through target

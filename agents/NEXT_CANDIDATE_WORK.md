@@ -4,6 +4,19 @@ This file should be updated after each major loop.
 
 ## Last Completed Loop
 
+- Added generic full-artifact session benchmarking at the generated runtime
+  boundary. CPU/CUDA/ROCm generated modules now export
+  `dino_session_benchmark`, which runs warmups plus measured iterations around
+  `dino_session_run` and returns per-iteration milliseconds to Python. The
+  runtime exposes `Session.benchmark_numpy(...)` and
+  `Session.benchmark_device_pointers(...)`, and the CLI now has
+  `dinoml benchmark <artifact> --against <inputs.py>` for model-level timing
+  without provider-selection side effects. While validating on Windows, the CPU
+  backend was taught to use the Visual Studio 2022 `x64` CMake generator by
+  default, emit/load platform-native CPU DLL artifact names, and link generated
+  modules through MSVC import libraries when they exist. Validation covered the
+  benchmark unit/CLI/template tests plus a real `.venv/rocm` CPU elementwise
+  artifact compile/run smoke with the MSVC generator.
 - Admitted ROCm generated HIP modules for the simple generated-template op
   families. CUDA-only `*_cuda.cu.j2` simple templates were moved to shared
   `*_gpu.j2` templates using explicit target facts for stream type, error

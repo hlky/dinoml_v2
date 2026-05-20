@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import statistics
 import weakref
 from collections.abc import Mapping as MappingABC, Sequence
 from pathlib import Path
@@ -106,15 +107,16 @@ class RuntimeModule:
     def __init__(self, artifact_dir: Path, *, load_constants: bool | None = None):
         self.artifact_dir = artifact_dir
         manifest_path = artifact_dir / "manifest.json"
-        module_path = artifact_dir / "module.so"
         if not manifest_path.exists():
             raise FileNotFoundError(f"Missing manifest: {manifest_path}")
+        self.manifest = read_json(manifest_path)
+        files = self.manifest.get("files", {})
+        module_file = files.get("module", "module.so") if isinstance(files, MappingABC) else "module.so"
+        module_path = artifact_dir / str(module_file)
         if not module_path.exists():
             raise FileNotFoundError(f"Missing module: {module_path}")
-        self.manifest = read_json(manifest_path)
         load_constants = _resolve_load_constants(load_constants, self.manifest)
         self.target_name = self.manifest.get("target", {}).get("name")
-        files = self.manifest.get("files", {})
         kernel_manifest_file = files.get("kernel_manifest") if isinstance(files, MappingABC) else None
         self._kernel_manifest = (
             read_json(artifact_dir / str(kernel_manifest_file))
@@ -749,6 +751,23 @@ class RuntimeModule:
             ctypes.c_size_t,
         ]
         self._dll.dino_session_run.restype = ctypes.c_int
+        try:
+            self._session_benchmark = self._dll.dino_session_benchmark
+        except AttributeError:
+            self._session_benchmark = None
+        else:
+            self._session_benchmark.argtypes = [
+                ctypes.c_void_p,
+                ctypes.POINTER(_DinoTensor),
+                ctypes.c_size_t,
+                ctypes.POINTER(_DinoTensor),
+                ctypes.c_size_t,
+                ctypes.c_size_t,
+                ctypes.c_size_t,
+                ctypes.POINTER(ctypes.c_double),
+                ctypes.c_size_t,
+            ]
+            self._session_benchmark.restype = ctypes.c_int
 
     def _mark_constant_loaded(self, name: str, loaded: bool) -> None:
         if name not in self._constant_loaded:
@@ -863,6 +882,19 @@ class Session:
             return self._run_numpy_cpu(inputs)
         return self._run_numpy_cuda(inputs)
 
+    def benchmark_numpy(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        *,
+        warmup: int = 5,
+        iterations: int = 20,
+    ) -> dict[str, float | int]:
+        self._require_open()
+        _require_mapping(inputs, "benchmark_numpy inputs")
+        if self.module.target_name == "cpu":
+            return self._benchmark_numpy_cpu(inputs, warmup=warmup, iterations=iterations)
+        return self._benchmark_numpy_cuda(inputs, warmup=warmup, iterations=iterations)
+
     def set_stream(self, stream: object | None) -> None:
         self._require_open()
         stream_ptr = _as_c_void_p(stream)
@@ -932,6 +964,52 @@ class Session:
         output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
     ) -> None:
         self._require_open()
+        input_specs, output_specs, input_tensors, output_tensors, resolved_output_shapes, shape_buffers = (
+            self._prepare_device_pointer_tensors(inputs, outputs, input_shapes, output_shapes)
+        )
+        self.module._check(
+            self.module._dll.dino_session_run(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(len(input_specs)),
+                output_tensors,
+                ctypes.c_size_t(len(output_specs)),
+            )
+        )
+        self._check_device_pointer_output_shapes(output_specs, resolved_output_shapes)
+
+    def benchmark_device_pointers(
+        self,
+        inputs: Mapping[str, int],
+        outputs: Mapping[str, int],
+        input_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
+        output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None = None,
+        *,
+        warmup: int = 5,
+        iterations: int = 20,
+    ) -> dict[str, float | int]:
+        self._require_open()
+        input_specs, output_specs, input_tensors, output_tensors, resolved_output_shapes, shape_buffers = (
+            self._prepare_device_pointer_tensors(inputs, outputs, input_shapes, output_shapes)
+        )
+        summary = self._benchmark_native(
+            input_tensors,
+            len(input_specs),
+            output_tensors,
+            len(output_specs),
+            warmup=warmup,
+            iterations=iterations,
+        )
+        self._check_device_pointer_output_shapes(output_specs, resolved_output_shapes)
+        return summary
+
+    def _prepare_device_pointer_tensors(
+        self,
+        inputs: Mapping[str, int],
+        outputs: Mapping[str, int],
+        input_shapes: Mapping[str, tuple[int, ...] | list[int]] | None,
+        output_shapes: Mapping[str, tuple[int, ...] | list[int]] | None,
+    ):
         if self.module.target_name not in {"cuda", "rocm"}:
             raise RuntimeError("run_device_pointers is only available for GPU artifacts")
         _require_mapping(inputs, "device input pointers")
@@ -990,15 +1068,13 @@ class Session:
             )
             shape_buffers.extend(keepalive)
             output_tensors[idx] = tensor
-        self.module._check(
-            self.module._dll.dino_session_run(
-                self._handle,
-                input_tensors,
-                ctypes.c_size_t(len(input_specs)),
-                output_tensors,
-                ctypes.c_size_t(len(output_specs)),
-            )
-        )
+        return input_specs, output_specs, input_tensors, output_tensors, resolved_output_shapes, shape_buffers
+
+    def _check_device_pointer_output_shapes(
+        self,
+        output_specs: Sequence[Mapping[str, object]],
+        resolved_output_shapes: Mapping[str, tuple[int, ...]],
+    ) -> None:
         for spec in output_specs:
             name = str(spec["name"])
             if self._shape_buffer_report_unavailable_on_external_stream(name):
@@ -1010,6 +1086,38 @@ class Session:
                     f"Output shape {reported_shape} has more elements than allocated output buffer "
                     f"{allocated_shape}"
                 )
+
+    def _benchmark_native(
+        self,
+        input_tensors,
+        input_count: int,
+        output_tensors,
+        output_count: int,
+        *,
+        warmup: int,
+        iterations: int,
+    ) -> dict[str, float | int]:
+        benchmark = getattr(self.module, "_session_benchmark", None)
+        if benchmark is None:
+            raise RuntimeError(
+                "Artifact does not expose dino_session_benchmark; recompile it to enable session benchmarking"
+            )
+        warmup_count, iteration_count = _validate_benchmark_counts(warmup, iterations)
+        elapsed = (ctypes.c_double * iteration_count)()
+        self.module._check(
+            benchmark(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(input_count),
+                output_tensors,
+                ctypes.c_size_t(output_count),
+                ctypes.c_size_t(warmup_count),
+                ctypes.c_size_t(iteration_count),
+                elapsed,
+                ctypes.c_size_t(iteration_count),
+            )
+        )
+        return _summarize_benchmark_samples([float(elapsed[i]) for i in range(iteration_count)], warmup=warmup_count)
 
     def run_torch(self, inputs: Mapping[str, object]) -> Dict[str, object]:
         self._require_open()
@@ -1072,6 +1180,119 @@ class Session:
             )
             for spec in output_specs
         }
+
+    def _benchmark_numpy_cpu(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        *,
+        warmup: int,
+        iterations: int,
+    ) -> dict[str, float | int]:
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
+        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        output_arrays = [
+            np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            for spec in output_specs
+        ]
+        shape_buffers = []
+        input_tensors = (_DinoTensor * len(input_arrays))()
+        for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(array.ctypes.data),
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CPU,
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
+        output_tensors = (_DinoTensor * len(output_arrays))()
+        for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
+            tensor, keepalive = _make_dino_tensor(
+                ctypes.c_void_p(array.ctypes.data),
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=DINO_DEVICE_CPU,
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
+        return self._benchmark_native(
+            input_tensors,
+            len(input_arrays),
+            output_tensors,
+            len(output_arrays),
+            warmup=warmup,
+            iterations=iterations,
+        )
+
+    def _benchmark_numpy_cuda(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        *,
+        warmup: int,
+        iterations: int,
+    ) -> dict[str, float | int]:
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
+        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        output_arrays = [
+            np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
+            for spec in output_specs
+        ]
+
+        shape_buffers = []
+        input_tensors = (_DinoTensor * len(input_arrays))()
+        for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
+            ptr = self._device_buffer(f"input:{spec['name']}", array.nbytes)
+            self._copy_h2d(ptr, array)
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=_target_device_type(str(self.module.target_name)),
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
+
+        output_tensors = (_DinoTensor * len(output_arrays))()
+        for idx, (spec, array) in enumerate(zip(output_specs, output_arrays)):
+            ptr = self._device_buffer(f"output:{spec['name']}", array.nbytes)
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=_target_device_type(str(self.module.target_name)),
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
+
+        summary = self._benchmark_native(
+            input_tensors,
+            len(input_arrays),
+            output_tensors,
+            len(output_arrays),
+            warmup=warmup,
+            iterations=iterations,
+        )
+        for spec, array in zip(output_specs, output_arrays):
+            name = str(spec["name"])
+            if self._shape_buffer_report_unavailable_on_external_stream(name):
+                continue
+            reported_shape = self.get_output_shape(name)
+            if _shape_numel(reported_shape) > array.size:
+                raise ValueError(
+                    f"Output shape {reported_shape} has more elements than allocated output buffer "
+                    f"{tuple(array.shape)}"
+                )
+        return summary
 
     def _run_numpy_cpu(self, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
         input_specs = self.module.metadata["inputs"]
@@ -1260,6 +1481,30 @@ class Session:
             and report.get("kind") == "shape_buffer"
             for report in reports
         )
+
+
+def _validate_benchmark_counts(warmup: int, iterations: int) -> tuple[int, int]:
+    warmup_count = int(warmup)
+    iteration_count = int(iterations)
+    if warmup_count < 0:
+        raise ValueError("benchmark warmup must be non-negative")
+    if iteration_count <= 0:
+        raise ValueError("benchmark iterations must be positive")
+    return warmup_count, iteration_count
+
+
+def _summarize_benchmark_samples(samples: Sequence[float], *, warmup: int) -> dict[str, float | int]:
+    if not samples:
+        raise ValueError("at least one benchmark sample is required")
+    return {
+        "count": len(samples),
+        "warmup": int(warmup),
+        "mean_ms": float(statistics.fmean(samples)),
+        "median_ms": float(statistics.median(samples)),
+        "min_ms": float(min(samples)),
+        "max_ms": float(max(samples)),
+        "stddev_ms": float(statistics.pstdev(samples)) if len(samples) > 1 else 0.0,
+    }
 
 
 def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray]) -> np.ndarray:

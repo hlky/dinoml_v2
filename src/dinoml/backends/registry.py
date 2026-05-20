@@ -64,8 +64,8 @@ _BACKENDS: dict[str, BackendSpec] = {
         ),
         support_libraries=MappingProxyType(
             {
-                "runtime_library": "lib/libdinoml_runtime.so",
-                "kernel_library": "lib/libdinoml_cpu_kernels.so",
+                "runtime_library": f"lib/{_shared_library_name('dinoml_runtime')}",
+                "kernel_library": f"lib/{_shared_library_name('dinoml_cpu_kernels')}",
             }
         ),
     ),

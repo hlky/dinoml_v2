@@ -5,6 +5,7 @@
 #include <{{ runtime_header }}>
 #include <dinoml/tensor_accessor.h>
 
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -469,6 +470,50 @@ DINO_EXPORT int dino_session_run(
   session->last_output_shapes_valid[{{ report.index }}] = true;
 {% endif %}
 {% endfor %}
+  return 0;
+}
+
+DINO_EXPORT int dino_session_benchmark(
+    DinoSession* session,
+    const DinoTensor* inputs,
+    size_t num_inputs,
+    DinoTensor* outputs,
+    size_t num_outputs,
+    size_t warmup_runs,
+    size_t measured_runs,
+    double* out_elapsed_ms,
+    size_t out_elapsed_count) {
+  if (session == nullptr || out_elapsed_ms == nullptr) {
+    return dinoml::module::fail("dino_session_benchmark received null argument");
+  }
+  if (measured_runs == 0) {
+    return dinoml::module::fail("dino_session_benchmark requires at least one measured run");
+  }
+  if (out_elapsed_count < measured_runs) {
+    return dinoml::module::fail("dino_session_benchmark elapsed buffer is too small");
+  }
+  for (size_t i = 0; i < warmup_runs; ++i) {
+    if (int err = dino_session_run(session, inputs, num_inputs, outputs, num_outputs)) {
+      return err;
+    }
+  }
+  if (session->external_stream) {
+    {{ check_macro }}({{ stream_synchronize }}(session->stream));
+  } else {
+    {{ check_macro }}({{ device_synchronize }}());
+  }
+  using Clock = std::chrono::steady_clock;
+  for (size_t i = 0; i < measured_runs; ++i) {
+    const auto start = Clock::now();
+    if (int err = dino_session_run(session, inputs, num_inputs, outputs, num_outputs)) {
+      return err;
+    }
+    if (session->external_stream) {
+      {{ check_macro }}({{ stream_synchronize }}(session->stream));
+    }
+    const auto end = Clock::now();
+    out_elapsed_ms[i] = std::chrono::duration<double, std::milli>(end - start).count();
+  }
   return 0;
 }
 

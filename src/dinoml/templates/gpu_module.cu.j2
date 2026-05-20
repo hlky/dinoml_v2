@@ -5,7 +5,6 @@
 #include <{{ runtime_header }}>
 #include <dinoml/tensor_accessor.h>
 
-#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <string>
@@ -72,6 +71,19 @@ struct DinoSession {
 {{ declaration }}
 
 {% endfor %}
+struct DinoGpuBenchmarkEvents {
+  {{ event_type }} start = nullptr;
+  {{ event_type }} stop = nullptr;
+
+  ~DinoGpuBenchmarkEvents() {
+    if (start != nullptr) {
+      {{ event_destroy }}(start);
+    }
+    if (stop != nullptr) {
+      {{ event_destroy }}(stop);
+    }
+  }
+};
 
 extern "C" {
 
@@ -386,12 +398,40 @@ DINO_EXPORT int dino_session_get_output_shape(
   return 0;
 }
 
-DINO_EXPORT int dino_session_run(
+static int dino_session_report_output_shapes(
+    DinoSession* session,
+    DinoTensor* outputs) {
+{% for report in output_shape_reports %}
+{% if report.source == "shape_buffer" %}
+  if (!session->external_stream) {
+    session->last_output_shapes[{{ report.index }}].resize({{ report.rank }});
+    {{ check_macro }}({{ memcpy_async }}(
+        session->last_output_shapes[{{ report.index }}].data(),
+        session->shape_{{ report.ident }},
+        sizeof(int64_t) * {{ report.rank }},
+        {{ memcpy_device_to_host }},
+        session->stream));
+    {{ check_macro }}({{ stream_synchronize }}(session->stream));
+    session->last_output_shapes_valid[{{ report.index }}] = true;
+  }
+{% else %}
+  session->last_output_shapes[{{ report.index }}].assign(
+      outputs[{{ report.index }}].shape,
+      outputs[{{ report.index }}].shape + outputs[{{ report.index }}].ndim);
+  session->last_output_shapes_valid[{{ report.index }}] = true;
+{% endif %}
+{% endfor %}
+  return 0;
+}
+
+static int dino_session_run_impl(
     DinoSession* session,
     const DinoTensor* inputs,
     size_t num_inputs,
     DinoTensor* outputs,
-    size_t num_outputs) {
+    size_t num_outputs,
+    bool synchronize_after_launch,
+    bool report_output_shapes) {
   if (session == nullptr) {
     return dinoml::module::fail("dino_session_run received null argument");
   }
@@ -447,30 +487,31 @@ DINO_EXPORT int dino_session_run(
 {% for materialization in output_materializations %}
   {{ materialization }}
 {% endfor %}
-  if (!session->external_stream) {
+  if (synchronize_after_launch && !session->external_stream) {
     {{ check_macro }}({{ device_synchronize }}());
   }
-{% for report in output_shape_reports %}
-{% if report.source == "shape_buffer" %}
-  if (!session->external_stream) {
-    session->last_output_shapes[{{ report.index }}].resize({{ report.rank }});
-    {{ check_macro }}({{ memcpy_async }}(
-        session->last_output_shapes[{{ report.index }}].data(),
-        session->shape_{{ report.ident }},
-        sizeof(int64_t) * {{ report.rank }},
-        {{ memcpy_device_to_host }},
-        session->stream));
-    {{ check_macro }}({{ stream_synchronize }}(session->stream));
-    session->last_output_shapes_valid[{{ report.index }}] = true;
+  if (report_output_shapes) {
+    if (int err = dino_session_report_output_shapes(session, outputs)) {
+      return err;
+    }
   }
-{% else %}
-  session->last_output_shapes[{{ report.index }}].assign(
-      outputs[{{ report.index }}].shape,
-      outputs[{{ report.index }}].shape + outputs[{{ report.index }}].ndim);
-  session->last_output_shapes_valid[{{ report.index }}] = true;
-{% endif %}
-{% endfor %}
   return 0;
+}
+
+DINO_EXPORT int dino_session_run(
+    DinoSession* session,
+    const DinoTensor* inputs,
+    size_t num_inputs,
+    DinoTensor* outputs,
+    size_t num_outputs) {
+  return dino_session_run_impl(
+      session,
+      inputs,
+      num_inputs,
+      outputs,
+      num_outputs,
+      true,
+      true);
 }
 
 DINO_EXPORT int dino_session_benchmark(
@@ -493,7 +534,7 @@ DINO_EXPORT int dino_session_benchmark(
     return dinoml::module::fail("dino_session_benchmark elapsed buffer is too small");
   }
   for (size_t i = 0; i < warmup_runs; ++i) {
-    if (int err = dino_session_run(session, inputs, num_inputs, outputs, num_outputs)) {
+    if (int err = dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)) {
       return err;
     }
   }
@@ -502,17 +543,22 @@ DINO_EXPORT int dino_session_benchmark(
   } else {
     {{ check_macro }}({{ device_synchronize }}());
   }
-  using Clock = std::chrono::steady_clock;
+  DinoGpuBenchmarkEvents events;
+  {{ check_macro }}({{ event_create }}(&events.start));
+  {{ check_macro }}({{ event_create }}(&events.stop));
   for (size_t i = 0; i < measured_runs; ++i) {
-    const auto start = Clock::now();
-    if (int err = dino_session_run(session, inputs, num_inputs, outputs, num_outputs)) {
+    {{ check_macro }}({{ event_record }}(events.start, session->stream));
+    if (int err = dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)) {
       return err;
     }
-    if (session->external_stream) {
-      {{ check_macro }}({{ stream_synchronize }}(session->stream));
-    }
-    const auto end = Clock::now();
-    out_elapsed_ms[i] = std::chrono::duration<double, std::milli>(end - start).count();
+    {{ check_macro }}({{ event_record }}(events.stop, session->stream));
+    {{ check_macro }}({{ event_synchronize }}(events.stop));
+    float elapsed_ms = 0.0f;
+    {{ check_macro }}({{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop));
+    out_elapsed_ms[i] = static_cast<double>(elapsed_ms);
+  }
+  if (int err = dino_session_report_output_shapes(session, outputs)) {
+    return err;
   }
   return 0;
 }

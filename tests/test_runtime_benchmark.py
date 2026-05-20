@@ -186,13 +186,15 @@ def test_cli_benchmark_reports_session_run_summary(tmp_path, monkeypatch, capsys
 
 def test_generated_module_templates_export_native_session_benchmark():
     repo_root = Path(__file__).resolve().parents[1]
-    for template in (
-        repo_root / "src" / "dinoml" / "templates" / "cpu_module.cpp.j2",
-        repo_root / "src" / "dinoml" / "templates" / "gpu_module.cu.j2",
-    ):
-        text = template.read_text(encoding="utf-8")
-        assert "DINO_EXPORT int dino_session_benchmark" in text
-        assert "dino_session_run(session, inputs, num_inputs, outputs, num_outputs)" in text
+    cpu_text = (repo_root / "src" / "dinoml" / "templates" / "cpu_module.cpp.j2").read_text(encoding="utf-8")
+    gpu_text = (repo_root / "src" / "dinoml" / "templates" / "gpu_module.cu.j2").read_text(encoding="utf-8")
+    assert "DINO_EXPORT int dino_session_benchmark" in cpu_text
+    assert "DINO_EXPORT int dino_session_benchmark" in gpu_text
+    assert "dino_session_run(session, inputs, num_inputs, outputs, num_outputs)" in cpu_text
+    assert "dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)" in gpu_text
+    assert "{{ event_record }}(events.start, session->stream)" in gpu_text
+    assert "{{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop)" in gpu_text
+    assert "std::chrono" not in gpu_text
 
 
 class BenchmarkModule(dml.Module):

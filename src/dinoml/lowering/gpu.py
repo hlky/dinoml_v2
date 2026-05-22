@@ -87,6 +87,7 @@ def render_gpu_module(
             "shape_equal_checks": _shape_equal_checks(ir["inputs"], ir["outputs"], ir["constants"]),
             "generated_kernels": generated_kernel_sources,
             "gguf_dequant_scratch": _gguf_dequant_scratch_context(kernel_manifest) if target_name == "cuda" else None,
+            "topk_scratch": _topk_scratch_context(target_name, ir, tensor_map),
             "pointer_decls": list(
                 _pointer_decls(
                     target_name=target_name,
@@ -392,6 +393,23 @@ def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> 
         if str(plan.get("status")) != "lowered_runtime_dequant_scratch":
             continue
         max_scratch = max(max_scratch, int(plan.get("scratch_nbytes", 0) or 0))
+    if max_scratch <= 0:
+        return None
+    return {"nbytes": max_scratch}
+
+
+def _topk_scratch_context(
+    target_name: str,
+    ir: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[str, int] | None:
+    from dinoml.lowering.ops.topk import topk_scratch_nbytes_for_node
+
+    max_scratch = 0
+    for node in ir.get("nodes", []):
+        if str(node.get("op", "")) not in {"topk_values", "topk_indices"}:
+            continue
+        max_scratch = max(max_scratch, topk_scratch_nbytes_for_node(target_name, node, tensor_map))
     if max_scratch <= 0:
         return None
     return {"nbytes": max_scratch}

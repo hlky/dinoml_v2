@@ -373,6 +373,10 @@ def topk(x: object, k: int, dim: int = -1, largest: bool = True, sorted: bool = 
         attrs,
         shape_spec=out_shape_spec,
     )
+    values_node = tensor.builder.nodes[-2]
+    indices_node = tensor.builder.nodes[-1]
+    values_node["attrs"] = {**values_node["attrs"], "paired_indices_output": indices.name}
+    indices_node["attrs"] = {**indices_node["attrs"], "paired_values_output": values.name}
     return values, indices
 
 

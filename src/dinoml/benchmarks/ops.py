@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
@@ -21,6 +22,23 @@ class BenchmarkCase:
     inputs: Callable[[], dict[str, np.ndarray]]
     op: str
     template: str
+
+
+@dataclass(frozen=True)
+class _CompiledBenchmarkCase:
+    index: int
+    case: BenchmarkCase
+    artifact_path: Path
+    status: str
+    compile_elapsed_s: float
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class _PreparedBenchmarkCase:
+    index: int
+    case: BenchmarkCase
+    spec: ModelSpec
 
 
 class _SingleOpModule(dml.Module):
@@ -206,8 +224,11 @@ def run_benchmark_suite(
     use_fp16_acc: bool = False,
     keep_artifacts: bool = False,
     fail_fast: bool = False,
+    jobs: int = 1,
 ) -> dict[str, Any]:
     selected = _select_cases(benchmark_cases(), only)
+    if jobs < 1:
+        raise ValueError(f"jobs must be >= 1, got {jobs}")
     target_obj = dml.Target(target, arch=arch, no_tf32=no_tf32, use_fp16_acc=use_fp16_acc)
     temp_dir: tempfile.TemporaryDirectory[str] | None = None
     if output_dir is None:
@@ -223,13 +244,33 @@ def run_benchmark_suite(
     results: list[dict[str, Any]] = []
     started = time.perf_counter()
     try:
-        for idx, case in enumerate(selected):
-            print(f"{case.op}::{case.name} [{idx+1}/{len(selected)}]")
-            case_started = time.perf_counter()
-            artifact_path = artifact_root / f"{case.name}.dinoml"
+        compiled_cases = _compile_benchmark_cases(
+            selected,
+            target_obj=target_obj,
+            artifact_root=artifact_root,
+            jobs=jobs,
+            fail_fast=fail_fast,
+        )
+        for compiled in compiled_cases:
+            case = compiled.case
+            if compiled.status != "ok":
+                results.append(
+                    {
+                        "name": case.name,
+                        "op": case.op,
+                        "template": case.template,
+                        "artifact": str(compiled.artifact_path),
+                        "status": "error",
+                        "error": compiled.error,
+                        "compile_elapsed_s": compiled.compile_elapsed_s,
+                        "elapsed_s": compiled.compile_elapsed_s,
+                    }
+                )
+                continue
+            benchmark_started = time.perf_counter()
             try:
-                artifact = dml.compile(case.build_spec(), target_obj, artifact_path)
-                rt_module = runtime.load(artifact.path, load_constants=True)
+                artifact_path = compiled.artifact_path
+                rt_module = runtime.load(artifact_path, load_constants=True)
                 session = None
                 try:
                     session = rt_module.create_session()
@@ -239,31 +280,37 @@ def run_benchmark_suite(
                     if session is not None:
                         session.close()
                     rt_module.close()
-                elapsed_s = time.perf_counter() - case_started
-                results.append(
-                    {
-                        "name": case.name,
-                        "op": case.op,
-                        "template": case.template,
-                        "artifact": str(artifact.path),
-                        "status": "ok",
-                        "inputs": _io_report(metadata.get("inputs", [])),
-                        "outputs": _io_report(metadata.get("outputs", [])),
-                        "session_run": summary,
-                        "elapsed_s": elapsed_s,
-                    }
-                )
-                print(f"{case.op}::{case.name} {summary=}")
-            except Exception as exc:
+                benchmark_elapsed_s = time.perf_counter() - benchmark_started
+                elapsed_s = compiled.compile_elapsed_s + benchmark_elapsed_s
                 results.append(
                     {
                         "name": case.name,
                         "op": case.op,
                         "template": case.template,
                         "artifact": str(artifact_path),
+                        "status": "ok",
+                        "inputs": _io_report(metadata.get("inputs", [])),
+                        "outputs": _io_report(metadata.get("outputs", [])),
+                        "session_run": summary,
+                        "compile_elapsed_s": compiled.compile_elapsed_s,
+                        "benchmark_elapsed_s": benchmark_elapsed_s,
+                        "elapsed_s": elapsed_s,
+                    }
+                )
+                print(f"{case.op}::{case.name} {summary=}")
+            except Exception as exc:
+                benchmark_elapsed_s = time.perf_counter() - benchmark_started
+                results.append(
+                    {
+                        "name": case.name,
+                        "op": case.op,
+                        "template": case.template,
+                        "artifact": str(compiled.artifact_path),
                         "status": "error",
                         "error": f"{type(exc).__name__}: {exc}",
-                        "elapsed_s": time.perf_counter() - case_started,
+                        "compile_elapsed_s": compiled.compile_elapsed_s,
+                        "benchmark_elapsed_s": benchmark_elapsed_s,
+                        "elapsed_s": compiled.compile_elapsed_s + benchmark_elapsed_s,
                     }
                 )
                 if fail_fast:
@@ -286,6 +333,108 @@ def run_benchmark_suite(
         },
         "cases": results,
     }
+
+
+def _compile_benchmark_cases(
+    cases: list[BenchmarkCase],
+    *,
+    target_obj: dml.Target,
+    artifact_root: Path,
+    jobs: int,
+    fail_fast: bool,
+) -> list[_CompiledBenchmarkCase]:
+    prepared, preparation_errors = _prepare_benchmark_cases(cases, fail_fast=fail_fast)
+    if not prepared:
+        return preparation_errors
+
+    if jobs == 1 or len(cases) <= 1:
+        compiled: list[_CompiledBenchmarkCase | None] = [None] * len(cases)
+        for item in prepared:
+            print(f"{item.case.op}::{item.case.name} compile [{item.index+1}/{len(cases)}]")
+            result = _compile_benchmark_case(item, target_obj=target_obj, artifact_root=artifact_root)
+            if fail_fast and result.status != "ok":
+                raise RuntimeError(result.error)
+            compiled[item.index] = result
+        for error in preparation_errors:
+            compiled[error.index] = error
+        return [result for result in compiled if result is not None]
+
+    print(f"Compiling {len(prepared)} benchmark cases with jobs={jobs}")
+    compiled_results: list[_CompiledBenchmarkCase | None] = [None] * len(cases)
+    for error in preparation_errors:
+        compiled_results[error.index] = error
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        future_to_case = {
+            executor.submit(_compile_benchmark_case, item, target_obj=target_obj, artifact_root=artifact_root): item.case
+            for item in prepared
+        }
+        for future in as_completed(future_to_case):
+            result = future.result()
+            compiled_results[result.index] = result
+            print(
+                f"{result.case.op}::{result.case.name} compile {result.status} "
+                f"elapsed_s={result.compile_elapsed_s:.3f}"
+            )
+            if fail_fast and result.status != "ok":
+                raise RuntimeError(result.error)
+
+    return [result for result in compiled_results if result is not None]
+
+
+def _prepare_benchmark_cases(
+    cases: list[BenchmarkCase],
+    *,
+    fail_fast: bool,
+) -> tuple[list[_PreparedBenchmarkCase], list[_CompiledBenchmarkCase]]:
+    prepared: list[_PreparedBenchmarkCase] = []
+    errors: list[_CompiledBenchmarkCase] = []
+    for idx, case in enumerate(cases):
+        started = time.perf_counter()
+        try:
+            prepared.append(_PreparedBenchmarkCase(index=idx, case=case, spec=case.build_spec()))
+        except Exception as exc:
+            error = _CompiledBenchmarkCase(
+                index=idx,
+                case=case,
+                artifact_path=Path(f"{case.name}.dinoml"),
+                status="error",
+                compile_elapsed_s=time.perf_counter() - started,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            if fail_fast:
+                raise RuntimeError(error.error)
+            errors.append(error)
+    return prepared, errors
+
+
+def _compile_benchmark_case(
+    item: _PreparedBenchmarkCase,
+    *,
+    target_obj: dml.Target,
+    artifact_root: Path,
+) -> _CompiledBenchmarkCase:
+    index = item.index
+    case = item.case
+    artifact_path = artifact_root / f"{case.name}.dinoml"
+    started = time.perf_counter()
+    try:
+        artifact = dml.compile(item.spec, target_obj, artifact_path)
+        return _CompiledBenchmarkCase(
+            index=index,
+            case=case,
+            artifact_path=Path(artifact.path),
+            status="ok",
+            compile_elapsed_s=time.perf_counter() - started,
+        )
+    except Exception as exc:
+        return _CompiledBenchmarkCase(
+            index=index,
+            case=case,
+            artifact_path=artifact_path,
+            status="error",
+            compile_elapsed_s=time.perf_counter() - started,
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def write_report(report: Mapping[str, Any], output: str | Path) -> None:

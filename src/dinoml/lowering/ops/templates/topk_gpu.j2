@@ -1,72 +1,1388 @@
+static __device__ bool {{ func }}_is_better(
+    float value,
+    {{ index_storage_type }} index,
+    float best_value,
+    {{ index_storage_type }} best_index) {
+  if (index < 0) {
+    return false;
+  }
+  if (best_index < 0) {
+    return true;
+  }
+{% if input_dtype != "bool" %}
+  const bool value_nan = isnan(value);
+  const bool best_nan = isnan(best_value);
+  if (value_nan || best_nan) {
+    if (value_nan != best_nan) {
+      return value_nan;
+    }
+    return index < best_index;
+  }
+{% endif %}
+  if (value > best_value) {
+    return true;
+  }
+  return value == best_value && index < best_index;
+}
+
+{% if use_radix_filter or use_two_pass_keys or use_radix_prefilter %}
+static __device__ uint32_t {{ func }}_ordered_key(float value) {
+  if (isnan(value)) {
+    return 0xffffffffu;
+  }
+  const uint32_t bits = __float_as_uint(value);
+  return (bits & 0x80000000u) ? ~bits : (bits ^ 0x80000000u);
+}
+
+static __device__ uint64_t {{ func }}_packed_key(float value, {{ index_storage_type }} index) {
+  if (index < 0) {
+    return 0ull;
+  }
+  return (static_cast<uint64_t>({{ func }}_ordered_key(value)) << 32) |
+         static_cast<uint64_t>(0xffffffffu - static_cast<uint32_t>(index));
+}
+
+static __device__ {{ index_storage_type }} {{ func }}_packed_index(uint64_t key) {
+  return static_cast<{{ index_storage_type }}>(0xffffffffu - static_cast<uint32_t>(key));
+}
+
+{% endif %}
+{% if use_two_pass_keys or use_radix_prefilter %}
+template <int K>
+__device__ __forceinline__ void {{ func }}_insert_key_only(uint64_t key, uint64_t* keys) {
+  int insert_pos = -1;
+  if (key > keys[K - 1]) {
+    insert_pos = K - 1;
+#pragma unroll
+    for (int i = 0; i < K - 1; ++i) {
+      if (key > keys[i]) {
+        insert_pos = i;
+        break;
+      }
+    }
+  }
+  if (insert_pos >= 0) {
+#pragma unroll
+    for (int i = K - 1; i > 0; --i) {
+      if (i > insert_pos) {
+        keys[i] = keys[i - 1];
+      }
+    }
+    keys[insert_pos] = key;
+  }
+}
+
+__device__ __forceinline__ void {{ func }}_insert_key_only_4(uint64_t key, uint64_t* keys) {
+  if (key <= keys[3]) {
+    return;
+  }
+  if (key > keys[0]) {
+    keys[3] = keys[2];
+    keys[2] = keys[1];
+    keys[1] = keys[0];
+    keys[0] = key;
+  } else if (key > keys[1]) {
+    keys[3] = keys[2];
+    keys[2] = keys[1];
+    keys[1] = key;
+  } else if (key > keys[2]) {
+    keys[3] = keys[2];
+    keys[2] = key;
+  } else {
+    keys[3] = key;
+  }
+}
+
+__device__ __forceinline__ void {{ func }}_insert_key_only_8(uint64_t key, uint64_t* keys) {
+  if (key <= keys[7]) {
+    return;
+  }
+  int pos = 7;
+  if (key > keys[0]) {
+    pos = 0;
+  } else if (key > keys[1]) {
+    pos = 1;
+  } else if (key > keys[2]) {
+    pos = 2;
+  } else if (key > keys[3]) {
+    pos = 3;
+  } else if (key > keys[4]) {
+    pos = 4;
+  } else if (key > keys[5]) {
+    pos = 5;
+  } else if (key > keys[6]) {
+    pos = 6;
+  }
+#pragma unroll
+  for (int i = 7; i > 0; --i) {
+    if (i > pos) {
+      keys[i] = keys[i - 1];
+    }
+  }
+  keys[pos] = key;
+}
+
+template <int K>
+__device__ __forceinline__ void {{ func }}_insert_key_only_fast(uint64_t key, uint64_t* keys) {
+  if constexpr (K == 4) {
+    {{ func }}_insert_key_only_4(key, keys);
+  } else if constexpr (K == 8) {
+    {{ func }}_insert_key_only_8(key, keys);
+  } else {
+    {{ func }}_insert_key_only<K>(key, keys);
+  }
+}
+
+template <int K, int BLOCK, int TILE_COLS>
+__global__ void {{ kernel }}_tile_keys_fast_vec4(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    uint64_t* DINO_RESTRICT temp_keys,
+    int64_t rows,
+    int cols,
+    int tiles_per_row) {
+  __shared__ uint64_t merge_keys[BLOCK * K];
+  const int tile = blockIdx.x;
+  const int begin = tile * TILE_COLS;
+  const int end = (begin + TILE_COLS < cols) ? (begin + TILE_COLS) : cols;
+  for (int64_t row = static_cast<int64_t>(blockIdx.y); row < rows; row += gridDim.y) {
+    const int64_t base = row * static_cast<int64_t>(cols);
+    uint64_t local_keys[K];
+#pragma unroll
+    for (int i = 0; i < K; ++i) {
+      local_keys[i] = 0ull;
+    }
+    const int vec_count = (end - begin) >> 2;
+    const float4* row_vec = reinterpret_cast<const float4*>(x + base + begin);
+    for (int vec = threadIdx.x; vec < vec_count; vec += blockDim.x) {
+      const int col = begin + (vec << 2);
+      const float4 packed = row_vec[vec];
+      {{ func }}_insert_key_only_fast<K>({{ func }}_packed_key(packed.x, col), local_keys);
+      {{ func }}_insert_key_only_fast<K>({{ func }}_packed_key(packed.y, col + 1), local_keys);
+      {{ func }}_insert_key_only_fast<K>({{ func }}_packed_key(packed.z, col + 2), local_keys);
+      {{ func }}_insert_key_only_fast<K>({{ func }}_packed_key(packed.w, col + 3), local_keys);
+    }
+    for (int col = begin + (vec_count << 2) + threadIdx.x; col < end; col += blockDim.x) {
+      {{ func }}_insert_key_only_fast<K>({{ func }}_packed_key(x[base + col], col), local_keys);
+    }
+    const int shared_base = threadIdx.x * K;
+#pragma unroll
+    for (int i = 0; i < K; ++i) {
+      merge_keys[shared_base + i] = local_keys[i];
+    }
+    __syncthreads();
+    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+      if (threadIdx.x < stride) {
+        const int left_base = threadIdx.x * K;
+        const int right_base = (threadIdx.x + stride) * K;
+        uint64_t out_keys[K];
+        int left = 0;
+        int right = 0;
+#pragma unroll
+        for (int out_col = 0; out_col < K; ++out_col) {
+          const uint64_t left_key = left < K ? merge_keys[left_base + left] : 0ull;
+          const uint64_t right_key = right < K ? merge_keys[right_base + right] : 0ull;
+          if (right_key > left_key) {
+            out_keys[out_col] = right_key;
+            ++right;
+          } else {
+            out_keys[out_col] = left_key;
+            ++left;
+          }
+        }
+#pragma unroll
+        for (int i = 0; i < K; ++i) {
+          merge_keys[left_base + i] = out_keys[i];
+        }
+      }
+      __syncthreads();
+    }
+    const int64_t temp_base = (row * static_cast<int64_t>(tiles_per_row) + tile) * K;
+    for (int out_col = threadIdx.x; out_col < K; out_col += blockDim.x) {
+      temp_keys[temp_base + out_col] = merge_keys[out_col];
+    }
+    __syncthreads();
+  }
+}
+
+template <int K, int BLOCK>
+__global__ void {{ kernel }}_merge_tile_keys_fast(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    const uint64_t* DINO_RESTRICT temp_keys,
+    {{ output_storage_type }}* DINO_RESTRICT y_values,
+    int64_t* DINO_RESTRICT y_indices,
+    int64_t rows,
+    int cols,
+    int tiles_per_row) {
+  __shared__ uint64_t merge_keys[BLOCK * K];
+  for (int64_t row = static_cast<int64_t>(blockIdx.x); row < rows; row += gridDim.x) {
+    uint64_t local_keys[K];
+#pragma unroll
+    for (int i = 0; i < K; ++i) {
+      local_keys[i] = 0ull;
+    }
+    const int64_t temp_base = row * static_cast<int64_t>(tiles_per_row) * K;
+    const int candidate_count = tiles_per_row * K;
+    for (int pos = threadIdx.x; pos < candidate_count; pos += blockDim.x) {
+      {{ func }}_insert_key_only_fast<K>(temp_keys[temp_base + pos], local_keys);
+    }
+    const int shared_base = threadIdx.x * K;
+#pragma unroll
+    for (int i = 0; i < K; ++i) {
+      merge_keys[shared_base + i] = local_keys[i];
+    }
+    __syncthreads();
+    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+      if (threadIdx.x < stride) {
+        const int left_base = threadIdx.x * K;
+        const int right_base = (threadIdx.x + stride) * K;
+        uint64_t out_keys[K];
+        int left = 0;
+        int right = 0;
+#pragma unroll
+        for (int out_col = 0; out_col < K; ++out_col) {
+          const uint64_t left_key = left < K ? merge_keys[left_base + left] : 0ull;
+          const uint64_t right_key = right < K ? merge_keys[right_base + right] : 0ull;
+          if (right_key > left_key) {
+            out_keys[out_col] = right_key;
+            ++right;
+          } else {
+            out_keys[out_col] = left_key;
+            ++left;
+          }
+        }
+#pragma unroll
+        for (int i = 0; i < K; ++i) {
+          merge_keys[left_base + i] = out_keys[i];
+        }
+      }
+      __syncthreads();
+    }
+    const int64_t output_base = row * K;
+    const int64_t input_base = row * static_cast<int64_t>(cols);
+    for (int out_col = threadIdx.x; out_col < K; out_col += blockDim.x) {
+      const uint64_t key = merge_keys[out_col];
+      const {{ index_storage_type }} best_index = {{ func }}_packed_index(key);
+      y_values[output_base + out_col] = x[input_base + best_index];
+      y_indices[output_base + out_col] = best_index;
+    }
+    __syncthreads();
+  }
+}
+
+{% if use_radix_prefilter %}
+template <int BLOCK, int TILE_COLS>
+__global__ void {{ kernel }}_radix_prefilter_count(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    uint32_t* DINO_RESTRICT counts,
+    const int* DINO_RESTRICT prefixes,
+    int64_t rows,
+    int cols,
+    int tiles_per_row,
+    int pass) {
+  __shared__ uint32_t hist[256];
+  const int tile = blockIdx.x;
+  const int64_t row = blockIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int begin = tile * TILE_COLS;
+  const int end = (begin + TILE_COLS < cols) ? (begin + TILE_COLS) : cols;
+  const int64_t base = row * static_cast<int64_t>(cols);
+  for (int bin = threadIdx.x; bin < 256; bin += blockDim.x) {
+    hist[bin] = 0u;
+  }
+  __syncthreads();
+
+  const int prefix = pass == 0 ? 0 : prefixes[row];
+  const int shift = 24 - pass * 8;
+  const int prefix_shift = 32 - pass * 8;
+  const int vec_count = (end - begin) >> 2;
+  const float4* row_vec = reinterpret_cast<const float4*>(x + base + begin);
+  for (int vec = threadIdx.x; vec < vec_count; vec += blockDim.x) {
+    const int col = begin + (vec << 2);
+    const float4 packed = row_vec[vec];
+    const uint32_t key0 = {{ func }}_ordered_key(packed.x);
+    const uint32_t key1 = {{ func }}_ordered_key(packed.y);
+    const uint32_t key2 = {{ func }}_ordered_key(packed.z);
+    const uint32_t key3 = {{ func }}_ordered_key(packed.w);
+    if (pass == 0 || static_cast<int>(key0 >> prefix_shift) == prefix) {
+      atomicAdd(&hist[(key0 >> shift) & 0xffu], 1u);
+    }
+    if (pass == 0 || static_cast<int>(key1 >> prefix_shift) == prefix) {
+      atomicAdd(&hist[(key1 >> shift) & 0xffu], 1u);
+    }
+    if (pass == 0 || static_cast<int>(key2 >> prefix_shift) == prefix) {
+      atomicAdd(&hist[(key2 >> shift) & 0xffu], 1u);
+    }
+    if (pass == 0 || static_cast<int>(key3 >> prefix_shift) == prefix) {
+      atomicAdd(&hist[(key3 >> shift) & 0xffu], 1u);
+    }
+  }
+  for (int col = begin + (vec_count << 2) + threadIdx.x; col < end; col += blockDim.x) {
+    const uint32_t key = {{ func }}_ordered_key(x[base + col]);
+    if (pass == 0 || static_cast<int>(key >> prefix_shift) == prefix) {
+      atomicAdd(&hist[(key >> shift) & 0xffu], 1u);
+    }
+  }
+  __syncthreads();
+
+  const int64_t count_base = (row * static_cast<int64_t>(tiles_per_row) + tile) * 256;
+  for (int bin = threadIdx.x; bin < 256; bin += blockDim.x) {
+    counts[count_base + bin] = hist[bin];
+  }
+}
+
+__global__ void {{ kernel }}_radix_prefilter_choose(
+    const uint32_t* DINO_RESTRICT counts,
+    int* DINO_RESTRICT prefixes,
+    int* DINO_RESTRICT remaining,
+    int64_t rows,
+    int tiles_per_row,
+    int pass) {
+  __shared__ uint32_t bin_counts[256];
+  const int64_t row = blockIdx.x;
+  if (row >= rows) {
+    return;
+  }
+  const int bin = threadIdx.x;
+  uint32_t total = 0u;
+  for (int tile = 0; tile < tiles_per_row; ++tile) {
+    total += counts[(row * static_cast<int64_t>(tiles_per_row) + tile) * 256 + bin];
+  }
+  bin_counts[bin] = total;
+  __syncthreads();
+
+  if (threadIdx.x == 0) {
+    const int previous_prefix = pass == 0 ? 0 : prefixes[row];
+    int rem = pass == 0 ? {{ k }} : remaining[row];
+    int skipped = 0;
+    int chosen = 0;
+    for (int current_bin = 255; current_bin >= 0; --current_bin) {
+      const int count = static_cast<int>(bin_counts[current_bin]);
+      if (skipped + count >= rem) {
+        chosen = current_bin;
+        rem -= skipped;
+        break;
+      }
+      skipped += count;
+    }
+    prefixes[row] = (previous_prefix << 8) | chosen;
+    remaining[row] = rem;
+  }
+}
+
+template <int K, int BLOCK, int TILE_COLS, int PASSES>
+__global__ void {{ kernel }}_tile_keys_pref_vec4(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    const int* DINO_RESTRICT prefixes,
+    uint64_t* DINO_RESTRICT temp_keys,
+    int64_t rows,
+    int cols,
+    int tiles_per_row) {
+  __shared__ uint64_t merge_keys[BLOCK * K];
+  const int tile = blockIdx.x;
+  const int64_t row = blockIdx.y;
+  if (row >= rows) {
+    return;
+  }
+  const int begin = tile * TILE_COLS;
+  const int end = (begin + TILE_COLS < cols) ? (begin + TILE_COLS) : cols;
+  const int64_t base = row * static_cast<int64_t>(cols);
+  const uint32_t min_prefix = static_cast<uint32_t>(prefixes[row]);
+  constexpr int prefix_shift = 32 - PASSES * 8;
+  uint64_t local_keys[K];
+#pragma unroll
+  for (int i = 0; i < K; ++i) {
+    local_keys[i] = 0ull;
+  }
+  const int vec_count = (end - begin) >> 2;
+  const float4* row_vec = reinterpret_cast<const float4*>(x + base + begin);
+  for (int vec = threadIdx.x; vec < vec_count; vec += blockDim.x) {
+    const int col = begin + (vec << 2);
+    const float4 packed = row_vec[vec];
+    const uint64_t key0 = {{ func }}_packed_key(packed.x, col);
+    const uint64_t key1 = {{ func }}_packed_key(packed.y, col + 1);
+    const uint64_t key2 = {{ func }}_packed_key(packed.z, col + 2);
+    const uint64_t key3 = {{ func }}_packed_key(packed.w, col + 3);
+    const uint32_t pref0 = prefix_shift == 0 ? static_cast<uint32_t>(key0 >> 32) : static_cast<uint32_t>(key0 >> 32) >> prefix_shift;
+    const uint32_t pref1 = prefix_shift == 0 ? static_cast<uint32_t>(key1 >> 32) : static_cast<uint32_t>(key1 >> 32) >> prefix_shift;
+    const uint32_t pref2 = prefix_shift == 0 ? static_cast<uint32_t>(key2 >> 32) : static_cast<uint32_t>(key2 >> 32) >> prefix_shift;
+    const uint32_t pref3 = prefix_shift == 0 ? static_cast<uint32_t>(key3 >> 32) : static_cast<uint32_t>(key3 >> 32) >> prefix_shift;
+    if (pref0 >= min_prefix) {
+      {{ func }}_insert_key_only_fast<K>(key0, local_keys);
+    }
+    if (pref1 >= min_prefix) {
+      {{ func }}_insert_key_only_fast<K>(key1, local_keys);
+    }
+    if (pref2 >= min_prefix) {
+      {{ func }}_insert_key_only_fast<K>(key2, local_keys);
+    }
+    if (pref3 >= min_prefix) {
+      {{ func }}_insert_key_only_fast<K>(key3, local_keys);
+    }
+  }
+  for (int col = begin + (vec_count << 2) + threadIdx.x; col < end; col += blockDim.x) {
+    const uint64_t key = {{ func }}_packed_key(x[base + col], col);
+    const uint32_t pref = prefix_shift == 0 ? static_cast<uint32_t>(key >> 32) : static_cast<uint32_t>(key >> 32) >> prefix_shift;
+    if (pref >= min_prefix) {
+      {{ func }}_insert_key_only_fast<K>(key, local_keys);
+    }
+  }
+  const int shared_base = threadIdx.x * K;
+#pragma unroll
+  for (int i = 0; i < K; ++i) {
+    merge_keys[shared_base + i] = local_keys[i];
+  }
+  __syncthreads();
+  for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+    if (threadIdx.x < stride) {
+      const int left_base = threadIdx.x * K;
+      const int right_base = (threadIdx.x + stride) * K;
+      uint64_t out_keys[K];
+      int left = 0;
+      int right = 0;
+#pragma unroll
+      for (int out_col = 0; out_col < K; ++out_col) {
+        const uint64_t left_key = left < K ? merge_keys[left_base + left] : 0ull;
+        const uint64_t right_key = right < K ? merge_keys[right_base + right] : 0ull;
+        if (right_key > left_key) {
+          out_keys[out_col] = right_key;
+          ++right;
+        } else {
+          out_keys[out_col] = left_key;
+          ++left;
+        }
+      }
+#pragma unroll
+      for (int i = 0; i < K; ++i) {
+        merge_keys[left_base + i] = out_keys[i];
+      }
+    }
+    __syncthreads();
+  }
+  const int64_t temp_base = (row * static_cast<int64_t>(tiles_per_row) + tile) * K;
+  for (int out_col = threadIdx.x; out_col < K; out_col += blockDim.x) {
+    temp_keys[temp_base + out_col] = merge_keys[out_col];
+  }
+}
+
+{% endif %}
+
+{% endif %}
+{% if not use_two_pass_keys and not use_radix_prefilter %}
 __global__ void {{ kernel }}(
     const {{ input_storage_type }}* DINO_RESTRICT x,
+{% if output_kind == "both" %}
+    {{ output_storage_type }}* DINO_RESTRICT y_values,
+    int64_t* DINO_RESTRICT y_indices,
+{% else %}
     {{ output_storage_type }}* DINO_RESTRICT y,
+{% endif %}
     int64_t runtime_numel) {
   constexpr int64_t cols = {{ cols }};
   constexpr int64_t k = {{ k }};
   const int64_t runtime_rows = runtime_numel / k;
-  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
-  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < runtime_rows; row += stride) {
+{% if use_radix_filter %}
+  constexpr int candidate_width = {{ radix_candidate_width }};
+  __shared__ int hist[256];
+  __shared__ uint64_t threshold_key;
+  __shared__ uint64_t prefix;
+  __shared__ uint64_t mask;
+  __shared__ int remaining;
+  __shared__ int candidate_count;
+  __shared__ uint64_t candidate_keys[candidate_width];
+{% if use_value_radix_repair %}
+  __shared__ uint32_t value_threshold_key;
+  __shared__ uint32_t index_threshold_key;
+  __shared__ int greater_count;
+  __shared__ int equal_count;
+  __shared__ int use_index_repair;
+{% endif %}
+
+  for (int64_t row = static_cast<int64_t>(blockIdx.x); row < runtime_rows; row += gridDim.x) {
     const int64_t base = row * cols;
-    int64_t selected[k];
-    for (int64_t out_col = 0; out_col < k; ++out_col) {
-      selected[out_col] = -1;
+{% if use_value_radix_repair %}
+    if (threadIdx.x == 0) {
+      value_threshold_key = 0u;
+      index_threshold_key = 0u;
+      greater_count = 0;
+      equal_count = 0;
+      use_index_repair = 0;
+      prefix = 0ull;
+      mask = 0ull;
+      remaining = k;
     }
-    for (int64_t out_col = 0; out_col < k; ++out_col) {
-      int64_t best_index = -1;
-      for (int64_t col = 0; col < cols; ++col) {
+    __syncthreads();
+
+    for (int shift = 24; shift >= 0; shift -= 8) {
+      for (int bin = threadIdx.x; bin < 256; bin += blockDim.x) {
+        hist[bin] = 0;
+      }
+      __syncthreads();
+
+      const uint32_t current_prefix = static_cast<uint32_t>(prefix);
+      const uint32_t current_mask = static_cast<uint32_t>(mask);
+      for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+        const uint32_t key = {{ func }}_ordered_key(x[base + col]);
+        if ((key & current_mask) == current_prefix) {
+          atomicAdd(&hist[(key >> shift) & 0xffu], 1);
+        }
+      }
+      __syncthreads();
+
+      if (threadIdx.x == 0) {
+        int skipped = 0;
+        int selected_bin = 0;
+        for (int bin = 255; bin >= 0; --bin) {
+          const int count = hist[bin];
+          if (skipped + count >= remaining) {
+            selected_bin = bin;
+            break;
+          }
+          skipped += count;
+        }
+        remaining -= skipped;
+        prefix |= static_cast<uint64_t>(selected_bin) << shift;
+        mask |= 0xffull << shift;
+      }
+      __syncthreads();
+    }
+
+    for (int pos = threadIdx.x; pos < candidate_width; pos += blockDim.x) {
+      candidate_keys[pos] = 0ull;
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      value_threshold_key = static_cast<uint32_t>(prefix);
+      candidate_count = 0;
+    }
+    __syncthreads();
+
+    const uint32_t value_threshold = value_threshold_key;
+    for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+      const uint32_t key = {{ func }}_ordered_key(x[base + col]);
+      if (key > value_threshold) {
+        atomicAdd(&greater_count, 1);
+      } else if (key == value_threshold) {
+        atomicAdd(&equal_count, 1);
+      }
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      const int remaining_equal = k - greater_count;
+      use_index_repair = equal_count > remaining_equal;
+      candidate_count = 0;
+    }
+    __syncthreads();
+
+    if (!use_index_repair) {
+      for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+        const uint32_t key = {{ func }}_ordered_key(x[base + col]);
+        if (key >= value_threshold) {
+          const int pos = atomicAdd(&candidate_count, 1);
+          if (pos < candidate_width) {
+            candidate_keys[pos] = {{ func }}_packed_key(x[base + col], col);
+          }
+        }
+      }
+      __syncthreads();
+    } else {
+      if (threadIdx.x == 0) {
+        prefix = 0ull;
+        mask = 0ull;
+        remaining = k - greater_count;
+      }
+      __syncthreads();
+
+      for (int shift = 24; shift >= 0; shift -= 8) {
+        for (int bin = threadIdx.x; bin < 256; bin += blockDim.x) {
+          hist[bin] = 0;
+        }
+        __syncthreads();
+
+        const uint32_t current_prefix = static_cast<uint32_t>(prefix);
+        const uint32_t current_mask = static_cast<uint32_t>(mask);
+        for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+          const uint32_t value_key = {{ func }}_ordered_key(x[base + col]);
+          if (value_key == value_threshold) {
+            const uint32_t index_key = 0xffffffffu - static_cast<uint32_t>(col);
+            if ((index_key & current_mask) == current_prefix) {
+              atomicAdd(&hist[(index_key >> shift) & 0xffu], 1);
+            }
+          }
+        }
+        __syncthreads();
+
+        if (threadIdx.x == 0) {
+          int skipped = 0;
+          int selected_bin = 0;
+          for (int bin = 255; bin >= 0; --bin) {
+            const int count = hist[bin];
+            if (skipped + count >= remaining) {
+              selected_bin = bin;
+              break;
+            }
+            skipped += count;
+          }
+          remaining -= skipped;
+          prefix |= static_cast<uint64_t>(selected_bin) << shift;
+          mask |= 0xffull << shift;
+        }
+        __syncthreads();
+      }
+
+      if (threadIdx.x == 0) {
+        index_threshold_key = static_cast<uint32_t>(prefix);
+        candidate_count = 0;
+      }
+      __syncthreads();
+
+      const uint32_t index_threshold = index_threshold_key;
+      for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+        const uint32_t value_key = {{ func }}_ordered_key(x[base + col]);
+        const uint32_t index_key = 0xffffffffu - static_cast<uint32_t>(col);
+        if (value_key > value_threshold || (value_key == value_threshold && index_key >= index_threshold)) {
+          const int pos = atomicAdd(&candidate_count, 1);
+          if (pos < candidate_width) {
+            candidate_keys[pos] = {{ func }}_packed_key(x[base + col], col);
+          }
+        }
+      }
+      __syncthreads();
+    }
+{% else %}
+    if (threadIdx.x == 0) {
+      prefix = 0ull;
+      mask = 0ull;
+      remaining = k;
+    }
+    __syncthreads();
+
+    for (int shift = 56; shift >= 0; shift -= 8) {
+      for (int bin = threadIdx.x; bin < 256; bin += blockDim.x) {
+        hist[bin] = 0;
+      }
+      __syncthreads();
+
+      const uint64_t current_prefix = prefix;
+      const uint64_t current_mask = mask;
+      for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+        const uint64_t key = {{ func }}_packed_key(x[base + col], col);
+        if ((key & current_mask) == current_prefix) {
+          atomicAdd(&hist[(key >> shift) & 0xffull], 1);
+        }
+      }
+      __syncthreads();
+
+      if (threadIdx.x == 0) {
+        int skipped = 0;
+        int selected_bin = 0;
+        for (int bin = 255; bin >= 0; --bin) {
+          const int count = hist[bin];
+          if (skipped + count >= remaining) {
+            selected_bin = bin;
+            break;
+          }
+          skipped += count;
+        }
+        remaining -= skipped;
+        prefix |= static_cast<uint64_t>(selected_bin) << shift;
+        mask |= 0xffull << shift;
+      }
+      __syncthreads();
+    }
+
+    for (int pos = threadIdx.x; pos < candidate_width; pos += blockDim.x) {
+      candidate_keys[pos] = 0ull;
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      threshold_key = prefix;
+      candidate_count = 0;
+    }
+    __syncthreads();
+
+    for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+      const uint64_t key = {{ func }}_packed_key(x[base + col], col);
+      if (key >= threshold_key) {
+        const int pos = atomicAdd(&candidate_count, 1);
+        if (pos < candidate_width) {
+          candidate_keys[pos] = key;
+        }
+      }
+    }
+    __syncthreads();
+{% endif %}
+
+    for (int size = 2; size <= candidate_width; size <<= 1) {
+      for (int stride = size >> 1; stride > 0; stride >>= 1) {
+        for (int left = threadIdx.x; left < candidate_width; left += blockDim.x) {
+          const int right = left ^ stride;
+          if (right > left) {
+            const bool descending_segment = (left & size) == 0;
+            const uint64_t left_key = candidate_keys[left];
+            const uint64_t right_key = candidate_keys[right];
+            if ((descending_segment && right_key > left_key) || (!descending_segment && left_key > right_key)) {
+              candidate_keys[left] = right_key;
+              candidate_keys[right] = left_key;
+            }
+          }
+        }
+        __syncthreads();
+      }
+    }
+
+    for (int out_col = threadIdx.x; out_col < k; out_col += blockDim.x) {
+      const {{ index_storage_type }} best_index = {{ func }}_packed_index(candidate_keys[out_col]);
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+    }
+    __syncthreads();
+  }
+{% elif use_block_merge_rows %}
+  __shared__ float merge_values[{{ block_size }} * k];
+  __shared__ {{ index_storage_type }} merge_indices[{{ block_size }} * k];
+  for (int64_t row = static_cast<int64_t>(blockIdx.x); row < runtime_rows; row += gridDim.x) {
+    const int64_t base = row * cols;
+    float local_values[k];
+    {{ index_storage_type }} local_indices[k];
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+    for (int i = 0; i < k; ++i) {
+      local_values[i] = 0.0f;
+      local_indices[i] = -1;
+    }
+
+    for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
+{% if input_dtype == "bool" %}
+      const float value = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+      const float value = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+      int insert_pos = -1;
+      if ({{ func }}_is_better(value, col, local_values[k - 1], local_indices[k - 1])) {
+        insert_pos = k - 1;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+        for (int i = 0; i < k - 1; ++i) {
+          if ({{ func }}_is_better(value, col, local_values[i], local_indices[i])) {
+            insert_pos = i;
+            break;
+          }
+        }
+      }
+      if (insert_pos >= 0) {
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+        for (int i = k - 1; i > 0; --i) {
+          if (i > insert_pos) {
+            local_values[i] = local_values[i - 1];
+            local_indices[i] = local_indices[i - 1];
+          }
+        }
+        local_values[insert_pos] = value;
+        local_indices[insert_pos] = col;
+      }
+    }
+
+    const int shared_base = threadIdx.x * k;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+    for (int i = 0; i < k; ++i) {
+      merge_values[shared_base + i] = local_values[i];
+      merge_indices[shared_base + i] = local_indices[i];
+    }
+    __syncthreads();
+
+    for (int stride = blockDim.x >> 1; stride > 0; stride >>= 1) {
+      if (threadIdx.x < stride) {
+        const int left_base = threadIdx.x * k;
+        const int right_base = (threadIdx.x + stride) * k;
+        float out_values[k];
+        {{ index_storage_type }} out_indices[k];
+        int left = 0;
+        int right = 0;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+        for (int out_col = 0; out_col < k; ++out_col) {
+          const bool left_valid = left < k && merge_indices[left_base + left] >= 0;
+          const bool right_valid = right < k && merge_indices[right_base + right] >= 0;
+          if (right_valid && (!left_valid || {{ func }}_is_better(
+                  merge_values[right_base + right],
+                  merge_indices[right_base + right],
+                  merge_values[left_base + left],
+                  merge_indices[left_base + left]))) {
+            out_values[out_col] = merge_values[right_base + right];
+            out_indices[out_col] = merge_indices[right_base + right];
+            ++right;
+          } else if (left_valid) {
+            out_values[out_col] = merge_values[left_base + left];
+            out_indices[out_col] = merge_indices[left_base + left];
+            ++left;
+          } else {
+            out_values[out_col] = 0.0f;
+            out_indices[out_col] = -1;
+          }
+        }
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+        for (int i = 0; i < k; ++i) {
+          merge_values[left_base + i] = out_values[i];
+          merge_indices[left_base + i] = out_indices[i];
+        }
+      }
+      __syncthreads();
+    }
+
+    for (int out_col = threadIdx.x; out_col < k; out_col += blockDim.x) {
+      const {{ index_storage_type }} best_index = merge_indices[out_col];
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+    }
+    __syncthreads();
+  }
+{% elif use_warp_argmax %}
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= runtime_rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = row * cols;
+  float best_value = 0.0f;
+  {{ index_storage_type }} best_index = -1;
+  for ({{ index_storage_type }} col = lane; col < cols; col += 32) {
+{% if input_dtype == "bool" %}
+    const float value = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+    const float value = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+    if ({{ func }}_is_better(value, col, best_value, best_index)) {
+      best_value = value;
+      best_index = col;
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+    const float candidate_value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, 32);
+    const {{ index_storage_type }} candidate_index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset, 32);
+    if ({{ func }}_is_better(candidate_value, candidate_index, best_value, best_index)) {
+      best_value = candidate_value;
+      best_index = candidate_index;
+    }
+  }
+
+  best_index = __shfl_sync({{ gpu_warp_full_mask }}, best_index, 0, 32);
+  if (lane == 0) {
+{% if output_kind == "indices" %}
+    y[row] = best_index;
+{% elif output_kind == "both" %}
+    y_values[row] = x[base + best_index];
+    y_indices[row] = best_index;
+{% else %}
+    y[row] = x[base + best_index];
+{% endif %}
+  }
+{% elif use_subwarp_rows %}
+  constexpr int group_lanes = {{ subwarp_group_lanes }};
+  constexpr int rows_per_warp = 32 / group_lanes;
+  const int lane = threadIdx.x;
+  const int group = lane / group_lanes;
+  const int group_lane = lane - group * group_lanes;
+  const int64_t warp_row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  const int64_t row = warp_row * rows_per_warp + group;
+  if (row >= runtime_rows) {
+    return;
+  }
+  const int64_t base = row * cols;
+  float local_values[k];
+  {{ index_storage_type }} local_indices[k];
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+  for (int i = 0; i < k; ++i) {
+    local_values[i] = 0.0f;
+    local_indices[i] = -1;
+  }
+
+  for ({{ index_storage_type }} col = group_lane; col < cols; col += group_lanes) {
+{% if input_dtype == "bool" %}
+    const float value = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+    const float value = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+    int insert_pos = -1;
+    if ({{ func }}_is_better(value, col, local_values[k - 1], local_indices[k - 1])) {
+      insert_pos = k - 1;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+      for (int i = 0; i < k - 1; ++i) {
+        if ({{ func }}_is_better(value, col, local_values[i], local_indices[i])) {
+          insert_pos = i;
+          break;
+        }
+      }
+    }
+    if (insert_pos >= 0) {
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+      for (int i = k - 1; i > 0; --i) {
+        if (i > insert_pos) {
+          local_values[i] = local_values[i - 1];
+          local_indices[i] = local_indices[i - 1];
+        }
+      }
+      local_values[insert_pos] = value;
+      local_indices[insert_pos] = col;
+    }
+  }
+
+  int cursor = 0;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+  for (int out_col = 0; out_col < k; ++out_col) {
+    float best_value = cursor < k ? local_values[cursor] : 0.0f;
+    {{ index_storage_type }} best_index = cursor < k ? local_indices[cursor] : -1;
+#pragma unroll
+    for (int offset = group_lanes >> 1; offset > 0; offset >>= 1) {
+      const float candidate_value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, group_lanes);
+      const {{ index_storage_type }} candidate_index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset, group_lanes);
+      if ({{ func }}_is_better(candidate_value, candidate_index, best_value, best_index)) {
+        best_value = candidate_value;
+        best_index = candidate_index;
+      }
+    }
+
+    best_index = __shfl_sync({{ gpu_warp_full_mask }}, best_index, 0, group_lanes);
+    if (cursor < k && local_indices[cursor] == best_index) {
+      ++cursor;
+    }
+    if (group_lane == 0) {
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+    }
+  }
+{% elif use_warp_rows %}
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= runtime_rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = row * cols;
+  float local_values[k];
+  {{ index_storage_type }} local_indices[k];
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+  for (int i = 0; i < k; ++i) {
+    local_values[i] = 0.0f;
+    local_indices[i] = -1;
+  }
+
+  for ({{ index_storage_type }} col = lane; col < cols; col += 32) {
+{% if input_dtype == "bool" %}
+    const float value = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+    const float value = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+    int insert_pos = -1;
+{% if use_warp_worst_guard %}
+    if ({{ func }}_is_better(value, col, local_values[k - 1], local_indices[k - 1])) {
+      insert_pos = k - 1;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+      for (int i = 0; i < k - 1; ++i) {
+        if ({{ func }}_is_better(value, col, local_values[i], local_indices[i])) {
+          insert_pos = i;
+          break;
+        }
+      }
+    }
+{% else %}
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+    for (int i = 0; i < k; ++i) {
+      if ({{ func }}_is_better(value, col, local_values[i], local_indices[i])) {
+        insert_pos = i;
+        break;
+      }
+    }
+{% endif %}
+    if (insert_pos >= 0) {
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+      for (int i = k - 1; i > 0; --i) {
+        if (i > insert_pos) {
+          local_values[i] = local_values[i - 1];
+          local_indices[i] = local_indices[i - 1];
+        }
+      }
+      local_values[insert_pos] = value;
+      local_indices[insert_pos] = col;
+    }
+  }
+
+  int cursor = 0;
+{% if unroll_warp_topk %}
+#pragma unroll
+{% endif %}
+  for (int out_col = 0; out_col < k; ++out_col) {
+    float best_value = cursor < k ? local_values[cursor] : 0.0f;
+    {{ index_storage_type }} best_index = cursor < k ? local_indices[cursor] : -1;
+#pragma unroll
+    for (int offset = 16; offset > 0; offset >>= 1) {
+      const float candidate_value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, 32);
+      const {{ index_storage_type }} candidate_index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset, 32);
+      if ({{ func }}_is_better(candidate_value, candidate_index, best_value, best_index)) {
+        best_value = candidate_value;
+        best_index = candidate_index;
+      }
+    }
+
+    best_index = __shfl_sync({{ gpu_warp_full_mask }}, best_index, 0, 32);
+    if (cursor < k && local_indices[cursor] == best_index) {
+      ++cursor;
+    }
+    if (lane == 0) {
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+    }
+  }
+{% elif use_shared_sort %}
+  constexpr int64_t sort_width = {{ sort_width }};
+  __shared__ float sort_values[sort_width];
+  __shared__ {{ index_storage_type }} sort_indices[sort_width];
+  for (int64_t row = static_cast<int64_t>(blockIdx.x); row < runtime_rows; row += gridDim.x) {
+    const int64_t base = row * cols;
+    for ({{ index_storage_type }} col = threadIdx.x; col < sort_width; col += blockDim.x) {
+      if (col < cols) {
+{% if input_dtype == "bool" %}
+        sort_values[col] = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+        sort_values[col] = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+        sort_indices[col] = col;
+      } else {
+        sort_values[col] = 0.0f;
+        sort_indices[col] = -1;
+      }
+    }
+    __syncthreads();
+
+    for (int64_t size = 2; size <= sort_width; size <<= 1) {
+      for (int64_t stride = size >> 1; stride > 0; stride >>= 1) {
+        for (int64_t left = threadIdx.x; left < sort_width; left += blockDim.x) {
+          const int64_t right = left ^ stride;
+          if (right > left) {
+            const bool descending_segment = (left & size) == 0;
+            const float left_value = sort_values[left];
+            const {{ index_storage_type }} left_index = sort_indices[left];
+            const float right_value = sort_values[right];
+            const {{ index_storage_type }} right_index = sort_indices[right];
+            const bool left_better = {{ func }}_is_better(left_value, left_index, right_value, right_index);
+            const bool right_better = {{ func }}_is_better(right_value, right_index, left_value, left_index);
+            if ((descending_segment && right_better) || (!descending_segment && left_better)) {
+              sort_values[left] = right_value;
+              sort_indices[left] = right_index;
+              sort_values[right] = left_value;
+              sort_indices[right] = left_index;
+            }
+          }
+        }
+        __syncthreads();
+      }
+    }
+
+    for (int out_col = threadIdx.x; out_col < k; out_col += blockDim.x) {
+      const {{ index_storage_type }} best_index = sort_indices[out_col];
+{% if output_kind == "indices" %}
+      y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
+{% else %}
+      y[row * k + out_col] = x[base + best_index];
+{% endif %}
+    }
+    __syncthreads();
+  }
+{% elif use_parallel_rows %}
+  __shared__ float shared_values[{{ block_size }}];
+  __shared__ {{ index_storage_type }} shared_indices[{{ block_size }}];
+  __shared__ {{ index_storage_type }} selected[k];
+  for (int64_t row = static_cast<int64_t>(blockIdx.x); row < runtime_rows; row += gridDim.x) {
+    const int64_t base = row * cols;
+    for (int col = threadIdx.x; col < k; col += blockDim.x) {
+      selected[col] = -1;
+    }
+    __syncthreads();
+
+    for (int out_col = 0; out_col < k; ++out_col) {
+      float local_best_value = 0.0f;
+      {{ index_storage_type }} local_best_index = -1;
+      for ({{ index_storage_type }} col = threadIdx.x; col < cols; col += blockDim.x) {
         bool already_selected = false;
-        for (int64_t prev = 0; prev < out_col; ++prev) {
+        for (int prev = 0; prev < out_col; ++prev) {
           if (selected[prev] == col) {
             already_selected = true;
+            break;
           }
         }
         if (already_selected) {
           continue;
         }
-        if (best_index < 0) {
-          best_index = col;
+{% if input_dtype == "bool" %}
+        const float value = x[base + col] ? 1.0f : 0.0f;
+{% else %}
+        const float value = dinoml::math::cast<float>(x[base + col]);
+{% endif %}
+        if ({{ func }}_is_better(value, col, local_best_value, local_best_index)) {
+          local_best_value = value;
+          local_best_index = col;
+        }
+      }
+
+      shared_values[threadIdx.x] = local_best_value;
+      shared_indices[threadIdx.x] = local_best_index;
+      __syncthreads();
+
+      for (int offset = blockDim.x / 2; offset > 0; offset >>= 1) {
+        if (threadIdx.x < offset) {
+          const float candidate_value = shared_values[threadIdx.x + offset];
+          const {{ index_storage_type }} candidate_index = shared_indices[threadIdx.x + offset];
+          if ({{ func }}_is_better(candidate_value, candidate_index, shared_values[threadIdx.x], shared_indices[threadIdx.x])) {
+            shared_values[threadIdx.x] = candidate_value;
+            shared_indices[threadIdx.x] = candidate_index;
+          }
+        }
+        __syncthreads();
+      }
+
+      if (threadIdx.x == 0) {
+        const {{ index_storage_type }} best_index = shared_indices[0];
+        selected[out_col] = best_index;
+{% if output_kind == "indices" %}
+        y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+        y_values[row * k + out_col] = x[base + best_index];
+        y_indices[row * k + out_col] = best_index;
+{% else %}
+        y[row * k + out_col] = x[base + best_index];
+{% endif %}
+      }
+      __syncthreads();
+    }
+  }
+{% else %}
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < runtime_rows; row += stride) {
+    const int64_t base = row * cols;
+    {{ index_storage_type }} selected[k];
+    for (int out_col = 0; out_col < k; ++out_col) {
+      selected[out_col] = -1;
+    }
+    for (int out_col = 0; out_col < k; ++out_col) {
+      float best_value = 0.0f;
+      {{ index_storage_type }} best_index = -1;
+      for ({{ index_storage_type }} col = 0; col < cols; ++col) {
+        bool already_selected = false;
+        for (int prev = 0; prev < out_col; ++prev) {
+          if (selected[prev] == col) {
+            already_selected = true;
+            break;
+          }
+        }
+        if (already_selected) {
           continue;
         }
 {% if input_dtype == "bool" %}
-        const bool value = x[base + col];
-        const bool best_value = x[base + best_index];
-        if (value > best_value) {
-          best_index = col;
-        }
+        const float value = x[base + col] ? 1.0f : 0.0f;
 {% else %}
         const float value = dinoml::math::cast<float>(x[base + col]);
-        const float best_value = dinoml::math::cast<float>(x[base + best_index]);
-        if ((value > best_value) || (isnan(value) && !isnan(best_value))) {
+{% endif %}
+        if ({{ func }}_is_better(value, col, best_value, best_index)) {
+          best_value = value;
           best_index = col;
         }
-{% endif %}
       }
 {% if output_kind == "indices" %}
       y[row * k + out_col] = best_index;
+{% elif output_kind == "both" %}
+      y_values[row * k + out_col] = x[base + best_index];
+      y_indices[row * k + out_col] = best_index;
 {% else %}
       y[row * k + out_col] = x[base + best_index];
 {% endif %}
       selected[out_col] = best_index;
     }
   }
+{% endif %}
 }
+{% endif %}
 
 static int {{ func }}(
     const {{ input_storage_type }}* DINO_RESTRICT x,
+{% if output_kind == "both" %}
+    {{ output_storage_type }}* DINO_RESTRICT y_values,
+    int64_t* DINO_RESTRICT y_indices,
+{% else %}
     {{ output_storage_type }}* DINO_RESTRICT y,
+{% endif %}
     int64_t runtime_numel,
+{% if use_two_pass_keys or use_radix_prefilter %}
+    void* DINO_RESTRICT scratch,
+    size_t scratch_nbytes,
+{% endif %}
     {{ gpu_stream_type }} stream) {
+{% if output_kind == "both" %}
+  if (x == nullptr || y_values == nullptr || y_indices == nullptr) {
+{% else %}
   if (x == nullptr || y == nullptr) {
+{% endif %}
     return dino_runtime_fail("{{ func }} received null pointer");
   }
-  const int block = {{ block_size }};
+{% if use_two_pass_keys or use_radix_prefilter %}
+  if (scratch == nullptr) {
+    return dino_runtime_fail("{{ func }} received null topk scratch");
+  }
+{% endif %}
+  const int block = {% if use_shared_sort and not use_radix_filter %}{{ sort_block_size }}{% else %}{{ block_size }}{% endif %};
   const int64_t runtime_rows = runtime_numel / {{ k }};
-  const int64_t grid64 = (runtime_rows + block - 1) / block;
-  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
-  if (grid > 0) {
-    {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
+{% if use_two_pass_keys %}
+  uint64_t* scratch_keys = static_cast<uint64_t*>(scratch);
+  constexpr int tile_cols = {{ two_pass_tile_cols }};
+  constexpr int tiles_per_row = ({{ cols }} + tile_cols - 1) / tile_cols;
+  const size_t scratch_required =
+      static_cast<size_t>(runtime_rows) * static_cast<size_t>(tiles_per_row) * {{ k }} * sizeof(uint64_t);
+  if (scratch_nbytes < scratch_required) {
+    return dino_runtime_fail("{{ func }} topk scratch is too small");
+  }
+  const int row_grid = static_cast<int>(runtime_rows > 65535 ? 65535 : runtime_rows);
+  if (row_grid > 0) {
+    dim3 tile_grid(tiles_per_row, row_grid);
+    {{ kernel }}_tile_keys_fast_vec4<{{ k }}, {{ two_pass_first_block }}, tile_cols>
+        <<<tile_grid, {{ two_pass_first_block }}, 0, stream>>>(x, scratch_keys, runtime_rows, {{ cols }}, tiles_per_row);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+    {{ kernel }}_merge_tile_keys_fast<{{ k }}, 256>
+        <<<row_grid, 256, 0, stream>>>(x, scratch_keys, y_values, y_indices, runtime_rows, {{ cols }}, tiles_per_row);
     {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
   return 0;
+{% elif use_radix_prefilter %}
+  constexpr int tile_cols = {{ radix_prefilter_tile_cols }};
+  constexpr int tiles_per_row = ({{ cols }} + tile_cols - 1) / tile_cols;
+  const size_t header_nbytes =
+      ((static_cast<size_t>(runtime_rows) * 2u * sizeof(int) + 7u) / 8u) * 8u;
+  const size_t counts_nbytes =
+      static_cast<size_t>(runtime_rows) * static_cast<size_t>(tiles_per_row) * 256u * sizeof(uint32_t);
+  const size_t temp_keys_nbytes =
+      static_cast<size_t>(runtime_rows) * static_cast<size_t>(tiles_per_row) * {{ k }}u * sizeof(uint64_t);
+  const size_t payload_nbytes = counts_nbytes > temp_keys_nbytes ? counts_nbytes : temp_keys_nbytes;
+  const size_t scratch_required = header_nbytes + payload_nbytes;
+  if (scratch_nbytes < scratch_required) {
+    return dino_runtime_fail("{{ func }} topk scratch is too small");
+  }
+  uint8_t* scratch_bytes = static_cast<uint8_t*>(scratch);
+  int* prefixes = reinterpret_cast<int*>(scratch_bytes);
+  int* remaining = prefixes + runtime_rows;
+  uint8_t* payload = scratch_bytes + header_nbytes;
+  uint32_t* counts = reinterpret_cast<uint32_t*>(payload);
+  uint64_t* temp_keys = reinterpret_cast<uint64_t*>(payload);
+  const int row_grid = static_cast<int>(runtime_rows);
+  if (row_grid > 0) {
+    dim3 count_grid(tiles_per_row, row_grid);
+    for (int pass = 0; pass < {{ radix_prefilter_passes }}; ++pass) {
+      {{ kernel }}_radix_prefilter_count<{{ radix_prefilter_first_block }}, tile_cols>
+          <<<count_grid, {{ radix_prefilter_first_block }}, 0, stream>>>(
+              x, counts, prefixes, runtime_rows, {{ cols }}, tiles_per_row, pass);
+      {{ gpu_check_macro }}({{ gpu_last_error_call }});
+      {{ kernel }}_radix_prefilter_choose<<<row_grid, 256, 0, stream>>>(
+          counts, prefixes, remaining, runtime_rows, tiles_per_row, pass);
+      {{ gpu_check_macro }}({{ gpu_last_error_call }});
+    }
+    {{ kernel }}_tile_keys_pref_vec4<{{ k }}, {{ radix_prefilter_first_block }}, tile_cols, {{ radix_prefilter_passes }}>
+        <<<count_grid, {{ radix_prefilter_first_block }}, 0, stream>>>(
+            x, prefixes, temp_keys, runtime_rows, {{ cols }}, tiles_per_row);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+    {{ kernel }}_merge_tile_keys_fast<{{ k }}, 256>
+        <<<row_grid, 256, 0, stream>>>(x, temp_keys, y_values, y_indices, runtime_rows, {{ cols }}, tiles_per_row);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+{% else %}
+{% if use_warp_argmax or use_warp_rows %}
+  const int64_t grid64 = (runtime_rows + {{ warp_rows_per_block }} - 1) / {{ warp_rows_per_block }};
+{% elif use_subwarp_rows %}
+  const int64_t grid64 = (runtime_rows + {{ subwarp_rows_per_block }} - 1) / {{ subwarp_rows_per_block }};
+{% elif use_radix_filter or use_block_merge_rows or use_shared_sort or use_parallel_rows %}
+  const int64_t grid64 = runtime_rows;
+{% else %}
+  const int64_t grid64 = (runtime_rows + block - 1) / block;
+{% endif %}
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+{% if output_kind == "both" %}
+{% if use_warp_argmax or use_warp_rows %}
+    dim3 topk_block(32, {{ warp_rows_per_block }});
+    {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y_values, y_indices, runtime_numel);
+{% elif use_subwarp_rows %}
+    dim3 topk_block(32, {{ subwarp_warps_per_block }});
+    {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y_values, y_indices, runtime_numel);
+{% else %}
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, y_values, y_indices, runtime_numel);
+{% endif %}
+{% else %}
+{% if use_warp_argmax or use_warp_rows %}
+    dim3 topk_block(32, {{ warp_rows_per_block }});
+    {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y, runtime_numel);
+{% elif use_subwarp_rows %}
+    dim3 topk_block(32, {{ subwarp_warps_per_block }});
+    {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y, runtime_numel);
+{% else %}
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
+{% endif %}
+{% endif %}
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+{% endif %}
 }

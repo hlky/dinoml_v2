@@ -6,7 +6,7 @@ from typing import Any, Callable, Mapping
 
 RenderKernelFn = Callable[[str, Mapping[str, Any], Mapping[str, Mapping[str, Any]]], str | None]
 RenderLaunchFn = Callable[[str, Mapping[str, Any], Mapping[str, Mapping[str, Any]], Mapping[str, Any] | None], str]
-SourceKeyFn = Callable[[str, Mapping[str, Any], Mapping[str, Mapping[str, Any]]], str]
+SourceKeyFn = Callable[[str, Mapping[str, Any], Mapping[str, Mapping[str, Any]]], str | None]
 GeneratedFunctionNameFn = Callable[[str, Mapping[str, Any], Mapping[str, Mapping[str, Any]]], str]
 
 

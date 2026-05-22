@@ -75,6 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_ops_parser.add_argument("--only", action="append", default=[], help="Benchmark a case, op, or template name; repeatable")
     benchmark_ops_parser.add_argument("--artifacts", help="Directory for compiled per-op artifacts")
     benchmark_ops_parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary artifacts when --artifacts is not set")
+    benchmark_ops_parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,
+        help="Compile per-op artifacts with up to N workers; device benchmarks still run serially",
+    )
     benchmark_ops_parser.add_argument("--fail-fast", action="store_true")
     benchmark_ops_parser.add_argument("--out")
 
@@ -256,6 +263,7 @@ def _benchmark_ops(args: argparse.Namespace) -> int:
         use_fp16_acc=args.use_fp16_acc,
         keep_artifacts=args.keep_artifacts,
         fail_fast=args.fail_fast,
+        jobs=args.jobs,
     )
     if args.out:
         write_report(report, args.out)

@@ -14,6 +14,21 @@ from dinoml.kernels.providers.cutlass.gemm import (
     gemm_dtype_suffix,
     render_cutlass_gemm_source,
 )
+from dinoml.kernels.providers.ck.gemm import (
+    CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
+    CK_GEMM_DEFAULT_SYMBOL_ID,
+    CK_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
+    ck_gemm_candidate_set,
+    ck_gemm_candidate_set_id,
+    ck_gemm_candidates,
+    ck_gemm_cmake_target,
+    ck_gemm_default_candidate,
+    ck_gemm_profiler_symbol,
+    ck_gemm_static_library_name,
+    ck_gemm_symbol,
+    ck_gemm_used_candidate_plan,
+    render_ck_gemm_source,
+)
 
 __all__ = [
     "GEMM_OPS",
@@ -22,6 +37,18 @@ __all__ = [
     "CUTLASS_DEFAULT_SYMBOL_ID",
     "CUTLASS_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
     "CUTLASS_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
+    "CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
+    "CK_GEMM_DEFAULT_SYMBOL_ID",
+    "CK_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
+    "ck_gemm_candidate_set",
+    "ck_gemm_candidate_set_id",
+    "ck_gemm_candidates",
+    "ck_gemm_cmake_target",
+    "ck_gemm_default_candidate",
+    "ck_gemm_profiler_symbol",
+    "ck_gemm_static_library_name",
+    "ck_gemm_symbol",
+    "ck_gemm_used_candidate_plan",
     "cutlass_gemm_candidate_set",
     "cutlass_gemm_candidate_set_id",
     "cutlass_gemm_candidates",
@@ -33,4 +60,5 @@ __all__ = [
     "gemm_op_spec",
     "gemm_problem",
     "render_cutlass_gemm_source",
+    "render_ck_gemm_source",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -11,6 +12,10 @@ from typing import Any, Mapping
 from dinoml.backends.registry import _shared_library_name
 from dinoml.ir import write_json
 from dinoml.kernels.manifest import build_support_manifest
+from dinoml.kernels.providers.ck.gemm import ck_gemm_cmake_target, ck_gemm_static_library_name
+from dinoml.kernels.providers.ck.bmm import ck_bmm_cmake_target, ck_bmm_static_library_name
+from dinoml.kernels.providers.ck.conv import ck_conv_cmake_target, ck_conv_static_library_name
+from dinoml.libgguf_cuda import file_sha256
 from dinoml.lowering.gpu import render_template
 from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.ops import collect_generated_sources
@@ -42,6 +47,9 @@ class RocmSupportLibs:
     runtime_lib: Path
     rocm_runtime_lib: Path
     kernels_lib: Path
+    ck_gemm_archives: tuple[Path, ...]
+    ck_bmm_archives: tuple[Path, ...]
+    ck_conv_archives: tuple[Path, ...]
     runtime_include: Path
     common_include: Path
     kernels_include: Path
@@ -61,9 +69,18 @@ def build_rocm_module(
     runtime_lib = artifact_lib_dir / support_libs.runtime_lib.name
     rocm_runtime_lib = artifact_lib_dir / support_libs.rocm_runtime_lib.name
     kernels_lib = artifact_lib_dir / support_libs.kernels_lib.name
+    ck_gemm_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_gemm_archives)
+    ck_bmm_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_bmm_archives)
+    ck_conv_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_conv_archives)
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.rocm_runtime_lib, rocm_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
+    for source_archive, artifact_archive in zip(support_libs.ck_gemm_archives, ck_gemm_archives):
+        shutil.copy2(source_archive, artifact_archive)
+    for source_archive, artifact_archive in zip(support_libs.ck_bmm_archives, ck_bmm_archives):
+        shutil.copy2(source_archive, artifact_archive)
+    for source_archive, artifact_archive in zip(support_libs.ck_conv_archives, ck_conv_archives):
+        shutil.copy2(source_archive, artifact_archive)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
@@ -86,6 +103,9 @@ def build_rocm_module(
                 "runtime_lib": _cmake_path(runtime_lib),
                 "rocm_runtime_lib": _cmake_path(rocm_runtime_lib),
                 "kernels_lib": _cmake_path(kernels_lib),
+                "ck_gemm_archives": [_cmake_path(path) for path in ck_gemm_archives],
+                "ck_bmm_archives": [_cmake_path(path) for path in ck_bmm_archives],
+                "ck_conv_archives": [_cmake_path(path) for path in ck_conv_archives],
                 "runtime_implib": _cmake_path(_import_library_path(support_libs.runtime_lib)),
                 "rocm_runtime_implib": _cmake_path(_import_library_path(support_libs.rocm_runtime_lib)),
                 "kernels_implib": _cmake_path(_import_library_path(support_libs.kernels_lib)),
@@ -129,6 +149,9 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     runtime_lib = lib_dir / _shared_library_name("dinoml_runtime")
     rocm_runtime_lib = lib_dir / _shared_library_name("dinoml_rocm_runtime")
     kernels_lib = lib_dir / _shared_library_name("dinoml_rocm_kernels")
+    ck_gemm_archives: tuple[Path, ...] = ()
+    ck_bmm_archives: tuple[Path, ...] = ()
+    ck_conv_archives: tuple[Path, ...] = ()
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     configure_cmd = [
@@ -140,6 +163,9 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         "-DCMAKE_BUILD_TYPE=Release",
         "-DDINOML_ENABLE_CUDA=OFF",
         "-DDINOML_ENABLE_ROCM=ON",
+        "-DDINOML_ENABLE_CK_GEMM=OFF",
+        "-DDINOML_ENABLE_CK_BMM=OFF",
+        "-DDINOML_ENABLE_CK_CONV=OFF",
         f"-DCMAKE_HIP_ARCHITECTURES={_cmake_arch(arch)}",
         f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
         f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -162,20 +188,33 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     missing = [str(path) for path in (runtime_lib, rocm_runtime_lib, kernels_lib) if not path.exists()]
     if missing:
         raise RuntimeError(f"Expected ROCm support libraries under {lib_dir}, but these were not produced: {missing}")
+    if _requires_kernel_library(kernel_manifest, "ck_gemm"):
+        ck_gemm_archives = _ensure_cmake_ck_gemm_archives(arch, kernel_manifest)
+    if _requires_kernel_library(kernel_manifest, "ck_bmm"):
+        ck_bmm_archives = _ensure_cmake_ck_bmm_archives(arch, kernel_manifest)
+    if _requires_kernel_library(kernel_manifest, "ck_conv"):
+        ck_conv_archives = _ensure_cmake_ck_conv_archives(arch, kernel_manifest)
     support_target = (
         dict(kernel_manifest.get("target", {"name": "rocm", "arch": _cmake_arch(arch)}))
         if kernel_manifest is not None
         else {"name": "rocm", "arch": _cmake_arch(arch)}
     )
+    libraries: dict[str, Any] = {
+        "runtime": runtime_lib.name,
+        "rocm_runtime": rocm_runtime_lib.name,
+        "kernels": kernels_lib.name,
+    }
+    if ck_gemm_archives:
+        libraries["ck_gemm_static"] = [archive.name for archive in ck_gemm_archives]
+    if ck_bmm_archives:
+        libraries["ck_bmm_static"] = [archive.name for archive in ck_bmm_archives]
+    if ck_conv_archives:
+        libraries["ck_conv_static"] = [archive.name for archive in ck_conv_archives]
     write_json(
         lib_dir / "support_manifest.json",
         build_support_manifest(
             target=support_target,
-            libraries={
-                "runtime": runtime_lib.name,
-                "rocm_runtime": rocm_runtime_lib.name,
-                "kernels": kernels_lib.name,
-            },
+            libraries=libraries,
             required_kernel_cache_key=None if kernel_manifest is None else str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"])),
         ),
     )
@@ -183,10 +222,342 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         runtime_lib=runtime_lib,
         rocm_runtime_lib=rocm_runtime_lib,
         kernels_lib=kernels_lib,
+        ck_gemm_archives=ck_gemm_archives,
+        ck_bmm_archives=ck_bmm_archives,
+        ck_conv_archives=ck_conv_archives,
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "rocm" / "include",
     )
+
+
+def _requires_kernel_library(kernel_manifest: Mapping[str, Any] | None, library: str) -> bool:
+    if kernel_manifest is None:
+        return False
+    return any(item.get("kernel_library") == library for item in kernel_manifest.get("required_kernels", []))
+
+
+def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    repo_root = _repo_root()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_name = _cmake_arch(arch)
+    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-gemm" / "cmake-full"
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    modules = _required_ck_gemm_modules(kernel_manifest)
+    archives = tuple(lib_dir / module["archive"] for module in modules)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_cmake_build_dir(build_dir)
+    if any(not archive.exists() for archive in archives) or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=OFF",
+                "-DDINOML_ENABLE_ROCM=ON",
+                "-DDINOML_ENABLE_CK_GEMM=ON",
+                f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
+    targets = [module["target"] for module in modules]
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            *targets,
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    missing = [str(archive) for archive in archives if not archive.exists()]
+    if missing:
+        raise RuntimeError(f"Expected CMake-built CK GEMM static archives, but these were not produced: {missing}")
+    write_json(
+        lib_dir / "ck_gemm_manifest.json",
+        {
+            "schema_version": 1,
+            "target": {"name": "rocm", "arch": arch_name},
+            "provider": "ck",
+            "library_name": "ck_gemm",
+            "family": "gemm_universal",
+            "build_mode": "cmake_op_dtype_static_archives",
+            "modules": [
+                {
+                    **module,
+                    "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                }
+                for module in modules
+            ],
+            "source": "kernels/rocm/src/ck_gemm.hip",
+            "source_sha256": _ck_gemm_source_sha256(repo_root),
+            "compile": {
+                "system": "cmake",
+                "targets": targets,
+                "build_dir": str(build_dir),
+            },
+            "cache_key": "cmake-full",
+        },
+    )
+    return archives
+
+
+def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    repo_root = _repo_root()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_name = _cmake_arch(arch)
+    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-bmm" / "cmake-full"
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    modules = _required_ck_bmm_modules(kernel_manifest)
+    archives = tuple(lib_dir / module["archive"] for module in modules)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_cmake_build_dir(build_dir)
+    if any(not archive.exists() for archive in archives) or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=OFF",
+                "-DDINOML_ENABLE_ROCM=ON",
+                "-DDINOML_ENABLE_CK_GEMM=OFF",
+                "-DDINOML_ENABLE_CK_BMM=ON",
+                f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
+    targets = [module["target"] for module in modules]
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            *targets,
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    missing = [str(archive) for archive in archives if not archive.exists()]
+    if missing:
+        raise RuntimeError(f"Expected CMake-built CK BMM static archives, but these were not produced: {missing}")
+    write_json(
+        lib_dir / "ck_bmm_manifest.json",
+        {
+            "schema_version": 1,
+            "target": {"name": "rocm", "arch": arch_name},
+            "provider": "ck",
+            "library_name": "ck_bmm",
+            "family": "bmm_strided",
+            "build_mode": "cmake_op_dtype_static_archives",
+            "modules": [
+                {
+                    **module,
+                    "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                }
+                for module in modules
+            ],
+            "source": "kernels/rocm/src/ck_bmm.hip",
+            "source_sha256": _ck_bmm_source_sha256(repo_root),
+            "compile": {
+                "system": "cmake",
+                "targets": targets,
+                "build_dir": str(build_dir),
+            },
+            "cache_key": "cmake-full",
+        },
+    )
+    return archives
+
+
+def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    repo_root = _repo_root()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_name = _cmake_arch(arch)
+    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-conv" / "cmake-full"
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    modules = _required_ck_conv_modules(kernel_manifest)
+    archives = tuple(lib_dir / module["archive"] for module in modules)
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_cmake_build_dir(build_dir)
+    if any(not archive.exists() for archive in archives) or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=OFF",
+                "-DDINOML_ENABLE_ROCM=ON",
+                "-DDINOML_ENABLE_CK_GEMM=OFF",
+                "-DDINOML_ENABLE_CK_BMM=OFF",
+                "-DDINOML_ENABLE_CK_CONV=ON",
+                f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
+    targets = [module["target"] for module in modules]
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            *targets,
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    missing = [str(archive) for archive in archives if not archive.exists()]
+    if missing:
+        raise RuntimeError(f"Expected CMake-built CK Conv static archives, but these were not produced: {missing}")
+    write_json(
+        lib_dir / "ck_conv_manifest.json",
+        {
+            "schema_version": 1,
+            "target": {"name": "rocm", "arch": arch_name},
+            "provider": "ck",
+            "library_name": "ck_conv",
+            "family": "conv2d_fprop",
+            "build_mode": "cmake_op_dtype_static_archives",
+            "modules": [
+                {
+                    **module,
+                    "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                }
+                for module in modules
+            ],
+            "source": "kernels/rocm/src/ck_conv.hip",
+            "source_sha256": _ck_conv_source_sha256(repo_root),
+            "compile": {
+                "system": "cmake",
+                "targets": targets,
+                "build_dir": str(build_dir),
+            },
+            "cache_key": "cmake-full",
+        },
+    )
+    return archives
+
+
+def _required_ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
+    modules = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "ck_gemm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_gemm_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": archive,
+            "target": ck_gemm_cmake_target(op_name, dtype),
+        }
+    return tuple(modules[key] for key in sorted(modules))
+
+
+def _required_ck_bmm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
+    modules = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "ck_bmm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_bmm_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": archive,
+            "target": ck_bmm_cmake_target(op_name, dtype),
+        }
+    return tuple(modules[key] for key in sorted(modules))
+
+
+def _required_ck_conv_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
+    modules = {}
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != "ck_conv":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_conv_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": archive,
+            "target": ck_conv_cmake_target(op_name, dtype),
+        }
+    return tuple(modules[key] for key in sorted(modules))
+
+
+def _ck_gemm_source_sha256(repo_root: Path) -> str:
+    source_paths = [
+        repo_root / "kernels" / "rocm" / "src" / "ck_gemm.hip",
+        repo_root / "tools" / "generate_ck_gemm_unit.py",
+        repo_root / "src" / "dinoml" / "kernels" / "families" / "gemm.py",
+        repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "gemm.py",
+    ]
+    digest = hashlib.sha256()
+    for path in source_paths:
+        digest.update(str(path.relative_to(repo_root)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _ck_bmm_source_sha256(repo_root: Path) -> str:
+    source_paths = [
+        repo_root / "kernels" / "rocm" / "src" / "ck_bmm.hip",
+        repo_root / "tools" / "generate_ck_bmm_unit.py",
+        repo_root / "src" / "dinoml" / "kernels" / "families" / "bmm.py",
+        repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "bmm.py",
+    ]
+    digest = hashlib.sha256()
+    for path in source_paths:
+        digest.update(str(path.relative_to(repo_root)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _ck_conv_source_sha256(repo_root: Path) -> str:
+    source_paths = [
+        repo_root / "kernels" / "rocm" / "src" / "ck_conv.hip",
+        repo_root / "tools" / "generate_ck_conv_unit.py",
+        repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "conv.py",
+    ]
+    digest = hashlib.sha256()
+    for path in source_paths:
+        digest.update(str(path.relative_to(repo_root)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def _import_library_path(shared_library: Path) -> Path | None:

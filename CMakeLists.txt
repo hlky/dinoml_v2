@@ -39,6 +39,9 @@ set(DINOML_CUTLASS_BMM_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUT
 option(DINOML_ENABLE_CUTLASS_CONV "Build CUTLASS Conv support library" ON)
 option(DINOML_ENABLE_CUTLASS_CONV_PROFILER "Build CUTLASS Conv profiler binary and Python binding" ON)
 set(DINOML_CUTLASS_CONV_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CUTLASS Conv CMake targets to link into the profiler, or ALL for every target")
+option(DINOML_ENABLE_CK_GEMM "Build CK GEMM support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
+option(DINOML_ENABLE_CK_BMM "Build CK BMM support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
+option(DINOML_ENABLE_CK_CONV "Build CK Conv support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_LIBGGUF_CUDA "Build libgguf CUDA runtime-dequant support archive" OFF)
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
@@ -149,6 +152,308 @@ if(DINOML_ENABLE_ROCM)
         VERBATIM
       )
     endforeach()
+  endif()
+
+  if(DINOML_ENABLE_CK_GEMM)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(DINOML_CK_GEMM_OPS
+      gemm_rcr gemm_rrr
+      gemm_rcr_bias gemm_rrr_bias
+      gemm_rcr_bias_relu gemm_rrr_bias_relu
+      gemm_rcr_bias_gelu gemm_rrr_bias_gelu
+      gemm_rcr_bias_fast_gelu gemm_rrr_bias_fast_gelu
+      gemm_rcr_bias_quick_gelu
+      gemm_rcr_bias_sigmoid gemm_rrr_bias_sigmoid
+      gemm_rcr_bias_tanh gemm_rrr_bias_tanh
+      gemm_rcr_bias_swish gemm_rrr_bias_swish
+      gemm_rcr_bias_hardswish gemm_rrr_bias_hardswish
+      gemm_rcr_bias_elup1 gemm_rrr_bias_elup1
+      gemm_rcr_bias_add gemm_rrr_bias_add
+      gemm_rcr_bias_add_add gemm_rrr_bias_add_add
+      gemm_rcr_bias_mul gemm_rrr_bias_mul
+      gemm_rcr_bias_mul_add gemm_rrr_bias_mul_add
+      gemm_rcr_bias_add_relu gemm_rrr_bias_add_relu
+      gemm_rcr_bias_add_add_relu gemm_rrr_bias_add_add_relu
+      gemm_rcr_bias_sigmoid_mul gemm_rrr_bias_sigmoid_mul
+      gemm_rcr_bias_sigmoid_mul_tanh gemm_rrr_bias_sigmoid_mul_tanh
+      gemm_rcr_bias_mul_tanh gemm_rrr_bias_mul_tanh
+      CACHE STRING "CK GEMM ops to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_GEMM_DTYPES
+      float32 float16 bfloat16
+      CACHE STRING "CK GEMM dtypes to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_GEMM_GENERATOR_DEPS
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_gemm_unit.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_gemm.hip
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/gemm.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/gemm.py
+    )
+    set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_BF16 ON)
+    set(CK_ENABLE_FP32 ON)
+    set(CK_USE_XDL ON)
+    set(_dinoml_ck_config_include "${CMAKE_CURRENT_BINARY_DIR}/ck_config/include")
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include/ck/config.h.in
+      ${_dinoml_ck_config_include}/ck/config.h
+      @ONLY
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DINOML_CK_GEMM_GENERATOR_DEPS})
+    set(DINOML_CK_GEMM_TARGETS)
+    foreach(_ck_gemm_op IN LISTS DINOML_CK_GEMM_OPS)
+      foreach(_ck_gemm_dtype IN LISTS DINOML_CK_GEMM_DTYPES)
+        set(_ck_gemm_group_id "${_ck_gemm_op}_${_ck_gemm_dtype}")
+        set(_ck_gemm_target "dinoml_ck_gemm_${_ck_gemm_group_id}")
+        set(_ck_gemm_source "${CMAKE_CURRENT_BINARY_DIR}/ck_gemm_units/${_ck_gemm_group_id}.hip")
+        add_custom_command(
+          OUTPUT ${_ck_gemm_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_gemm_unit.py
+            --op ${_ck_gemm_op}
+            --dtype ${_ck_gemm_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_gemm.hip
+            --output ${_ck_gemm_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS ${DINOML_CK_GEMM_GENERATOR_DEPS}
+          VERBATIM
+        )
+        add_library(${_ck_gemm_target} STATIC ${_ck_gemm_source})
+        target_include_directories(${_ck_gemm_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+            ${_dinoml_ck_config_include}
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+        )
+        target_compile_definitions(${_ck_gemm_target}
+          PRIVATE
+            DINOML_HIP=1
+            CK_ENABLE_FP16
+            CK_ENABLE_BF16
+            CK_ENABLE_FP32
+            CK_USE_XDL
+            CK_TIME_KERNEL=0
+            $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+        )
+        set_target_properties(${_ck_gemm_target} PROPERTIES
+          OUTPUT_NAME "dinoml_ck_${_ck_gemm_group_id}"
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CK_GEMM_TARGETS ${_ck_gemm_target})
+      endforeach()
+    endforeach()
+    add_custom_target(dinoml_ck_gemm DEPENDS ${DINOML_CK_GEMM_TARGETS})
+  endif()
+
+  option(DINOML_ENABLE_CK_GGUF_Q8_GEMM "Build prototype fused GGUF Q8_0 gemm_rcr ROCm archive" OFF)
+  if(DINOML_ENABLE_CK_GGUF_Q8_GEMM)
+    set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_FP32 ON)
+    set(CK_USE_XDL ON)
+    set(_dinoml_ck_q8_config_include "${CMAKE_CURRENT_BINARY_DIR}/ck_q8_config/include")
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include/ck/config.h.in
+      ${_dinoml_ck_q8_config_include}/ck/config.h
+      @ONLY
+    )
+
+    add_library(dinoml_ck_gguf_q8_gemm STATIC
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_gguf_q8_gemm.hip
+    )
+    target_include_directories(dinoml_ck_gguf_q8_gemm
+      PRIVATE
+        ${_dinoml_ck_q8_config_include}
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+    )
+    target_compile_definitions(dinoml_ck_gguf_q8_gemm
+      PRIVATE
+        DINOML_HIP=1
+        CK_ENABLE_FP16
+        CK_ENABLE_FP32
+        CK_USE_XDL
+        $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+    )
+    set_target_properties(dinoml_ck_gguf_q8_gemm PROPERTIES
+      OUTPUT_NAME "dinoml_ck_gguf_q8_gemm"
+      HIP_SEPARABLE_COMPILATION OFF
+    )
+
+    add_executable(dinoml_ck_gguf_q8_bench
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/bench_ck_gguf_q8_gemm.hip
+    )
+    target_include_directories(dinoml_ck_gguf_q8_bench
+      PRIVATE
+        ${_dinoml_ck_q8_config_include}
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+    )
+    target_link_libraries(dinoml_ck_gguf_q8_bench
+      PRIVATE
+        dinoml_ck_gguf_q8_gemm
+    )
+    target_compile_definitions(dinoml_ck_gguf_q8_bench
+      PRIVATE
+        DINOML_HIP=1
+        CK_ENABLE_FP16
+        CK_ENABLE_FP32
+        CK_USE_XDL
+        $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+    )
+    set_target_properties(dinoml_ck_gguf_q8_bench PROPERTIES
+      HIP_SEPARABLE_COMPILATION OFF
+    )
+  endif()
+
+  if(DINOML_ENABLE_CK_BMM)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(DINOML_CK_BMM_OPS
+      bmm_ccc bmm_ccr bmm_crc bmm_crr bmm_rcc bmm_rcr bmm_rrc bmm_rrr
+      bmm_ccc_add bmm_ccr_add bmm_crc_add bmm_crr_add bmm_rcc_add bmm_rcr_add bmm_rrc_add bmm_rrr_add
+      CACHE STRING "CK BMM ops to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_BMM_DTYPES
+      float32 float16 bfloat16
+      CACHE STRING "CK BMM dtypes to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_BMM_GENERATOR_DEPS
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_bmm_unit.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_bmm.hip
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/bmm.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/bmm.py
+    )
+    set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_BF16 ON)
+    set(CK_ENABLE_FP32 ON)
+    set(CK_USE_XDL ON)
+    set(_dinoml_ck_config_include "${CMAKE_CURRENT_BINARY_DIR}/ck_config/include")
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include/ck/config.h.in
+      ${_dinoml_ck_config_include}/ck/config.h
+      @ONLY
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DINOML_CK_BMM_GENERATOR_DEPS})
+    set(DINOML_CK_BMM_TARGETS)
+    foreach(_ck_bmm_op IN LISTS DINOML_CK_BMM_OPS)
+      foreach(_ck_bmm_dtype IN LISTS DINOML_CK_BMM_DTYPES)
+        set(_ck_bmm_group_id "${_ck_bmm_op}_${_ck_bmm_dtype}")
+        set(_ck_bmm_target "dinoml_ck_bmm_${_ck_bmm_group_id}")
+        set(_ck_bmm_source "${CMAKE_CURRENT_BINARY_DIR}/ck_bmm_units/${_ck_bmm_group_id}.hip")
+        add_custom_command(
+          OUTPUT ${_ck_bmm_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_bmm_unit.py
+            --op ${_ck_bmm_op}
+            --dtype ${_ck_bmm_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_bmm.hip
+            --output ${_ck_bmm_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS ${DINOML_CK_BMM_GENERATOR_DEPS}
+          VERBATIM
+        )
+        add_library(${_ck_bmm_target} STATIC ${_ck_bmm_source})
+        target_include_directories(${_ck_bmm_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+            ${_dinoml_ck_config_include}
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+        )
+        target_compile_definitions(${_ck_bmm_target}
+          PRIVATE
+            DINOML_HIP=1
+            CK_ENABLE_FP16
+            CK_ENABLE_BF16
+            CK_ENABLE_FP32
+            CK_USE_XDL
+            CK_TIME_KERNEL=0
+            $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+        )
+        set_target_properties(${_ck_bmm_target} PROPERTIES
+          OUTPUT_NAME "dinoml_ck_${_ck_bmm_group_id}"
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CK_BMM_TARGETS ${_ck_bmm_target})
+      endforeach()
+    endforeach()
+    add_custom_target(dinoml_ck_bmm DEPENDS ${DINOML_CK_BMM_TARGETS})
+  endif()
+
+  if(DINOML_ENABLE_CK_CONV)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(DINOML_CK_CONV_OPS
+      conv2d_bias
+      CACHE STRING "CK Conv ops to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_CONV_DTYPES
+      float32 float16
+      CACHE STRING "CK Conv dtypes to expose as op/dtype static archives"
+    )
+    set(DINOML_CK_CONV_GENERATOR_DEPS
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_conv_unit.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_conv.hip
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/conv.py
+    )
+    set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_FP32 ON)
+    set(CK_USE_XDL ON)
+    set(_dinoml_ck_config_include "${CMAKE_CURRENT_BINARY_DIR}/ck_config/include")
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include/ck/config.h.in
+      ${_dinoml_ck_config_include}/ck/config.h
+      @ONLY
+    )
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DINOML_CK_CONV_GENERATOR_DEPS})
+    set(DINOML_CK_CONV_TARGETS)
+    foreach(_ck_conv_op IN LISTS DINOML_CK_CONV_OPS)
+      foreach(_ck_conv_dtype IN LISTS DINOML_CK_CONV_DTYPES)
+        set(_ck_conv_group_id "${_ck_conv_op}_${_ck_conv_dtype}")
+        set(_ck_conv_target "dinoml_ck_conv_${_ck_conv_group_id}")
+        set(_ck_conv_source "${CMAKE_CURRENT_BINARY_DIR}/ck_conv_units/${_ck_conv_group_id}.hip")
+        add_custom_command(
+          OUTPUT ${_ck_conv_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_conv_unit.py
+            --op ${_ck_conv_op}
+            --dtype ${_ck_conv_dtype}
+            --source ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_conv.hip
+            --output ${_ck_conv_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS ${DINOML_CK_CONV_GENERATOR_DEPS}
+          VERBATIM
+        )
+        add_library(${_ck_conv_target} STATIC ${_ck_conv_source})
+        target_include_directories(${_ck_conv_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+            ${_dinoml_ck_config_include}
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+        )
+        target_compile_definitions(${_ck_conv_target}
+          PRIVATE
+            DINOML_HIP=1
+            CK_ENABLE_FP16
+            CK_ENABLE_FP32
+            CK_USE_XDL
+            CK_TIME_KERNEL=0
+            $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+        )
+        set_target_properties(${_ck_conv_target} PROPERTIES
+          OUTPUT_NAME "dinoml_ck_${_ck_conv_group_id}"
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        list(APPEND DINOML_CK_CONV_TARGETS ${_ck_conv_target})
+      endforeach()
+    endforeach()
+    add_custom_target(dinoml_ck_conv DEPENDS ${DINOML_CK_CONV_TARGETS})
   endif()
 endif()
 

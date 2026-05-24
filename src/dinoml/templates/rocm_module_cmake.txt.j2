@@ -60,6 +60,30 @@ set_target_properties(dinoml_rocm_kernels PROPERTIES
 {% endif %}
 )
 
+{% for ck_gemm_archive in ck_gemm_archives %}
+add_library(dinoml_ck_gemm_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_ck_gemm_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ ck_gemm_archive }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endfor %}
+
+{% for ck_bmm_archive in ck_bmm_archives %}
+add_library(dinoml_ck_bmm_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_ck_bmm_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ ck_bmm_archive }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endfor %}
+
+{% for ck_conv_archive in ck_conv_archives %}
+add_library(dinoml_ck_conv_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_ck_conv_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ ck_conv_archive }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endfor %}
+
 add_library(module SHARED module.hip)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
@@ -70,6 +94,15 @@ target_link_libraries(module PRIVATE
   dinoml_runtime
   dinoml_rocm_runtime
   dinoml_rocm_kernels
+{% for ck_gemm_archive in ck_gemm_archives %}
+  dinoml_ck_gemm_{{ loop.index0 }}
+{% endfor %}
+{% for ck_bmm_archive in ck_bmm_archives %}
+  dinoml_ck_bmm_{{ loop.index0 }}
+{% endfor %}
+{% for ck_conv_archive in ck_conv_archives %}
+  dinoml_ck_conv_{{ loop.index0 }}
+{% endfor %}
   hip::host
   hip::device
 )

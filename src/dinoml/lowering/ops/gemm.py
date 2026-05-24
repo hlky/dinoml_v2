@@ -22,7 +22,7 @@ from dinoml.lowering.shape_buffers import c_ident as _c_ident
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _render_cpu_template("gemm_cpu.cpp.j2", _cpu_context(node, tensor_map))
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported GEMM lowering target: {target}")
 
@@ -62,12 +62,13 @@ def render_launch(
             k_check=k_check,
             output_check=output_check,
         )
-    if target != "cuda":
-        raise ValueError(f"{op_name} lowering is only implemented for CPU or CUDA")
+    if target not in {"cuda", "rocm"}:
+        raise ValueError(f"{op_name} lowering is only implemented for CPU, CUDA, or ROCm")
     c_rank = len(tensor_map[c_name]["shape"])
     dtype = str(tensor_map[c_name]["dtype"])
-    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]))
-    runtime_dequant_plan = _gguf_runtime_dequant_plan(manifest_item, node_id=str(node["id"]))
+    kernel_library = "cutlass_gemm" if target == "cuda" else "ck_gemm"
+    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]), kernel_library=kernel_library)
+    runtime_dequant_plan = _gguf_runtime_dequant_plan(manifest_item, node_id=str(node["id"])) if target == "cuda" else None
     launch_b_ident = b_ident
     if runtime_dequant_plan is not None:
         _validate_gguf_runtime_dequant_lowering(op_name, spec, dtype, runtime_dequant_plan)
@@ -92,16 +93,16 @@ def render_launch(
                     f'return dinoml::module::fail("{op_name} bias shape mismatch");'
                 )
             else:
-                raise NotImplementedError(f"{op_name} CUDA lowering supports rank-1 or rank-2 bias only")
+                raise NotImplementedError(f"{op_name} {target.upper()} lowering supports rank-1 or rank-2 bias only")
         elif input_name.startswith("d"):
             if tensor_rank != c_rank:
-                raise NotImplementedError(f"{op_name} CUDA lowering requires residual tensors to match output rank")
+                raise NotImplementedError(f"{op_name} {target.upper()} lowering requires residual tensors to match output rank")
             epilogue_checks.append(
                 f'if ({_folded_output_shape_check(tensor_ident, a_ident, a_rank, n_expr)}) '
                 f'return dinoml::module::fail("{op_name} {input_name} shape mismatch");'
             )
         else:
-            raise NotImplementedError(f"{op_name} CUDA lowering does not support epilogue input {input_name!r}")
+            raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support epilogue input {input_name!r}")
         epilogue_args.append(f"ptr_{tensor_ident}")
 
     selection = _cutlass_execution_plan_selection(manifest_item)
@@ -111,6 +112,21 @@ def render_launch(
     ]
     lines.extend(epilogue_checks)
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
+    if target == "rocm":
+        lines.extend(
+            _ck_launch_lines(
+                op_name=op_name,
+                symbol=symbol,
+                a_ident=a_ident,
+                b_ident=b_ident,
+                epilogue_arg_text=epilogue_arg_text,
+                c_ident=c_ident,
+                m_expr=m_expr,
+                n_expr=n_expr,
+                k_expr=k_expr,
+            )
+        )
+        return "\n".join(lines)
     selected_candidate = _selected_cutlass_candidate(manifest_item)
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
@@ -163,7 +179,7 @@ def render_launch(
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return f"{target}:{generated_function_name(target, node, tensor_map)}"
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported GEMM lowering target: {target}")
 
@@ -171,7 +187,7 @@ def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Ma
 def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _cpu_function_name(node, tensor_map)
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported GEMM lowering target: {target}")
 
@@ -340,6 +356,25 @@ def _cutlass_launch_lines(
         f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
     )
     return lines
+
+
+def _ck_launch_lines(
+    *,
+    op_name: str,
+    symbol: str,
+    a_ident: str,
+    b_ident: str,
+    epilogue_arg_text: str,
+    c_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> list[str]:
+    return [
+        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {epilogue_arg_text}ptr_{c_ident}, "
+        f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), session->stream)) "
+        f'return dinoml::module::fail("{op_name} CK launcher failed");'
+    ]
 
 
 def _cutlass_launch_with_alignment_fallback_lines(
@@ -635,12 +670,13 @@ def _manifest_kernel_item(
     dtype: str,
     *,
     node_id: str | None = None,
+    kernel_library: str = "cutlass_gemm",
 ) -> Mapping[str, Any] | None:
     if kernel_manifest is None:
         return None
     matches: list[Mapping[str, Any]] = []
     for item in kernel_manifest.get("required_kernels", []):
-        if item.get("op") != op_name or item.get("kernel_library") != "cutlass_gemm":
+        if item.get("op") != op_name or item.get("kernel_library") != kernel_library:
             continue
         selected_id = item.get("selected_candidate_id")
         for candidate in item.get("candidates", []):

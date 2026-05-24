@@ -12,6 +12,21 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_wrapper_stages,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_static_library_name, cutlass_gemm_used_candidate_plan
+from dinoml.kernels.providers.ck.gemm import (
+    ck_gemm_cmake_target,
+    ck_gemm_static_library_name,
+    ck_gemm_used_candidate_plan,
+)
+from dinoml.kernels.providers.ck.bmm import (
+    ck_bmm_cmake_target,
+    ck_bmm_static_library_name,
+    ck_bmm_used_candidate_plan,
+)
+from dinoml.kernels.providers.ck.conv import (
+    ck_conv_cmake_target,
+    ck_conv_static_library_name,
+    ck_conv_used_candidate_plan,
+)
 from dinoml.libgguf_cuda import (
     libgguf_provenance_key,
     libgguf_source_provenance,
@@ -164,6 +179,60 @@ def _external_support_libraries(
                     "transform_helper_symbols": list(used_candidate_plan.get("transform_helper_symbols", [])),
                 }
             )
+        elif library == "ck_gemm":
+            cache_dir = cache_root / "support" / target_dir / "ck-gemm" / "cmake-full"
+            used_candidate_plan = ck_gemm_used_candidate_plan(kernel_manifest)
+            modules = _ck_gemm_modules(kernel_manifest)
+            result.append(
+                {
+                    "name": library,
+                    "cache_dir": str(cache_dir),
+                    "modules": modules,
+                    "build_mode": "cmake_op_dtype_static_archives",
+                    "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+                    "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
+                    "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
+                    "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
+                    "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
+                }
+            )
+        elif library == "ck_bmm":
+            cache_dir = cache_root / "support" / target_dir / "ck-bmm" / "cmake-full"
+            used_candidate_plan = ck_bmm_used_candidate_plan(kernel_manifest)
+            modules = _ck_bmm_modules(kernel_manifest)
+            result.append(
+                {
+                    "name": library,
+                    "cache_dir": str(cache_dir),
+                    "modules": modules,
+                    "build_mode": "cmake_op_dtype_static_archives",
+                    "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+                    "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
+                    "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
+                    "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
+                    "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
+                }
+            )
+        elif library == "ck_conv":
+            cache_dir = cache_root / "support" / target_dir / "ck-conv" / "cmake-full"
+            used_candidate_plan = ck_conv_used_candidate_plan(kernel_manifest)
+            modules = _ck_conv_modules(kernel_manifest)
+            result.append(
+                {
+                    "name": library,
+                    "cache_dir": str(cache_dir),
+                    "modules": modules,
+                    "build_mode": "cmake_op_dtype_static_archives",
+                    "used_candidate_plan_key": used_candidate_plan["used_candidate_plan_key"],
+                    "candidate_set_keys": list(used_candidate_plan["candidate_set_keys"]),
+                    "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
+                    "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
+                    "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
+                }
+            )
     if _requires_gguf_cuda_native_library(kernel_manifest):
         source_root = Path(__file__).resolve().parents[3] / "third_party" / "libgguf"
         if (source_root / "src" / "libgguf" / "libgguf_cuda" / "csrc" / "libgguf_cuda_native.cu").exists():
@@ -234,6 +303,57 @@ def _cutlass_gemm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, 
             "op": op_name,
             "dtype": dtype,
             "archive": f"lib/{archive}",
+        }
+    return [modules[key] for key in sorted(modules)]
+
+
+def _ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    modules = {}
+    for item in kernel_manifest["required_kernels"]:
+        if item.get("kernel_library") != "ck_gemm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_gemm_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": f"lib/{archive}",
+            "target": ck_gemm_cmake_target(op_name, dtype),
+        }
+    return [modules[key] for key in sorted(modules)]
+
+
+def _ck_bmm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    modules = {}
+    for item in kernel_manifest["required_kernels"]:
+        if item.get("kernel_library") != "ck_bmm":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_bmm_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": f"lib/{archive}",
+            "target": ck_bmm_cmake_target(op_name, dtype),
+        }
+    return [modules[key] for key in sorted(modules)]
+
+
+def _ck_conv_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
+    modules = {}
+    for item in kernel_manifest["required_kernels"]:
+        if item.get("kernel_library") != "ck_conv":
+            continue
+        op_name = str(item["op"])
+        dtype = str(item.get("dtype") or item.get("candidate_set", {}).get("dtype"))
+        archive = str(item.get("support_archive") or ck_conv_static_library_name(op_name, dtype))
+        modules[archive] = {
+            "op": op_name,
+            "dtype": dtype,
+            "archive": f"lib/{archive}",
+            "target": ck_conv_cmake_target(op_name, dtype),
         }
     return [modules[key] for key in sorted(modules)]
 

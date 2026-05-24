@@ -8,6 +8,12 @@ from dinoml.kernels.providers.cutlass.bmm import (
     cutlass_bmm_profiler_symbol,
     cutlass_bmm_symbol,
 )
+from dinoml.kernels.providers.ck.bmm import (
+    ck_bmm_candidate_set,
+    ck_bmm_candidates,
+    ck_bmm_profiler_symbol,
+    ck_bmm_symbol,
+)
 from dinoml.ops.registry import FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
@@ -123,6 +129,20 @@ def _backend_kernels(op_name: str) -> dict[str, KernelBinding]:
                     profiler_symbol=cutlass_bmm_profiler_symbol(op_name, dtype),
                     candidates=cutlass_bmm_candidates(op_name, dtype),
                     candidate_set=cutlass_bmm_candidate_set(op_name, dtype),
+                )
+                for dtype in BMM_SUPPORTED_DTYPES
+            },
+        ),
+        "rocm": KernelBinding(
+            ck_bmm_symbol(op_name, "float32"),
+            "ck_bmm",
+            profiler_symbol=ck_bmm_profiler_symbol(op_name, "float32"),
+            dtype_variants={
+                dtype: KernelVariant(
+                    ck_bmm_symbol(op_name, dtype),
+                    profiler_symbol=ck_bmm_profiler_symbol(op_name, dtype),
+                    candidates=ck_bmm_candidates(op_name, dtype),
+                    candidate_set=ck_bmm_candidate_set(op_name, dtype),
                 )
                 for dtype in BMM_SUPPORTED_DTYPES
             },

@@ -15,6 +15,11 @@ from dinoml.backends import rocm as rocm_backend
 from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_ck_bmm_source
+from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
+from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
+from dinoml.lowering.rocm import render_rocm_module
 from dinoml.ops.elementwise import FusedElementwise
 from dinoml.runtime import load
 from tests.cases import elementwise_case
@@ -201,6 +206,237 @@ def test_rocm_fused_elementwise_is_publicly_admitted():
     assert binding.source_template == "fused_elementwise_gpu"
 
 
+def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    assert item["kernel_library"] == "ck_gemm"
+    assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1"
+    assert item["support_archive"] == ck_gemm_static_library_name("gemm_rcr_bias_add_relu", "float16")
+    assert len(item["candidates"]) == 2
+    assert item["candidates"][0]["ck"]["api"] == "device_gemm_multiple_d_xdl_cshuffle"
+    assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
+    assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
+    assert plan.external_support_libraries[0]["name"] == "ck_gemm"
+    assert plan.external_support_libraries[0]["modules"] == [
+        {
+            "op": "gemm_rcr_bias_add_relu",
+            "dtype": "float16",
+            "archive": f"lib/{ck_gemm_static_library_name('gemm_rcr_bias_add_relu', 'float16')}",
+            "target": "dinoml_ck_gemm_gemm_rcr_bias_add_relu_float16",
+        }
+    ]
+
+
+def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    assert item["selected_candidate_id"] == "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
+
+
+def test_rocm_gemm_module_declares_and_calls_ck_symbol():
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1' in source
+    assert "const half* bias" in source
+    assert "const half* d0" in source
+    assert (
+        "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1(ptr_a, ptr_b, ptr_bias, ptr_d0, ptr_c"
+        in source
+    )
+
+
+def test_ck_gemm_unit_generation_uses_device_op_not_reference_path():
+    source = Path("kernels/rocm/src/ck_gemm.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "gemm_rcr_bias_add_relu",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias_add_relu",
+        "launch_abi": "dinoml_ck_gemm_bias_residual_v1",
+    }
+
+    rendered = render_ck_gemm_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "ReferenceGemm" not in rendered
+    assert "fused_gemm_reference_kernel" not in rendered
+    assert "DeviceGemmMultipleD_Xdl_CShuffle" in rendered
+    assert (
+        "DINOML_CK_GEMM_BIAS_RESIDUAL_EXPORT(gemm_rcr_bias_add_relu, float16, half, "
+        "xdl_custom_v1, kRcr, kBiasAddRelu, kBaseline)"
+    ) in rendered
+
+
+def test_rocm_bmm_manifest_selects_ck_custom_xdl_archive(tmp_path):
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    assert item["kernel_library"] == "ck_bmm"
+    assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1"
+    assert item["support_archive"] == ck_bmm_static_library_name("bmm_rcr_add", "float16")
+    assert len(item["candidates"]) == 2
+    assert item["candidates"][0]["ck"]["api"] == "device_batched_gemm_multiple_d_xdl_cshuffle_v3"
+    assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
+    assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
+    assert plan.external_support_libraries[0]["name"] == "ck_bmm"
+    assert plan.external_support_libraries[0]["modules"] == [
+        {
+            "op": "bmm_rcr_add",
+            "dtype": "float16",
+            "archive": f"lib/{ck_bmm_static_library_name('bmm_rcr_add', 'float16')}",
+            "target": "dinoml_ck_bmm_bmm_rcr_add_float16",
+        }
+    ]
+
+
+def test_rocm_bmm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=64)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    assert item["selected_candidate_id"] == "ck_bmm_rcr_add_float16_xdl_wide_m_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_wide_m_v1"
+
+
+def test_rocm_bmm_module_declares_and_calls_ck_symbol():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1' in source
+    assert "const half* d0" in source
+    assert "int64_t batch_stride_d0" in source
+    assert "dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1(ptr_a, ptr_b, ptr_d0, ptr_c" in source
+    assert "CK BMM launcher failed" in source
+
+
+def test_ck_bmm_unit_generation_uses_device_op_not_reference_path():
+    source = Path("kernels/rocm/src/ck_bmm.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "bmm_rcr_add",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "add",
+        "launch_abi": "dinoml_ck_bmm_add_v1",
+    }
+
+    rendered = render_ck_bmm_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_bmm_rcr_add_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "ReferenceBatchedGemm" not in rendered
+    assert "reference" not in rendered.lower()
+    assert "DeviceBatchedGemmMultiD_Xdl_CShuffle_V3" in rendered
+    assert (
+        "DINOML_CK_BMM_ADD_EXPORT(bmm_rcr_add, float16, half, "
+        "xdl_custom_v1, kRcr, kAdd, kBaseline)"
+    ) in rendered
+
+
+def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
+    ir = _rocm_conv2d_bias_ir("float16")
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    assert item["kernel_library"] == "ck_conv"
+    assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_float16_xdl_custom_v1"
+    assert item["support_archive"] == ck_conv_static_library_name("conv2d_bias", "float16")
+    assert len(item["candidates"]) == 2
+    assert item["candidates"][0]["ck"]["api"] == "device_grouped_conv_fwd_multiple_abd_xdl_cshuffle"
+    assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
+    assert item["candidates"][1]["ck"]["config"]["name"] == "wide_n"
+    assert plan.external_support_libraries[0]["name"] == "ck_conv"
+    assert plan.external_support_libraries[0]["modules"] == [
+        {
+            "op": "conv2d_bias",
+            "dtype": "float16",
+            "archive": f"lib/{ck_conv_static_library_name('conv2d_bias', 'float16')}",
+            "target": "dinoml_ck_conv_conv2d_bias_float16",
+        }
+    ]
+
+
+def test_rocm_conv2d_bias_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    assert item["selected_candidate_id"] == "ck_conv2d_bias_float16_xdl_wide_n_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_float16_xdl_wide_n_v1"
+
+
+def test_rocm_conv2d_bias_module_declares_and_calls_ck_symbol():
+    ir = _rocm_conv2d_bias_ir("float16")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_conv2d_bias_float16_xdl_custom_v1' in source
+    assert "const half* weight" in source
+    assert "const half* bias" in source
+    assert (
+        "dinoml_ck_conv2d_bias_float16_xdl_custom_v1(ptr_x, ptr_weight, ptr_bias, ptr_y"
+        in source
+    )
+    assert "CK Conv launcher failed" in source
+
+
+def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "conv2d_bias",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias",
+        "launch_abi": "dinoml_ck_conv2d_bias_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_conv2d_bias_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_conv2d_bias_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "ReferenceConv" not in rendered
+    assert "reference" not in rendered.lower()
+    assert "DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle" in rendered
+    assert "DinoConvBiasEpilogue" in rendered
+    assert "DINOML_CK_CONV2D_BIAS_EXPORT(conv2d_bias, float16, half, xdl_custom_v1, kBaseline)" in rendered
+
+
 @pytest.mark.skipif(
     os.environ.get("DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE") != "1",
     reason="set DINOML_RUN_ROCM_SUPPORT_BUILD_SMOKE=1 with rocm-sdk on PATH",
@@ -320,6 +556,160 @@ def _find_hipcc() -> Path | None:
     if local.exists():
         return local
     return None
+
+
+def _rocm_gemm_ir(op_name: str, dtype: str, *, m: int = 2, n: int = 4, k: int = 3) -> dict:
+    tensors = [
+        _tensor("a", [m, k], dtype, "input"),
+        _tensor("b", [n, k], dtype, "input"),
+        _tensor("bias", [n], dtype, "input"),
+        _tensor("d0", [m, n], dtype, "input"),
+        _tensor("c", [m, n], dtype, "output"),
+    ]
+    return {
+        "schema_version": 1,
+        "name": "rocm_gemm_smoke",
+        "inputs": [
+            _io("a", [m, k], dtype),
+            _io("b", [n, k], dtype),
+            _io("bias", [n], dtype),
+            _io("d0", [m, n], dtype),
+        ],
+        "constants": [],
+        "outputs": [_io("c", [m, n], dtype)],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": op_name,
+                "inputs": ["a", "b", "bias", "d0"],
+                "outputs": ["c"],
+                "attrs": {},
+            }
+        ],
+        "tensors": tensors,
+        "metadata": {},
+    }
+
+
+def _rocm_bmm_ir(
+    op_name: str,
+    dtype: str,
+    *,
+    batch: int = 2,
+    m: int = 3,
+    n: int = 4,
+    k: int = 5,
+) -> dict:
+    tensors = [
+        _tensor("a", [batch, m, k], dtype, "input"),
+        _tensor("b", [batch, n, k], dtype, "input"),
+        _tensor("d0", [batch, m, n], dtype, "input"),
+        _tensor("c", [batch, m, n], dtype, "output"),
+    ]
+    return {
+        "schema_version": 1,
+        "name": "rocm_bmm_smoke",
+        "inputs": [
+            _io("a", [batch, m, k], dtype),
+            _io("b", [batch, n, k], dtype),
+            _io("d0", [batch, m, n], dtype),
+        ],
+        "constants": [],
+        "outputs": [_io("c", [batch, m, n], dtype)],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": op_name,
+                "inputs": ["a", "b", "d0"],
+                "outputs": ["c"],
+                "attrs": {},
+            }
+        ],
+        "tensors": tensors,
+        "metadata": {},
+    }
+
+
+def _rocm_conv2d_bias_ir(
+    dtype: str,
+    *,
+    batch: int = 2,
+    in_channels: int = 4,
+    out_channels: int = 6,
+    height: int = 8,
+    width: int = 8,
+    kernel_h: int = 3,
+    kernel_w: int = 3,
+) -> dict:
+    tensors = [
+        _tensor("x", [batch, in_channels, height, width], dtype, "input"),
+        _tensor("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype, "input"),
+        _tensor("bias", [out_channels], dtype, "input"),
+        _tensor("y", [batch, out_channels, height, width], dtype, "output"),
+    ]
+    return {
+        "schema_version": 1,
+        "name": "rocm_conv2d_bias_smoke",
+        "inputs": [
+            _io("x", [batch, in_channels, height, width], dtype),
+            _io("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype),
+            _io("bias", [out_channels], dtype),
+        ],
+        "constants": [],
+        "outputs": [_io("y", [batch, out_channels, height, width], dtype)],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": "conv2d_bias",
+                "inputs": ["x", "weight", "bias"],
+                "outputs": ["y"],
+                "attrs": {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1},
+            }
+        ],
+        "tensors": tensors,
+        "metadata": {},
+    }
+
+
+def _io(name: str, shape: list[int], dtype: str) -> dict:
+    return {
+        "name": name,
+        "tensor": name,
+        "shape": shape,
+        "shape_spec": shape,
+        "layout": _dense_layout(shape),
+        "dtype": dtype,
+    }
+
+
+def _tensor(name: str, shape: list[int], dtype: str, kind: str) -> dict:
+    nbytes = 2 if dtype in {"float16", "bfloat16"} else 4
+    for dim in shape:
+        nbytes *= dim
+    return {
+        "name": name,
+        "shape": shape,
+        "shape_spec": shape,
+        "layout": _dense_layout(shape),
+        "dtype": dtype,
+        "kind": kind,
+        "nbytes": nbytes,
+    }
+
+
+def _dense_layout(shape: list[int]) -> dict:
+    stride = 1
+    strides = []
+    for dim in reversed(shape):
+        strides.insert(0, stride)
+        stride *= dim
+    return {
+        "schema_version": 1,
+        "kind": "dense",
+        "order": "row_major",
+        "strides": strides,
+        "storage_offset": 0,
+    }
 
 
 def _rocm_module_compile_toolchain_available() -> bool:

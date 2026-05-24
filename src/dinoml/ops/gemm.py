@@ -5,6 +5,10 @@ from typing import Sequence
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.gemm import (
     GEMM_SUPPORTED_DTYPES,
+    ck_gemm_candidate_set,
+    ck_gemm_candidates,
+    ck_gemm_profiler_symbol,
+    ck_gemm_symbol,
     cutlass_gemm_candidate_set,
     cutlass_gemm_candidates,
     cutlass_gemm_profiler_symbol,
@@ -67,6 +71,18 @@ def _cutlass_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
     }
 
 
+def _ck_dtype_variants(op_name: str) -> dict[str, KernelVariant]:
+    return {
+        dtype: KernelVariant(
+            ck_gemm_symbol(op_name, dtype),
+            profiler_symbol=ck_gemm_profiler_symbol(op_name, dtype),
+            candidates=ck_gemm_candidates(op_name, dtype),
+            candidate_set=ck_gemm_candidate_set(op_name, dtype),
+        )
+        for dtype in GEMM_SUPPORTED_DTYPES
+    }
+
+
 def _schema_inputs(spec) -> tuple[str, ...]:
     return ("a", "b", *spec.epilogue.inputs)
 
@@ -94,6 +110,12 @@ def _backend_kernels(op_name: str) -> dict[str, KernelBinding]:
             "cutlass_gemm",
             profiler_symbol=cutlass_gemm_profiler_symbol(op_name, "float32"),
             dtype_variants=_cutlass_dtype_variants(op_name),
+        ),
+        "rocm": KernelBinding(
+            ck_gemm_symbol(op_name, "float32"),
+            "ck_gemm",
+            profiler_symbol=ck_gemm_profiler_symbol(op_name, "float32"),
+            dtype_variants=_ck_dtype_variants(op_name),
         ),
     }
     if op_name in {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr_bias_quick_gelu"}:

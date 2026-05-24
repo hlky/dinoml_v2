@@ -10,6 +10,7 @@ from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
 from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
+from dinoml.ops.definitions import get_op_def
 from dinoml.ops.conv import (
     CONV2D_BIAS_DTYPES,
     CONV2D_BIAS_FAMILY_OPS,
@@ -24,7 +25,7 @@ from dinoml.ops.conv import (
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _render_cpu_template("conv_cpu.cpp.j2", _cpu_context(node, tensor_map))
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported Conv lowering target: {target}")
 
@@ -52,6 +53,8 @@ def render_launch(
             f"ptr_{bias_ident}, runtime_numel_{bias_ident}{residual_clause}, "
             f"ptr_{out_ident}, runtime_numel_{out_ident})) return err;"
         )
+    if target == "rocm":
+        return _render_rocm_launch(node, tensor_map, kernel_manifest)
     if target != "cuda":
         raise ValueError(f"Unsupported Conv lowering target: {target}")
     if op_name not in CONV2D_BIAS_FAMILY_OPS:
@@ -98,7 +101,7 @@ def render_launch(
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return f"{target}:{generated_function_name(target, node, tensor_map)}"
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported Conv lowering target: {target}")
 
@@ -106,9 +109,75 @@ def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Ma
 def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _cpu_function_name(node, tensor_map)
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported Conv lowering target: {target}")
+
+
+def _render_rocm_launch(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None,
+) -> str:
+    op_name = str(node["op"])
+    if op_name != "conv2d_bias":
+        raise NotImplementedError(f"{op_name} ROCm CK Conv lowering is not implemented")
+    input_names = [str(name) for name in node.get("inputs", ())]
+    if len(input_names) != 3:
+        raise ValueError("conv2d_bias ROCm lowering expects activation, weight, and bias inputs")
+    output_names = [str(name) for name in node.get("outputs", ())]
+    if len(output_names) != 1:
+        raise ValueError("conv2d_bias ROCm lowering expects one output")
+    x_name, weight_name, bias_name = input_names
+    output_name = output_names[0]
+    x = tensor_map[x_name]
+    weight = tensor_map[weight_name]
+    bias = tensor_map[bias_name]
+    output = tensor_map[output_name]
+    attrs = _validate_cpu_contract(node, x, weight, bias, output)
+    dtype = str(output["dtype"])
+    item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")), kernel_library="ck_conv")
+    symbol = (
+        str(item["kernel_symbol"])
+        if item is not None
+        else get_op_def(op_name).backend_kernels["rocm"].resolve(dtype).symbol
+    )
+    x_ident = _c_ident(x_name)
+    weight_ident = _c_ident(weight_name)
+    bias_ident = _c_ident(bias_name)
+    out_ident = _c_ident(output_name)
+    stride_h, stride_w = attrs["stride"]
+    pad_h, pad_w = attrs["padding"]
+    dilation_h, dilation_w = attrs["dilation"]
+    expected_out_h = (
+        f"((shape_{x_ident}_2 + {2 * pad_h} - {dilation_h} * (shape_{weight_ident}_2 - 1) - 1) / {stride_h} + 1)"
+    )
+    expected_out_w = (
+        f"((shape_{x_ident}_3 + {2 * pad_w} - {dilation_w} * (shape_{weight_ident}_3 - 1) - 1) / {stride_w} + 1)"
+    )
+    return "\n".join(
+        [
+            f'if (shape_{weight_ident}_1 != shape_{x_ident}_1) return dinoml::module::fail("{op_name} input channel mismatch");',
+            f'if (shape_{bias_ident}_0 != shape_{weight_ident}_0) return dinoml::module::fail("{op_name} bias shape mismatch");',
+            (
+                f"if (shape_{out_ident}_0 != shape_{x_ident}_0 || "
+                f"shape_{out_ident}_1 != shape_{weight_ident}_0 || "
+                f"shape_{out_ident}_2 != {expected_out_h} || "
+                f"shape_{out_ident}_3 != {expected_out_w}) "
+                f'return dinoml::module::fail("{op_name} output shape mismatch");'
+            ),
+            (
+                f"if (int err = {symbol}(ptr_{x_ident}, ptr_{weight_ident}, ptr_{bias_ident}, ptr_{out_ident}, "
+                f"static_cast<int>(shape_{x_ident}_0), static_cast<int>(shape_{x_ident}_1), "
+                f"static_cast<int>(shape_{x_ident}_2), static_cast<int>(shape_{x_ident}_3), "
+                f"static_cast<int>(shape_{weight_ident}_0), static_cast<int>(shape_{weight_ident}_2), "
+                f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
+                f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
+                f"{dilation_h}, {dilation_w}, session->stream)) "
+                f'return dinoml::module::fail("{op_name} CK Conv launcher failed");'
+            ),
+        ]
+    )
 
 
 def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
@@ -399,6 +468,7 @@ def _manifest_kernel_item(
     op_name: str,
     *,
     node_id: str,
+    kernel_library: str = "cutlass_conv",
 ) -> Mapping[str, Any] | None:
     if kernel_manifest is None:
         return None
@@ -406,7 +476,10 @@ def _manifest_kernel_item(
     for item in kernel_manifest.get("required_kernels", []):
         if not isinstance(item, Mapping):
             continue
-        if item.get("op") != op_name or item.get("kernel_library") != "cutlass_conv":
+        if item.get("op") != op_name or item.get("kernel_library") != kernel_library:
+            continue
+        if kernel_library != "cutlass_conv":
+            matches.append(item)
             continue
         conv_plan = item.get("cutlass_conv_plan")
         if isinstance(conv_plan, Mapping) and str(conv_plan.get("node_id", "")) == node_id:

@@ -11,6 +11,12 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_profiler_symbol,
     cutlass_conv_symbol,
 )
+from dinoml.kernels.providers.ck.conv import (
+    ck_conv_candidate_set,
+    ck_conv_candidates,
+    ck_conv_profiler_symbol,
+    ck_conv_symbol,
+)
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
@@ -377,7 +383,7 @@ def _normalize_pair(value: Any, name: str) -> tuple[int, int]:
 
 
 def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
-    return {
+    kernels = {
         "cpu": KernelBinding(
             symbol=f"generated_{op_name}",
             library="model",
@@ -398,6 +404,22 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
             },
         )
     }
+    if op_name == "conv2d_bias":
+        kernels["rocm"] = KernelBinding(
+            ck_conv_symbol(op_name, "float32"),
+            "ck_conv",
+            profiler_symbol=ck_conv_profiler_symbol(op_name, "float32"),
+            dtype_variants={
+                dtype: KernelVariant(
+                    ck_conv_symbol(op_name, dtype),
+                    profiler_symbol=ck_conv_profiler_symbol(op_name, dtype),
+                    candidates=ck_conv_candidates(op_name, dtype),
+                    candidate_set=ck_conv_candidate_set(op_name, dtype),
+                )
+                for dtype in CONV2D_BIAS_DTYPES
+            },
+        )
+    return kernels
 
 
 def _conv2d_bias_family_forward(

@@ -10,8 +10,18 @@ from dinoml.constant_sources import (
 )
 from dinoml.ir import canonical_json, dtype_nbytes
 from dinoml.kernels.external import external_kernel_families
-from dinoml.kernels.bmm import bmm_op_spec
+from dinoml.kernels.bmm import bmm_op_spec, bmm_problem
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
+from dinoml.kernels.providers.ck.bmm import (
+    ck_bmm_candidate_set,
+    ck_bmm_candidates,
+    ck_bmm_static_library_name,
+)
+from dinoml.kernels.providers.ck.conv import (
+    ck_conv_candidate_set,
+    ck_conv_candidates,
+    ck_conv_static_library_name,
+)
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidate_compatible_with_plan,
@@ -24,6 +34,11 @@ from dinoml.kernels.providers.cutlass.gemm import (
     cutlass_gemm_candidates,
     cutlass_gemm_static_library_name,
 )
+from dinoml.kernels.providers.ck.gemm import (
+    ck_gemm_candidate_set,
+    ck_gemm_candidates,
+    ck_gemm_static_library_name,
+)
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
     cutlass_bmm_static_alignment_context,
@@ -33,7 +48,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     merge_cutlass_alignment_contexts,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.gemm import gemm_op_spec
+from dinoml.kernels.gemm import gemm_op_spec, gemm_problem
 from dinoml.lowering.ops import generated_source_provenance
 from dinoml.ops.definitions import get_op_def
 
@@ -82,6 +97,17 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
                 dtype=dtype,
             )
             cutlass_conv_plan = None
+        elif resolved.library == "ck_gemm":
+            candidates = [dict(candidate) for candidate in ck_gemm_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = ck_gemm_candidate_set(str(node["op"]), dtype, target=target)
+            if not candidates:
+                raise ValueError(f"CK GEMM manifest candidate selection requires at least one candidate for {node['op']} {dtype}")
+            selected_candidate = _select_ck_gemm_manifest_candidate(node, tensor_map, candidates)
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
+            gguf_runtime_dequant = None
+            cutlass_conv_plan = None
         elif resolved.library == "cutlass_bmm":
             candidates = [dict(candidate) for candidate in cutlass_bmm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_bmm_candidate_set(str(node["op"]), dtype, target=target)
@@ -92,6 +118,28 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
                 candidates,
                 alignment_context,
             )
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
+            gguf_runtime_dequant = None
+            cutlass_conv_plan = None
+        elif resolved.library == "ck_bmm":
+            candidates = [dict(candidate) for candidate in ck_bmm_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = ck_bmm_candidate_set(str(node["op"]), dtype, target=target)
+            if not candidates:
+                raise ValueError(f"CK BMM manifest candidate selection requires at least one candidate for {node['op']} {dtype}")
+            selected_candidate = _select_ck_bmm_manifest_candidate(node, tensor_map, candidates)
+            kernel_symbol = str(selected_candidate["kernel_symbol"])
+            profiler_symbol = str(selected_candidate["profiler_symbol"])
+            selected_candidate_id = str(selected_candidate["candidate_id"])
+            gguf_runtime_dequant = None
+            cutlass_conv_plan = None
+        elif resolved.library == "ck_conv":
+            candidates = [dict(candidate) for candidate in ck_conv_candidates(str(node["op"]), dtype, target=target)]
+            candidate_set = ck_conv_candidate_set(str(node["op"]), dtype, target=target)
+            if not candidates:
+                raise ValueError(f"CK Conv manifest candidate selection requires at least one candidate for {node['op']} {dtype}")
+            selected_candidate = _select_ck_conv_manifest_candidate(node, tensor_map, candidates)
             kernel_symbol = str(selected_candidate["kernel_symbol"])
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
@@ -143,6 +191,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         }
         if resolved.library == "cutlass_gemm":
             item["support_archive"] = cutlass_gemm_static_library_name(str(node["op"]), dtype)
+        if resolved.library == "ck_gemm":
+            item["support_archive"] = ck_gemm_static_library_name(str(node["op"]), dtype)
+        if resolved.library == "ck_bmm":
+            item["support_archive"] = ck_bmm_static_library_name(str(node["op"]), dtype)
+        if resolved.library == "ck_conv":
+            item["support_archive"] = ck_conv_static_library_name(str(node["op"]), dtype)
         if model_generated_source is not None:
             item["generated_source"] = dict(model_generated_source)
         if candidates:
@@ -185,6 +239,149 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     if session_resources:
         manifest["session_resources"] = session_resources
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _select_ck_gemm_manifest_candidate(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    candidates: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    input_names = [str(name) for name in node.get("inputs", ())]
+    if len(input_names) < 2:
+        return candidates[0]
+    shapes = [_static_tensor_shape(tensor_map.get(name, {})) for name in input_names]
+    if any(shape is None for shape in shapes):
+        return candidates[0]
+    try:
+        m, n, k, _ = gemm_problem(str(node["op"]), [shape for shape in shapes if shape is not None])
+    except ValueError:
+        return candidates[0]
+    spec = gemm_op_spec(str(node["op"]))
+    problem = {
+        "m": m,
+        "n": n,
+        "k": k,
+        "a_k": k,
+        "b_k": k,
+        "b_n": n,
+        "output_n": n,
+        "base_layout": spec.base_layout,
+    }
+    return _select_ck_candidate(candidates, problem)
+
+
+def _select_ck_bmm_manifest_candidate(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    candidates: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    input_names = [str(name) for name in node.get("inputs", ())]
+    if len(input_names) < 2:
+        return candidates[0]
+    shapes = [_static_tensor_shape(tensor_map.get(name, {})) for name in input_names]
+    if any(shape is None for shape in shapes):
+        return candidates[0]
+    try:
+        batch, m, n, k, _ = bmm_problem(str(node["op"]), [shape for shape in shapes if shape is not None])
+    except ValueError:
+        return candidates[0]
+    spec = bmm_op_spec(str(node["op"]))
+    problem = {
+        "batch": batch,
+        "m": m,
+        "n": n,
+        "k": k,
+        "a_m": m,
+        "a_k": k,
+        "b_n": n,
+        "b_k": k,
+        "output_n": n,
+        "output_layout": spec.c_layout,
+        "base_layout": spec.base_layout,
+    }
+    return _select_ck_candidate(candidates, problem)
+
+
+def _select_ck_conv_manifest_candidate(
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    candidates: Sequence[Mapping[str, Any]],
+) -> Mapping[str, Any]:
+    input_names = [str(name) for name in node.get("inputs", ())]
+    output_names = [str(name) for name in node.get("outputs", ())]
+    if len(input_names) < 2 or not output_names:
+        return candidates[0]
+    x_shape = _static_tensor_shape(tensor_map.get(input_names[0], {}))
+    weight_shape = _static_tensor_shape(tensor_map.get(input_names[1], {}))
+    out_shape = _static_tensor_shape(tensor_map.get(output_names[0], {}))
+    if x_shape is None or weight_shape is None or out_shape is None:
+        return candidates[0]
+    if len(x_shape) != 4 or len(weight_shape) != 4 or len(out_shape) != 4:
+        return candidates[0]
+    batch, in_channels, _, _ = x_shape
+    out_channels, _, kernel_h, kernel_w = weight_shape
+    out_h, out_w = out_shape[2], out_shape[3]
+    problem = {
+        "batch": batch,
+        "in_channels": in_channels,
+        "out_channels": out_channels,
+        "kernel_h": kernel_h,
+        "kernel_w": kernel_w,
+        "out_h": out_h,
+        "out_w": out_w,
+        "gemm_m": batch * out_h * out_w,
+        "gemm_n": out_channels,
+        "gemm_k": in_channels * kernel_h * kernel_w,
+    }
+    return _select_ck_candidate(candidates, problem)
+
+
+def _select_ck_candidate(
+    candidates: Sequence[Mapping[str, Any]],
+    problem: Mapping[str, int | str],
+) -> Mapping[str, Any]:
+    compatible = [candidate for candidate in candidates if _ck_candidate_compatible(candidate, problem)]
+    if not compatible:
+        return candidates[0]
+    return max(
+        compatible,
+        key=lambda candidate: int(candidate.get("selection_predicate", {}).get("priority", 0)),
+    )
+
+
+def _ck_candidate_compatible(candidate: Mapping[str, Any], problem: Mapping[str, int | str]) -> bool:
+    predicate = candidate.get("selection_predicate")
+    if not isinstance(predicate, Mapping):
+        return True
+    required_output_layout = predicate.get("requires_output_layout")
+    if required_output_layout is not None and problem.get("output_layout") != required_output_layout:
+        return False
+    min_problem = predicate.get("min_problem", {})
+    if isinstance(min_problem, Mapping):
+        for key, minimum in min_problem.items():
+            value = problem.get(str(key))
+            if not isinstance(value, int) or value < int(minimum):
+                return False
+    alignment = predicate.get("alignment", {})
+    if isinstance(alignment, Mapping):
+        for key, divisor in alignment.items():
+            width = int(divisor)
+            value = problem.get(str(key))
+            if width > 1 and (not isinstance(value, int) or value % width != 0):
+                return False
+    return True
+
+
+def _static_tensor_shape(tensor: Mapping[str, Any]) -> list[int] | None:
+    shape = tensor.get("shape")
+    if not isinstance(shape, Sequence):
+        return None
+    result = []
+    for dim in shape:
+        if not isinstance(dim, int):
+            return None
+        result.append(int(dim))
+    return result
 
 
 def _gguf_runtime_dequant_gemm_rhs_plan(

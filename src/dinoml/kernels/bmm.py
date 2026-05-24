@@ -1,10 +1,38 @@
 from dinoml.kernels.families.bmm import BMM_BASE_OPS, BMM_OPS, BMM_SUPPORTED_DTYPES, BmmOpSpec, bmm_op_spec, bmm_problem
+from dinoml.kernels.providers.ck.bmm import (
+    CK_BMM_CANDIDATE_SET_SCHEMA_VERSION,
+    CK_BMM_DEFAULT_SYMBOL_ID,
+    CK_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION,
+    ck_bmm_candidate_set,
+    ck_bmm_candidate_set_id,
+    ck_bmm_candidates,
+    ck_bmm_cmake_target,
+    ck_bmm_default_candidate,
+    ck_bmm_profiler_symbol,
+    ck_bmm_static_library_name,
+    ck_bmm_symbol,
+    ck_bmm_used_candidate_plan,
+    render_ck_bmm_source,
+)
 
 __all__ = [
     "BMM_BASE_OPS",
     "BMM_OPS",
     "BMM_SUPPORTED_DTYPES",
     "BmmOpSpec",
+    "CK_BMM_CANDIDATE_SET_SCHEMA_VERSION",
+    "CK_BMM_DEFAULT_SYMBOL_ID",
+    "CK_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
     "bmm_op_spec",
     "bmm_problem",
+    "ck_bmm_candidate_set",
+    "ck_bmm_candidate_set_id",
+    "ck_bmm_candidates",
+    "ck_bmm_cmake_target",
+    "ck_bmm_default_candidate",
+    "ck_bmm_profiler_symbol",
+    "ck_bmm_static_library_name",
+    "ck_bmm_symbol",
+    "ck_bmm_used_candidate_plan",
+    "render_ck_bmm_source",
 ]

@@ -20,7 +20,7 @@ from dinoml.lowering.shape_buffers import c_ident as _c_ident
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _render_cpu_template("bmm_cpu.cpp.j2", _cpu_context(node, tensor_map))
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported BMM lowering target: {target}")
 
@@ -67,12 +67,14 @@ def render_launch(
             k_b_expr=k_b_expr,
             output_check=output_check,
         )
-    if target != "cuda":
-        raise ValueError(f"{op_name} lowering is only implemented for CPU or CUDA")
+    if target not in {"cuda", "rocm"}:
+        raise ValueError(f"{op_name} lowering is only implemented for CPU, CUDA, or ROCm")
 
     dtype = str(tensor_map[c_name]["dtype"])
-    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype)
-    _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
+    kernel_library = "cutlass_bmm" if target == "cuda" else "ck_bmm"
+    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, kernel_library=kernel_library)
+    if target == "cuda":
+        _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
     symbol = (
         str(manifest_item["kernel_symbol"])
         if manifest_item is not None
@@ -96,6 +98,30 @@ def render_launch(
     ]
     if d0_ident is not None and d0_layout is not None:
         lines.append(_d0_shape_check(op_name, d0_ident, c_ident, d0_layout))
+    if target == "rocm":
+        lines.extend(
+            _ck_launch_lines(
+                op_name=op_name,
+                symbol=symbol,
+                a_ident=a_ident,
+                b_ident=b_ident,
+                d0_ident=d0_ident,
+                c_ident=c_ident,
+                batch_expr=batch_expr,
+                m_expr=m_expr,
+                n_expr=n_expr,
+                k_expr=k_expr,
+                batch_stride_a=batch_stride_a,
+                batch_stride_b=batch_stride_b,
+                batch_stride_d0=batch_stride_d0,
+                batch_stride_c=batch_stride_c,
+                lda_expr=lda_expr,
+                ldb_expr=ldb_expr,
+                ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
+                ldc_expr=ldc_expr,
+            )
+        )
+        return "\n".join(lines)
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
         symbol=symbol,
@@ -154,7 +180,7 @@ def render_launch(
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return f"{target}:{generated_function_name(target, node, tensor_map)}"
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported BMM lowering target: {target}")
 
@@ -162,7 +188,7 @@ def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Ma
 def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
         return _cpu_function_name(node, tensor_map)
-    if target == "cuda":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported BMM lowering target: {target}")
 
@@ -299,6 +325,47 @@ def _validate_cutlass_execution_plan_selection(op_name: str, selection: Mapping[
         raise NotImplementedError(
             f"{op_name} BMM execution-plan selection requires split_k=1 and workspace_nbytes=0"
         )
+
+
+def _ck_launch_lines(
+    *,
+    op_name: str,
+    symbol: str,
+    a_ident: str,
+    b_ident: str,
+    d0_ident: str | None,
+    c_ident: str,
+    batch_expr: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    batch_stride_a: str,
+    batch_stride_b: str,
+    batch_stride_d0: str,
+    batch_stride_c: str,
+    lda_expr: str,
+    ldb_expr: str,
+    ldd0_expr: str,
+    ldc_expr: str,
+) -> list[str]:
+    if d0_ident is None:
+        return [
+            f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{c_ident}, "
+            f"static_cast<int>({batch_expr}), static_cast<int>({m_expr}), static_cast<int>({n_expr}), "
+            f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
+            f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_c}), "
+            f"static_cast<int>({lda_expr}), static_cast<int>({ldb_expr}), static_cast<int>({ldc_expr}), "
+            f'session->stream)) return dinoml::module::fail("{op_name} CK BMM launcher failed");'
+        ]
+    return [
+        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{d0_ident}, ptr_{c_ident}, "
+        f"static_cast<int>({batch_expr}), static_cast<int>({m_expr}), static_cast<int>({n_expr}), "
+        f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
+        f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_d0}), "
+        f"static_cast<int64_t>({batch_stride_c}), static_cast<int>({lda_expr}), "
+        f"static_cast<int>({ldb_expr}), static_cast<int>({ldd0_expr}), static_cast<int>({ldc_expr}), "
+        f'session->stream)) return dinoml::module::fail("{op_name} CK BMM launcher failed");'
+    ]
 
 
 def _cutlass_launch_lines(
@@ -674,11 +741,17 @@ def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -
     ]
 
 
-def _manifest_kernel_item(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> Mapping[str, Any] | None:
+def _manifest_kernel_item(
+    kernel_manifest: Mapping[str, Any] | None,
+    op_name: str,
+    dtype: str,
+    *,
+    kernel_library: str,
+) -> Mapping[str, Any] | None:
     if kernel_manifest is None:
         return None
     for item in kernel_manifest.get("required_kernels", []):
-        if item.get("op") != op_name or item.get("kernel_library") != "cutlass_bmm":
+        if item.get("op") != op_name or item.get("kernel_library") != kernel_library:
             continue
         selected_id = item.get("selected_candidate_id")
         for candidate in item.get("candidates", []):

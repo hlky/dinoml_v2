@@ -523,6 +523,15 @@ def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
     assert workloads[0].conv_config == {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1}
 
 
+def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16, groups=2)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert workloads == []
+
+
 def test_rocm_conv2d_bias_module_declares_and_calls_ck_symbol():
     ir = _rocm_conv2d_bias_ir("float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -811,6 +820,7 @@ def _rocm_conv2d_bias_ir(
     width: int = 8,
     kernel_h: int = 3,
     kernel_w: int = 3,
+    groups: int = 1,
 ) -> dict:
     tensors = [
         _tensor("x", [batch, in_channels, height, width], dtype, "input"),
@@ -834,7 +844,7 @@ def _rocm_conv2d_bias_ir(
                 "op": "conv2d_bias",
                 "inputs": ["x", "weight", "bias"],
                 "outputs": ["y"],
-                "attrs": {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1},
+                "attrs": {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": groups},
             }
         ],
         "tensors": tensors,

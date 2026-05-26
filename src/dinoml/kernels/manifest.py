@@ -321,6 +321,9 @@ def _select_ck_conv_manifest_candidate(
     batch, in_channels, _, _ = x_shape
     out_channels, _, kernel_h, kernel_w = weight_shape
     out_h, out_w = out_shape[2], out_shape[3]
+    attrs = dict(node.get("attrs", {}))
+    raw_groups = attrs.get("groups", 1)
+    groups = int(raw_groups) if isinstance(raw_groups, int) and not isinstance(raw_groups, bool) else -1
     problem = {
         "batch": batch,
         "in_channels": in_channels,
@@ -329,6 +332,7 @@ def _select_ck_conv_manifest_candidate(
         "kernel_w": kernel_w,
         "out_h": out_h,
         "out_w": out_w,
+        "groups": groups,
         "gemm_m": batch * out_h * out_w,
         "gemm_n": out_channels,
         "gemm_k": in_channels * kernel_h * kernel_w,
@@ -356,6 +360,11 @@ def _ck_candidate_compatible(candidate: Mapping[str, Any], problem: Mapping[str,
     required_output_layout = predicate.get("requires_output_layout")
     if required_output_layout is not None and problem.get("output_layout") != required_output_layout:
         return False
+    exact = predicate.get("exact", {})
+    if isinstance(exact, Mapping):
+        for key, expected in exact.items():
+            if problem.get(str(key)) != expected:
+                return False
     min_problem = predicate.get("min_problem", {})
     if isinstance(min_problem, Mapping):
         for key, minimum in min_problem.items():

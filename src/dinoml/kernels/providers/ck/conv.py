@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from dinoml.ir import canonical_json
 
 
-CK_CONV_CANDIDATE_SET_SCHEMA_VERSION = 1
+CK_CONV_CANDIDATE_SET_SCHEMA_VERSION = 2
 CK_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CK_CONV_DEFAULT_SYMBOL_ID = "xdl_custom_v1"
 CK_CONV_TUNED_SYMBOL_ID = "xdl_wide_n_v1"
@@ -154,7 +154,7 @@ def ck_conv_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_CONV_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_conv2d_xdl_curated_candidates_v2",
+        "generator": "static_ck_conv2d_xdl_curated_candidates_v3",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -166,7 +166,7 @@ def ck_conv_candidate_set(
 
 def ck_conv_candidate_set_id(op_name: str, dtype: str) -> str:
     _validate_ck_conv_op(op_name)
-    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_bias_v2"
+    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_bias_v3"
 
 
 def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -278,10 +278,15 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
     _validate_ck_conv_op(op_name)
     symbol_id = str(kernel_config["symbol_id"])
     epilogue_config = _ck_conv_epilogue_config(op_name)
-    vector_width = _ck_conv_vector_width(dtype, str(kernel_config["name"]))
-    cde_vector_width = _ck_conv_cde_vector_width(dtype, str(kernel_config["name"]))
+    config_name = str(kernel_config["name"])
+    tile = {**dict(kernel_config["tile"]), "k_per_block": _ck_conv_k_per_block(dtype, config_name)}
+    vector_width = _ck_conv_vector_width(dtype, config_name)
+    cde_vector_width = _ck_conv_cde_vector_width(dtype, config_name)
     selection_predicate = {
         "priority": int(kernel_config["priority"]),
+        "exact": {
+            "groups": 1,
+        },
         "min_problem": dict(kernel_config.get("min_problem", {})),
         "alignment": {
             "in_channels": vector_width,
@@ -296,9 +301,12 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
         "config": {
             "name": str(kernel_config["name"]),
             "config_enum": str(kernel_config["config_enum"]),
-            "tile": dict(kernel_config["tile"]),
+            "tile": tile,
+            "pipeline": "v1",
+            "num_gemm_k_prefetch_stage": 1,
             "vector_width": vector_width,
             "cde_vector_width": cde_vector_width,
+            "gemm_specialization": "mnk_padding",
         },
     }
     config = {
@@ -392,6 +400,16 @@ def _ck_conv_vector_width(dtype: str, config_name: str) -> int:
     if dtype == "float32":
         return 4
     return 8
+
+
+def _ck_conv_k_per_block(dtype: str, config_name: str) -> int:
+    if config_name == "wide_n":
+        return 16 if dtype == "float32" else 32
+    if config_name in {"square", "skinny_m", "skinny_n"}:
+        return 32 if dtype == "float32" else 64
+    if config_name == "small":
+        return 16 if dtype == "float32" else 32
+    return 32
 
 
 def _ck_conv_cde_vector_width(dtype: str, config_name: str) -> int:

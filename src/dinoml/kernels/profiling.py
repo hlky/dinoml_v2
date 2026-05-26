@@ -557,12 +557,15 @@ def _append_ck_conv_profile_workloads(
         return
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
     attrs = dict(node.get("attrs", {}))
-    stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
-        attrs.get("stride", (1, 1)),
-        attrs.get("padding", (0, 0)),
-        attrs.get("dilation", (1, 1)),
-        attrs.get("groups", 1),
-    )
+    try:
+        stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
+            attrs.get("stride", (1, 1)),
+            attrs.get("padding", (0, 0)),
+            attrs.get("dilation", (1, 1)),
+            attrs.get("groups", 1),
+        )
+    except (NotImplementedError, ValueError):
+        return
     if int(groups) != 1:
         return
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
@@ -583,6 +586,7 @@ def _append_ck_conv_profile_workloads(
             "kernel_w": kernel_w,
             "out_h": out_h,
             "out_w": out_w,
+            "groups": int(groups),
             "gemm_m": batch * out_h * out_w,
             "gemm_n": out_channels,
             "gemm_k": in_channels * kernel_h * kernel_w,
@@ -839,6 +843,11 @@ def _ck_profile_candidate_compatible(candidate: Mapping[str, Any], problem: Mapp
     required_output_layout = predicate.get("requires_output_layout")
     if required_output_layout is not None and problem.get("output_layout") != required_output_layout:
         return False
+    exact = predicate.get("exact", {})
+    if isinstance(exact, Mapping):
+        for key, expected in exact.items():
+            if problem.get(str(key)) != expected:
+                return False
     min_problem = predicate.get("min_problem", {})
     if isinstance(min_problem, Mapping):
         for key, minimum in min_problem.items():

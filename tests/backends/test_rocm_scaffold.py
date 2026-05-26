@@ -629,6 +629,33 @@ def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
         assert "return -static_cast<float>(launch_status);" in source
 
 
+@pytest.mark.parametrize(
+    ("source_path", "renderer", "missing_symbol"),
+    [
+        (
+            Path("kernels/rocm/src/ck_gemm.hip"),
+            render_ck_gemm_source,
+            "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_missing_v1",
+        ),
+        (
+            Path("kernels/rocm/src/ck_bmm.hip"),
+            render_ck_bmm_source,
+            "dinoml_ck_bmm_rcr_add_float16_xdl_missing_v1",
+        ),
+        (
+            Path("kernels/rocm/src/ck_conv.hip"),
+            render_ck_conv_source,
+            "dinoml_ck_conv2d_bias_float16_xdl_missing_v1",
+        ),
+    ],
+)
+def test_ck_source_renderers_reject_missing_plan_symbols(source_path, renderer, missing_symbol):
+    source = source_path.read_text(encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing symbols"):
+        renderer(source, {"kernel_symbols": [missing_symbol], "profiler_symbols": []})
+
+
 def test_rocm_gemm_module_declares_and_calls_ck_symbol():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})

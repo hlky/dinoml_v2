@@ -820,6 +820,27 @@ def test_rocm_bmm_profile_workload_preserves_broadcast_batch_and_bias_layout():
     assert workload.ldc == 128
 
 
+def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
+    ir = _rocm_bmm_ir("bmm_rrr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+    workload = workloads[0]
+
+    assert item["selected_candidate_id"] == "ck_bmm_rrr_add_float16_xdl_wide_n_v1"
+    assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "row"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"baseline", "wide_n", "small"}
+    assert workload.a_shape == (2, 64, 96)
+    assert workload.b_shape == (2, 96, 128)
+    assert workload.output_shape == (2, 64, 128)
+    assert workload.lda == 96
+    assert workload.ldb == 128
+    assert workload.ldc == 128
+    assert workload.alignment_context["problem"]["base_layout"] == "rrr"
+    assert workload.alignment_context["problem"]["b_n"] == 128
+
+
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -1303,25 +1324,29 @@ def _rocm_bmm_ir(
     k: int = 5,
     d0_shape: list[int] | None = None,
 ) -> dict:
+    layout = _bmm_layout_from_op(op_name)
     a_batch = batch if a_batch is None else a_batch
     b_batch = batch if b_batch is None else b_batch
-    d0_shape = [batch, m, n] if d0_shape is None else list(d0_shape)
+    a_shape = [a_batch, k, m] if layout[0] == "c" else [a_batch, m, k]
+    b_shape = [b_batch, n, k] if layout[1] == "c" else [b_batch, k, n]
+    output_shape = [batch, n, m] if layout[2] == "c" else [batch, m, n]
+    d0_shape = output_shape if d0_shape is None else list(d0_shape)
     tensors = [
-        _tensor("a", [a_batch, m, k], dtype, "input"),
-        _tensor("b", [b_batch, n, k], dtype, "input"),
+        _tensor("a", a_shape, dtype, "input"),
+        _tensor("b", b_shape, dtype, "input"),
         _tensor("d0", d0_shape, dtype, "input"),
-        _tensor("c", [batch, m, n], dtype, "output"),
+        _tensor("c", output_shape, dtype, "output"),
     ]
     return {
         "schema_version": 1,
         "name": "rocm_bmm_smoke",
         "inputs": [
-            _io("a", [a_batch, m, k], dtype),
-            _io("b", [b_batch, n, k], dtype),
+            _io("a", a_shape, dtype),
+            _io("b", b_shape, dtype),
             _io("d0", d0_shape, dtype),
         ],
         "constants": [],
-        "outputs": [_io("c", [batch, m, n], dtype)],
+        "outputs": [_io("c", output_shape, dtype)],
         "nodes": [
             {
                 "id": "n0",
@@ -1334,6 +1359,12 @@ def _rocm_bmm_ir(
         "tensors": tensors,
         "metadata": {},
     }
+
+
+def _bmm_layout_from_op(op_name: str) -> str:
+    layout = op_name.removeprefix("bmm_").removesuffix("_add")
+    assert len(layout) == 3 and set(layout) <= {"c", "r"}
+    return layout
 
 
 def _rocm_conv2d_bias_ir(

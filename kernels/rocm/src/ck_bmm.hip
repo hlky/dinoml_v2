@@ -651,7 +651,7 @@ float profile_ck_bmm(
   }
   (void)hipEventRecord(start, stream);
   for (int i = 0; i < iterations; ++i) {
-    if (launch_ck_bmm<Storage, Layout, Epilogue, Config>(
+    const int launch_status = launch_ck_bmm<Storage, Layout, Epilogue, Config>(
             a,
             b,
             d0,
@@ -668,10 +668,11 @@ float profile_ck_bmm(
             ldb,
             ldd0,
             ldc,
-            stream)) {
+            stream);
+    if (launch_status != 0) {
       (void)hipEventDestroy(start);
       (void)hipEventDestroy(end);
-      return -1.0f;
+      return -static_cast<float>(launch_status);
     }
   }
   (void)hipEventRecord(end, stream);

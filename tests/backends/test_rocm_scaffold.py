@@ -17,7 +17,7 @@ from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
-from dinoml.kernels.profiling import build_profile_workloads
+from dinoml.kernels.profiling import _profile_failure_result, build_profile_workloads
 from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_ck_bmm_source
 from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
 from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
@@ -306,6 +306,33 @@ def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
         "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_interwave_v1",
     }
     assert "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_default_v2" not in candidate_ids
+
+
+def test_rocm_ck_profile_failure_result_includes_diagnostics():
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    result = _profile_failure_result(workload, 1, profile_key="profile-key", error="profile failed")
+
+    diagnostics = result["diagnostics"]
+    assert diagnostics["kernel_library"] == "ck_gemm"
+    assert diagnostics["candidate_id"] == workload.candidate_id
+    assert diagnostics["profiler_symbol"] == workload.profiler_symbol
+    assert diagnostics["problem"] == {"m": 128, "n": 128, "k": 96, "split_k": 1}
+    assert diagnostics["ck"]["config"]["tile"]["k_per_block"] > 0
+    assert result["candidates"][0]["diagnostics"] == diagnostics
+
+
+def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
+    for source_path in (
+        Path("kernels/rocm/src/ck_gemm.hip"),
+        Path("kernels/rocm/src/ck_bmm.hip"),
+        Path("kernels/rocm/src/ck_conv.hip"),
+    ):
+        source = source_path.read_text(encoding="utf-8")
+        assert "const int launch_status = launch_ck_" in source
+        assert "return -static_cast<float>(launch_status);" in source
 
 
 def test_rocm_gemm_module_declares_and_calls_ck_symbol():

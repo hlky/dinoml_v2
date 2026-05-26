@@ -459,7 +459,7 @@ float profile_ck_conv2d_bias(
   }
   (void)hipEventRecord(start, stream);
   for (int i = 0; i < iterations; ++i) {
-    if (launch_ck_conv2d_bias<Storage, Config>(
+    const int launch_status = launch_ck_conv2d_bias<Storage, Config>(
             x,
             weight,
             bias,
@@ -479,10 +479,11 @@ float profile_ck_conv2d_bias(
             pad_w,
             dilation_h,
             dilation_w,
-            stream)) {
+            stream);
+    if (launch_status != 0) {
       (void)hipEventDestroy(start);
       (void)hipEventDestroy(end);
-      return -1.0f;
+      return -static_cast<float>(launch_status);
     }
   }
   (void)hipEventRecord(end, stream);

@@ -826,10 +826,11 @@ float profile_ck_gemm(
   }
   (void)hipEventRecord(start, stream);
   for (int i = 0; i < iterations; ++i) {
-    if (launch_ck_gemm<Storage, LayoutB, Epilogue, Config>(a, b, bias, d0, d1, c, m, n, k, stream)) {
+    const int launch_status = launch_ck_gemm<Storage, LayoutB, Epilogue, Config>(a, b, bias, d0, d1, c, m, n, k, stream);
+    if (launch_status != 0) {
       (void)hipEventDestroy(start);
       (void)hipEventDestroy(end);
-      return -1.0f;
+      return -static_cast<float>(launch_status);
     }
   }
   (void)hipEventRecord(end, stream);

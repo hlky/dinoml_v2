@@ -1773,6 +1773,122 @@ def _conv_profile_result(
     return payload
 
 
+_CK_PROFILER_RETURN_CODE_REASONS = {
+    1: "invalid pointer or profiler setup failure",
+    2: "invalid problem dimensions, strides, or launch parameters",
+    3: "HIP launch failed",
+    4: "CK IsSupportedArgument rejected the problem for this candidate",
+}
+
+
+def _ck_profiler_return_code(elapsed_ms: float | None) -> int | None:
+    if elapsed_ms is None or not math.isfinite(float(elapsed_ms)) or float(elapsed_ms) >= 0.0:
+        return None
+    magnitude = abs(float(elapsed_ms))
+    rounded = int(round(magnitude))
+    if rounded > 0 and math.isclose(magnitude, float(rounded), rel_tol=0.0, abs_tol=1.0e-3):
+        return rounded
+    return None
+
+
+def _profile_failure_diagnostics(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    elapsed_ms: float | None = None,
+) -> dict[str, Any]:
+    return_code = _ck_profiler_return_code(elapsed_ms)
+    diagnostics: dict[str, Any] = {
+        "kernel_library": workload.kernel_library,
+        "op": workload.op,
+        "dtype": workload.dtype,
+        "candidate_id": workload.candidate_id,
+        "candidate_config_key": workload.candidate_config_key,
+        "candidate_set_id": workload.candidate_set_id,
+        "profiler_symbol": workload.profiler_symbol,
+        "kernel_symbol": workload.kernel_symbol,
+        "launch_abi": str(workload.candidate.get("launch_abi", "")),
+        "selection_predicate": dict(workload.candidate.get("selection_predicate", {})),
+        "shape_case": {
+            "source": workload.shape_source,
+            "case_id": workload.shape_case_id,
+            "dims": dict(workload.dim_values),
+            "dim_sources": dict(workload.dim_sources),
+        },
+    }
+    if return_code is not None:
+        diagnostics["return_code"] = return_code
+        diagnostics["return_reason"] = _CK_PROFILER_RETURN_CODE_REASONS.get(return_code, "unknown CK profiler failure")
+        diagnostics["elapsed_ms"] = float(elapsed_ms if elapsed_ms is not None else 0.0)
+    ck_config = workload.candidate.get("ck")
+    if isinstance(ck_config, Mapping):
+        diagnostics["ck"] = dict(ck_config)
+    if isinstance(workload, ConvProfileWorkload):
+        n, c, h, w = (int(dim) for dim in workload.x_shape)
+        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+        weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+        diagnostics["problem"] = {
+            "n": n,
+            "c": c,
+            "h": h,
+            "w": w,
+            "out_n": out_n,
+            "out_c": out_c,
+            "out_h": out_h,
+            "out_w": out_w,
+            "weight_o": weight_o,
+            "weight_i": weight_i,
+            "kernel_h": kernel_h,
+            "kernel_w": kernel_w,
+            "groups": int(workload.conv_config.get("groups", 1) or 1),
+            "gemm_m": out_n * out_h * out_w,
+            "gemm_n": out_c,
+            "gemm_k": c * kernel_h * kernel_w,
+        }
+        diagnostics["conv_config"] = dict(workload.conv_config)
+    else:
+        problem = {
+            "m": int(workload.m),
+            "n": int(workload.n),
+            "k": int(workload.k),
+            "split_k": int(workload.split_k),
+        }
+        if workload.batch_count is not None:
+            problem.update(
+                {
+                    "batch_count": int(workload.batch_count),
+                    "batch_stride_a": int(workload.batch_stride_a or 0),
+                    "batch_stride_b": int(workload.batch_stride_b or 0),
+                    "batch_stride_c": int(workload.batch_stride_c or 0),
+                    "lda": int(workload.lda or 0),
+                    "ldb": int(workload.ldb or 0),
+                    "ldc": int(workload.ldc or 0),
+                }
+            )
+            if workload.residual_tensors:
+                problem["batch_stride_d0"] = int(workload.batch_stride_d0 or 0)
+                problem["ldd0"] = int(workload.ldd0 or 0)
+        diagnostics["problem"] = problem
+    return diagnostics
+
+
+def _format_profile_failure_diagnostics(diagnostics: Mapping[str, Any]) -> str:
+    fields = []
+    if diagnostics.get("return_code") is not None:
+        fields.append(f"return_code={diagnostics['return_code']} ({diagnostics.get('return_reason', 'unknown')})")
+    problem = diagnostics.get("problem")
+    if isinstance(problem, Mapping):
+        fields.append(f"problem={json.dumps(dict(problem), sort_keys=True)}")
+    ck_config = diagnostics.get("ck")
+    if isinstance(ck_config, Mapping):
+        config = ck_config.get("config")
+        if isinstance(config, Mapping):
+            fields.append(f"ck_config={json.dumps(dict(config), sort_keys=True)}")
+    predicate = diagnostics.get("selection_predicate")
+    if isinstance(predicate, Mapping) and predicate:
+        fields.append(f"selection_predicate={json.dumps(dict(predicate), sort_keys=True)}")
+    return "; ".join(fields) if fields else "no CK diagnostics available"
+
+
 def _profile_failure_result(
     workload: GemmProfileWorkload | ConvProfileWorkload,
     iterations: int,
@@ -1781,6 +1897,7 @@ def _profile_failure_result(
     error: str,
 ) -> dict[str, Any]:
     payload = workload.to_json()
+    diagnostics = _profile_failure_diagnostics(workload)
     candidate_result = dict(workload.candidate)
     candidate_result.update(
         {
@@ -1789,6 +1906,7 @@ def _profile_failure_result(
             "iterations": int(iterations),
             "status": "failed",
             "error": str(error),
+            "diagnostics": dict(diagnostics),
         }
     )
     payload.update(
@@ -1797,6 +1915,7 @@ def _profile_failure_result(
             "status": "failed",
             "reason": "profiler_error",
             "error": str(error),
+            "diagnostics": diagnostics,
             "kernel_library": workload.kernel_library,
             "iterations": int(iterations),
             "repeats": 0,
@@ -3525,9 +3644,11 @@ class _CkRocmProfiler:
     ) -> None:
         if math.isfinite(elapsed_ms) and elapsed_ms >= 0.0:
             return
+        diagnostics = _profile_failure_diagnostics(workload, elapsed_ms=elapsed_ms)
         raise RuntimeError(
             f"CK ROCm profiler rejected {workload.op} candidate {workload.candidate_id} "
-            f"for profiler symbol {workload.profiler_symbol!r}"
+            f"for profiler symbol {workload.profiler_symbol!r}; "
+            f"{_format_profile_failure_diagnostics(diagnostics)}"
         )
 
 

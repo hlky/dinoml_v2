@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
     compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")
-    compile_parser.add_argument("--profile", action="store_true", help="Profile CUTLASS candidates and rebuild with the selected execution plan")
+    compile_parser.add_argument("--profile", action="store_true", help="Profile CUDA CUTLASS or ROCm CK candidates and rebuild with the selected execution plan")
     compile_parser.add_argument("--profile-iterations", type=int, default=20)
     compile_parser.add_argument("--profile-repeats", type=int, default=3)
     compile_parser.add_argument("--profile-shape", "--shape", dest="profile_shape", action="append", default=[])

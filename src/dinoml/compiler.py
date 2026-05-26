@@ -65,8 +65,8 @@ def compile(
     if profile:
         if execution_plan is not None:
             raise ValueError("compile(profile=True) cannot also consume an explicit execution_plan")
-        if target.name != "cuda":
-            raise ValueError("compile(profile=True) currently supports CUDA targets only")
+        if target.name not in {"cuda", "rocm"}:
+            raise ValueError("compile(profile=True) currently supports CUDA and ROCm targets only")
         return _compile_with_profile(
             spec,
             target,
@@ -115,15 +115,28 @@ def _compile_with_profile(
         pass_manager=pass_manager,
     )
     _validate_profile_shape_expressions(lowered_ir, target)
-    _materialize_profile_bootstrap_artifact(
-        spec,
-        target,
-        artifact_dir=artifact_dir,
-        lowered_ir=lowered_ir,
-        reports=reports,
-        backend=backend,
-        constant_load_policy=constant_load_policy,
-    )
+    if target.name == "rocm":
+        _build_artifact_from_lowered_ir(
+            spec,
+            target,
+            artifact_dir=artifact_dir,
+            generated_src_dir=generated_src_dir,
+            lowered_ir=lowered_ir,
+            reports=reports,
+            backend=backend,
+            execution_plan_payload=None,
+            constant_load_policy=constant_load_policy,
+        )
+    else:
+        _materialize_profile_bootstrap_artifact(
+            spec,
+            target,
+            artifact_dir=artifact_dir,
+            lowered_ir=lowered_ir,
+            reports=reports,
+            backend=backend,
+            constant_load_policy=constant_load_policy,
+        )
     profile_report = profile_artifact(
         artifact_dir,
         input_shapes=input_shapes,

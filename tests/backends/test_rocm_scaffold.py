@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 import dinoml as dml
+from dinoml import compiler as dml_compiler
 from dinoml.backends import get_backend_spec, registered_backend_names
 from dinoml.backends import rocm as rocm_backend
 from dinoml.backends.rocm import ensure_rocm_support_libs
@@ -60,6 +61,23 @@ def test_rocm_codegen_plan_uses_arch_specific_support_cache(tmp_path):
 
     assert plan.target == {"name": "rocm", "arch": "gfx1201"}
     assert plan.support_cache_dir == tmp_path / "support" / "rocm-gfx1201" / "abcdef0123456789"
+
+
+def test_rocm_compile_profile_path_is_admitted_without_cuda_guard(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_compile_with_profile(spec, target, output, **kwargs):
+        calls.append((spec, target, output, kwargs))
+        return dml_compiler.Artifact(Path(output))
+
+    monkeypatch.setattr(dml_compiler, "_compile_with_profile", fake_compile_with_profile)
+    spec = elementwise_case().build_spec()
+
+    artifact = dml_compiler.compile(spec, dml.Target("rocm"), tmp_path / "profiled_rocm.dinoml", profile=True)
+
+    assert artifact.path == tmp_path / "profiled_rocm.dinoml"
+    assert calls
+    assert calls[0][1].name == "rocm"
 
 
 def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monkeypatch):

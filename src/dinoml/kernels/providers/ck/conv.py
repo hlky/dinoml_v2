@@ -178,6 +178,7 @@ def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str,
         selected = _selected_candidate(item, all_candidates)
         candidates = _used_candidate_plan_candidates(item, all_candidates, selected)
         candidate_set = dict(item.get("candidate_set", {}))
+        execution_plan_selection = item.get("execution_plan_selection")
         entry_config = {
             "op": str(item["op"]),
             "dtype": str(selected.get("dtype") or candidate_set.get("dtype") or ""),
@@ -198,7 +199,10 @@ def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str,
             "selected_candidate": selected,
             "candidate_set": candidate_set,
             "candidates": candidates,
+            "pruned_by_execution_plan": isinstance(execution_plan_selection, Mapping),
         }
+        if isinstance(execution_plan_selection, Mapping):
+            entry_config["execution_plan_selection"] = dict(execution_plan_selection)
         entries.append(entry_config)
     entries = sorted(entries, key=lambda entry: (entry["op"], entry["dtype"], entry["kernel_symbol"]))
     candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
@@ -217,6 +221,7 @@ def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str,
         "candidate_config_keys": [item["candidate_config_key"] for item in candidates],
         "kernel_symbols": sorted({symbol for entry in entries for symbol in entry["kernel_symbols"]}),
         "profiler_symbols": sorted({symbol for entry in entries for symbol in entry["profiler_symbols"]}),
+        "pruned_by_execution_plan": any(bool(entry.get("pruned_by_execution_plan")) for entry in entries),
     }
     return {
         **config,

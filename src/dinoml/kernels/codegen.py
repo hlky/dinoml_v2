@@ -194,6 +194,7 @@ def _external_support_libraries(
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "pruned_by_execution_plan": bool(used_candidate_plan.get("pruned_by_execution_plan", False)),
                     "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
                 }
             )
@@ -212,6 +213,7 @@ def _external_support_libraries(
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "pruned_by_execution_plan": bool(used_candidate_plan.get("pruned_by_execution_plan", False)),
                     "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
                 }
             )
@@ -230,6 +232,7 @@ def _external_support_libraries(
                     "candidate_config_keys": list(used_candidate_plan["candidate_config_keys"]),
                     "kernel_symbols": list(used_candidate_plan["kernel_symbols"]),
                     "profiler_symbols": list(used_candidate_plan["profiler_symbols"]),
+                    "pruned_by_execution_plan": bool(used_candidate_plan.get("pruned_by_execution_plan", False)),
                     "entries": [dict(entry) for entry in used_candidate_plan.get("entries", [])],
                 }
             )

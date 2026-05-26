@@ -864,9 +864,12 @@ def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
     ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16, groups=2)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
 
     workloads = build_profile_workloads(ir, manifest)
 
+    assert item["profile_blocked_reason"] == "ck_conv_groups_unsupported_for_profile"
+    assert item["profile_blocked_details"] == {"groups": 2, "supported_groups": [1]}
     assert workloads == []
 
 

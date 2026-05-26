@@ -50,6 +50,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
 )
 from dinoml.kernels.gemm import gemm_op_spec, gemm_problem
 from dinoml.lowering.ops import generated_source_provenance
+from dinoml.ops.conv import normalize_conv2d_bias_attrs
 from dinoml.ops.definitions import get_op_def
 
 
@@ -228,6 +229,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
+        if resolved.library == "ck_conv":
+            item.update(_ck_conv_profile_blocked_metadata(node))
         if gguf_runtime_dequant is not None:
             item["gguf_runtime_dequant"] = gguf_runtime_dequant
         if cutlass_conv_plan is not None:
@@ -261,6 +264,34 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     if session_resources:
         manifest["session_resources"] = session_resources
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]:
+    attrs = dict(node.get("attrs", {}))
+    raw_groups = attrs.get("groups", 1)
+    if isinstance(raw_groups, int) and not isinstance(raw_groups, bool) and int(raw_groups) > 0 and int(raw_groups) != 1:
+        return {
+            "profile_blocked_reason": "ck_conv_groups_unsupported_for_profile",
+            "profile_blocked_details": {"groups": int(raw_groups), "supported_groups": [1]},
+        }
+    try:
+        _stride, _padding, _dilation, groups = normalize_conv2d_bias_attrs(
+            attrs.get("stride", (1, 1)),
+            attrs.get("padding", (0, 0)),
+            attrs.get("dilation", (1, 1)),
+            raw_groups,
+        )
+    except (NotImplementedError, ValueError) as exc:
+        return {
+            "profile_blocked_reason": "ck_conv_attrs_unsupported_for_profile",
+            "profile_blocked_details": {"error": str(exc)},
+        }
+    if int(groups) != 1:
+        return {
+            "profile_blocked_reason": "ck_conv_groups_unsupported_for_profile",
+            "profile_blocked_details": {"groups": int(groups), "supported_groups": [1]},
+        }
+    return {}
 
 
 def _select_ck_gemm_manifest_candidate(

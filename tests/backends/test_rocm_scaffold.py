@@ -19,8 +19,10 @@ from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
+    _blocked_profile_items,
     _cache_entry,
     _profile_failure_result,
+    _profile_report,
     _profile_result,
     build_execution_plan,
     build_profile_workloads,
@@ -978,6 +980,49 @@ def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
     assert item["profile_blocked_reason"] == "ck_conv_groups_unsupported_for_profile"
     assert item["profile_blocked_details"] == {"groups": 2, "supported_groups": [1]}
     assert workloads == []
+
+
+def test_rocm_conv2d_bias_profile_report_summarizes_blocked_groups(tmp_path):
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16, groups=2)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    blocked_items = _blocked_profile_items(manifest)
+
+    report = _profile_report(
+        tmp_path,
+        {"target": {"name": "rocm", "arch": "gfx1201"}},
+        manifest,
+        {"cache_key": "test-codegen-cache"},
+        5,
+        3,
+        [],
+        {"profiled": 0, "cached": 0, "skipped": 0, "failed": 0, "blocked": len(blocked_items)},
+        context={
+            "fingerprint": {
+                "hardware": {"name": "test-gpu"},
+                "hardware_key": "test-hardware",
+                "support_libraries": [],
+                "support_libraries_key": "test-support-libraries",
+            }
+        },
+        blocked_profile_items=blocked_items,
+    )
+
+    assert report["summary"]["blocked"] == 1
+    assert report["problems"] == []
+    assert report["blocked_profile_items"] == [
+        {
+            "op": "conv2d_bias",
+            "dtype": "float16",
+            "kernel_library": "ck_conv",
+            "kernel_symbol": manifest["required_kernels"][0]["kernel_symbol"],
+            "profiler_symbol": manifest["required_kernels"][0]["profiler_symbol"],
+            "candidate_set_id": manifest["required_kernels"][0]["candidate_set_id"],
+            "candidate_set_key": manifest["required_kernels"][0]["candidate_set_key"],
+            "selected_candidate_id": manifest["required_kernels"][0]["selected_candidate_id"],
+            "reason": "ck_conv_groups_unsupported_for_profile",
+            "details": {"groups": 2, "supported_groups": [1]},
+        }
+    ]
 
 
 @pytest.mark.parametrize(

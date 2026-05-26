@@ -4,7 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -335,18 +335,7 @@ def _profile(args: argparse.Namespace) -> int:
             "iterations": report["iterations"],
             "repeats": report.get("repeats", 1),
             "problems": [
-                {
-                    "node_id": item["node_id"],
-                    "op": item["op"],
-                    "dtype": item["dtype"],
-                    "profiler_symbol": item["profiler_symbol"],
-                    "shape": {"m": item["m"], "n": item["n"], "k": item["k"]},
-                    "elapsed_ms": item["elapsed_ms"],
-                    "split_k": item.get("split_k", 1),
-                    "workspace_nbytes": item.get("workspace_nbytes", 0),
-                    "timing": item.get("timing"),
-                    "tflops": item["tflops"],
-                }
+                _profile_problem_summary(item)
                 for item in report["problems"]
             ],
             "execution_plan": report.get("execution_plan"),
@@ -356,6 +345,33 @@ def _profile(args: argparse.Namespace) -> int:
         sort_keys=True,
     ))
     return 0
+
+
+def _profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    shape = item.get("shape", {})
+    selected = item.get("selected", {})
+    candidate_id = item.get("candidate_id")
+    if candidate_id is None and isinstance(selected, Mapping):
+        candidate_id = selected.get("candidate_id")
+    payload = {
+        "node_id": item["node_id"],
+        "op": item["op"],
+        "dtype": item["dtype"],
+        "kernel_library": item.get("kernel_library"),
+        "candidate_id": candidate_id,
+        "profiler_symbol": item["profiler_symbol"],
+        "shape": dict(shape) if isinstance(shape, Mapping) else {},
+        "elapsed_ms": item["elapsed_ms"],
+        "workspace_nbytes": item.get("workspace_nbytes", 0),
+        "timing": item.get("timing"),
+        "tflops": item["tflops"],
+    }
+    if item.get("split_k") is not None:
+        payload["split_k"] = item.get("split_k")
+    conv_config = item.get("conv")
+    if isinstance(conv_config, Mapping):
+        payload["conv"] = dict(conv_config)
+    return payload
 
 
 def _load_python_file(path: Path) -> Any:

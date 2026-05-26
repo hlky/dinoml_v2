@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -73,6 +74,60 @@ def test_cli_profile_help_mentions_rocm_ck(capsys):
     assert "ROCm CK" in profile_help
     assert "GEMM/BMM/Conv" in profile_help
     assert "input=1,128,768" in profile_help
+
+
+def test_cli_profile_summary_handles_rocm_ck_conv_shapes(monkeypatch, capsys):
+    from dinoml import cli as dinoml_cli
+
+    def fake_profile_artifact(*_args, **_kwargs):
+        return {
+            "artifact": "conv_artifact.dinoml",
+            "target": {"name": "rocm", "arch": "gfx1201"},
+            "iterations": 3,
+            "repeats": 2,
+            "problems": [
+                {
+                    "node_id": "n0",
+                    "op": "conv2d_bias",
+                    "dtype": "float16",
+                    "kernel_library": "ck_conv",
+                    "profiler_symbol": "dinoml_profile_ck_conv2d_bias_float16_xdl_wide_m_v1",
+                    "shape": {
+                        "n": 1,
+                        "c": 8,
+                        "h": 9,
+                        "w": 11,
+                        "out_n": 1,
+                        "out_c": 16,
+                        "out_h": 4,
+                        "out_w": 6,
+                        "kernel_h": 3,
+                        "kernel_w": 3,
+                    },
+                    "conv": {"stride": [2, 2], "padding": [0, 1], "dilation": [1, 1], "groups": 1},
+                    "elapsed_ms": 0.25,
+                    "workspace_nbytes": 0,
+                    "timing": {"sample_count": 2},
+                    "tflops": 0.123,
+                    "selected": {"candidate_id": "ck_conv2d_bias_float16_xdl_wide_m_v1"},
+                }
+            ],
+            "execution_plan": {"path": "execution_plan.json"},
+            "summary": {"profiled": 1, "failed": 0},
+        }
+
+    monkeypatch.setattr(dinoml_cli, "profile_artifact", fake_profile_artifact)
+
+    assert dinoml_cli.main(["profile", "conv_artifact.dinoml"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    problem = payload["problems"][0]
+
+    assert problem["kernel_library"] == "ck_conv"
+    assert problem["candidate_id"] == "ck_conv2d_bias_float16_xdl_wide_m_v1"
+    assert problem["shape"]["out_h"] == 4
+    assert problem["shape"]["out_w"] == 6
+    assert problem["conv"]["stride"] == [2, 2]
+    assert "split_k" not in problem
 
 
 def test_rocm_codegen_plan_uses_arch_specific_support_cache(tmp_path):

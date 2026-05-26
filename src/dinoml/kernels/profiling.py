@@ -852,6 +852,19 @@ def _ck_profile_candidate_compatible(candidate: Mapping[str, Any], problem: Mapp
             value = problem.get(str(key))
             if width > 1 and (not isinstance(value, int) or value % width != 0):
                 return False
+    padded_block_loop_multiple = predicate.get("padded_block_loop_multiple", {})
+    if isinstance(padded_block_loop_multiple, Mapping):
+        for key, rule in padded_block_loop_multiple.items():
+            if not isinstance(rule, Mapping):
+                return False
+            value = problem.get(str(key))
+            block = int(rule.get("block", 0) or 0)
+            multiple = int(rule.get("multiple", 0) or 0)
+            if not isinstance(value, int) or block <= 0 or multiple <= 0:
+                return False
+            padded_loop_count = (value + block - 1) // block
+            if padded_loop_count % multiple != 0:
+                return False
     return True
 
 

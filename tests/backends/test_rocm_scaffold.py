@@ -276,6 +276,20 @@ def test_rocm_gemm_profile_workloads_cover_ck_candidate_set():
     assert workloads[0].alignment_context["kind"] == "ck_gemm_profile_alignment_context"
 
 
+def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=32, n=32, k=32)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    candidate_ids = {workload.candidate_id for workload in workloads}
+    assert candidate_ids == {
+        "ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1",
+        "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_interwave_v1",
+    }
+    assert "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_default_v2" not in candidate_ids
+
+
 def test_rocm_gemm_module_declares_and_calls_ck_symbol():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})

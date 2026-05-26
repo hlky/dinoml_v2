@@ -496,6 +496,7 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
     spec = gemm_op_spec(op_name)
     symbol_id = str(kernel_config["symbol_id"])
     launch_abi = _ck_gemm_launch_abi(op_name)
+    tile = dict(kernel_config["tile"])
     a_vector_width = int(kernel_config["a_vector_width"])
     b_vector_width = int(kernel_config["b_vector_width_by_layout"][spec.base_layout])
     cde_vector_width = int(kernel_config["cde_vector_width"])
@@ -509,6 +510,13 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
             "output_n": cde_vector_width,
         },
     }
+    if str(kernel_config["pipeline"]) == "v2":
+        selection_predicate["padded_block_loop_multiple"] = {
+            "k": {
+                "block": int(tile["k_per_block"]),
+                "multiple": 2,
+            },
+        }
     ck_config = {
         "api": "device_gemm_multiple_d_xdl_cshuffle",
         "symbol_id": symbol_id,
@@ -518,7 +526,7 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
             "name": str(kernel_config["name"]),
             "config_enum": str(kernel_config["config_enum"]),
             "tile_index": int(kernel_config["tile_index"]),
-            "tile": dict(kernel_config["tile"]),
+            "tile": tile,
             "scheduler": str(kernel_config["scheduler"]),
             "pipeline": str(kernel_config["pipeline"]),
             "vector_width": min(a_vector_width, b_vector_width),

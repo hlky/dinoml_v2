@@ -386,7 +386,7 @@ def test_rocm_bmm_manifest_selects_ck_custom_xdl_archive(tmp_path):
 
 
 def test_rocm_bmm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
-    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=64)
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
 
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
     item = manifest["required_kernels"][0]
@@ -396,7 +396,7 @@ def test_rocm_bmm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape()
 
 
 def test_rocm_bmm_profile_workloads_cover_ck_candidate_set():
-    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=64)
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=192)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
 
     workloads = build_profile_workloads(ir, manifest)
@@ -409,6 +409,18 @@ def test_rocm_bmm_profile_workloads_cover_ck_candidate_set():
     }
     assert workloads[0].batch_count == 2
     assert workloads[0].alignment_context["kind"] == "ck_bmm_profile_alignment_context"
+
+
+def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    candidate_names = {workload.candidate["ck"]["config"]["name"] for workload in workloads}
+    assert candidate_names == {"baseline", "wide_m", "wide_n", "small"}
+    assert all(workload.candidate["ck"]["config"]["tile"]["k_per_block"] == 32 for workload in workloads)
+    assert "ck_bmm_rcr_add_float16_xdl_square_v1" not in {workload.candidate_id for workload in workloads}
 
 
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():

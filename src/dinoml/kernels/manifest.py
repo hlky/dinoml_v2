@@ -382,6 +382,19 @@ def _ck_candidate_compatible(candidate: Mapping[str, Any], problem: Mapping[str,
             padded_loop_count = (value + block - 1) // block
             if padded_loop_count % multiple != 0:
                 return False
+    padded_block_loop_minimum = predicate.get("padded_block_loop_minimum", {})
+    if isinstance(padded_block_loop_minimum, Mapping):
+        for key, rule in padded_block_loop_minimum.items():
+            if not isinstance(rule, Mapping):
+                return False
+            value = problem.get(str(key))
+            block = int(rule.get("block", 0) or 0)
+            minimum = int(rule.get("minimum", 0) or 0)
+            if not isinstance(value, int) or block <= 0 or minimum <= 0:
+                return False
+            padded_loop_count = (value + block - 1) // block
+            if padded_loop_count < minimum:
+                return False
     return True
 
 

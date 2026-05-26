@@ -635,6 +635,98 @@ def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
     assert workloads == []
 
 
+@pytest.mark.parametrize(
+    ("batch", "out_channels", "height", "width", "selected_candidate_id", "profile_config_names"),
+    [
+        (
+            1,
+            32,
+            16,
+            16,
+            "ck_conv2d_bias_float16_xdl_wide_m_v1",
+            {"baseline", "wide_m", "square", "skinny_n", "small"},
+        ),
+        (
+            1,
+            64,
+            4,
+            4,
+            "ck_conv2d_bias_float16_xdl_skinny_m_v1",
+            {"baseline", "skinny_m", "small"},
+        ),
+        (
+            1,
+            16,
+            8,
+            8,
+            "ck_conv2d_bias_float16_xdl_skinny_n_v1",
+            {"baseline", "skinny_n", "small"},
+        ),
+        (
+            1,
+            16,
+            4,
+            4,
+            "ck_conv2d_bias_float16_xdl_small_v1",
+            {"baseline", "small"},
+        ),
+    ],
+)
+def test_rocm_conv2d_bias_profile_workloads_cover_representative_ck_shape_classes(
+    batch: int,
+    out_channels: int,
+    height: int,
+    width: int,
+    selected_candidate_id: str,
+    profile_config_names: set[str],
+):
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        batch=batch,
+        in_channels=8,
+        out_channels=out_channels,
+        height=height,
+        width=width,
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["selected_candidate_id"] == selected_candidate_id
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == profile_config_names
+    assert all(workload.x_shape == (batch, 8, height, width) for workload in workloads)
+    assert all(workload.weight_shape == (out_channels, 8, 3, 3) for workload in workloads)
+    assert all(workload.output_shape == (batch, out_channels, height, width) for workload in workloads)
+    assert all(workload.candidate["ck"]["config"]["pipeline"] == "v1" for workload in workloads)
+    assert all(workload.semantic_layout["activation"] == "nchw" for workload in workloads)
+    assert all(workload.provider_layout["activation"] == "g_nhw_c_strided" for workload in workloads)
+
+
+def test_rocm_conv2d_bias_profile_workload_preserves_conv_config_and_output_shape():
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        batch=1,
+        in_channels=8,
+        out_channels=16,
+        height=9,
+        width=11,
+        stride=[2, 2],
+        padding=[0, 1],
+        dilation=[1, 1],
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+    workload = workloads[0]
+
+    assert workload.x_shape == (1, 8, 9, 11)
+    assert workload.weight_shape == (16, 8, 3, 3)
+    assert workload.bias_shape == (16,)
+    assert workload.output_shape == (1, 16, 4, 6)
+    assert workload.conv_config == {"stride": [2, 2], "padding": [0, 1], "dilation": [1, 1], "groups": 1}
+
+
 def test_rocm_conv2d_bias_module_declares_and_calls_ck_symbol():
     ir = _rocm_conv2d_bias_ir("float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -929,13 +1021,21 @@ def _rocm_conv2d_bias_ir(
     width: int = 8,
     kernel_h: int = 3,
     kernel_w: int = 3,
+    stride: list[int] | tuple[int, int] | None = None,
+    padding: list[int] | tuple[int, int] | None = None,
+    dilation: list[int] | tuple[int, int] | None = None,
     groups: int = 1,
 ) -> dict:
+    stride = [1, 1] if stride is None else [int(stride[0]), int(stride[1])]
+    padding = [1, 1] if padding is None else [int(padding[0]), int(padding[1])]
+    dilation = [1, 1] if dilation is None else [int(dilation[0]), int(dilation[1])]
+    output_h = (height + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[0] + 1
+    output_w = (width + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[1] + 1
     tensors = [
         _tensor("x", [batch, in_channels, height, width], dtype, "input"),
         _tensor("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype, "input"),
         _tensor("bias", [out_channels], dtype, "input"),
-        _tensor("y", [batch, out_channels, height, width], dtype, "output"),
+        _tensor("y", [batch, out_channels, output_h, output_w], dtype, "output"),
     ]
     return {
         "schema_version": 1,
@@ -946,14 +1046,14 @@ def _rocm_conv2d_bias_ir(
             _io("bias", [out_channels], dtype),
         ],
         "constants": [],
-        "outputs": [_io("y", [batch, out_channels, height, width], dtype)],
+        "outputs": [_io("y", [batch, out_channels, output_h, output_w], dtype)],
         "nodes": [
             {
                 "id": "n0",
                 "op": "conv2d_bias",
                 "inputs": ["x", "weight", "bias"],
                 "outputs": ["y"],
-                "attrs": {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": groups},
+                "attrs": {"stride": stride, "padding": padding, "dilation": dilation, "groups": groups},
             }
         ],
         "tensors": tensors,

@@ -559,6 +559,7 @@ def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
     assert support["pruned_by_execution_plan"] is True
     assert support["kernel_symbols"] == ["dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"]
     assert support["profiler_symbols"] == ["dinoml_profile_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"]
+    assert plan.candidate_profiler_symbols == ("dinoml_profile_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1",)
     assert support["candidate_config_keys"] == [entry["selected_candidate"]["candidate_config_key"]]
     assert entry["pruned_by_execution_plan"] is True
     assert entry["execution_plan_selection"]["selected_candidate_id"] == target_candidate_id
@@ -612,6 +613,7 @@ def test_rocm_ck_bmm_conv_execution_plan_prunes_support_exports(
     assert support["pruned_by_execution_plan"] is True
     assert support["kernel_symbols"] == [kernel_symbol]
     assert support["profiler_symbols"] == [profiler_symbol]
+    assert plan.candidate_profiler_symbols == (profiler_symbol,)
     assert support["candidate_config_keys"] == [entry["selected_candidate"]["candidate_config_key"]]
     assert entry["pruned_by_execution_plan"] is True
     assert entry["execution_plan_selection"]["selected_candidate_id"] == target_candidate_id

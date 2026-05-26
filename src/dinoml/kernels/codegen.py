@@ -91,12 +91,23 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
 def _candidate_profiler_symbols(kernel_manifest: Mapping[str, Any]) -> tuple[str, ...]:
     seen = set()
     symbols = []
+
+    def append_symbol(symbol: Any) -> None:
+        if not symbol:
+            return
+        value = str(symbol)
+        if value in seen:
+            return
+        seen.add(value)
+        symbols.append(value)
+
     for item in kernel_manifest["required_kernels"]:
+        execution_plan_selection = item.get("execution_plan_selection")
+        if isinstance(execution_plan_selection, Mapping):
+            append_symbol(execution_plan_selection.get("profiler_symbol") or item.get("profiler_symbol"))
+            continue
         for candidate in item.get("candidates", []):
-            symbol = candidate.get("profiler_symbol")
-            if symbol and symbol not in seen:
-                seen.add(symbol)
-                symbols.append(str(symbol))
+            append_symbol(candidate.get("profiler_symbol"))
     return tuple(symbols)
 
 

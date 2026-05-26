@@ -174,8 +174,9 @@ def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str,
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("kernel_library") != "ck_conv":
             continue
-        candidates = [dict(candidate) for candidate in item.get("candidates", [])]
-        selected = _selected_candidate(item, candidates)
+        all_candidates = [dict(candidate) for candidate in item.get("candidates", [])]
+        selected = _selected_candidate(item, all_candidates)
+        candidates = _used_candidate_plan_candidates(item, all_candidates, selected)
         candidate_set = dict(item.get("candidate_set", {}))
         entry_config = {
             "op": str(item["op"]),
@@ -221,6 +222,16 @@ def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str,
         **config,
         "used_candidate_plan_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
     }
+
+
+def _used_candidate_plan_candidates(
+    item: Mapping[str, Any],
+    candidates: list[dict[str, Any]],
+    selected: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if isinstance(item.get("execution_plan_selection"), Mapping):
+        return [dict(selected)] if selected else []
+    return candidates
 
 
 def render_ck_conv_source(source: str, used_candidate_plan: Mapping[str, Any]) -> str:

@@ -403,6 +403,25 @@ def test_rocm_ck_execution_plan_static_overlay_selects_profiled_candidate(
     assert selection["split_k"] == 1
 
 
+def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
+    target_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    execution_plan = _ck_execution_plan_for_candidate(ir, manifest, target_candidate_id)
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == "ck_gemm"
+    assert support["kernel_symbols"] == ["dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"]
+    assert support["profiler_symbols"] == ["dinoml_profile_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"]
+    assert support["candidate_config_keys"] == [entry["selected_candidate"]["candidate_config_key"]]
+    assert entry["selected_candidate_id"] == target_candidate_id
+    assert [candidate["candidate_id"] for candidate in entry["candidates"]] == [target_candidate_id]
+
+
 def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
     for source_path in (
         Path("kernels/rocm/src/ck_gemm.hip"),

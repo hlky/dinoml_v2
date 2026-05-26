@@ -544,6 +544,49 @@ def test_rocm_ck_execution_plan_static_overlay_selects_profiled_candidate(
     assert selection["split_k"] == 1
 
 
+def test_rocm_ck_execution_plan_conflict_rejects_static_only_guarded_selection():
+    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    original_candidate_id = manifest["required_kernels"][0]["selected_candidate_id"]
+    alternate_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
+    assert original_candidate_id != alternate_candidate_id
+
+    result_a = _ck_profile_result_for_candidate(
+        ir_a,
+        manifest,
+        str(original_candidate_id),
+        elapsed_ms=0.31,
+        profile_key="profile-original-shape",
+    )
+    result_b = _ck_profile_result_for_candidate(
+        ir_b,
+        manifest,
+        alternate_candidate_id,
+        elapsed_ms=0.29,
+        profile_key="profile-alternate-shape",
+    )
+    execution_plan = build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": 7,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": [result_a, result_b],
+        }
+    )
+
+    assert execution_plan["summary"]["static_selection_count"] == 0
+    assert execution_plan["summary"]["conflict_count"] == 1
+    assert execution_plan["conflicts"][0]["reason"] == "profiled_shapes_selected_different_candidate_or_split_k"
+    assert execution_plan["conflicts"][0]["selected_candidate_ids"] == sorted(
+        {str(original_candidate_id), alternate_candidate_id}
+    )
+    with pytest.raises(ValueError, match="ck_gemm execution plans only support static selections"):
+        apply_execution_plan(manifest, execution_plan, strict=True)
+
+
 def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
     target_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
@@ -1330,16 +1373,12 @@ def _ck_execution_plan_for_candidate(
     manifest: dict,
     candidate_id: str,
 ) -> dict:
-    workloads = build_profile_workloads(ir, manifest)
-    matches = [workload for workload in workloads if workload.candidate_id == candidate_id]
-    assert matches, f"candidate {candidate_id!r} was not profileable"
-    result = _profile_result(
-        matches[0],
+    result = _ck_profile_result_for_candidate(
+        ir,
+        manifest,
+        candidate_id,
         0.25,
-        5,
         profile_key=f"profile-{candidate_id}",
-        status="ok",
-        reason="test_selected_candidate",
     )
     return build_execution_plan(
         {
@@ -1350,6 +1389,27 @@ def _ck_execution_plan_for_candidate(
             "codegen_plan_cache_key": "test-codegen-plan",
             "problems": [result],
         }
+    )
+
+
+def _ck_profile_result_for_candidate(
+    ir: dict,
+    manifest: dict,
+    candidate_id: str,
+    elapsed_ms: float,
+    *,
+    profile_key: str,
+) -> dict:
+    workloads = build_profile_workloads(ir, manifest)
+    matches = [workload for workload in workloads if workload.candidate_id == candidate_id]
+    assert matches, f"candidate {candidate_id!r} was not profileable"
+    return _profile_result(
+        matches[0],
+        elapsed_ms,
+        5,
+        profile_key=profile_key,
+        status="ok",
+        reason="test_selected_candidate",
     )
 
 

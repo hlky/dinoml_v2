@@ -917,6 +917,30 @@ def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
     assert workload.alignment_context["problem"]["b_n"] == 128
 
 
+def test_rocm_bmm_rrc_profile_workloads_preserve_column_output_layout():
+    ir = _rocm_bmm_ir("bmm_rrc_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+    workload = workloads[0]
+
+    assert item["selected_candidate_id"] == "ck_bmm_rrc_add_float16_xdl_wide_n_v1"
+    assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "column"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"baseline", "wide_n", "small"}
+    assert workload.a_shape == (2, 64, 96)
+    assert workload.b_shape == (2, 96, 128)
+    assert workload.output_shape == (2, 128, 64)
+    assert workload.residual_shapes == ((2, 128, 64),)
+    assert workload.ldc == 64
+    assert workload.ldd0 == 64
+    assert workload.batch_stride_c == 64 * 128
+    assert workload.batch_stride_d0 == 64 * 128
+    assert workload.alignment_context["problem"]["base_layout"] == "rrc"
+    assert workload.alignment_context["problem"]["output_layout"] == "c"
+    assert workload.alignment_context["problem"]["output_n"] == 128
+
+
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})

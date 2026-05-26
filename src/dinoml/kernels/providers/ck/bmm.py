@@ -284,7 +284,6 @@ def _ck_bmm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]
     selection_predicate = {
         "priority": int(kernel_config["priority"]),
         "min_problem": dict(kernel_config.get("min_problem", {})),
-        "requires_output_layout": "r",
         "alignment": {
             f"a_{a_alignment_key}": vector_width,
             f"b_{b_alignment_key}": vector_width,

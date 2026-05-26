@@ -16,8 +16,13 @@ from dinoml.backends import rocm as rocm_backend
 from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.manifest import build_kernel_manifest
-from dinoml.kernels.profiling import _profile_failure_result, build_profile_workloads
+from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
+from dinoml.kernels.profiling import (
+    _profile_failure_result,
+    _profile_result,
+    build_execution_plan,
+    build_profile_workloads,
+)
 from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_ck_bmm_source
 from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
 from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
@@ -322,6 +327,61 @@ def test_rocm_ck_profile_failure_result_includes_diagnostics():
     assert diagnostics["problem"] == {"m": 128, "n": 128, "k": 96, "split_k": 1}
     assert diagnostics["ck"]["config"]["tile"]["k_per_block"] > 0
     assert result["candidates"][0]["diagnostics"] == diagnostics
+
+
+@pytest.mark.parametrize(
+    ("case", "target_candidate_id", "expected_library"),
+    [
+        (
+            "gemm",
+            "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1",
+            "ck_gemm",
+        ),
+        (
+            "bmm",
+            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            "ck_bmm",
+        ),
+        (
+            "conv",
+            "ck_conv2d_bias_float16_xdl_wide_m_v1",
+            "ck_conv",
+        ),
+    ],
+)
+def test_rocm_ck_execution_plan_static_overlay_selects_profiled_candidate(
+    case: str,
+    target_candidate_id: str,
+    expected_library: str,
+):
+    if case == "gemm":
+        ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    elif case == "bmm":
+        ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=192)
+    elif case == "conv":
+        ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    else:
+        raise AssertionError(f"unhandled CK overlay case: {case}")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    original_item = manifest["required_kernels"][0]
+
+    execution_plan = _ck_execution_plan_for_candidate(ir, manifest, target_candidate_id)
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+    item = overlaid["required_kernels"][0]
+    selection = item["execution_plan_selection"]
+
+    assert original_item["kernel_library"] == expected_library
+    assert original_item["selected_candidate_id"] != target_candidate_id
+    assert execution_plan["summary"]["static_selection_count"] == 1
+    assert execution_plan["summary"]["conflict_count"] == 0
+    assert item["kernel_library"] == expected_library
+    assert item["selected_candidate_id"] == target_candidate_id
+    assert item["kernel_symbol"] == selection["kernel_symbol"]
+    assert item["profiler_symbol"] == selection["profiler_symbol"]
+    assert selection["kernel_library"] == expected_library
+    assert selection["selected_candidate_id"] == target_candidate_id
+    assert selection["workspace_nbytes"] == 0
+    assert selection["split_k"] == 1
 
 
 def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
@@ -931,6 +991,34 @@ def _find_hipcc() -> Path | None:
     if local.exists():
         return local
     return None
+
+
+def _ck_execution_plan_for_candidate(
+    ir: dict,
+    manifest: dict,
+    candidate_id: str,
+) -> dict:
+    workloads = build_profile_workloads(ir, manifest)
+    matches = [workload for workload in workloads if workload.candidate_id == candidate_id]
+    assert matches, f"candidate {candidate_id!r} was not profileable"
+    result = _profile_result(
+        matches[0],
+        0.25,
+        5,
+        profile_key=f"profile-{candidate_id}",
+        status="ok",
+        reason="test_selected_candidate",
+    )
+    return build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": 7,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": [result],
+        }
+    )
 
 
 def _rocm_gemm_ir(op_name: str, dtype: str, *, m: int = 2, n: int = 4, k: int = 3) -> dict:

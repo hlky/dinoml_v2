@@ -56,6 +56,28 @@ from dinoml.ops.definitions import get_op_def
 KERNEL_MANIFEST_SCHEMA_VERSION = 4
 KERNEL_ABI_VERSION = 1
 PROFILE_CACHE_SCHEMA_VERSION = 7
+EXECUTION_PLAN_KERNEL_LIBRARIES = {
+    "cutlass_gemm",
+    "cutlass_bmm",
+    "cutlass_conv",
+    "ck_gemm",
+    "ck_bmm",
+    "ck_conv",
+}
+EXECUTION_PLAN_STATIC_ONLY_KERNEL_LIBRARIES = {
+    "cutlass_conv",
+    "ck_gemm",
+    "ck_bmm",
+    "ck_conv",
+}
+EXECUTION_PLAN_ZERO_WORKSPACE_KERNEL_LIBRARIES = {
+    "cutlass_bmm",
+    "cutlass_conv",
+    "ck_gemm",
+    "ck_bmm",
+    "ck_conv",
+}
+EXECUTION_PLAN_BMM_KERNEL_LIBRARIES = {"cutlass_bmm", "ck_bmm"}
 
 
 def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> dict[str, Any]:
@@ -662,7 +684,7 @@ def apply_execution_plan(
     manifest_kernel_libraries: dict[tuple[str, str, str], str] = {}
     for item in manifest.get("required_kernels", []):
         kernel_library = item.get("kernel_library")
-        if kernel_library not in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
+        if kernel_library not in EXECUTION_PLAN_KERNEL_LIBRARIES:
             continue
         candidate_set = item.get("candidate_set", {})
         dtype = str(candidate_set.get("dtype", "")) if isinstance(candidate_set, Mapping) else ""
@@ -696,10 +718,14 @@ def apply_execution_plan(
                     selected_candidate,
                 )
         dispatch_group = guarded_selections.get(key, ())
-        if dispatch_group and kernel_library == "cutlass_conv" and (key in conflict_keys or key not in selections):
+        if (
+            dispatch_group
+            and kernel_library in EXECUTION_PLAN_STATIC_ONLY_KERNEL_LIBRARIES
+            and (key in conflict_keys or key not in selections)
+        ):
             if strict:
                 raise ValueError(
-                    "CUTLASS Conv execution plans only support static selections; "
+                    f"{kernel_library} execution plans only support static selections; "
                     f"guarded selection was provided for {key[0]} {key[1]}"
                 )
             continue
@@ -731,7 +757,7 @@ def apply_execution_plan(
         missing_guarded = sorted(
             key
             for key in guarded_keys - applied_guarded_keys
-            if manifest_kernel_libraries.get(key, "cutlass_gemm") in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}
+            if manifest_kernel_libraries.get(key, "cutlass_gemm") in EXECUTION_PLAN_KERNEL_LIBRARIES
         )
         if missing_guarded:
             missing_text = ", ".join(f"{op}/{dtype}/{candidate_set_key}" for op, dtype, candidate_set_key in missing_guarded)
@@ -808,7 +834,7 @@ def _execution_plan_selection_supported(
     if isinstance(confidence, Mapping) and confidence.get("confident") is False:
         if strict:
             raise ValueError(
-                "Execution plan selected low-confidence CUTLASS candidate "
+                "Execution plan selected low-confidence candidate "
                 f"for {key[0]} {key[1]}; low-confidence selections are audit-only"
             )
         return False
@@ -816,23 +842,16 @@ def _execution_plan_selection_supported(
     workspace_nbytes = _execution_plan_int_field(selection, "workspace_nbytes", 0, minimum=0, key=key, strict=strict)
     if split_k is None or workspace_nbytes is None:
         return False
-    if kernel_library != "cutlass_bmm":
-        if kernel_library == "cutlass_conv" and (split_k != 1 or workspace_nbytes != 0):
-            if strict:
-                raise ValueError(
-                    "CUTLASS Conv execution plan selections only support split_k=1 "
-                    f"and workspace_nbytes=0 for {key[0]} {key[1]}"
-                )
-            return False
-        return True
-    if split_k == 1 and workspace_nbytes == 0:
-        return True
-    if strict:
-        raise ValueError(
-            "CUTLASS BMM execution plan selections only support split_k=1 "
-            f"and workspace_nbytes=0 for {key[0]} {key[1]}"
-        )
-    return False
+    if kernel_library in EXECUTION_PLAN_ZERO_WORKSPACE_KERNEL_LIBRARIES:
+        if split_k == 1 and workspace_nbytes == 0:
+            return True
+        if strict:
+            raise ValueError(
+                f"{kernel_library} execution plan selections only support split_k=1 "
+                f"and workspace_nbytes=0 for {key[0]} {key[1]}"
+            )
+        return False
+    return True
 
 
 def _execution_plan_candidate(
@@ -848,7 +867,7 @@ def _execution_plan_candidate(
     if selected_candidate is None:
         if strict:
             raise ValueError(
-                "Execution plan selected unknown CUTLASS candidate "
+                "Execution plan selected unknown candidate "
                 f"{selected_id!r} for {key[0]} {key[1]} candidate set {key[2]}"
             )
         return None
@@ -857,7 +876,7 @@ def _execution_plan_candidate(
     if selected_config_key is not None and plan_config_key is not None and str(selected_config_key) != str(plan_config_key):
         if strict:
             raise ValueError(
-                "Execution plan candidate_config_key mismatch for CUTLASS candidate "
+                "Execution plan candidate_config_key mismatch for candidate "
                 f"{selected_id!r} on {key[0]} {key[1]}"
             )
         return None
@@ -867,7 +886,7 @@ def _execution_plan_candidate(
         if plan_symbol is not None and candidate_symbol is not None and str(plan_symbol) != str(candidate_symbol):
             if strict:
                 raise ValueError(
-                    f"Execution plan {symbol_field} mismatch for CUTLASS candidate "
+                    f"Execution plan {symbol_field} mismatch for candidate "
                     f"{selected_id!r} on {key[0]} {key[1]}"
                 )
             return None
@@ -894,7 +913,11 @@ def _execution_plan_guarded_shape_supported(
         if strict:
             raise ValueError(f"Execution plan guarded selection for {key[0]} {key[1]} is missing shape metadata")
         return False
-    required_fields = ("m", "n", "k", "batch_count") if kernel_library == "cutlass_bmm" else ("m", "n", "k")
+    required_fields = (
+        ("m", "n", "k", "batch_count")
+        if kernel_library in EXECUTION_PLAN_BMM_KERNEL_LIBRARIES
+        else ("m", "n", "k")
+    )
     for field in required_fields:
         if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
             return False

@@ -1097,6 +1097,27 @@ def test_rocm_conv2d_bias_profile_report_summarizes_blocked_groups(tmp_path):
     ]
 
 
+def test_rocm_conv2d_bias_manifest_reports_malformed_ck_profile_attrs():
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        batch=2,
+        in_channels=8,
+        out_channels=64,
+        height=16,
+        width=16,
+        dilation=[1, 0],
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["profile_blocked_reason"] == "ck_conv_attrs_unsupported_for_profile"
+    assert "conv2d_bias dilation must contain positive integers" in item["profile_blocked_details"]["error"]
+    assert workloads == []
+    assert _blocked_profile_items(manifest)[0]["reason"] == "ck_conv_attrs_unsupported_for_profile"
+
+
 @pytest.mark.parametrize(
     ("batch", "out_channels", "height", "width", "selected_candidate_id", "profile_config_names"),
     [

@@ -348,6 +348,7 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
             "target": "dinoml_ck_gemm_gemm_rcr_bias_add_relu_float16",
         }
     ]
+    _assert_ck_support_plan_unpruned(plan, item)
 
 
 def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
@@ -778,6 +779,7 @@ def test_rocm_bmm_manifest_selects_ck_custom_xdl_archive(tmp_path):
             "target": "dinoml_ck_bmm_bmm_rcr_add_float16",
         }
     ]
+    _assert_ck_support_plan_unpruned(plan, item)
 
 
 def test_rocm_bmm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
@@ -988,6 +990,7 @@ def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
             "target": "dinoml_ck_conv_conv2d_bias_float16",
         }
     ]
+    _assert_ck_support_plan_unpruned(plan, item)
 
 
 def test_rocm_conv2d_bias_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
@@ -1411,6 +1414,20 @@ def _ck_profile_result_for_candidate(
         status="ok",
         reason="test_selected_candidate",
     )
+
+
+def _assert_ck_support_plan_unpruned(plan, item: dict) -> None:
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+    expected_config_keys = {str(candidate["candidate_config_key"]) for candidate in item["candidates"]}
+
+    assert support["pruned_by_execution_plan"] is False
+    assert entry["pruned_by_execution_plan"] is False
+    assert "execution_plan_selection" not in entry
+    assert set(support["candidate_config_keys"]) == expected_config_keys
+    assert set(entry["candidate_config_keys"]) == expected_config_keys
+    assert {str(candidate["candidate_config_key"]) for candidate in entry["candidates"]} == expected_config_keys
+    assert len(entry["candidates"]) == len(item["candidates"])
 
 
 def _rocm_gemm_ir(op_name: str, dtype: str, *, m: int = 2, n: int = 4, k: int = 3) -> dict:

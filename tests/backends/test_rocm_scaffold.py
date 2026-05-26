@@ -358,6 +358,65 @@ def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape(
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
 
 
+@pytest.mark.parametrize(
+    ("case", "selected_candidate_id", "config_name", "k_per_block", "vector_width", "cde_vector_width"),
+    [
+        (
+            "gemm",
+            "ck_gemm_rcr_bias_add_relu_float32_xdl_wide_m_v1",
+            "wide_m",
+            32,
+            8,
+            4,
+        ),
+        (
+            "bmm",
+            "ck_bmm_rcr_add_float32_xdl_wide_m_v1",
+            "wide_m",
+            32,
+            4,
+            2,
+        ),
+        (
+            "conv",
+            "ck_conv2d_bias_float32_xdl_wide_n_v1",
+            "wide_n",
+            16,
+            4,
+            4,
+        ),
+    ],
+)
+def test_rocm_ck_manifest_selects_float32_candidate_shapes(
+    case: str,
+    selected_candidate_id: str,
+    config_name: str,
+    k_per_block: int,
+    vector_width: int,
+    cde_vector_width: int,
+):
+    if case == "gemm":
+        ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float32", m=128, n=128, k=64)
+    elif case == "bmm":
+        ir = _rocm_bmm_ir("bmm_rcr_add", "float32", batch=2, m=128, n=128, k=96)
+    elif case == "conv":
+        ir = _rocm_conv2d_bias_ir("float32", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    else:
+        raise AssertionError(f"unhandled CK float32 case: {case}")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+    selected = next(candidate for candidate in item["candidates"] if candidate["candidate_id"] == selected_candidate_id)
+
+    assert item["selected_candidate_id"] == selected_candidate_id
+    assert item["kernel_library"] == f"ck_{case}"
+    assert selected["dtype"] == "float32"
+    assert selected["accumulator_dtype"] == "float32"
+    assert selected["ck"]["config"]["name"] == config_name
+    assert selected["ck"]["config"]["tile"]["k_per_block"] == k_per_block
+    assert selected["ck"]["config"]["vector_width"] == vector_width
+    assert selected["ck"]["config"]["cde_vector_width"] == cde_vector_width
+
+
 def test_rocm_gemm_profile_workloads_cover_ck_candidate_set():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})

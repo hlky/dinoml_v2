@@ -24,6 +24,7 @@ from dinoml.kernels.profiling import (
     _profile_failure_result,
     _profile_report,
     _profile_result,
+    _profile_result_from_cache,
     build_execution_plan,
     build_profile_workloads,
 )
@@ -488,6 +489,44 @@ def test_rocm_ck_profile_cache_entry_records_launch_metadata():
     assert entry["kernel_symbol"] == workload.kernel_symbol
     assert entry["profiler_symbol"] == workload.profiler_symbol
     assert entry["split_k"] == 1
+
+
+def test_rocm_ck_profile_cache_round_trip_preserves_candidate_metadata():
+    ir = _rocm_bmm_ir("bmm_rrc_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = next(
+        workload
+        for workload in build_profile_workloads(ir, manifest)
+        if workload.candidate_id == "ck_bmm_rrc_add_float16_xdl_wide_n_v1"
+    )
+    result = _profile_result(workload, 0.37, 7, profile_key="profile-key", status="ok")
+    entry = _cache_entry(workload, result, {"profile_key_payload": "test"})
+
+    cached = _profile_result_from_cache(workload, entry)
+    execution_plan = build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": 7,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": [cached],
+        }
+    )
+
+    assert cached["status"] == "cached"
+    assert cached["selected"] == {"candidate_id": workload.candidate_id, "split_k": 1, "reason": "cache_hit"}
+    assert cached["kernel_library"] == "ck_bmm"
+    assert cached["kernel_symbol"] == workload.kernel_symbol
+    assert cached["profiler_symbol"] == workload.profiler_symbol
+    assert cached["candidate_set_id"] == workload.candidate_set_id
+    assert cached["candidate_set_key"] == workload.candidate_set_key
+    assert cached["candidate_config_key"] == workload.candidate_config_key
+    assert cached["candidates"][0]["candidate_config_key"] == workload.candidate_config_key
+    assert cached["alignment_context"]["problem"]["base_layout"] == "rrc"
+    assert cached["leading_dimensions"]["c"] == 64
+    assert execution_plan["summary"]["static_selection_count"] == 1
+    assert execution_plan["static_selections"][0]["selected_candidate_id"] == workload.candidate_id
 
 
 @pytest.mark.parametrize(

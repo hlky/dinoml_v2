@@ -108,6 +108,7 @@ def _compile_with_profile(
     debug_dir = artifact_dir / "debug"
     generated_src_dir = debug_dir / "generated_src"
     generated_src_dir.mkdir(parents=True, exist_ok=True)
+    profile_artifact_dir = artifact_dir
     lowered_ir, reports = _lower_for_compile(
         spec,
         target,
@@ -116,11 +117,13 @@ def _compile_with_profile(
     )
     _validate_profile_shape_expressions(lowered_ir, target)
     if target.name == "rocm":
+        bootstrap_dir = _prepare_artifact_dir(debug_dir / "profile_bootstrap_artifact", clean=True)
+        profile_artifact_dir = bootstrap_dir
         _build_artifact_from_lowered_ir(
             spec,
             target,
-            artifact_dir=artifact_dir,
-            generated_src_dir=generated_src_dir,
+            artifact_dir=bootstrap_dir,
+            generated_src_dir=bootstrap_dir / "debug" / "generated_src",
             lowered_ir=lowered_ir,
             reports=reports,
             backend=backend,
@@ -138,7 +141,7 @@ def _compile_with_profile(
             constant_load_policy=constant_load_policy,
         )
     profile_report = profile_artifact(
-        artifact_dir,
+        profile_artifact_dir,
         input_shapes=input_shapes,
         iterations=iterations,
         repeats=repeats,

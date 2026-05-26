@@ -600,6 +600,49 @@ def test_rocm_fused_elementwise_module_compiles_with_real_toolchain(tmp_path, mo
 
 
 @pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_PROFILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_PROFILE_SMOKE=1 with a working ROCm device/toolchain",
+)
+def test_rocm_ck_gemm_compile_profile_smoke_with_real_toolchain(tmp_path, monkeypatch):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class TinyCkGemm(dml.Module):
+        def forward(self, a, b, bias, d0):
+            return {"c": dml.ops.gemm_rcr_bias_add_relu(a, b, bias, d0)}
+
+    spec = dml.trace(
+        TinyCkGemm(),
+        {
+            "a": dml.TensorSpec([32, 32], "float16"),
+            "b": dml.TensorSpec([32, 32], "float16"),
+            "bias": dml.TensorSpec([32], "float16"),
+            "d0": dml.TensorSpec([32, 32], "float16"),
+        },
+        name="rocm_ck_gemm_compile_profile_smoke",
+    )
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("rocm"),
+        tmp_path / "ck_gemm_profile_rocm.dinoml",
+        profile=True,
+        profile_iterations=1,
+        profile_repeats=1,
+        profile_refresh=True,
+    )
+
+    manifest = read_json(artifact.path / "manifest.json")
+    report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
+    assert manifest["target"]["name"] == "rocm"
+    assert report["target"]["name"] == "rocm"
+    assert report["summary"]["profiled"] >= 1
+    assert report["summary"]["failed"] == 0
+    assert all(problem["kernel_library"] == "ck_gemm" for problem in report["problems"])
+
+
+@pytest.mark.skipif(
     os.environ.get("DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE") != "1",
     reason="set DINOML_RUN_ROCM_HEADER_COMPILE_SMOKE=1 with hipcc or .venv/rocm available",
 )

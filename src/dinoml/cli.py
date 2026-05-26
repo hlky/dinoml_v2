@@ -21,7 +21,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="dinoml")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    compile_parser = subparsers.add_parser("compile")
+    profile_description = (
+        "Profiles CUDA CUTLASS or ROCm CK GEMM/BMM/Conv candidates, writes a profile report, "
+        "and emits an execution plan for the selected candidates."
+    )
+
+    compile_parser = subparsers.add_parser(
+        "compile",
+        description=(
+            "Compile a model artifact. With --profile, DinoML benchmarks supported CUDA CUTLASS "
+            "or ROCm CK candidates and rebuilds with the selected execution plan."
+        ),
+    )
     compile_parser.add_argument("model", help="Python model file defining build_spec()")
     compile_parser.add_argument(
         "--target",
@@ -37,11 +48,22 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--no-tf32", action="store_true", help="Disable optional TF32 CUTLASS GEMM candidates")
     compile_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     compile_parser.add_argument("--execution-plan", help="Apply a profile-selected execution_plan.json during compile")
-    compile_parser.add_argument("--profile", action="store_true", help="Profile CUDA CUTLASS or ROCm CK candidates and rebuild with the selected execution plan")
-    compile_parser.add_argument("--profile-iterations", type=int, default=20)
-    compile_parser.add_argument("--profile-repeats", type=int, default=3)
-    compile_parser.add_argument("--profile-shape", "--shape", dest="profile_shape", action="append", default=[])
-    compile_parser.add_argument("--profile-refresh", action="store_true")
+    compile_parser.add_argument(
+        "--profile",
+        action="store_true",
+        help=profile_description,
+    )
+    compile_parser.add_argument("--profile-iterations", type=int, default=20, help="Profiler iterations per candidate")
+    compile_parser.add_argument("--profile-repeats", type=int, default=3, help="Profiler timing repeats per candidate")
+    compile_parser.add_argument(
+        "--profile-shape",
+        "--shape",
+        dest="profile_shape",
+        action="append",
+        default=[],
+        help="Profile with an input shape override like input=1,128,768; repeat for multiple inputs",
+    )
+    compile_parser.add_argument("--profile-refresh", action="store_true", help="Ignore existing profiler cache entries")
     compile_parser.add_argument("--constant-load-policy", choices=("eager", "deferred"), default="eager")
     compile_parser.add_argument("--out", required=True)
 
@@ -93,14 +115,25 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_torch_ops_parser.add_argument("--fail-fast", action="store_true")
     benchmark_torch_ops_parser.add_argument("--out")
 
-    profile_parser = subparsers.add_parser("profile")
+    profile_parser = subparsers.add_parser(
+        "profile",
+        description=(
+            "Profile an existing artifact. Supports CUDA CUTLASS and ROCm CK GEMM/BMM/Conv candidates "
+            "and can write an execution_plan.json for a later compile."
+        ),
+    )
     profile_parser.add_argument("artifact")
-    profile_parser.add_argument("--iterations", type=int, default=20)
-    profile_parser.add_argument("--repeats", type=int, default=3)
-    profile_parser.add_argument("--shape", action="append", default=[])
-    profile_parser.add_argument("--out")
-    profile_parser.add_argument("--execution-plan-out")
-    profile_parser.add_argument("--refresh", action="store_true")
+    profile_parser.add_argument("--iterations", type=int, default=20, help="Profiler iterations per candidate")
+    profile_parser.add_argument("--repeats", type=int, default=3, help="Profiler timing repeats per candidate")
+    profile_parser.add_argument(
+        "--shape",
+        action="append",
+        default=[],
+        help="Profile with an input shape override like input=1,128,768; repeat for multiple inputs",
+    )
+    profile_parser.add_argument("--out", help="Write the full profile report JSON to this path")
+    profile_parser.add_argument("--execution-plan-out", help="Write selected candidates to execution_plan.json")
+    profile_parser.add_argument("--refresh", action="store_true", help="Ignore existing profiler cache entries")
 
     args = parser.parse_args(argv)
     if args.command == "compile":

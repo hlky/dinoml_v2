@@ -55,6 +55,25 @@ def test_rocm_target_is_registered_as_distinct_backend():
     assert spec.support_libraries["kernel_library"].endswith(f"dinoml_rocm_kernels{suffix}")
 
 
+def test_cli_profile_help_mentions_rocm_ck(capsys):
+    from dinoml import cli as dinoml_cli
+
+    with pytest.raises(SystemExit) as compile_exit:
+        dinoml_cli.main(["compile", "--help"])
+    compile_help = capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as profile_exit:
+        dinoml_cli.main(["profile", "--help"])
+    profile_help = capsys.readouterr().out
+
+    assert compile_exit.value.code == 0
+    assert profile_exit.value.code == 0
+    assert "ROCm CK" in compile_help
+    assert "ROCm CK" in profile_help
+    assert "GEMM/BMM/Conv" in profile_help
+    assert "input=1,128,768" in profile_help
+
+
 def test_rocm_codegen_plan_uses_arch_specific_support_cache(tmp_path):
     manifest = {
         "target": {"name": "rocm", "arch": "gfx1201"},

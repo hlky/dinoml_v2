@@ -1099,6 +1099,30 @@ def _selected_profile_candidate(required_item: Mapping[str, Any]) -> dict[str, A
     }
 
 
+def _blocked_profile_items(kernel_manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    blocked = []
+    for item in kernel_manifest.get("required_kernels", []):
+        reason = item.get("profile_blocked_reason")
+        if not reason:
+            continue
+        details = item.get("profile_blocked_details")
+        blocked.append(
+            {
+                "op": item.get("op"),
+                "dtype": item.get("dtype"),
+                "kernel_library": item.get("kernel_library"),
+                "kernel_symbol": item.get("kernel_symbol"),
+                "profiler_symbol": item.get("profiler_symbol"),
+                "candidate_set_id": item.get("candidate_set_id"),
+                "candidate_set_key": item.get("candidate_set_key"),
+                "selected_candidate_id": item.get("selected_candidate_id"),
+                "reason": str(reason),
+                "details": dict(details) if isinstance(details, Mapping) else {},
+            }
+        )
+    return blocked
+
+
 def profile_artifact(
     artifact: str | Path,
     *,
@@ -1126,7 +1150,14 @@ def profile_artifact(
     cache_path = profile_cache_path(codegen_plan)
     cache = _read_profile_cache(cache_path, manifest["target"])
     context = _profile_context(artifact_dir, manifest, codegen_plan)
-    summary = {"profiled": 0, "cached": 0, "skipped": 0, "failed": 0}
+    blocked_profile_items = _blocked_profile_items(kernel_manifest)
+    summary = {
+        "profiled": 0,
+        "cached": 0,
+        "skipped": 0,
+        "failed": 0,
+        "blocked": len(blocked_profile_items),
+    }
     if not workloads:
         report = _profile_report(
             artifact_dir,
@@ -1138,6 +1169,7 @@ def profile_artifact(
             [],
             summary,
             context=context,
+            blocked_profile_items=blocked_profile_items,
         )
         execution_plan = build_execution_plan(report)
         execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
@@ -1282,6 +1314,7 @@ def profile_artifact(
         results,
         summary,
         context=context,
+        blocked_profile_items=blocked_profile_items,
     )
     execution_plan = build_execution_plan(report)
     execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
@@ -1942,6 +1975,7 @@ def _profile_report(
     summary: Mapping[str, int],
     *,
     context: Mapping[str, Any] | None = None,
+    blocked_profile_items: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     problem_payloads = [dict(item) for item in problems]
     profile_context = dict(context or _profile_context(artifact_dir, manifest, codegen_plan))
@@ -1960,6 +1994,7 @@ def _profile_report(
         "support_libraries_cache_key": profile_context["fingerprint"]["support_libraries_key"],
         "problems": problem_payloads,
         "workloads": problem_payloads,
+        "blocked_profile_items": [dict(item) for item in blocked_profile_items],
         "repeats": int(repeats),
         "summary": dict(summary),
     }

@@ -422,6 +422,55 @@ def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
     assert [candidate["candidate_id"] for candidate in entry["candidates"]] == [target_candidate_id]
 
 
+@pytest.mark.parametrize(
+    ("case", "target_candidate_id", "support_name", "kernel_symbol", "profiler_symbol"),
+    [
+        (
+            "bmm",
+            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            "ck_bmm",
+            "dinoml_ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            "dinoml_profile_ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+        ),
+        (
+            "conv",
+            "ck_conv2d_bias_float16_xdl_wide_m_v1",
+            "ck_conv",
+            "dinoml_ck_conv2d_bias_float16_xdl_wide_m_v1",
+            "dinoml_profile_ck_conv2d_bias_float16_xdl_wide_m_v1",
+        ),
+    ],
+)
+def test_rocm_ck_bmm_conv_execution_plan_prunes_support_exports(
+    tmp_path,
+    case: str,
+    target_candidate_id: str,
+    support_name: str,
+    kernel_symbol: str,
+    profiler_symbol: str,
+):
+    if case == "bmm":
+        ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=192)
+    elif case == "conv":
+        ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    else:
+        raise AssertionError(f"unhandled CK pruning case: {case}")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    execution_plan = _ck_execution_plan_for_candidate(ir, manifest, target_candidate_id)
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == support_name
+    assert support["kernel_symbols"] == [kernel_symbol]
+    assert support["profiler_symbols"] == [profiler_symbol]
+    assert support["candidate_config_keys"] == [entry["selected_candidate"]["candidate_config_key"]]
+    assert entry["selected_candidate_id"] == target_candidate_id
+    assert [candidate["candidate_id"] for candidate in entry["candidates"]] == [target_candidate_id]
+
+
 def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
     for source_path in (
         Path("kernels/rocm/src/ck_gemm.hip"),

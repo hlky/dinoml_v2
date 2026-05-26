@@ -35,6 +35,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     validate_cutlass_conv_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
+from dinoml.ops.conv import normalize_conv2d_bias_attrs
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
 
@@ -258,7 +259,8 @@ def build_profile_workloads(
     *,
     input_shapes: Mapping[str, Sequence[int]] | None = None,
 ) -> list[GemmProfileWorkload | ConvProfileWorkload]:
-    if kernel_manifest.get("target", {}).get("name") != "cuda":
+    target_name = str(kernel_manifest.get("target", {}).get("name", ""))
+    if target_name not in {"cuda", "rocm"}:
         return []
     tensor_map = {str(tensor["name"]): tensor for tensor in graph["tensors"]}
     required_by_op: dict[str, list[Mapping[str, Any]]] = {}
@@ -276,23 +278,33 @@ def build_profile_workloads(
                 tensor_map,
                 required_by_op.get(op_name, ()),
                 overrides,
+                backend=target_name,
             )
             continue
         if op_name in CONV_OPS:
-            _append_conv_profile_workloads(
-                workloads,
-                node,
-                tensor_map,
-                required_by_op.get(op_name, ()),
-                overrides,
-            )
+            if target_name == "rocm":
+                _append_ck_conv_profile_workloads(
+                    workloads,
+                    node,
+                    tensor_map,
+                    required_by_op.get(op_name, ()),
+                    overrides,
+                )
+            else:
+                _append_conv_profile_workloads(
+                    workloads,
+                    node,
+                    tensor_map,
+                    required_by_op.get(op_name, ()),
+                    overrides,
+                )
             continue
         if op_name not in GEMM_OPS:
             continue
         output_name = str(node["outputs"][0])
         output_info = tensor_map[output_name]
         dtype = str(output_info["dtype"])
-        binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
+        binding = get_op_def(op_name).backend_kernels[target_name].resolve(dtype)
         required_item = _required_profile_item(
             required_by_op.get(op_name, ()),
             dtype,
@@ -323,18 +335,26 @@ def build_profile_workloads(
             )
             problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
             m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
-            alignment_context = cutlass_gemm_profile_alignment_context(
-                op_name,
-                dtype,
-                tensor_map,
-                a_name=a_name,
-                b_name=b_name,
-                c_name=output_name,
-                epilogue_names=tuple(name for name in (bias_name, *residual_names) if name is not None),
-                n=n,
-                k=k,
-            )
-            profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
+            if target_name == "rocm":
+                spec_problem = _ck_gemm_profile_problem(op_name, m=m, n=n, k=k)
+                alignment_context = _ck_profile_alignment_context(
+                    kind="ck_gemm_profile_alignment_context",
+                    problem=spec_problem,
+                )
+                profile_candidates = _ck_profile_candidates(required_item, spec_problem)
+            else:
+                alignment_context = cutlass_gemm_profile_alignment_context(
+                    op_name,
+                    dtype,
+                    tensor_map,
+                    a_name=a_name,
+                    b_name=b_name,
+                    c_name=output_name,
+                    epilogue_names=tuple(name for name in (bias_name, *residual_names) if name is not None),
+                    n=n,
+                    k=k,
+                )
+                profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
             for candidate in profile_candidates:
                 for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
                     workloads.append(
@@ -379,6 +399,7 @@ def build_profile_workloads(
                             dim_values=scenario.dim_values,
                             dim_sources=scenario.dim_sources,
                             alignment_context=alignment_context,
+                            kernel_library=binding.library,
                         )
                     )
     return workloads
@@ -517,18 +538,122 @@ def _append_conv_profile_workloads(
             )
 
 
-def _append_bmm_profile_workloads(
-    workloads: list[GemmProfileWorkload],
+def _append_ck_conv_profile_workloads(
+    workloads: list[GemmProfileWorkload | ConvProfileWorkload],
     node: Mapping[str, Any],
     tensor_map: Mapping[str, Mapping[str, Any]],
     required_items: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
 ) -> None:
     op_name = str(node["op"])
+    if op_name != "conv2d_bias":
+        return
     output_name = str(node["outputs"][0])
     output_info = tensor_map[output_name]
     dtype = str(output_info["dtype"])
-    binding = get_op_def(op_name).backend_kernels["cuda"].resolve(dtype)
+    binding = get_op_def(op_name).backend_kernels["rocm"].resolve(dtype)
+    required_item = _required_profile_item(required_items, dtype, binding.symbol, node_id=str(node["id"]))
+    if required_item is None:
+        return
+    x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
+    attrs = dict(node.get("attrs", {}))
+    stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
+        attrs.get("stride", (1, 1)),
+        attrs.get("padding", (0, 0)),
+        attrs.get("dilation", (1, 1)),
+        attrs.get("groups", 1),
+    )
+    if int(groups) != 1:
+        return
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+        x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
+        weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
+        bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
+        output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
+        if len(x_shape) != 4 or len(weight_shape) != 4 or len(output_shape) != 4:
+            continue
+        batch, in_channels, _in_h, _in_w = (int(dim) for dim in x_shape)
+        out_channels, _weight_c, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
+        out_h, out_w = int(output_shape[2]), int(output_shape[3])
+        problem = {
+            "batch": batch,
+            "in_channels": in_channels,
+            "out_channels": out_channels,
+            "kernel_h": kernel_h,
+            "kernel_w": kernel_w,
+            "out_h": out_h,
+            "out_w": out_w,
+            "gemm_m": batch * out_h * out_w,
+            "gemm_n": out_channels,
+            "gemm_k": in_channels * kernel_h * kernel_w,
+        }
+        profile_candidates = _ck_profile_candidates(required_item, problem)
+        conv_config = {"stride": list(stride), "padding": list(padding), "dilation": list(dilation), "groups": int(groups)}
+        for candidate in profile_candidates:
+            workloads.append(
+                ConvProfileWorkload(
+                    node_id=str(node["id"]),
+                    op=op_name,
+                    dtype=dtype,
+                    kernel_symbol=str(candidate.get("kernel_symbol") or binding.symbol),
+                    profiler_symbol=str(candidate.get("profiler_symbol") or required_item["profiler_symbol"]),
+                    candidate_set_id=(
+                        str(required_item["candidate_set_id"])
+                        if required_item.get("candidate_set_id") is not None
+                        else None
+                    ),
+                    candidate_set_key=(
+                        str(required_item["candidate_set_key"])
+                        if required_item.get("candidate_set_key") is not None
+                        else None
+                    ),
+                    candidate_id=str(candidate["candidate_id"]),
+                    candidate_config_key=(
+                        str(candidate["candidate_config_key"]) if candidate.get("candidate_config_key") is not None else None
+                    ),
+                    candidate=candidate,
+                    x_tensor=x_name,
+                    weight_tensor=weight_name,
+                    bias_tensor=bias_name,
+                    residual_tensor=None,
+                    output_tensor=output_name,
+                    x_shape=tuple(x_shape),
+                    weight_shape=tuple(weight_shape),
+                    bias_shape=tuple(bias_shape),
+                    residual_shape=None,
+                    output_shape=tuple(output_shape),
+                    conv_config=conv_config,
+                    semantic_layout=dict(candidate.get("semantic_layout", {})),
+                    provider_layout=dict(candidate.get("provider_layout", {})),
+                    layout_translation={},
+                    weight_transform={},
+                    temporary_buffers=(),
+                    workspace_nbytes=int(candidate.get("workspace_nbytes", 0) or 0),
+                    source_op=None,
+                    bias_mode=None,
+                    shape_source=scenario.source,
+                    shape_case_id=scenario.case_id,
+                    dim_values=scenario.dim_values,
+                    dim_sources=scenario.dim_sources,
+                    kernel_library=binding.library,
+                )
+            )
+
+
+def _append_bmm_profile_workloads(
+    workloads: list[GemmProfileWorkload],
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    required_items: Sequence[Mapping[str, Any]],
+    overrides: Mapping[str, Sequence[int]],
+    *,
+    backend: str,
+) -> None:
+    op_name = str(node["op"])
+    output_name = str(node["outputs"][0])
+    output_info = tensor_map[output_name]
+    dtype = str(output_info["dtype"])
+    binding = get_op_def(op_name).backend_kernels[backend].resolve(dtype)
     required_item = _required_profile_item(required_items, dtype, binding.symbol, node_id=str(node["id"]))
     if required_item is None:
         return
@@ -543,19 +668,27 @@ def _append_bmm_profile_workloads(
             for name in residual_names
         )
         batch_count, m, n, k, output_shape = bmm_problem(op_name, [a_shape, b_shape, *residual_shapes])
-        alignment_context = cutlass_bmm_profile_alignment_context(
-            op_name,
-            dtype,
-            tensor_map,
-            a_name=a_name,
-            b_name=b_name,
-            c_name=output_name,
-            epilogue_names=residual_names,
-            m=m,
-            n=n,
-            k=k,
-        )
-        profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
+        if backend == "rocm":
+            problem = _ck_bmm_profile_problem(op_name, batch=batch_count, m=m, n=n, k=k)
+            alignment_context = _ck_profile_alignment_context(
+                kind="ck_bmm_profile_alignment_context",
+                problem=problem,
+            )
+            profile_candidates = _ck_profile_candidates(required_item, problem)
+        else:
+            alignment_context = cutlass_bmm_profile_alignment_context(
+                op_name,
+                dtype,
+                tensor_map,
+                a_name=a_name,
+                b_name=b_name,
+                c_name=output_name,
+                epilogue_names=residual_names,
+                m=m,
+                n=n,
+                k=k,
+            )
+            profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
         lda = m if spec.a_layout == "c" else k
         ldb = k if spec.b_layout == "c" else n
         ldc = m if spec.c_layout == "c" else n
@@ -607,7 +740,7 @@ def _append_bmm_profile_workloads(
                         dim_values=scenario.dim_values,
                         dim_sources=scenario.dim_sources,
                         alignment_context=alignment_context,
-                        kernel_library="cutlass_bmm",
+                        kernel_library=binding.library,
                         batch_count=batch_count,
                         batch_stride_a=batch_stride_a,
                         batch_stride_b=batch_stride_b,
@@ -641,6 +774,85 @@ def _bmm_d0_profile_layout(
     if len(squeezed) == 1 and int(squeezed[0]) == int(output[-1]):
         return 0, 0
     raise RuntimeError(f"CUTLASS BMM profiler only supports full-output or trailing-bias add epilogue, got {d0_shape}")
+
+
+def _ck_gemm_profile_problem(op_name: str, *, m: int, n: int, k: int) -> dict[str, int | str]:
+    spec = gemm_op_spec(op_name)
+    return {
+        "m": int(m),
+        "n": int(n),
+        "k": int(k),
+        "a_k": int(k),
+        "b_k": int(k),
+        "b_n": int(n),
+        "output_n": int(n),
+        "base_layout": spec.base_layout,
+    }
+
+
+def _ck_bmm_profile_problem(op_name: str, *, batch: int, m: int, n: int, k: int) -> dict[str, int | str]:
+    spec = bmm_op_spec(op_name)
+    return {
+        "batch": int(batch),
+        "m": int(m),
+        "n": int(n),
+        "k": int(k),
+        "a_m": int(m),
+        "a_k": int(k),
+        "b_n": int(n),
+        "b_k": int(k),
+        "output_n": int(n),
+        "output_layout": spec.c_layout,
+        "base_layout": spec.base_layout,
+    }
+
+
+def _ck_profile_alignment_context(*, kind: str, problem: Mapping[str, int | str]) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "candidate_filter": {
+            "provider": "ck",
+            "policy": "selection_predicate",
+        },
+        "problem": dict(problem),
+    }
+
+
+def _ck_profile_candidates(required_item: Mapping[str, Any], problem: Mapping[str, int | str]) -> list[dict[str, Any]]:
+    candidates = [
+        dict(candidate)
+        for candidate in required_item.get("candidates", [])
+        if _ck_profile_candidate_compatible(candidate, problem)
+    ]
+    if candidates:
+        return candidates
+    if required_item.get("candidates"):
+        fallback = _selected_profile_candidate(required_item)
+        return [fallback] if _ck_profile_candidate_compatible(fallback, problem) else []
+    return [_selected_profile_candidate(required_item)]
+
+
+def _ck_profile_candidate_compatible(candidate: Mapping[str, Any], problem: Mapping[str, int | str]) -> bool:
+    predicate = candidate.get("selection_predicate")
+    if not isinstance(predicate, Mapping):
+        return True
+    required_output_layout = predicate.get("requires_output_layout")
+    if required_output_layout is not None and problem.get("output_layout") != required_output_layout:
+        return False
+    min_problem = predicate.get("min_problem", {})
+    if isinstance(min_problem, Mapping):
+        for key, minimum in min_problem.items():
+            value = problem.get(str(key))
+            if not isinstance(value, int) or value < int(minimum):
+                return False
+    alignment = predicate.get("alignment", {})
+    if isinstance(alignment, Mapping):
+        for key, divisor in alignment.items():
+            width = int(divisor)
+            value = problem.get(str(key))
+            if width > 1 and (not isinstance(value, int) or value % width != 0):
+                return False
+    return True
 
 
 def _profile_candidates(
@@ -867,8 +1079,9 @@ def profile_artifact(
     repeats = _positive_int(repeats, "repeats")
     artifact_dir = Path(artifact)
     manifest = read_json(artifact_dir / "manifest.json")
-    if manifest.get("target", {}).get("name") != "cuda":
-        raise ValueError("Profiler runner currently supports CUDA artifacts only")
+    target_name = str(manifest.get("target", {}).get("name", ""))
+    if target_name not in {"cuda", "rocm"}:
+        raise ValueError("Profiler runner currently supports CUDA and ROCm artifacts only")
     graph = read_json(artifact_dir / manifest["files"]["graph"])
     _validate_symbolic_int_expr_profile_graph(graph)
     kernel_manifest = read_json(artifact_dir / manifest["files"]["kernel_manifest"])
@@ -931,7 +1144,7 @@ def profile_artifact(
                 if not missing_workloads:
                     continue
                 if profiler is None:
-                    profiler = _CudaProfiler(artifact_dir, manifest, codegen_plan)
+                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
                 if workload.kernel_library == "cutlass_gemm":
                     profiled_rows = profiler.profile_cutlass_gemm_problem(
                         workload,
@@ -986,13 +1199,25 @@ def profile_artifact(
                 summary["cached"] += 1
             else:
                 if profiler is None:
-                    profiler = _CudaProfiler(artifact_dir, manifest, codegen_plan)
+                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
                 samples_ms = []
                 workspace_nbytes = int(workload.workspace_nbytes)
-                for _ in range(repeats):
-                    elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=iterations, rng=rng)
-                    samples_ms.append(elapsed_ms)
-                    workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+                try:
+                    for _ in range(repeats):
+                        elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=iterations, rng=rng)
+                        samples_ms.append(elapsed_ms)
+                        workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+                except RuntimeError as exc:
+                    results.append(
+                        _profile_failure_result(
+                            workload,
+                            iterations,
+                            profile_key=profile_key,
+                            error=str(exc),
+                        )
+                    )
+                    summary["failed"] += 1
+                    continue
                 timing = _profile_timing(samples_ms, iterations=iterations)
                 result = _profile_result(
                     workload,
@@ -1307,7 +1532,7 @@ def _profile_result(
     timing: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     _require_supported_profile_workload(workload, context="profile result")
-    if workload.kernel_library == "cutlass_conv":
+    if isinstance(workload, ConvProfileWorkload):
         return _conv_profile_result(
             workload,
             elapsed_ms,
@@ -1322,7 +1547,7 @@ def _profile_result(
     timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
     batch_count = int(workload.batch_count or 1)
     flops = 2 * batch_count * workload.m * workload.n * workload.k
-    if workload.kernel_library == "cutlass_bmm":
+    if workload.batch_count is not None:
         bytes_moved = dtype_nbytes(workload.dtype) * (
             int(np.prod(workload.a_shape, dtype=np.int64))
             + int(np.prod(workload.b_shape, dtype=np.int64))
@@ -1513,6 +1738,45 @@ def _conv_profile_result(
     return payload
 
 
+def _profile_failure_result(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    iterations: int,
+    *,
+    profile_key: str,
+    error: str,
+) -> dict[str, Any]:
+    payload = workload.to_json()
+    candidate_result = dict(workload.candidate)
+    candidate_result.update(
+        {
+            "candidate_id": workload.candidate_id,
+            "workspace_nbytes": int(workload.workspace_nbytes),
+            "iterations": int(iterations),
+            "status": "failed",
+            "error": str(error),
+        }
+    )
+    payload.update(
+        {
+            "profile_key": profile_key,
+            "status": "failed",
+            "reason": "profiler_error",
+            "error": str(error),
+            "kernel_library": workload.kernel_library,
+            "iterations": int(iterations),
+            "repeats": 0,
+            "workspace_nbytes": int(workload.workspace_nbytes),
+            "candidates": [candidate_result],
+            "selected": {
+                "candidate_id": workload.candidate_id,
+                "split_k": getattr(workload, "split_k", 1),
+                "reason": "profiler_error",
+            },
+        }
+    )
+    return payload
+
+
 def _profile_report(
     artifact_dir: Path,
     manifest: Mapping[str, Any],
@@ -1594,7 +1858,7 @@ def _profile_context(
     codegen_plan: Mapping[str, Any],
 ) -> dict[str, Any]:
     libraries = _profile_libraries(artifact_dir, manifest, codegen_plan)
-    hardware = _cuda_hardware_fingerprint(manifest["target"])
+    hardware = _hardware_fingerprint(manifest["target"])
     hardware_cache_payload = _hardware_cache_payload(hardware)
     support_libraries_cache_payload = _support_libraries_cache_payload(libraries)
     hardware_key = _fingerprint_key(hardware_cache_payload)
@@ -1617,6 +1881,13 @@ def _profile_context(
         "hardware_cache_payload": hardware_cache_payload,
         "support_libraries_cache_payload": support_libraries_cache_payload,
     }
+
+
+def _hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
+    backend = str(target.get("name", "cuda"))
+    if backend == "rocm":
+        return _rocm_hardware_fingerprint(target)
+    return _cuda_hardware_fingerprint(target)
 
 
 def _cache_library_path(item: Mapping[str, Any], cache_dir: Path | None) -> Path | None:
@@ -1714,6 +1985,53 @@ def _cuda_hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _rocm_hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "backend": "rocm",
+        "target_arch": str(target.get("arch", "")),
+        "hip_visible_devices": os.environ.get("HIP_VISIBLE_DEVICES", ""),
+        "rocr_visible_devices": os.environ.get("ROCR_VISIBLE_DEVICES", ""),
+        "gpu_device_ordinal": os.environ.get("GPU_DEVICE_ORDINAL", ""),
+        "devices": _query_rocm_smi_devices(),
+        "hipconfig": _query_tool_version("hipconfig", "--version"),
+        "rocminfo": _query_tool_version("rocminfo", "--version"),
+    }
+
+
+def _query_rocm_smi_devices() -> list[dict[str, Any]]:
+    if shutil.which("rocm-smi") is None:
+        return []
+    proc = _run_capture(["rocm-smi", "--showproductname", "--showdriverversion", "--showmeminfo", "vram"], timeout=2.0)
+    if proc is None or proc.returncode != 0:
+        return []
+    devices = []
+    current: dict[str, Any] = {}
+    for line in proc.stdout.splitlines():
+        if "GPU[" in line:
+            if current:
+                devices.append(current)
+            index_match = re.search(r"GPU\[(\d+)\]", line)
+            current = {"index": _parse_int(index_match.group(1)) if index_match else None, "raw": line.strip()}
+        elif current and line.strip():
+            current.setdefault("raw_extra", []).append(line.strip())
+    if current:
+        devices.append(current)
+    return devices
+
+
+def _query_tool_version(tool: str, *args: str) -> dict[str, str]:
+    if shutil.which(tool) is None:
+        return {"available": "false"}
+    proc = _run_capture([tool, *args], timeout=2.0)
+    if proc is None or proc.returncode != 0:
+        return {"available": "false"}
+    first_line = next((line.strip() for line in proc.stdout.splitlines() if line.strip()), "")
+    payload = {"available": "true"}
+    if first_line:
+        payload["version"] = first_line
+    return payload
+
+
 def _query_nvidia_smi_devices() -> list[dict[str, Any]]:
     if shutil.which("nvidia-smi") is None:
         return []
@@ -1785,15 +2103,32 @@ def _hardware_cache_payload(hardware: Mapping[str, Any]) -> dict[str, Any]:
                 "compute_capability": item.get("compute_capability"),
                 "driver_version": item.get("driver_version"),
                 "memory_total_mib": item.get("memory_total_mib"),
+                "raw": item.get("raw"),
             }
         )
-    return {
+    payload = {
         "backend": hardware.get("backend"),
         "target_arch": hardware.get("target_arch"),
-        "cuda_visible_devices": hardware.get("cuda_visible_devices", ""),
         "devices": devices,
-        "nvcc": dict(hardware.get("nvcc", {})) if isinstance(hardware.get("nvcc"), Mapping) else {},
     }
+    if hardware.get("backend") == "rocm":
+        payload.update(
+            {
+                "hip_visible_devices": hardware.get("hip_visible_devices", ""),
+                "rocr_visible_devices": hardware.get("rocr_visible_devices", ""),
+                "gpu_device_ordinal": hardware.get("gpu_device_ordinal", ""),
+                "hipconfig": dict(hardware.get("hipconfig", {})) if isinstance(hardware.get("hipconfig"), Mapping) else {},
+                "rocminfo": dict(hardware.get("rocminfo", {})) if isinstance(hardware.get("rocminfo"), Mapping) else {},
+            }
+        )
+    else:
+        payload.update(
+            {
+                "cuda_visible_devices": hardware.get("cuda_visible_devices", ""),
+                "nvcc": dict(hardware.get("nvcc", {})) if isinstance(hardware.get("nvcc"), Mapping) else {},
+            }
+        )
+    return payload
 
 
 def _support_libraries_cache_payload(libraries: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -1837,7 +2172,7 @@ def _profile_key_payload(
 ) -> dict[str, Any]:
     _require_supported_profile_workload(workload, context="profile cache key")
     profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
-    if workload.kernel_library == "cutlass_conv":
+    if isinstance(workload, ConvProfileWorkload):
         return {
             "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
             "target": manifest["target"],
@@ -2049,7 +2384,7 @@ def _cache_entry(
         "iterations": int(candidate["iterations"]),
         "repeats": int(candidate.get("repeats", timing.get("repeats", 1)) or 1),
     }
-    if workload.kernel_library == "cutlass_conv":
+    if isinstance(workload, ConvProfileWorkload):
         payload.update(
             {
                 "layout_translation": dict(workload.layout_translation),
@@ -2202,7 +2537,7 @@ def _selection_from_group(
         if isinstance(best.get("profile_variant"), Mapping)
         else {"split_k": split_k}
     )
-    if best.get("kernel_library") != "cutlass_conv":
+    if best.get("kernel_library") not in {"cutlass_conv", "ck_conv"}:
         profile_variant["split_k"] = split_k
     return {
         "selection_key": hashlib.sha256(
@@ -2245,7 +2580,7 @@ def _selection_from_group(
 
 
 def _execution_plan_problem_shape(problem: Mapping[str, Any]) -> dict[str, Any] | None:
-    if problem.get("kernel_library") == "cutlass_conv":
+    if problem.get("kernel_library") in {"cutlass_conv", "ck_conv"}:
         shape = problem.get("shape")
         if not isinstance(shape, Mapping):
             return None
@@ -2843,6 +3178,322 @@ def _load_python_extension(path: Path, module_name: str) -> Any:
     finally:
         sys.setdlopenflags(old_flags)
     return module
+
+
+def _profiler_for_target(artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]) -> Any:
+    target_name = str(manifest.get("target", {}).get("name", ""))
+    if target_name == "rocm":
+        return _CkRocmProfiler(artifact_dir, manifest)
+    return _CudaProfiler(artifact_dir, manifest, codegen_plan)
+
+
+class _CkRocmProfiler:
+    def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any]):
+        files = manifest["files"]
+        global_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(ctypes, "RTLD_NOW", 0)
+        self._dll_dirs: list[Any] = []
+        if os.name == "nt" and hasattr(os, "add_dll_directory"):
+            for directory in (artifact_dir, artifact_dir / "lib"):
+                if directory.exists():
+                    self._dll_dirs.append(os.add_dll_directory(str(directory)))
+        self._runtime = ctypes.CDLL(str(artifact_dir / files["runtime_library"]), mode=global_mode)
+        self._rocm_runtime = ctypes.CDLL(str(artifact_dir / files["rocm_runtime_library"]), mode=global_mode)
+        module_path = artifact_dir / str(files.get("module", "module.so"))
+        if not module_path.exists():
+            raise RuntimeError(f"ROCm profiler requires a compiled module with CK profiler symbols: {module_path}")
+        self._module = ctypes.CDLL(str(module_path), mode=global_mode)
+        self._buffers: list[ctypes.c_void_p] = []
+        self._runtime.dino_get_last_error.restype = ctypes.c_char_p
+        if hasattr(self._rocm_runtime, "dino_get_last_error"):
+            self._rocm_runtime.dino_get_last_error.restype = ctypes.c_char_p
+        self._rocm_runtime.dino_device_malloc.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.c_size_t]
+        self._rocm_runtime.dino_device_malloc.restype = ctypes.c_int
+        self._rocm_runtime.dino_device_free.argtypes = [ctypes.c_void_p]
+        self._rocm_runtime.dino_device_free.restype = ctypes.c_int
+        self._rocm_runtime.dino_copy_host_to_device.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+        self._rocm_runtime.dino_copy_host_to_device.restype = ctypes.c_int
+
+    def close(self) -> None:
+        for index in range(len(self._buffers) - 1, -1, -1):
+            ptr = self._buffers[index]
+            self._check(self._rocm_runtime.dino_device_free(ptr))
+            del self._buffers[index]
+        for handle in reversed(self._dll_dirs):
+            close = getattr(handle, "close", None)
+            if close is not None:
+                close()
+        self._dll_dirs.clear()
+
+    def profile(
+        self,
+        workload: GemmProfileWorkload | ConvProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
+        if workload.kernel_library == "ck_gemm":
+            return self.profile_ck_gemm(workload, iterations=iterations, rng=rng)
+        if workload.kernel_library == "ck_bmm":
+            return self.profile_ck_bmm(workload, iterations=iterations, rng=rng)
+        if workload.kernel_library == "ck_conv" and isinstance(workload, ConvProfileWorkload):
+            return self.profile_ck_conv(workload, iterations=iterations, rng=rng)
+        raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
+
+    def profile_ck_gemm(
+        self,
+        workload: GemmProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
+        fn = self._profiler_function(workload.profiler_symbol)
+        abi = str(workload.candidate.get("launch_abi", ""))
+        ptr = ctypes.c_void_p
+        if abi == "dinoml_ck_gemm_v1":
+            fn.argtypes = [ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        elif abi == "dinoml_ck_gemm_bias_v1":
+            fn.argtypes = [ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        elif abi == "dinoml_ck_gemm_bias_residual_v1":
+            fn.argtypes = [ptr, ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        elif abi == "dinoml_ck_gemm_bias_residual2_v1":
+            fn.argtypes = [ptr, ptr, ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        else:
+            raise RuntimeError(f"Unsupported CK GEMM profiler ABI {abi!r} for {workload.candidate_id}")
+        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
+        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+        args: list[Any] = [a, b]
+        if abi != "dinoml_ck_gemm_v1":
+            if workload.bias_shape is None:
+                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires a bias tensor")
+            args.append(self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng)))
+        if abi in {"dinoml_ck_gemm_bias_residual_v1", "dinoml_ck_gemm_bias_residual2_v1"}:
+            if not workload.residual_shapes:
+                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d0")
+            args.append(self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng)))
+        if abi == "dinoml_ck_gemm_bias_residual2_v1":
+            if len(workload.residual_shapes) < 2:
+                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d1")
+            args.append(self._device_array(_random_storage(workload.residual_shapes[1], workload.dtype, rng)))
+        args.extend([c, workload.m, workload.n, workload.k, int(iterations), ctypes.c_void_p()])
+        elapsed_ms = float(fn(*args))
+        self._check_ck_elapsed(elapsed_ms, workload)
+        return elapsed_ms, int(workload.workspace_nbytes)
+
+    def profile_ck_bmm(
+        self,
+        workload: GemmProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
+        fn = self._profiler_function(workload.profiler_symbol)
+        abi = str(workload.candidate.get("launch_abi", ""))
+        ptr = ctypes.c_void_p
+        i64 = ctypes.c_longlong
+        if abi == "dinoml_ck_bmm_v1":
+            fn.argtypes = [
+                ptr,
+                ptr,
+                ptr,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                i64,
+                i64,
+                i64,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ptr,
+            ]
+        elif abi == "dinoml_ck_bmm_add_v1":
+            fn.argtypes = [
+                ptr,
+                ptr,
+                ptr,
+                ptr,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                i64,
+                i64,
+                i64,
+                i64,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ptr,
+            ]
+        else:
+            raise RuntimeError(f"Unsupported CK BMM profiler ABI {abi!r} for {workload.candidate_id}")
+        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
+        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+        common = [
+            int(workload.batch_count or 1),
+            workload.m,
+            workload.n,
+            workload.k,
+            int(workload.batch_stride_a or 0),
+            int(workload.batch_stride_b or 0),
+        ]
+        if abi == "dinoml_ck_bmm_add_v1":
+            if not workload.residual_shapes:
+                raise RuntimeError("CK BMM add profiler requires residual tensor d0")
+            d0 = self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng))
+            args = [
+                a,
+                b,
+                d0,
+                c,
+                *common,
+                int(workload.batch_stride_d0 or 0),
+                int(workload.batch_stride_c or 0),
+                int(workload.lda or 0),
+                int(workload.ldb or 0),
+                int(workload.ldd0 or 0),
+                int(workload.ldc or 0),
+                int(iterations),
+                ctypes.c_void_p(),
+            ]
+        else:
+            args = [
+                a,
+                b,
+                c,
+                *common,
+                int(workload.batch_stride_c or 0),
+                int(workload.lda or 0),
+                int(workload.ldb or 0),
+                int(workload.ldc or 0),
+                int(iterations),
+                ctypes.c_void_p(),
+            ]
+        elapsed_ms = float(fn(*args))
+        self._check_ck_elapsed(elapsed_ms, workload)
+        return elapsed_ms, int(workload.workspace_nbytes)
+
+    def profile_ck_conv(
+        self,
+        workload: ConvProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
+        fn = self._profiler_function(workload.profiler_symbol)
+        ptr = ctypes.c_void_p
+        fn.argtypes = [
+            ptr,
+            ptr,
+            ptr,
+            ptr,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ptr,
+        ]
+        x = self._device_array(_random_storage(workload.x_shape, workload.dtype, rng))
+        weight = self._device_array(_random_storage(workload.weight_shape, workload.dtype, rng))
+        bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+        output = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+        batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
+        out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+        out_height, out_width = int(workload.output_shape[2]), int(workload.output_shape[3])
+        stride = list(workload.conv_config.get("stride", (1, 1)))
+        padding = list(workload.conv_config.get("padding", (0, 0)))
+        dilation = list(workload.conv_config.get("dilation", (1, 1)))
+        elapsed_ms = float(
+            fn(
+                x,
+                weight,
+                bias,
+                output,
+                batch,
+                in_channels,
+                in_height,
+                in_width,
+                out_channels,
+                kernel_h,
+                kernel_w,
+                out_height,
+                out_width,
+                int(stride[0]),
+                int(stride[1]),
+                int(padding[0]),
+                int(padding[1]),
+                int(dilation[0]),
+                int(dilation[1]),
+                int(iterations),
+                ctypes.c_void_p(),
+            )
+        )
+        self._check_ck_elapsed(elapsed_ms, workload)
+        return elapsed_ms, int(workload.workspace_nbytes)
+
+    def _profiler_function(self, symbol: str) -> Any:
+        try:
+            fn = getattr(self._module, symbol)
+        except AttributeError as exc:
+            raise RuntimeError(f"Compiled ROCm module does not export CK profiler symbol {symbol!r}") from exc
+        fn.restype = ctypes.c_float
+        return fn
+
+    def _device_array(self, array: np.ndarray) -> ctypes.c_void_p:
+        contiguous = np.ascontiguousarray(array)
+        ptr = ctypes.c_void_p()
+        self._check(self._rocm_runtime.dino_device_malloc(ctypes.byref(ptr), ctypes.c_size_t(contiguous.nbytes)))
+        self._buffers.append(ptr)
+        self._check(
+            self._rocm_runtime.dino_copy_host_to_device(
+                ptr,
+                ctypes.c_void_p(contiguous.ctypes.data),
+                ctypes.c_size_t(contiguous.nbytes),
+            )
+        )
+        return ptr
+
+    def _check(self, code: int) -> None:
+        if code == 0:
+            return
+        error = None
+        getter = getattr(self._rocm_runtime, "dino_get_last_error", None)
+        if getter is not None:
+            error = getter()
+        if not error:
+            error = self._runtime.dino_get_last_error()
+        message = error.decode("utf-8") if error else f"ROCm profiler helper failed with code {code}"
+        raise RuntimeError(message)
+
+    def _check_ck_elapsed(
+        self,
+        elapsed_ms: float,
+        workload: GemmProfileWorkload | ConvProfileWorkload,
+    ) -> None:
+        if math.isfinite(elapsed_ms) and elapsed_ms >= 0.0:
+            return
+        raise RuntimeError(
+            f"CK ROCm profiler rejected {workload.op} candidate {workload.candidate_id} "
+            f"for profiler symbol {workload.profiler_symbol!r}"
+        )
 
 
 class _CudaProfiler:

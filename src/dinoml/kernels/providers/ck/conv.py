@@ -12,6 +12,11 @@ CK_CONV_CANDIDATE_SET_SCHEMA_VERSION = 1
 CK_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CK_CONV_DEFAULT_SYMBOL_ID = "xdl_custom_v1"
 CK_CONV_TUNED_SYMBOL_ID = "xdl_wide_n_v1"
+CK_CONV_WIDE_M_SYMBOL_ID = "xdl_wide_m_v1"
+CK_CONV_SQUARE_SYMBOL_ID = "xdl_square_v1"
+CK_CONV_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
+CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
+CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_CONV_OPS = ("conv2d_bias",)
 CK_CONV_SUPPORTED_DTYPES = ("float16", "float32")
 CK_CONV_DEFAULT_WORKSPACE_NBYTES = 0
@@ -30,9 +35,49 @@ CK_CONV_CONFIGS = (
         "name": "wide_n",
         "symbol_id": CK_CONV_TUNED_SYMBOL_ID,
         "config_enum": "kWideN",
-        "priority": 10,
+        "priority": 60,
         "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 256},
         "min_problem": {"gemm_m": 128, "out_channels": 64},
+    },
+    {
+        "name": "wide_m",
+        "symbol_id": CK_CONV_WIDE_M_SYMBOL_ID,
+        "config_enum": "kWideM",
+        "priority": 50,
+        "tile": {"block_size": 256, "m_per_block": 256, "n_per_block": 128},
+        "min_problem": {"gemm_m": 256, "out_channels": 32},
+    },
+    {
+        "name": "square",
+        "symbol_id": CK_CONV_SQUARE_SYMBOL_ID,
+        "config_enum": "kSquare",
+        "priority": 40,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
+        "min_problem": {"gemm_m": 64, "out_channels": 32},
+    },
+    {
+        "name": "skinny_m",
+        "symbol_id": CK_CONV_SKINNY_M_SYMBOL_ID,
+        "config_enum": "kSkinnyM",
+        "priority": 30,
+        "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 128},
+        "min_problem": {"gemm_m": 16, "out_channels": 64},
+    },
+    {
+        "name": "skinny_n",
+        "symbol_id": CK_CONV_SKINNY_N_SYMBOL_ID,
+        "config_enum": "kSkinnyN",
+        "priority": 20,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 64},
+        "min_problem": {"gemm_m": 64, "out_channels": 16},
+    },
+    {
+        "name": "small",
+        "symbol_id": CK_CONV_SMALL_SYMBOL_ID,
+        "config_enum": "kSmall",
+        "priority": 10,
+        "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 64},
+        "min_problem": {"gemm_m": 16, "out_channels": 16},
     },
 )
 
@@ -109,7 +154,7 @@ def ck_conv_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_CONV_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_conv2d_xdl_custom_candidates_v1",
+        "generator": "static_ck_conv2d_xdl_curated_candidates_v2",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -121,7 +166,7 @@ def ck_conv_candidate_set(
 
 def ck_conv_candidate_set_id(op_name: str, dtype: str) -> str:
     _validate_ck_conv_op(op_name)
-    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_bias_v1"
+    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_bias_v2"
 
 
 def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -342,6 +387,8 @@ def _ck_export_ctype(dtype: str) -> str:
 def _ck_conv_vector_width(dtype: str, config_name: str) -> int:
     if config_name == "baseline":
         return 1
+    if config_name == "small":
+        return 2 if dtype == "float32" else 4
     if dtype == "float32":
         return 4
     return 8

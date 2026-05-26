@@ -1,3 +1,4 @@
+#include <dinoml/abi.h>
 #include <dinoml/math.h>
 
 #include <hip/hip_runtime.h>
@@ -24,6 +25,31 @@ enum class GemmBLayout {
 enum class GemmConfig {
   kBaseline,
   kWideM,
+  kWideN,
+  kSquare,
+  kSkinnyM,
+  kSkinnyN,
+  kCodegenT02DefaultV1,
+  kCodegenT04DefaultV1,
+  kCodegenT05DefaultV1,
+  kCodegenT00InterwaveV1,
+  kCodegenT01InterwaveV1,
+  kCodegenT02InterwaveV1,
+  kCodegenT03InterwaveV1,
+  kCodegenT04InterwaveV1,
+  kCodegenT05InterwaveV1,
+  kCodegenT06InterwaveV1,
+  kCodegenT07InterwaveV1,
+  kCodegenT08InterwaveV1,
+  kCodegenT00DefaultV2,
+  kCodegenT01DefaultV2,
+  kCodegenT02DefaultV2,
+  kCodegenT03DefaultV2,
+  kCodegenT04DefaultV2,
+  kCodegenT05DefaultV2,
+  kCodegenT06DefaultV2,
+  kCodegenT07DefaultV2,
+  kCodegenT08DefaultV2,
 };
 
 enum class EpilogueKind {
@@ -60,51 +86,11 @@ using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 static constexpr auto GemmMNKPadding =
     ck::tensor_operation::device::GemmSpecialization::MNKPadding;
 
-template <GemmConfig Config, typename Storage>
-struct GemmKernelConfig;
-
-template <typename Storage>
-struct GemmKernelConfig<GemmConfig::kBaseline, Storage> {
-  static constexpr ck::index_t BlockSize = 256;
-  static constexpr ck::index_t MPerBlock = 128;
-  static constexpr ck::index_t NPerBlock = 128;
-  static constexpr ck::index_t KPerBlock = 32;
-  static constexpr ck::index_t AK1 = 8;
-  static constexpr ck::index_t BK1 = 8;
-  static constexpr ck::index_t MPerXDL = 32;
-  static constexpr ck::index_t NPerXDL = 32;
-  static constexpr ck::index_t MXdlPerWave = 2;
-  static constexpr ck::index_t NXdlPerWave = 2;
-  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 1;
-  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = 1;
-  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = 1;
-  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 1;
-  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 1;
-  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
-};
+template <int TileIndex>
+struct GemmCodegenTile;
 
 template <>
-struct GemmKernelConfig<GemmConfig::kBaseline, float> {
-  static constexpr ck::index_t BlockSize = 256;
-  static constexpr ck::index_t MPerBlock = 128;
-  static constexpr ck::index_t NPerBlock = 128;
-  static constexpr ck::index_t KPerBlock = 16;
-  static constexpr ck::index_t AK1 = 4;
-  static constexpr ck::index_t BK1 = 4;
-  static constexpr ck::index_t MPerXDL = 32;
-  static constexpr ck::index_t NPerXDL = 32;
-  static constexpr ck::index_t MXdlPerWave = 2;
-  static constexpr ck::index_t NXdlPerWave = 2;
-  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 1;
-  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = 1;
-  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = 1;
-  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 1;
-  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 1;
-  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
-};
-
-template <typename Storage>
-struct GemmKernelConfig<GemmConfig::kWideM, Storage> {
+struct GemmCodegenTile<0> {
   static constexpr ck::index_t BlockSize = 256;
   static constexpr ck::index_t MPerBlock = 256;
   static constexpr ck::index_t NPerBlock = 128;
@@ -115,18 +101,38 @@ struct GemmKernelConfig<GemmConfig::kWideM, Storage> {
   static constexpr ck::index_t NPerXDL = 16;
   static constexpr ck::index_t MXdlPerWave = 8;
   static constexpr ck::index_t NXdlPerWave = 4;
-  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 8;
-  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = 8;
-  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = 8;
-  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 8;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
   static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 64, 1>;
   using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
 };
 
 template <>
-struct GemmKernelConfig<GemmConfig::kWideM, float> {
+struct GemmCodegenTile<1> {
   static constexpr ck::index_t BlockSize = 256;
-  static constexpr ck::index_t MPerBlock = 256;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 256;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 4;
+  static constexpr ck::index_t NXdlPerWave = 8;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 64, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<2> {
+  static constexpr ck::index_t BlockSize = 128;
+  static constexpr ck::index_t MPerBlock = 128;
   static constexpr ck::index_t NPerBlock = 128;
   static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = 8;
@@ -135,12 +141,267 @@ struct GemmKernelConfig<GemmConfig::kWideM, float> {
   static constexpr ck::index_t NPerXDL = 16;
   static constexpr ck::index_t MXdlPerWave = 8;
   static constexpr ck::index_t NXdlPerWave = 4;
-  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 4;
-  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = 4;
-  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = 4;
-  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 4;
-  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 2;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 32, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 16, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<3> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 4;
+  static constexpr ck::index_t NXdlPerWave = 4;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 64, 1>;
   using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<4> {
+  static constexpr ck::index_t BlockSize = 128;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 64;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 4;
+  static constexpr ck::index_t NXdlPerWave = 4;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 32, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
+};
+
+template <>
+struct GemmCodegenTile<5> {
+  static constexpr ck::index_t BlockSize = 128;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 4;
+  static constexpr ck::index_t NXdlPerWave = 4;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 32, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 16, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<6> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 64;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 4;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 64, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<7> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 4;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 64, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
+};
+
+template <>
+struct GemmCodegenTile<8> {
+  static constexpr ck::index_t BlockSize = 64;
+  static constexpr ck::index_t MPerBlock = 32;
+  static constexpr ck::index_t NPerBlock = 32;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 1;
+  using ABlockTransferThreadClusterLengths = S<4, 16, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 16, 1, 4>;
+};
+
+template <GemmBLayout LayoutB, int TileIndex>
+struct GemmBBlockTransferTraits;
+
+template <int TileIndex>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector;
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<0> {
+  static constexpr ck::index_t value = 2;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<1> {
+  static constexpr ck::index_t value = 4;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<2> {
+  static constexpr ck::index_t value = 4;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<3> {
+  static constexpr ck::index_t value = 2;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<4> {
+  static constexpr ck::index_t value = 2;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<5> {
+  static constexpr ck::index_t value = 4;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<6> {
+  static constexpr ck::index_t value = 1;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<7> {
+  static constexpr ck::index_t value = 2;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<8> {
+  static constexpr ck::index_t value = 1;
+};
+
+template <int TileIndex>
+struct GemmBBlockTransferTraits<GemmBLayout::kRcr, TileIndex> {
+  using ThreadClusterLengths = typename GemmCodegenTile<TileIndex>::ABlockTransferThreadClusterLengths;
+  using ThreadClusterArrangeOrder = S<1, 0, 2>;
+  using SrcAccessOrder = S<1, 0, 2>;
+  static constexpr ck::index_t SrcVectorDim = 2;
+  static constexpr ck::index_t SrcScalarPerVector = TileIndex == 8 ? 1 : 8;
+  static constexpr ck::index_t DstScalarPerVector_BK1 = 8;
+  static constexpr ck::index_t LdsExtraN = 1;
+};
+
+template <int TileIndex>
+struct GemmBBlockTransferTraits<GemmBLayout::kRrr, TileIndex> {
+  using ThreadClusterLengths = typename GemmCodegenTile<TileIndex>::ABlockTransferThreadClusterLengths;
+  using ThreadClusterArrangeOrder = S<0, 2, 1>;
+  using SrcAccessOrder = S<0, 2, 1>;
+  static constexpr ck::index_t SrcVectorDim = 1;
+  static constexpr ck::index_t SrcScalarPerVector =
+      GemmBBlockTransferRowMajorSrcScalarPerVector<TileIndex>::value;
+  static constexpr ck::index_t DstScalarPerVector_BK1 = 8;
+  static constexpr ck::index_t LdsExtraN = 1;
+};
+
+template <int TileIndex>
+struct GemmABlockTransferTraits {
+  using ThreadClusterLengths = typename GemmCodegenTile<TileIndex>::ABlockTransferThreadClusterLengths;
+  using ThreadClusterArrangeOrder = S<1, 0, 2>;
+  using SrcAccessOrder = S<1, 0, 2>;
+  static constexpr ck::index_t SrcVectorDim = 2;
+  static constexpr ck::index_t SrcScalarPerVector = TileIndex == 8 ? 1 : 8;
+  static constexpr ck::index_t DstScalarPerVector_AK1 = 8;
+  static constexpr ck::index_t LdsExtraM = 1;
+};
+
+template <GemmConfig Config>
+struct GemmConfigTraits;
+
+template <int TileIndex, ck::LoopScheduler SchedulerValue, ck::PipelineVersion PipelineValue>
+struct GemmConfigTraitsBase : GemmCodegenTile<TileIndex> {
+  static constexpr int Tile = TileIndex;
+  static constexpr ck::LoopScheduler LoopScheduler = SchedulerValue;
+  static constexpr ck::PipelineVersion PipelineVersion = PipelineValue;
+};
+
+#define DINOML_CK_GEMM_CONFIG_TRAITS(CONFIG, TILE, SCHEDULER, PIPELINE) \
+template <> \
+struct GemmConfigTraits<GemmConfig::CONFIG> \
+    : GemmConfigTraitsBase<TILE, ck::LoopScheduler::SCHEDULER, ck::PipelineVersion::PIPELINE> {};
+
+DINOML_CK_GEMM_CONFIG_TRAITS(kWideM, 0, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kWideN, 1, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT02DefaultV1, 2, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kSquare, 3, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT04DefaultV1, 4, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05DefaultV1, 5, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kSkinnyN, 6, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kSkinnyM, 7, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kBaseline, 8, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT00InterwaveV1, 0, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT01InterwaveV1, 1, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT02InterwaveV1, 2, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT03InterwaveV1, 3, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT04InterwaveV1, 4, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05InterwaveV1, 5, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT06InterwaveV1, 6, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT07InterwaveV1, 7, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT08InterwaveV1, 8, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT00DefaultV2, 0, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT01DefaultV2, 1, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT02DefaultV2, 2, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT03DefaultV2, 3, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT04DefaultV2, 4, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05DefaultV2, 5, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT06DefaultV2, 6, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT07DefaultV2, 7, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT08DefaultV2, 8, Default, v2)
+
+#undef DINOML_CK_GEMM_CONFIG_TRAITS
+
+template <GemmConfig Config, typename Storage>
+struct GemmKernelConfig : GemmConfigTraits<Config> {
+  using StorageType = Storage;
 };
 
 template <typename Storage>
@@ -369,13 +630,13 @@ template <
     GemmConfig Config,
     typename Storage,
     typename Element,
-    typename BLayout,
+    GemmBLayout LayoutBKind,
     typename DsLayout,
     typename DsDataType,
     typename CDEOp>
 using DeviceGemmXdl = ck::tensor_operation::device::DeviceGemmMultipleD_Xdl_CShuffle<
     Row,
-    BLayout,
+    typename CkBLayout<LayoutBKind>::Type,
     DsLayout,
     Row,
     Element,
@@ -388,7 +649,7 @@ using DeviceGemmXdl = ck::tensor_operation::device::DeviceGemmMultipleD_Xdl_CShu
     PassThrough,
     CDEOp,
     GemmMNKPadding,
-    1,
+    GemmKernelConfig<Config, Storage>::NumGemmKPrefetchStage,
     GemmKernelConfig<Config, Storage>::BlockSize,
     GemmKernelConfig<Config, Storage>::MPerBlock,
     GemmKernelConfig<Config, Storage>::NPerBlock,
@@ -399,48 +660,47 @@ using DeviceGemmXdl = ck::tensor_operation::device::DeviceGemmMultipleD_Xdl_CShu
     GemmKernelConfig<Config, Storage>::NPerXDL,
     GemmKernelConfig<Config, Storage>::MXdlPerWave,
     GemmKernelConfig<Config, Storage>::NXdlPerWave,
-    S<4, 64, 1>,
-    S<1, 0, 2>,
-    S<1, 0, 2>,
-    2,
-    GemmKernelConfig<Config, Storage>::ABlockTransferSrcScalarPerVector,
-    GemmKernelConfig<Config, Storage>::ABlockTransferDstScalarPerVector_AK1,
-    1,
-    S<4, 64, 1>,
-    S<1, 0, 2>,
-    S<1, 0, 2>,
-    2,
-    GemmKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector,
-    GemmKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1,
-    1,
-    1,
-    1,
+    typename GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::ThreadClusterLengths,
+    typename GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::ThreadClusterArrangeOrder,
+    typename GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::SrcAccessOrder,
+    GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::SrcVectorDim,
+    GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::SrcScalarPerVector,
+    GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::DstScalarPerVector_AK1,
+    GemmABlockTransferTraits<GemmKernelConfig<Config, Storage>::Tile>::LdsExtraM,
+    typename GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::ThreadClusterLengths,
+    typename GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::ThreadClusterArrangeOrder,
+    typename GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::SrcAccessOrder,
+    GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::SrcVectorDim,
+    GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::SrcScalarPerVector,
+    GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::DstScalarPerVector_BK1,
+    GemmBBlockTransferTraits<LayoutBKind, GemmKernelConfig<Config, Storage>::Tile>::LdsExtraN,
+    GemmKernelConfig<Config, Storage>::CShuffleMXdlPerWavePerShuffle,
+    GemmKernelConfig<Config, Storage>::CShuffleNXdlPerWavePerShuffle,
     typename GemmKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
     GemmKernelConfig<Config, Storage>::CDEBlockTransferScalarPerVector_NPerBlock,
-    ck::LoopScheduler::Default,
-    ck::PipelineVersion::v1>;
+    GemmKernelConfig<Config, Storage>::LoopScheduler,
+    GemmKernelConfig<Config, Storage>::PipelineVersion>;
 
 template <
     GemmConfig Config,
     typename Storage,
     typename Element,
-    typename BLayout,
+    GemmBLayout LayoutBKind,
     typename DsLayout,
     typename DsDataType,
     typename CDEOp>
 struct DeviceOpForElement {
-  using Type = DeviceGemmXdl<Config, Storage, Element, BLayout, DsLayout, DsDataType, CDEOp>;
+  using Type = DeviceGemmXdl<Config, Storage, Element, LayoutBKind, DsLayout, DsDataType, CDEOp>;
 };
 
 template <typename Storage, GemmBLayout LayoutB, EpilogueKind Epilogue, GemmConfig Config>
 struct DeviceOpTraits {
   using Element = typename CkElement<Storage>::Type;
-  using BLayout = typename CkBLayout<LayoutB>::Type;
   static constexpr int NumDTensor = epilogue_d_count<Epilogue>();
   using DsLayout = typename DTensorTraits<NumDTensor, Element>::Layouts;
   using DsDataType = typename DTensorTraits<NumDTensor, Element>::Types;
   using CDEOp = DinoEpilogue<Epilogue>;
-  using DeviceOp = typename DeviceOpForElement<Config, Storage, Element, BLayout, DsLayout, DsDataType, CDEOp>::Type;
+  using DeviceOp = typename DeviceOpForElement<Config, Storage, Element, LayoutB, DsLayout, DsDataType, CDEOp>::Type;
 };
 
 template <typename Storage, typename Element, int NumD>
@@ -594,7 +854,7 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     hipStream_t stream) { \
   return launch_ck_gemm<CTYPE, GemmBLayout::LAYOUT_B, EpilogueKind::EPILOGUE, GemmConfig::CONFIG>(a, b, nullptr, nullptr, nullptr, c, m, n, k, stream); \
 } \
-extern "C" float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* a, \
     CTYPE const* b, \
     CTYPE* c, \
@@ -618,7 +878,7 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     hipStream_t stream) { \
   return launch_ck_gemm<CTYPE, GemmBLayout::LAYOUT_B, EpilogueKind::EPILOGUE, GemmConfig::CONFIG>(a, b, bias, nullptr, nullptr, c, m, n, k, stream); \
 } \
-extern "C" float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* a, \
     CTYPE const* b, \
     CTYPE const* bias, \
@@ -644,7 +904,7 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     hipStream_t stream) { \
   return launch_ck_gemm<CTYPE, GemmBLayout::LAYOUT_B, EpilogueKind::EPILOGUE, GemmConfig::CONFIG>(a, b, bias, d0, nullptr, c, m, n, k, stream); \
 } \
-extern "C" float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* a, \
     CTYPE const* b, \
     CTYPE const* bias, \
@@ -672,7 +932,7 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     hipStream_t stream) { \
   return launch_ck_gemm<CTYPE, GemmBLayout::LAYOUT_B, EpilogueKind::EPILOGUE, GemmConfig::CONFIG>(a, b, bias, d0, d1, c, m, n, k, stream); \
 } \
-extern "C" float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* a, \
     CTYPE const* b, \
     CTYPE const* bias, \

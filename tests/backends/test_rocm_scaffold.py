@@ -16,6 +16,7 @@ from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.kernels.profiling import build_profile_workloads
 from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_ck_bmm_source
 from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
 from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
@@ -216,10 +217,28 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     assert item["kernel_library"] == "ck_gemm"
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1"
     assert item["support_archive"] == ck_gemm_static_library_name("gemm_rcr_bias_add_relu", "float16")
-    assert len(item["candidates"]) == 2
+    assert len(item["candidates"]) == 27
     assert item["candidates"][0]["ck"]["api"] == "device_gemm_multiple_d_xdl_cshuffle"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
+    candidate_names = {candidate["ck"]["config"]["name"] for candidate in item["candidates"]}
+    assert {
+        "baseline",
+        "wide_m",
+        "wide_n",
+        "square",
+        "skinny_m",
+        "skinny_n",
+        "wide_m_interwave_v1",
+        "wide_m_default_v2",
+    } <= candidate_names
+    scheduler_pipeline_pairs = [
+        (candidate["ck"]["config"]["scheduler"], candidate["ck"]["config"]["pipeline"])
+        for candidate in item["candidates"]
+    ]
+    assert scheduler_pipeline_pairs.count(("default", "v1")) == 9
+    assert scheduler_pipeline_pairs.count(("interwave", "v1")) == 9
+    assert scheduler_pipeline_pairs.count(("default", "v2")) == 9
     assert plan.external_support_libraries[0]["name"] == "ck_gemm"
     assert plan.external_support_libraries[0]["modules"] == [
         {
@@ -239,6 +258,22 @@ def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape(
 
     assert item["selected_candidate_id"] == "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
+
+
+def test_rocm_gemm_profile_workloads_cover_ck_candidate_set():
+    ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert len(workloads) == 27
+    assert {workload.kernel_library for workload in workloads} == {"ck_gemm"}
+    assert {workload.candidate_id for workload in workloads} >= {
+        "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1",
+        "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t00_interwave_v1",
+        "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t00_default_v2",
+    }
+    assert workloads[0].alignment_context["kind"] == "ck_gemm_profile_alignment_context"
 
 
 def test_rocm_gemm_module_declares_and_calls_ck_symbol():
@@ -294,10 +329,19 @@ def test_rocm_bmm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     assert item["kernel_library"] == "ck_bmm"
     assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1"
     assert item["support_archive"] == ck_bmm_static_library_name("bmm_rcr_add", "float16")
-    assert len(item["candidates"]) == 2
+    assert len(item["candidates"]) == 7
     assert item["candidates"][0]["ck"]["api"] == "device_batched_gemm_multiple_d_xdl_cshuffle_v3"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
+    assert {candidate["ck"]["config"]["name"] for candidate in item["candidates"]} == {
+        "baseline",
+        "wide_m",
+        "wide_n",
+        "square",
+        "skinny_m",
+        "skinny_n",
+        "small",
+    }
     assert plan.external_support_libraries[0]["name"] == "ck_bmm"
     assert plan.external_support_libraries[0]["modules"] == [
         {
@@ -317,6 +361,22 @@ def test_rocm_bmm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape()
 
     assert item["selected_candidate_id"] == "ck_bmm_rcr_add_float16_xdl_wide_m_v1"
     assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_wide_m_v1"
+
+
+def test_rocm_bmm_profile_workloads_cover_ck_candidate_set():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert len(workloads) == 7
+    assert {workload.kernel_library for workload in workloads} == {"ck_bmm"}
+    assert {workload.candidate_id for workload in workloads} >= {
+        "ck_bmm_rcr_add_float16_xdl_wide_m_v1",
+        "ck_bmm_rcr_add_float16_xdl_small_v1",
+    }
+    assert workloads[0].batch_count == 2
+    assert workloads[0].alignment_context["kind"] == "ck_bmm_profile_alignment_context"
 
 
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
@@ -370,10 +430,19 @@ def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
     assert item["kernel_library"] == "ck_conv"
     assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_float16_xdl_custom_v1"
     assert item["support_archive"] == ck_conv_static_library_name("conv2d_bias", "float16")
-    assert len(item["candidates"]) == 2
+    assert len(item["candidates"]) == 7
     assert item["candidates"][0]["ck"]["api"] == "device_grouped_conv_fwd_multiple_abd_xdl_cshuffle"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][1]["ck"]["config"]["name"] == "wide_n"
+    assert {candidate["ck"]["config"]["name"] for candidate in item["candidates"]} == {
+        "baseline",
+        "wide_n",
+        "wide_m",
+        "square",
+        "skinny_m",
+        "skinny_n",
+        "small",
+    }
     assert plan.external_support_libraries[0]["name"] == "ck_conv"
     assert plan.external_support_libraries[0]["modules"] == [
         {
@@ -393,6 +462,21 @@ def test_rocm_conv2d_bias_manifest_selects_tuned_ck_candidate_for_aligned_static
 
     assert item["selected_candidate_id"] == "ck_conv2d_bias_float16_xdl_wide_n_v1"
     assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_float16_xdl_wide_n_v1"
+
+
+def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert len(workloads) == 7
+    assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
+    assert {workload.candidate_id for workload in workloads} >= {
+        "ck_conv2d_bias_float16_xdl_wide_n_v1",
+        "ck_conv2d_bias_float16_xdl_small_v1",
+    }
+    assert workloads[0].conv_config == {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1}
 
 
 def test_rocm_conv2d_bias_module_declares_and_calls_ck_symbol():

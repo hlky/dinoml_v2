@@ -13,6 +13,10 @@ CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION = 1
 CK_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CK_GEMM_DEFAULT_SYMBOL_ID = "xdl_custom_v1"
 CK_GEMM_TUNED_SYMBOL_ID = "xdl_wide_m_v1"
+CK_GEMM_WIDE_N_SYMBOL_ID = "xdl_wide_n_v1"
+CK_GEMM_SQUARE_SYMBOL_ID = "xdl_square_v1"
+CK_GEMM_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
+CK_GEMM_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_GEMM_DTYPE_SUFFIXES = {
     "float16": "float16",
     "float32": "float32",
@@ -21,24 +25,295 @@ CK_GEMM_DTYPE_SUFFIXES = {
 CK_GEMM_DEFAULT_WORKSPACE_NBYTES = 0
 
 
-CK_GEMM_CONFIGS = (
+_CK_GEMM_CODEGEN_TILES = (
     {
-        "name": "baseline",
-        "symbol_id": CK_GEMM_DEFAULT_SYMBOL_ID,
-        "config_enum": "kBaseline",
-        "priority": 0,
-        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
-        "min_problem": {},
-    },
-    {
-        "name": "wide_m",
-        "symbol_id": CK_GEMM_TUNED_SYMBOL_ID,
-        "config_enum": "kWideM",
-        "priority": 10,
-        "tile": {"block_size": 256, "m_per_block": 256, "n_per_block": 128},
+        "tile_index": 0,
+        "legacy_name": "wide_m",
+        "legacy_symbol_id": CK_GEMM_TUNED_SYMBOL_ID,
+        "legacy_config_enum": "kWideM",
+        "priority": 60,
+        "tile": {
+            "block_size": 256,
+            "m_per_block": 256,
+            "n_per_block": 128,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 8,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 2},
+        "cde_vector_width": 4,
         "min_problem": {"m": 128, "n": 64, "k": 32},
     },
+    {
+        "tile_index": 1,
+        "legacy_name": "wide_n",
+        "legacy_symbol_id": CK_GEMM_WIDE_N_SYMBOL_ID,
+        "legacy_config_enum": "kWideN",
+        "priority": 50,
+        "tile": {
+            "block_size": 256,
+            "m_per_block": 128,
+            "n_per_block": 256,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 4,
+            "n_xdl_per_wave": 8,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 4},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 64, "n": 128, "k": 32},
+    },
+    {
+        "tile_index": 2,
+        "legacy_name": "square_block128",
+        "priority": 45,
+        "tile": {
+            "block_size": 128,
+            "m_per_block": 128,
+            "n_per_block": 128,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 8,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 4},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 64, "n": 64, "k": 32},
+    },
+    {
+        "tile_index": 3,
+        "name": "square",
+        "symbol_id": CK_GEMM_SQUARE_SYMBOL_ID,
+        "config_enum": "kSquare",
+        "priority": 40,
+        "legacy_name": "square",
+        "legacy_symbol_id": CK_GEMM_SQUARE_SYMBOL_ID,
+        "legacy_config_enum": "kSquare",
+        "tile": {
+            "block_size": 256,
+            "m_per_block": 128,
+            "n_per_block": 128,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 4,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 2},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 64, "n": 64, "k": 32},
+    },
+    {
+        "tile_index": 4,
+        "legacy_name": "skinny_n_block128",
+        "priority": 35,
+        "tile": {
+            "block_size": 128,
+            "m_per_block": 128,
+            "n_per_block": 64,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 4,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 2},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 64, "n": 16, "k": 32},
+    },
+    {
+        "tile_index": 5,
+        "legacy_name": "skinny_m_block128",
+        "priority": 35,
+        "tile": {
+            "block_size": 128,
+            "m_per_block": 64,
+            "n_per_block": 128,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 4,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 4},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 16, "n": 64, "k": 32},
+    },
+    {
+        "tile_index": 6,
+        "legacy_name": "skinny_n",
+        "legacy_symbol_id": CK_GEMM_SKINNY_N_SYMBOL_ID,
+        "legacy_config_enum": "kSkinnyN",
+        "priority": 30,
+        "tile": {
+            "block_size": 256,
+            "m_per_block": 128,
+            "n_per_block": 64,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 4,
+            "n_xdl_per_wave": 2,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 1},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 64, "n": 16, "k": 32},
+    },
+    {
+        "tile_index": 7,
+        "legacy_name": "skinny_m",
+        "legacy_symbol_id": CK_GEMM_SKINNY_M_SYMBOL_ID,
+        "legacy_config_enum": "kSkinnyM",
+        "priority": 30,
+        "tile": {
+            "block_size": 256,
+            "m_per_block": 64,
+            "n_per_block": 128,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 2,
+            "n_xdl_per_wave": 4,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 2},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 16, "n": 64, "k": 32},
+    },
+    {
+        "tile_index": 8,
+        "legacy_name": "baseline",
+        "legacy_symbol_id": CK_GEMM_DEFAULT_SYMBOL_ID,
+        "legacy_config_enum": "kBaseline",
+        "priority": 0,
+        "tile": {
+            "block_size": 64,
+            "m_per_block": 32,
+            "n_per_block": 32,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 2,
+            "n_xdl_per_wave": 2,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 1,
+        "b_vector_width_by_layout": {"rcr": 1, "rrr": 1},
+        "cde_vector_width": 1,
+        "min_problem": {},
+    },
 )
+
+
+_CK_GEMM_SCHEDULER_PIPELINES = (
+    {
+        "name": "default_v1",
+        "enum_suffix": "DefaultV1",
+        "symbol_suffix": "default_v1",
+        "scheduler": "default",
+        "pipeline": "v1",
+        "priority_delta": 0,
+        "use_legacy_default_v1_ids": True,
+    },
+    {
+        "name": "interwave_v1",
+        "enum_suffix": "InterwaveV1",
+        "symbol_suffix": "interwave_v1",
+        "scheduler": "interwave",
+        "pipeline": "v1",
+        "priority_delta": -100,
+        "use_legacy_default_v1_ids": False,
+    },
+    {
+        "name": "default_v2",
+        "enum_suffix": "DefaultV2",
+        "symbol_suffix": "default_v2",
+        "scheduler": "default",
+        "pipeline": "v2",
+        "priority_delta": -110,
+        "use_legacy_default_v1_ids": False,
+    },
+)
+
+
+def _ck_gemm_codegen_config(tile: Mapping[str, Any], scheduler_pipeline: Mapping[str, Any]) -> dict[str, Any]:
+    tile_index = int(tile["tile_index"])
+    use_legacy_ids = bool(scheduler_pipeline["use_legacy_default_v1_ids"])
+    base_name = str(tile["legacy_name"])
+    if use_legacy_ids:
+        name = base_name
+        symbol_id = str(tile.get("legacy_symbol_id") or f"xdl_codegen_t{tile_index:02d}_default_v1")
+        config_enum = str(tile.get("legacy_config_enum") or f"kCodegenT{tile_index:02d}DefaultV1")
+    else:
+        name = f"{base_name}_{scheduler_pipeline['name']}"
+        symbol_id = f"xdl_codegen_t{tile_index:02d}_{scheduler_pipeline['symbol_suffix']}"
+        config_enum = f"kCodegenT{tile_index:02d}{scheduler_pipeline['enum_suffix']}"
+    return {
+        "name": name,
+        "symbol_id": symbol_id,
+        "config_enum": config_enum,
+        "priority": int(tile["priority"]) + int(scheduler_pipeline["priority_delta"]),
+        "tile_index": tile_index,
+        "tile": dict(tile["tile"]),
+        "a_vector_width": int(tile["a_vector_width"]),
+        "b_vector_width_by_layout": dict(tile["b_vector_width_by_layout"]),
+        "cde_vector_width": int(tile["cde_vector_width"]),
+        "min_problem": dict(tile.get("min_problem", {})),
+        "scheduler": str(scheduler_pipeline["scheduler"]),
+        "pipeline": str(scheduler_pipeline["pipeline"]),
+    }
+
+
+def _ck_gemm_codegen_configs() -> tuple[dict[str, Any], ...]:
+    default_v1 = [_ck_gemm_codegen_config(tile, _CK_GEMM_SCHEDULER_PIPELINES[0]) for tile in _CK_GEMM_CODEGEN_TILES]
+    baseline = default_v1[-1]
+    non_baseline_default_v1 = default_v1[:-1]
+    expanded = [
+        _ck_gemm_codegen_config(tile, scheduler_pipeline)
+        for scheduler_pipeline in _CK_GEMM_SCHEDULER_PIPELINES[1:]
+        for tile in _CK_GEMM_CODEGEN_TILES
+    ]
+    return (baseline, *non_baseline_default_v1, *expanded)
+
+
+CK_GEMM_CONFIGS = _ck_gemm_codegen_configs()
 
 
 def ck_gemm_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
@@ -95,7 +370,7 @@ def ck_gemm_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_GEMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_gemm_xdl_custom_candidates_v1",
+        "generator": "static_ck_gemm_xdl_codegen_candidates_v3",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -107,7 +382,7 @@ def ck_gemm_candidate_set(
 
 def ck_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
     spec = gemm_op_spec(op_name)
-    return f"ck_{op_name}_{ck_gemm_dtype_suffix(dtype)}_{spec.epilogue.name}_v1"
+    return f"ck_{op_name}_{ck_gemm_dtype_suffix(dtype)}_{spec.epilogue.name}_v3"
 
 
 def ck_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -221,15 +496,16 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
     spec = gemm_op_spec(op_name)
     symbol_id = str(kernel_config["symbol_id"])
     launch_abi = _ck_gemm_launch_abi(op_name)
-    vector_width = _ck_gemm_vector_width(dtype, str(kernel_config["name"]))
-    cde_vector_width = _ck_gemm_cde_vector_width(dtype, str(kernel_config["name"]))
+    a_vector_width = int(kernel_config["a_vector_width"])
+    b_vector_width = int(kernel_config["b_vector_width_by_layout"][spec.base_layout])
+    cde_vector_width = int(kernel_config["cde_vector_width"])
     b_alignment_key = "k" if spec.base_layout == "rcr" else "n"
     selection_predicate = {
         "priority": int(kernel_config["priority"]),
         "min_problem": dict(kernel_config.get("min_problem", {})),
         "alignment": {
-            "a_k": vector_width,
-            f"b_{b_alignment_key}": vector_width,
+            "a_k": a_vector_width,
+            f"b_{b_alignment_key}": b_vector_width,
             "output_n": cde_vector_width,
         },
     }
@@ -241,9 +517,14 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
         "config": {
             "name": str(kernel_config["name"]),
             "config_enum": str(kernel_config["config_enum"]),
+            "tile_index": int(kernel_config["tile_index"]),
             "tile": dict(kernel_config["tile"]),
-            "vector_width": vector_width,
+            "scheduler": str(kernel_config["scheduler"]),
+            "pipeline": str(kernel_config["pipeline"]),
+            "vector_width": min(a_vector_width, b_vector_width),
+            "operand_vector_widths": {"a": a_vector_width, "b": b_vector_width},
             "cde_vector_width": cde_vector_width,
+            "gemm_specialization": "mnk_padding",
         },
     }
     config = {
@@ -339,6 +620,8 @@ def _ck_export_ctype(dtype: str) -> str:
 def _ck_gemm_vector_width(dtype: str, config_name: str) -> int:
     if config_name == "baseline":
         return 1
+    if config_name == "small":
+        return 2 if dtype == "float32" else 4
     if dtype == "float32":
         return 4
     return 8

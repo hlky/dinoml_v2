@@ -1,3 +1,4 @@
+#include <dinoml/abi.h>
 #include <dinoml/math.h>
 
 #include <hip/hip_runtime.h>
@@ -30,6 +31,11 @@ using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 enum class ConvConfig {
   kBaseline,
   kWideN,
+  kWideM,
+  kSquare,
+  kSkinnyM,
+  kSkinnyN,
+  kSmall,
 };
 
 static constexpr ck::index_t NDimSpatial = 2;
@@ -40,6 +46,16 @@ static constexpr auto GemmSpec =
 
 template <ConvConfig Config, typename Storage>
 struct ConvKernelConfig;
+
+template <typename Storage, ck::index_t DefaultValue, ck::index_t FloatValue>
+struct StorageTunedValue {
+  static constexpr ck::index_t value = DefaultValue;
+};
+
+template <ck::index_t DefaultValue, ck::index_t FloatValue>
+struct StorageTunedValue<float, DefaultValue, FloatValue> {
+  static constexpr ck::index_t value = FloatValue;
+};
 
 template <typename Storage>
 struct ConvKernelConfig<ConvConfig::kBaseline, Storage> {
@@ -99,6 +115,106 @@ struct ConvKernelConfig<ConvConfig::kWideN, float> {
   static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 4;
   static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
   using CDEBlockTransferClusterLengths = S<1, 16, 1, 16>;
+};
+
+template <typename Storage>
+struct ConvKernelConfig<ConvConfig::kWideM, Storage> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 256;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 32, 32>::value;
+  static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t MPerXDL = StorageTunedValue<Storage, 16, 32>::value;
+  static constexpr ck::index_t NPerXDL = StorageTunedValue<Storage, 16, 32>::value;
+  static constexpr ck::index_t MXdlPerWave = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t NXdlPerWave = StorageTunedValue<Storage, 4, 2>::value;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = StorageTunedValue<Storage, 4, 4>::value;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 8>;
+};
+
+template <typename Storage>
+struct ConvKernelConfig<ConvConfig::kSquare, Storage> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t MPerXDL = 32;
+  static constexpr ck::index_t NPerXDL = 32;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = StorageTunedValue<Storage, 4, 4>::value;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
+};
+
+template <typename Storage>
+struct ConvKernelConfig<ConvConfig::kSkinnyM, Storage> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 128;
+  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t MPerXDL = 32;
+  static constexpr ck::index_t NPerXDL = 32;
+  static constexpr ck::index_t MXdlPerWave = 1;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = StorageTunedValue<Storage, 4, 4>::value;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
+};
+
+template <typename Storage>
+struct ConvKernelConfig<ConvConfig::kSkinnyN, Storage> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 128;
+  static constexpr ck::index_t NPerBlock = 64;
+  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t MPerXDL = 32;
+  static constexpr ck::index_t NPerXDL = 32;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 1;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = StorageTunedValue<Storage, 4, 4>::value;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
+};
+
+template <typename Storage>
+struct ConvKernelConfig<ConvConfig::kSmall, Storage> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 64;
+  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 32, 16>::value;
+  static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 4, 2>::value;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = StorageTunedValue<Storage, 4, 2>::value;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = StorageTunedValue<Storage, 4, 2>::value;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = StorageTunedValue<Storage, 4, 2>::value;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = StorageTunedValue<Storage, 4, 4>::value;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
 };
 
 template <typename Storage>
@@ -406,7 +522,7 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
       x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
       out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
 } \
-extern "C" float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \
     CTYPE const* weight, \
     CTYPE const* bias, \

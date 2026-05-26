@@ -13,6 +13,11 @@ CK_BMM_CANDIDATE_SET_SCHEMA_VERSION = 1
 CK_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CK_BMM_DEFAULT_SYMBOL_ID = "xdl_custom_v1"
 CK_BMM_TUNED_SYMBOL_ID = "xdl_wide_m_v1"
+CK_BMM_WIDE_N_SYMBOL_ID = "xdl_wide_n_v1"
+CK_BMM_SQUARE_SYMBOL_ID = "xdl_square_v1"
+CK_BMM_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
+CK_BMM_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
+CK_BMM_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_BMM_DEFAULT_WORKSPACE_NBYTES = 0
 
 
@@ -29,9 +34,49 @@ CK_BMM_CONFIGS = (
         "name": "wide_m",
         "symbol_id": CK_BMM_TUNED_SYMBOL_ID,
         "config_enum": "kWideM",
-        "priority": 10,
+        "priority": 60,
         "tile": {"block_size": 256, "m_per_block": 256, "n_per_block": 128},
         "min_problem": {"m": 128, "n": 64, "k": 32},
+    },
+    {
+        "name": "wide_n",
+        "symbol_id": CK_BMM_WIDE_N_SYMBOL_ID,
+        "config_enum": "kWideN",
+        "priority": 50,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 256},
+        "min_problem": {"m": 64, "n": 128, "k": 32},
+    },
+    {
+        "name": "square",
+        "symbol_id": CK_BMM_SQUARE_SYMBOL_ID,
+        "config_enum": "kSquare",
+        "priority": 40,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
+        "min_problem": {"m": 64, "n": 64, "k": 32},
+    },
+    {
+        "name": "skinny_m",
+        "symbol_id": CK_BMM_SKINNY_M_SYMBOL_ID,
+        "config_enum": "kSkinnyM",
+        "priority": 30,
+        "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 128},
+        "min_problem": {"m": 16, "n": 64, "k": 32},
+    },
+    {
+        "name": "skinny_n",
+        "symbol_id": CK_BMM_SKINNY_N_SYMBOL_ID,
+        "config_enum": "kSkinnyN",
+        "priority": 20,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 64},
+        "min_problem": {"m": 64, "n": 16, "k": 32},
+    },
+    {
+        "name": "small",
+        "symbol_id": CK_BMM_SMALL_SYMBOL_ID,
+        "config_enum": "kSmall",
+        "priority": 10,
+        "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 64},
+        "min_problem": {"m": 16, "n": 16, "k": 16},
     },
 )
 
@@ -91,7 +136,7 @@ def ck_bmm_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_BMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_bmm_xdl_custom_candidates_v1",
+        "generator": "static_ck_bmm_xdl_curated_candidates_v2",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -104,7 +149,7 @@ def ck_bmm_candidate_set(
 def ck_bmm_candidate_set_id(op_name: str, dtype: str) -> str:
     spec = bmm_op_spec(op_name)
     epilogue = "linear_combination" if spec.epilogue == "none" else spec.epilogue
-    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v1"
+    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v2"
 
 
 def ck_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -325,6 +370,8 @@ def _ck_export_ctype(dtype: str) -> str:
 def _ck_bmm_vector_width(dtype: str, config_name: str) -> int:
     if config_name == "baseline":
         return 1
+    if config_name == "small":
+        return 2 if dtype == "float32" else 4
     if dtype == "float32":
         return 4
     return 8

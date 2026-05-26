@@ -23,7 +23,7 @@ def main(argv: list[str] | None = None) -> int:
 
     profile_description = (
         "Profiles CUDA CUTLASS or ROCm CK GEMM/BMM/Conv candidates, writes a profile report, "
-        "and emits an execution plan for the selected candidates."
+        "emits an execution plan for the selected candidates, and reports blocked profile items."
     )
 
     compile_parser = subparsers.add_parser(
@@ -119,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
         "profile",
         description=(
             "Profile an existing artifact. Supports CUDA CUTLASS and ROCm CK GEMM/BMM/Conv candidates "
-            "and can write an execution_plan.json for a later compile."
+            "and can write an execution_plan.json for a later compile. Blocked profile items explain "
+            "why a manifest kernel had no runnable profiler candidate."
         ),
     )
     profile_parser.add_argument("artifact")
@@ -131,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Profile with an input shape override like input=1,128,768; repeat for multiple inputs",
     )
-    profile_parser.add_argument("--out", help="Write the full profile report JSON to this path")
+    profile_parser.add_argument("--out", help="Write the full profile report JSON, including blocked profile items")
     profile_parser.add_argument("--execution-plan-out", help="Write selected candidates to execution_plan.json")
     profile_parser.add_argument("--refresh", action="store_true", help="Ignore existing profiler cache entries")
 
@@ -338,6 +339,10 @@ def _profile(args: argparse.Namespace) -> int:
                 _profile_problem_summary(item)
                 for item in report["problems"]
             ],
+            "blocked_profile_items": [
+                _profile_blocked_item_summary(item)
+                for item in report.get("blocked_profile_items", [])
+            ],
             "execution_plan": report.get("execution_plan"),
             "summary": report["summary"],
         },
@@ -372,6 +377,21 @@ def _profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(conv_config, Mapping):
         payload["conv"] = dict(conv_config)
     return payload
+
+
+def _profile_blocked_item_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    details = item.get("details")
+    return {
+        "op": item.get("op"),
+        "dtype": item.get("dtype"),
+        "kernel_library": item.get("kernel_library"),
+        "candidate_id": item.get("selected_candidate_id"),
+        "candidate_set_id": item.get("candidate_set_id"),
+        "kernel_symbol": item.get("kernel_symbol"),
+        "profiler_symbol": item.get("profiler_symbol"),
+        "reason": item.get("reason"),
+        "details": dict(details) if isinstance(details, Mapping) else {},
+    }
 
 
 def _load_python_file(path: Path) -> Any:

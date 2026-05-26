@@ -76,6 +76,7 @@ def test_cli_profile_help_mentions_rocm_ck(capsys):
     assert "ROCm CK" in compile_help
     assert "ROCm CK" in profile_help
     assert "GEMM/BMM/Conv" in profile_help
+    assert "blocked profile items" in " ".join(profile_help.lower().split())
     assert "input=1,128,768" in profile_help
 
 
@@ -131,6 +132,46 @@ def test_cli_profile_summary_handles_rocm_ck_conv_shapes(monkeypatch, capsys):
     assert problem["shape"]["out_w"] == 6
     assert problem["conv"]["stride"] == [2, 2]
     assert "split_k" not in problem
+
+
+def test_cli_profile_summary_includes_blocked_rocm_ck_items(monkeypatch, capsys):
+    from dinoml import cli as dinoml_cli
+
+    def fake_profile_artifact(*_args, **_kwargs):
+        return {
+            "artifact": "conv_artifact.dinoml",
+            "target": {"name": "rocm", "arch": "gfx1201"},
+            "iterations": 3,
+            "repeats": 2,
+            "problems": [],
+            "blocked_profile_items": [
+                {
+                    "op": "conv2d_bias",
+                    "dtype": "float16",
+                    "kernel_library": "ck_conv",
+                    "kernel_symbol": "dinoml_ck_conv2d_bias_float16_xdl_custom_v1",
+                    "profiler_symbol": "dinoml_profile_ck_conv2d_bias_float16_xdl_custom_v1",
+                    "candidate_set_id": "ck_conv2d_bias_float16_bias_v3",
+                    "selected_candidate_id": "ck_conv2d_bias_float16_xdl_custom_v1",
+                    "reason": "ck_conv_groups_unsupported_for_profile",
+                    "details": {"groups": 2, "supported_groups": [1]},
+                }
+            ],
+            "execution_plan": {"path": "execution_plan.json"},
+            "summary": {"profiled": 0, "cached": 0, "failed": 0, "blocked": 1},
+        }
+
+    monkeypatch.setattr(dinoml_cli, "profile_artifact", fake_profile_artifact)
+
+    assert dinoml_cli.main(["profile", "conv_artifact.dinoml"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    blocked = payload["blocked_profile_items"][0]
+
+    assert payload["summary"]["blocked"] == 1
+    assert blocked["kernel_library"] == "ck_conv"
+    assert blocked["candidate_id"] == "ck_conv2d_bias_float16_xdl_custom_v1"
+    assert blocked["reason"] == "ck_conv_groups_unsupported_for_profile"
+    assert blocked["details"] == {"groups": 2, "supported_groups": [1]}
 
 
 def test_rocm_codegen_plan_uses_arch_specific_support_cache(tmp_path):

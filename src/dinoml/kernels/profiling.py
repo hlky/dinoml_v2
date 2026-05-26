@@ -2527,6 +2527,11 @@ def _cache_entry(
         "kernel_symbol": workload.kernel_symbol,
         "profiler_symbol": workload.profiler_symbol,
         "best_candidate_id": workload.candidate_id,
+        "candidate_set_id": workload.candidate_set_id,
+        "candidate_set_key": workload.candidate_set_key,
+        "candidate_config_key": workload.candidate_config_key,
+        "launch_abi": str(candidate.get("launch_abi") or workload.candidate.get("launch_abi") or ""),
+        "symbol_id": candidate.get("symbol_id") or workload.candidate.get("symbol_id"),
         "workspace_nbytes": int(result.get("workspace_nbytes", workload.workspace_nbytes)),
         "elapsed_ms": float(result.get("elapsed_ms", candidate["avg_ms"])),
         "avg_ms": float(candidate["avg_ms"]),
@@ -2544,7 +2549,6 @@ def _cache_entry(
                 "layout_translation": dict(workload.layout_translation),
                 "weight_transform": dict(workload.weight_transform),
                 "conv_config": dict(workload.conv_config),
-                "candidate_config_key": workload.candidate_config_key,
             }
         )
     else:

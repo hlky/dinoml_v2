@@ -18,6 +18,7 @@ from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
+    _cache_entry,
     _profile_failure_result,
     _profile_result,
     build_execution_plan,
@@ -346,6 +347,30 @@ def test_rocm_ck_profile_failure_result_includes_diagnostics():
     assert diagnostics["problem"] == {"m": 128, "n": 128, "k": 96, "split_k": 1}
     assert diagnostics["ck"]["config"]["tile"]["k_per_block"] > 0
     assert result["candidates"][0]["diagnostics"] == diagnostics
+
+
+def test_rocm_ck_profile_cache_entry_records_launch_metadata():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = next(
+        workload
+        for workload in build_profile_workloads(ir, manifest)
+        if workload.candidate_id == "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
+    )
+    result = _profile_result(workload, 0.42, 7, profile_key="profile-key", status="ok")
+
+    entry = _cache_entry(workload, result, {"profile_key_payload": "test"})
+
+    assert entry["kernel_library"] == "ck_bmm"
+    assert entry["best_candidate_id"] == workload.candidate_id
+    assert entry["candidate_set_id"] == workload.candidate_set_id
+    assert entry["candidate_set_key"] == workload.candidate_set_key
+    assert entry["candidate_config_key"] == workload.candidate_config_key
+    assert entry["launch_abi"] == "dinoml_ck_bmm_add_v1"
+    assert entry["symbol_id"] == "xdl_wide_n_v1"
+    assert entry["kernel_symbol"] == workload.kernel_symbol
+    assert entry["profiler_symbol"] == workload.profiler_symbol
+    assert entry["split_k"] == 1
 
 
 @pytest.mark.parametrize(

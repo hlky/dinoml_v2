@@ -450,6 +450,82 @@ def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
     assert "ck_bmm_rcr_add_float16_xdl_square_v1" not in {workload.candidate_id for workload in workloads}
 
 
+@pytest.mark.parametrize(
+    ("m", "n", "k", "selected_candidate_id", "profile_config_names"),
+    [
+        (
+            64,
+            256,
+            96,
+            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            {"baseline", "wide_n", "small"},
+        ),
+        (
+            16,
+            128,
+            192,
+            "ck_bmm_rcr_add_float16_xdl_skinny_m_v1",
+            {"baseline", "skinny_m", "small"},
+        ),
+        (
+            128,
+            16,
+            192,
+            "ck_bmm_rcr_add_float16_xdl_skinny_n_v1",
+            {"baseline", "skinny_n", "small"},
+        ),
+    ],
+)
+def test_rocm_bmm_profile_workloads_cover_representative_ck_shape_classes(
+    m: int,
+    n: int,
+    k: int,
+    selected_candidate_id: str,
+    profile_config_names: set[str],
+):
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=m, n=n, k=k)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["selected_candidate_id"] == selected_candidate_id
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == profile_config_names
+    assert all(workload.batch_count == 2 for workload in workloads)
+    assert all((workload.m, workload.n, workload.k) == (m, n, k) for workload in workloads)
+    assert all(workload.candidate["ck"]["config"]["pipeline"] == "v3" for workload in workloads)
+
+
+def test_rocm_bmm_profile_workload_preserves_broadcast_batch_and_bias_layout():
+    ir = _rocm_bmm_ir(
+        "bmm_rcr_add",
+        "float16",
+        batch=4,
+        a_batch=1,
+        b_batch=4,
+        m=64,
+        n=128,
+        k=96,
+        d0_shape=[128],
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+    workload = workloads[0]
+
+    assert workload.batch_count == 4
+    assert workload.a_shape == (1, 64, 96)
+    assert workload.b_shape == (4, 128, 96)
+    assert workload.output_shape == (4, 64, 128)
+    assert workload.residual_shapes == ((128,),)
+    assert workload.batch_stride_a == 0
+    assert workload.batch_stride_b == 128 * 96
+    assert workload.batch_stride_c == 64 * 128
+    assert workload.batch_stride_d0 == 0
+    assert workload.ldd0 == 0
+    assert workload.ldc == 128
+
+
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -803,23 +879,29 @@ def _rocm_bmm_ir(
     dtype: str,
     *,
     batch: int = 2,
+    a_batch: int | None = None,
+    b_batch: int | None = None,
     m: int = 3,
     n: int = 4,
     k: int = 5,
+    d0_shape: list[int] | None = None,
 ) -> dict:
+    a_batch = batch if a_batch is None else a_batch
+    b_batch = batch if b_batch is None else b_batch
+    d0_shape = [batch, m, n] if d0_shape is None else list(d0_shape)
     tensors = [
-        _tensor("a", [batch, m, k], dtype, "input"),
-        _tensor("b", [batch, n, k], dtype, "input"),
-        _tensor("d0", [batch, m, n], dtype, "input"),
+        _tensor("a", [a_batch, m, k], dtype, "input"),
+        _tensor("b", [b_batch, n, k], dtype, "input"),
+        _tensor("d0", d0_shape, dtype, "input"),
         _tensor("c", [batch, m, n], dtype, "output"),
     ]
     return {
         "schema_version": 1,
         "name": "rocm_bmm_smoke",
         "inputs": [
-            _io("a", [batch, m, k], dtype),
-            _io("b", [batch, n, k], dtype),
-            _io("d0", [batch, m, n], dtype),
+            _io("a", [a_batch, m, k], dtype),
+            _io("b", [b_batch, n, k], dtype),
+            _io("d0", d0_shape, dtype),
         ],
         "constants": [],
         "outputs": [_io("c", [batch, m, n], dtype)],

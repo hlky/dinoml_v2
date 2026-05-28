@@ -487,6 +487,9 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
     assert "dinoml_ck_gemm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_bmm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_conv_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+    assert 'SUFFIX ".so"' in cmake
+    assert 'BUILD_RPATH "$ORIGIN/lib"' in cmake
+    assert 'INSTALL_RPATH "$ORIGIN/lib"' in cmake
 
 
 def test_visual_studio_environment_filters_vcvars_payload(monkeypatch):

@@ -374,6 +374,31 @@ def test_rocm_runtime_paths_fallback_to_root_bin_when_sdk_bin_query_missing(tmp_
     assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
 
 
+def test_rocm_runtime_paths_prefer_rocm_sdk_over_env_roots(tmp_path, monkeypatch):
+    sdk_root = tmp_path / "sdk"
+    sdk_bin = sdk_root / "bin"
+    sdk_llvm_bin = sdk_root / "lib" / "llvm" / "bin"
+    env_root = tmp_path / "env-sdk"
+    env_bin = env_root / "bin"
+    env_llvm_bin = env_root / "lib" / "llvm" / "bin"
+    sdk_bin.mkdir(parents=True)
+    sdk_llvm_bin.mkdir(parents=True)
+    env_bin.mkdir(parents=True)
+    env_llvm_bin.mkdir(parents=True)
+
+    def fake_run_rocm_sdk_path(arg: str) -> str | None:
+        if arg == "--root":
+            return str(sdk_root)
+        if arg == "--bin":
+            return str(sdk_bin)
+        raise AssertionError(arg)
+
+    monkeypatch.setattr(rocm_backend, "_run_rocm_sdk_path", fake_run_rocm_sdk_path)
+    monkeypatch.setenv("HIP_PATH", str(env_root))
+
+    assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(sdk_llvm_bin)]
+
+
 def test_rocm_runtime_paths_fallback_to_hip_path_without_rocm_sdk(tmp_path, monkeypatch):
     sdk_root = tmp_path / "hip-sdk"
     sdk_bin = sdk_root / "bin"

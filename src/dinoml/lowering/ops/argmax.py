@@ -59,6 +59,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
         "input_storage_type": input_storage_type,
         "output_storage_type": "int64_t",
         "input_dtype": input_dtype,
@@ -66,6 +67,9 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "input_is_integer": input_dtype in {"int32", "int64"},
         "input_needs_nan_handling": input_dtype in {"float16", "float32", "bfloat16"},
         "cols": int(input_tensor["shape"][-1]),
+        "cols_per_thread": (int(input_tensor["shape"][-1]) + 31) // 32,
+        "use_warp_kernel": int(input_tensor["shape"][-1]) <= 4096,
+        "rows_per_block": 8,
         "block_size": 256,
     }
 

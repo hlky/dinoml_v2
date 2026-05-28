@@ -1,3 +1,81 @@
+{% if use_warp_kernel %}
+__global__ void {{ warp_kernel }}(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_rows) {
+  constexpr int64_t cols = {{ cols }};
+  constexpr int cols_per_thread = {{ cols_per_thread }};
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= runtime_rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = row * cols;
+  int64_t best_index = 0;
+{% if input_is_bool %}
+  bool best_value = false;
+{% elif input_is_integer %}
+  {{ input_storage_type }} best_value = x[base];
+{% else %}
+  float best_value = dinoml::math::cast<float>(x[base]);
+{% endif %}
+
+#pragma unroll
+  for (int i = 0; i < cols_per_thread; ++i) {
+    const int64_t col = static_cast<int64_t>(i) * 32 + lane;
+    if (col < cols) {
+{% if input_is_bool %}
+      const bool value = x[base + col];
+      if (value > best_value || (value == best_value && col < best_index)) {
+{% elif input_is_integer %}
+      const {{ input_storage_type }} value = x[base + col];
+      if (value > best_value || (value == best_value && col < best_index)) {
+{% else %}
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      const bool value_is_nan = isnan(value);
+      const bool best_is_nan = isnan(best_value);
+      if ((value_is_nan && !best_is_nan) ||
+          ((value_is_nan == best_is_nan) &&
+           (value > best_value || (value == best_value && col < best_index) ||
+            (value_is_nan && col < best_index)))) {
+{% endif %}
+        best_value = value;
+        best_index = col;
+      }
+    }
+  }
+
+#pragma unroll
+  for (int offset = 16; offset > 0; offset >>= 1) {
+{% if input_is_bool %}
+    const bool value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+{% elif input_is_integer %}
+    const {{ input_storage_type }} value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+{% else %}
+    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+{% endif %}
+    const int64_t index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset);
+{% if input_is_bool or input_is_integer %}
+    if (value > best_value || (value == best_value && index < best_index)) {
+{% else %}
+    const bool value_is_nan = isnan(value);
+    const bool best_is_nan = isnan(best_value);
+    if ((value_is_nan && !best_is_nan) ||
+        ((value_is_nan == best_is_nan) &&
+         (value > best_value || (value == best_value && index < best_index) ||
+          (value_is_nan && index < best_index)))) {
+{% endif %}
+      best_value = value;
+      best_index = index;
+    }
+  }
+
+  if (lane == 0) {
+    y[row] = best_index;
+  }
+}
+
+{% endif %}
 __global__ void {{ kernel }}(
     const {{ input_storage_type }}* DINO_RESTRICT x,
     {{ output_storage_type }}* DINO_RESTRICT y,
@@ -47,6 +125,15 @@ static int {{ func }}(
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
+{% if use_warp_kernel %}
+  dim3 block(32, {{ rows_per_block }});
+  const int64_t grid64 = (runtime_rows + {{ rows_per_block }} - 1) / {{ rows_per_block }};
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_rows);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+{% else %}
   const int block = {{ block_size }};
   const int64_t grid64 = (runtime_rows + block - 1) / block;
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
@@ -54,5 +141,6 @@ static int {{ func }}(
     {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_rows);
     {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
+{% endif %}
   return 0;
 }

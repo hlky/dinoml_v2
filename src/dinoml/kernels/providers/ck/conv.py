@@ -17,16 +17,18 @@ CK_CONV_SQUARE_SYMBOL_ID = "xdl_square_v1"
 CK_CONV_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
 CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
-CK_CONV_OPS = ("conv2d_bias", "conv2d_bias_relu")
+CK_CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add")
 CK_CONV_SUPPORTED_DTYPES = ("float16", "float32")
 CK_CONV_DEFAULT_WORKSPACE_NBYTES = 0
 _CK_CONV_EPILOGUE_BY_OP = {
     "conv2d_bias": "bias",
     "conv2d_bias_relu": "bias_relu",
+    "conv2d_bias_add": "bias_add",
 }
 _CK_CONV_LAUNCH_ABI_BY_OP = {
     "conv2d_bias": "dinoml_ck_conv2d_bias_v1",
     "conv2d_bias_relu": "dinoml_ck_conv2d_bias_relu_v1",
+    "conv2d_bias_add": "dinoml_ck_conv2d_bias_add_v1",
 }
 
 
@@ -365,6 +367,8 @@ def _ck_conv_epilogue_config(op_name: str) -> dict[str, Any]:
             "activation": "relu",
             "launch_abi": _ck_conv_launch_abi(op_name),
         }
+    if epilogue == "bias_add":
+        return {"name": "bias_add", "inputs": ["bias", "d0"], "launch_abi": _ck_conv_launch_abi(op_name)}
     raise ValueError(f"Unsupported CK Conv epilogue {epilogue!r}")
 
 
@@ -379,12 +383,14 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
         return f"DINOML_CK_CONV2D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     if launch_abi == "dinoml_ck_conv2d_bias_relu_v1":
         return f"DINOML_CK_CONV2D_BIAS_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
+    if launch_abi == "dinoml_ck_conv2d_bias_add_v1":
+        return f"DINOML_CK_CONV2D_BIAS_ADD_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     raise ValueError(f"Unsupported CK Conv launch ABI: {launch_abi!r}")
 
 
 def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
-    match = re.match(r"DINOML_CK_CONV2D_BIAS(?:_RELU)?_EXPORT\((.*)\)\s*$", stripped)
+    match = re.match(r"DINOML_CK_CONV2D_BIAS(?:_ADD|_RELU)?_EXPORT\((.*)\)\s*$", stripped)
     if match is None:
         return frozenset()
     args = [arg.strip() for arg in match.group(1).split(",")]
@@ -457,22 +463,33 @@ def _ck_conv_launch_abi(op_name: str) -> str:
 
 def _ck_conv_semantic_layout(op_name: str) -> dict[str, str]:
     _validate_ck_conv_op(op_name)
-    return {
+    layout = {
         "activation": "nchw",
         "weight": "oihw",
         "bias": "o",
         "output": "nchw",
     }
+    if _ck_conv_op_has_residual(op_name):
+        layout["residual"] = "nchw"
+    return layout
 
 
 def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
     _validate_ck_conv_op(op_name)
-    return {
+    layout = {
         "activation": "g_nhw_c_strided",
         "weight": "g_k_yx_c_strided",
         "bias": "g_k",
         "output": "g_nhw_k_strided",
     }
+    if _ck_conv_op_has_residual(op_name):
+        layout["residual"] = "g_nhw_k_strided"
+    return layout
+
+
+def _ck_conv_op_has_residual(op_name: str) -> bool:
+    _validate_ck_conv_op(op_name)
+    return op_name in {"conv2d_bias_add"}
 
 
 def _validate_ck_conv_op(op_name: str) -> None:

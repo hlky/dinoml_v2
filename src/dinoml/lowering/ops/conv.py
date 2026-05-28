@@ -124,18 +124,22 @@ def _render_rocm_launch(
     if op_name not in CK_CONV_OPS:
         raise NotImplementedError(f"{op_name} ROCm CK Conv lowering is not implemented")
     input_names = [str(name) for name in node.get("inputs", ())]
-    if len(input_names) != 3:
-        raise ValueError(f"{op_name} ROCm lowering expects activation, weight, and bias inputs")
+    expected_inputs = 4 if _conv2d_bias_family_has_residual(op_name) else 3
+    if len(input_names) != expected_inputs:
+        extra = ", and residual" if expected_inputs == 4 else ""
+        raise ValueError(f"{op_name} ROCm lowering expects activation, weight, bias{extra} inputs")
     output_names = [str(name) for name in node.get("outputs", ())]
     if len(output_names) != 1:
         raise ValueError(f"{op_name} ROCm lowering expects one output")
-    x_name, weight_name, bias_name = input_names
+    x_name, weight_name, bias_name = input_names[:3]
+    residual_name = input_names[3] if expected_inputs == 4 else None
     output_name = output_names[0]
     x = tensor_map[x_name]
     weight = tensor_map[weight_name]
     bias = tensor_map[bias_name]
+    residual = None if residual_name is None else tensor_map[residual_name]
     output = tensor_map[output_name]
-    attrs = _validate_cpu_contract(node, x, weight, bias, output)
+    attrs = _validate_cpu_contract(node, x, weight, bias, output, residual)
     dtype = str(output["dtype"])
     item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")), kernel_library="ck_conv")
     symbol = (
@@ -146,6 +150,7 @@ def _render_rocm_launch(
     x_ident = _c_ident(x_name)
     weight_ident = _c_ident(weight_name)
     bias_ident = _c_ident(bias_name)
+    residual_ident = None if residual_name is None else _c_ident(residual_name)
     out_ident = _c_ident(output_name)
     stride_h, stride_w = attrs["stride"]
     pad_h, pad_w = attrs["padding"]
@@ -156,8 +161,7 @@ def _render_rocm_launch(
     expected_out_w = (
         f"((shape_{x_ident}_3 + {2 * pad_w} - {dilation_w} * (shape_{weight_ident}_3 - 1) - 1) / {stride_w} + 1)"
     )
-    return "\n".join(
-        [
+    lines = [
             f'if (shape_{weight_ident}_1 != shape_{x_ident}_1) return dinoml::module::fail("{op_name} input channel mismatch");',
             f'if (shape_{bias_ident}_0 != shape_{weight_ident}_0) return dinoml::module::fail("{op_name} bias shape mismatch");',
             (
@@ -167,18 +171,32 @@ def _render_rocm_launch(
                 f"shape_{out_ident}_3 != {expected_out_w}) "
                 f'return dinoml::module::fail("{op_name} output shape mismatch");'
             ),
+    ]
+    residual_arg = ""
+    if residual_ident is not None:
+        lines.append(
             (
-                f"if (int err = {symbol}(ptr_{x_ident}, ptr_{weight_ident}, ptr_{bias_ident}, ptr_{out_ident}, "
-                f"static_cast<int>(shape_{x_ident}_0), static_cast<int>(shape_{x_ident}_1), "
-                f"static_cast<int>(shape_{x_ident}_2), static_cast<int>(shape_{x_ident}_3), "
-                f"static_cast<int>(shape_{weight_ident}_0), static_cast<int>(shape_{weight_ident}_2), "
-                f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
-                f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
-                f"{dilation_h}, {dilation_w}, session->stream)) "
-                f'return dinoml::module::fail("{op_name} CK Conv launcher failed");'
-            ),
-        ]
+                f"if (shape_{residual_ident}_0 != shape_{out_ident}_0 || "
+                f"shape_{residual_ident}_1 != shape_{out_ident}_1 || "
+                f"shape_{residual_ident}_2 != shape_{out_ident}_2 || "
+                f"shape_{residual_ident}_3 != shape_{out_ident}_3) "
+                f'return dinoml::module::fail("{op_name} residual shape mismatch");'
+            )
+        )
+        residual_arg = f"ptr_{residual_ident}, "
+    lines.append(
+        (
+            f"if (int err = {symbol}(ptr_{x_ident}, ptr_{weight_ident}, ptr_{bias_ident}, {residual_arg}ptr_{out_ident}, "
+            f"static_cast<int>(shape_{x_ident}_0), static_cast<int>(shape_{x_ident}_1), "
+            f"static_cast<int>(shape_{x_ident}_2), static_cast<int>(shape_{x_ident}_3), "
+            f"static_cast<int>(shape_{weight_ident}_0), static_cast<int>(shape_{weight_ident}_2), "
+            f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
+            f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
+            f"{dilation_h}, {dilation_w}, session->stream)) "
+            f'return dinoml::module::fail("{op_name} CK Conv launcher failed");'
+        )
     )
+    return "\n".join(lines)
 
 
 def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:

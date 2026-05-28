@@ -1482,6 +1482,41 @@ def test_rocm_conv2d_bias_relu_uses_ck_manifest_and_profile_workloads():
     }
 
 
+def test_rocm_conv2d_bias_add_uses_ck_manifest_and_profile_workloads():
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        op_name="conv2d_bias_add",
+        batch=2,
+        in_channels=8,
+        out_channels=64,
+        height=16,
+        width=16,
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["kernel_library"] == "ck_conv"
+    assert item["candidate_set_id"] == "ck_conv2d_bias_add_float16_bias_add_v3"
+    assert item["candidate_set"]["epilogue"] == "bias_add"
+    assert item["candidate_set"]["semantic_layout"]["residual"] == "nchw"
+    assert item["candidate_set"]["provider_layout"]["residual"] == "g_nhw_k_strided"
+    assert item["candidate_set"]["epilogue_config"] == {
+        "name": "bias_add",
+        "inputs": ["bias", "d0"],
+        "launch_abi": "dinoml_ck_conv2d_bias_add_v1",
+    }
+    assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_add_float16_xdl_wide_n_v1"
+    assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
+    assert {workload.op for workload in workloads} == {"conv2d_bias_add"}
+    assert all(workload.residual_shape == workload.output_shape for workload in workloads)
+    assert {workload.candidate_id for workload in workloads} >= {
+        "ck_conv2d_bias_add_float16_xdl_wide_n_v1",
+        "ck_conv2d_bias_add_float16_xdl_small_v1",
+    }
+
+
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
     ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16, groups=2)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -1681,6 +1716,22 @@ def test_rocm_conv2d_bias_relu_module_declares_and_calls_ck_symbol():
     assert "conv2d_bias_relu CK Conv launcher failed" in source
 
 
+def test_rocm_conv2d_bias_add_module_declares_and_calls_ck_symbol():
+    ir = _rocm_conv2d_bias_ir("float16", op_name="conv2d_bias_add")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_conv2d_bias_add_float16_xdl_custom_v1' in source
+    assert "const half* residual" in source
+    assert (
+        "dinoml_ck_conv2d_bias_add_float16_xdl_custom_v1(ptr_x, ptr_weight, ptr_bias, ptr_residual, ptr_y"
+        in source
+    )
+    assert "conv2d_bias_add residual shape mismatch" in source
+    assert "conv2d_bias_add CK Conv launcher failed" in source
+
+
 def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
     candidate = {
@@ -1729,6 +1780,33 @@ def test_ck_conv_unit_generation_supports_bias_relu_epilogue():
     assert "DinoConvBiasReluEpilogue" in rendered
     assert (
         "DINOML_CK_CONV2D_BIAS_RELU_EXPORT(conv2d_bias_relu, float16, half, "
+        "xdl_custom_v1, kBaseline)"
+    ) in rendered
+
+
+def test_ck_conv_unit_generation_supports_bias_add_epilogue():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "conv2d_bias_add",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias_add",
+        "launch_abi": "dinoml_ck_conv2d_bias_add_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_conv2d_bias_add_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_conv2d_bias_add_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "DinoConvBiasAddEpilogue" in rendered
+    assert "ck::Tuple<BiasLayout, OutLayout>" in rendered
+    assert (
+        "DINOML_CK_CONV2D_BIAS_ADD_EXPORT(conv2d_bias_add, float16, half, "
         "xdl_custom_v1, kBaseline)"
     ) in rendered
 
@@ -2065,27 +2143,40 @@ def _rocm_conv2d_bias_ir(
     dilation = [1, 1] if dilation is None else [int(dilation[0]), int(dilation[1])]
     output_h = (height + 2 * padding[0] - dilation[0] * (kernel_h - 1) - 1) // stride[0] + 1
     output_w = (width + 2 * padding[1] - dilation[1] * (kernel_w - 1) - 1) // stride[1] + 1
+    has_residual = op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}
     tensors = [
         _tensor("x", [batch, in_channels, height, width], dtype, "input"),
         _tensor("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype, "input"),
         _tensor("bias", [out_channels], dtype, "input"),
+        *(
+            [_tensor("residual", [batch, out_channels, output_h, output_w], dtype, "input")]
+            if has_residual
+            else []
+        ),
         _tensor("y", [batch, out_channels, output_h, output_w], dtype, "output"),
     ]
+    inputs = [
+        _io("x", [batch, in_channels, height, width], dtype),
+        _io("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype),
+        _io("bias", [out_channels], dtype),
+        *(
+            [_io("residual", [batch, out_channels, output_h, output_w], dtype)]
+            if has_residual
+            else []
+        ),
+    ]
+    node_inputs = ["x", "weight", "bias", *(["residual"] if has_residual else [])]
     return {
         "schema_version": 1,
         "name": f"rocm_{op_name}_smoke",
-        "inputs": [
-            _io("x", [batch, in_channels, height, width], dtype),
-            _io("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype),
-            _io("bias", [out_channels], dtype),
-        ],
+        "inputs": inputs,
         "constants": [],
         "outputs": [_io("y", [batch, out_channels, output_h, output_w], dtype)],
         "nodes": [
             {
                 "id": "n0",
                 "op": op_name,
-                "inputs": ["x", "weight", "bias"],
+                "inputs": node_inputs,
                 "outputs": ["y"],
                 "attrs": {"stride": stride, "padding": padding, "dilation": dilation, "groups": groups},
             }

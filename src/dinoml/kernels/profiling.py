@@ -546,7 +546,7 @@ def _append_ck_conv_profile_workloads(
     overrides: Mapping[str, Sequence[int]],
 ) -> None:
     op_name = str(node["op"])
-    if op_name not in {"conv2d_bias", "conv2d_bias_relu"}:
+    if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add"}:
         return
     output_name = str(node["outputs"][0])
     output_info = tensor_map[output_name]
@@ -556,6 +556,7 @@ def _append_ck_conv_profile_workloads(
     if required_item is None:
         return
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
+    residual_name = str(node["inputs"][3]) if op_name in {"conv2d_bias_add"} else None
     attrs = dict(node.get("attrs", {}))
     try:
         stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
@@ -572,8 +573,15 @@ def _append_ck_conv_profile_workloads(
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
         weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
+        residual_shape = (
+            _runtime_tensor_shape(residual_name, tensor_map[residual_name], scenario.overrides, scenario.dim_values)
+            if residual_name is not None
+            else None
+        )
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
         if len(x_shape) != 4 or len(weight_shape) != 4 or len(output_shape) != 4:
+            continue
+        if residual_shape is not None and tuple(int(dim) for dim in residual_shape) != tuple(int(dim) for dim in output_shape):
             continue
         batch, in_channels, _in_h, _in_w = (int(dim) for dim in x_shape)
         out_channels, _weight_c, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
@@ -619,12 +627,12 @@ def _append_ck_conv_profile_workloads(
                     x_tensor=x_name,
                     weight_tensor=weight_name,
                     bias_tensor=bias_name,
-                    residual_tensor=None,
+                    residual_tensor=residual_name,
                     output_tensor=output_name,
                     x_shape=tuple(x_shape),
                     weight_shape=tuple(weight_shape),
                     bias_shape=tuple(bias_shape),
-                    residual_shape=None,
+                    residual_shape=None if residual_shape is None else tuple(residual_shape),
                     output_shape=tuple(output_shape),
                     conv_config=conv_config,
                     semantic_layout=dict(candidate.get("semantic_layout", {})),
@@ -3581,10 +3589,12 @@ class _CkRocmProfiler:
     ) -> tuple[float, int]:
         fn = self._profiler_function(workload.profiler_symbol)
         ptr = ctypes.c_void_p
+        has_residual = workload.residual_shape is not None
         fn.argtypes = [
             ptr,
             ptr,
             ptr,
+            *( [ptr] if has_residual else [] ),
             ptr,
             ctypes.c_int,
             ctypes.c_int,
@@ -3607,6 +3617,11 @@ class _CkRocmProfiler:
         x = self._device_array(_random_storage(workload.x_shape, workload.dtype, rng))
         weight = self._device_array(_random_storage(workload.weight_shape, workload.dtype, rng))
         bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+        residual = (
+            self._device_array(_random_storage(workload.residual_shape, workload.dtype, rng))
+            if has_residual
+            else None
+        )
         output = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
         batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
         out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
@@ -3614,12 +3629,10 @@ class _CkRocmProfiler:
         stride = list(workload.conv_config.get("stride", (1, 1)))
         padding = list(workload.conv_config.get("padding", (0, 0)))
         dilation = list(workload.conv_config.get("dilation", (1, 1)))
+        pointer_args = [x, weight, bias, *([residual] if residual is not None else []), output]
         elapsed_ms = float(
             fn(
-                x,
-                weight,
-                bias,
-                output,
+                *pointer_args,
                 batch,
                 in_channels,
                 in_height,

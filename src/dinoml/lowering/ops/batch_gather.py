@@ -65,11 +65,23 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     dtype = str(output_tensor["dtype"])
     storage_type = target_storage_type(dtype, target)
     index_storage_type = _index_storage_type(str(index_tensor["dtype"]))
+    input_shape = [int(axis) for axis in input_tensor["shape"]]
+    index_shape = [int(axis) for axis in index_tensor["shape"]]
+    source_rows = input_shape[1]
+    gather_count = index_shape[1]
+    slice_size = _numel(input_shape[2:])
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "vector_kernel": f"{_function_name(node, tensor_map)}_float4_kernel",
         "storage_type": storage_type,
         "index_storage_type": index_storage_type,
+        "source_rows": source_rows,
+        "gather_count": gather_count,
+        "slice_vectors": slice_size // 4,
+        "input_batch_stride_vectors": source_rows * (slice_size // 4),
+        "output_batch_stride_vectors": gather_count * (slice_size // 4),
+        "use_float4_kernel": target != "cpu" and dtype == "float32" and slice_size % 4 == 0,
         "copy_body": _copy_body(input_tensor, index_tensor, target),
         "block_size": 256,
     }

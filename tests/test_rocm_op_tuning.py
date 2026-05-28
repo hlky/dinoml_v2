@@ -31,6 +31,11 @@ class _EmbeddingModule(dml.Module):
         return dml.ops.output(dml.ops.embedding(table, indices), "output")
 
 
+class _BatchGatherModule(dml.Module):
+    def forward(self, x, indices):
+        return dml.ops.output(dml.ops.batch_gather(x, indices), "output")
+
+
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():
     spec = dml.trace(
         _ReduceSumModule(),
@@ -128,3 +133,22 @@ def test_rocm_gather_benchmark_shape_keeps_per_element_scalar_indices():
     assert "const int block = 256;" in source
     assert "const int64_t selected_index = static_cast<int64_t>(index[idx]);" in source
     assert "float4" not in source
+
+
+def test_rocm_batch_gather_float32_benchmark_shape_uses_float4_slice_copy():
+    spec = dml.trace(
+        _BatchGatherModule(),
+        inputs={
+            "x": dml.TensorSpec([32, 256, 768], "float32"),
+            "indices": dml.TensorSpec([32, 128], "int64"),
+        },
+        name="rocm_batch_gather_tuning",
+    )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+
+    assert "_float4_kernel" in source
+    assert "reinterpret_cast<const float4*>(x)" in source
+    assert "constexpr int64_t slice_vectors = 192;" in source
+    assert "runtime_numel_vec = runtime_numel / 4" in source

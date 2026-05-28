@@ -438,6 +438,9 @@ def run_benchmark_suite(
                 provider_kernels = _provider_kernel_report(artifact_path)
                 if provider_kernels:
                     result["provider_kernels"] = provider_kernels
+                provider_profile = _provider_profile_report(artifact_path)
+                if provider_profile:
+                    result["provider_profile"] = provider_profile
                 results.append(result)
                 print(f"{case.op}::{case.name} {summary=}")
             except Exception as exc:
@@ -697,6 +700,182 @@ def _provider_kernel_report(artifact_path: Path) -> list[dict[str, Any]]:
             payload["bias_mode"] = item.get("bias_mode")
         kernels.append(payload)
     return kernels
+
+
+def _provider_profile_report(artifact_path: Path) -> dict[str, Any]:
+    report_path = artifact_path / "debug" / "bootstrap_profile_report.json"
+    if not report_path.exists():
+        return {}
+    profile_report = read_json(report_path)
+    result: dict[str, Any] = {
+        "iterations": profile_report.get("iterations"),
+        "repeats": profile_report.get("repeats", 1),
+        "summary": dict(profile_report.get("summary", {})),
+        "problems": [
+            _provider_profile_problem_summary(item)
+            for item in profile_report.get("problems", [])
+            if isinstance(item, Mapping)
+        ],
+    }
+    blocked = [
+        _provider_profile_blocked_item_summary(item)
+        for item in profile_report.get("blocked_profile_items", [])
+        if isinstance(item, Mapping)
+    ]
+    if blocked:
+        result["blocked_profile_items"] = blocked
+    execution_plan = _provider_profile_execution_plan(profile_report, artifact_path)
+    if execution_plan:
+        result["execution_plan"] = execution_plan
+    return result
+
+
+def _provider_profile_execution_plan(profile_report: Mapping[str, Any], artifact_path: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    summary = profile_report.get("execution_plan")
+    if isinstance(summary, Mapping):
+        summary_payload = {str(key): value for key, value in summary.items() if key != "path"}
+        if summary_payload:
+            result["summary"] = summary_payload
+    plan = _read_provider_execution_plan(profile_report, artifact_path)
+    if not plan:
+        return result
+    plan_summary = dict(plan.get("summary", {})) if isinstance(plan.get("summary"), Mapping) else {}
+    if plan_summary:
+        result["summary"] = {**plan_summary, **dict(result.get("summary", {}))}
+    if plan.get("selection_policy") is not None:
+        result["selection_policy"] = plan.get("selection_policy")
+    confidence_policy = plan.get("selection_confidence_policy")
+    if isinstance(confidence_policy, Mapping):
+        result["selection_confidence_policy"] = dict(confidence_policy)
+    for key in ("selections", "low_confidence_selections", "static_selections"):
+        result[key] = [
+            _provider_profile_selection_summary(selection)
+            for selection in plan.get(key, [])
+            if isinstance(selection, Mapping)
+        ]
+    result["conflicts"] = [
+        _provider_profile_conflict_summary(conflict)
+        for conflict in plan.get("conflicts", [])
+        if isinstance(conflict, Mapping)
+    ]
+    return result
+
+
+def _read_provider_execution_plan(profile_report: Mapping[str, Any], artifact_path: Path) -> dict[str, Any]:
+    candidates: list[Path] = []
+    summary = profile_report.get("execution_plan")
+    if isinstance(summary, Mapping) and summary.get("path"):
+        candidates.append(Path(str(summary["path"])))
+    candidates.extend(
+        [
+            artifact_path / "debug" / "profile_bootstrap_artifact" / "debug" / "execution_plan.json",
+            artifact_path / "debug" / "execution_plan.json",
+        ]
+    )
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.exists():
+            payload = read_json(path)
+            return dict(payload) if isinstance(payload, Mapping) else {}
+    return {}
+
+
+def _provider_profile_selection_summary(selection: Mapping[str, Any]) -> dict[str, Any]:
+    payload = {
+        "node_id": selection.get("node_id"),
+        "op": selection.get("op"),
+        "dtype": selection.get("dtype"),
+        "kernel_library": selection.get("kernel_library"),
+        "candidate_set_id": selection.get("candidate_set_id"),
+        "selected_candidate_id": selection.get("selected_candidate_id"),
+        "candidate_config_key": selection.get("candidate_config_key"),
+        "kernel_symbol": selection.get("kernel_symbol"),
+        "profiler_symbol": selection.get("profiler_symbol"),
+        "avg_ms": selection.get("avg_ms"),
+        "gflops": selection.get("gflops"),
+        "iterations": selection.get("iterations"),
+        "split_k": selection.get("split_k"),
+        "workspace_nbytes": selection.get("workspace_nbytes"),
+        "status": selection.get("status"),
+    }
+    confidence = selection.get("confidence")
+    if isinstance(confidence, Mapping):
+        payload["confidence"] = _provider_profile_confidence_summary(confidence)
+    return payload
+
+
+def _provider_profile_confidence_summary(confidence: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "level": confidence.get("level"),
+        "confident": confidence.get("confident"),
+        "reasons": list(confidence.get("reasons", [])),
+        "selection_metric_ms": confidence.get("selection_metric_ms"),
+        "runner_up_candidate_id": confidence.get("runner_up_candidate_id"),
+        "runner_up_elapsed_ms": confidence.get("runner_up_elapsed_ms"),
+        "margin_ms": confidence.get("margin_ms"),
+        "required_margin_ms": confidence.get("required_margin_ms"),
+        "relative_speedup_over_runner_up": confidence.get("relative_speedup_over_runner_up"),
+        "sample_counts": dict(confidence.get("sample_counts", {}))
+        if isinstance(confidence.get("sample_counts"), Mapping)
+        else {},
+    }
+
+
+def _provider_profile_conflict_summary(conflict: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "op": conflict.get("op"),
+        "dtype": conflict.get("dtype"),
+        "candidate_set_key": conflict.get("candidate_set_key"),
+        "reason": conflict.get("reason"),
+        "selected_candidate_ids": list(conflict.get("selected_candidate_ids", [])),
+        "selected_split_k": list(conflict.get("selected_split_k", [])),
+        "profiled_shapes": list(conflict.get("profiled_shapes", [])),
+    }
+
+
+def _provider_profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    selected = item.get("selected", {})
+    candidate_id = item.get("candidate_id")
+    if candidate_id is None and isinstance(selected, Mapping):
+        candidate_id = selected.get("candidate_id")
+    payload = {
+        "node_id": item.get("node_id"),
+        "op": item.get("op"),
+        "dtype": item.get("dtype"),
+        "kernel_library": item.get("kernel_library"),
+        "candidate_id": candidate_id,
+        "profiler_symbol": item.get("profiler_symbol"),
+        "elapsed_ms": item.get("elapsed_ms"),
+        "tflops": item.get("tflops"),
+        "timing": dict(item.get("timing", {})) if isinstance(item.get("timing"), Mapping) else None,
+    }
+    if item.get("split_k") is not None:
+        payload["split_k"] = item.get("split_k")
+    if item.get("workspace_nbytes") is not None:
+        payload["workspace_nbytes"] = item.get("workspace_nbytes")
+    conv_config = item.get("conv")
+    if isinstance(conv_config, Mapping):
+        payload["conv"] = dict(conv_config)
+    return payload
+
+
+def _provider_profile_blocked_item_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    details = item.get("details")
+    return {
+        "op": item.get("op"),
+        "dtype": item.get("dtype"),
+        "kernel_library": item.get("kernel_library"),
+        "candidate_id": item.get("selected_candidate_id"),
+        "candidate_set_id": item.get("candidate_set_id"),
+        "kernel_symbol": item.get("kernel_symbol"),
+        "profiler_symbol": item.get("profiler_symbol"),
+        "reason": item.get("reason"),
+        "details": dict(details) if isinstance(details, Mapping) else {},
+    }
 
 
 def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any] | None:

@@ -134,6 +134,92 @@ def test_ops_benchmark_suite_compiles_provider_cases_on_gpu_targets(tmp_path, mo
             ),
             encoding="utf-8",
         )
+        (Path(output) / "debug").mkdir(parents=True, exist_ok=True)
+        execution_plan_path = Path(output) / "debug" / "execution_plan.json"
+        execution_plan_path.write_text(
+            json.dumps(
+                {
+                    "summary": {
+                        "selection_count": 0,
+                        "low_confidence_count": 1,
+                        "static_selection_count": 0,
+                        "conflict_count": 0,
+                    },
+                    "selection_policy": "lowest_median_elapsed_ms_per_node_shape",
+                    "selection_confidence_policy": {
+                        "name": "confidence_interval_margin_v1",
+                        "min_repeats": 3,
+                    },
+                    "selections": [],
+                    "low_confidence_selections": [
+                        {
+                            "node_id": "node0",
+                            "op": op_name,
+                            "dtype": "float16",
+                            "kernel_library": "ck_bmm",
+                            "candidate_set_id": f"{op_name}_candidate_set",
+                            "selected_candidate_id": f"{op_name}_candidate",
+                            "candidate_config_key": "xdl_wide_n_v1",
+                            "kernel_symbol": f"dinoml_{op_name}_kernel",
+                            "profiler_symbol": f"dinoml_{op_name}_profiler",
+                            "avg_ms": 0.012,
+                            "gflops": 1250.0,
+                            "iterations": 1,
+                            "split_k": 1,
+                            "workspace_nbytes": 0,
+                            "status": "ok",
+                            "confidence": {
+                                "level": "low",
+                                "confident": False,
+                                "reasons": ["runner_up_insufficient_repeats"],
+                                "selection_metric_ms": 0.012,
+                                "runner_up_candidate_id": f"{op_name}_fallback",
+                                "runner_up_elapsed_ms": 0.013,
+                                "margin_ms": 0.001,
+                                "required_margin_ms": 0.002,
+                                "relative_speedup_over_runner_up": 0.08,
+                                "sample_counts": {"best": 1, "runner_up": 1},
+                            },
+                        }
+                    ],
+                    "static_selections": [],
+                    "conflicts": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (Path(output) / "debug" / "bootstrap_profile_report.json").write_text(
+            json.dumps(
+                {
+                    "iterations": 1,
+                    "repeats": 1,
+                    "summary": {"profiled": 1, "failed": 0},
+                    "execution_plan": {
+                        "schema_version": 1,
+                        "execution_plan_key": "test-plan-key",
+                        "path": str(execution_plan_path),
+                        "selection_count": 0,
+                        "low_confidence_count": 1,
+                        "static_selection_count": 0,
+                        "conflict_count": 0,
+                    },
+                    "problems": [
+                        {
+                            "node_id": "node0",
+                            "op": op_name,
+                            "dtype": "float16",
+                            "kernel_library": "ck_bmm",
+                            "profiler_symbol": f"dinoml_{op_name}_profiler",
+                            "elapsed_ms": 0.012,
+                            "tflops": 1.25,
+                            "timing": {"avg_ms": 0.012, "repeats": 1},
+                            "selected": {"candidate_id": f"{op_name}_candidate"},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
         return Artifact(output)
 
     monkeypatch.setattr("dinoml.benchmarks.ops.dml.compile", fake_compile)
@@ -170,6 +256,73 @@ def test_ops_benchmark_suite_compiles_provider_cases_on_gpu_targets(tmp_path, mo
             "candidate_config_key": "xdl_wide_n_v1",
         }
     ]
+    assert report["cases"][1]["provider_profile"] == {
+        "iterations": 1,
+        "repeats": 1,
+        "summary": {"profiled": 1, "failed": 0},
+        "problems": [
+            {
+                "node_id": "node0",
+                "op": "bmm_rcr_add",
+                "dtype": "float16",
+                "kernel_library": "ck_bmm",
+                "candidate_id": "bmm_rcr_add_candidate",
+                "profiler_symbol": "dinoml_bmm_rcr_add_profiler",
+                "elapsed_ms": 0.012,
+                "tflops": 1.25,
+                "timing": {"avg_ms": 0.012, "repeats": 1},
+            }
+        ],
+        "execution_plan": {
+            "summary": {
+                "selection_count": 0,
+                "low_confidence_count": 1,
+                "static_selection_count": 0,
+                "conflict_count": 0,
+                "schema_version": 1,
+                "execution_plan_key": "test-plan-key",
+            },
+            "selection_policy": "lowest_median_elapsed_ms_per_node_shape",
+            "selection_confidence_policy": {
+                "name": "confidence_interval_margin_v1",
+                "min_repeats": 3,
+            },
+            "selections": [],
+            "low_confidence_selections": [
+                {
+                    "node_id": "node0",
+                    "op": "bmm_rcr_add",
+                    "dtype": "float16",
+                    "kernel_library": "ck_bmm",
+                    "candidate_set_id": "bmm_rcr_add_candidate_set",
+                    "selected_candidate_id": "bmm_rcr_add_candidate",
+                    "candidate_config_key": "xdl_wide_n_v1",
+                    "kernel_symbol": "dinoml_bmm_rcr_add_kernel",
+                    "profiler_symbol": "dinoml_bmm_rcr_add_profiler",
+                    "avg_ms": 0.012,
+                    "gflops": 1250.0,
+                    "iterations": 1,
+                    "split_k": 1,
+                    "workspace_nbytes": 0,
+                    "status": "ok",
+                    "confidence": {
+                        "level": "low",
+                        "confident": False,
+                        "reasons": ["runner_up_insufficient_repeats"],
+                        "selection_metric_ms": 0.012,
+                        "runner_up_candidate_id": "bmm_rcr_add_fallback",
+                        "runner_up_elapsed_ms": 0.013,
+                        "margin_ms": 0.001,
+                        "required_margin_ms": 0.002,
+                        "relative_speedup_over_runner_up": 0.08,
+                        "sample_counts": {"best": 1, "runner_up": 1},
+                    },
+                }
+            ],
+            "static_selections": [],
+            "conflicts": [],
+        },
+    }
 
 
 def test_ops_benchmark_suite_rejects_provider_cases_on_cpu(tmp_path):

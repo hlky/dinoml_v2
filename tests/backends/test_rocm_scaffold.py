@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import dinoml as dml
@@ -19,6 +21,7 @@ from dinoml.ir import read_json
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
+    _CkRocmProfiler,
     _blocked_profile_items,
     _cache_entry,
     _profile_failure_result,
@@ -1551,6 +1554,92 @@ def test_rocm_conv2d_bias_add_relu_uses_ck_manifest_and_profile_workloads():
         "ck_conv2d_bias_add_relu_float16_xdl_wide_n_v1",
         "ck_conv2d_bias_add_relu_float16_xdl_small_v1",
     }
+
+
+@pytest.mark.parametrize(
+    ("op_name", "expected_pointer_shapes"),
+    [
+        (
+            "conv2d_bias",
+            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16)],
+        ),
+        (
+            "conv2d_bias_add_relu",
+            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16), (2, 64, 16, 16)],
+        ),
+    ],
+)
+def test_rocm_ck_conv_profiler_passes_epilogue_pointers(op_name: str, expected_pointer_shapes: list[tuple[int, ...]]):
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        op_name=op_name,
+        batch=2,
+        in_channels=8,
+        out_channels=64,
+        height=16,
+        width=16,
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    profiler = object.__new__(_CkRocmProfiler)
+    calls = []
+    device_shapes = []
+
+    class FakeProfilerFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            calls.append(args)
+            return 0.25
+
+    fake_fn = FakeProfilerFunction()
+    profiler._profiler_function = lambda _symbol: fake_fn
+
+    def fake_device_array(array: np.ndarray) -> ctypes.c_void_p:
+        device_shapes.append(tuple(int(dim) for dim in array.shape))
+        return ctypes.c_void_p(0x1000 + 0x10 * len(device_shapes))
+
+    profiler._device_array = fake_device_array
+
+    elapsed_ms, workspace_nbytes = profiler.profile_ck_conv(
+        workload,
+        iterations=11,
+        rng=np.random.default_rng(123),
+    )
+
+    pointer_count = len(expected_pointer_shapes)
+    call = calls[0]
+
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert device_shapes == expected_pointer_shapes
+    assert [arg.value for arg in call[:pointer_count]] == [0x1000 + 0x10 * idx for idx in range(1, pointer_count + 1)]
+    assert call[pointer_count : pointer_count + 16] == (
+        2,
+        8,
+        16,
+        16,
+        64,
+        3,
+        3,
+        16,
+        16,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        11,
+    )
+    assert isinstance(call[-1], ctypes.c_void_p)
+    assert call[-1].value is None
+    assert fake_fn.argtypes == [
+        *([ctypes.c_void_p] * pointer_count),
+        *([ctypes.c_int] * 16),
+        ctypes.c_void_p,
+    ]
 
 
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():

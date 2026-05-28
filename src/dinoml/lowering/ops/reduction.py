@@ -66,7 +66,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "cols": cols,
         "block_size": _cuda_block_size(cols),
         "cols_per_thread": (cols + 31) // 32,
-        "rows_per_block": _cuda_rows_per_block(cols),
+        "rows_per_block": _gpu_rows_per_block(target, cols),
         "use_warp_kernel": cols <= 1024,
         "two_accumulators": node["op"] == "var",
         "initial_value": _initial_value(node["op"]),
@@ -174,6 +174,12 @@ def _cuda_rows_per_block(cols: int) -> int:
     if cols <= 128:
         return 8
     return 4
+
+
+def _gpu_rows_per_block(target: str, cols: int) -> int:
+    if target == "rocm" and cols <= 1024:
+        return 8
+    return _cuda_rows_per_block(cols)
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

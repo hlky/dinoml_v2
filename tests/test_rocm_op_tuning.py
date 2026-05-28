@@ -26,6 +26,11 @@ class _T5LayerNormModule(dml.Module):
         return dml.ops.output(dml.ops.t5_layer_norm(x, weight, eps=1e-6), "output")
 
 
+class _EmbeddingModule(dml.Module):
+    def forward(self, table, indices):
+        return dml.ops.output(dml.ops.embedding(table, indices), "output")
+
+
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():
     spec = dml.trace(
         _ReduceSumModule(),
@@ -96,3 +101,21 @@ def test_rocm_t5_layer_norm_benchmark_shape_keeps_two_warp_rows():
     source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
 
     assert "dim3 block(32, 2)" in source
+
+
+def test_rocm_embedding_float32_benchmark_shape_uses_float4_copy():
+    spec = dml.trace(
+        _EmbeddingModule(),
+        inputs={
+            "table": dml.TensorSpec([32768, 256], "float32"),
+            "indices": dml.TensorSpec([32, 128], "int64"),
+        },
+        name="rocm_embedding_tuning",
+    )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+
+    assert "_float4_kernel" in source
+    assert "reinterpret_cast<const float4*>(table)" in source
+    assert "runtime_numel_vec_out = runtime_numel_out / 4" in source

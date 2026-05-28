@@ -1,5 +1,29 @@
 #include <assert.h>
 
+{% if use_float4_kernel %}
+__global__ void {{ vector_kernel }}(
+    const float* DINO_RESTRICT table,
+    const {{ index_storage_type }}* DINO_RESTRICT indices,
+    float* DINO_RESTRICT y,
+    int64_t runtime_numel_vec_out) {
+  constexpr int64_t hidden_vectors = {{ hidden_vectors }};
+  const auto* table4 = reinterpret_cast<const float4*>(table);
+  auto* y4 = reinterpret_cast<float4*>(y);
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel_vec_out; idx += stride) {
+    const int64_t row = idx / hidden_vectors;
+    const int64_t hidden_offset = idx - row * hidden_vectors;
+    const int64_t selected_index = static_cast<int64_t>(indices[row]);
+    if (selected_index < 0 || selected_index >= {{ vocab_size }}) {
+      assert(selected_index >= 0 && selected_index < {{ vocab_size }});
+      return;
+    }
+    const int64_t table_idx = selected_index * hidden_vectors + hidden_offset;
+    y4[idx] = table4[table_idx];
+  }
+}
+
+{% endif %}
 __global__ void {{ kernel }}(
     const {{ storage_type }}* DINO_RESTRICT table,
     const {{ index_storage_type }}* DINO_RESTRICT indices,
@@ -25,11 +49,21 @@ static int {{ func }}(
     return dino_runtime_fail("embedding runtime output size mismatch");
   }
   const int block = {{ block_size }};
+{% if use_float4_kernel %}
+  const int64_t runtime_numel_vec_out = runtime_numel_out / 4;
+  const int64_t vector_grid64 = (runtime_numel_vec_out + block - 1) / block;
+  const int vector_grid = static_cast<int>(vector_grid64 > 65535 ? 65535 : vector_grid64);
+  if (vector_grid > 0) {
+    {{ vector_kernel }}<<<vector_grid, block, 0, stream>>>(table, indices, y, runtime_numel_vec_out);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+{% else %}
   const int64_t grid64 = (runtime_numel_out + block - 1) / block;
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
   if (grid > 0) {
     {{ kernel }}<<<grid, block, 0, stream>>>(table, indices, y, runtime_numel_out);
     {{ gpu_check_macro }}({{ gpu_last_error_call }});
   }
+{% endif %}
   return 0;
 }

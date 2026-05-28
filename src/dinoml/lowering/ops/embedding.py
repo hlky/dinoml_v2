@@ -62,10 +62,13 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
+        "vector_kernel": f"{_function_name(node, tensor_map)}_float4_kernel",
         "storage_type": target_storage_type(dtype, target),
         "index_storage_type": _index_storage_type(str(index_tensor["dtype"])),
         "vocab_size": int(table_tensor["shape"][0]),
         "hidden_size": int(table_tensor["shape"][1]),
+        "hidden_vectors": int(table_tensor["shape"][1]) // 4,
+        "use_float4_kernel": target != "cpu" and dtype == "float32" and int(table_tensor["shape"][1]) % 4 == 0,
         "copy_body": _copy_body(table_tensor, target),
         "block_size": 256,
     }

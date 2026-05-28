@@ -18,7 +18,9 @@ from dinoml.backends import get_backend_spec, registered_backend_names
 from dinoml.backends import rocm as rocm_backend
 from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
+from dinoml.kernels.bmm import BMM_OPS
 from dinoml.kernels.codegen import create_codegen_plan
+from dinoml.kernels.gemm import GEMM_OPS
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
     _CkRocmProfiler,
@@ -31,9 +33,26 @@ from dinoml.kernels.profiling import (
     build_execution_plan,
     build_profile_workloads,
 )
-from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_ck_bmm_source
-from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
-from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
+from dinoml.kernels.providers.ck.bmm import (
+    ck_bmm_candidate_set,
+    ck_bmm_candidates,
+    ck_bmm_static_library_name,
+    render_ck_bmm_source,
+)
+from dinoml.kernels.providers.ck.conv import (
+    CK_CONV_OPS,
+    ck_conv_candidate_set,
+    ck_conv_candidates,
+    ck_conv_static_library_name,
+    render_ck_conv_source,
+)
+from dinoml.kernels.providers.ck.gemm import (
+    ck_gemm_candidate_set,
+    ck_gemm_candidates,
+    ck_gemm_static_library_name,
+    render_ck_gemm_source,
+)
+from dinoml.kernels.providers.cutlass.conv import CONV_OPS
 from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.definitions import OP_REGISTRY
@@ -50,6 +69,33 @@ def test_rocm_backend_binding_coverage_matches_cuda_ops():
     )
 
     assert cuda_only_ops == []
+
+
+def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():
+    assert sorted(set(CONV_OPS) - set(CK_CONV_OPS)) == []
+
+    provider_specs = (
+        ("gemm", GEMM_OPS, ck_gemm_candidate_set, ck_gemm_candidates),
+        ("bmm", BMM_OPS, ck_bmm_candidate_set, ck_bmm_candidates),
+        ("conv", CONV_OPS, ck_conv_candidate_set, ck_conv_candidates),
+    )
+
+    for family, op_names, candidate_set_factory, candidates_factory in provider_specs:
+        for op_name in op_names:
+            for dtype in ("float16", "float32"):
+                candidate_set = candidate_set_factory(op_name, dtype)
+                candidates = candidates_factory(op_name, dtype)
+
+                assert candidate_set["provider"] == "ck"
+                assert candidate_set["op"] == op_name
+                assert candidate_set["dtype"] == dtype
+                assert candidate_set["target_policy"] == {"rocm": True}
+                assert candidate_set["candidate_count"] == len(candidates)
+                assert candidate_set["candidate_count"] > 0
+                assert set(candidate_set["candidate_config_keys"]) == {
+                    candidate["candidate_config_key"] for candidate in candidates
+                }
+                assert all(candidate.get("profiler_symbol") for candidate in candidates), (family, op_name, dtype)
 
 
 def test_rocm_target_is_registered_as_distinct_backend():

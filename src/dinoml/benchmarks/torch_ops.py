@@ -164,12 +164,19 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "lt": lambda x, y, **_: x.lt(y),
         "ne": lambda x, y, **_: x.ne(y),
         "where": lambda torch, x, y, condition, **_: torch.where(condition, x, y),
+        "where_bfloat16": lambda torch, x, y, condition, **_: torch.where(condition, x.to(torch.bfloat16), y.to(torch.bfloat16)),
         "cast": lambda condition, **_: condition.float(),
         "full": lambda torch, device, **_: torch.full((1024, 4096), 1.25, dtype=torch.float32, device=device),
+        "full_bool": lambda torch, device, **_: torch.full((1024, 4096), True, dtype=torch.bool, device=device),
+        "full_bfloat16": lambda torch, device, **_: torch.full((1024, 4096), 1.25, dtype=torch.bfloat16, device=device),
         "arange": lambda torch, device, **_: torch.arange(0, 4_194_304, 1, dtype=torch.float32, device=device),
+        "arange_float16": lambda torch, device, **_: torch.arange(0, 4_194_304, 1, dtype=torch.float16, device=device),
         "randn": lambda torch, device, **_: _randn(torch, (1024, 4096), device=device, seed=17),
+        "randn_bfloat16": lambda torch, device, **_: _randn(torch, (1024, 4096), device=device, seed=17, dtype=torch.bfloat16),
         "softmax": lambda torch, x, **_: torch.nn.functional.softmax(x, dim=-1),
+        "softmax_bfloat16": lambda torch, x, **_: torch.nn.functional.softmax(x.to(torch.bfloat16), dim=-1),
         "reduce_sum": lambda x, **_: x.sum(dim=-1),
+        "reduce_sum_float16": lambda x, **_: x.sum(dim=-1),
         "reduce_max": lambda x, **_: x.max(dim=-1).values,
         "reduce_min": lambda x, **_: x.min(dim=-1).values,
         "reduce_mean": lambda x, **_: x.mean(dim=-1),
@@ -179,13 +186,17 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "avg_pool2d": lambda torch, x, **_: torch.nn.functional.avg_pool2d(x, kernel_size=(3, 3), stride=2, padding=1),
         "max_pool2d": lambda torch, x, **_: torch.nn.functional.max_pool2d(x, kernel_size=(3, 3), stride=2, padding=1),
         "argmax": lambda x, **_: x.argmax(dim=-1),
+        "argmax_bool": lambda torch, x, **_: x.to(torch.int32).argmax(dim=-1),
+        "argmax_int64": lambda x, **_: x.argmax(dim=-1),
         "topk": lambda x, **_: x.topk(16, dim=-1),
+        "topk_bool": lambda torch, x, **_: _topk_bool(torch, x, 16),
         "layer_norm": lambda torch, x, weight, bias, **_: torch.nn.functional.layer_norm(x, (x.shape[-1],), weight, bias, eps=1e-5),
         "t5_layer_norm": lambda torch, x, weight, **_: _t5_layer_norm(torch, x, weight, eps=1e-6),
         "rms_norm": lambda torch, x, weight, **_: _t5_layer_norm(torch, x, weight, eps=1e-6),
         "get_timestep_embedding": lambda torch, timesteps, **_: _get_timestep_embedding(torch, timesteps, embedding_dim=128),
         "get_1d_rotary_pos_embed": lambda torch, positions, **_: _get_1d_rotary_pos_embed(torch, 128, positions),
         "embedding": lambda torch, table, indices, **_: torch.nn.functional.embedding(indices, table),
+        "embedding_bfloat16_int32": lambda torch, table, indices, **_: torch.nn.functional.embedding(indices.long(), table.to(torch.bfloat16)),
         "expand": lambda x, **_: x.expand(16, 128, 768),
         "concatenate": lambda torch, x, y, **_: torch.cat([x, y], dim=1),
         "stack": lambda torch, x, y, **_: torch.stack([x, y], dim=0),
@@ -198,7 +209,12 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "dynamic_slice": lambda x, **_: x[0:16, 32:96, 0:768],
         "index_select": lambda torch, x, **_: torch.index_select(x, 1, torch.arange(0, 128, 2, device=x.device)),
         "gather": lambda torch, x, index, **_: torch.gather(x, 1, index),
+        "gather_float16_int32": lambda torch, x, index, **_: torch.gather(x, 1, index.long()),
         "batch_gather": lambda x, indices, **_: x.gather(1, indices.unsqueeze(-1).expand(-1, -1, x.shape[-1])),
+        "batch_gather_bfloat16_int32": lambda torch, x, indices, **_: x.to(torch.bfloat16).gather(
+            1,
+            indices.long().unsqueeze(-1).expand(-1, -1, x.shape[-1]),
+        ),
         "slice_scatter": lambda x, update, **_: _slice_scatter(x, update, [0, 48, 0]),
         "pad": lambda torch, x, **_: torch.nn.functional.pad(x, (1, 2), value=-1.0),
         "gemm_rcr": lambda a, b, **_: a @ b.transpose(-1, -2),
@@ -309,10 +325,16 @@ def _select_torch_cases(cases: list[TorchBenchmarkCase], only: Iterable[str] | N
     return [case for case in cases if case.name in selected_names]
 
 
-def _randn(torch: Any, shape: tuple[int, ...], *, device: Any, seed: int) -> Any:
+def _randn(torch: Any, shape: tuple[int, ...], *, device: Any, seed: int, dtype: Any | None = None) -> Any:
     generator = torch.Generator(device=device)
     generator.manual_seed(seed)
-    return torch.randn(shape, dtype=torch.float32, device=device, generator=generator)
+    return torch.randn(shape, dtype=dtype or torch.float32, device=device, generator=generator)
+
+
+def _topk_bool(torch: Any, x: Any, k: int) -> tuple[Any, Any]:
+    indices = x.to(torch.int32).topk(k, dim=-1).indices
+    values = torch.gather(x, -1, indices)
+    return values, indices
 
 
 def _gelu_new(torch: Any, x: Any) -> Any:

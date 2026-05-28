@@ -14,6 +14,10 @@ def test_ops_benchmark_cases_are_individual_not_condensed():
     assert "sub" in names
     assert "reduce_sum" in names
     assert "reduce_max" in names
+    assert "reduce_sum_float16" in names
+    assert "where_bfloat16" in names
+    assert "argmax_bool" in names
+    assert "batch_gather_bfloat16_int32" in names
     assert "gemm_rcr_bias_add_relu" in names
     assert "bmm_rcr_add" in names
     assert "conv2d_bias_add_relu" in names
@@ -28,6 +32,31 @@ def test_provider_benchmark_cases_are_cuda_rocm_only():
     assert cases["gemm_rcr_bias_add_relu"].targets == ("cuda", "rocm")
     assert cases["bmm_rcr_add"].targets == ("cuda", "rocm")
     assert cases["conv2d_bias_add_relu"].targets == ("cuda", "rocm")
+
+
+def test_dtype_benchmark_cases_keep_specific_filters():
+    cases = {case.name: case for case in benchmark_cases()}
+    expected = {
+        "where_bfloat16": "fused_elementwise_gpu.j2",
+        "full_bool": "full_gpu.j2",
+        "full_bfloat16": "full_gpu.j2",
+        "arange_float16": "arange_gpu.j2",
+        "randn_bfloat16": "randn_gpu.j2",
+        "softmax_bfloat16": "softmax_gpu.j2",
+        "reduce_sum_float16": "reduction_gpu.j2",
+        "argmax_bool": "argmax_gpu.j2",
+        "argmax_int64": "argmax_gpu.j2",
+        "topk_bool": "topk_gpu.j2",
+        "embedding_bfloat16_int32": "embedding_gpu.j2",
+        "gather_float16_int32": "gather_gpu.j2",
+        "batch_gather_bfloat16_int32": "gather_gpu.j2",
+    }
+
+    assert expected.keys() <= cases.keys()
+    for name, template in expected.items():
+        assert cases[name].op == name
+        assert cases[name].template == template
+        assert "rocm" in cases[name].targets
 
 
 def test_ops_benchmark_suite_compiles_and_benchmarks_selected_cases(tmp_path, monkeypatch):

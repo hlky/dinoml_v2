@@ -12,7 +12,7 @@ import numpy as np
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.ir import ModelSpec, read_json
+from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, read_json
 
 
 @dataclass(frozen=True)
@@ -143,13 +143,45 @@ def benchmark_cases() -> list[BenchmarkCase]:
     ]:
         add(name, elementwise_specs, elementwise_inputs, fn, template=elementwise_template)
 
+    def bfloat16_elementwise_inputs() -> dict[str, np.ndarray]:
+        x = _typed_float_array(activation_shape, "bfloat16", -1.25, 0.0001)
+        y = _typed_float_array(activation_shape, "bfloat16", 0.25, 0.00005)
+        return {
+            "x": x,
+            "y": y,
+            "condition": (np.arange(np.prod(activation_shape)).reshape(activation_shape) % 3 == 0),
+        }
+
+    add(
+        "where_bfloat16",
+        {
+            "x": dml.TensorSpec(list(activation_shape), "bfloat16"),
+            "y": dml.TensorSpec(list(activation_shape), "bfloat16"),
+            "condition": dml.TensorSpec(list(activation_shape), "bool"),
+        },
+        bfloat16_elementwise_inputs,
+        lambda x, y, condition: dml.ops.where(condition, x, y),
+        template=elementwise_template,
+    )
+
     add("full", {}, {}, lambda: dml.ops.full([1024, 4096], 1.25, dtype="float32"), template="full_gpu.j2")
+    add("full_bool", {}, {}, lambda: dml.ops.full([1024, 4096], True, dtype="bool"), template="full_gpu.j2")
+    add("full_bfloat16", {}, {}, lambda: dml.ops.full([1024, 4096], 1.25, dtype="bfloat16"), template="full_gpu.j2")
     add("arange", {}, {}, lambda: dml.ops.arange(0, 4_194_304, 1, dtype="float32"), template="arange_gpu.j2")
+    add("arange_float16", {}, {}, lambda: dml.ops.arange(0, 4_194_304, 1, dtype="float16"), template="arange_gpu.j2")
     add("randn", {}, {}, lambda: dml.ops.randn([1024, 4096], dtype="float32", seed=17), template="randn_gpu.j2")
+    add("randn_bfloat16", {}, {}, lambda: dml.ops.randn([1024, 4096], dtype="bfloat16", seed=17), template="randn_gpu.j2")
 
     attention_shape = (32, 128, 1024)
     attention_inputs = lambda: {"x": _float_array(attention_shape, -2.0, 0.0001)}
     add("softmax", {"x": dml.TensorSpec(list(attention_shape), "float32")}, attention_inputs, lambda x: dml.ops.softmax(x, dim=-1), template="softmax_gpu.j2")
+    add(
+        "softmax_bfloat16",
+        {"x": dml.TensorSpec(list(attention_shape), "bfloat16")},
+        lambda: {"x": _typed_float_array(attention_shape, "bfloat16", -2.0, 0.0001)},
+        lambda x: dml.ops.softmax(x, dim=-1),
+        template="softmax_gpu.j2",
+    )
     for name, fn in [
         ("reduce_sum", lambda x: dml.ops.reduce_sum(x, dim=-1)),
         ("reduce_max", lambda x: dml.ops.reduce_max(x, dim=-1)),
@@ -159,13 +191,41 @@ def benchmark_cases() -> list[BenchmarkCase]:
         ("vector_norm", lambda x: dml.ops.vector_norm(x, dim=-1)),
     ]:
         add(name, {"x": dml.TensorSpec(list(attention_shape), "float32")}, attention_inputs, fn, template="reduction_gpu.j2")
+    add(
+        "reduce_sum_float16",
+        {"x": dml.TensorSpec(list(attention_shape), "float16")},
+        lambda: {"x": _typed_float_array(attention_shape, "float16", -2.0, 0.0001)},
+        lambda x: dml.ops.reduce_sum(x, dim=-1),
+        template="reduction_gpu.j2",
+    )
 
     add("avg_pool1d", {"x": dml.TensorSpec([16, 64, 1024], "float32")}, lambda: {"x": _float_array((16, 64, 1024), step=0.0001)}, lambda x: dml.ops.avg_pool1d(x, kernel_size=3, stride=2, padding=1), template="avg_pool1d_gpu.j2")
     add("avg_pool2d", {"x": dml.TensorSpec([8, 64, 56, 56], "float32")}, lambda: {"x": _float_array((8, 64, 56, 56), step=0.0001)}, lambda x: dml.ops.avg_pool2d(x, kernel_size=(3, 3), stride=2, padding=1), template="avg_pool2d_gpu.j2")
     add("max_pool2d", {"x": dml.TensorSpec([8, 64, 56, 56], "float32")}, lambda: {"x": _float_array((8, 64, 56, 56), step=0.0001)}, lambda x: dml.ops.max_pool2d(x, kernel_size=(3, 3), stride=2, padding=1), template="max_pool2d_gpu.j2")
 
     add("argmax", {"x": dml.TensorSpec(list(attention_shape), "float32")}, attention_inputs, lambda x: dml.ops.argmax(x, dim=-1), template="argmax_gpu.j2")
+    add(
+        "argmax_bool",
+        {"x": dml.TensorSpec(list(attention_shape), "bool")},
+        lambda: {"x": (np.arange(np.prod(attention_shape)).reshape(attention_shape) % 3 == 0)},
+        lambda x: dml.ops.argmax(x, dim=-1),
+        template="argmax_gpu.j2",
+    )
+    add(
+        "argmax_int64",
+        {"x": dml.TensorSpec(list(attention_shape), "int64")},
+        lambda: {"x": (np.arange(np.prod(attention_shape), dtype=np.int64).reshape(attention_shape) % 997)},
+        lambda x: dml.ops.argmax(x, dim=-1),
+        template="argmax_gpu.j2",
+    )
     add("topk", {"x": dml.TensorSpec(list(attention_shape), "float32")}, attention_inputs, lambda x: dml.ops.topk(x, 16, dim=-1), template="topk_gpu.j2")
+    add(
+        "topk_bool",
+        {"x": dml.TensorSpec(list(attention_shape), "bool")},
+        lambda: {"x": (np.arange(np.prod(attention_shape)).reshape(attention_shape) % 3 == 0)},
+        lambda x: dml.ops.topk(x, 16, dim=-1),
+        template="topk_gpu.j2",
+    )
 
     def norm_inputs() -> dict[str, np.ndarray]:
         return {
@@ -192,6 +252,16 @@ def benchmark_cases() -> list[BenchmarkCase]:
     add("get_1d_rotary_pos_embed", {"positions": dml.TensorSpec([4096], "float32")}, {"positions": np.arange(4096, dtype=np.float32)}, lambda positions: dml.ops.get_1d_rotary_pos_embed(128, positions), template="get_1d_rotary_pos_embed_gpu.j2")
 
     add("embedding", {"table": dml.TensorSpec([32768, 256], "float32"), "indices": dml.TensorSpec([32, 128], "int64")}, lambda: {"table": _float_array((32768, 256), step=0.00001), "indices": np.arange(4096, dtype=np.int64).reshape(32, 128) % 32768}, lambda table, indices: dml.ops.embedding(table, indices), template="embedding_gpu.j2")
+    add(
+        "embedding_bfloat16_int32",
+        {"table": dml.TensorSpec([32768, 256], "bfloat16"), "indices": dml.TensorSpec([32, 128], "int32")},
+        lambda: {
+            "table": _typed_float_array((32768, 256), "bfloat16", step=0.00001),
+            "indices": (np.arange(4096, dtype=np.int32).reshape(32, 128) % 32768),
+        },
+        lambda table, indices: dml.ops.embedding(table, indices),
+        template="embedding_gpu.j2",
+    )
 
     collection_shape = (16, 128, 768)
     collection_specs = {"x": dml.TensorSpec(list(collection_shape), "float32")}
@@ -208,7 +278,27 @@ def benchmark_cases() -> list[BenchmarkCase]:
     add("dynamic_slice", collection_specs, collection_inputs, lambda x: dml.ops.dynamic_slice(x, [0, 32, 0], [16, 64, 768]), template="dynamic_slice_gpu.j2")
     add("index_select", collection_specs, collection_inputs, lambda x: dml.ops.index_select(x, dim=1, indices=list(range(0, 128, 2))), template="index_select_gpu.j2")
     add("gather", {"x": dml.TensorSpec(list(collection_shape), "float32"), "index": dml.TensorSpec([16, 64, 768], "int64")}, lambda: {"x": _float_array(collection_shape, step=0.0001), "index": (np.arange(16 * 64 * 768, dtype=np.int64).reshape(16, 64, 768) % 128)}, lambda x, index: dml.ops.gather(x, 1, index), template="gather_gpu.j2")
+    add(
+        "gather_float16_int32",
+        {"x": dml.TensorSpec(list(collection_shape), "float16"), "index": dml.TensorSpec([16, 64, 768], "int32")},
+        lambda: {
+            "x": _typed_float_array(collection_shape, "float16", step=0.0001),
+            "index": (np.arange(16 * 64 * 768, dtype=np.int32).reshape(16, 64, 768) % 128),
+        },
+        lambda x, index: dml.ops.gather(x, 1, index),
+        template="gather_gpu.j2",
+    )
     add("batch_gather", {"x": dml.TensorSpec([32, 256, 768], "float32"), "indices": dml.TensorSpec([32, 128], "int64")}, lambda: {"x": _float_array((32, 256, 768), step=0.00001), "indices": (np.arange(4096, dtype=np.int64).reshape(32, 128) % 256)}, lambda x, indices: dml.ops.batch_gather(x, indices), template="gather_gpu.j2")
+    add(
+        "batch_gather_bfloat16_int32",
+        {"x": dml.TensorSpec([32, 256, 768], "bfloat16"), "indices": dml.TensorSpec([32, 128], "int32")},
+        lambda: {
+            "x": _typed_float_array((32, 256, 768), "bfloat16", step=0.00001),
+            "indices": (np.arange(4096, dtype=np.int32).reshape(32, 128) % 256),
+        },
+        lambda x, indices: dml.ops.batch_gather(x, indices),
+        template="gather_gpu.j2",
+    )
     add("slice_scatter", {"x": dml.TensorSpec(list(collection_shape), "float32"), "update": dml.TensorSpec([16, 32, 768], "float32")}, lambda: {"x": _float_array(collection_shape, step=0.0001), "update": _float_array((16, 32, 768), 100.0, 0.0001)}, lambda x, update: dml.ops.slice_scatter(x, update, [0, 48, 0]), template="slice_scatter_gpu.j2")
     add("pad", collection_specs, collection_inputs, lambda x: dml.ops.pad(x, [1, 2], value=-1.0), template="pad_gpu.j2")
 
@@ -898,3 +988,12 @@ def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
 def _float_array(shape: tuple[int, ...], start: float = 0.0, step: float = 0.01) -> np.ndarray:
     values = np.arange(np.prod(shape), dtype=np.float32) * np.float32(step) + np.float32(start)
     return values.reshape(shape)
+
+
+def _typed_float_array(shape: tuple[int, ...], dtype: str, start: float = 0.0, step: float = 0.01) -> np.ndarray:
+    values = _float_array(shape, start, step)
+    if dtype == "float16":
+        return values.astype(np.float16)
+    if dtype == "bfloat16":
+        return array_from_storage(array_to_storage(values, "bfloat16"), "bfloat16")
+    return values.astype(dtype)

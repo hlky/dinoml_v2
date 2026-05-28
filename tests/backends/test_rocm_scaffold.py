@@ -32,6 +32,7 @@ from dinoml.kernels.providers.ck.bmm import ck_bmm_static_library_name, render_c
 from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render_ck_conv_source
 from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
 from dinoml.lowering.rocm import render_rocm_module
+from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.elementwise import FusedElementwise
 from dinoml.runtime import load
 from tests.cases import elementwise_case
@@ -231,6 +232,21 @@ def test_rocm_cmake_arch_normalizes_whitespace_and_rejects_invalid_values():
 def test_rocm_support_cache_dir_sanitizes_feature_suffixed_arch():
     assert rocm_backend._rocm_support_cache_dir_name("gfx1201") == "rocm-gfx1201"
     assert rocm_backend._rocm_support_cache_dir_name(" gfx90a:xnack- ") == "rocm-gfx90a_xnack-"
+
+
+def test_rocm_lowering_target_spec_uses_hip_runtime_contract():
+    spec = lowering_target_spec("rocm")
+    context = spec.gpu_template_context()
+
+    assert spec.source_extension == "hip"
+    assert spec.stream_type == "hipStream_t"
+    assert spec.stream_expr == "session->stream"
+    assert context["gpu_check_macro"] == "DINO_ROCM_CHECK"
+    assert context["gpu_last_error_call"] == "hipGetLastError()"
+    assert context["gpu_memset_async"] == "hipMemsetAsync"
+    assert context["gpu_warp_full_mask"] == "0xffffffffffffffffull"
+    assert storage_type("float16", "rocm") == "half"
+    assert storage_type("bfloat16", "rocm") == "dinoml::bfloat16"
 
 
 def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monkeypatch):

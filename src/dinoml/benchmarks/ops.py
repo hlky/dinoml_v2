@@ -235,7 +235,7 @@ def run_benchmark_suite(
         if keep_artifacts:
             artifact_root = Path(tempfile.mkdtemp(prefix="dinoml_ops_bench_"))
         else:
-            temp_dir = tempfile.TemporaryDirectory(prefix="dinoml_ops_bench_")
+            temp_dir = tempfile.TemporaryDirectory(prefix="dinoml_ops_bench_", ignore_cleanup_errors=True)
             artifact_root = Path(temp_dir.name)
     else:
         artifact_root = Path(output_dir)

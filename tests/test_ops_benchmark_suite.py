@@ -109,6 +109,64 @@ def test_ops_benchmark_suite_parallel_compile_preserves_report_order(tmp_path, m
     assert {call[1] for call in calls if call[0] == "compile"} == {"benchmark_add", "benchmark_reduce_sum"}
 
 
+def test_ops_benchmark_suite_ignores_temp_cleanup_errors(monkeypatch):
+    calls = []
+    temp_kwargs = []
+
+    class Artifact:
+        def __init__(self, path):
+            self.path = Path(path)
+
+    class FakeSession:
+        def benchmark_numpy(self, inputs, *, warmup, iterations):
+            del inputs
+            return {
+                "count": iterations,
+                "warmup": warmup,
+                "mean_ms": 1.0,
+                "median_ms": 1.0,
+                "min_ms": 1.0,
+                "max_ms": 1.0,
+                "stddev_ms": 0.0,
+            }
+
+        def close(self):
+            pass
+
+    class FakeRuntimeModule:
+        metadata = {"inputs": [], "outputs": []}
+
+        def create_session(self):
+            return FakeSession()
+
+        def close(self):
+            pass
+
+    class FakeTemporaryDirectory:
+        def __init__(self, **kwargs):
+            temp_kwargs.append(kwargs)
+            self.name = "H:/tmp/dinoml_ops_bench_locked"
+
+        def cleanup(self):
+            calls.append(("cleanup", temp_kwargs[-1].get("ignore_cleanup_errors")))
+            if not temp_kwargs[-1].get("ignore_cleanup_errors"):
+                raise PermissionError("locked ROCm DLL")
+
+    def fake_compile(spec, target, output):
+        del spec, target
+        return Artifact(output)
+
+    monkeypatch.setattr("dinoml.benchmarks.ops.tempfile.TemporaryDirectory", FakeTemporaryDirectory)
+    monkeypatch.setattr("dinoml.benchmarks.ops.dml.compile", fake_compile)
+    monkeypatch.setattr("dinoml.benchmarks.ops.runtime.load", lambda path, load_constants=True: FakeRuntimeModule())
+
+    report = run_benchmark_suite("rocm", warmup=1, iterations=1, only=["add"])
+
+    assert report["summary"]["ok"] == 1
+    assert temp_kwargs == [{"prefix": "dinoml_ops_bench_", "ignore_cleanup_errors": True}]
+    assert calls == [("cleanup", True)]
+
+
 def test_cli_benchmark_ops_passes_target_to_suite(tmp_path, monkeypatch, capsys):
     captured = {}
 

@@ -21,6 +21,11 @@ class _LayerNormModule(dml.Module):
         return dml.ops.output(dml.ops.layer_norm(x, weight, bias, eps=1e-5), "output")
 
 
+class _T5LayerNormModule(dml.Module):
+    def forward(self, x, weight):
+        return dml.ops.output(dml.ops.t5_layer_norm(x, weight, eps=1e-6), "output")
+
+
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():
     spec = dml.trace(
         _ReduceSumModule(),
@@ -69,6 +74,22 @@ def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():
             "bias": dml.TensorSpec([768], "float32"),
         },
         name="rocm_layer_norm_tuning",
+    )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+
+    assert "dim3 block(32, 2)" in source
+
+
+def test_rocm_t5_layer_norm_benchmark_shape_keeps_two_warp_rows():
+    spec = dml.trace(
+        _T5LayerNormModule(),
+        inputs={
+            "x": dml.TensorSpec([16, 128, 768], "float32"),
+            "weight": dml.TensorSpec([768], "float32"),
+        },
+        name="rocm_t5_layer_norm_tuning",
     )
     tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
 

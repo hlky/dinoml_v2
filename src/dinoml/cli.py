@@ -383,6 +383,13 @@ def _profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
         "timing": item.get("timing"),
         "tflops": item["tflops"],
     }
+    if item.get("iterations") is not None:
+        payload["iterations"] = item.get("iterations")
+    if item.get("requested_iterations") is not None:
+        payload["requested_iterations"] = item.get("requested_iterations")
+    adaptive = item.get("adaptive_iterations")
+    if isinstance(adaptive, Mapping):
+        payload["adaptive_iterations"] = dict(adaptive)
     if item.get("split_k") is not None:
         payload["split_k"] = item.get("split_k")
     conv_config = item.get("conv")

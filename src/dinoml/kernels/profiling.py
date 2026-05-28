@@ -48,6 +48,8 @@ PROFILE_CONFIDENCE_Z_SCORE = 1.96
 PROFILE_CONFIDENCE_MIN_REPEATS = 3
 PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS = 0.002
 PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP = 0.02
+PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS = 0.5
+PROFILE_ADAPTIVE_MAX_ITERATIONS = 1024
 
 
 @dataclass(frozen=True)
@@ -1275,13 +1277,14 @@ def profile_artifact(
             else:
                 if profiler is None:
                     profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
-                samples_ms = []
-                workspace_nbytes = int(workload.workspace_nbytes)
                 try:
-                    for _ in range(repeats):
-                        elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=iterations, rng=rng)
-                        samples_ms.append(elapsed_ms)
-                        workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+                    samples_ms, workspace_nbytes, effective_iterations = _profile_workload_samples(
+                        profiler,
+                        workload,
+                        iterations=iterations,
+                        repeats=repeats,
+                        rng=rng,
+                    )
                 except RuntimeError as exc:
                     results.append(
                         _profile_failure_result(
@@ -1293,16 +1296,22 @@ def profile_artifact(
                     )
                     summary["failed"] += 1
                     continue
-                timing = _profile_timing(samples_ms, iterations=iterations)
+                timing = _profile_timing(samples_ms, iterations=effective_iterations)
                 result = _profile_result(
                     workload,
                     timing["median_ms"],
-                    iterations,
+                    effective_iterations,
                     profile_key=profile_key,
                     status="ok",
                     workspace_nbytes=workspace_nbytes,
                     timing=timing,
                 )
+                if effective_iterations != iterations:
+                    result["requested_iterations"] = int(iterations)
+                    result["adaptive_iterations"] = _adaptive_profile_iterations_payload(
+                        requested_iterations=iterations,
+                        effective_iterations=effective_iterations,
+                    )
                 results.append(result)
                 cache["entries"][profile_key] = _cache_entry(workload, result, key_payload)
                 summary["profiled"] += 1
@@ -2005,6 +2014,68 @@ def _profile_report(
         "blocked_profile_items": [dict(item) for item in blocked_profile_items],
         "repeats": int(repeats),
         "summary": dict(summary),
+    }
+
+
+def _profile_workload_samples(
+    profiler: Any,
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    iterations: int,
+    repeats: int,
+    rng: np.random.Generator,
+) -> tuple[list[float], int, int]:
+    effective_iterations = int(iterations)
+    workspace_nbytes = int(workload.workspace_nbytes)
+    samples_ms: list[float] = []
+    elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=effective_iterations, rng=rng)
+    workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+    adapted_iterations = _adaptive_profile_iterations(
+        workload,
+        requested_iterations=effective_iterations,
+        elapsed_ms=elapsed_ms,
+    )
+    if adapted_iterations == effective_iterations:
+        samples_ms.append(elapsed_ms)
+    else:
+        effective_iterations = adapted_iterations
+    while len(samples_ms) < int(repeats):
+        elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=effective_iterations, rng=rng)
+        samples_ms.append(elapsed_ms)
+        workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+    return samples_ms, workspace_nbytes, effective_iterations
+
+
+def _adaptive_profile_iterations(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    requested_iterations: int,
+    elapsed_ms: float,
+) -> int:
+    requested = int(requested_iterations)
+    if str(workload.kernel_library) not in {"ck_gemm", "ck_bmm", "ck_conv"}:
+        return requested
+    elapsed = float(elapsed_ms)
+    if not math.isfinite(elapsed) or elapsed <= 0.0:
+        return requested
+    total_sample_ms = elapsed * requested
+    if total_sample_ms >= PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS:
+        return requested
+    target_iterations = int(math.ceil(PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS / elapsed))
+    return max(requested, min(PROFILE_ADAPTIVE_MAX_ITERATIONS, target_iterations))
+
+
+def _adaptive_profile_iterations_payload(
+    *,
+    requested_iterations: int,
+    effective_iterations: int,
+) -> dict[str, Any]:
+    return {
+        "policy": "min_total_sample_ms_v1",
+        "requested_iterations": int(requested_iterations),
+        "effective_iterations": int(effective_iterations),
+        "min_total_sample_ms": PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS,
+        "max_iterations": PROFILE_ADAPTIVE_MAX_ITERATIONS,
     }
 
 

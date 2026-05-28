@@ -24,12 +24,14 @@ from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
     _CkRocmProfiler,
+    _adaptive_profile_iterations,
     _blocked_profile_items,
     _cache_entry,
     _profile_failure_result,
     _profile_report,
     _profile_result,
     _profile_result_from_cache,
+    _profile_workload_samples,
     build_execution_plan,
     build_profile_workloads,
 )
@@ -1043,6 +1045,40 @@ def test_rocm_ck_profile_cache_entry_records_launch_metadata():
     assert entry["kernel_symbol"] == workload.kernel_symbol
     assert entry["profiler_symbol"] == workload.profiler_symbol
     assert entry["split_k"] == 1
+
+
+def test_rocm_ck_profile_samples_adapt_iterations_for_tiny_measurements():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeProfiler:
+        def profile(self, workload, *, iterations, rng):
+            del workload, rng
+            calls.append(iterations)
+            return (0.001 if iterations == 5 else 0.02), 0
+
+    samples, workspace_nbytes, effective_iterations = _profile_workload_samples(
+        FakeProfiler(),
+        workload,
+        iterations=5,
+        repeats=3,
+        rng=np.random.default_rng(0),
+    )
+
+    assert calls == [5, 500, 500, 500]
+    assert samples == [0.02, 0.02, 0.02]
+    assert workspace_nbytes == 0
+    assert effective_iterations == 500
+
+
+def test_rocm_ck_profile_iterations_stay_requested_for_stable_measurements():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    assert _adaptive_profile_iterations(workload, requested_iterations=20, elapsed_ms=0.04) == 20
 
 
 def test_rocm_ck_profile_cache_round_trip_preserves_candidate_metadata():

@@ -672,7 +672,7 @@ def _rocm_runtime_paths() -> list[str]:
     if not root and not bin_dir:
         for env_root in _rocm_environment_roots():
             _append_rocm_root_runtime_paths(paths, env_root)
-    return paths
+    return _unique_rocm_runtime_paths(paths)
 
 
 def _rocm_environment_roots() -> list[Path]:
@@ -691,6 +691,18 @@ def _append_rocm_root_runtime_paths(paths: list[str], root: Path) -> None:
         paths.append(str(bin_dir))
     if llvm_bin.exists():
         paths.append(str(llvm_bin))
+
+
+def _unique_rocm_runtime_paths(paths: list[str]) -> list[str]:
+    seen = set()
+    unique = []
+    for path in paths:
+        normalized = os.path.normcase(os.path.abspath(path))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(path)
+    return unique
 
 
 def _run_rocm_sdk_path(arg: str) -> str | None:

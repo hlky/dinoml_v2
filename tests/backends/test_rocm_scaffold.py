@@ -374,6 +374,21 @@ def test_rocm_runtime_paths_fallback_to_root_bin_when_sdk_bin_query_missing(tmp_
     assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
 
 
+def test_rocm_runtime_paths_fallback_to_hip_path_without_rocm_sdk(tmp_path, monkeypatch):
+    sdk_root = tmp_path / "hip-sdk"
+    sdk_bin = sdk_root / "bin"
+    llvm_bin = sdk_root / "lib" / "llvm" / "bin"
+    sdk_bin.mkdir(parents=True)
+    llvm_bin.mkdir(parents=True)
+
+    monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
+    monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)
+    monkeypatch.setenv("HIP_PATH", str(sdk_root))
+    monkeypatch.delenv("ROCM_PATH", raising=False)
+
+    assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
+
+
 def test_rocm_sdk_python_probe_treats_launch_failure_as_unavailable(monkeypatch):
     def fake_run(*_args, **_kwargs):
         raise OSError("missing python")
@@ -397,6 +412,8 @@ def test_rocm_sdk_path_query_treats_launch_failure_as_unavailable(monkeypatch):
 def test_rocm_runtime_paths_allow_regular_hip_sdk_without_rocm_sdk(monkeypatch):
     monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
     monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)
+    monkeypatch.delenv("HIP_PATH", raising=False)
+    monkeypatch.delenv("ROCM_PATH", raising=False)
 
     assert rocm_backend._rocm_runtime_paths() == []
 

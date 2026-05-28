@@ -669,7 +669,28 @@ def _rocm_runtime_paths() -> list[str]:
             paths.append(str(root_bin))
     if root:
         paths.append(str(Path(root) / "lib" / "llvm" / "bin"))
+    if not root and not bin_dir:
+        for env_root in _rocm_environment_roots():
+            _append_rocm_root_runtime_paths(paths, env_root)
     return paths
+
+
+def _rocm_environment_roots() -> list[Path]:
+    roots = []
+    for key in ("HIP_PATH", "ROCM_PATH"):
+        value = os.environ.get(key)
+        if value:
+            roots.append(Path(value))
+    return roots
+
+
+def _append_rocm_root_runtime_paths(paths: list[str], root: Path) -> None:
+    bin_dir = root / "bin"
+    llvm_bin = root / "lib" / "llvm" / "bin"
+    if bin_dir.exists():
+        paths.append(str(bin_dir))
+    if llvm_bin.exists():
+        paths.append(str(llvm_bin))
 
 
 def _run_rocm_sdk_path(arg: str) -> str | None:

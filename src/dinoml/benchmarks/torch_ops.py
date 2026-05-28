@@ -10,6 +10,9 @@ from typing import Any, Callable, Iterable, Mapping
 import numpy as np
 
 from dinoml.benchmarks.ops import BenchmarkCase, _select_cases, benchmark_cases
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
+from dinoml.ops.conv import CONV2D_BIAS_DTYPES, CONV2D_BIAS_FAMILY_OPS
 from dinoml.runtime import _summarize_benchmark_samples, _validate_benchmark_counts
 
 
@@ -358,6 +361,14 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
             ),
         }
     )
+    for dtype in ("float16", "float32", "bfloat16"):
+        for op_name in GEMM_OPS:
+            fns[f"provider_{op_name}_{dtype}"] = _provider_gemm_torch_fn(op_name, dtype)
+        for op_name in BMM_OPS:
+            fns[f"provider_{op_name}_{dtype}"] = _provider_bmm_torch_fn(op_name, dtype)
+    for dtype in CONV2D_BIAS_DTYPES:
+        for op_name in CONV2D_BIAS_FAMILY_OPS:
+            fns[f"provider_{op_name}_{dtype}"] = _provider_conv_torch_fn(op_name, dtype)
     return fns
 
 
@@ -384,6 +395,94 @@ def _cast_torch_outputs(value: Any, dtype: Any) -> Any:
     if isinstance(value, list):
         return [item.to(dtype) for item in value]
     return value.to(dtype)
+
+
+def _provider_gemm_torch_fn(op_name: str, dtype: str) -> Callable[..., Any]:
+    def fn(torch: Any, **inputs: Any) -> Any:
+        spec = gemm_op_spec(op_name)
+        torch_dtype = getattr(torch, dtype)
+        a = inputs["a"].to(torch_dtype)
+        b = inputs["b"].to(torch_dtype)
+        result = a @ (b if spec.base_layout == "rrr" else b.transpose(-1, -2))
+        if spec.epilogue.has_bias:
+            result = result + inputs["bias"].to(torch_dtype).reshape(-1)
+        if spec.epilogue.pre_residual_activation is not None:
+            result = _provider_gemm_activation(torch, result, spec.epilogue.pre_residual_activation)
+        if spec.epilogue.name == "bias_add":
+            result = result + inputs["d0"].to(torch_dtype)
+        elif spec.epilogue.name == "bias_add_add":
+            result = result + inputs["d0"].to(torch_dtype) + inputs["d1"].to(torch_dtype)
+        elif spec.epilogue.name == "bias_add_relu":
+            result = result + inputs["d0"].to(torch_dtype)
+        elif spec.epilogue.name == "bias_add_add_relu":
+            result = result + inputs["d0"].to(torch_dtype) + inputs["d1"].to(torch_dtype)
+        elif spec.epilogue.name in {"bias_mul", "bias_mul_tanh", "bias_sigmoid_mul", "bias_sigmoid_mul_tanh"}:
+            result = result * inputs["d0"].to(torch_dtype)
+        elif spec.epilogue.name == "bias_mul_add":
+            result = result * inputs["d0"].to(torch_dtype) + inputs["d1"].to(torch_dtype)
+        if spec.epilogue.activation is not None:
+            result = _provider_gemm_activation(torch, result, spec.epilogue.activation)
+        return result
+
+    return fn
+
+
+def _provider_bmm_torch_fn(op_name: str, dtype: str) -> Callable[..., Any]:
+    def fn(torch: Any, **inputs: Any) -> Any:
+        spec = bmm_op_spec(op_name)
+        torch_dtype = getattr(torch, dtype)
+        a = inputs["a"].to(torch_dtype)
+        b = inputs["b"].to(torch_dtype)
+        a_logical = a.transpose(1, 2) if spec.a_layout == "c" else a
+        b_logical = b.transpose(1, 2) if spec.b_layout == "c" else b
+        result = torch.bmm(a_logical, b_logical)
+        if spec.c_layout == "c":
+            result = result.transpose(1, 2)
+        if spec.epilogue == "add":
+            result = result + inputs["d0"].to(torch_dtype)
+        return result
+
+    return fn
+
+
+def _provider_conv_torch_fn(op_name: str, dtype: str) -> Callable[..., Any]:
+    def fn(torch: Any, **inputs: Any) -> Any:
+        torch_dtype = getattr(torch, dtype)
+        result = torch.nn.functional.conv2d(
+            inputs["x"].to(torch_dtype),
+            inputs["weight"].to(torch_dtype),
+            inputs["bias"].to(torch_dtype),
+            padding=1,
+        )
+        if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}:
+            result = result + inputs["residual"].to(torch_dtype)
+        if op_name in {"conv2d_bias_relu", "conv2d_bias_add_relu"}:
+            result = torch.relu(result)
+        return result
+
+    return fn
+
+
+def _provider_gemm_activation(torch: Any, value: Any, activation: str) -> Any:
+    if activation == "relu":
+        return torch.relu(value)
+    if activation == "gelu":
+        return torch.nn.functional.gelu(value, approximate="tanh")
+    if activation == "fast_gelu":
+        return 0.5 * value * (1.0 + torch.tanh(0.7978845608 * value * (1.0 + 0.044715 * value * value)))
+    if activation == "quick_gelu":
+        return value / (1.0 + torch.exp(-1.702 * value))
+    if activation == "sigmoid":
+        return torch.sigmoid(value)
+    if activation == "tanh":
+        return torch.tanh(value)
+    if activation == "swish":
+        return value / (1.0 + torch.exp(-value))
+    if activation == "hardswish":
+        return value * torch.clamp(value + 3.0, 0.0, 6.0) / 6.0
+    if activation == "elup1":
+        return torch.where(value >= 0.0, value + 1.0, torch.exp(value))
+    raise ValueError(f"Unsupported provider GEMM activation: {activation}")
 
 
 def _import_torch() -> Any:

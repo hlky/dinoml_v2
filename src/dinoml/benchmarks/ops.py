@@ -13,6 +13,9 @@ import numpy as np
 import dinoml as dml
 from dinoml import runtime
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, read_json
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
+from dinoml.ops.conv import CONV2D_BIAS_DTYPES, CONV2D_BIAS_FAMILY_OPS
 
 
 @dataclass(frozen=True)
@@ -701,6 +704,38 @@ def benchmark_cases() -> list[BenchmarkCase]:
         template="provider_conv",
         targets=provider_targets,
     )
+    for dtype in ("float16", "float32", "bfloat16"):
+        for op_name in GEMM_OPS:
+            add(
+                f"provider_{op_name}_{dtype}",
+                _provider_gemm_specs(op_name, dtype),
+                lambda op_name=op_name, dtype=dtype: _provider_gemm_inputs(op_name, dtype),
+                _provider_gemm_fn(op_name),
+                op=op_name,
+                template="provider_gemm",
+                targets=provider_targets,
+            )
+        for op_name in BMM_OPS:
+            add(
+                f"provider_{op_name}_{dtype}",
+                _provider_bmm_specs(op_name, dtype),
+                lambda op_name=op_name, dtype=dtype: _provider_bmm_inputs(op_name, dtype),
+                _provider_bmm_fn(op_name),
+                op=op_name,
+                template="provider_bmm",
+                targets=provider_targets,
+            )
+    for dtype in CONV2D_BIAS_DTYPES:
+        for op_name in CONV2D_BIAS_FAMILY_OPS:
+            add(
+                f"provider_{op_name}_{dtype}",
+                _provider_conv_specs(op_name, dtype),
+                lambda op_name=op_name, dtype=dtype: _provider_conv_inputs(op_name, dtype),
+                _provider_conv_fn(op_name),
+                op=op_name,
+                template="provider_conv",
+                targets=provider_targets,
+            )
     return cases
 
 
@@ -998,14 +1033,21 @@ def _select_cases(
     target_cases = [case for case in cases if target is None or target in case.targets]
     if only is None:
         return target_cases
-    requested = {item for item in only}
-    selected = [
-        case
-        for case in target_cases
-        if case.name in requested or case.op in requested or case.template in requested
-    ]
-    found = {case.name for case in selected} | {case.op for case in selected} | {case.template for case in selected}
-    missing = sorted(requested - found)
+    requested = list(dict.fromkeys(only))
+    selected: list[BenchmarkCase] = []
+    found: set[str] = set()
+    target_names = {case.name for case in target_cases}
+    for item in requested:
+        if item in target_names:
+            matches = [case for case in target_cases if case.name == item]
+        else:
+            matches = [case for case in target_cases if case.op == item or case.template == item]
+        if matches:
+            found.add(item)
+        for case in matches:
+            if case not in selected:
+                selected.append(case)
+    missing = sorted(set(requested) - found)
     if missing:
         unsupported = sorted(
             item
@@ -1253,6 +1295,110 @@ def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
         if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == str(selected_id):
             return candidate
     return None
+
+
+def _provider_gemm_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    spec = gemm_op_spec(op_name)
+    m, n, k = 128, 128, 192
+    output_shape = (m, n)
+    shapes = {
+        "a": (m, k),
+        "b": (k, n) if spec.base_layout == "rrr" else (n, k),
+        "bias": (n,),
+        "d0": output_shape,
+        "d1": output_shape,
+    }
+    return {name: shapes[name] for name in ("a", "b", *spec.epilogue.inputs)}
+
+
+def _provider_bmm_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    spec = bmm_op_spec(op_name)
+    batch, m, n, k = 2, 64, 128, 96
+    a_shape = (batch, k, m) if spec.a_layout == "c" else (batch, m, k)
+    b_shape = (batch, n, k) if spec.b_layout == "c" else (batch, k, n)
+    output_shape = (batch, n, m) if spec.c_layout == "c" else (batch, m, n)
+    shapes = {"a": a_shape, "b": b_shape, "d0": output_shape}
+    return {name: shapes[name] for name in ("a", "b", *spec.inputs)}
+
+
+def _provider_conv_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    shapes = {
+        "x": (2, 8, 16, 16),
+        "weight": (64, 8, 3, 3),
+        "bias": (64,),
+        "residual": (2, 64, 16, 16),
+    }
+    names = ("x", "weight", "bias", "residual") if _provider_conv_has_residual(op_name) else ("x", "weight", "bias")
+    return {name: shapes[name] for name in names}
+
+
+def _provider_specs(shapes: Mapping[str, tuple[int, ...]], dtype: str) -> dict[str, dml.TensorSpec]:
+    return {name: dml.TensorSpec(list(shape), dtype) for name, shape in shapes.items()}
+
+
+def _provider_inputs(shapes: Mapping[str, tuple[int, ...]], dtype: str) -> dict[str, np.ndarray]:
+    starts = {"a": -0.25, "b": 0.125, "weight": 0.125, "bias": -0.5, "d0": 0.25, "d1": -0.125}
+    steps = {"a": 0.0001, "b": 0.00005, "weight": 0.00005, "bias": 0.0005, "d0": 0.0001, "d1": 0.0001}
+    return {
+        name: _typed_float_array(shape, dtype, starts.get(name, 0.25), steps.get(name, 0.0001))
+        for name, shape in shapes.items()
+    }
+
+
+def _provider_gemm_specs(op_name: str, dtype: str) -> dict[str, dml.TensorSpec]:
+    return _provider_specs(_provider_gemm_shapes(op_name), dtype)
+
+
+def _provider_gemm_inputs(op_name: str, dtype: str) -> dict[str, np.ndarray]:
+    return _provider_inputs(_provider_gemm_shapes(op_name), dtype)
+
+
+def _provider_gemm_fn(op_name: str) -> Callable[..., Any]:
+    def fn(**inputs: Any) -> Any:
+        spec = gemm_op_spec(op_name)
+        args = [inputs["a"], inputs["b"], *(inputs[name] for name in spec.epilogue.inputs)]
+        return getattr(dml.ops, op_name)(*args)
+
+    return fn
+
+
+def _provider_bmm_specs(op_name: str, dtype: str) -> dict[str, dml.TensorSpec]:
+    return _provider_specs(_provider_bmm_shapes(op_name), dtype)
+
+
+def _provider_bmm_inputs(op_name: str, dtype: str) -> dict[str, np.ndarray]:
+    return _provider_inputs(_provider_bmm_shapes(op_name), dtype)
+
+
+def _provider_bmm_fn(op_name: str) -> Callable[..., Any]:
+    def fn(**inputs: Any) -> Any:
+        spec = bmm_op_spec(op_name)
+        args = [inputs["a"], inputs["b"], *(inputs[name] for name in spec.inputs)]
+        return getattr(dml.ops, op_name)(*args)
+
+    return fn
+
+
+def _provider_conv_specs(op_name: str, dtype: str) -> dict[str, dml.TensorSpec]:
+    return _provider_specs(_provider_conv_shapes(op_name), dtype)
+
+
+def _provider_conv_inputs(op_name: str, dtype: str) -> dict[str, np.ndarray]:
+    return _provider_inputs(_provider_conv_shapes(op_name), dtype)
+
+
+def _provider_conv_fn(op_name: str) -> Callable[..., Any]:
+    def fn(**inputs: Any) -> Any:
+        args = [inputs["x"], inputs["weight"], inputs["bias"]]
+        if _provider_conv_has_residual(op_name):
+            args.append(inputs["residual"])
+        return getattr(dml.ops, op_name)(*args, padding=1)
+
+    return fn
+
+
+def _provider_conv_has_residual(op_name: str) -> bool:
+    return op_name.endswith("_add") or op_name.endswith("_add_relu")
 
 
 def _float_array(shape: tuple[int, ...], start: float = 0.0, step: float = 0.01) -> np.ndarray:

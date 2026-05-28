@@ -6,7 +6,10 @@ from typing import Callable
 import numpy as np
 
 import dinoml as dml
+from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage
+from dinoml.ops.conv import CONV2D_BIAS_DTYPES, CONV2D_BIAS_FAMILY_OPS
 
 
 @dataclass(frozen=True)
@@ -1117,6 +1120,119 @@ def provider_ops_case() -> GraphCase:
     )
 
 
+PROVIDER_COVERAGE_DTYPES = ("float16", "float32", "bfloat16")
+
+
+def _provider_value(shape: tuple[int, ...], dtype: str, start: float = -0.5, step: float = 0.05) -> np.ndarray:
+    values = np.arange(np.prod(shape), dtype=np.float32).reshape(shape) * np.float32(step) + np.float32(start)
+    return _roundtrip(values, dtype)
+
+
+def _provider_gemm_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    spec = gemm_op_spec(op_name)
+    m, n, k = 2, 4, 3
+    output_shape = (m, n)
+    shapes = {
+        "a": (m, k),
+        "b": (k, n) if spec.base_layout == "rrr" else (n, k),
+        "bias": (n,),
+        "d0": output_shape,
+        "d1": output_shape,
+    }
+    return {name: shapes[name] for name in ("a", "b", *spec.epilogue.inputs)}
+
+
+def _provider_bmm_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    spec = bmm_op_spec(op_name)
+    batch, m, n, k = 2, 2, 4, 3
+    a_shape = (batch, k, m) if spec.a_layout == "c" else (batch, m, k)
+    b_shape = (batch, n, k) if spec.b_layout == "c" else (batch, k, n)
+    output_shape = (batch, n, m) if spec.c_layout == "c" else (batch, m, n)
+    shapes = {"a": a_shape, "b": b_shape, "d0": output_shape}
+    return {name: shapes[name] for name in ("a", "b", *spec.inputs)}
+
+
+def _provider_conv_shapes(op_name: str) -> dict[str, tuple[int, ...]]:
+    shapes = {
+        "x": (1, 2, 4, 4),
+        "weight": (3, 2, 3, 3),
+        "bias": (3,),
+        "residual": (1, 3, 4, 4),
+    }
+    inputs = ("x", "weight", "bias", "residual") if op_name.endswith("_add") or op_name.endswith("_add_relu") else ("x", "weight", "bias")
+    return {name: shapes[name] for name in inputs}
+
+
+def _provider_specs_and_inputs() -> tuple[dict[str, dml.TensorSpec], dict[str, np.ndarray]]:
+    specs: dict[str, dml.TensorSpec] = {}
+    inputs: dict[str, np.ndarray] = {}
+
+    def add_inputs(prefix: str, shapes: dict[str, tuple[int, ...]], dtype: str) -> None:
+        for input_name, shape in shapes.items():
+            name = f"{prefix}_{input_name}"
+            specs[name] = dml.TensorSpec(list(shape), dtype)
+            inputs[name] = _provider_value(shape, dtype, start=0.125 if input_name == "b" else -0.25)
+
+    for dtype in PROVIDER_COVERAGE_DTYPES:
+        for op_name in GEMM_OPS:
+            add_inputs(f"{op_name}_{dtype}", _provider_gemm_shapes(op_name), dtype)
+        for op_name in BMM_OPS:
+            add_inputs(f"{op_name}_{dtype}", _provider_bmm_shapes(op_name), dtype)
+    for dtype in CONV2D_BIAS_DTYPES:
+        for op_name in CONV2D_BIAS_FAMILY_OPS:
+            add_inputs(f"{op_name}_{dtype}", _provider_conv_shapes(op_name), dtype)
+    return specs, inputs
+
+
+class ProviderCoverageModule(dml.Module):
+    def forward(self, **inputs):
+        outputs = {}
+        for dtype in PROVIDER_COVERAGE_DTYPES:
+            for op_name in GEMM_OPS:
+                spec = gemm_op_spec(op_name)
+                prefix = f"{op_name}_{dtype}"
+                args = [inputs[f"{prefix}_a"], inputs[f"{prefix}_b"]]
+                args.extend(inputs[f"{prefix}_{name}"] for name in spec.epilogue.inputs)
+                outputs[f"{prefix}_out"] = getattr(dml.ops, op_name)(*args)
+            for op_name in BMM_OPS:
+                spec = bmm_op_spec(op_name)
+                prefix = f"{op_name}_{dtype}"
+                args = [inputs[f"{prefix}_a"], inputs[f"{prefix}_b"]]
+                args.extend(inputs[f"{prefix}_{name}"] for name in spec.inputs)
+                outputs[f"{prefix}_out"] = getattr(dml.ops, op_name)(*args)
+        for dtype in CONV2D_BIAS_DTYPES:
+            for op_name in CONV2D_BIAS_FAMILY_OPS:
+                prefix = f"{op_name}_{dtype}"
+                args = [inputs[f"{prefix}_x"], inputs[f"{prefix}_weight"], inputs[f"{prefix}_bias"]]
+                if op_name.endswith("_add") or op_name.endswith("_add_relu"):
+                    args.append(inputs[f"{prefix}_residual"])
+                outputs[f"{prefix}_out"] = getattr(dml.ops, op_name)(*args, padding=1)
+        return {name: dml.ops.output(value, name) for name, value in outputs.items()}
+
+
+def provider_coverage_case() -> GraphCase:
+    def build_spec():
+        specs, _ = _provider_specs_and_inputs()
+        return dml.trace(ProviderCoverageModule(), inputs=specs, name="fresh_provider_coverage")
+
+    def inputs():
+        _, values = _provider_specs_and_inputs()
+        return values
+
+    return GraphCase(
+        "provider_coverage",
+        build_spec,
+        inputs,
+        frozenset({*GEMM_OPS, *BMM_OPS, *CONV2D_BIAS_FAMILY_OPS}),
+        cpu=False,
+        cuda=False,
+        rocm=False,
+        atol=3e-2,
+        rtol=3e-2,
+        reason="metadata/reference coverage for the full provider op/dtype surface; runtime compiles remain targeted",
+    )
+
+
 def standard_cases() -> list[GraphCase]:
     return [
         elementwise_case(),
@@ -1142,6 +1258,7 @@ def standard_cases() -> list[GraphCase]:
         split_chunk_case(),
         meshgrid_case(),
         provider_ops_case(),
+        provider_coverage_case(),
     ]
 
 

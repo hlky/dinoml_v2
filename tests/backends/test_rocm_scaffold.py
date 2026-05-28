@@ -1408,6 +1408,90 @@ def test_rocm_bmm_rrc_profile_workloads_preserve_column_output_layout():
     assert workload.alignment_context["problem"]["output_n"] == 128
 
 
+def test_rocm_ck_bmm_profiler_passes_plain_layout_strides():
+    ir = _rocm_bmm_ir("bmm_rcr", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    fake_fn, call, device_shapes, elapsed_ms, workspace_nbytes = _profile_ck_bmm_with_fake_device_arrays(workload)
+
+    assert workload.candidate["launch_abi"] == "dinoml_ck_bmm_v1"
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert device_shapes == [(2, 64, 96), (2, 128, 96), (2, 64, 128)]
+    assert [arg.value for arg in call[:3]] == [0x1010, 0x1020, 0x1030]
+    assert call[3:14] == (
+        2,
+        64,
+        128,
+        96,
+        64 * 96,
+        128 * 96,
+        64 * 128,
+        96,
+        96,
+        128,
+        13,
+    )
+    assert isinstance(call[-1], ctypes.c_void_p)
+    assert call[-1].value is None
+    assert fake_fn.argtypes == [
+        *([ctypes.c_void_p] * 3),
+        *([ctypes.c_int] * 4),
+        *([ctypes.c_longlong] * 3),
+        *([ctypes.c_int] * 4),
+        ctypes.c_void_p,
+    ]
+
+
+def test_rocm_ck_bmm_profiler_passes_add_residual_layout_strides():
+    ir = _rocm_bmm_ir(
+        "bmm_rcr_add",
+        "float16",
+        batch=2,
+        a_batch=1,
+        b_batch=2,
+        m=64,
+        n=128,
+        k=96,
+        d0_shape=[128],
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    fake_fn, call, device_shapes, elapsed_ms, workspace_nbytes = _profile_ck_bmm_with_fake_device_arrays(workload)
+
+    assert workload.candidate["launch_abi"] == "dinoml_ck_bmm_add_v1"
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert device_shapes == [(1, 64, 96), (2, 128, 96), (2, 64, 128), (128,)]
+    assert [arg.value for arg in call[:4]] == [0x1010, 0x1020, 0x1040, 0x1030]
+    assert call[4:17] == (
+        2,
+        64,
+        128,
+        96,
+        0,
+        128 * 96,
+        0,
+        64 * 128,
+        96,
+        96,
+        0,
+        128,
+        13,
+    )
+    assert isinstance(call[-1], ctypes.c_void_p)
+    assert call[-1].value is None
+    assert fake_fn.argtypes == [
+        *([ctypes.c_void_p] * 4),
+        *([ctypes.c_int] * 4),
+        *([ctypes.c_longlong] * 4),
+        *([ctypes.c_int] * 5),
+        ctypes.c_void_p,
+    ]
+
+
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -2245,6 +2329,36 @@ def _ck_profile_result_for_candidate(
     )
 
 
+def _profile_ck_bmm_with_fake_device_arrays(workload, *, iterations: int = 13):
+    profiler = object.__new__(_CkRocmProfiler)
+    calls = []
+    device_shapes = []
+
+    class FakeProfilerFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            calls.append(args)
+            return 0.25
+
+    fake_fn = FakeProfilerFunction()
+    profiler._profiler_function = lambda _symbol: fake_fn
+
+    def fake_device_array(array: np.ndarray) -> ctypes.c_void_p:
+        device_shapes.append(tuple(int(dim) for dim in array.shape))
+        return ctypes.c_void_p(0x1000 + 0x10 * len(device_shapes))
+
+    profiler._device_array = fake_device_array
+    elapsed_ms, workspace_nbytes = profiler.profile_ck_bmm(
+        workload,
+        iterations=iterations,
+        rng=np.random.default_rng(123),
+    )
+
+    return fake_fn, calls[0], device_shapes, elapsed_ms, workspace_nbytes
+
+
 def _assert_ck_support_plan_unpruned(plan, item: dict) -> None:
     support = plan.external_support_libraries[0]
     entry = support["entries"][0]
@@ -2305,6 +2419,7 @@ def _rocm_bmm_ir(
     d0_shape: list[int] | None = None,
 ) -> dict:
     layout = _bmm_layout_from_op(op_name)
+    has_d0 = op_name.endswith("_add")
     a_batch = batch if a_batch is None else a_batch
     b_batch = batch if b_batch is None else b_batch
     a_shape = [a_batch, k, m] if layout[0] == "c" else [a_batch, m, k]
@@ -2314,7 +2429,7 @@ def _rocm_bmm_ir(
     tensors = [
         _tensor("a", a_shape, dtype, "input"),
         _tensor("b", b_shape, dtype, "input"),
-        _tensor("d0", d0_shape, dtype, "input"),
+        *([_tensor("d0", d0_shape, dtype, "input")] if has_d0 else []),
         _tensor("c", output_shape, dtype, "output"),
     ]
     return {
@@ -2323,7 +2438,7 @@ def _rocm_bmm_ir(
         "inputs": [
             _io("a", a_shape, dtype),
             _io("b", b_shape, dtype),
-            _io("d0", d0_shape, dtype),
+            *([_io("d0", d0_shape, dtype)] if has_d0 else []),
         ],
         "constants": [],
         "outputs": [_io("c", output_shape, dtype)],
@@ -2331,7 +2446,7 @@ def _rocm_bmm_ir(
             {
                 "id": "n0",
                 "op": op_name,
-                "inputs": ["a", "b", "d0"],
+                "inputs": ["a", "b", *(["d0"] if has_d0 else [])],
                 "outputs": ["c"],
                 "attrs": {},
             }

@@ -20,7 +20,7 @@ from dinoml.backends.rocm import ensure_rocm_support_libs
 from dinoml.ir import read_json
 from dinoml.kernels.bmm import BMM_OPS
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.gemm import GEMM_OPS
+from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
     _CkRocmProfiler,
@@ -877,6 +877,64 @@ def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
         "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_interwave_v1",
     }
     assert "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_default_v2" not in candidate_ids
+
+
+@pytest.mark.parametrize(
+    ("op_name", "expected_abi", "expected_device_shapes", "expected_pointer_values"),
+    [
+        (
+            "gemm_rcr",
+            "dinoml_ck_gemm_v1",
+            [(64, 96), (128, 96), (64, 128)],
+            [0x1010, 0x1020, 0x1030],
+        ),
+        (
+            "gemm_rcr_bias",
+            "dinoml_ck_gemm_bias_v1",
+            [(64, 96), (128, 96), (64, 128), (128,)],
+            [0x1010, 0x1020, 0x1040, 0x1030],
+        ),
+        (
+            "gemm_rcr_bias_add_relu",
+            "dinoml_ck_gemm_bias_residual_v1",
+            [(64, 96), (128, 96), (64, 128), (128,), (64, 128)],
+            [0x1010, 0x1020, 0x1040, 0x1050, 0x1030],
+        ),
+        (
+            "gemm_rcr_bias_add_add_relu",
+            "dinoml_ck_gemm_bias_residual2_v1",
+            [(64, 96), (128, 96), (64, 128), (128,), (64, 128), (64, 128)],
+            [0x1010, 0x1020, 0x1040, 0x1050, 0x1060, 0x1030],
+        ),
+    ],
+)
+def test_rocm_ck_gemm_profiler_passes_epilogue_pointers(
+    op_name: str,
+    expected_abi: str,
+    expected_device_shapes: list[tuple[int, ...]],
+    expected_pointer_values: list[int],
+):
+    ir = _rocm_gemm_ir(op_name, "float16", m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    fake_fn, call, device_shapes, elapsed_ms, workspace_nbytes = _profile_ck_gemm_with_fake_device_arrays(workload)
+
+    pointer_count = len(expected_pointer_values)
+
+    assert workload.candidate["launch_abi"] == expected_abi
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert device_shapes == expected_device_shapes
+    assert [arg.value for arg in call[:pointer_count]] == expected_pointer_values
+    assert call[pointer_count : pointer_count + 4] == (64, 128, 96, 17)
+    assert isinstance(call[-1], ctypes.c_void_p)
+    assert call[-1].value is None
+    assert fake_fn.argtypes == [
+        *([ctypes.c_void_p] * pointer_count),
+        *([ctypes.c_int] * 4),
+        ctypes.c_void_p,
+    ]
 
 
 def test_rocm_ck_profile_failure_result_includes_diagnostics():
@@ -2329,6 +2387,36 @@ def _ck_profile_result_for_candidate(
     )
 
 
+def _profile_ck_gemm_with_fake_device_arrays(workload, *, iterations: int = 17):
+    profiler = object.__new__(_CkRocmProfiler)
+    calls = []
+    device_shapes = []
+
+    class FakeProfilerFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            calls.append(args)
+            return 0.25
+
+    fake_fn = FakeProfilerFunction()
+    profiler._profiler_function = lambda _symbol: fake_fn
+
+    def fake_device_array(array: np.ndarray) -> ctypes.c_void_p:
+        device_shapes.append(tuple(int(dim) for dim in array.shape))
+        return ctypes.c_void_p(0x1000 + 0x10 * len(device_shapes))
+
+    profiler._device_array = fake_device_array
+    elapsed_ms, workspace_nbytes = profiler.profile_ck_gemm(
+        workload,
+        iterations=iterations,
+        rng=np.random.default_rng(123),
+    )
+
+    return fake_fn, calls[0], device_shapes, elapsed_ms, workspace_nbytes
+
+
 def _profile_ck_bmm_with_fake_device_arrays(workload, *, iterations: int = 13):
     profiler = object.__new__(_CkRocmProfiler)
     calls = []
@@ -2374,29 +2462,36 @@ def _assert_ck_support_plan_unpruned(plan, item: dict) -> None:
 
 
 def _rocm_gemm_ir(op_name: str, dtype: str, *, m: int = 2, n: int = 4, k: int = 3) -> dict:
+    spec = gemm_op_spec(op_name)
+    b_shape = [k, n] if spec.base_layout == "rrr" else [n, k]
+    output_shape = [m, n]
+    extra_shapes = {
+        "bias": [n],
+        "d0": output_shape,
+        "d1": output_shape,
+    }
+    epilogue_inputs = list(spec.epilogue.inputs)
     tensors = [
         _tensor("a", [m, k], dtype, "input"),
-        _tensor("b", [n, k], dtype, "input"),
-        _tensor("bias", [n], dtype, "input"),
-        _tensor("d0", [m, n], dtype, "input"),
-        _tensor("c", [m, n], dtype, "output"),
+        _tensor("b", b_shape, dtype, "input"),
+        *[_tensor(name, extra_shapes[name], dtype, "input") for name in epilogue_inputs],
+        _tensor("c", output_shape, dtype, "output"),
     ]
     return {
         "schema_version": 1,
         "name": "rocm_gemm_smoke",
         "inputs": [
             _io("a", [m, k], dtype),
-            _io("b", [n, k], dtype),
-            _io("bias", [n], dtype),
-            _io("d0", [m, n], dtype),
+            _io("b", b_shape, dtype),
+            *[_io(name, extra_shapes[name], dtype) for name in epilogue_inputs],
         ],
         "constants": [],
-        "outputs": [_io("c", [m, n], dtype)],
+        "outputs": [_io("c", output_shape, dtype)],
         "nodes": [
             {
                 "id": "n0",
                 "op": op_name,
-                "inputs": ["a", "b", "bias", "d0"],
+                "inputs": ["a", "b", *epilogue_inputs],
                 "outputs": ["c"],
                 "attrs": {},
             }

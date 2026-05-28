@@ -228,6 +228,11 @@ def test_rocm_cmake_arch_normalizes_whitespace_and_rejects_invalid_values():
         rocm_backend._cmake_arch("sm_90")
 
 
+def test_rocm_support_cache_dir_sanitizes_feature_suffixed_arch():
+    assert rocm_backend._rocm_support_cache_dir_name("gfx1201") == "rocm-gfx1201"
+    assert rocm_backend._rocm_support_cache_dir_name(" gfx90a:xnack- ") == "rocm-gfx90a_xnack-"
+
+
 def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monkeypatch):
     sdk_root = tmp_path / "sdk"
     sdk_bin = sdk_root / "bin"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -143,7 +144,7 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     repo_root = _repo_root()
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     manifest_key = "full" if kernel_manifest is None else str(kernel_manifest.get("support_cache_key", kernel_manifest["cache_key"]))[:16]
-    support_root = cache_root / "support" / f"rocm-{_cmake_arch(arch)}" / manifest_key
+    support_root = cache_root / "support" / _rocm_support_cache_dir_name(arch) / manifest_key
     build_dir = support_root / "build"
     lib_dir = support_root / "lib"
     runtime_lib = lib_dir / _shared_library_name("dinoml_runtime")
@@ -241,7 +242,7 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
     repo_root = _repo_root()
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_name = _cmake_arch(arch)
-    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-gemm" / "cmake-full"
+    support_root = cache_root / "support" / _rocm_support_cache_dir_name(arch_name) / "ck-gemm" / "cmake-full"
     build_dir = support_root / "build"
     lib_dir = support_root / "lib"
     modules = _required_ck_gemm_modules(kernel_manifest)
@@ -315,7 +316,7 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
     repo_root = _repo_root()
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_name = _cmake_arch(arch)
-    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-bmm" / "cmake-full"
+    support_root = cache_root / "support" / _rocm_support_cache_dir_name(arch_name) / "ck-bmm" / "cmake-full"
     build_dir = support_root / "build"
     lib_dir = support_root / "lib"
     modules = _required_ck_bmm_modules(kernel_manifest)
@@ -390,7 +391,7 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
     repo_root = _repo_root()
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_name = _cmake_arch(arch)
-    support_root = cache_root / "support" / f"rocm-{arch_name}" / "ck-conv" / "cmake-full"
+    support_root = cache_root / "support" / _rocm_support_cache_dir_name(arch_name) / "ck-conv" / "cmake-full"
     build_dir = support_root / "build"
     lib_dir = support_root / "lib"
     modules = _required_ck_conv_modules(kernel_manifest)
@@ -586,6 +587,11 @@ def _cmake_arch(arch: str) -> str:
     if not value.startswith("gfx"):
         raise ValueError(f"Expected ROCm arch like 'gfx1201', got {arch!r}")
     return value
+
+
+def _rocm_support_cache_dir_name(arch: str) -> str:
+    segment = re.sub(r"[^A-Za-z0-9_.-]+", "_", _cmake_arch(arch))
+    return f"rocm-{segment}"
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:

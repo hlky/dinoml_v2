@@ -64,7 +64,7 @@ set_target_properties(dinoml_rocm_kernels PROPERTIES
 add_library(dinoml_ck_gemm_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
 set_target_properties(dinoml_ck_gemm_{{ loop.index0 }} PROPERTIES
   IMPORTED_LOCATION "{{ ck_gemm_archive }}"
-  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ common_include }};{{ kernels_include }}"
 )
 {% endfor %}
 
@@ -72,7 +72,7 @@ set_target_properties(dinoml_ck_gemm_{{ loop.index0 }} PROPERTIES
 add_library(dinoml_ck_bmm_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
 set_target_properties(dinoml_ck_bmm_{{ loop.index0 }} PROPERTIES
   IMPORTED_LOCATION "{{ ck_bmm_archive }}"
-  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ common_include }};{{ kernels_include }}"
 )
 {% endfor %}
 
@@ -80,7 +80,7 @@ set_target_properties(dinoml_ck_bmm_{{ loop.index0 }} PROPERTIES
 add_library(dinoml_ck_conv_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
 set_target_properties(dinoml_ck_conv_{{ loop.index0 }} PROPERTIES
   IMPORTED_LOCATION "{{ ck_conv_archive }}"
-  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ common_include }};{{ kernels_include }}"
 )
 {% endfor %}
 

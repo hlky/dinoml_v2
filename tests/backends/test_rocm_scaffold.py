@@ -481,6 +481,9 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_gemm.a"' in cmake
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_bmm.a"' in cmake
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_conv.a"' in cmake
+    assert cmake.count(
+        'INTERFACE_INCLUDE_DIRECTORIES "H:/dinoml_v2/kernels/common/include;H:/dinoml_v2/kernels/rocm/include"'
+    ) == 3
     assert "dinoml_ck_gemm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_bmm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_conv_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]

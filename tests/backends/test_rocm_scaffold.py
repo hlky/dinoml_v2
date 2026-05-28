@@ -378,6 +378,37 @@ def test_rocm_support_configure_requires_ninja(monkeypatch):
         rocm_backend._with_default_cmake_generator(["cmake", "-S", ".", "-B", "build"])
 
 
+def test_rocm_module_cmake_imports_and_links_ck_archives():
+    cmake = rocm_backend.render_template(
+        "rocm_module_cmake.txt.j2",
+        {
+            "rocm_sdk_cmake": "H:/dinoml_v2/cmake/DinoMLROCmSdk.cmake",
+            "runtime_lib": "H:/cache/lib/dinoml_runtime.dll",
+            "rocm_runtime_lib": "H:/cache/lib/dinoml_rocm_runtime.dll",
+            "kernels_lib": "H:/cache/lib/dinoml_rocm_kernels.dll",
+            "ck_gemm_archives": ["H:/cache/lib/dinoml_ck_gemm.a"],
+            "ck_bmm_archives": ["H:/cache/lib/dinoml_ck_bmm.a"],
+            "ck_conv_archives": ["H:/cache/lib/dinoml_ck_conv.a"],
+            "runtime_implib": "",
+            "rocm_runtime_implib": "",
+            "kernels_implib": "",
+            "runtime_include": "H:/dinoml_v2/runtime/include",
+            "common_include": "H:/dinoml_v2/kernels/common/include",
+            "kernels_include": "H:/dinoml_v2/kernels/rocm/include",
+        },
+    )
+
+    assert "add_library(dinoml_ck_gemm_0 STATIC IMPORTED GLOBAL)" in cmake
+    assert "add_library(dinoml_ck_bmm_0 STATIC IMPORTED GLOBAL)" in cmake
+    assert "add_library(dinoml_ck_conv_0 STATIC IMPORTED GLOBAL)" in cmake
+    assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_gemm.a"' in cmake
+    assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_bmm.a"' in cmake
+    assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_conv.a"' in cmake
+    assert "dinoml_ck_gemm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+    assert "dinoml_ck_bmm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+    assert "dinoml_ck_conv_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+
+
 def test_visual_studio_environment_filters_vcvars_payload(monkeypatch):
     vcvars = Path("C:/VS/VC/Auxiliary/Build/vcvars64.bat")
     monkeypatch.setattr(rocm_backend, "_find_vcvars64", lambda: vcvars)

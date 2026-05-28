@@ -72,7 +72,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "stride": stride[0],
         "padding": padding[0],
         "divisor": kernel[0],
-        "block_size": 256,
+        "block_size": _gpu_block_size(target),
     }
 
 
@@ -124,6 +124,12 @@ def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str
     }
     digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
     return f"avg_pool1d_{digest}"
+
+
+def _gpu_block_size(target: str) -> int:
+    if target == "rocm":
+        return 128
+    return 256
 
 
 def _render_template(name: str, context: Mapping[str, Any]) -> str:

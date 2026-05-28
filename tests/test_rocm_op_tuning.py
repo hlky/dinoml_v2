@@ -36,6 +36,11 @@ class _BatchGatherModule(dml.Module):
         return dml.ops.output(dml.ops.batch_gather(x, indices), "output")
 
 
+class _AvgPool1dModule(dml.Module):
+    def forward(self, x):
+        return dml.ops.output(dml.ops.avg_pool1d(x, kernel_size=3, stride=2, padding=1), "output")
+
+
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():
     spec = dml.trace(
         _ReduceSumModule(),
@@ -152,3 +157,18 @@ def test_rocm_batch_gather_float32_benchmark_shape_uses_float4_slice_copy():
     assert "reinterpret_cast<const float4*>(x)" in source
     assert "constexpr int64_t slice_vectors = 192;" in source
     assert "runtime_numel_vec = runtime_numel / 4" in source
+
+
+def test_rocm_avg_pool1d_benchmark_shape_uses_smaller_block_than_cuda():
+    spec = dml.trace(
+        _AvgPool1dModule(),
+        inputs={"x": dml.TensorSpec([16, 64, 1024], "float32")},
+        name="rocm_avg_pool1d_tuning",
+    )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    rocm_source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+    cuda_source = render_generated_kernels("cuda", spec.ir["nodes"], tensor_map)[0]
+
+    assert "const int block = 128;" in rocm_source
+    assert "const int block = 256;" in cuda_source

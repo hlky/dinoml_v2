@@ -388,6 +388,9 @@ if(DINOML_ENABLE_ROCM)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(DINOML_CK_CONV_OPS
       conv2d_bias
+      conv2d_bias_relu
+      conv2d_bias_add
+      conv2d_bias_add_relu
       CACHE STRING "CK Conv ops to expose as op/dtype static archives"
     )
     set(DINOML_CK_CONV_DTYPES

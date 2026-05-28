@@ -142,7 +142,7 @@ struct ConvKernelConfig<ConvConfig::kSquare, Storage> {
   static constexpr ck::index_t BlockSize = 256;
   static constexpr ck::index_t MPerBlock = 128;
   static constexpr ck::index_t NPerBlock = 128;
-  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t MPerXDL = 32;
@@ -162,7 +162,7 @@ struct ConvKernelConfig<ConvConfig::kSkinnyM, Storage> {
   static constexpr ck::index_t BlockSize = 256;
   static constexpr ck::index_t MPerBlock = 64;
   static constexpr ck::index_t NPerBlock = 128;
-  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t MPerXDL = 32;
@@ -182,7 +182,7 @@ struct ConvKernelConfig<ConvConfig::kSkinnyN, Storage> {
   static constexpr ck::index_t BlockSize = 256;
   static constexpr ck::index_t MPerBlock = 128;
   static constexpr ck::index_t NPerBlock = 64;
-  static constexpr ck::index_t KPerBlock = StorageTunedValue<Storage, 64, 32>::value;
+  static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t BK1 = StorageTunedValue<Storage, 8, 4>::value;
   static constexpr ck::index_t MPerXDL = 32;

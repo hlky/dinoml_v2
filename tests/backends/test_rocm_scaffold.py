@@ -98,6 +98,14 @@ def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():
                 assert all(candidate.get("profiler_symbol") for candidate in candidates), (family, op_name, dtype)
 
 
+def test_rocm_ck_conv_cmake_targets_cover_provider_ops():
+    cmake = Path("CMakeLists.txt").read_text(encoding="utf-8")
+    ck_conv_ops_block = cmake.split("set(DINOML_CK_CONV_OPS", 1)[1].split("CACHE STRING", 1)[0]
+    missing_ops = sorted(op_name for op_name in CK_CONV_OPS if op_name not in ck_conv_ops_block)
+
+    assert missing_ops == []
+
+
 def test_rocm_target_is_registered_as_distinct_backend():
     assert "rocm" in registered_backend_names()
     target = dml.Target("rocm")
@@ -734,6 +742,43 @@ def test_rocm_required_ck_modules_deduplicate_archive_targets(library, op, modul
             "target": target,
         },
     )
+
+
+def test_rocm_ck_conv_support_configure_pins_required_ops_and_dtypes(tmp_path, monkeypatch):
+    cache_root = tmp_path / "cache"
+    archive = ck_conv_static_library_name("conv2d_bias_add_relu", "float16")
+    expected_archive = cache_root / "support" / "rocm-gfx1201" / "ck-conv" / "cmake-full" / "lib" / archive
+    calls = []
+
+    manifest = {
+        "required_kernels": [
+            {
+                "kernel_library": "ck_conv",
+                "op": "conv2d_bias_add_relu",
+                "dtype": "float16",
+                "support_archive": archive,
+            }
+        ]
+    }
+
+    def fake_run_cmake(cmd, *, cwd):
+        del cwd
+        calls.append(cmd)
+        if "--build" in cmd:
+            expected_archive.parent.mkdir(parents=True, exist_ok=True)
+            expected_archive.write_bytes(b"archive")
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(rocm_backend, "_repo_root", lambda: Path.cwd())
+    monkeypatch.setattr(rocm_backend, "_prepare_cmake_build_dir", lambda _build_dir: None)
+    monkeypatch.setattr(rocm_backend, "_run_cmake", fake_run_cmake)
+
+    archives = rocm_backend._ensure_cmake_ck_conv_archives("gfx1201", manifest)
+
+    assert archives == (expected_archive,)
+    assert "-DDINOML_CK_CONV_OPS=conv2d_bias_add_relu" in calls[0]
+    assert "-DDINOML_CK_CONV_DTYPES=float16" in calls[0]
+    assert "dinoml_ck_conv_conv2d_bias_add_relu_float16" in calls[1]
 
 
 def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
@@ -1601,7 +1646,7 @@ def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
     assert item["kernel_library"] == "ck_conv"
     assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_float16_xdl_custom_v1"
     assert item["support_archive"] == ck_conv_static_library_name("conv2d_bias", "float16")
-    assert len(item["candidates"]) == 7
+    assert len(item["candidates"]) == 4
     assert item["candidates"][0]["ck"]["api"] == "device_grouped_conv_fwd_multiple_abd_xdl_cshuffle"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][1]["ck"]["config"]["name"] == "wide_n"
@@ -1609,9 +1654,6 @@ def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
         "baseline",
         "wide_n",
         "wide_m",
-        "square",
-        "skinny_m",
-        "skinny_n",
         "small",
     }
     assert plan.external_support_libraries[0]["name"] == "ck_conv"
@@ -1642,13 +1684,22 @@ def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
 
     workloads = build_profile_workloads(ir, manifest)
 
-    assert len(workloads) == 7
+    assert len(workloads) == 4
     assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
     assert {workload.candidate_id for workload in workloads} >= {
         "ck_conv2d_bias_float16_xdl_wide_n_v1",
         "ck_conv2d_bias_float16_xdl_small_v1",
     }
     assert workloads[0].conv_config == {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1}
+
+
+def test_rocm_conv2d_bias_profile_workloads_use_ck_codegen_k_blocks():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert {workload.candidate["ck"]["config"]["tile"]["k_per_block"] for workload in workloads} == {32}
 
 
 def test_rocm_conv2d_bias_relu_uses_ck_manifest_and_profile_workloads():
@@ -1926,23 +1977,23 @@ def test_rocm_conv2d_bias_manifest_reports_malformed_ck_profile_attrs():
             16,
             16,
             "ck_conv2d_bias_float16_xdl_wide_m_v1",
-            {"baseline", "wide_m", "square", "skinny_n", "small"},
+            {"baseline", "wide_m", "small"},
         ),
         (
             1,
             64,
             4,
             4,
-            "ck_conv2d_bias_float16_xdl_skinny_m_v1",
-            {"baseline", "skinny_m", "small"},
+            "ck_conv2d_bias_float16_xdl_small_v1",
+            {"baseline", "small"},
         ),
         (
             1,
             16,
             8,
             8,
-            "ck_conv2d_bias_float16_xdl_skinny_n_v1",
-            {"baseline", "skinny_n", "small"},
+            "ck_conv2d_bias_float16_xdl_small_v1",
+            {"baseline", "small"},
         ),
         (
             1,

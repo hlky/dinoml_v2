@@ -60,30 +60,6 @@ CK_CONV_CONFIGS = (
         "min_problem": {"gemm_m": 256, "out_channels": 32},
     },
     {
-        "name": "square",
-        "symbol_id": CK_CONV_SQUARE_SYMBOL_ID,
-        "config_enum": "kSquare",
-        "priority": 40,
-        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
-        "min_problem": {"gemm_m": 64, "out_channels": 32},
-    },
-    {
-        "name": "skinny_m",
-        "symbol_id": CK_CONV_SKINNY_M_SYMBOL_ID,
-        "config_enum": "kSkinnyM",
-        "priority": 30,
-        "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 128},
-        "min_problem": {"gemm_m": 16, "out_channels": 64},
-    },
-    {
-        "name": "skinny_n",
-        "symbol_id": CK_CONV_SKINNY_N_SYMBOL_ID,
-        "config_enum": "kSkinnyN",
-        "priority": 20,
-        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 64},
-        "min_problem": {"gemm_m": 64, "out_channels": 16},
-    },
-    {
         "name": "small",
         "symbol_id": CK_CONV_SMALL_SYMBOL_ID,
         "config_enum": "kSmall",
@@ -439,7 +415,7 @@ def _ck_conv_k_per_block(dtype: str, config_name: str) -> int:
     if config_name == "wide_n":
         return 16 if dtype == "float32" else 32
     if config_name in {"square", "skinny_m", "skinny_n"}:
-        return 32 if dtype == "float32" else 64
+        return 32
     if config_name == "small":
         return 16 if dtype == "float32" else 32
     return 32

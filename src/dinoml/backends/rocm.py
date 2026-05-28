@@ -247,6 +247,8 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
     lib_dir = support_root / "lib"
     modules = _required_ck_gemm_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    ops = _cmake_cache_list(module["op"] for module in modules)
+    dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
@@ -261,6 +263,8 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 "-DDINOML_ENABLE_CUDA=OFF",
                 "-DDINOML_ENABLE_ROCM=ON",
                 "-DDINOML_ENABLE_CK_GEMM=ON",
+                f"-DDINOML_CK_GEMM_OPS={ops}",
+                f"-DDINOML_CK_GEMM_DTYPES={dtypes}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -321,6 +325,8 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
     lib_dir = support_root / "lib"
     modules = _required_ck_bmm_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    ops = _cmake_cache_list(module["op"] for module in modules)
+    dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
@@ -336,6 +342,8 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
                 "-DDINOML_ENABLE_ROCM=ON",
                 "-DDINOML_ENABLE_CK_GEMM=OFF",
                 "-DDINOML_ENABLE_CK_BMM=ON",
+                f"-DDINOML_CK_BMM_OPS={ops}",
+                f"-DDINOML_CK_BMM_DTYPES={dtypes}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -396,6 +404,8 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
     lib_dir = support_root / "lib"
     modules = _required_ck_conv_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    ops = _cmake_cache_list(module["op"] for module in modules)
+    dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
@@ -412,6 +422,8 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 "-DDINOML_ENABLE_CK_GEMM=OFF",
                 "-DDINOML_ENABLE_CK_BMM=OFF",
                 "-DDINOML_ENABLE_CK_CONV=ON",
+                f"-DDINOML_CK_CONV_OPS={ops}",
+                f"-DDINOML_CK_CONV_DTYPES={dtypes}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -592,6 +604,10 @@ def _cmake_arch(arch: str) -> str:
 def _rocm_support_cache_dir_name(arch: str) -> str:
     segment = re.sub(r"[^A-Za-z0-9_.-]+", "_", _cmake_arch(arch))
     return f"rocm-{segment}"
+
+
+def _cmake_cache_list(values) -> str:
+    return ";".join(dict.fromkeys(str(value) for value in values))
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:

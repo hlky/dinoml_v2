@@ -218,6 +218,10 @@ def run_benchmark_suite(
     output_dir: str | Path | None = None,
     warmup: int = 5,
     iterations: int = 20,
+    profile: bool = False,
+    profile_iterations: int = 20,
+    profile_repeats: int = 3,
+    profile_refresh: bool = False,
     only: Iterable[str] | None = None,
     arch: str | None = None,
     no_tf32: bool = False,
@@ -248,6 +252,10 @@ def run_benchmark_suite(
             selected,
             target_obj=target_obj,
             artifact_root=artifact_root,
+            profile=profile,
+            profile_iterations=profile_iterations,
+            profile_repeats=profile_repeats,
+            profile_refresh=profile_refresh,
             jobs=jobs,
             fail_fast=fail_fast,
         )
@@ -324,6 +332,12 @@ def run_benchmark_suite(
         "target": target_obj.to_json(),
         "warmup": warmup,
         "iterations": iterations,
+        "profile": {
+            "enabled": profile,
+            "iterations": profile_iterations,
+            "repeats": profile_repeats,
+            "refresh": profile_refresh,
+        },
         "artifact_root": str(artifact_root),
         "summary": {
             "total": len(results),
@@ -340,6 +354,10 @@ def _compile_benchmark_cases(
     *,
     target_obj: dml.Target,
     artifact_root: Path,
+    profile: bool,
+    profile_iterations: int,
+    profile_repeats: int,
+    profile_refresh: bool,
     jobs: int,
     fail_fast: bool,
 ) -> list[_CompiledBenchmarkCase]:
@@ -351,7 +369,15 @@ def _compile_benchmark_cases(
         compiled: list[_CompiledBenchmarkCase | None] = [None] * len(cases)
         for item in prepared:
             print(f"{item.case.op}::{item.case.name} compile [{item.index+1}/{len(cases)}]")
-            result = _compile_benchmark_case(item, target_obj=target_obj, artifact_root=artifact_root)
+            result = _compile_benchmark_case(
+                item,
+                target_obj=target_obj,
+                artifact_root=artifact_root,
+                profile=profile,
+                profile_iterations=profile_iterations,
+                profile_repeats=profile_repeats,
+                profile_refresh=profile_refresh,
+            )
             if fail_fast and result.status != "ok":
                 raise RuntimeError(result.error)
             compiled[item.index] = result
@@ -365,7 +391,16 @@ def _compile_benchmark_cases(
         compiled_results[error.index] = error
     with ThreadPoolExecutor(max_workers=jobs) as executor:
         future_to_case = {
-            executor.submit(_compile_benchmark_case, item, target_obj=target_obj, artifact_root=artifact_root): item.case
+            executor.submit(
+                _compile_benchmark_case,
+                item,
+                target_obj=target_obj,
+                artifact_root=artifact_root,
+                profile=profile,
+                profile_iterations=profile_iterations,
+                profile_repeats=profile_repeats,
+                profile_refresh=profile_refresh,
+            ): item.case
             for item in prepared
         }
         for future in as_completed(future_to_case):
@@ -412,13 +447,27 @@ def _compile_benchmark_case(
     *,
     target_obj: dml.Target,
     artifact_root: Path,
+    profile: bool,
+    profile_iterations: int,
+    profile_repeats: int,
+    profile_refresh: bool,
 ) -> _CompiledBenchmarkCase:
     index = item.index
     case = item.case
     artifact_path = artifact_root / f"{case.name}.dinoml"
     started = time.perf_counter()
     try:
-        artifact = dml.compile(item.spec, target_obj, artifact_path)
+        compile_kwargs: dict[str, Any] = {}
+        if profile:
+            compile_kwargs.update(
+                {
+                    "profile": True,
+                    "profile_iterations": profile_iterations,
+                    "profile_repeats": profile_repeats,
+                    "profile_refresh": profile_refresh,
+                }
+            )
+        artifact = dml.compile(item.spec, target_obj, artifact_path, **compile_kwargs)
         return _CompiledBenchmarkCase(
             index=index,
             case=case,

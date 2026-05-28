@@ -94,6 +94,14 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_ops_parser.add_argument("--use-fp16-acc", action="store_true", help="Use fp16 accumulation for fp16 CUTLASS GEMM candidates")
     benchmark_ops_parser.add_argument("--warmup", type=int, default=5)
     benchmark_ops_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
+    benchmark_ops_parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Compile each benchmark artifact with profiling before benchmarking",
+    )
+    benchmark_ops_parser.add_argument("--profile-iterations", type=int, default=20, help="Profiler iterations per candidate")
+    benchmark_ops_parser.add_argument("--profile-repeats", type=int, default=3, help="Profiler timing repeats per candidate")
+    benchmark_ops_parser.add_argument("--profile-refresh", action="store_true", help="Ignore existing profiler cache entries")
     benchmark_ops_parser.add_argument("--only", action="append", default=[], help="Benchmark a case, op, or template name; repeatable")
     benchmark_ops_parser.add_argument("--artifacts", help="Directory for compiled per-op artifacts")
     benchmark_ops_parser.add_argument("--keep-artifacts", action="store_true", help="Keep temporary artifacts when --artifacts is not set")
@@ -291,6 +299,10 @@ def _benchmark_ops(args: argparse.Namespace) -> int:
         output_dir=args.artifacts,
         warmup=args.warmup,
         iterations=args.iterations,
+        profile=args.profile,
+        profile_iterations=args.profile_iterations,
+        profile_repeats=args.profile_repeats,
+        profile_refresh=args.profile_refresh,
         only=args.only or None,
         arch=args.arch,
         no_tf32=args.no_tf32,

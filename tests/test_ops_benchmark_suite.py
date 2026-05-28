@@ -109,6 +109,71 @@ def test_ops_benchmark_suite_parallel_compile_preserves_report_order(tmp_path, m
     assert {call[1] for call in calls if call[0] == "compile"} == {"benchmark_add", "benchmark_reduce_sum"}
 
 
+def test_ops_benchmark_suite_can_profile_compiles(tmp_path, monkeypatch):
+    calls = []
+
+    class Artifact:
+        def __init__(self, path):
+            self.path = Path(path)
+
+    class FakeSession:
+        def benchmark_numpy(self, inputs, *, warmup, iterations):
+            calls.append(("benchmark", sorted(inputs), warmup, iterations))
+            return {
+                "count": iterations,
+                "warmup": warmup,
+                "mean_ms": 1.0,
+                "median_ms": 1.0,
+                "min_ms": 1.0,
+                "max_ms": 1.0,
+                "stddev_ms": 0.0,
+            }
+
+        def close(self):
+            pass
+
+    class FakeRuntimeModule:
+        def create_session(self):
+            return FakeSession()
+
+        def close(self):
+            pass
+
+    def fake_compile(spec, target, output, **kwargs):
+        calls.append(("compile", spec.name, target.name, str(output), kwargs))
+        return Artifact(output)
+
+    monkeypatch.setattr("dinoml.benchmarks.ops.dml.compile", fake_compile)
+    monkeypatch.setattr("dinoml.benchmarks.ops.runtime.load", lambda path, load_constants=True: FakeRuntimeModule())
+
+    report = run_benchmark_suite(
+        "rocm",
+        output_dir=tmp_path,
+        warmup=1,
+        iterations=2,
+        profile=True,
+        profile_iterations=7,
+        profile_repeats=2,
+        profile_refresh=True,
+        only=["add"],
+    )
+
+    assert report["summary"]["ok"] == 1
+    assert report["profile"] == {"enabled": True, "iterations": 7, "repeats": 2, "refresh": True}
+    assert calls[0] == (
+        "compile",
+        "benchmark_add",
+        "rocm",
+        str(tmp_path / "add.dinoml"),
+        {
+            "profile": True,
+            "profile_iterations": 7,
+            "profile_repeats": 2,
+            "profile_refresh": True,
+        },
+    )
+
+
 def test_ops_benchmark_suite_ignores_temp_cleanup_errors(monkeypatch):
     calls = []
     temp_kwargs = []
@@ -216,3 +281,49 @@ def test_cli_benchmark_ops_passes_jobs_to_suite(tmp_path, monkeypatch, capsys):
 
     assert captured["target"] == "cuda"
     assert captured["kwargs"]["jobs"] == 4
+
+
+def test_cli_benchmark_ops_passes_profile_options_to_suite(tmp_path, monkeypatch, capsys):
+    captured = {}
+
+    def fake_run_benchmark_suite(target, **kwargs):
+        captured["target"] = target
+        captured["kwargs"] = kwargs
+        return {
+            "target": {"name": target, "arch": "gfx1201", "no_tf32": False, "use_fp16_acc": False},
+            "warmup": kwargs["warmup"],
+            "iterations": kwargs["iterations"],
+            "profile": {
+                "enabled": kwargs["profile"],
+                "iterations": kwargs["profile_iterations"],
+                "repeats": kwargs["profile_repeats"],
+                "refresh": kwargs["profile_refresh"],
+            },
+            "artifact_root": str(tmp_path),
+            "summary": {"total": 1, "ok": 1, "error": 0, "elapsed_s": 0.0},
+            "cases": [],
+        }
+
+    monkeypatch.setattr(cli, "run_benchmark_suite", fake_run_benchmark_suite)
+
+    assert cli.main(
+        [
+            "benchmark-ops",
+            "rocm",
+            "--profile",
+            "--profile-iterations",
+            "5",
+            "--profile-repeats",
+            "2",
+            "--profile-refresh",
+            "--only",
+            "add",
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert captured["target"] == "rocm"
+    assert captured["kwargs"]["profile"] is True
+    assert captured["kwargs"]["profile_iterations"] == 5
+    assert captured["kwargs"]["profile_repeats"] == 2
+    assert captured["kwargs"]["profile_refresh"] is True

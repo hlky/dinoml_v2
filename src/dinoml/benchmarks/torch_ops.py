@@ -124,7 +124,7 @@ def write_torch_report(report: Mapping[str, Any], output: str | Path) -> None:
 
 
 def _torch_case_fns() -> dict[str, Callable[..., Any]]:
-    return {
+    fns = {
         "add": lambda x, y, **_: x + y,
         "sub": lambda x, y, **_: x - y,
         "mul": lambda x, y, **_: x * y,
@@ -208,6 +208,7 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "permute021": lambda x, **_: x.permute(0, 2, 1),
         "permute102": lambda x, **_: x.permute(1, 0, 2),
         "permute210": lambda x, **_: x.permute(2, 1, 0),
+        "permute0213": lambda x, **_: x.permute(0, 2, 1, 3),
         "dynamic_slice": lambda x, **_: x[0:16, 32:96, 0:768],
         "index_select": lambda torch, x, **_: torch.index_select(x, 1, torch.arange(0, 128, 2, device=x.device)),
         "gather": lambda torch, x, index, **_: torch.gather(x, 1, index),
@@ -238,6 +239,151 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
             torch.nn.functional.conv2d(x, weight, bias, padding=1) + residual
         ),
     }
+    for dtype in ("float16", "bfloat16"):
+        for name in (
+            "add",
+            "sub",
+            "mul",
+            "div",
+            "tanh",
+            "cos",
+            "sin",
+            "sign",
+            "abs",
+            "log",
+            "log1p",
+            "exp",
+            "sqrt",
+            "max",
+            "min",
+            "sigmoid",
+            "leaky_relu",
+            "hardtanh",
+            "relu",
+            "nan_to_num",
+            "clamp_nan_to_num",
+            "silu",
+            "pow",
+            "gelu",
+            "gelu_new",
+            "fast_gelu",
+            "softplus",
+            "elu",
+            "softsign",
+            "floor_div",
+            "celu",
+            "floor",
+            "eq",
+            "ge",
+            "gt",
+            "le",
+            "lt",
+            "ne",
+            "where",
+        ):
+            fns[f"{name}_{dtype}"] = _with_float_dtype(fns[name], dtype)
+        fns[f"cast_{dtype}"] = lambda torch, condition, dtype=dtype, **_: condition.to(getattr(torch, dtype))
+
+    fns.update(
+        {
+            "full_float16": lambda torch, device, **_: torch.full(
+                (1024, 4096), 1.25, dtype=torch.float16, device=device
+            ),
+            "arange_bfloat16": lambda torch, device, **_: torch.arange(
+                0, 4_194_304, 1, dtype=torch.bfloat16, device=device
+            ),
+            "randn_float16": lambda torch, device, **_: _randn(
+                torch, (1024, 4096), device=device, seed=17, dtype=torch.float16
+            ),
+            "randn_torch_float16": lambda torch, device, **_: _randn(
+                torch, (1024, 4096), device=device, seed=17, dtype=torch.float16
+            ),
+        }
+    )
+
+    for dtype in ("float16", "bfloat16"):
+        for name in (
+            "softmax",
+            "reduce_sum",
+            "reduce_max",
+            "reduce_min",
+            "reduce_mean",
+            "avg_pool1d",
+            "avg_pool2d",
+            "max_pool2d",
+            "argmax",
+            "topk",
+            "layer_norm",
+            "t5_layer_norm",
+            "rms_norm",
+            "expand",
+            "concatenate",
+            "stack",
+            "flip",
+            "repeat_interleave",
+            "permute",
+            "permute021",
+            "permute102",
+            "permute210",
+            "permute0213",
+            "dynamic_slice",
+            "index_select",
+            "slice_scatter",
+            "pad",
+        ):
+            fns[f"{name}_{dtype}"] = _with_float_dtype(fns[name], dtype)
+
+    for dtype in ("float16", "bfloat16"):
+        fns[f"get_timestep_embedding_{dtype}"] = (
+            lambda torch, timesteps, dtype=dtype, **_: _get_timestep_embedding(
+                torch, timesteps, embedding_dim=128
+            ).to(getattr(torch, dtype))
+        )
+        fns[f"get_1d_rotary_pos_embed_{dtype}"] = (
+            lambda torch, positions, dtype=dtype, **_: _cast_torch_outputs(
+                _get_1d_rotary_pos_embed(torch, 128, positions),
+                getattr(torch, dtype),
+            )
+        )
+
+    fns.update(
+        {
+            "embedding_float16_int32": lambda torch, table, indices, **_: torch.nn.functional.embedding(
+                indices.long(), table.to(torch.float16)
+            ),
+            "gather_bfloat16_int32": lambda torch, x, index, **_: torch.gather(x.to(torch.bfloat16), 1, index.long()),
+            "batch_gather_float16_int32": lambda torch, x, indices, **_: x.to(torch.float16).gather(
+                1,
+                indices.long().unsqueeze(-1).expand(-1, -1, x.shape[-1]),
+            ),
+        }
+    )
+    return fns
+
+
+def _with_float_dtype(fn: Callable[..., Any], dtype: str) -> Callable[..., Any]:
+    def wrapped(torch: Any, **kwargs: Any) -> Any:
+        torch_dtype = getattr(torch, dtype)
+        casted = {
+            name: value.to(torch_dtype) if _is_torch_float_tensor(value) else value
+            for name, value in kwargs.items()
+        }
+        return fn(torch=torch, **casted)
+
+    return wrapped
+
+
+def _is_torch_float_tensor(value: Any) -> bool:
+    is_floating_point = getattr(value, "is_floating_point", None)
+    return bool(is_floating_point()) if callable(is_floating_point) else False
+
+
+def _cast_torch_outputs(value: Any, dtype: Any) -> Any:
+    if isinstance(value, tuple):
+        return tuple(item.to(dtype) for item in value)
+    if isinstance(value, list):
+        return [item.to(dtype) for item in value]
+    return value.to(dtype)
 
 
 def _import_torch() -> Any:

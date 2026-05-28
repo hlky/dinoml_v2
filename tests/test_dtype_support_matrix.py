@@ -84,9 +84,9 @@ EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {
-    "float16": 122,
-    "float32": 61,
-    "bfloat16": 125,
+    "float16": 50,
+    "float32": 60,
+    "bfloat16": 56,
 }
 
 

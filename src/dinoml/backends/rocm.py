@@ -578,11 +578,14 @@ def _repo_root() -> Path:
 
 
 def _cmake_arch(arch: str) -> str:
-    if not arch:
+    if arch is None:
         raise ValueError("Expected ROCm arch like 'gfx1201'")
-    if not str(arch).startswith("gfx"):
+    value = str(arch).strip()
+    if not value:
+        raise ValueError("Expected ROCm arch like 'gfx1201'")
+    if not value.startswith("gfx"):
         raise ValueError(f"Expected ROCm arch like 'gfx1201', got {arch!r}")
-    return str(arch)
+    return value
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:

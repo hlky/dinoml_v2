@@ -204,6 +204,17 @@ def test_rocm_compile_profile_path_is_admitted_without_cuda_guard(tmp_path, monk
     assert calls[0][1].name == "rocm"
 
 
+def test_rocm_cmake_arch_normalizes_whitespace_and_rejects_invalid_values():
+    assert rocm_backend._cmake_arch(" gfx1201 ") == "gfx1201"
+
+    with pytest.raises(ValueError, match="Expected ROCm arch"):
+        rocm_backend._cmake_arch("")
+    with pytest.raises(ValueError, match="Expected ROCm arch"):
+        rocm_backend._cmake_arch("   ")
+    with pytest.raises(ValueError, match="Expected ROCm arch"):
+        rocm_backend._cmake_arch("sm_90")
+
+
 def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monkeypatch):
     sdk_root = tmp_path / "sdk"
     sdk_bin = sdk_root / "bin"

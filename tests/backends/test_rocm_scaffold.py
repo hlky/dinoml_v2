@@ -187,6 +187,19 @@ def test_rocm_codegen_plan_uses_arch_specific_support_cache(tmp_path):
     assert plan.support_cache_dir == tmp_path / "support" / "rocm-gfx1201" / "abcdef0123456789"
 
 
+def test_rocm_codegen_plan_sanitizes_feature_suffixed_arch_cache_dir(tmp_path):
+    manifest = {
+        "target": {"name": "rocm", "arch": "gfx90a:xnack-"},
+        "cache_key": "abcdef0123456789",
+        "required_kernels": [],
+    }
+
+    plan = create_codegen_plan(manifest, tmp_path)
+
+    assert plan.target == {"name": "rocm", "arch": "gfx90a:xnack-"}
+    assert plan.support_cache_dir == tmp_path / "support" / "rocm-gfx90a_xnack-" / "abcdef0123456789"
+
+
 def test_rocm_compile_profile_path_is_admitted_without_cuda_guard(tmp_path, monkeypatch):
     calls = []
 

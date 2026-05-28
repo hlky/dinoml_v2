@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -62,8 +63,7 @@ class KernelCodegenPlan:
 def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Path) -> KernelCodegenPlan:
     target = dict(kernel_manifest["target"])
     target_name = target["name"]
-    arch = target.get("arch", "native").replace("sm_", "")
-    target_dir = f"{target_name}-{arch}" if target_name in {"cuda", "rocm"} else target_name
+    target_dir = _target_cache_dir(target)
     kernel_symbols = tuple(item["kernel_symbol"] for item in kernel_manifest["required_kernels"])
     profiler_symbols = tuple(
         item["profiler_symbol"]
@@ -86,6 +86,19 @@ def create_codegen_plan(kernel_manifest: Mapping[str, Any], cache_root: str | Pa
         external_support_libraries=external_support_libraries,
         wrapper_stages=wrapper_stages,
     )
+
+
+def _target_cache_dir(target: Mapping[str, Any]) -> str:
+    target_name = str(target["name"])
+    if target_name not in {"cuda", "rocm"}:
+        return target_name
+    arch = str(target.get("arch", "native")).replace("sm_", "")
+    return f"{target_name}-{_cache_path_segment(arch)}"
+
+
+def _cache_path_segment(value: str) -> str:
+    segment = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(value).strip())
+    return segment or "native"
 
 
 def _candidate_profiler_symbols(kernel_manifest: Mapping[str, Any]) -> tuple[str, ...]:

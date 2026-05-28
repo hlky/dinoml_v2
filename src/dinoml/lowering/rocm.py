@@ -188,7 +188,7 @@ def _ck_bmm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
 
 def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
     extra_args = ""
-    if launch_abi == "dinoml_ck_conv2d_bias_add_v1":
+    if launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
         extra_args = f"    const {cpp_type}* residual,\n"
     elif launch_abi not in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
         raise ValueError(f"Unsupported CK Conv launch ABI: {launch_abi!r}")

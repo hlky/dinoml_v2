@@ -546,7 +546,7 @@ def _append_ck_conv_profile_workloads(
     overrides: Mapping[str, Sequence[int]],
 ) -> None:
     op_name = str(node["op"])
-    if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add"}:
+    if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
         return
     output_name = str(node["outputs"][0])
     output_info = tensor_map[output_name]
@@ -556,7 +556,7 @@ def _append_ck_conv_profile_workloads(
     if required_item is None:
         return
     x_name, weight_name, bias_name = (str(name) for name in node["inputs"][:3])
-    residual_name = str(node["inputs"][3]) if op_name in {"conv2d_bias_add"} else None
+    residual_name = str(node["inputs"][3]) if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"} else None
     attrs = dict(node.get("attrs", {}))
     try:
         stride, padding, dilation, groups = normalize_conv2d_bias_attrs(

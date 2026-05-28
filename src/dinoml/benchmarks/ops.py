@@ -12,7 +12,7 @@ import numpy as np
 
 import dinoml as dml
 from dinoml import runtime
-from dinoml.ir import ModelSpec
+from dinoml.ir import ModelSpec, read_json
 
 
 @dataclass(frozen=True)
@@ -422,21 +422,23 @@ def run_benchmark_suite(
                     rt_module.close()
                 benchmark_elapsed_s = time.perf_counter() - benchmark_started
                 elapsed_s = compiled.compile_elapsed_s + benchmark_elapsed_s
-                results.append(
-                    {
-                        "name": case.name,
-                        "op": case.op,
-                        "template": case.template,
-                        "artifact": str(artifact_path),
-                        "status": "ok",
-                        "inputs": _io_report(metadata.get("inputs", [])),
-                        "outputs": _io_report(metadata.get("outputs", [])),
-                        "session_run": summary,
-                        "compile_elapsed_s": compiled.compile_elapsed_s,
-                        "benchmark_elapsed_s": benchmark_elapsed_s,
-                        "elapsed_s": elapsed_s,
-                    }
-                )
+                result = {
+                    "name": case.name,
+                    "op": case.op,
+                    "template": case.template,
+                    "artifact": str(artifact_path),
+                    "status": "ok",
+                    "inputs": _io_report(metadata.get("inputs", [])),
+                    "outputs": _io_report(metadata.get("outputs", [])),
+                    "session_run": summary,
+                    "compile_elapsed_s": compiled.compile_elapsed_s,
+                    "benchmark_elapsed_s": benchmark_elapsed_s,
+                    "elapsed_s": elapsed_s,
+                }
+                provider_kernels = _provider_kernel_report(artifact_path)
+                if provider_kernels:
+                    result["provider_kernels"] = provider_kernels
+                results.append(result)
                 print(f"{case.op}::{case.name} {summary=}")
             except Exception as exc:
                 benchmark_elapsed_s = time.perf_counter() - benchmark_started
@@ -662,6 +664,49 @@ def _io_report(specs: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
         }
         for spec in specs
     ]
+
+
+def _provider_kernel_report(artifact_path: Path) -> list[dict[str, Any]]:
+    manifest_path = artifact_path / "kernel_manifest.json"
+    if not manifest_path.exists():
+        return []
+    kernel_manifest = read_json(manifest_path)
+    kernels = []
+    for item in kernel_manifest.get("required_kernels", []):
+        if not isinstance(item, Mapping) or item.get("kernel_library") == "model":
+            continue
+        payload = {
+            "op": str(item.get("op", "")),
+            "dtype": str(item.get("dtype", "")),
+            "kernel_library": str(item.get("kernel_library", "")),
+            "kernel_symbol": item.get("kernel_symbol"),
+            "profiler_symbol": item.get("profiler_symbol"),
+            "candidate_set_id": item.get("candidate_set_id"),
+            "selected_candidate_id": item.get("selected_candidate_id"),
+            "split_k": int(item.get("split_k", 1) or 1),
+            "workspace_nbytes": int(item.get("workspace_nbytes", 0) or 0),
+        }
+        selected = _selected_candidate(item)
+        if selected is not None:
+            payload["candidate_config_key"] = selected.get("candidate_config_key")
+            if selected.get("symbol_id") is not None:
+                payload["symbol_id"] = selected.get("symbol_id")
+        if item.get("source_op") is not None:
+            payload["source_op"] = item.get("source_op")
+        if item.get("bias_mode") is not None:
+            payload["bias_mode"] = item.get("bias_mode")
+        kernels.append(payload)
+    return kernels
+
+
+def _selected_candidate(item: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    selected_id = item.get("selected_candidate_id")
+    if selected_id is None:
+        return None
+    for candidate in item.get("candidates", ()):
+        if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == str(selected_id):
+            return candidate
+    return None
 
 
 def _float_array(shape: tuple[int, ...], start: float = 0.0, step: float = 0.01) -> np.ndarray:

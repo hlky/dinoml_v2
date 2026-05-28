@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import dinoml.cli as cli
@@ -105,7 +106,34 @@ def test_ops_benchmark_suite_compiles_provider_cases_on_gpu_targets(tmp_path, mo
             pass
 
     def fake_compile(spec, target, output):
-        calls.append(("compile", spec.name, target.name, str(output), {node["op"] for node in spec.ir["nodes"]}))
+        ops = {node["op"] for node in spec.ir["nodes"]}
+        calls.append(("compile", spec.name, target.name, str(output), ops))
+        Path(output).mkdir(parents=True, exist_ok=True)
+        op_name = next(iter(ops))
+        (Path(output) / "kernel_manifest.json").write_text(
+            json.dumps(
+                {
+                    "required_kernels": [
+                        {
+                            "op": op_name,
+                            "dtype": "float16",
+                            "kernel_library": "ck_bmm",
+                            "kernel_symbol": f"dinoml_{op_name}_kernel",
+                            "profiler_symbol": f"dinoml_{op_name}_profiler",
+                            "candidate_set_id": f"{op_name}_candidate_set",
+                            "selected_candidate_id": f"{op_name}_candidate",
+                            "candidates": [
+                                {
+                                    "candidate_id": f"{op_name}_candidate",
+                                    "candidate_config_key": "xdl_wide_n_v1",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         return Artifact(output)
 
     monkeypatch.setattr("dinoml.benchmarks.ops.dml.compile", fake_compile)
@@ -128,6 +156,20 @@ def test_ops_benchmark_suite_compiles_provider_cases_on_gpu_targets(tmp_path, mo
     assert ("compile", "benchmark_gemm_rcr_bias_add_relu", "rocm", str(tmp_path / "gemm_rcr_bias_add_relu.dinoml"), {"gemm_rcr_bias_add_relu"}) in calls
     assert ("compile", "benchmark_bmm_rcr_add", "rocm", str(tmp_path / "bmm_rcr_add.dinoml"), {"bmm_rcr_add"}) in calls
     assert ("compile", "benchmark_conv2d_bias_add_relu", "rocm", str(tmp_path / "conv2d_bias_add_relu.dinoml"), {"conv2d_bias_add_relu"}) in calls
+    assert report["cases"][1]["provider_kernels"] == [
+        {
+            "op": "bmm_rcr_add",
+            "dtype": "float16",
+            "kernel_library": "ck_bmm",
+            "kernel_symbol": "dinoml_bmm_rcr_add_kernel",
+            "profiler_symbol": "dinoml_bmm_rcr_add_profiler",
+            "candidate_set_id": "bmm_rcr_add_candidate_set",
+            "selected_candidate_id": "bmm_rcr_add_candidate",
+            "split_k": 1,
+            "workspace_nbytes": 0,
+            "candidate_config_key": "xdl_wide_n_v1",
+        }
+    ]
 
 
 def test_ops_benchmark_suite_rejects_provider_cases_on_cpu(tmp_path):

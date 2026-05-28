@@ -334,6 +334,17 @@ def test_rocm_sdk_python_probe_treats_launch_failure_as_unavailable(monkeypatch)
     assert rocm_backend._python_has_rocm_sdk("missing-python.exe") is False
 
 
+def test_rocm_sdk_path_query_treats_launch_failure_as_unavailable(monkeypatch):
+    monkeypatch.setattr(rocm_backend, "_rocm_sdk_command", lambda: ["rocm-sdk.exe"])
+
+    def fake_run(*_args, **_kwargs):
+        raise OSError("broken rocm-sdk")
+
+    monkeypatch.setattr(rocm_backend.subprocess, "run", fake_run)
+
+    assert rocm_backend._run_rocm_sdk_path("--root") is None
+
+
 def test_rocm_runtime_paths_allow_regular_hip_sdk_without_rocm_sdk(monkeypatch):
     monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
     monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)

@@ -672,12 +672,15 @@ def _run_rocm_sdk_path(arg: str) -> str | None:
     rocm_sdk = _rocm_sdk_command()
     if rocm_sdk is None:
         return None
-    proc = subprocess.run(
-        [*rocm_sdk, "path", arg],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        proc = subprocess.run(
+            [*rocm_sdk, "path", arg],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return None
     if proc.returncode != 0:
         return None
     value = proc.stdout.strip()

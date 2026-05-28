@@ -116,6 +116,8 @@ def run_sweep(
                     "artifact": str(artifact.path),
                     "status": "ok",
                     "profile_summary": dict(report.get("summary", {})),
+                    "profile_candidates": _profile_candidates(report),
+                    "profile_decisions": _profile_decisions(report, artifact.path),
                     "selected_candidates": _selected_candidates(kernel_manifest),
                     "elapsed_s": time.perf_counter() - case_started,
                 }
@@ -300,6 +302,142 @@ def _selected_candidates(kernel_manifest: Mapping[str, Any]) -> list[dict[str, A
             }
         )
     return selected
+
+
+def _profile_candidates(profile_report: Mapping[str, Any]) -> list[dict[str, Any]]:
+    candidates = []
+    for item in profile_report.get("problems", []):
+        if not isinstance(item, Mapping):
+            continue
+        selected = item.get("selected", {})
+        candidate_id = item.get("candidate_id")
+        if candidate_id is None and isinstance(selected, Mapping):
+            candidate_id = selected.get("candidate_id")
+        payload = {
+            "node_id": item.get("node_id"),
+            "op": item.get("op"),
+            "dtype": item.get("dtype"),
+            "kernel_library": item.get("kernel_library"),
+            "candidate_id": candidate_id,
+            "profiler_symbol": item.get("profiler_symbol"),
+            "elapsed_ms": item.get("elapsed_ms"),
+            "tflops": item.get("tflops"),
+            "iterations": item.get("iterations"),
+            "requested_iterations": item.get("requested_iterations"),
+            "status": item.get("status"),
+        }
+        timing = item.get("timing")
+        if isinstance(timing, Mapping):
+            payload["timing"] = {
+                "sample_count": timing.get("sample_count"),
+                "iterations_per_sample": timing.get("iterations_per_sample"),
+                "median_ms": timing.get("median_ms"),
+                "mean_ms": timing.get("mean_ms"),
+                "relative_stddev": timing.get("relative_stddev"),
+            }
+        adaptive = item.get("adaptive_iterations")
+        if isinstance(adaptive, Mapping):
+            payload["adaptive_iterations"] = dict(adaptive)
+        if item.get("split_k") is not None:
+            payload["split_k"] = item.get("split_k")
+        candidates.append(payload)
+    return candidates
+
+
+def _profile_decisions(profile_report: Mapping[str, Any], artifact_path: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    summary = profile_report.get("execution_plan")
+    if isinstance(summary, Mapping):
+        payload = {str(key): value for key, value in summary.items() if key != "path"}
+        if payload:
+            result["summary"] = payload
+    plan = _read_execution_plan(profile_report, artifact_path)
+    if not plan:
+        return result
+    plan_summary = dict(plan.get("summary", {})) if isinstance(plan.get("summary"), Mapping) else {}
+    if plan_summary:
+        result["summary"] = {**plan_summary, **dict(result.get("summary", {}))}
+    for key in ("selections", "low_confidence_selections", "static_selections"):
+        result[key] = [
+            _profile_selection(selection)
+            for selection in plan.get(key, [])
+            if isinstance(selection, Mapping)
+        ]
+    result["conflicts"] = [
+        _profile_conflict(conflict)
+        for conflict in plan.get("conflicts", [])
+        if isinstance(conflict, Mapping)
+    ]
+    return result
+
+
+def _read_execution_plan(profile_report: Mapping[str, Any], artifact_path: Path) -> dict[str, Any]:
+    candidates: list[Path] = []
+    summary = profile_report.get("execution_plan")
+    if isinstance(summary, Mapping) and summary.get("path"):
+        candidates.append(Path(str(summary["path"])))
+    candidates.extend(
+        [
+            artifact_path / "debug" / "profile_bootstrap_artifact" / "debug" / "execution_plan.json",
+            artifact_path / "debug" / "execution_plan.json",
+        ]
+    )
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if path.exists():
+            payload = read_json(path)
+            return dict(payload) if isinstance(payload, Mapping) else {}
+    return {}
+
+
+def _profile_selection(selection: Mapping[str, Any]) -> dict[str, Any]:
+    payload = {
+        "node_id": selection.get("node_id"),
+        "op": selection.get("op"),
+        "dtype": selection.get("dtype"),
+        "kernel_library": selection.get("kernel_library"),
+        "candidate_set_id": selection.get("candidate_set_id"),
+        "selected_candidate_id": selection.get("selected_candidate_id"),
+        "candidate_config_key": selection.get("candidate_config_key"),
+        "kernel_symbol": selection.get("kernel_symbol"),
+        "profiler_symbol": selection.get("profiler_symbol"),
+        "avg_ms": selection.get("avg_ms"),
+        "gflops": selection.get("gflops"),
+        "iterations": selection.get("iterations"),
+        "split_k": selection.get("split_k"),
+        "workspace_nbytes": selection.get("workspace_nbytes"),
+        "status": selection.get("status"),
+    }
+    confidence = selection.get("confidence")
+    if isinstance(confidence, Mapping):
+        payload["confidence"] = {
+            "level": confidence.get("level"),
+            "confident": confidence.get("confident"),
+            "reasons": list(confidence.get("reasons", [])),
+            "runner_up_candidate_id": confidence.get("runner_up_candidate_id"),
+            "runner_up_elapsed_ms": confidence.get("runner_up_elapsed_ms"),
+            "margin_ms": confidence.get("margin_ms"),
+            "required_margin_ms": confidence.get("required_margin_ms"),
+            "relative_speedup_over_runner_up": confidence.get("relative_speedup_over_runner_up"),
+            "sample_counts": dict(confidence.get("sample_counts", {}))
+            if isinstance(confidence.get("sample_counts"), Mapping)
+            else {},
+        }
+    return payload
+
+
+def _profile_conflict(conflict: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "op": conflict.get("op"),
+        "dtype": conflict.get("dtype"),
+        "candidate_set_key": conflict.get("candidate_set_key"),
+        "reason": conflict.get("reason"),
+        "selected_candidate_ids": list(conflict.get("selected_candidate_ids", [])),
+        "selected_split_k": list(conflict.get("selected_split_k", [])),
+    }
 
 
 if __name__ == "__main__":

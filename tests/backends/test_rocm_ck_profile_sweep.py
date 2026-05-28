@@ -74,8 +74,88 @@ def test_rocm_ck_profile_sweep_compiles_selected_cases(tmp_path, monkeypatch):
             },
         )
         sweep.write_json(
+            output / "debug" / "execution_plan.json",
+            {
+                "summary": {
+                    "selection_count": 0,
+                    "low_confidence_count": 1,
+                    "static_selection_count": 0,
+                    "conflict_count": 0,
+                },
+                "selections": [],
+                "low_confidence_selections": [
+                    {
+                        "node_id": "n0",
+                        "op": op_name,
+                        "dtype": "float16",
+                        "kernel_library": "ck_bmm",
+                        "candidate_set_id": "ck_bmm_rcr_add_float16_add_v4",
+                        "selected_candidate_id": "ck_bmm_rcr_add_float16_xdl_small_v1",
+                        "candidate_config_key": "xdl_small_v1",
+                        "kernel_symbol": "dinoml_ck_bmm_rcr_add_float16_xdl_small_v1",
+                        "profiler_symbol": "dinoml_profile_ck_bmm_rcr_add_float16_xdl_small_v1",
+                        "avg_ms": 0.012,
+                        "gflops": 250.0,
+                        "iterations": 64,
+                        "split_k": 1,
+                        "workspace_nbytes": 0,
+                        "status": "ok",
+                        "confidence": {
+                            "level": "low",
+                            "confident": False,
+                            "reasons": ["margin_below_required_threshold"],
+                            "runner_up_candidate_id": "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+                            "runner_up_elapsed_ms": 0.013,
+                            "margin_ms": 0.001,
+                            "required_margin_ms": 0.002,
+                            "relative_speedup_over_runner_up": 0.08,
+                            "sample_counts": {"best": 3, "runner_up": 3},
+                        },
+                    }
+                ],
+                "static_selections": [],
+                "conflicts": [],
+            },
+        )
+        sweep.write_json(
             output / "debug" / "bootstrap_profile_report.json",
-            {"summary": {"profiled": 2, "failed": 0, "cached": 0, "blocked": 0, "skipped": 0}},
+            {
+                "summary": {"profiled": 2, "failed": 0, "cached": 0, "blocked": 0, "skipped": 0},
+                "execution_plan": {
+                    "path": str(output / "debug" / "execution_plan.json"),
+                    "selection_count": 0,
+                    "low_confidence_count": 1,
+                    "static_selection_count": 0,
+                    "conflict_count": 0,
+                },
+                "problems": [
+                    {
+                        "node_id": "n0",
+                        "op": op_name,
+                        "dtype": "float16",
+                        "kernel_library": "ck_bmm",
+                        "profiler_symbol": "dinoml_profile_ck_bmm_rcr_add_float16_xdl_small_v1",
+                        "elapsed_ms": 0.012,
+                        "tflops": 0.25,
+                        "iterations": 64,
+                        "requested_iterations": 5,
+                        "status": "ok",
+                        "timing": {
+                            "sample_count": 3,
+                            "iterations_per_sample": 64,
+                            "median_ms": 0.012,
+                            "mean_ms": 0.0121,
+                            "relative_stddev": 0.02,
+                        },
+                        "adaptive_iterations": {
+                            "policy": "min_total_sample_ms_v1",
+                            "requested_iterations": 5,
+                            "effective_iterations": 64,
+                        },
+                        "selected": {"candidate_id": "ck_bmm_rcr_add_float16_xdl_small_v1"},
+                    }
+                ],
+            },
         )
         return Artifact(output)
 
@@ -94,6 +174,12 @@ def test_rocm_ck_profile_sweep_compiles_selected_cases(tmp_path, monkeypatch):
     assert report["summary"]["error"] == 0
     assert report["cases"][0]["op"] == "bmm_rcr_add"
     assert report["cases"][0]["profile_summary"]["profiled"] == 2
+    assert report["cases"][0]["profile_candidates"][0]["candidate_id"] == "ck_bmm_rcr_add_float16_xdl_small_v1"
+    assert report["cases"][0]["profile_candidates"][0]["adaptive_iterations"]["effective_iterations"] == 64
+    assert report["cases"][0]["profile_decisions"]["summary"]["low_confidence_count"] == 1
+    assert report["cases"][0]["profile_decisions"]["low_confidence_selections"][0]["confidence"]["reasons"] == [
+        "margin_below_required_threshold"
+    ]
     assert report["cases"][0]["selected_candidates"][0]["selected_candidate_id"] == "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
     assert calls == [
         (

@@ -16,6 +16,11 @@ class _ArgmaxModule(dml.Module):
         return dml.ops.output(dml.ops.argmax(x, dim=-1), "output")
 
 
+class _LayerNormModule(dml.Module):
+    def forward(self, x, weight, bias):
+        return dml.ops.output(dml.ops.layer_norm(x, weight, bias, eps=1e-5), "output")
+
+
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():
     spec = dml.trace(
         _ReduceSumModule(),
@@ -53,3 +58,20 @@ def test_rocm_topk_benchmark_shape_stays_on_no_scratch_warp_rows():
     assert "dim3 topk_block(32, 8)" in source
     assert "void* topk_scratch = nullptr;" not in source
     assert "session->topk_scratch" not in source
+
+
+def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():
+    spec = dml.trace(
+        _LayerNormModule(),
+        inputs={
+            "x": dml.TensorSpec([16, 128, 768], "float32"),
+            "weight": dml.TensorSpec([768], "float32"),
+            "bias": dml.TensorSpec([768], "float32"),
+        },
+        name="rocm_layer_norm_tuning",
+    )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+
+    assert "dim3 block(32, 2)" in source

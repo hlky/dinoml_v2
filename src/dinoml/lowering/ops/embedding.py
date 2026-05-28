@@ -59,16 +59,20 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[node["outputs"][0]]
     _validate_node_contract(node, table_tensor, index_tensor, output_tensor)
     dtype = str(output_tensor["dtype"])
+    hidden_size = int(table_tensor["shape"][1])
+    vector_width = _copy_vector_width(dtype, hidden_size, target)
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
-        "vector_kernel": f"{_function_name(node, tensor_map)}_float4_kernel",
+        "vector_kernel": f"{_function_name(node, tensor_map)}_{_copy_vector_suffix(dtype)}_kernel",
         "storage_type": target_storage_type(dtype, target),
         "index_storage_type": _index_storage_type(str(index_tensor["dtype"])),
         "vocab_size": int(table_tensor["shape"][0]),
-        "hidden_size": int(table_tensor["shape"][1]),
-        "hidden_vectors": int(table_tensor["shape"][1]) // 4,
-        "use_float4_kernel": target != "cpu" and dtype == "float32" and int(table_tensor["shape"][1]) % 4 == 0,
+        "hidden_size": hidden_size,
+        "hidden_vectors": hidden_size // vector_width,
+        "vector_type": _copy_vector_type(dtype),
+        "vector_width": vector_width,
+        "use_vector_kernel": vector_width > 1,
         "copy_body": _copy_body(table_tensor, target),
         "block_size": 256,
     }
@@ -127,6 +131,21 @@ def _copy_body(table_tensor: Mapping[str, Any], target: str) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _copy_vector_width(dtype: str, hidden_size: int, target: str) -> int:
+    if target == "cpu":
+        return 1
+    width = 4 if dtype == "float32" else 8 if dtype in {"float16", "bfloat16"} else 1
+    return width if width > 1 and hidden_size % width == 0 else 1
+
+
+def _copy_vector_type(dtype: str) -> str:
+    return "float4" if dtype == "float32" else "uint4"
+
+
+def _copy_vector_suffix(dtype: str) -> str:
+    return "float4" if dtype == "float32" else "uint4"
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

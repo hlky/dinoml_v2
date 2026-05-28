@@ -70,18 +70,22 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     source_rows = input_shape[1]
     gather_count = index_shape[1]
     slice_size = _numel(input_shape[2:])
+    vector_width = _copy_vector_width(dtype, slice_size, target)
+    vector_type = _copy_vector_type(dtype)
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
-        "vector_kernel": f"{_function_name(node, tensor_map)}_float4_kernel",
+        "vector_kernel": f"{_function_name(node, tensor_map)}_{_copy_vector_suffix(dtype)}_kernel",
         "storage_type": storage_type,
         "index_storage_type": index_storage_type,
         "source_rows": source_rows,
         "gather_count": gather_count,
-        "slice_vectors": slice_size // 4,
-        "input_batch_stride_vectors": source_rows * (slice_size // 4),
-        "output_batch_stride_vectors": gather_count * (slice_size // 4),
-        "use_float4_kernel": target != "cpu" and dtype == "float32" and slice_size % 4 == 0,
+        "vector_type": vector_type,
+        "vector_width": vector_width,
+        "slice_vectors": slice_size // vector_width,
+        "input_batch_stride_vectors": source_rows * (slice_size // vector_width),
+        "output_batch_stride_vectors": gather_count * (slice_size // vector_width),
+        "use_vector_kernel": vector_width > 1,
         "copy_body": _copy_body(input_tensor, index_tensor, target),
         "block_size": 256,
     }
@@ -153,6 +157,21 @@ def _numel(shape: list[int]) -> int:
     for axis in shape:
         total *= axis
     return total
+
+
+def _copy_vector_width(dtype: str, slice_size: int, target: str) -> int:
+    if target == "cpu":
+        return 1
+    width = 4 if dtype == "float32" else 8 if dtype in {"float16", "bfloat16"} else 1
+    return width if width > 1 and slice_size % width == 0 else 1
+
+
+def _copy_vector_type(dtype: str) -> str:
+    return "float4" if dtype == "float32" else "uint4"
+
+
+def _copy_vector_suffix(dtype: str) -> str:
+    return "float4" if dtype == "float32" else "uint4"
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

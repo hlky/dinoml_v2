@@ -158,6 +158,16 @@ def test_rocm_embedding_float32_benchmark_shape_uses_float4_copy():
     assert "runtime_numel_vec_out = runtime_numel_out / 4" in source
 
 
+def test_rocm_embedding_bfloat16_int32_benchmark_shape_uses_uint4_copy():
+    case = next(case for case in benchmark_cases() if case.name == "embedding_bfloat16_int32")
+    source = render_gpu_module("rocm", case.build_spec().ir)
+
+    assert "_uint4_kernel" in source
+    assert "reinterpret_cast<const uint4*>(table)" in source
+    assert "constexpr int64_t hidden_vectors = 32;" in source
+    assert "runtime_numel_vec_out = runtime_numel_out / 8" in source
+
+
 def test_rocm_gather_benchmark_shape_keeps_per_element_scalar_indices():
     case = next(case for case in benchmark_cases() if case.name == "gather")
     source = render_gpu_module("rocm", case.build_spec().ir)
@@ -184,6 +194,16 @@ def test_rocm_batch_gather_float32_benchmark_shape_uses_float4_slice_copy():
     assert "reinterpret_cast<const float4*>(x)" in source
     assert "constexpr int64_t slice_vectors = 192;" in source
     assert "runtime_numel_vec = runtime_numel / 4" in source
+
+
+def test_rocm_batch_gather_bfloat16_int32_benchmark_shape_uses_uint4_slice_copy():
+    case = next(case for case in benchmark_cases() if case.name == "batch_gather_bfloat16_int32")
+    source = render_gpu_module("rocm", case.build_spec().ir)
+
+    assert "_uint4_kernel" in source
+    assert "reinterpret_cast<const uint4*>(x)" in source
+    assert "constexpr int64_t slice_vectors = 96;" in source
+    assert "runtime_numel_vec = runtime_numel / 8" in source
 
 
 def test_rocm_avg_pool1d_benchmark_shape_uses_smaller_block_than_cuda():

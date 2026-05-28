@@ -663,6 +663,10 @@ def _rocm_runtime_paths() -> list[str]:
     bin_dir = _run_rocm_sdk_path("--bin")
     if bin_dir:
         paths.append(bin_dir)
+    elif root:
+        root_bin = Path(root) / "bin"
+        if root_bin.exists():
+            paths.append(str(root_bin))
     if root:
         paths.append(str(Path(root) / "lib" / "llvm" / "bin"))
     return paths

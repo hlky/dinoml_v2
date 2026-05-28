@@ -325,6 +325,25 @@ def test_rocm_runtime_paths_prefer_current_python_rocm_sdk_module(tmp_path, monk
     assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
 
 
+def test_rocm_runtime_paths_fallback_to_root_bin_when_sdk_bin_query_missing(tmp_path, monkeypatch):
+    sdk_root = tmp_path / "sdk"
+    sdk_bin = sdk_root / "bin"
+    llvm_bin = sdk_root / "lib" / "llvm" / "bin"
+    sdk_bin.mkdir(parents=True)
+    llvm_bin.mkdir(parents=True)
+
+    def fake_run_rocm_sdk_path(arg: str) -> str | None:
+        if arg == "--root":
+            return str(sdk_root)
+        if arg == "--bin":
+            return None
+        raise AssertionError(arg)
+
+    monkeypatch.setattr(rocm_backend, "_run_rocm_sdk_path", fake_run_rocm_sdk_path)
+
+    assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
+
+
 def test_rocm_sdk_python_probe_treats_launch_failure_as_unavailable(monkeypatch):
     def fake_run(*_args, **_kwargs):
         raise OSError("missing python")

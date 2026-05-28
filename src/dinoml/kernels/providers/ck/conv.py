@@ -17,9 +17,17 @@ CK_CONV_SQUARE_SYMBOL_ID = "xdl_square_v1"
 CK_CONV_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
 CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
-CK_CONV_OPS = ("conv2d_bias",)
+CK_CONV_OPS = ("conv2d_bias", "conv2d_bias_relu")
 CK_CONV_SUPPORTED_DTYPES = ("float16", "float32")
 CK_CONV_DEFAULT_WORKSPACE_NBYTES = 0
+_CK_CONV_EPILOGUE_BY_OP = {
+    "conv2d_bias": "bias",
+    "conv2d_bias_relu": "bias_relu",
+}
+_CK_CONV_LAUNCH_ABI_BY_OP = {
+    "conv2d_bias": "dinoml_ck_conv2d_bias_v1",
+    "conv2d_bias_relu": "dinoml_ck_conv2d_bias_relu_v1",
+}
 
 
 CK_CONV_CONFIGS = (
@@ -134,18 +142,8 @@ def ck_conv_candidate_set(
         "accumulator_dtype": "float32",
         "epilogue": epilogue_config["name"],
         "epilogue_config": epilogue_config,
-        "semantic_layout": {
-            "activation": "nchw",
-            "weight": "oihw",
-            "bias": "o",
-            "output": "nchw",
-        },
-        "provider_layout": {
-            "activation": "g_nhw_c_strided",
-            "weight": "g_k_yx_c_strided",
-            "bias": "g_k",
-            "output": "g_nhw_k_strided",
-        },
+        "semantic_layout": _ck_conv_semantic_layout(op_name),
+        "provider_layout": _ck_conv_provider_layout(op_name),
         "supported_groups": [1],
         "supported_dtypes": list(CK_CONV_SUPPORTED_DTYPES),
         "target_policy": {"rocm": True},
@@ -166,7 +164,7 @@ def ck_conv_candidate_set(
 
 def ck_conv_candidate_set_id(op_name: str, dtype: str) -> str:
     _validate_ck_conv_op(op_name)
-    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_bias_v3"
+    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_{_ck_conv_epilogue(op_name)}_v3"
 
 
 def ck_conv_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -335,18 +333,8 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
         "accumulator_dtype": "float32",
         "epilogue": epilogue_config["name"],
         "epilogue_config": epilogue_config,
-        "semantic_layout": {
-            "activation": "nchw",
-            "weight": "oihw",
-            "bias": "o",
-            "output": "nchw",
-        },
-        "provider_layout": {
-            "activation": "g_nhw_c_strided",
-            "weight": "g_k_yx_c_strided",
-            "bias": "g_k",
-            "output": "g_nhw_k_strided",
-        },
+        "semantic_layout": _ck_conv_semantic_layout(op_name),
+        "provider_layout": _ck_conv_provider_layout(op_name),
         "supported_groups": [1],
         "optional": False,
         "launch_abi": epilogue_config["launch_abi"],
@@ -367,7 +355,17 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
 
 def _ck_conv_epilogue_config(op_name: str) -> dict[str, Any]:
     _validate_ck_conv_op(op_name)
-    return {"name": "bias", "inputs": ["bias"], "launch_abi": "dinoml_ck_conv2d_bias_v1"}
+    epilogue = _ck_conv_epilogue(op_name)
+    if epilogue == "bias":
+        return {"name": "bias", "inputs": ["bias"], "launch_abi": _ck_conv_launch_abi(op_name)}
+    if epilogue == "bias_relu":
+        return {
+            "name": "bias_relu",
+            "inputs": ["bias"],
+            "activation": "relu",
+            "launch_abi": _ck_conv_launch_abi(op_name),
+        }
+    raise ValueError(f"Unsupported CK Conv epilogue {epilogue!r}")
 
 
 def _generated_export_line(candidate: Mapping[str, Any]) -> str:
@@ -379,12 +377,14 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     config_enum = str(candidate.get("ck", {}).get("config", {}).get("config_enum", "kBaseline"))
     if launch_abi == "dinoml_ck_conv2d_bias_v1":
         return f"DINOML_CK_CONV2D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
+    if launch_abi == "dinoml_ck_conv2d_bias_relu_v1":
+        return f"DINOML_CK_CONV2D_BIAS_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     raise ValueError(f"Unsupported CK Conv launch ABI: {launch_abi!r}")
 
 
 def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
-    match = re.match(r"DINOML_CK_CONV2D_BIAS_EXPORT\((.*)\)\s*$", stripped)
+    match = re.match(r"DINOML_CK_CONV2D_BIAS(?:_RELU)?_EXPORT\((.*)\)\s*$", stripped)
     if match is None:
         return frozenset()
     args = [arg.strip() for arg in match.group(1).split(",")]
@@ -443,6 +443,36 @@ def _normalize_ck_conv_dtype(dtype: str) -> str:
             f"Unsupported CK Conv dtype {dtype!r}; supported dtypes: {', '.join(CK_CONV_SUPPORTED_DTYPES)}"
         )
     return normalized
+
+
+def _ck_conv_epilogue(op_name: str) -> str:
+    _validate_ck_conv_op(op_name)
+    return _CK_CONV_EPILOGUE_BY_OP[op_name]
+
+
+def _ck_conv_launch_abi(op_name: str) -> str:
+    _validate_ck_conv_op(op_name)
+    return _CK_CONV_LAUNCH_ABI_BY_OP[op_name]
+
+
+def _ck_conv_semantic_layout(op_name: str) -> dict[str, str]:
+    _validate_ck_conv_op(op_name)
+    return {
+        "activation": "nchw",
+        "weight": "oihw",
+        "bias": "o",
+        "output": "nchw",
+    }
+
+
+def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
+    _validate_ck_conv_op(op_name)
+    return {
+        "activation": "g_nhw_c_strided",
+        "weight": "g_k_yx_c_strided",
+        "bias": "g_k",
+        "output": "g_nhw_k_strided",
+    }
 
 
 def _validate_ck_conv_op(op_name: str) -> None:

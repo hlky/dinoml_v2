@@ -12,6 +12,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_symbol,
 )
 from dinoml.kernels.providers.ck.conv import (
+    CK_CONV_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_profiler_symbol,
@@ -404,7 +405,7 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
             },
         )
     }
-    if op_name == "conv2d_bias":
+    if op_name in CK_CONV_OPS:
         kernels["rocm"] = KernelBinding(
             ck_conv_symbol(op_name, "float32"),
             "ck_conv",

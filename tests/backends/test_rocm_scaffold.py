@@ -1449,6 +1449,39 @@ def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
     assert workloads[0].conv_config == {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1}
 
 
+def test_rocm_conv2d_bias_relu_uses_ck_manifest_and_profile_workloads():
+    ir = _rocm_conv2d_bias_ir(
+        "float16",
+        op_name="conv2d_bias_relu",
+        batch=2,
+        in_channels=8,
+        out_channels=64,
+        height=16,
+        width=16,
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["kernel_library"] == "ck_conv"
+    assert item["candidate_set_id"] == "ck_conv2d_bias_relu_float16_bias_relu_v3"
+    assert item["candidate_set"]["epilogue"] == "bias_relu"
+    assert item["candidate_set"]["epilogue_config"] == {
+        "name": "bias_relu",
+        "inputs": ["bias"],
+        "activation": "relu",
+        "launch_abi": "dinoml_ck_conv2d_bias_relu_v1",
+    }
+    assert item["kernel_symbol"] == "dinoml_ck_conv2d_bias_relu_float16_xdl_wide_n_v1"
+    assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
+    assert {workload.op for workload in workloads} == {"conv2d_bias_relu"}
+    assert {workload.candidate_id for workload in workloads} >= {
+        "ck_conv2d_bias_relu_float16_xdl_wide_n_v1",
+        "ck_conv2d_bias_relu_float16_xdl_small_v1",
+    }
+
+
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():
     ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16, groups=2)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -1633,6 +1666,21 @@ def test_rocm_conv2d_bias_module_declares_and_calls_ck_symbol():
     assert "CK Conv launcher failed" in source
 
 
+def test_rocm_conv2d_bias_relu_module_declares_and_calls_ck_symbol():
+    ir = _rocm_conv2d_bias_ir("float16", op_name="conv2d_bias_relu")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_conv2d_bias_relu_float16_xdl_custom_v1' in source
+    assert "const half* bias" in source
+    assert (
+        "dinoml_ck_conv2d_bias_relu_float16_xdl_custom_v1(ptr_x, ptr_weight, ptr_bias, ptr_y"
+        in source
+    )
+    assert "conv2d_bias_relu CK Conv launcher failed" in source
+
+
 def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
     candidate = {
@@ -1657,6 +1705,32 @@ def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     assert "DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle" in rendered
     assert "DinoConvBiasEpilogue" in rendered
     assert "DINOML_CK_CONV2D_BIAS_EXPORT(conv2d_bias, float16, half, xdl_custom_v1, kBaseline)" in rendered
+
+
+def test_ck_conv_unit_generation_supports_bias_relu_epilogue():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "conv2d_bias_relu",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias_relu",
+        "launch_abi": "dinoml_ck_conv2d_bias_relu_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_conv2d_bias_relu_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_conv2d_bias_relu_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "DinoConvBiasReluEpilogue" in rendered
+    assert (
+        "DINOML_CK_CONV2D_BIAS_RELU_EXPORT(conv2d_bias_relu, float16, half, "
+        "xdl_custom_v1, kBaseline)"
+    ) in rendered
 
 
 @pytest.mark.skipif(
@@ -1973,6 +2047,7 @@ def _bmm_layout_from_op(op_name: str) -> str:
 def _rocm_conv2d_bias_ir(
     dtype: str,
     *,
+    op_name: str = "conv2d_bias",
     batch: int = 2,
     in_channels: int = 4,
     out_channels: int = 6,
@@ -1998,7 +2073,7 @@ def _rocm_conv2d_bias_ir(
     ]
     return {
         "schema_version": 1,
-        "name": "rocm_conv2d_bias_smoke",
+        "name": f"rocm_{op_name}_smoke",
         "inputs": [
             _io("x", [batch, in_channels, height, width], dtype),
             _io("weight", [out_channels, in_channels, kernel_h, kernel_w], dtype),
@@ -2009,7 +2084,7 @@ def _rocm_conv2d_bias_ir(
         "nodes": [
             {
                 "id": "n0",
-                "op": "conv2d_bias",
+                "op": op_name,
                 "inputs": ["x", "weight", "bias"],
                 "outputs": ["y"],
                 "attrs": {"stride": stride, "padding": padding, "dilation": dilation, "groups": groups},

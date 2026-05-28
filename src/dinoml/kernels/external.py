@@ -213,7 +213,7 @@ def _ck_conv_family(op_name: str) -> ExternalKernelFamily:
         attrs={
             "semantic_layout": ck_conv_candidate_set(op_name, "float32")["semantic_layout"],
             "provider_layout": ck_conv_candidate_set(op_name, "float32")["provider_layout"],
-            "epilogue": "bias",
+            "epilogue": ck_conv_candidate_set(op_name, "float32")["epilogue"],
             "epilogue_config": ck_conv_candidate_set(op_name, "float32")["epilogue_config"],
             "supported_dtypes": list(CK_CONV_SUPPORTED_DTYPES),
             "supported_groups": [1],

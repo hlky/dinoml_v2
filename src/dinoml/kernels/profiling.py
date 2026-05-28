@@ -546,7 +546,7 @@ def _append_ck_conv_profile_workloads(
     overrides: Mapping[str, Sequence[int]],
 ) -> None:
     op_name = str(node["op"])
-    if op_name != "conv2d_bias":
+    if op_name not in {"conv2d_bias", "conv2d_bias_relu"}:
         return
     output_name = str(node["outputs"][0])
     output_info = tensor_map[output_name]

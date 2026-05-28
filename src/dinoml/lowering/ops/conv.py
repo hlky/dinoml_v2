@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.kernels.providers.cutlass.conv import cutlass_conv_wrapper_stages
+from dinoml.kernels.providers.ck.conv import CK_CONV_OPS
 from dinoml.lowering.cpp_types import cpu_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
@@ -120,14 +121,14 @@ def _render_rocm_launch(
     kernel_manifest: Mapping[str, Any] | None,
 ) -> str:
     op_name = str(node["op"])
-    if op_name != "conv2d_bias":
+    if op_name not in CK_CONV_OPS:
         raise NotImplementedError(f"{op_name} ROCm CK Conv lowering is not implemented")
     input_names = [str(name) for name in node.get("inputs", ())]
     if len(input_names) != 3:
-        raise ValueError("conv2d_bias ROCm lowering expects activation, weight, and bias inputs")
+        raise ValueError(f"{op_name} ROCm lowering expects activation, weight, and bias inputs")
     output_names = [str(name) for name in node.get("outputs", ())]
     if len(output_names) != 1:
-        raise ValueError("conv2d_bias ROCm lowering expects one output")
+        raise ValueError(f"{op_name} ROCm lowering expects one output")
     x_name, weight_name, bias_name = input_names
     output_name = output_names[0]
     x = tensor_map[x_name]

@@ -13,9 +13,20 @@ def test_ops_benchmark_cases_are_individual_not_condensed():
     assert "sub" in names
     assert "reduce_sum" in names
     assert "reduce_max" in names
+    assert "gemm_rcr_bias_add_relu" in names
+    assert "bmm_rcr_add" in names
+    assert "conv2d_bias_add_relu" in names
     assert "elementwise" not in names
     assert "reductions" not in names
     assert "_shape_buffer_count_true" not in names
+
+
+def test_provider_benchmark_cases_are_cuda_rocm_only():
+    cases = {case.name: case for case in benchmark_cases()}
+
+    assert cases["gemm_rcr_bias_add_relu"].targets == ("cuda", "rocm")
+    assert cases["bmm_rcr_add"].targets == ("cuda", "rocm")
+    assert cases["conv2d_bias_add_relu"].targets == ("cuda", "rocm")
 
 
 def test_ops_benchmark_suite_compiles_and_benchmarks_selected_cases(tmp_path, monkeypatch):
@@ -61,6 +72,71 @@ def test_ops_benchmark_suite_compiles_and_benchmarks_selected_cases(tmp_path, mo
     assert [case["name"] for case in report["cases"]] == ["add", "reduce_sum"]
     assert ("compile", "benchmark_add", "cpu", str(tmp_path / "add.dinoml")) in calls
     assert calls.count(("benchmark", ["condition", "positive", "x", "y"], 1, 2)) == 1
+
+
+def test_ops_benchmark_suite_compiles_provider_cases_on_gpu_targets(tmp_path, monkeypatch):
+    calls = []
+
+    class Artifact:
+        def __init__(self, path):
+            self.path = Path(path)
+
+    class FakeSession:
+        def benchmark_numpy(self, inputs, *, warmup, iterations):
+            calls.append(("benchmark", sorted(inputs), warmup, iterations))
+            return {
+                "count": iterations,
+                "warmup": warmup,
+                "mean_ms": 1.0,
+                "median_ms": 1.0,
+                "min_ms": 1.0,
+                "max_ms": 1.0,
+                "stddev_ms": 0.0,
+            }
+
+        def close(self):
+            pass
+
+    class FakeRuntimeModule:
+        def create_session(self):
+            return FakeSession()
+
+        def close(self):
+            pass
+
+    def fake_compile(spec, target, output):
+        calls.append(("compile", spec.name, target.name, str(output), {node["op"] for node in spec.ir["nodes"]}))
+        return Artifact(output)
+
+    monkeypatch.setattr("dinoml.benchmarks.ops.dml.compile", fake_compile)
+    monkeypatch.setattr("dinoml.benchmarks.ops.runtime.load", lambda path, load_constants=True: FakeRuntimeModule())
+
+    report = run_benchmark_suite(
+        "rocm",
+        output_dir=tmp_path,
+        warmup=1,
+        iterations=2,
+        only=["gemm_rcr_bias_add_relu", "bmm_rcr_add", "conv2d_bias_add_relu"],
+    )
+
+    assert report["summary"]["ok"] == 3
+    assert [case["name"] for case in report["cases"]] == [
+        "gemm_rcr_bias_add_relu",
+        "bmm_rcr_add",
+        "conv2d_bias_add_relu",
+    ]
+    assert ("compile", "benchmark_gemm_rcr_bias_add_relu", "rocm", str(tmp_path / "gemm_rcr_bias_add_relu.dinoml"), {"gemm_rcr_bias_add_relu"}) in calls
+    assert ("compile", "benchmark_bmm_rcr_add", "rocm", str(tmp_path / "bmm_rcr_add.dinoml"), {"bmm_rcr_add"}) in calls
+    assert ("compile", "benchmark_conv2d_bias_add_relu", "rocm", str(tmp_path / "conv2d_bias_add_relu.dinoml"), {"conv2d_bias_add_relu"}) in calls
+
+
+def test_ops_benchmark_suite_rejects_provider_cases_on_cpu(tmp_path):
+    try:
+        run_benchmark_suite("cpu", output_dir=tmp_path, only=["gemm_rcr"])
+    except ValueError as exc:
+        assert "not supported on target cpu: gemm_rcr" in str(exc)
+    else:
+        raise AssertionError("expected provider benchmark case to be rejected on CPU")
 
 
 def test_ops_benchmark_suite_parallel_compile_preserves_report_order(tmp_path, monkeypatch):

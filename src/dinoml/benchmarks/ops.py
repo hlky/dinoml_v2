@@ -22,6 +22,7 @@ class BenchmarkCase:
     inputs: Callable[[], dict[str, np.ndarray]]
     op: str
     template: str
+    targets: tuple[str, ...] = ("cpu", "cuda", "rocm")
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ def benchmark_cases() -> list[BenchmarkCase]:
         *,
         op: str | None = None,
         template: str,
+        targets: tuple[str, ...] = ("cpu", "cuda", "rocm"),
     ) -> None:
         case_op = op or name
 
@@ -75,7 +77,7 @@ def benchmark_cases() -> list[BenchmarkCase]:
             values = inputs() if callable(inputs) else inputs
             return {key: np.asarray(value).copy() for key, value in values.items()}
 
-        cases.append(BenchmarkCase(name, build_spec, build_inputs, case_op, template))
+        cases.append(BenchmarkCase(name, build_spec, build_inputs, case_op, template, targets))
 
     # Representative transformer activation volume, large enough that GPU timings
     # are dominated by kernel work instead of launch overhead.
@@ -209,6 +211,136 @@ def benchmark_cases() -> list[BenchmarkCase]:
     add("batch_gather", {"x": dml.TensorSpec([32, 256, 768], "float32"), "indices": dml.TensorSpec([32, 128], "int64")}, lambda: {"x": _float_array((32, 256, 768), step=0.00001), "indices": (np.arange(4096, dtype=np.int64).reshape(32, 128) % 256)}, lambda x, indices: dml.ops.batch_gather(x, indices), template="gather_gpu.j2")
     add("slice_scatter", {"x": dml.TensorSpec(list(collection_shape), "float32"), "update": dml.TensorSpec([16, 32, 768], "float32")}, lambda: {"x": _float_array(collection_shape, step=0.0001), "update": _float_array((16, 32, 768), 100.0, 0.0001)}, lambda x, update: dml.ops.slice_scatter(x, update, [0, 48, 0]), template="slice_scatter_gpu.j2")
     add("pad", collection_specs, collection_inputs, lambda x: dml.ops.pad(x, [1, 2], value=-1.0), template="pad_gpu.j2")
+
+    provider_targets = ("cuda", "rocm")
+    provider_dtype = "float16"
+
+    def gemm_inputs() -> dict[str, np.ndarray]:
+        m, n, k = 128, 128, 192
+        return {
+            "a": _float_array((m, k), -0.25, 0.0001).astype(np.float16),
+            "b": _float_array((n, k), 0.125, 0.00005).astype(np.float16),
+            "bias": _float_array((n,), -0.5, 0.0005).astype(np.float16),
+            "d0": _float_array((m, n), 0.25, 0.0001).astype(np.float16),
+            "d1": _float_array((m, n), -0.125, 0.0001).astype(np.float16),
+        }
+
+    gemm_specs = {
+        "a": dml.TensorSpec([128, 192], provider_dtype),
+        "b": dml.TensorSpec([128, 192], provider_dtype),
+        "bias": dml.TensorSpec([128], provider_dtype),
+        "d0": dml.TensorSpec([128, 128], provider_dtype),
+        "d1": dml.TensorSpec([128, 128], provider_dtype),
+    }
+    add(
+        "gemm_rcr",
+        gemm_specs,
+        gemm_inputs,
+        lambda a, b, **_: dml.ops.gemm_rcr(a, b),
+        template="provider_gemm",
+        targets=provider_targets,
+    )
+    add(
+        "gemm_rcr_bias",
+        gemm_specs,
+        gemm_inputs,
+        lambda a, b, bias, **_: dml.ops.gemm_rcr_bias(a, b, bias),
+        template="provider_gemm",
+        targets=provider_targets,
+    )
+    add(
+        "gemm_rcr_bias_add_relu",
+        gemm_specs,
+        gemm_inputs,
+        lambda a, b, bias, d0, **_: dml.ops.gemm_rcr_bias_add_relu(a, b, bias, d0),
+        template="provider_gemm",
+        targets=provider_targets,
+    )
+    add(
+        "gemm_rcr_bias_add_add_relu",
+        gemm_specs,
+        gemm_inputs,
+        lambda a, b, bias, d0, d1, **_: dml.ops.gemm_rcr_bias_add_add_relu(a, b, bias, d0, d1),
+        template="provider_gemm",
+        targets=provider_targets,
+    )
+
+    def bmm_inputs() -> dict[str, np.ndarray]:
+        batch, m, n, k = 2, 64, 128, 96
+        return {
+            "a": _float_array((batch, m, k), -0.25, 0.0001).astype(np.float16),
+            "b": _float_array((batch, n, k), 0.125, 0.00005).astype(np.float16),
+            "d0": _float_array((batch, m, n), 0.25, 0.0001).astype(np.float16),
+        }
+
+    bmm_specs = {
+        "a": dml.TensorSpec([2, 64, 96], provider_dtype),
+        "b": dml.TensorSpec([2, 128, 96], provider_dtype),
+        "d0": dml.TensorSpec([2, 64, 128], provider_dtype),
+    }
+    add(
+        "bmm_rcr",
+        bmm_specs,
+        bmm_inputs,
+        lambda a, b, **_: dml.ops.bmm_rcr(a, b),
+        template="provider_bmm",
+        targets=provider_targets,
+    )
+    add(
+        "bmm_rcr_add",
+        bmm_specs,
+        bmm_inputs,
+        lambda a, b, d0, **_: dml.ops.bmm_rcr_add(a, b, d0),
+        template="provider_bmm",
+        targets=provider_targets,
+    )
+
+    def conv_inputs() -> dict[str, np.ndarray]:
+        return {
+            "x": _float_array((2, 8, 16, 16), -0.25, 0.0001).astype(np.float16),
+            "weight": _float_array((64, 8, 3, 3), 0.125, 0.00005).astype(np.float16),
+            "bias": _float_array((64,), -0.5, 0.0005).astype(np.float16),
+            "residual": _float_array((2, 64, 16, 16), 0.25, 0.0001).astype(np.float16),
+        }
+
+    conv_specs = {
+        "x": dml.TensorSpec([2, 8, 16, 16], provider_dtype),
+        "weight": dml.TensorSpec([64, 8, 3, 3], provider_dtype),
+        "bias": dml.TensorSpec([64], provider_dtype),
+        "residual": dml.TensorSpec([2, 64, 16, 16], provider_dtype),
+    }
+    add(
+        "conv2d_bias",
+        conv_specs,
+        conv_inputs,
+        lambda x, weight, bias, **_: dml.ops.conv2d_bias(x, weight, bias, padding=1),
+        template="provider_conv",
+        targets=provider_targets,
+    )
+    add(
+        "conv2d_bias_relu",
+        conv_specs,
+        conv_inputs,
+        lambda x, weight, bias, **_: dml.ops.conv2d_bias_relu(x, weight, bias, padding=1),
+        template="provider_conv",
+        targets=provider_targets,
+    )
+    add(
+        "conv2d_bias_add",
+        conv_specs,
+        conv_inputs,
+        lambda x, weight, bias, residual, **_: dml.ops.conv2d_bias_add(x, weight, bias, residual, padding=1),
+        template="provider_conv",
+        targets=provider_targets,
+    )
+    add(
+        "conv2d_bias_add_relu",
+        conv_specs,
+        conv_inputs,
+        lambda x, weight, bias, residual, **_: dml.ops.conv2d_bias_add_relu(x, weight, bias, residual, padding=1),
+        template="provider_conv",
+        targets=provider_targets,
+    )
     return cases
 
 
@@ -230,7 +362,7 @@ def run_benchmark_suite(
     fail_fast: bool = False,
     jobs: int = 1,
 ) -> dict[str, Any]:
-    selected = _select_cases(benchmark_cases(), only)
+    selected = _select_cases(benchmark_cases(), only, target=target)
     if jobs < 1:
         raise ValueError(f"jobs must be >= 1, got {jobs}")
     target_obj = dml.Target(target, arch=arch, no_tf32=no_tf32, use_fp16_acc=use_fp16_acc)
@@ -492,14 +624,31 @@ def write_report(report: Mapping[str, Any], output: str | Path) -> None:
     out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _select_cases(cases: list[BenchmarkCase], only: Iterable[str] | None) -> list[BenchmarkCase]:
+def _select_cases(
+    cases: list[BenchmarkCase],
+    only: Iterable[str] | None,
+    *,
+    target: str | None = None,
+) -> list[BenchmarkCase]:
+    target_cases = [case for case in cases if target is None or target in case.targets]
     if only is None:
-        return cases
+        return target_cases
     requested = {item for item in only}
-    selected = [case for case in cases if case.name in requested or case.op in requested or case.template in requested]
+    selected = [
+        case
+        for case in target_cases
+        if case.name in requested or case.op in requested or case.template in requested
+    ]
     found = {case.name for case in selected} | {case.op for case in selected} | {case.template for case in selected}
     missing = sorted(requested - found)
     if missing:
+        unsupported = sorted(
+            item
+            for item in missing
+            if any(item in {case.name, case.op, case.template} for case in cases)
+        )
+        if target is not None and unsupported:
+            raise ValueError(f"Benchmark case filter(s) not supported on target {target}: {', '.join(unsupported)}")
         raise ValueError(f"Unknown benchmark case filter(s): {', '.join(missing)}")
     return selected
 

@@ -12,6 +12,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 CREATION_DTYPES = ("float16", "float32", "bfloat16", "bool")
 ARANGE_DTYPES = ("float16", "float32", "bfloat16")
 RANDN_DTYPES = ("float16", "float32", "bfloat16")
+RANDN_RNGS = ("dinoml", "numpy", "torch")
 
 
 def infer_full_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -28,6 +29,7 @@ def infer_randn_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
 
 def infer_randn_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
     _seed_attr(attrs)
+    _randn_rng_attr(attrs)
     return _infer_static_creation_shape(input_shapes, attrs, "randn")
 
 
@@ -164,6 +166,7 @@ class Randn(OpDef):
             AttrDef("shape", "shape", required=True),
             AttrDef("dtype", "dtype", "float32"),
             AttrDef("seed", "int", 0),
+            AttrDef("rng", "str", "dinoml"),
         ),
     )
     infer_shape = infer_randn_shape
@@ -178,7 +181,7 @@ class Randn(OpDef):
     description = "Create a dense tensor of deterministic standard normal samples."
 
     @classmethod
-    def forward(cls, shape: Any, dtype: str = "float32", seed: int = 0) -> Tensor:
+    def forward(cls, shape: Any, dtype: str = "float32", seed: int = 0, rng: str = "dinoml") -> Tensor:
         dtype = normalize_dtype(dtype)
         if dtype not in RANDN_DTYPES:
             raise ValueError(f"randn does not support dtype {dtype}")
@@ -186,12 +189,13 @@ class Randn(OpDef):
             raise ValueError("randn requires integer seed")
         if seed < 0 or seed > 0xFFFFFFFFFFFFFFFF:
             raise ValueError("randn seed must fit in uint64")
+        rng = _normalize_randn_rng(rng)
         shape_obj = Shape(shape)
         if len(shape_obj) == 0:
             raise ValueError("randn shape must not be empty")
         if shape_obj.dynamic:
             raise ValueError("randn currently supports only static shapes")
-        attrs = {"shape": shape_obj.max_shape, "dtype": dtype, "seed": int(seed)}
+        attrs = {"shape": shape_obj.max_shape, "dtype": dtype, "seed": int(seed), "rng": rng}
         return GraphBuilder.current().emit(
             "randn",
             [],
@@ -230,6 +234,20 @@ def _seed_attr(attrs: Mapping[str, Any]) -> int:
     return int(seed)
 
 
+def _randn_rng_attr(attrs: Mapping[str, Any]) -> str:
+    return _normalize_randn_rng(attrs.get("rng", "dinoml"))
+
+
+def _normalize_randn_rng(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("randn rng must be a string")
+    normalized = value.lower()
+    if normalized not in RANDN_RNGS:
+        supported = ", ".join(RANDN_RNGS)
+        raise ValueError(f"randn rng must be one of: {supported}")
+    return normalized
+
+
 def _creation_number(value: Any, name: str) -> float:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         raise ValueError(f"arange requires numeric {name}")
@@ -244,8 +262,8 @@ def arange(start: Any, end: Any | None = None, step: Any = 1, dtype: str = "floa
     return Arange.forward(start, end, step, dtype)
 
 
-def randn(shape: Any, dtype: str = "float32", seed: int = 0) -> Tensor:
-    return Randn.forward(shape, dtype, seed)
+def randn(shape: Any, dtype: str = "float32", seed: int = 0, rng: str = "dinoml") -> Tensor:
+    return Randn.forward(shape, dtype, seed, rng)
 
 
 __all__ = [
@@ -254,6 +272,7 @@ __all__ = [
     "CREATION_DTYPES",
     "Full",
     "RANDN_DTYPES",
+    "RANDN_RNGS",
     "Randn",
     "arange",
     "full",

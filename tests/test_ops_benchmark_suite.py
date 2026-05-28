@@ -17,6 +17,7 @@ def test_ops_benchmark_cases_are_individual_not_condensed():
     assert "reduce_sum_float16" in names
     assert "where_bfloat16" in names
     assert "argmax_bool" in names
+    assert "randn_torch" in names
     assert "batch_gather_bfloat16_int32" in names
     assert "gemm_rcr_bias_add_relu" in names
     assert "bmm_rcr_add" in names
@@ -42,6 +43,7 @@ def test_dtype_benchmark_cases_keep_specific_filters():
         "full_bfloat16": "full_gpu.j2",
         "arange_float16": "arange_gpu.j2",
         "randn_bfloat16": "randn_gpu.j2",
+        "randn_torch_bfloat16": "randn_gpu.j2",
         "softmax_bfloat16": "softmax_gpu.j2",
         "reduce_sum_float16": "reduction_gpu.j2",
         "argmax_bool": "argmax_gpu.j2",

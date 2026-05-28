@@ -130,7 +130,7 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_shape = _tensor_shape(ir, output_name)
             attrs = node.get("attrs", {})
             values[output_name] = _store_reference(
-                _execute_randn(output_shape, int(attrs.get("seed", 0))),
+                _execute_randn(output_shape, int(attrs.get("seed", 0)), str(attrs.get("rng", "dinoml")), output_dtype),
                 output_dtype,
             )
         elif node["op"] == "expand":
@@ -483,7 +483,12 @@ def _execute_elementwise(op: str, inputs: list[np.ndarray], attrs: Mapping[str, 
     return np.asarray(result, dtype=np.float32)
 
 
-def _execute_randn(shape: Sequence[int], seed: int) -> np.ndarray:
+def _execute_randn(shape: Sequence[int], seed: int, rng: str = "dinoml", dtype: str = "float32") -> np.ndarray:
+    rng = rng.lower()
+    if rng == "torch":
+        return _execute_torch_cpu_randn(shape, seed, dtype)
+    if rng not in {"dinoml", "numpy"}:
+        raise ValueError(f"Unsupported randn rng: {rng}")
     numel = math.prod(int(dim) for dim in shape)
     idx = np.arange(numel, dtype=np.uint64)
     seed_value = np.uint64(seed)
@@ -494,6 +499,29 @@ def _execute_randn(shape: Sequence[int], seed: int) -> np.ndarray:
     radius = np.sqrt(np.float32(-2.0) * np.log(u1, dtype=np.float32), dtype=np.float32)
     theta = np.float32(6.2831853071795864769) * u2
     return (radius * np.cos(theta, dtype=np.float32)).astype(np.float32, copy=False).reshape(shape)
+
+
+def _execute_torch_cpu_randn(shape: Sequence[int], seed: int, dtype: str) -> np.ndarray:
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError("randn with rng='torch' requires torch for the reference implementation") from exc
+
+    dtype_map = {
+        "float16": torch.float16,
+        "float32": torch.float32,
+        "bfloat16": torch.bfloat16,
+    }
+    try:
+        torch_dtype = dtype_map[dtype]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported torch randn dtype: {dtype}") from exc
+    generator = torch.Generator(device="cpu")
+    generator.manual_seed(seed)
+    tensor = torch.randn(tuple(int(dim) for dim in shape), dtype=torch_dtype, device="cpu", generator=generator)
+    if dtype == "bfloat16":
+        tensor = tensor.float()
+    return tensor.numpy()
 
 
 def _splitmix64(value: np.ndarray) -> np.ndarray:
@@ -1029,5 +1057,3 @@ def _tensor_shape(ir: Mapping[str, object], tensor_name: str) -> list[int]:
         if tensor["name"] == tensor_name:
             return [int(dim) for dim in tensor["shape"]]
     raise KeyError(tensor_name)
-
-

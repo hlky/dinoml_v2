@@ -1,3 +1,74 @@
+{% if use_torch_rng %}
+#include <{{ rand_kernel_header }}>
+
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const unsigned long long seed = {{ seed_literal }};
+  const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  {{ rand_state_type }} state;
+  {{ rand_init }}(seed, static_cast<unsigned long long>(idx), 0ull, &state);
+
+  const int64_t rounded_size =
+      ((runtime_numel - 1) / (stride * 4) + 1) * stride * 4;
+  for (int64_t linear_index = idx; linear_index < rounded_size; linear_index += stride * 4) {
+    const float4 values = {{ rand_normal4 }}(&state);
+    const int64_t i0 = linear_index;
+    if (i0 < runtime_numel) {
+      y[i0] = dinoml::math::cast<{{ storage_type }}>(values.x);
+    }
+    const int64_t i1 = linear_index + stride;
+    if (i1 < runtime_numel) {
+      y[i1] = dinoml::math::cast<{{ storage_type }}>(values.y);
+    }
+    const int64_t i2 = linear_index + stride * 2;
+    if (i2 < runtime_numel) {
+      y[i2] = dinoml::math::cast<{{ storage_type }}>(values.z);
+    }
+    const int64_t i3 = linear_index + stride * 3;
+    if (i3 < runtime_numel) {
+      y[i3] = dinoml::math::cast<{{ storage_type }}>(values.w);
+    }
+    __syncthreads();
+  }
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    {{ gpu_stream_type }} stream) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel <= 0) {
+    return 0;
+  }
+  const int block = {{ block_size }};
+  int grid = static_cast<int>((runtime_numel + block - 1) / block);
+#if defined(DINO_COMPILE_HIP)
+  hipDeviceProp_t props;
+  int device = 0;
+  DINO_ROCM_CHECK(hipGetDevice(&device));
+  DINO_ROCM_CHECK(hipGetDeviceProperties(&props, device));
+#else
+  cudaDeviceProp props;
+  int device = 0;
+  DINO_CUDA_CHECK(cudaGetDevice(&device));
+  DINO_CUDA_CHECK(cudaGetDeviceProperties(&props, device));
+#endif
+  const int blocks_per_sm = props.maxThreadsPerMultiProcessor / block;
+  const int max_grid = props.multiProcessorCount * blocks_per_sm;
+  if (max_grid > 0 && grid > max_grid) {
+    grid = max_grid;
+  }
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(y, runtime_numel);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+}
+{% else %}
 __device__ unsigned long long {{ func }}_splitmix64(unsigned long long value) {
   value += 0x9E3779B97F4A7C15ull;
   value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
@@ -41,3 +112,4 @@ static int {{ func }}(
   }
   return 0;
 }
+{% endif %}

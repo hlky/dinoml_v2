@@ -170,7 +170,15 @@ def benchmark_cases() -> list[BenchmarkCase]:
     add("arange", {}, {}, lambda: dml.ops.arange(0, 4_194_304, 1, dtype="float32"), template="arange_gpu.j2")
     add("arange_float16", {}, {}, lambda: dml.ops.arange(0, 4_194_304, 1, dtype="float16"), template="arange_gpu.j2")
     add("randn", {}, {}, lambda: dml.ops.randn([1024, 4096], dtype="float32", seed=17), template="randn_gpu.j2")
+    add("randn_torch", {}, {}, lambda: dml.ops.randn([1024, 4096], dtype="float32", seed=17, rng="torch"), template="randn_gpu.j2")
     add("randn_bfloat16", {}, {}, lambda: dml.ops.randn([1024, 4096], dtype="bfloat16", seed=17), template="randn_gpu.j2")
+    add(
+        "randn_torch_bfloat16",
+        {},
+        {},
+        lambda: dml.ops.randn([1024, 4096], dtype="bfloat16", seed=17, rng="torch"),
+        template="randn_gpu.j2",
+    )
 
     attention_shape = (32, 128, 1024)
     attention_inputs = lambda: {"x": _float_array(attention_shape, -2.0, 0.0001)}

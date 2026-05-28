@@ -1,3 +1,133 @@
+{% if use_torch_rng %}
+struct {{ func }}_mt19937 {
+  static constexpr int state_n = 624;
+  static constexpr int state_m = 397;
+  static constexpr uint32_t matrix_a = 0x9908b0dfu;
+  static constexpr uint32_t upper_mask = 0x80000000u;
+  static constexpr uint32_t lower_mask = 0x7fffffffu;
+
+  uint32_t state[state_n];
+  int left;
+  int next;
+
+  explicit {{ func }}_mt19937(uint64_t seed) : state{}, left(1), next(0) {
+    state[0] = static_cast<uint32_t>(seed & 0xffffffffull);
+    for (int j = 1; j < state_n; ++j) {
+      state[j] = 1812433253u * (state[j - 1] ^ (state[j - 1] >> 30)) + static_cast<uint32_t>(j);
+    }
+  }
+
+  static inline uint32_t mix_bits(uint32_t u, uint32_t v) {
+    return (u & upper_mask) | (v & lower_mask);
+  }
+
+  static inline uint32_t twist(uint32_t u, uint32_t v) {
+    return (mix_bits(u, v) >> 1) ^ ((v & 1u) ? matrix_a : 0u);
+  }
+
+  void next_state() {
+    uint32_t* p = state;
+    left = state_n;
+    next = 0;
+    for (int j = state_n - state_m + 1; --j; ++p) {
+      *p = p[state_m] ^ twist(p[0], p[1]);
+    }
+    for (int j = state_m; --j; ++p) {
+      *p = p[state_m - state_n] ^ twist(p[0], p[1]);
+    }
+    *p = p[state_m - state_n] ^ twist(p[0], state[0]);
+  }
+
+  uint32_t random() {
+    if (--left == 0) {
+      next_state();
+    }
+    uint32_t y = state[next++];
+    y ^= (y >> 11);
+    y ^= (y << 7) & 0x9d2c5680u;
+    y ^= (y << 15) & 0xefc60000u;
+    y ^= (y >> 18);
+    return y;
+  }
+
+  uint64_t random64() {
+    const uint64_t high = static_cast<uint64_t>(random());
+    const uint64_t low = static_cast<uint64_t>(random());
+    return (high << 32) | low;
+  }
+};
+
+static inline float {{ func }}_torch_uniform_float({{ func }}_mt19937& rng) {
+  constexpr uint32_t mask = {{ torch_uniform_mask }}u;
+  return static_cast<float>(rng.random() & mask) * {{ torch_uniform_divisor }};
+}
+
+static inline double {{ func }}_torch_uniform_double({{ func }}_mt19937& rng) {
+  constexpr uint64_t mask = (1ull << 53) - 1ull;
+  return static_cast<double>(rng.random64() & mask) * (1.0 / 9007199254740992.0);
+}
+
+static inline void {{ func }}_torch_normal_fill_16({{ storage_type }}* data) {
+  for (int j = 0; j < 8; ++j) {
+    const {{ storage_type }} u1 = dinoml::math::cast<{{ storage_type }}>(
+        1.0f - dinoml::math::cast<float>(data[j]));
+    const {{ storage_type }} u2 = data[j + 8];
+    const {{ storage_type }} radius = dinoml::math::cast<{{ storage_type }}>(
+        std::sqrt(-2.0f * std::log(dinoml::math::cast<float>(u1))));
+    const {{ storage_type }} theta = dinoml::math::cast<{{ storage_type }}>(
+        static_cast<float>(6.2831853071795864769 * static_cast<double>(dinoml::math::cast<float>(u2))));
+    data[j] = dinoml::math::cast<{{ storage_type }}>(
+        dinoml::math::cast<float>(radius) * std::cos(dinoml::math::cast<float>(theta)));
+    data[j + 8] = dinoml::math::cast<{{ storage_type }}>(
+        dinoml::math::cast<float>(radius) * std::sin(dinoml::math::cast<float>(theta)));
+  }
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  {{ func }}_mt19937 rng({{ seed_literal }});
+  if (runtime_numel < 16) {
+    bool has_next = false;
+    double next = 0.0;
+    for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+      double value = 0.0;
+      if (has_next) {
+        value = next;
+        has_next = false;
+      } else {
+        const double u1 = {{ func }}_torch_uniform_double(rng);
+        const double u2 = {{ func }}_torch_uniform_double(rng);
+        const double radius = std::sqrt(-2.0 * std::log1p(-u2));
+        const double theta = 6.2831853071795864769 * u1;
+        value = radius * std::cos(theta);
+        next = radius * std::sin(theta);
+        has_next = true;
+      }
+      y[idx] = dinoml::math::cast<{{ storage_type }}>(static_cast<float>(value));
+    }
+    return 0;
+  }
+
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    y[idx] = dinoml::math::cast<{{ storage_type }}>({{ func }}_torch_uniform_float(rng));
+  }
+  for (int64_t idx = 0; idx < runtime_numel - 15; idx += 16) {
+    {{ func }}_torch_normal_fill_16(y + idx);
+  }
+  if (runtime_numel % 16 != 0) {
+    {{ storage_type }}* tail = y + runtime_numel - 16;
+    for (int idx = 0; idx < 16; ++idx) {
+      tail[idx] = dinoml::math::cast<{{ storage_type }}>({{ func }}_torch_uniform_float(rng));
+    }
+    {{ func }}_torch_normal_fill_16(tail);
+  }
+  return 0;
+}
+{% else %}
 static inline unsigned long long {{ func }}_splitmix64(unsigned long long value) {
   value += 0x9E3779B97F4A7C15ull;
   value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
@@ -30,3 +160,4 @@ static int {{ func }}(
   }
   return 0;
 }
+{% endif %}

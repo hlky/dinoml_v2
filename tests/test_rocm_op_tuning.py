@@ -43,6 +43,11 @@ class _AvgPool1dModule(dml.Module):
         return dml.ops.output(dml.ops.avg_pool1d(x, kernel_size=3, stride=2, padding=1), "output")
 
 
+class _TorchRandnModule(dml.Module):
+    def forward(self):
+        return dml.ops.output(dml.ops.randn([17], dtype="float32", seed=7, rng="torch"), "output")
+
+
 def test_gpu_warp_templates_use_explicit_shuffle_width_for_rocm():
     template_dir = Path("src/dinoml/lowering/ops/templates")
     logical_warp_templates = [
@@ -115,6 +120,31 @@ def test_rocm_topk_bool_benchmark_shape_uses_ballot_scan():
     assert "__ballot_sync" in source
     assert "local_values[k]" not in source
     assert "session->topk_scratch" not in source
+
+
+def test_rocm_randn_torch_uses_hiprand_philox_normal4():
+    spec = dml.trace(_TorchRandnModule(), inputs={}, name="rocm_randn_torch_tuning")
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
+
+    assert "#include <hiprand/hiprand_kernel.h>" in source
+    assert "hiprandStatePhilox4_32_10_t" in source
+    assert "hiprand_init" in source
+    assert "hiprand_normal4" in source
+    assert "hipGetDeviceProperties" in source
+
+
+def test_cuda_randn_torch_uses_curand_philox_normal4():
+    spec = dml.trace(_TorchRandnModule(), inputs={}, name="cuda_randn_torch_tuning")
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+
+    source = render_generated_kernels("cuda", spec.ir["nodes"], tensor_map)[0]
+
+    assert "#include <curand_kernel.h>" in source
+    assert "curandStatePhilox4_32_10_t" in source
+    assert "curand_init" in source
+    assert "curand_normal4" in source
 
 
 def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():

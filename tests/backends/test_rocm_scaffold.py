@@ -36,9 +36,20 @@ from dinoml.kernels.providers.ck.conv import ck_conv_static_library_name, render
 from dinoml.kernels.providers.ck.gemm import ck_gemm_static_library_name, render_ck_gemm_source
 from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.target_specs import lowering_target_spec, storage_type
+from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.ops.elementwise import FusedElementwise
 from dinoml.runtime import load
 from tests.cases import elementwise_case
+
+
+def test_rocm_backend_binding_coverage_matches_cuda_ops():
+    cuda_only_ops = sorted(
+        op_def.name
+        for op_def in OP_REGISTRY.op_defs()
+        if "cuda" in op_def.backend_kernels and "rocm" not in op_def.backend_kernels
+    )
+
+    assert cuda_only_ops == []
 
 
 def test_rocm_target_is_registered_as_distinct_backend():

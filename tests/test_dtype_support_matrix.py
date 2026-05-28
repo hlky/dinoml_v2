@@ -78,9 +78,9 @@ EXPECTED_GPU_ONLY_PROVIDER_PREFIXES = ("bmm_", "gemm_")
 EXPECTED_GPU_ONLY_PROVIDER_COUNT = 49
 
 EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
-    "float16": 132,
-    "float32": 58,
-    "bfloat16": 125,
+    "float16": 60,
+    "float32": 57,
+    "bfloat16": 56,
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {

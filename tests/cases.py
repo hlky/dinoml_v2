@@ -198,6 +198,81 @@ def creation_case() -> GraphCase:
     return GraphCase("creation", lambda: dml.trace(CreationModule(), inputs={}, name="fresh_creation"), lambda: {}, frozenset({"full", "arange", "randn"}))
 
 
+class DtypeGeneratedModule(dml.Module):
+    def forward(self, x16, xbf, xbool, xint64, gather_index32, batch_index32, embedding_table, embedding_index32):
+        topk_bool_values, topk_bool_indices = dml.ops.topk(xbool, 2, dim=-1)
+        return {
+            "full_bool": dml.ops.output(dml.ops.full([2, 3], True, dtype="bool"), "full_bool"),
+            "full_bfloat16": dml.ops.output(dml.ops.full([2, 3], 1.25, dtype="bfloat16"), "full_bfloat16"),
+            "arange_float16": dml.ops.output(dml.ops.arange(0, 6, 1, dtype="float16"), "arange_float16"),
+            "randn_bfloat16": dml.ops.output(dml.ops.randn([2, 3], dtype="bfloat16", seed=7), "randn_bfloat16"),
+            "argmax_bool": dml.ops.output(dml.ops.argmax(xbool, dim=-1), "argmax_bool"),
+            "argmax_int64": dml.ops.output(dml.ops.argmax(xint64, dim=-1), "argmax_int64"),
+            "topk_bool_values": dml.ops.output(topk_bool_values, "topk_bool_values"),
+            "topk_bool_indices": dml.ops.output(topk_bool_indices, "topk_bool_indices"),
+            "gather_float16_int32": dml.ops.output(dml.ops.gather(x16, 1, gather_index32), "gather_float16_int32"),
+            "batch_gather_bfloat16_int32": dml.ops.output(dml.ops.batch_gather(xbf, batch_index32), "batch_gather_bfloat16_int32"),
+            "embedding_bfloat16_int32": dml.ops.output(dml.ops.embedding(embedding_table, embedding_index32), "embedding_bfloat16_int32"),
+            "where_bfloat16": dml.ops.output(dml.ops.where(xbool, xbf, dml.ops.full([2, 3], -0.5, dtype="bfloat16")), "where_bfloat16"),
+            "reduce_sum_float16": dml.ops.output(dml.ops.reduce_sum(x16, dim=-1), "reduce_sum_float16"),
+            "softmax_bfloat16": dml.ops.output(dml.ops.softmax(xbf, dim=-1), "softmax_bfloat16"),
+        }
+
+
+def dtype_generated_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            DtypeGeneratedModule(),
+            inputs={
+                "x16": dml.TensorSpec([2, 3], "float16"),
+                "xbf": dml.TensorSpec([2, 3], "bfloat16"),
+                "xbool": dml.TensorSpec([2, 3], "bool"),
+                "xint64": dml.TensorSpec([2, 3], "int64"),
+                "gather_index32": dml.TensorSpec([2, 2], "int32"),
+                "batch_index32": dml.TensorSpec([2, 2], "int32"),
+                "embedding_table": dml.TensorSpec([5, 2], "bfloat16"),
+                "embedding_index32": dml.TensorSpec([2, 2], "int32"),
+            },
+            name="fresh_dtype_generated",
+        )
+
+    def inputs():
+        return {
+            "x16": _roundtrip([[-1.5, 0.25, 2.0], [3.5, -0.75, 1.25]], "float16"),
+            "xbf": _roundtrip([[-0.5, 0.75, 1.5], [2.25, -1.0, 0.5]], "bfloat16"),
+            "xbool": np.array([[True, False, True], [False, True, False]], dtype=np.bool_),
+            "xint64": np.array([[5, -1, 5], [0, 10, 9]], dtype=np.int64),
+            "gather_index32": np.array([[2, 0], [1, 2]], dtype=np.int32),
+            "batch_index32": np.array([[0, 2], [1, 0]], dtype=np.int32),
+            "embedding_table": _roundtrip(np.linspace(-1.0, 1.25, num=10, dtype=np.float32).reshape(5, 2), "bfloat16"),
+            "embedding_index32": np.array([[0, 3], [4, 1]], dtype=np.int32),
+        }
+
+    return GraphCase(
+        "dtype_generated",
+        build_spec,
+        inputs,
+        frozenset(
+            {
+                "full",
+                "arange",
+                "randn",
+                "argmax",
+                "topk_values",
+                "topk_indices",
+                "gather",
+                "batch_gather",
+                "embedding",
+                "where",
+                "reduce_sum",
+                "softmax",
+            }
+        ),
+        atol=2e-2,
+        rtol=2e-2,
+    )
+
+
 class ShapeViewModule(dml.Module):
     def forward(self, x, x1):
         return {
@@ -525,6 +600,7 @@ def standard_cases() -> list[GraphCase]:
         elementwise_case(),
         reduction_case(),
         creation_case(),
+        dtype_generated_case(),
         shape_view_case(),
         collection_case(),
         pooling_case(),

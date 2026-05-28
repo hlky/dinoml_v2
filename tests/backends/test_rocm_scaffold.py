@@ -218,6 +218,61 @@ def test_rocm_compile_profile_path_is_admitted_without_cuda_guard(tmp_path, monk
     assert calls[0][1].name == "rocm"
 
 
+def test_rocm_compile_with_profile_profiles_bootstrap_artifact(tmp_path, monkeypatch):
+    spec = elementwise_case().build_spec()
+    target = dml.Target("rocm")
+    artifact_dir = (tmp_path / "profiled_rocm.dinoml").resolve()
+    bootstrap_dir = artifact_dir / "debug" / "profile_bootstrap_artifact"
+    build_calls = []
+    profile_calls = []
+
+    monkeypatch.setattr(dml_compiler, "_lower_for_compile", lambda *args, **kwargs: (spec.ir, []))
+
+    def fake_build_artifact_from_lowered_ir(*args, **kwargs):
+        build_calls.append(
+            {
+                "artifact_dir": Path(kwargs["artifact_dir"]),
+                "generated_src_dir": Path(kwargs["generated_src_dir"]),
+                "execution_plan_payload": kwargs["execution_plan_payload"],
+            }
+        )
+        return dml_compiler.Artifact(Path(kwargs["artifact_dir"]))
+
+    def fake_profile_artifact(path, **kwargs):
+        profile_calls.append((Path(path), kwargs))
+        return {"execution_plan": {"path": str(tmp_path / "execution_plan.json"), "selection_count": 0}}
+
+    monkeypatch.setattr(dml_compiler, "_build_artifact_from_lowered_ir", fake_build_artifact_from_lowered_ir)
+    monkeypatch.setattr(dml_compiler, "profile_artifact", fake_profile_artifact)
+
+    artifact = dml_compiler._compile_with_profile(
+        spec,
+        target,
+        artifact_dir,
+        clean=True,
+        pass_manager=None,
+        iterations=5,
+        repeats=2,
+        input_shapes={"input": [1, 4]},
+        refresh=True,
+        constant_load_policy="eager",
+    )
+
+    assert artifact.path == artifact_dir
+    assert profile_calls == [
+        (
+            bootstrap_dir,
+            {"input_shapes": {"input": [1, 4]}, "iterations": 5, "repeats": 2, "refresh": True},
+        )
+    ]
+    assert [call["artifact_dir"] for call in build_calls] == [bootstrap_dir, artifact_dir]
+    assert build_calls[0]["generated_src_dir"] == bootstrap_dir / "debug" / "generated_src"
+    assert build_calls[0]["execution_plan_payload"] is None
+    assert build_calls[1]["generated_src_dir"] == artifact_dir / "debug" / "generated_src"
+    assert build_calls[1]["execution_plan_payload"] is None
+    assert (artifact_dir / "debug" / "bootstrap_profile_report.json").exists()
+
+
 def test_rocm_cmake_arch_normalizes_whitespace_and_rejects_invalid_values():
     assert rocm_backend._cmake_arch(" gfx1201 ") == "gfx1201"
 

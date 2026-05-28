@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import dinoml as dml
+from dinoml.benchmarks.ops import benchmark_cases
+from dinoml.lowering.gpu import render_gpu_module
 from dinoml.lowering.ops import render_generated_kernels
 
 
@@ -42,3 +44,12 @@ def test_rocm_argmax_uses_warp_row_reduction():
     assert "_warp_kernel" in source
     assert "dim3 block(32, 8)" in source
     assert "col < best_index" in source
+
+
+def test_rocm_topk_benchmark_shape_stays_on_no_scratch_warp_rows():
+    case = next(case for case in benchmark_cases() if case.name == "topk")
+    source = render_gpu_module("rocm", case.build_spec().ir)
+
+    assert "dim3 topk_block(32, 8)" in source
+    assert "void* topk_scratch = nullptr;" not in source
+    assert "session->topk_scratch" not in source

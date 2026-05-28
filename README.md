@@ -2,8 +2,6 @@
 
 DinoML v2 is an experimental ML compiler/runtime for turning Python-defined model graphs into standalone native artifacts for CPU, CUDA, and ROCm targets.
 
-The project is intentionally small enough to understand end to end, but it touches the hard parts of production inference systems: graph tracing, IR validation, shape handling, code generation, native runtime ABI design, CUDA/HIP backend integration, kernel selection, benchmarking, and quantized model weights.
-
 ## Status
 
 | Area | Status |

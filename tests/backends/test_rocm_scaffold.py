@@ -571,6 +571,56 @@ def test_rocm_fused_elementwise_is_publicly_admitted():
     assert binding.source_template == "fused_elementwise_gpu"
 
 
+@pytest.mark.parametrize(
+    ("library", "op", "module_fn", "archive", "target"),
+    [
+        (
+            "ck_gemm",
+            "gemm_rcr_bias_add_relu",
+            rocm_backend._required_ck_gemm_modules,
+            ck_gemm_static_library_name("gemm_rcr_bias_add_relu", "float16"),
+            "dinoml_ck_gemm_gemm_rcr_bias_add_relu_float16",
+        ),
+        (
+            "ck_bmm",
+            "bmm_rcr_add",
+            rocm_backend._required_ck_bmm_modules,
+            ck_bmm_static_library_name("bmm_rcr_add", "float16"),
+            "dinoml_ck_bmm_bmm_rcr_add_float16",
+        ),
+        (
+            "ck_conv",
+            "conv2d_bias",
+            rocm_backend._required_ck_conv_modules,
+            ck_conv_static_library_name("conv2d_bias", "float16"),
+            "dinoml_ck_conv_conv2d_bias_float16",
+        ),
+    ],
+)
+def test_rocm_required_ck_modules_deduplicate_archive_targets(library, op, module_fn, archive, target):
+    manifest = {
+        "required_kernels": [
+            {"kernel_library": library, "op": op, "dtype": "float16", "support_archive": archive},
+            {
+                "kernel_library": library,
+                "op": op,
+                "candidate_set": {"dtype": "float16"},
+                "support_archive": archive,
+            },
+            {"kernel_library": "model", "op": "fused_elementwise", "dtype": "float16"},
+        ]
+    }
+
+    assert module_fn(manifest) == (
+        {
+            "op": op,
+            "dtype": "float16",
+            "archive": archive,
+            "target": target,
+        },
+    )
+
+
 def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
 

@@ -677,10 +677,20 @@ def _rocm_runtime_paths() -> list[str]:
 
 def _rocm_environment_roots() -> list[Path]:
     roots = []
+    seen = set()
     for key in ("HIP_PATH", "ROCM_PATH"):
         value = os.environ.get(key)
-        if value:
-            roots.append(Path(value))
+        if not value:
+            continue
+        value = value.strip().strip("\"'")
+        if not value:
+            continue
+        root = Path(value)
+        normalized = os.path.normcase(os.path.abspath(root))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        roots.append(root)
     return roots
 
 

@@ -404,6 +404,21 @@ def test_rocm_runtime_paths_deduplicate_matching_env_roots(tmp_path, monkeypatch
     assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
 
 
+def test_rocm_runtime_paths_trim_and_deduplicate_env_roots(tmp_path, monkeypatch):
+    sdk_root = tmp_path / "quoted-sdk-root"
+    sdk_bin = sdk_root / "bin"
+    llvm_bin = sdk_root / "lib" / "llvm" / "bin"
+    sdk_bin.mkdir(parents=True)
+    llvm_bin.mkdir(parents=True)
+
+    monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
+    monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)
+    monkeypatch.setenv("HIP_PATH", f' "{sdk_root}" ')
+    monkeypatch.setenv("ROCM_PATH", str(sdk_root))
+
+    assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
+
+
 def test_rocm_sdk_command_falls_back_to_underscore_cli(monkeypatch):
     calls = []
 

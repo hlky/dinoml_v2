@@ -249,6 +249,20 @@ def test_rocm_lowering_target_spec_uses_hip_runtime_contract():
     assert storage_type("bfloat16", "rocm") == "dinoml::bfloat16"
 
 
+def test_rocm_runtime_header_and_source_define_error_check_contract():
+    header = Path("runtime/include/dinoml/runtime_rocm.h").read_text(encoding="utf-8")
+    source = Path("runtime/src/runtime_rocm.hip").read_text(encoding="utf-8")
+
+    assert "DINO_EXPORT int dino_runtime_rocm_check" in header
+    assert "#define DINO_ROCM_CHECK(expr)" in header
+    assert "dino_runtime_rocm_check((expr), #expr, __FILE__, __LINE__)" in header
+    assert "return _dino_err;" in header
+    assert "hipGetErrorString(err)" in source
+    assert "hipMemcpyHostToDevice" in source
+    assert "hipMemcpyDeviceToHost" in source
+    assert "hipMemcpyDeviceToDevice" in source
+
+
 def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monkeypatch):
     sdk_root = tmp_path / "sdk"
     sdk_bin = sdk_root / "bin"

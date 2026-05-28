@@ -4,23 +4,6 @@ DinoML v2 is an experimental ML compiler/runtime for turning Python-defined mode
 
 The project is intentionally small enough to understand end to end, but it touches the hard parts of production inference systems: graph tracing, IR validation, shape handling, code generation, native runtime ABI design, CUDA/HIP backend integration, kernel selection, benchmarking, and quantized model weights.
 
-## What This Shows
-
-This repository is a working systems project, not a wrapper around one library. It demonstrates:
-
-- A Python frontend for tracing model-like modules into a portable DinoML IR.
-- A native artifact format with manifests, graph hashes, constants, runtime metadata, and ABI versioning.
-- CPU, CUDA, and ROCm lowering paths with generated C++/CUDA/HIP module code.
-- A C++ runtime and Python `ctypes` loader for executing compiled artifacts from NumPy inputs.
-- CUTLASS-backed CUDA candidate generation for GEMM, BMM, and convolution paths.
-- Composable Kernel-backed ROCm candidate generation and profiling scaffolding.
-- Profiling-driven execution plans that benchmark candidate kernels and rebuild artifacts with selected implementations.
-- Dynamic shape support through symbolic dimensions, runtime validation, and shape-buffer lowering.
-- GGUF constant integration and prototype fused GGUF quantized GEMM work for ROCm.
-- Test and benchmark surfaces for compiler contracts, runtime behavior, kernel lowering, and op-level performance.
-
-In short: DinoML v2 is a proof of ability across product-shaped Python APIs, compiler/runtime architecture, and low-level GPU inference engineering.
-
 ## Status
 
 | Area | Status |
@@ -300,19 +283,3 @@ Native/GPU toolchains:
 - CUTLASS submodule for CUDA provider work
 - Composable Kernel submodule for ROCm provider work
 - `third_party/libgguf` for GGUF integration
-
-## Notes For Reviewers
-
-If you are scanning this as a hiring signal, the interesting parts are not just the happy-path examples. The project is meant to show the ability to move across layers:
-
-- Python API ergonomics and model authoring.
-- Compiler IR and validation.
-- CMake/native artifact builds.
-- C++ runtime ABI design.
-- CUDA/HIP kernel integration.
-- Vendor-library candidate generation.
-- Runtime and op benchmarking.
-- Quantized model-weight representation.
-- Testable contracts around all of the above.
-
-That layer-crossing is the point.

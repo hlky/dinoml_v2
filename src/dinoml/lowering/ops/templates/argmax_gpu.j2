@@ -48,13 +48,13 @@ __global__ void {{ warp_kernel }}(
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
 {% if input_is_bool %}
-    const bool value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+    const bool value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, 32);
 {% elif input_is_integer %}
-    const {{ input_storage_type }} value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+    const {{ input_storage_type }} value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, 32);
 {% else %}
-    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset);
+    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, best_value, offset, 32);
 {% endif %}
-    const int64_t index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset);
+    const int64_t index = __shfl_down_sync({{ gpu_warp_full_mask }}, best_index, offset, 32);
 {% if input_is_bool or input_is_integer %}
     if (value > best_value || (value == best_value && index < best_index)) {
 {% else %}

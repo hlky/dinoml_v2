@@ -53,9 +53,9 @@ __global__ void {{ packed_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    thread_max = fmaxf(thread_max, __shfl_down_sync({{ gpu_warp_full_mask }}, thread_max, offset));
+    thread_max = fmaxf(thread_max, __shfl_down_sync({{ gpu_warp_full_mask }}, thread_max, offset, 32));
   }
-  const float row_max = __shfl_sync({{ gpu_warp_full_mask }}, thread_max, 0);
+  const float row_max = __shfl_sync({{ gpu_warp_full_mask }}, thread_max, 0, 32);
 
   float thread_sum = 0.0f;
 #pragma unroll
@@ -66,9 +66,9 @@ __global__ void {{ packed_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset);
+    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset, 32);
   }
-  const float inv_sum = 1.0f / __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0);
+  const float inv_sum = 1.0f / __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0, 32);
 
 #pragma unroll
   for (int i = 0; i < packs_per_thread; ++i) {
@@ -120,9 +120,9 @@ __global__ void {{ warp_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    thread_max = fmaxf(thread_max, __shfl_down_sync({{ gpu_warp_full_mask }}, thread_max, offset));
+    thread_max = fmaxf(thread_max, __shfl_down_sync({{ gpu_warp_full_mask }}, thread_max, offset, 32));
   }
-  const float row_max = __shfl_sync({{ gpu_warp_full_mask }}, thread_max, 0);
+  const float row_max = __shfl_sync({{ gpu_warp_full_mask }}, thread_max, 0, 32);
 
   float thread_sum = 0.0f;
 #pragma unroll
@@ -136,9 +136,9 @@ __global__ void {{ warp_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset);
+    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset, 32);
   }
-  const float inv_sum = 1.0f / __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0);
+  const float inv_sum = 1.0f / __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0, 32);
 
 #pragma unroll
   for (int i = 0; i < cols_per_thread; ++i) {

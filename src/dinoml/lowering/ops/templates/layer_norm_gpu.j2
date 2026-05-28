@@ -30,11 +30,11 @@ __global__ void {{ warp_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset);
-    thread_sum_sq += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum_sq, offset);
+    thread_sum += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum, offset, 32);
+    thread_sum_sq += __shfl_down_sync({{ gpu_warp_full_mask }}, thread_sum_sq, offset, 32);
   }
-  const float sum = __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0);
-  const float sum_sq = __shfl_sync({{ gpu_warp_full_mask }}, thread_sum_sq, 0);
+  const float sum = __shfl_sync({{ gpu_warp_full_mask }}, thread_sum, 0, 32);
+  const float sum_sq = __shfl_sync({{ gpu_warp_full_mask }}, thread_sum_sq, 0, 32);
   const float mean = sum * inv_cols;
   const float variance = fmaxf(sum_sq * inv_cols - mean * mean, 0.0f);
   const float inv_std = rsqrtf(variance + eps);

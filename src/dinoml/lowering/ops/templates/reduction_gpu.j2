@@ -30,10 +30,10 @@ __global__ void {{ warp_kernel }}(
 
 #pragma unroll
   for (int offset = 16; offset > 0; offset >>= 1) {
-    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, acc, offset);
+    const float value = __shfl_down_sync({{ gpu_warp_full_mask }}, acc, offset, 32);
     acc = {{ partial_combine_expr }};
 {% if two_accumulators %}
-    sum_sq_acc += __shfl_down_sync({{ gpu_warp_full_mask }}, sum_sq_acc, offset);
+    sum_sq_acc += __shfl_down_sync({{ gpu_warp_full_mask }}, sum_sq_acc, offset, 32);
 {% endif %}
   }
 

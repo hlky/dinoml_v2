@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import dinoml as dml
 from dinoml.benchmarks.ops import benchmark_cases
 from dinoml.lowering.gpu import render_gpu_module
@@ -39,6 +41,31 @@ class _BatchGatherModule(dml.Module):
 class _AvgPool1dModule(dml.Module):
     def forward(self, x):
         return dml.ops.output(dml.ops.avg_pool1d(x, kernel_size=3, stride=2, padding=1), "output")
+
+
+def test_gpu_warp_templates_use_explicit_shuffle_width_for_rocm():
+    template_dir = Path("src/dinoml/lowering/ops/templates")
+    logical_warp_templates = [
+        "argmax_gpu.j2",
+        "layer_norm_gpu.j2",
+        "reduction_gpu.j2",
+        "softmax_gpu.j2",
+        "t5_layer_norm_gpu.j2",
+        "topk_gpu.j2",
+    ]
+    shuffle_lines = [
+        (template_name, line.strip())
+        for template_name in logical_warp_templates
+        for line in (template_dir / template_name).read_text(encoding="utf-8").splitlines()
+        if "__shfl" in line
+    ]
+
+    assert shuffle_lines
+    assert [
+        (template_name, line)
+        for template_name, line in shuffle_lines
+        if ", 32)" not in line and ", group_lanes)" not in line
+    ] == []
 
 
 def test_rocm_reduce_sum_uses_more_warp_rows_than_cuda():

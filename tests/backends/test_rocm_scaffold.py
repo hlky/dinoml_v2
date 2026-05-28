@@ -60,7 +60,7 @@ from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.ops.elementwise import FusedElementwise
 from dinoml.runtime import load
-from tests.cases import elementwise_case
+from tests.cases import elementwise_case, standard_cases
 
 
 def test_rocm_backend_binding_coverage_matches_cuda_ops():
@@ -94,6 +94,13 @@ def test_rocm_generated_op_bindings_mirror_cuda_templates():
             )
 
     assert mismatched_ops == []
+
+
+def test_rocm_contract_cases_cover_cuda_non_provider_cases():
+    cuda_non_provider = sorted(case.name for case in standard_cases() if case.cuda and case.name != "provider_ops")
+    rocm_cases = sorted(case.name for case in standard_cases() if case.rocm)
+
+    assert rocm_cases == cuda_non_provider
 
 
 def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():

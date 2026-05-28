@@ -19,7 +19,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-ROCM_SIMPLE_CASES = [case for case in standard_cases() if case.name != "provider_ops"]
+ROCM_SIMPLE_CASES = [case for case in standard_cases() if case.rocm]
 
 
 @pytest.mark.parametrize("case", ROCM_SIMPLE_CASES, ids=lambda case: case.name)

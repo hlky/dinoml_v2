@@ -17,6 +17,7 @@ class GraphCase:
     expected_ops: frozenset[str]
     cpu: bool = True
     cuda: bool = True
+    rocm: bool = True
     atol: float = 1e-5
     rtol: float = 1e-5
     reason: str = ""
@@ -513,6 +514,7 @@ def provider_ops_case() -> GraphCase:
         build_spec,
         inputs,
         frozenset({"gemm_rcr_bias", "bmm_rrr", "conv2d_bias"}),
+        rocm=False,
         atol=1e-3,
         rtol=1e-3,
     )

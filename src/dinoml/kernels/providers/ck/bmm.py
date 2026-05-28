@@ -9,9 +9,9 @@ from dinoml.ir import canonical_json
 from dinoml.kernels.families.bmm import BMM_SUPPORTED_DTYPES, bmm_op_spec, normalize_bmm_dtype
 
 
-CK_BMM_CANDIDATE_SET_SCHEMA_VERSION = 2
+CK_BMM_CANDIDATE_SET_SCHEMA_VERSION = 3
 CK_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
-CK_BMM_DEFAULT_SYMBOL_ID = "xdl_custom_v1"
+CK_BMM_DEFAULT_SYMBOL_ID = "xdl_wide_m_v1"
 CK_BMM_TUNED_SYMBOL_ID = "xdl_wide_m_v1"
 CK_BMM_WIDE_N_SYMBOL_ID = "xdl_wide_n_v1"
 CK_BMM_SQUARE_SYMBOL_ID = "xdl_square_v1"
@@ -22,14 +22,6 @@ CK_BMM_DEFAULT_WORKSPACE_NBYTES = 0
 
 
 CK_BMM_CONFIGS = (
-    {
-        "name": "baseline",
-        "symbol_id": CK_BMM_DEFAULT_SYMBOL_ID,
-        "config_enum": "kBaseline",
-        "priority": 0,
-        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
-        "min_problem": {},
-    },
     {
         "name": "wide_m",
         "symbol_id": CK_BMM_TUNED_SYMBOL_ID,
@@ -136,7 +128,7 @@ def ck_bmm_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_BMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_bmm_xdl_curated_candidates_v3",
+        "generator": "static_ck_bmm_xdl_curated_candidates_v4",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -149,7 +141,7 @@ def ck_bmm_candidate_set(
 def ck_bmm_candidate_set_id(op_name: str, dtype: str) -> str:
     spec = bmm_op_spec(op_name)
     epilogue = "linear_combination" if spec.epilogue == "none" else spec.epilogue
-    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v3"
+    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v4"
 
 
 def ck_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:

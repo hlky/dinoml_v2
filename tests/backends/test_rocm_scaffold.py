@@ -1317,22 +1317,22 @@ def test_ck_gemm_unit_generation_uses_device_op_not_reference_path():
     ) in rendered
 
 
-def test_rocm_bmm_manifest_selects_ck_custom_xdl_archive(tmp_path):
-    ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
+def test_rocm_bmm_manifest_selects_ck_wide_m_archive(tmp_path):
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
 
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
     item = manifest["required_kernels"][0]
     plan = create_codegen_plan(manifest, tmp_path)
 
     assert item["kernel_library"] == "ck_bmm"
-    assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_wide_m_v1"
     assert item["support_archive"] == ck_bmm_static_library_name("bmm_rcr_add", "float16")
-    assert len(item["candidates"]) == 7
+    assert len(item["candidates"]) == 6
     assert item["candidates"][0]["ck"]["api"] == "device_batched_gemm_multiple_d_xdl_cshuffle_v3"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
-    assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
+    assert item["candidates"][0]["ck"]["config"]["name"] == "wide_m"
+    assert item["candidates"][1]["ck"]["config"]["name"] == "wide_n"
     assert {candidate["ck"]["config"]["name"] for candidate in item["candidates"]} == {
-        "baseline",
         "wide_m",
         "wide_n",
         "square",
@@ -1368,7 +1368,7 @@ def test_rocm_bmm_profile_workloads_cover_ck_candidate_set():
 
     workloads = build_profile_workloads(ir, manifest)
 
-    assert len(workloads) == 7
+    assert len(workloads) == 6
     assert {workload.kernel_library for workload in workloads} == {"ck_bmm"}
     assert {workload.candidate_id for workload in workloads} >= {
         "ck_bmm_rcr_add_float16_xdl_wide_m_v1",
@@ -1385,7 +1385,7 @@ def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
     workloads = build_profile_workloads(ir, manifest)
 
     candidate_names = {workload.candidate["ck"]["config"]["name"] for workload in workloads}
-    assert candidate_names == {"baseline", "wide_m", "wide_n", "small"}
+    assert candidate_names == {"wide_m", "wide_n", "small"}
     assert all(workload.candidate["ck"]["config"]["tile"]["k_per_block"] == 32 for workload in workloads)
     assert "ck_bmm_rcr_add_float16_xdl_square_v1" not in {workload.candidate_id for workload in workloads}
 
@@ -1398,21 +1398,21 @@ def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
             256,
             96,
             "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
-            {"baseline", "wide_n", "small"},
+            {"wide_n", "small"},
         ),
         (
             16,
             128,
             192,
             "ck_bmm_rcr_add_float16_xdl_skinny_m_v1",
-            {"baseline", "skinny_m", "small"},
+            {"skinny_m", "small"},
         ),
         (
             128,
             16,
             192,
             "ck_bmm_rcr_add_float16_xdl_skinny_n_v1",
-            {"baseline", "skinny_n", "small"},
+            {"skinny_n", "small"},
         ),
     ],
 )
@@ -1476,7 +1476,7 @@ def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
 
     assert item["selected_candidate_id"] == "ck_bmm_rrr_add_float16_xdl_wide_n_v1"
     assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "row"}
-    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"baseline", "wide_n", "small"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"wide_n", "small"}
     assert workload.a_shape == (2, 64, 96)
     assert workload.b_shape == (2, 96, 128)
     assert workload.output_shape == (2, 64, 128)
@@ -1497,7 +1497,7 @@ def test_rocm_bmm_rrc_profile_workloads_preserve_column_output_layout():
 
     assert item["selected_candidate_id"] == "ck_bmm_rrc_add_float16_xdl_wide_n_v1"
     assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "column"}
-    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"baseline", "wide_n", "small"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"wide_n", "small"}
     assert workload.a_shape == (2, 64, 96)
     assert workload.b_shape == (2, 96, 128)
     assert workload.output_shape == (2, 128, 64)
@@ -1596,34 +1596,28 @@ def test_rocm_ck_bmm_profiler_passes_add_residual_layout_strides():
 
 
 def test_rocm_bmm_module_declares_and_calls_ck_symbol():
-    ir = _rocm_bmm_ir("bmm_rcr_add", "float16")
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
 
     source = render_rocm_module(ir, kernel_manifest=manifest)
 
-    assert 'extern "C" int dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1' in source
+    assert 'extern "C" int dinoml_ck_bmm_rcr_add_float16_xdl_wide_n_v1' in source
     assert "const half* d0" in source
     assert "int64_t batch_stride_d0" in source
-    assert "dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1(ptr_a, ptr_b, ptr_d0, ptr_c" in source
+    assert "dinoml_ck_bmm_rcr_add_float16_xdl_wide_n_v1(ptr_a, ptr_b, ptr_d0, ptr_c" in source
     assert "CK BMM launcher failed" in source
 
 
 def test_ck_bmm_unit_generation_uses_device_op_not_reference_path():
     source = Path("kernels/rocm/src/ck_bmm.hip").read_text(encoding="utf-8")
-    candidate = {
-        "op": "bmm_rcr_add",
-        "dtype": "float16",
-        "symbol_id": "xdl_custom_v1",
-        "epilogue": "add",
-        "launch_abi": "dinoml_ck_bmm_add_v1",
-    }
+    candidate = ck_bmm_candidates("bmm_rcr_add", "float16")[0]
 
     rendered = render_ck_bmm_source(
         source,
         {
             "candidates": [candidate],
-            "kernel_symbols": ["dinoml_ck_bmm_rcr_add_float16_xdl_custom_v1"],
-            "profiler_symbols": ["dinoml_profile_ck_bmm_rcr_add_float16_xdl_custom_v1"],
+            "kernel_symbols": [candidate["kernel_symbol"]],
+            "profiler_symbols": [candidate["profiler_symbol"]],
         },
     )
 
@@ -1632,8 +1626,16 @@ def test_ck_bmm_unit_generation_uses_device_op_not_reference_path():
     assert "DeviceBatchedGemmMultiD_Xdl_CShuffle_V3" in rendered
     assert (
         "DINOML_CK_BMM_ADD_EXPORT(bmm_rcr_add, float16, half, "
-        "xdl_custom_v1, kRcr, kAdd, kBaseline)"
+        "xdl_wide_m_v1, kRcr, kAdd, kWideM)"
     ) in rendered
+
+
+def test_ck_bmm_unit_generation_uses_nonambiguous_cde_transfer_traits():
+    source = Path("kernels/rocm/src/ck_bmm.hip").read_text(encoding="utf-8")
+
+    assert "struct BmmCDETransferTraits<Config, Storage, 1>" not in source
+    assert "struct BmmCDETransferTraits : BmmDefaultCDETransferTraits<Storage, Count> {};" in source
+    assert "struct BmmCDETransferTraits<BmmConfig::CONFIG, Storage, Count>" in source
 
 
 def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
@@ -2311,11 +2313,84 @@ def test_rocm_ck_gemm_compile_profile_smoke_with_real_toolchain(tmp_path, monkey
 
     manifest = read_json(artifact.path / "manifest.json")
     report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
-    assert manifest["target"]["name"] == "rocm"
-    assert report["target"]["name"] == "rocm"
-    assert report["summary"]["profiled"] >= 1
-    assert report["summary"]["failed"] == 0
-    assert all(problem["kernel_library"] == "ck_gemm" for problem in report["problems"])
+    _assert_rocm_ck_profile_smoke_report(manifest, report, "ck_gemm")
+
+
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_PROFILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_PROFILE_SMOKE=1 with a working ROCm device/toolchain",
+)
+def test_rocm_ck_bmm_compile_profile_smoke_with_real_toolchain(tmp_path, monkeypatch):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class TinyCkBmm(dml.Module):
+        def forward(self, a, b, d0):
+            return {"c": dml.ops.bmm_rcr_add(a, b, d0)}
+
+    spec = dml.trace(
+        TinyCkBmm(),
+        {
+            "a": dml.TensorSpec([2, 64, 96], "float16"),
+            "b": dml.TensorSpec([2, 128, 96], "float16"),
+            "d0": dml.TensorSpec([2, 64, 128], "float16"),
+        },
+        name="rocm_ck_bmm_compile_profile_smoke",
+    )
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("rocm"),
+        tmp_path / "ck_bmm_profile_rocm.dinoml",
+        profile=True,
+        profile_iterations=1,
+        profile_repeats=1,
+        profile_refresh=True,
+    )
+
+    manifest = read_json(artifact.path / "manifest.json")
+    report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
+    _assert_rocm_ck_profile_smoke_report(manifest, report, "ck_bmm")
+
+
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_PROFILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_PROFILE_SMOKE=1 with a working ROCm device/toolchain",
+)
+def test_rocm_ck_conv_compile_profile_smoke_with_real_toolchain(tmp_path, monkeypatch):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class TinyCkConv(dml.Module):
+        def forward(self, x, weight, bias, residual):
+            return {"y": dml.ops.conv2d_bias_add_relu(x, weight, bias, residual, padding=1)}
+
+    spec = dml.trace(
+        TinyCkConv(),
+        {
+            "x": dml.TensorSpec([2, 8, 16, 16], "float16"),
+            "weight": dml.TensorSpec([64, 8, 3, 3], "float16"),
+            "bias": dml.TensorSpec([64], "float16"),
+            "residual": dml.TensorSpec([2, 64, 16, 16], "float16"),
+        },
+        name="rocm_ck_conv_compile_profile_smoke",
+    )
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("rocm"),
+        tmp_path / "ck_conv_profile_rocm.dinoml",
+        profile=True,
+        profile_iterations=1,
+        profile_repeats=1,
+        profile_refresh=True,
+    )
+
+    manifest = read_json(artifact.path / "manifest.json")
+    report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
+    _assert_rocm_ck_profile_smoke_report(manifest, report, "ck_conv")
 
 
 @pytest.mark.skipif(
@@ -2391,6 +2466,14 @@ def _find_hipcc() -> Path | None:
     if local.exists():
         return local
     return None
+
+
+def _assert_rocm_ck_profile_smoke_report(manifest: dict, report: dict, kernel_library: str) -> None:
+    assert manifest["target"]["name"] == "rocm"
+    assert report["target"]["name"] == "rocm"
+    assert report["summary"]["profiled"] >= 1
+    assert report["summary"]["failed"] == 0
+    assert all(problem["kernel_library"] == kernel_library for problem in report["problems"])
 
 
 def _ck_execution_plan_for_candidate(

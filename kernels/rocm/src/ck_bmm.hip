@@ -237,18 +237,21 @@ struct BmmKernelConfig<BmmConfig::kSmall, Storage> {
   using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
 };
 
-template <BmmConfig Config, typename Storage, int Count>
-struct BmmCDETransferTraits;
+template <typename Storage, int Count>
+struct BmmDefaultCDETransferTraits;
 
-template <BmmConfig Config, typename Storage>
-struct BmmCDETransferTraits<Config, Storage, 0> {
+template <typename Storage>
+struct BmmDefaultCDETransferTraits<Storage, 0> {
   using Type = S<1>;
 };
 
-template <BmmConfig Config, typename Storage>
-struct BmmCDETransferTraits<Config, Storage, 1> {
+template <typename Storage>
+struct BmmDefaultCDETransferTraits<Storage, 1> {
   using Type = S<1, 1>;
 };
+
+template <BmmConfig Config, typename Storage, int Count>
+struct BmmCDETransferTraits : BmmDefaultCDETransferTraits<Storage, Count> {};
 
 template <typename Storage, int Count>
 struct BmmVectorizedCDETransferTraits;

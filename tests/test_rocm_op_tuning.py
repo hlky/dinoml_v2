@@ -119,3 +119,12 @@ def test_rocm_embedding_float32_benchmark_shape_uses_float4_copy():
     assert "_float4_kernel" in source
     assert "reinterpret_cast<const float4*>(table)" in source
     assert "runtime_numel_vec_out = runtime_numel_out / 4" in source
+
+
+def test_rocm_gather_benchmark_shape_keeps_per_element_scalar_indices():
+    case = next(case for case in benchmark_cases() if case.name == "gather")
+    source = render_gpu_module("rocm", case.build_spec().ir)
+
+    assert "const int block = 256;" in source
+    assert "const int64_t selected_index = static_cast<int64_t>(index[idx]);" in source
+    assert "float4" not in source

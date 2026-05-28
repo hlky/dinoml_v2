@@ -17,6 +17,17 @@ DinoML v2 is an experimental ML compiler/runtime for turning Python-defined mode
 
 This is not a polished user-facing framework yet. It is a compiler/runtime lab for building and testing inference-system ideas quickly.
 
+## Agent Workflow
+
+Most DinoML v2 work was developed through a human-directed agent workflow rather
+than one-off prompt sessions. The workflow uses repo-local steering docs,
+project memory, provider contracts, op admission rules, validation gates, and
+ranked work queues to keep autonomous implementation bounded and reviewable.
+
+A curated public snapshot of those process docs lives at:
+
+https://github.com/hlky/dinoml_v2_agents
+
 ## Why It Exists
 
 Most ML deployment stacks force a choice between high-level ergonomics and low-level control. DinoML is an experiment in keeping both:
@@ -281,3 +292,9 @@ Native/GPU toolchains:
 - CUTLASS submodule for CUDA provider work
 - Composable Kernel submodule for ROCm provider work
 - `third_party/libgguf` for GGUF integration
+
+## License
+
+Original DinoML v2 code and documentation are licensed under the Apache License,
+Version 2.0. See [LICENSE](LICENSE). Third-party projects under `third_party/`
+retain their upstream licenses.

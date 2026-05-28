@@ -201,6 +201,24 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "batch_gather": lambda x, indices, **_: x.gather(1, indices.unsqueeze(-1).expand(-1, -1, x.shape[-1])),
         "slice_scatter": lambda x, update, **_: _slice_scatter(x, update, [0, 48, 0]),
         "pad": lambda torch, x, **_: torch.nn.functional.pad(x, (1, 2), value=-1.0),
+        "gemm_rcr": lambda a, b, **_: a @ b.transpose(-1, -2),
+        "gemm_rcr_bias": lambda a, b, bias, **_: (a @ b.transpose(-1, -2)) + bias,
+        "gemm_rcr_bias_add_relu": lambda torch, a, b, bias, d0, **_: torch.relu((a @ b.transpose(-1, -2)) + bias + d0),
+        "gemm_rcr_bias_add_add_relu": lambda torch, a, b, bias, d0, d1, **_: torch.relu(
+            (a @ b.transpose(-1, -2)) + bias + d0 + d1
+        ),
+        "bmm_rcr": lambda torch, a, b, **_: torch.bmm(a, b.transpose(1, 2)),
+        "bmm_rcr_add": lambda torch, a, b, d0, **_: torch.bmm(a, b.transpose(1, 2)) + d0,
+        "conv2d_bias": lambda torch, x, weight, bias, **_: torch.nn.functional.conv2d(x, weight, bias, padding=1),
+        "conv2d_bias_relu": lambda torch, x, weight, bias, **_: torch.relu(
+            torch.nn.functional.conv2d(x, weight, bias, padding=1)
+        ),
+        "conv2d_bias_add": lambda torch, x, weight, bias, residual, **_: (
+            torch.nn.functional.conv2d(x, weight, bias, padding=1) + residual
+        ),
+        "conv2d_bias_add_relu": lambda torch, x, weight, bias, residual, **_: torch.relu(
+            torch.nn.functional.conv2d(x, weight, bias, padding=1) + residual
+        ),
     }
 
 

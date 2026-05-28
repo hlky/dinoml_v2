@@ -14,7 +14,8 @@ from dinoml.lowering.target_specs import LoweringTargetSpec, lowering_target_spe
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
     spec = _supported_target_spec(target)
-    return render_op_template(f"arange_{spec.op_template_flavor}.j2", _context(spec, node, tensor_map))
+    template = "arange_gpu.j2" if spec.is_gpu else "arange_cpu.cpp.j2"
+    return render_op_template(template, _context(spec, node, tensor_map))
 
 
 def render_launch(

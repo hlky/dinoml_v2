@@ -325,6 +325,15 @@ def test_rocm_runtime_paths_prefer_current_python_rocm_sdk_module(tmp_path, monk
     assert rocm_backend._rocm_runtime_paths() == [str(sdk_bin), str(llvm_bin)]
 
 
+def test_rocm_sdk_python_probe_treats_launch_failure_as_unavailable(monkeypatch):
+    def fake_run(*_args, **_kwargs):
+        raise OSError("missing python")
+
+    monkeypatch.setattr(rocm_backend.subprocess, "run", fake_run)
+
+    assert rocm_backend._python_has_rocm_sdk("missing-python.exe") is False
+
+
 def test_rocm_runtime_paths_allow_regular_hip_sdk_without_rocm_sdk(monkeypatch):
     monkeypatch.setattr(rocm_backend.shutil, "which", lambda name: None)
     monkeypatch.setattr(rocm_backend, "_python_has_rocm_sdk", lambda python: False)

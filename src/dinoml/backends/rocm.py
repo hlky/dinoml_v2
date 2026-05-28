@@ -702,16 +702,19 @@ def _rocm_sdk_command() -> list[str] | None:
 
 
 def _python_has_rocm_sdk(python: str) -> bool:
-    proc = subprocess.run(
-        [
-            python,
-            "-c",
-            "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('rocm_sdk') else 1)",
-        ],
-        text=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                python,
+                "-c",
+                "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('rocm_sdk') else 1)",
+            ],
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
     return proc.returncode == 0
 
 

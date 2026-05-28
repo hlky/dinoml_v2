@@ -2028,21 +2028,19 @@ def _profile_workload_samples(
     effective_iterations = int(iterations)
     workspace_nbytes = int(workload.workspace_nbytes)
     samples_ms: list[float] = []
-    elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=effective_iterations, rng=rng)
-    workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
-    adapted_iterations = _adaptive_profile_iterations(
-        workload,
-        requested_iterations=effective_iterations,
-        elapsed_ms=elapsed_ms,
-    )
-    if adapted_iterations == effective_iterations:
-        samples_ms.append(elapsed_ms)
-    else:
-        effective_iterations = adapted_iterations
     while len(samples_ms) < int(repeats):
         elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=effective_iterations, rng=rng)
-        samples_ms.append(elapsed_ms)
         workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
+        adapted_iterations = _adaptive_profile_iterations(
+            workload,
+            requested_iterations=effective_iterations,
+            elapsed_ms=elapsed_ms,
+        )
+        if adapted_iterations > effective_iterations:
+            effective_iterations = adapted_iterations
+            samples_ms.clear()
+            continue
+        samples_ms.append(elapsed_ms)
     return samples_ms, workspace_nbytes, effective_iterations
 
 

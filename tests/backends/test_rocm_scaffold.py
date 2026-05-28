@@ -1073,6 +1073,33 @@ def test_rocm_ck_profile_samples_adapt_iterations_for_tiny_measurements():
     assert effective_iterations == 500
 
 
+def test_rocm_ck_profile_samples_restart_when_late_sample_needs_more_iterations():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeProfiler:
+        def profile(self, workload, *, iterations, rng):
+            del workload, rng
+            calls.append(iterations)
+            if calls == [5]:
+                return 0.2, 0
+            return (0.001 if iterations == 5 else 0.02), 0
+
+    samples, _workspace_nbytes, effective_iterations = _profile_workload_samples(
+        FakeProfiler(),
+        workload,
+        iterations=5,
+        repeats=3,
+        rng=np.random.default_rng(0),
+    )
+
+    assert calls == [5, 5, 500, 500, 500]
+    assert samples == [0.02, 0.02, 0.02]
+    assert effective_iterations == 500
+
+
 def test_rocm_ck_profile_iterations_stay_requested_for_stable_measurements():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})

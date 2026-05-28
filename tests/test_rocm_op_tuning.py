@@ -107,6 +107,16 @@ def test_rocm_topk_benchmark_shape_stays_on_no_scratch_warp_rows():
     assert "session->topk_scratch" not in source
 
 
+def test_rocm_topk_bool_benchmark_shape_uses_ballot_scan():
+    case = next(case for case in benchmark_cases() if case.name == "topk_bool")
+    source = render_gpu_module("rocm", case.build_spec().ir)
+
+    assert "dim3 topk_block(32, 8)" in source
+    assert "__ballot_sync" in source
+    assert "local_values[k]" not in source
+    assert "session->topk_scratch" not in source
+
+
 def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():
     spec = dml.trace(
         _LayerNormModule(),

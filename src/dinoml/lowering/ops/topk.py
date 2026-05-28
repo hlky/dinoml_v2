@@ -120,6 +120,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     ) and not use_two_pass_keys
     use_block_merge_rows = 2 <= k <= 8 and cols >= 2048 and not use_two_pass_keys
     use_block_argmax_rows = k == 1 and cols >= 2048 and not use_two_pass_keys
+    use_bool_scan = input_dtype == "bool" and k <= 32 and not use_two_pass_keys
     if use_block_argmax_rows:
         block_size = 512
     elif use_block_merge_rows:
@@ -167,6 +168,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "use_radix_filter": use_radix_filter,
         "use_value_radix_repair": use_value_radix_repair,
         "use_block_merge_rows": use_block_merge_rows,
+        "use_bool_scan": use_bool_scan,
         "use_subwarp_rows": use_subwarp_rows,
         "subwarp_group_lanes": subwarp_group_lanes,
         "subwarp_warps_per_block": subwarp_warps_per_block,
@@ -182,8 +184,9 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
             and not use_block_merge_rows
             and not use_block_argmax_rows
             and not use_subwarp_rows
+            and not use_bool_scan
         ),
-        "use_parallel_rows": k <= 2048 and not use_radix_filter and not use_block_merge_rows,
+        "use_parallel_rows": k <= 2048 and not use_radix_filter and not use_block_merge_rows and not use_bool_scan,
     }
 
 

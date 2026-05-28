@@ -862,6 +862,74 @@ __global__ void {{ kernel }}(
     }
     __syncthreads();
   }
+{% elif use_bool_scan %}
+  const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+  if (row >= runtime_rows) {
+    return;
+  }
+  const int lane = threadIdx.x;
+  const int64_t base = row * cols;
+  int written = 0;
+
+  for ({{ index_storage_type }} base_col = 0; base_col < cols; base_col += 32) {
+    const {{ index_storage_type }} col = base_col + lane;
+    const bool keep = col < cols && x[base + col];
+    unsigned long long mask = static_cast<unsigned long long>(__ballot_sync({{ gpu_warp_full_mask }}, keep)) & 0xffffffffull;
+    if (lane == 0) {
+      while (mask != 0ull && written < k) {
+        int selected_lane = 0;
+        while (((mask >> selected_lane) & 1ull) == 0ull) {
+          ++selected_lane;
+        }
+        const {{ index_storage_type }} selected_index = base_col + selected_lane;
+{% if output_kind == "indices" %}
+        y[row * k + written] = selected_index;
+{% elif output_kind == "both" %}
+        y_values[row * k + written] = true;
+        y_indices[row * k + written] = selected_index;
+{% else %}
+        y[row * k + written] = true;
+{% endif %}
+        ++written;
+        mask &= mask - 1ull;
+      }
+    }
+    written = __shfl_sync({{ gpu_warp_full_mask }}, written, 0, 32);
+    if (written >= k) {
+      break;
+    }
+  }
+
+  if (written < k) {
+    for ({{ index_storage_type }} base_col = 0; base_col < cols; base_col += 32) {
+      const {{ index_storage_type }} col = base_col + lane;
+      const bool keep = col < cols && !x[base + col];
+      unsigned long long mask = static_cast<unsigned long long>(__ballot_sync({{ gpu_warp_full_mask }}, keep)) & 0xffffffffull;
+      if (lane == 0) {
+        while (mask != 0ull && written < k) {
+          int selected_lane = 0;
+          while (((mask >> selected_lane) & 1ull) == 0ull) {
+            ++selected_lane;
+          }
+          const {{ index_storage_type }} selected_index = base_col + selected_lane;
+{% if output_kind == "indices" %}
+          y[row * k + written] = selected_index;
+{% elif output_kind == "both" %}
+          y_values[row * k + written] = false;
+          y_indices[row * k + written] = selected_index;
+{% else %}
+          y[row * k + written] = false;
+{% endif %}
+          ++written;
+          mask &= mask - 1ull;
+        }
+      }
+      written = __shfl_sync({{ gpu_warp_full_mask }}, written, 0, 32);
+      if (written >= k) {
+        break;
+      }
+    }
+  }
 {% elif use_warp_argmax %}
   const int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
   if (row >= runtime_rows) {
@@ -1349,7 +1417,7 @@ static int {{ func }}(
   }
   return 0;
 {% else %}
-{% if use_warp_argmax or use_warp_rows %}
+{% if use_warp_argmax or use_warp_rows or use_bool_scan %}
   const int64_t grid64 = (runtime_rows + {{ warp_rows_per_block }} - 1) / {{ warp_rows_per_block }};
 {% elif use_subwarp_rows %}
   const int64_t grid64 = (runtime_rows + {{ subwarp_rows_per_block }} - 1) / {{ subwarp_rows_per_block }};
@@ -1361,7 +1429,7 @@ static int {{ func }}(
   const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
   if (grid > 0) {
 {% if output_kind == "both" %}
-{% if use_warp_argmax or use_warp_rows %}
+{% if use_warp_argmax or use_warp_rows or use_bool_scan %}
     dim3 topk_block(32, {{ warp_rows_per_block }});
     {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y_values, y_indices, runtime_numel);
 {% elif use_subwarp_rows %}
@@ -1371,7 +1439,7 @@ static int {{ func }}(
     {{ kernel }}<<<grid, block, 0, stream>>>(x, y_values, y_indices, runtime_numel);
 {% endif %}
 {% else %}
-{% if use_warp_argmax or use_warp_rows %}
+{% if use_warp_argmax or use_warp_rows or use_bool_scan %}
     dim3 topk_block(32, {{ warp_rows_per_block }});
     {{ kernel }}<<<grid, topk_block, 0, stream>>>(x, y, runtime_numel);
 {% elif use_subwarp_rows %}

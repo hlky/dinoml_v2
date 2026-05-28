@@ -59,8 +59,9 @@ from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.ops.elementwise import FusedElementwise
+from dinoml.passes import PassManager, validate_ir
 from dinoml.runtime import load
-from tests.cases import elementwise_case, standard_cases
+from tests.cases import GraphCase, elementwise_case, standard_cases
 
 
 def test_rocm_backend_binding_coverage_matches_cuda_ops():
@@ -103,6 +104,31 @@ def test_rocm_contract_cases_cover_cuda_non_provider_cases():
     assert rocm_cases == cuda_non_provider
 
 
+def test_rocm_contract_ops_cover_cuda_non_provider_ops():
+    cuda_by_case = {
+        case.name: _materialized_case_ops(case)
+        for case in standard_cases()
+        if case.cuda and case.name != "provider_ops"
+    }
+    rocm_by_case = {case.name: _materialized_case_ops(case) for case in standard_cases() if case.rocm}
+    missing_cases = sorted(set(cuda_by_case) - set(rocm_by_case))
+    missing_ops_by_case = {
+        name: missing
+        for name in sorted(cuda_by_case)
+        if (missing := sorted(set(cuda_by_case[name]) - set(rocm_by_case.get(name, ()))))
+    }
+    missing_ops = sorted(
+        set().union(*(set(ops) for ops in cuda_by_case.values()))
+        - set().union(*(set(ops) for ops in rocm_by_case.values()))
+    )
+
+    assert {
+        "missing_cases": missing_cases,
+        "missing_ops": missing_ops,
+        "missing_ops_by_case": missing_ops_by_case,
+    } == {"missing_cases": [], "missing_ops": [], "missing_ops_by_case": {}}
+
+
 def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():
     assert sorted(set(CONV_OPS) - set(CK_CONV_OPS)) == []
 
@@ -128,6 +154,16 @@ def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():
                     candidate["candidate_config_key"] for candidate in candidates
                 }
                 assert all(candidate.get("profiler_symbol") for candidate in candidates), (family, op_name, dtype)
+
+
+def _materialized_case_ops(case: GraphCase) -> list[str]:
+    lowered, _ = PassManager().run(case.build_spec().ir)
+    validate_ir(lowered)
+    ops = {str(node["op"]) for node in lowered["nodes"]}
+    for node in lowered["nodes"]:
+        if node["op"] == "fused_elementwise":
+            ops.update(str(sub_op["op"]) for sub_op in node.get("attrs", {}).get("sub_ops", ()))
+    return sorted(ops)
 
 
 def test_rocm_ck_conv_cmake_targets_cover_provider_ops():

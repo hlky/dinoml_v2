@@ -71,6 +71,29 @@ def test_rocm_backend_binding_coverage_matches_cuda_ops():
     assert cuda_only_ops == []
 
 
+def test_rocm_generated_op_bindings_mirror_cuda_templates():
+    mismatched_ops = []
+
+    for op_def in OP_REGISTRY.op_defs():
+        cuda_binding = op_def.backend_kernels.get("cuda")
+        if cuda_binding is None or cuda_binding.library != "model" or not cuda_binding.source_template:
+            continue
+        rocm_binding = op_def.backend_kernels.get("rocm")
+        if rocm_binding is None:
+            mismatched_ops.append((op_def.name, "missing rocm binding"))
+            continue
+        if rocm_binding.library != cuda_binding.library:
+            mismatched_ops.append((op_def.name, "library", cuda_binding.library, rocm_binding.library))
+        if rocm_binding.symbol != cuda_binding.symbol:
+            mismatched_ops.append((op_def.name, "symbol", cuda_binding.symbol, rocm_binding.symbol))
+        if rocm_binding.source_template != cuda_binding.source_template:
+            mismatched_ops.append(
+                (op_def.name, "source_template", cuda_binding.source_template, rocm_binding.source_template)
+            )
+
+    assert mismatched_ops == []
+
+
 def test_rocm_ck_candidate_sets_cover_cuda_provider_ops():
     assert sorted(set(CONV_OPS) - set(CK_CONV_OPS)) == []
 

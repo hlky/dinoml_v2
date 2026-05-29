@@ -29,6 +29,7 @@ DEFAULT_TRANSFORMERS_SRC = Path("/workspace/transformers/src")
 DEFAULT_CUDA_ARCH = "sm_86"
 RTOL = 1.0e-5
 OUTPUT_NAMES = ("logits_per_image", "logits_per_text", "text_embeds", "image_embeds")
+SUPPORTED_DTYPES = ("float32", "float16")
 
 
 def _artifact_dir_for(checkpoint_id: str, target: str) -> Path:
@@ -41,10 +42,14 @@ def _target_spec(target: str) -> dml.Target:
         return dml.Target("cpu")
     if target == "cuda":
         return dml.Target("cuda", arch=DEFAULT_CUDA_ARCH, no_tf32=True)
+    if target == "rocm":
+        return dml.Target("rocm")
     raise ValueError(f"unsupported target {target!r}")
 
 
-def _limits_for(*, checkpoint_id: str, target: str) -> dict[str, float]:
+def _limits_for(*, checkpoint_id: str, target: str, dtype: str = "float32") -> dict[str, float]:
+    if dtype == "float16":
+        return {name: 2.0e-2 for name in OUTPUT_NAMES}
     if target == "cpu":
         return {name: 3.0e-5 for name in OUTPUT_NAMES}
     limits = {
@@ -62,7 +67,7 @@ def _limits_for(*, checkpoint_id: str, target: str) -> dict[str, float]:
 def _import_local_transformers(transformers_src: Path):
     transformers_src = Path(transformers_src).resolve()
     if not transformers_src.exists():
-        raise FileNotFoundError(f"Transformers source tree not found: {transformers_src}")
+        return importlib.import_module("transformers")
     loaded = sys.modules.get("transformers")
     if loaded is not None:
         loaded_path = Path(getattr(loaded, "__file__", "")).resolve()
@@ -109,10 +114,11 @@ def _checkpoint_is_available(
     return True, None
 
 
-def _build_runtime_inputs(*, text_config, vision_config) -> tuple[int, dict[str, np.ndarray]]:
-    seq_len = min(4, int(text_config.max_position_embeddings))
+def _build_runtime_inputs(*, text_config, vision_config, dtype: str = "float32") -> tuple[int, dict[str, np.ndarray]]:
+    seq_len = int(text_config.max_position_embeddings)
     eos_token_id = int(text_config.eos_token_id)
     vocab_size = int(text_config.vocab_size)
+    pixel_dtype = _numpy_float_dtype(dtype)
 
     token_ids: list[int] = []
     candidate = 0
@@ -129,7 +135,7 @@ def _build_runtime_inputs(*, text_config, vision_config) -> tuple[int, dict[str,
         1.0,
         num=num_channels * image_size * image_size,
         dtype=np.float32,
-    ).reshape(1, num_channels, image_size, image_size)
+    ).astype(pixel_dtype).reshape(1, num_channels, image_size, image_size)
 
     return seq_len, {
         "input_ids": np.asarray([token_ids], dtype=np.int64),
@@ -138,17 +144,45 @@ def _build_runtime_inputs(*, text_config, vision_config) -> tuple[int, dict[str,
     }
 
 
-def _trace_spec(*, clip_model) -> tuple[dml.ir.ModelSpec, dict[str, np.ndarray], object, object]:
+def _normalize_workflow_dtype(dtype: str) -> str:
+    dtype = str(dtype)
+    if dtype not in SUPPORTED_DTYPES:
+        raise ValueError(f"unsupported CLIP workflow dtype {dtype!r}")
+    return dtype
+
+
+def _numpy_float_dtype(dtype: str):
+    dtype = _normalize_workflow_dtype(dtype)
+    return np.float16 if dtype == "float16" else np.float32
+
+
+def _cast_floating_parameters(model: object, dtype: str) -> None:
+    dtype = _normalize_workflow_dtype(dtype)
+    if dtype == "float32":
+        return
+    named_parameters = getattr(model, "named_parameters", None)
+    if named_parameters is None:
+        raise TypeError("expected DinoML model with named_parameters() for dtype casting")
+    numpy_dtype = _numpy_float_dtype(dtype)
+    for _, parameter in named_parameters():
+        if getattr(parameter, "dtype", None) != "float32" or getattr(parameter, "value", None) is None:
+            continue
+        parameter.dtype = dtype
+        parameter._value = np.asarray(parameter.value, dtype=numpy_dtype)
+
+
+def _trace_spec(*, clip_model, dtype: str = "float32") -> tuple[dml.ir.ModelSpec, dict[str, np.ndarray], object, object]:
     text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
     adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
-    seq_len, inputs = _build_runtime_inputs(text_config=text_config, vision_config=vision_config)
+    _cast_floating_parameters(adapted_model, dtype)
+    seq_len, inputs = _build_runtime_inputs(text_config=text_config, vision_config=vision_config, dtype=dtype)
     spec = dml.trace(
         adapted_model,
         inputs={
             "input_ids": dml.TensorSpec([1, seq_len], "int64"),
             "pixel_values": dml.TensorSpec(
                 [1, int(vision_config.num_channels), int(vision_config.image_size), int(vision_config.image_size)],
-                "float32",
+                dtype,
             ),
             "attention_mask": dml.TensorSpec([1, seq_len], "bool"),
         },
@@ -157,14 +191,19 @@ def _trace_spec(*, clip_model) -> tuple[dml.ir.ModelSpec, dict[str, np.ndarray],
     return spec, inputs, text_config, vision_config
 
 
-def _expected_outputs(*, clip_model, inputs: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def _expected_outputs(*, clip_model, inputs: dict[str, np.ndarray], target: str, dtype: str) -> dict[str, np.ndarray]:
     torch = importlib.import_module("torch")
+    device = "cuda" if target in {"cuda", "rocm"} else "cpu"
+    torch_dtype = torch.float16 if dtype == "float16" else torch.float32
+    clip_model = clip_model.to(device=device, dtype=torch_dtype)
+    clip_model.eval()
+    torch_inputs = {
+        "input_ids": torch.from_numpy(inputs["input_ids"]).to(device),
+        "attention_mask": torch.from_numpy(inputs["attention_mask"]).to(device),
+        "pixel_values": torch.from_numpy(inputs["pixel_values"]).to(device=device, dtype=torch_dtype),
+    }
     with torch.inference_mode():
-        expected = clip_model(
-            input_ids=torch.from_numpy(inputs["input_ids"]),
-            attention_mask=torch.from_numpy(inputs["attention_mask"]),
-            pixel_values=torch.from_numpy(inputs["pixel_values"]),
-        )
+        expected = clip_model(**torch_inputs)
     return {
         "logits_per_image": expected.logits_per_image.detach().cpu().numpy().astype(np.float32),
         "logits_per_text": expected.logits_per_text.detach().cpu().numpy().astype(np.float32),
@@ -199,11 +238,13 @@ def run_workflow(
     *,
     checkpoint_id: str = DEFAULT_CHECKPOINT_ID,
     target: str = "cpu",
+    dtype: str = "float32",
     artifact_dir: str | Path | None = None,
     transformers_src: str | Path = DEFAULT_TRANSFORMERS_SRC,
     hf_home: str | Path = DEFAULT_HF_HOME,
 ) -> dict[str, object]:
     target = str(target)
+    dtype = _normalize_workflow_dtype(dtype)
     transformers_src = Path(transformers_src).resolve()
     hf_home = Path(hf_home).resolve()
     cache_dir = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")).resolve()
@@ -213,36 +254,45 @@ def run_workflow(
         torch = importlib.import_module("torch")
         if not torch.cuda.is_available():
             raise RuntimeError("a CUDA device is required for --target cuda")
+    if target == "rocm":
+        if shutil.which("hipcc") is None:
+            raise RuntimeError("hipcc is required for --target rocm")
+        torch = importlib.import_module("torch")
+        if not torch.cuda.is_available():
+            raise RuntimeError("a ROCm device is required for --target rocm")
 
     clip_model = _load_cached_transformers_clip_checkpoint(
         checkpoint_id=checkpoint_id,
         transformers_src=transformers_src,
         hf_home=hf_home,
     )
-    spec, inputs, text_config, vision_config = _trace_spec(clip_model=clip_model)
-    expected = _expected_outputs(clip_model=clip_model, inputs=inputs)
+    spec, inputs, text_config, vision_config = _trace_spec(clip_model=clip_model, dtype=dtype)
+    expected = _expected_outputs(clip_model=clip_model, inputs=inputs, target=target, dtype=dtype)
 
     target_spec = _target_spec(target)
-    artifact_dir = _artifact_dir_for(checkpoint_id, target) if artifact_dir is None else Path(artifact_dir).resolve()
+    artifact_dir = _artifact_dir_for(checkpoint_id, f"{target}_{dtype}") if artifact_dir is None else Path(artifact_dir).resolve()
     artifact = dml.compile(spec, target_spec, artifact_dir)
     actual = _run_artifact(artifact_path=artifact.path, inputs=inputs)
 
-    limits = _limits_for(checkpoint_id=checkpoint_id, target=target)
+    limits = _limits_for(checkpoint_id=checkpoint_id, target=target, dtype=dtype)
     parity = {
         name: _parity_entry(actual=actual[name], expected=expected[name], limit=limits[name])
         for name in OUTPUT_NAMES
     }
     output_shapes = {name: list(actual[name].shape) for name in OUTPUT_NAMES}
+    manifest = json.loads((artifact.path / "manifest.json").read_text(encoding="utf-8"))
+    module_file = str(manifest.get("files", {}).get("module", "module.so"))
     return {
         "name": "clip_checkpoint_workflow",
         "checkpoint_id": checkpoint_id,
         "target": target_spec.to_json(),
+        "dtype": dtype,
         "transformers_src": str(transformers_src),
         "hf_home": str(hf_home),
         "dinoml_cache_dir": str(cache_dir),
         "artifact": {
             "path": str(artifact.path),
-            "module_exists": (artifact.path / "module.so").exists(),
+            "module_exists": (artifact.path / module_file).exists(),
             "manifest_exists": (artifact.path / "manifest.json").exists(),
         },
         "input_shapes": {name: list(value.shape) for name, value in inputs.items()},
@@ -269,7 +319,8 @@ def main() -> None:
         description="Compile and run a cached Transformers CLIP checkpoint through DinoML."
     )
     parser.add_argument("--checkpoint-id", default=DEFAULT_CHECKPOINT_ID)
-    parser.add_argument("--target", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--target", choices=("cpu", "cuda", "rocm"), default="cpu")
+    parser.add_argument("--dtype", choices=SUPPORTED_DTYPES, default="float32")
     parser.add_argument("--artifact-dir", type=Path, default=None)
     parser.add_argument("--transformers-src", type=Path, default=DEFAULT_TRANSFORMERS_SRC)
     parser.add_argument("--hf-home", type=Path, default=DEFAULT_HF_HOME)
@@ -277,6 +328,7 @@ def main() -> None:
     summary = run_workflow(
         checkpoint_id=args.checkpoint_id,
         target=args.target,
+        dtype=args.dtype,
         artifact_dir=args.artifact_dir,
         transformers_src=args.transformers_src,
         hf_home=args.hf_home,

@@ -256,11 +256,11 @@ def build_image_features_spec() -> dml.ir.ModelSpec:
 
 
 def _import_local_transformers():
-    if str(LOCAL_TRANSFORMERS_SRC) not in sys.path:
+    if LOCAL_TRANSFORMERS_SRC.exists() and str(LOCAL_TRANSFORMERS_SRC) not in sys.path:
         sys.path.insert(0, str(LOCAL_TRANSFORMERS_SRC))
     transformers = __import__("transformers")
     resolved = Path(transformers.__file__).resolve()
-    if not resolved.is_relative_to(LOCAL_TRANSFORMERS_SRC.resolve()):
+    if LOCAL_TRANSFORMERS_SRC.exists() and not resolved.is_relative_to(LOCAL_TRANSFORMERS_SRC.resolve()):
         raise AssertionError(f"expected local /workspace/transformers import, got {resolved}")
     return transformers
 
@@ -325,9 +325,13 @@ def reference_outputs() -> dict[str, np.ndarray]:
             attention_mask=torch.from_numpy(inputs["attention_mask"]),
             pixel_values=torch.from_numpy(inputs["pixel_values"]),
         )
+    if hasattr(text_features, "pooler_output"):
+        text_features = text_features.pooler_output
+    if hasattr(image_features, "pooler_output"):
+        image_features = image_features.pooler_output
     return {
-        "text_features": text_features.pooler_output.detach().cpu().numpy().astype(np.float32),
-        "image_features": image_features.pooler_output.detach().cpu().numpy().astype(np.float32),
+        "text_features": text_features.detach().cpu().numpy().astype(np.float32),
+        "image_features": image_features.detach().cpu().numpy().astype(np.float32),
         "logits_per_image": outputs.logits_per_image.detach().cpu().numpy().astype(np.float32),
         "logits_per_text": outputs.logits_per_text.detach().cpu().numpy().astype(np.float32),
         "text_embeds": outputs.text_embeds.detach().cpu().numpy().astype(np.float32),
@@ -420,10 +424,11 @@ def _run_compiled_cpu_artifact(
             module.close()
 
         bridge_kernels = [name for name, pattern in _GENERATED_HELPER_PATTERNS.items() if pattern.search(generated)]
+        module_file = str(manifest.get("files", {}).get("module", "module.so"))
         artifact_summary = {
             "path": str(artifact.path),
             "retained": retained,
-            "module_exists": (artifact.path / "module.so").exists(),
+            "module_exists": (artifact.path / module_file).exists(),
             "manifest_exists": manifest_path.exists(),
             "generated_module_exists": generated_path.exists(),
             "target": manifest["target"],

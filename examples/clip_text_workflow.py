@@ -166,7 +166,9 @@ def reference_outputs(*, eos_token_id: int = 2) -> np.ndarray:
     }
     with torch.inference_mode():
         text_features = model.get_text_features(**kwargs)
-    return text_features.pooler_output.detach().cpu().numpy().astype(np.float32)
+    if hasattr(text_features, "pooler_output"):
+        text_features = text_features.pooler_output
+    return text_features.detach().cpu().numpy().astype(np.float32)
 
 
 def inspect_workflow(*, eos_token_id: int = 2) -> dict[str, object]:

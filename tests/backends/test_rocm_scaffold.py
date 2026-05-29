@@ -1456,7 +1456,7 @@ def test_rocm_bmm_manifest_selects_ck_wide_m_archive(tmp_path):
     assert item["kernel_library"] == "ck_bmm"
     assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_add_float16_xdl_wide_m_v1"
     assert item["support_archive"] == ck_bmm_static_library_name("bmm_rcr_add", "float16")
-    assert len(item["candidates"]) == 6
+    assert len(item["candidates"]) == 7
     assert item["candidates"][0]["ck"]["api"] == "device_batched_gemm_multiple_d_xdl_cshuffle_v3"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][0]["ck"]["config"]["name"] == "wide_m"
@@ -1468,6 +1468,7 @@ def test_rocm_bmm_manifest_selects_ck_wide_m_archive(tmp_path):
         "skinny_m",
         "skinny_n",
         "small",
+        "baseline",
     }
     assert plan.external_support_libraries[0]["name"] == "ck_bmm"
     assert plan.external_support_libraries[0]["modules"] == [
@@ -1497,7 +1498,7 @@ def test_rocm_bmm_profile_workloads_cover_ck_candidate_set():
 
     workloads = build_profile_workloads(ir, manifest)
 
-    assert len(workloads) == 6
+    assert len(workloads) == 7
     assert {workload.kernel_library for workload in workloads} == {"ck_bmm"}
     assert {workload.candidate_id for workload in workloads} >= {
         "ck_bmm_rcr_add_float16_xdl_wide_m_v1",
@@ -1514,9 +1515,29 @@ def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
     workloads = build_profile_workloads(ir, manifest)
 
     candidate_names = {workload.candidate["ck"]["config"]["name"] for workload in workloads}
-    assert candidate_names == {"wide_m", "wide_n", "small"}
-    assert all(workload.candidate["ck"]["config"]["tile"]["k_per_block"] == 32 for workload in workloads)
+    assert candidate_names == {"wide_m", "wide_n", "small", "baseline"}
+    assert all(
+        workload.candidate["ck"]["config"]["tile"]["k_per_block"] == 32
+        for workload in workloads
+        if workload.candidate["ck"]["config"]["name"] != "baseline"
+    )
     assert "ck_bmm_rcr_add_float16_xdl_square_v1" not in {workload.candidate_id for workload in workloads}
+
+
+def test_rocm_bmm_selects_baseline_when_tuned_k_loop_is_too_short_for_attention():
+    ir = _rocm_bmm_ir("bmm_rcr", "float16", batch=8, m=77, n=77, k=64)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+    baseline = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "baseline")
+
+    assert item["selected_candidate_id"] == "ck_bmm_rcr_float16_xdl_custom_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_bmm_rcr_float16_xdl_custom_v1"
+    assert [workload.candidate["ck"]["config"]["name"] for workload in workloads] == ["baseline"]
+    assert baseline["ck"]["config"]["tile"]["k_per_block"] == 32
+    assert baseline["ck"]["config"]["pipeline"] == "v1"
+    assert "padded_block_loop_minimum" not in baseline["selection_predicate"]
 
 
 @pytest.mark.parametrize(
@@ -1527,21 +1548,21 @@ def test_rocm_bmm_profile_workloads_skip_v3_when_k_block_loop_is_too_short():
             256,
             96,
             "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
-            {"wide_n", "small"},
+            {"wide_n", "small", "baseline"},
         ),
         (
             16,
             128,
             192,
             "ck_bmm_rcr_add_float16_xdl_skinny_m_v1",
-            {"skinny_m", "small"},
+            {"skinny_m", "small", "baseline"},
         ),
         (
             128,
             16,
             192,
             "ck_bmm_rcr_add_float16_xdl_skinny_n_v1",
-            {"skinny_n", "small"},
+            {"skinny_n", "small", "baseline"},
         ),
     ],
 )
@@ -1562,7 +1583,16 @@ def test_rocm_bmm_profile_workloads_cover_representative_ck_shape_classes(
     assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == profile_config_names
     assert all(workload.batch_count == 2 for workload in workloads)
     assert all((workload.m, workload.n, workload.k) == (m, n, k) for workload in workloads)
-    assert all(workload.candidate["ck"]["config"]["pipeline"] == "v3" for workload in workloads)
+    assert all(
+        workload.candidate["ck"]["config"]["pipeline"] == "v3"
+        for workload in workloads
+        if workload.candidate["ck"]["config"]["name"] != "baseline"
+    )
+    assert any(
+        workload.candidate["ck"]["config"]["pipeline"] == "v1"
+        for workload in workloads
+        if workload.candidate["ck"]["config"]["name"] == "baseline"
+    )
 
 
 def test_rocm_bmm_profile_workload_preserves_broadcast_batch_and_bias_layout():
@@ -1605,7 +1635,11 @@ def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
 
     assert item["selected_candidate_id"] == "ck_bmm_rrr_add_float16_xdl_wide_n_v1"
     assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "row"}
-    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"wide_n", "small"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {
+        "wide_n",
+        "small",
+        "baseline",
+    }
     assert workload.a_shape == (2, 64, 96)
     assert workload.b_shape == (2, 96, 128)
     assert workload.output_shape == (2, 64, 128)
@@ -1614,6 +1648,35 @@ def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
     assert workload.ldc == 128
     assert workload.alignment_context["problem"]["base_layout"] == "rrr"
     assert workload.alignment_context["problem"]["b_n"] == 128
+
+
+def test_rocm_bmm_small_float32_uses_scalar_transfer_metadata():
+    ir = _rocm_bmm_ir("bmm_rrr", "float32", batch=2, m=16, n=16, k=48)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "small")
+
+    assert item["selected_candidate_id"] == "ck_bmm_rrr_float32_xdl_small_v1"
+    assert candidate["ck"]["config"]["tile"]["k_per_block"] == 16
+    assert candidate["ck"]["config"]["vector_width"] == 1
+    assert candidate["ck"]["config"]["operand_vector_widths"] == {"a": 1, "b": 1}
+    assert candidate["selection_predicate"]["alignment"]["a_k"] == 1
+    assert candidate["selection_predicate"]["alignment"]["b_n"] == 1
+
+
+def test_rocm_bmm_row_major_b_uses_scalar_b_transfer_metadata():
+    ir = _rocm_bmm_ir("bmm_rrr", "float32", batch=2, m=128, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "wide_m")
+
+    assert item["selected_candidate_id"] == "ck_bmm_rrr_float32_xdl_wide_m_v1"
+    assert candidate["ck"]["config"]["vector_width"] == 1
+    assert candidate["ck"]["config"]["operand_vector_widths"] == {"a": 4, "b": 1}
+    assert candidate["selection_predicate"]["alignment"]["a_k"] == 4
+    assert candidate["selection_predicate"]["alignment"]["b_n"] == 1
 
 
 def test_rocm_bmm_rrc_profile_workloads_preserve_column_output_layout():
@@ -1626,7 +1689,11 @@ def test_rocm_bmm_rrc_profile_workloads_preserve_column_output_layout():
 
     assert item["selected_candidate_id"] == "ck_bmm_rrc_add_float16_xdl_wide_n_v1"
     assert item["candidates"][0]["layouts"] == {"a": "row", "b": "row", "c": "column"}
-    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {"wide_n", "small"}
+    assert {workload.candidate["ck"]["config"]["name"] for workload in workloads} == {
+        "wide_n",
+        "small",
+        "baseline",
+    }
     assert workload.a_shape == (2, 64, 96)
     assert workload.b_shape == (2, 96, 128)
     assert workload.output_shape == (2, 128, 64)

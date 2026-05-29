@@ -12,6 +12,7 @@ from dinoml.kernels.families.bmm import BMM_SUPPORTED_DTYPES, bmm_op_spec, norma
 CK_BMM_CANDIDATE_SET_SCHEMA_VERSION = 3
 CK_BMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CK_BMM_DEFAULT_SYMBOL_ID = "xdl_wide_m_v1"
+CK_BMM_BASELINE_SYMBOL_ID = "xdl_custom_v1"
 CK_BMM_TUNED_SYMBOL_ID = "xdl_wide_m_v1"
 CK_BMM_WIDE_N_SYMBOL_ID = "xdl_wide_n_v1"
 CK_BMM_SQUARE_SYMBOL_ID = "xdl_square_v1"
@@ -69,6 +70,14 @@ CK_BMM_CONFIGS = (
         "priority": 10,
         "tile": {"block_size": 256, "m_per_block": 64, "n_per_block": 64},
         "min_problem": {"m": 16, "n": 16, "k": 16},
+    },
+    {
+        "name": "baseline",
+        "symbol_id": CK_BMM_BASELINE_SYMBOL_ID,
+        "config_enum": "kBaseline",
+        "priority": 0,
+        "tile": {"block_size": 256, "m_per_block": 128, "n_per_block": 128},
+        "min_problem": {},
     },
 )
 
@@ -270,6 +279,7 @@ def _ck_bmm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]
     config_name = str(kernel_config["name"])
     tile = {**dict(kernel_config["tile"]), "k_per_block": _ck_bmm_k_per_block(dtype, config_name)}
     vector_width = _ck_bmm_vector_width(dtype, str(kernel_config["name"]))
+    a_vector_width, b_vector_width = _ck_bmm_operand_vector_widths(dtype, config_name, spec)
     cde_vector_width = _ck_bmm_cde_vector_width(dtype, str(kernel_config["name"]))
     a_alignment_key = "k" if spec.a_layout == "r" else "m"
     b_alignment_key = "n" if spec.b_layout == "r" else "k"
@@ -277,17 +287,18 @@ def _ck_bmm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]
         "priority": int(kernel_config["priority"]),
         "min_problem": dict(kernel_config.get("min_problem", {})),
         "alignment": {
-            f"a_{a_alignment_key}": vector_width,
-            f"b_{b_alignment_key}": vector_width,
+            f"a_{a_alignment_key}": a_vector_width,
+            f"b_{b_alignment_key}": b_vector_width,
             "output_n": cde_vector_width,
         },
-        "padded_block_loop_minimum": {
+    }
+    if config_name != "baseline":
+        selection_predicate["padded_block_loop_minimum"] = {
             "k": {
                 "block": int(tile["k_per_block"]),
                 "minimum": 3,
             },
-        },
-    }
+        }
     ck_config = {
         "api": "device_batched_gemm_multiple_d_xdl_cshuffle_v3",
         "symbol_id": symbol_id,
@@ -297,8 +308,9 @@ def _ck_bmm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]
             "name": str(kernel_config["name"]),
             "config_enum": str(kernel_config["config_enum"]),
             "tile": tile,
-            "pipeline": "v3",
-            "vector_width": vector_width,
+            "pipeline": "v1" if config_name == "baseline" else "v3",
+            "vector_width": min(a_vector_width, b_vector_width),
+            "operand_vector_widths": {"a": a_vector_width, "b": b_vector_width},
             "cde_vector_width": cde_vector_width,
             "gemm_specialization": "mnk_padding",
         },
@@ -388,15 +400,22 @@ def _ck_bmm_vector_width(dtype: str, config_name: str) -> int:
     if config_name == "baseline":
         return 1
     if config_name == "small":
-        return 2 if dtype == "float32" else 4
+        return 1 if dtype == "float32" else 4
     if dtype == "float32":
         return 4
     return 8
 
 
+def _ck_bmm_operand_vector_widths(dtype: str, config_name: str, spec: Any) -> tuple[int, int]:
+    vector_width = _ck_bmm_vector_width(dtype, config_name)
+    a_vector_width = vector_width
+    b_vector_width = 1 if spec.b_layout == "r" else vector_width
+    return a_vector_width, b_vector_width
+
+
 def _ck_bmm_k_per_block(dtype: str, config_name: str) -> int:
     if config_name == "baseline":
-        return 16 if dtype == "float32" else 32
+        return 32
     if config_name in {"square", "skinny_m", "skinny_n"}:
         return 32 if dtype == "float32" else 64
     if config_name == "small":

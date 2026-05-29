@@ -53,6 +53,16 @@ using PassThrough = ck::tensor_operation::element_wise::PassThrough;
 static constexpr auto GemmMNKPadding =
     ck::tensor_operation::device::GemmSpecialization::MNKPadding;
 
+template <BmmConfig Config>
+struct BmmPipelineTraits {
+  static constexpr auto PipelineVersion = ck::BlockGemmPipelineVersion::v3;
+};
+
+template <>
+struct BmmPipelineTraits<BmmConfig::kBaseline> {
+  static constexpr auto PipelineVersion = ck::BlockGemmPipelineVersion::v1;
+};
+
 template <BmmConfig Config, typename Storage>
 struct BmmKernelConfig;
 
@@ -74,8 +84,8 @@ struct BmmKernelConfig<BmmConfig::kBaseline, Storage> {
   static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = 8;
   static constexpr ck::index_t BK1 = 8;
-  static constexpr ck::index_t MPerXDL = 32;
-  static constexpr ck::index_t NPerXDL = 32;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
   static constexpr ck::index_t MXdlPerWave = 2;
   static constexpr ck::index_t NXdlPerWave = 2;
   static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 1;
@@ -90,11 +100,11 @@ struct BmmKernelConfig<BmmConfig::kBaseline, float> {
   static constexpr ck::index_t BlockSize = 256;
   static constexpr ck::index_t MPerBlock = 128;
   static constexpr ck::index_t NPerBlock = 128;
-  static constexpr ck::index_t KPerBlock = 16;
+  static constexpr ck::index_t KPerBlock = 32;
   static constexpr ck::index_t AK1 = 4;
   static constexpr ck::index_t BK1 = 4;
-  static constexpr ck::index_t MPerXDL = 32;
-  static constexpr ck::index_t NPerXDL = 32;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
   static constexpr ck::index_t MXdlPerWave = 2;
   static constexpr ck::index_t NXdlPerWave = 2;
   static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 1;
@@ -237,6 +247,25 @@ struct BmmKernelConfig<BmmConfig::kSmall, Storage> {
   using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
 };
 
+template <>
+struct BmmKernelConfig<BmmConfig::kSmall, float> {
+  static constexpr ck::index_t BlockSize = 256;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 64;
+  static constexpr ck::index_t KPerBlock = 16;
+  static constexpr ck::index_t AK1 = 4;
+  static constexpr ck::index_t BK1 = 4;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t ABlockTransferSrcScalarPerVector = 1;
+  static constexpr ck::index_t BBlockTransferSrcScalarPerVector = 1;
+  static constexpr ck::index_t ABlockTransferDstScalarPerVector_AK1 = 1;
+  static constexpr ck::index_t BBlockTransferDstScalarPerVector_BK1 = 1;
+  using CDEBlockTransferClusterLengths = S<1, 32, 1, 4>;
+};
+
 template <typename Storage, int Count>
 struct BmmDefaultCDETransferTraits;
 
@@ -376,6 +405,20 @@ struct BTransferTraits<Col> {
   static constexpr ck::index_t SrcVectorDim = 2;
 };
 
+template <BmmConfig Config, typename Storage, typename Layout>
+struct BTransferScalars {
+  static constexpr ck::index_t SrcScalarPerVector =
+      BmmKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector;
+  static constexpr ck::index_t DstScalarPerVector =
+      BmmKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1;
+};
+
+template <BmmConfig Config, typename Storage>
+struct BTransferScalars<Config, Storage, Row> {
+  static constexpr ck::index_t SrcScalarPerVector = 1;
+  static constexpr ck::index_t DstScalarPerVector = 1;
+};
+
 template <typename Element, int Count, typename Layout>
 struct DTensorTraits;
 
@@ -467,15 +510,15 @@ using DeviceBmmXdl = ck::tensor_operation::device::DeviceBatchedGemmMultiD_Xdl_C
     typename BTransferTraits<BLayout>::ArrangeOrder,
     typename BTransferTraits<BLayout>::SrcAccessOrder,
     BTransferTraits<BLayout>::SrcVectorDim,
-    BmmKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector,
-    BmmKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1,
+    BTransferScalars<Config, Storage, BLayout>::SrcScalarPerVector,
+    BTransferScalars<Config, Storage, BLayout>::DstScalarPerVector,
     1,
     1,
     1,
     typename BmmKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
     CDETransferScalars,
     ck::BlockGemmPipelineScheduler::Intrawave,
-    ck::BlockGemmPipelineVersion::v3>;
+    BmmPipelineTraits<Config>::PipelineVersion>;
 
 template <
     BmmConfig Config,

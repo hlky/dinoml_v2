@@ -157,230 +157,317 @@ def build_clip_causal_mask(seq_len: int, mask_fill_value: float = -1.0e4) -> np.
     return causal
 
 
-class _LegacyCLIPTextEncoderLayer(dml.Module):
-    def __init__(self, config: LegacyCLIPTextConfig, weights: Mapping[str, np.ndarray], layer_idx: int):
-        prefix = f"text_model.encoder.layers.{layer_idx}"
+def _loaded_linear(
+    weights: Mapping[str, np.ndarray],
+    *,
+    parameter_prefix: str,
+    weight_key: str,
+    in_features: int,
+    out_features: int,
+    bias_key: str | None = None,
+    specialization: str | None = None,
+) -> dml.nn.Linear:
+    layer = dml.nn.Linear(
+        in_features,
+        out_features,
+        bias=bias_key is not None,
+        dtype="float32",
+        specialization=specialization,
+    )
+    layer.weight = dml.Parameter(
+        [out_features, in_features],
+        dtype="float32",
+        name=f"{parameter_prefix}_weight",
+        value=_weight_value(weights, weight_key, (out_features, in_features)),
+    )
+    if bias_key is not None:
+        layer.bias = dml.Parameter(
+            [out_features],
+            dtype="float32",
+            name=f"{parameter_prefix}_bias",
+            value=_weight_value(weights, bias_key, (out_features,)),
+        )
+    return layer
+
+
+def _loaded_layer_norm(
+    weights: Mapping[str, np.ndarray],
+    *,
+    parameter_prefix: str,
+    weight_key: str,
+    bias_key: str,
+    hidden_size: int,
+    eps: float,
+) -> dml.nn.LayerNorm:
+    layer = dml.nn.LayerNorm(hidden_size, eps=eps, dtype="float32")
+    layer.weight = dml.Parameter(
+        [hidden_size],
+        dtype="float32",
+        name=f"{parameter_prefix}_weight",
+        value=_weight_value(weights, weight_key, (hidden_size,)),
+    )
+    layer.bias = dml.Parameter(
+        [hidden_size],
+        dtype="float32",
+        name=f"{parameter_prefix}_bias",
+        value=_weight_value(weights, bias_key, (hidden_size,)),
+    )
+    return layer
+
+
+def _loaded_embedding(
+    weights: Mapping[str, np.ndarray],
+    *,
+    parameter_prefix: str,
+    weight_key: str,
+    num_embeddings: int,
+    embedding_dim: int,
+) -> dml.nn.Embedding:
+    layer = dml.nn.Embedding(num_embeddings, embedding_dim, dtype="float32")
+    layer.weight = dml.Parameter(
+        [num_embeddings, embedding_dim],
+        dtype="float32",
+        name=f"{parameter_prefix}_weight",
+        value=_weight_value(weights, weight_key, (num_embeddings, embedding_dim)),
+    )
+    return layer
+
+
+def _loaded_conv2d(
+    weights: Mapping[str, np.ndarray],
+    *,
+    parameter_prefix: str,
+    weight_key: str,
+    in_channels: int,
+    out_channels: int,
+    kernel_size: int,
+    stride: int,
+) -> dml.nn.Conv2d:
+    layer = dml.nn.Conv2d(
+        in_channels,
+        out_channels,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=0,
+        bias=False,
+        dtype="float32",
+    )
+    layer.weight = dml.Parameter(
+        [out_channels, in_channels, kernel_size, kernel_size],
+        dtype="float32",
+        name=f"{parameter_prefix}_weight",
+        value=_weight_value(weights, weight_key, (out_channels, in_channels, kernel_size, kernel_size)),
+    )
+    return layer
+
+
+class _LegacyCLIPSelfAttention(dml.nn.Module):
+    def __init__(
+        self,
+        config: LegacyCLIPTextConfig | LegacyCLIPVisionConfig,
+        weights: Mapping[str, np.ndarray],
+        prefix: str,
+    ):
         self.config = config
-        self.layer_norm1_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm1.weight", (config.hidden_size,)),
+        hidden = config.hidden_size
+        self.q_proj = _loaded_linear(
+            weights,
+            parameter_prefix="q_proj",
+            weight_key=f"{prefix}.self_attn.q_proj.weight",
+            bias_key=f"{prefix}.self_attn.q_proj.bias",
+            in_features=hidden,
+            out_features=hidden,
         )
-        self.layer_norm1_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm1.bias", (config.hidden_size,)),
+        self.k_proj = _loaded_linear(
+            weights,
+            parameter_prefix="k_proj",
+            weight_key=f"{prefix}.self_attn.k_proj.weight",
+            bias_key=f"{prefix}.self_attn.k_proj.bias",
+            in_features=hidden,
+            out_features=hidden,
         )
-        self.q_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.q_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
+        self.v_proj = _loaded_linear(
+            weights,
+            parameter_prefix="v_proj",
+            weight_key=f"{prefix}.self_attn.v_proj.weight",
+            bias_key=f"{prefix}.self_attn.v_proj.bias",
+            in_features=hidden,
+            out_features=hidden,
         )
-        self.q_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.q_proj.bias", (config.hidden_size,)),
-        )
-        self.k_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.k_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.k_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.k_proj.bias", (config.hidden_size,)),
-        )
-        self.v_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.v_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.v_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.v_proj.bias", (config.hidden_size,)),
-        )
-        self.out_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.out_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.out_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.out_proj.bias", (config.hidden_size,)),
-        )
-        self.layer_norm2_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm2.weight", (config.hidden_size,)),
-        )
-        self.layer_norm2_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm2.bias", (config.hidden_size,)),
-        )
-        self.fc1_weight = dml.Parameter(
-            [config.intermediate_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.mlp.fc1.weight",
-                (config.intermediate_size, config.hidden_size),
-            ),
-        )
-        self.fc1_bias = dml.Parameter(
-            [config.intermediate_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.mlp.fc1.bias", (config.intermediate_size,)),
-        )
-        self.fc2_weight = dml.Parameter(
-            [config.hidden_size, config.intermediate_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.mlp.fc2.weight",
-                (config.hidden_size, config.intermediate_size),
-            ),
-        )
-        self.fc2_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.mlp.fc2.bias", (config.hidden_size,)),
+        self.out_proj = _loaded_linear(
+            weights,
+            parameter_prefix="out_proj",
+            weight_key=f"{prefix}.self_attn.out_proj.weight",
+            bias_key=f"{prefix}.self_attn.out_proj.bias",
+            in_features=hidden,
+            out_features=hidden,
         )
 
-    def _attention(self, hidden_states, attention_mask, causal_mask):
+    def forward(self, hidden_states, attention_mask=None, causal_mask=None):
         seq_len = _hidden_sequence_length(hidden_states.shape)
         batch = _first_static_dim(hidden_states.shape)
         hidden = self.config.hidden_size
         num_heads = self.config.num_attention_heads
         head_dim = self.config.head_dim
 
-        q = dml.ops.gemm_rcr_bias(hidden_states, self.q_proj_weight, self.q_proj_bias)
-        k = dml.ops.gemm_rcr_bias(hidden_states, self.k_proj_weight, self.k_proj_bias)
-        v = dml.ops.gemm_rcr_bias(hidden_states, self.v_proj_weight, self.v_proj_bias)
-
-        q = dml.ops.reshape(q, [batch, seq_len, num_heads, head_dim])
-        k = dml.ops.reshape(k, [batch, seq_len, num_heads, head_dim])
-        v = dml.ops.reshape(v, [batch, seq_len, num_heads, head_dim])
-
-        q = dml.ops.permute0213(q)
-        k = dml.ops.permute0213(k)
-        v = dml.ops.permute0213(v)
-
-        q = dml.ops.flatten(q, start_dim=0, end_dim=1)
-        k = dml.ops.flatten(k, start_dim=0, end_dim=1)
-        v = dml.ops.flatten(v, start_dim=0, end_dim=1)
+        q = self._project_heads(self.q_proj, hidden_states, batch, seq_len, num_heads, head_dim)
+        k = self._project_heads(self.k_proj, hidden_states, batch, seq_len, num_heads, head_dim)
+        v = self._project_heads(self.v_proj, hidden_states, batch, seq_len, num_heads, head_dim)
 
         scores = dml.ops.bmm_rcr(q, k)
         scores = dml.ops.mul(scores, 1.0 / math.sqrt(head_dim))
-        scores = dml.ops.add(scores, causal_mask)
-
-        keep = dml.ops.reshape(attention_mask, [batch, 1, 1, seq_len])
-        keep = dml.ops.expand(keep, [batch, num_heads, seq_len, seq_len])
-        keep = dml.ops.reshape(keep, [batch * num_heads, seq_len, seq_len])
-        zeros = dml.ops.full([batch * num_heads, seq_len, seq_len], 0.0, dtype="float32")
-        masked = dml.ops.full(
-            [batch * num_heads, seq_len, seq_len],
-            float(self.config.mask_fill_value),
-            dtype="float32",
-        )
-        scores = dml.ops.add(scores, dml.ops.where(keep, zeros, masked))
+        if causal_mask is not None:
+            scores = dml.ops.add(scores, causal_mask)
+        if attention_mask is not None:
+            scores = self._apply_attention_mask(scores, attention_mask, batch, seq_len, num_heads)
 
         probs = dml.ops.softmax(scores, dim=-1)
         context = dml.ops.bmm_rrr(probs, v)
         context = dml.ops.reshape(context, [batch, num_heads, seq_len, head_dim])
         context = dml.ops.permute0213(context)
         context = dml.ops.reshape(context, [batch, seq_len, hidden])
-        return dml.ops.gemm_rcr_bias(context, self.out_proj_weight, self.out_proj_bias)
+        return self.out_proj(context)
 
-    def forward(self, hidden_states, attention_mask, causal_mask):
-        residual = hidden_states
-        hidden_states = dml.ops.layer_norm(
-            hidden_states,
-            self.layer_norm1_weight,
-            self.layer_norm1_bias,
-            eps=self.config.layer_norm_eps,
+    def _project_heads(self, projection, hidden_states, batch: int, seq_len: int, num_heads: int, head_dim: int):
+        values = projection(hidden_states)
+        values = dml.ops.reshape(values, [batch, seq_len, num_heads, head_dim])
+        values = dml.ops.permute0213(values)
+        return dml.ops.flatten(values, start_dim=0, end_dim=1)
+
+    def _apply_attention_mask(self, scores, attention_mask, batch: int, seq_len: int, num_heads: int):
+        keep = dml.ops.reshape(attention_mask, [batch, 1, 1, seq_len])
+        keep = dml.ops.expand(keep, [batch, num_heads, seq_len, seq_len])
+        keep = dml.ops.reshape(keep, [batch * num_heads, seq_len, seq_len])
+        zeros = dml.ops.full([batch * num_heads, seq_len, seq_len], 0.0, dtype=scores.dtype)
+        masked = dml.ops.full(
+            [batch * num_heads, seq_len, seq_len],
+            float(self.config.mask_fill_value),
+            dtype=scores.dtype,
         )
-        hidden_states = self._attention(hidden_states, attention_mask, causal_mask)
+        return dml.ops.add(scores, dml.ops.where(keep, zeros, masked))
+
+
+class _LegacyCLIPMLP(dml.nn.Module):
+    def __init__(
+        self,
+        config: LegacyCLIPTextConfig | LegacyCLIPVisionConfig,
+        weights: Mapping[str, np.ndarray],
+        prefix: str,
+    ):
+        self.fc1 = _loaded_linear(
+            weights,
+            parameter_prefix="fc1",
+            weight_key=f"{prefix}.mlp.fc1.weight",
+            bias_key=f"{prefix}.mlp.fc1.bias",
+            in_features=config.hidden_size,
+            out_features=config.intermediate_size,
+            specialization="quick_gelu",
+        )
+        self.fc2 = _loaded_linear(
+            weights,
+            parameter_prefix="fc2",
+            weight_key=f"{prefix}.mlp.fc2.weight",
+            bias_key=f"{prefix}.mlp.fc2.bias",
+            in_features=config.intermediate_size,
+            out_features=config.hidden_size,
+        )
+
+    def forward(self, hidden_states):
+        return self.fc2(self.fc1(hidden_states))
+
+
+class _LegacyCLIPEncoderLayer(dml.nn.Module):
+    def __init__(
+        self,
+        config: LegacyCLIPTextConfig | LegacyCLIPVisionConfig,
+        weights: Mapping[str, np.ndarray],
+        prefix: str,
+    ):
+        self.config = config
+        self.layer_norm1 = _loaded_layer_norm(
+            weights,
+            parameter_prefix="layer_norm1",
+            weight_key=f"{prefix}.layer_norm1.weight",
+            bias_key=f"{prefix}.layer_norm1.bias",
+            hidden_size=config.hidden_size,
+            eps=config.layer_norm_eps,
+        )
+        self.self_attn = _LegacyCLIPSelfAttention(config, weights, prefix)
+        self.layer_norm2 = _loaded_layer_norm(
+            weights,
+            parameter_prefix="layer_norm2",
+            weight_key=f"{prefix}.layer_norm2.weight",
+            bias_key=f"{prefix}.layer_norm2.bias",
+            hidden_size=config.hidden_size,
+            eps=config.layer_norm_eps,
+        )
+        self.mlp = _LegacyCLIPMLP(config, weights, prefix)
+
+    def forward(self, hidden_states, attention_mask=None, causal_mask=None):
+        residual = hidden_states
+        hidden_states = self.layer_norm1(hidden_states)
+        hidden_states = self.self_attn(hidden_states, attention_mask=attention_mask, causal_mask=causal_mask)
         hidden_states = dml.ops.add(residual, hidden_states)
 
         residual = hidden_states
-        hidden_states = dml.ops.layer_norm(
-            hidden_states,
-            self.layer_norm2_weight,
-            self.layer_norm2_bias,
-            eps=self.config.layer_norm_eps,
-        )
-        hidden_states = dml.ops.gemm_rcr_bias_quick_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
-        hidden_states = dml.ops.gemm_rcr_bias(hidden_states, self.fc2_weight, self.fc2_bias)
+        hidden_states = self.layer_norm2(hidden_states)
+        hidden_states = self.mlp(hidden_states)
         return dml.ops.add(residual, hidden_states)
 
 
-class LegacyCLIPTextModelWithProjection(dml.Module):
+class _LegacyCLIPTextEncoderLayer(_LegacyCLIPEncoderLayer):
+    def __init__(self, config: LegacyCLIPTextConfig, weights: Mapping[str, np.ndarray], layer_idx: int):
+        super().__init__(config, weights, f"text_model.encoder.layers.{layer_idx}")
+
+    def forward(self, hidden_states, attention_mask, causal_mask):
+        return super().forward(hidden_states, attention_mask=attention_mask, causal_mask=causal_mask)
+
+
+class _LegacyCLIPVisionEncoderLayer(_LegacyCLIPEncoderLayer):
+    def __init__(self, config: LegacyCLIPVisionConfig, weights: Mapping[str, np.ndarray], layer_idx: int):
+        super().__init__(config, weights, f"vision_model.encoder.layers.{layer_idx}")
+
+
+class LegacyCLIPTextModelWithProjection(dml.nn.Module):
     def __init__(self, config: LegacyCLIPTextConfig, weights: Mapping[str, np.ndarray]):
         self.config = config
-        self.token_embedding_weight = dml.Parameter(
-            [config.vocab_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                "text_model.embeddings.token_embedding.weight",
-                (config.vocab_size, config.hidden_size),
-            ),
+        self.token_embedding = _loaded_embedding(
+            weights,
+            parameter_prefix="token_embedding",
+            weight_key="text_model.embeddings.token_embedding.weight",
+            num_embeddings=config.vocab_size,
+            embedding_dim=config.hidden_size,
         )
-        self.position_embedding_weight = dml.Parameter(
-            [config.max_position_embeddings, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                "text_model.embeddings.position_embedding.weight",
-                (config.max_position_embeddings, config.hidden_size),
-            ),
+        self.position_embedding = _loaded_embedding(
+            weights,
+            parameter_prefix="position_embedding",
+            weight_key="text_model.embeddings.position_embedding.weight",
+            num_embeddings=config.max_position_embeddings,
+            embedding_dim=config.hidden_size,
         )
-        self.layers = [
+        self.layers = dml.nn.ModuleList(
             _LegacyCLIPTextEncoderLayer(config, weights, layer_idx)
             for layer_idx in range(config.num_hidden_layers)
-        ]
-        self.final_layer_norm_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "text_model.final_layer_norm.weight", (config.hidden_size,)),
         )
-        self.final_layer_norm_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "text_model.final_layer_norm.bias", (config.hidden_size,)),
+        self.final_layer_norm = _loaded_layer_norm(
+            weights,
+            parameter_prefix="final_layer_norm",
+            weight_key="text_model.final_layer_norm.weight",
+            bias_key="text_model.final_layer_norm.bias",
+            hidden_size=config.hidden_size,
+            eps=config.layer_norm_eps,
         )
-        self.text_projection_weight = dml.Parameter(
-            [config.projection_dim, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                "text_projection.weight",
-                (config.projection_dim, config.hidden_size),
-            ),
+        self.text_projection = _loaded_linear(
+            weights,
+            parameter_prefix="text_projection",
+            weight_key="text_projection.weight",
+            in_features=config.hidden_size,
+            out_features=config.projection_dim,
         )
         self.causal_mask = dml.Parameter(
             [1, config.max_position_embeddings, config.max_position_embeddings],
             dtype="float32",
+            name="causal_mask",
             value=build_clip_causal_mask(config.max_position_embeddings, config.mask_fill_value),
         )
 
@@ -413,29 +500,24 @@ class LegacyCLIPTextModelWithProjection(dml.Module):
         seq_len = _sequence_length(input_ids.shape)
         if position_ids is None:
             position_ids = self._default_position_ids(seq_len)
-        token_embeddings = dml.ops.embedding(self.token_embedding_weight, input_ids)
-        position_embeddings = dml.ops.embedding(self.position_embedding_weight, position_ids)
+        token_embeddings = self.token_embedding(input_ids)
+        position_embeddings = self.position_embedding(position_ids)
         hidden_states = dml.ops.add(token_embeddings, position_embeddings)
         causal_mask = self._causal_mask_for_sequence(seq_len)
 
         for layer in self.layers:
             hidden_states = layer(hidden_states, attention_mask, causal_mask)
 
-        last_hidden_state = dml.ops.layer_norm(
-            hidden_states,
-            self.final_layer_norm_weight,
-            self.final_layer_norm_bias,
-            eps=self.config.layer_norm_eps,
-        )
+        last_hidden_state = self.final_layer_norm(hidden_states)
         pooled_output = self._pool_hidden_state(input_ids, last_hidden_state)
-        return dml.ops.gemm_rcr(pooled_output, self.text_projection_weight)
+        return self.text_projection(pooled_output)
 
     def forward(self, input_ids, attention_mask, position_ids=None):
         text_features = self.encode_text(input_ids, attention_mask, position_ids)
         return dml.ops.output(text_features, "text_features")
 
 
-class LegacyCLIPVisionEmbeddings(dml.Module):
+class LegacyCLIPVisionEmbeddings(dml.nn.Module):
     def __init__(
         self,
         config: LegacyCLIPVisionEmbeddingsConfig | LegacyCLIPVisionConfig,
@@ -445,33 +527,33 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
         self.class_embedding = dml.Parameter(
             [1, 1, config.hidden_size],
             dtype="float32",
+            name="class_embedding",
             value=_weight_value(
                 weights,
                 "vision_model.embeddings.class_embedding",
                 (config.hidden_size,),
             ).reshape(1, 1, config.hidden_size),
         )
-        self.patch_embedding_weight = dml.Parameter(
-            [config.hidden_size, config.num_channels, config.patch_size, config.patch_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                "vision_model.embeddings.patch_embedding.weight",
-                (config.hidden_size, config.num_channels, config.patch_size, config.patch_size),
-            ),
+        self.patch_embedding = _loaded_conv2d(
+            weights,
+            parameter_prefix="patch_embedding",
+            weight_key="vision_model.embeddings.patch_embedding.weight",
+            in_channels=config.num_channels,
+            out_channels=config.hidden_size,
+            kernel_size=config.patch_size,
+            stride=config.patch_size,
         )
-        self.position_embedding_weight = dml.Parameter(
-            [config.num_positions, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                "vision_model.embeddings.position_embedding.weight",
-                (config.num_positions, config.hidden_size),
-            ),
+        self.position_embedding = _loaded_embedding(
+            weights,
+            parameter_prefix="position_embedding",
+            weight_key="vision_model.embeddings.position_embedding.weight",
+            num_embeddings=config.num_positions,
+            embedding_dim=config.hidden_size,
         )
         self.position_ids = dml.Parameter(
             np.arange(config.num_positions, dtype=np.int64).reshape(1, config.num_positions),
             dtype="int64",
+            name="position_ids",
         )
 
     def encode_pixels(self, pixel_values):
@@ -486,21 +568,14 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
                 f"({self.config.image_size}*{self.config.image_size})."
             )
 
-        patch_embeds = dml.ops.conv2d(
-            pixel_values,
-            self.patch_embedding_weight,
-            stride=(self.config.patch_size, self.config.patch_size),
-            padding=(0, 0),
-            dilation=(1, 1),
-            groups=1,
-        )
+        patch_embeds = self.patch_embedding(pixel_values)
         patch_embeds = dml.ops.flatten(patch_embeds, start_dim=2)
         patch_embeds = dml.ops.permute021(patch_embeds)
 
         class_embeds = dml.ops.expand(self.class_embedding, [batch, 1, self.config.hidden_size])
 
         embeddings = dml.ops.concatenate([class_embeds, patch_embeds], dim=1)
-        position_embeddings = dml.ops.embedding(self.position_embedding_weight, self.position_ids)
+        position_embeddings = self.position_embedding(self.position_ids)
         return dml.ops.add(embeddings, position_embeddings)
 
     def forward(self, pixel_values):
@@ -508,212 +583,41 @@ class LegacyCLIPVisionEmbeddings(dml.Module):
         return dml.ops.output(embeddings, "embeddings")
 
 
-class _LegacyCLIPVisionEncoderLayer(dml.Module):
-    def __init__(self, config: LegacyCLIPVisionConfig, weights: Mapping[str, np.ndarray], layer_idx: int):
-        prefix = f"vision_model.encoder.layers.{layer_idx}"
-        self.config = config
-        self.layer_norm1_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm1.weight", (config.hidden_size,)),
-        )
-        self.layer_norm1_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm1.bias", (config.hidden_size,)),
-        )
-        self.q_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.q_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.q_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.q_proj.bias", (config.hidden_size,)),
-        )
-        self.k_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.k_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.k_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.k_proj.bias", (config.hidden_size,)),
-        )
-        self.v_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.v_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.v_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.v_proj.bias", (config.hidden_size,)),
-        )
-        self.out_proj_weight = dml.Parameter(
-            [config.hidden_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.self_attn.out_proj.weight",
-                (config.hidden_size, config.hidden_size),
-            ),
-        )
-        self.out_proj_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.self_attn.out_proj.bias", (config.hidden_size,)),
-        )
-        self.layer_norm2_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm2.weight", (config.hidden_size,)),
-        )
-        self.layer_norm2_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.layer_norm2.bias", (config.hidden_size,)),
-        )
-        self.fc1_weight = dml.Parameter(
-            [config.intermediate_size, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.mlp.fc1.weight",
-                (config.intermediate_size, config.hidden_size),
-            ),
-        )
-        self.fc1_bias = dml.Parameter(
-            [config.intermediate_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.mlp.fc1.bias", (config.intermediate_size,)),
-        )
-        self.fc2_weight = dml.Parameter(
-            [config.hidden_size, config.intermediate_size],
-            dtype="float32",
-            value=_weight_value(
-                weights,
-                f"{prefix}.mlp.fc2.weight",
-                (config.hidden_size, config.intermediate_size),
-            ),
-        )
-        self.fc2_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, f"{prefix}.mlp.fc2.bias", (config.hidden_size,)),
-        )
-
-    def _attention(self, hidden_states):
-        seq_len = _hidden_sequence_length(hidden_states.shape)
-        batch = _first_static_dim(hidden_states.shape)
-        hidden = self.config.hidden_size
-        num_heads = self.config.num_attention_heads
-        head_dim = self.config.head_dim
-
-        q = dml.ops.gemm_rcr_bias(hidden_states, self.q_proj_weight, self.q_proj_bias)
-        k = dml.ops.gemm_rcr_bias(hidden_states, self.k_proj_weight, self.k_proj_bias)
-        v = dml.ops.gemm_rcr_bias(hidden_states, self.v_proj_weight, self.v_proj_bias)
-
-        q = dml.ops.reshape(q, [batch, seq_len, num_heads, head_dim])
-        k = dml.ops.reshape(k, [batch, seq_len, num_heads, head_dim])
-        v = dml.ops.reshape(v, [batch, seq_len, num_heads, head_dim])
-
-        q = dml.ops.permute0213(q)
-        k = dml.ops.permute0213(k)
-        v = dml.ops.permute0213(v)
-
-        q = dml.ops.flatten(q, start_dim=0, end_dim=1)
-        k = dml.ops.flatten(k, start_dim=0, end_dim=1)
-        v = dml.ops.flatten(v, start_dim=0, end_dim=1)
-
-        scores = dml.ops.bmm_rcr(q, k)
-        scores = dml.ops.mul(scores, 1.0 / math.sqrt(head_dim))
-        probs = dml.ops.softmax(scores, dim=-1)
-        context = dml.ops.bmm_rrr(probs, v)
-        context = dml.ops.reshape(context, [batch, num_heads, seq_len, head_dim])
-        context = dml.ops.permute0213(context)
-        context = dml.ops.reshape(context, [batch, seq_len, hidden])
-        return dml.ops.gemm_rcr_bias(context, self.out_proj_weight, self.out_proj_bias)
-
-    def forward(self, hidden_states):
-        residual = hidden_states
-        hidden_states = dml.ops.layer_norm(
-            hidden_states,
-            self.layer_norm1_weight,
-            self.layer_norm1_bias,
-            eps=self.config.layer_norm_eps,
-        )
-        hidden_states = self._attention(hidden_states)
-        hidden_states = dml.ops.add(residual, hidden_states)
-
-        residual = hidden_states
-        hidden_states = dml.ops.layer_norm(
-            hidden_states,
-            self.layer_norm2_weight,
-            self.layer_norm2_bias,
-            eps=self.config.layer_norm_eps,
-        )
-        hidden_states = dml.ops.gemm_rcr_bias_quick_gelu(hidden_states, self.fc1_weight, self.fc1_bias)
-        hidden_states = dml.ops.gemm_rcr_bias(hidden_states, self.fc2_weight, self.fc2_bias)
-        return dml.ops.add(residual, hidden_states)
-
-
-class LegacyCLIPVisionModelWithProjection(dml.Module):
+class LegacyCLIPVisionModelWithProjection(dml.nn.Module):
     def __init__(self, config: LegacyCLIPVisionConfig, weights: Mapping[str, np.ndarray]):
         self.config = config
         self.embeddings = LegacyCLIPVisionEmbeddings(config, weights)
-        self.layers = [
+        self.layers = dml.nn.ModuleList(
             _LegacyCLIPVisionEncoderLayer(config, weights, layer_idx)
             for layer_idx in range(config.num_hidden_layers)
-        ]
-        self.pre_layrnorm_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "vision_model.pre_layrnorm.weight", (config.hidden_size,)),
         )
-        self.pre_layrnorm_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "vision_model.pre_layrnorm.bias", (config.hidden_size,)),
+        self.pre_layrnorm = _loaded_layer_norm(
+            weights,
+            parameter_prefix="pre_layrnorm",
+            weight_key="vision_model.pre_layrnorm.weight",
+            bias_key="vision_model.pre_layrnorm.bias",
+            hidden_size=config.hidden_size,
+            eps=config.layer_norm_eps,
         )
-        self.post_layernorm_weight = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "vision_model.post_layernorm.weight", (config.hidden_size,)),
+        self.post_layernorm = _loaded_layer_norm(
+            weights,
+            parameter_prefix="post_layernorm",
+            weight_key="vision_model.post_layernorm.weight",
+            bias_key="vision_model.post_layernorm.bias",
+            hidden_size=config.hidden_size,
+            eps=config.layer_norm_eps,
         )
-        self.post_layernorm_bias = dml.Parameter(
-            [config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "vision_model.post_layernorm.bias", (config.hidden_size,)),
-        )
-        self.visual_projection_weight = dml.Parameter(
-            [config.projection_dim, config.hidden_size],
-            dtype="float32",
-            value=_weight_value(weights, "visual_projection.weight", (config.projection_dim, config.hidden_size)),
+        self.visual_projection = _loaded_linear(
+            weights,
+            parameter_prefix="visual_projection",
+            weight_key="visual_projection.weight",
+            in_features=config.hidden_size,
+            out_features=config.projection_dim,
         )
 
     def encode_vision(self, pixel_values):
         hidden_states = self.embeddings.encode_pixels(pixel_values)
-        hidden_states = dml.ops.layer_norm(
-            hidden_states,
-            self.pre_layrnorm_weight,
-            self.pre_layrnorm_bias,
-            eps=self.config.layer_norm_eps,
-        )
+        hidden_states = self.pre_layrnorm(hidden_states)
         for layer in self.layers:
             hidden_states = layer(hidden_states)
         batch = _first_static_dim(hidden_states.shape)
@@ -723,13 +627,8 @@ class LegacyCLIPVisionModelWithProjection(dml.Module):
             slice_sizes=(batch, 1, self.config.hidden_size),
         )
         pooled_output = dml.ops.squeeze(pooled_output, 1)
-        pooled_output = dml.ops.layer_norm(
-            pooled_output,
-            self.post_layernorm_weight,
-            self.post_layernorm_bias,
-            eps=self.config.layer_norm_eps,
-        )
-        image_features = dml.ops.gemm_rcr(pooled_output, self.visual_projection_weight)
+        pooled_output = self.post_layernorm(pooled_output)
+        image_features = self.visual_projection(pooled_output)
         return hidden_states, pooled_output, image_features
 
     def forward(self, pixel_values):
@@ -741,7 +640,7 @@ class LegacyCLIPVisionModelWithProjection(dml.Module):
         )
 
 
-class LegacyCLIPModel(dml.Module):
+class LegacyCLIPModel(dml.nn.Module):
     """Bounded CLIP two-tower wrapper composed from the admitted tower slices."""
 
     def __init__(

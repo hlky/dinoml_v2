@@ -4,6 +4,7 @@ from dinoml.compiler import Artifact, compile
 from dinoml.frontend import Module, Parameter, Tensor, TensorSpec, trace
 from dinoml.shapes import Dim, Shape
 from dinoml import ops
+from dinoml import nn
 
 __all__ = [
     "Artifact",
@@ -18,6 +19,7 @@ __all__ = [
     "TensorSpec",
     "compile",
     "gguf_constant",
+    "nn",
     "ops",
     "trace",
 ]

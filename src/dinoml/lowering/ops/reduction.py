@@ -92,6 +92,9 @@ def _validate_node_contract(
     if node["op"] in BASIC_REDUCTION_OPS:
         if input_dtype not in REDUCTION_DTYPES:
             raise NotImplementedError("basic reduction lowering supports float16, float32, and bfloat16 tensors only")
+    elif node["op"] == "vector_norm":
+        if input_dtype not in REDUCTION_DTYPES:
+            raise NotImplementedError("vector_norm lowering supports float16, float32, and bfloat16 tensors only")
     elif input_dtype != "float32":
         raise NotImplementedError(f"{node['op']} lowering currently supports float32 tensors only")
     if not input_tensor["shape"]:

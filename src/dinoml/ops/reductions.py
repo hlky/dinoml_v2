@@ -228,8 +228,8 @@ class VectorNorm(OpDef):
     infer_shape_with_attrs = infer_reduction_for_attrs
     backend_kernels = _REDUCTION_KERNELS
     frontend = FrontendBinding("vector_norm")
-    allowed_dtypes = ("float32",)
-    description = "Dense float32 vector norm reduction over a static last dimension."
+    allowed_dtypes = REDUCTION_DTYPES
+    description = "Dense float16, float32, and bfloat16 vector norm reduction over a static last dimension."
 
     @classmethod
     def forward(cls, x: object, dim: int = -1, keepdim: bool = False, ord: float = 2.0) -> Tensor:
@@ -382,7 +382,7 @@ def topk(x: object, k: int, dim: int = -1, largest: bool = True, sorted: bool = 
 
 def _reduction(op_name: str, x: object, dim: int, keepdim: bool, extra_attrs: dict[str, object] | None = None) -> Tensor:
     tensor = as_tensor(x, dtype_hint="float32")
-    allowed_dtypes = REDUCTION_DTYPES if op_name in BASIC_REDUCTION_OPS else ("float32",)
+    allowed_dtypes = REDUCTION_DTYPES if op_name in BASIC_REDUCTION_OPS or op_name == "vector_norm" else ("float32",)
     if tensor.dtype not in allowed_dtypes:
         raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
     rank = len(tensor.shape)

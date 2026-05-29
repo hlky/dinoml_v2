@@ -814,7 +814,7 @@ class RuntimeModule:
                 global_getter = ctypes.CDLL(None).dino_get_last_error
                 global_getter.restype = ctypes.c_char_p
                 getters.append(global_getter)
-            except AttributeError:
+            except (AttributeError, OSError, TypeError):
                 pass
         for getter in getters:
             message = getter()

@@ -58,6 +58,21 @@ def _fake_session(module: _FakeModule | None = None) -> Session:
     return session
 
 
+def test_runtime_last_error_message_ignores_unsupported_global_lookup(monkeypatch):
+    module = runtime.RuntimeModule.__new__(runtime.RuntimeModule)
+    module._dll = None
+    module._runtime_dll = None
+    module._cuda_runtime_dll = None
+
+    def fake_cdll(name):
+        assert name is None
+        raise TypeError("process-global lookup is unsupported")
+
+    monkeypatch.setattr(runtime.ctypes, "CDLL", fake_cdll)
+
+    assert module._last_error_message() is None
+
+
 def test_session_benchmark_native_summarizes_module_samples():
     module = _FakeModule()
     session = _fake_session(module)

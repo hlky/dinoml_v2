@@ -65,6 +65,21 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "add_layer_norm":
+            summed_name, normalized_name = node["outputs"]
+            summed_dtype = _tensor_dtype(ir, summed_name)
+            normalized_dtype = _tensor_dtype(ir, normalized_name)
+            summed = _execute_elementwise("add", [values[node["inputs"][0]], values[node["inputs"][1]]], {})
+            values[summed_name] = _store_reference(summed, summed_dtype)
+            values[normalized_name] = _store_reference(
+                _execute_layer_norm(
+                    values[summed_name],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    node.get("attrs", {}),
+                ),
+                normalized_dtype,
+            )
         elif node["op"] == "get_timestep_embedding":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -312,6 +327,33 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 _execute_bmm(node["op"], [values[name] for name in node["inputs"]]),
                 output_dtype,
             )
+        elif node["op"] == "flash_attention":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_flash_attention(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "flash_attention_qkv":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            qkv = np.asarray(values[node["inputs"][0]])
+            values[output_name] = _store_reference(
+                _execute_flash_attention(qkv[:, :, 0, :, :], qkv[:, :, 1, :, :], qkv[:, :, 2, :, :], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "qkv_split":
+            q_name, k_name, v_name = node["outputs"]
+            qkv = np.asarray(values[node["inputs"][0]])
+            hidden = qkv.shape[-1] // 3
+            values[q_name] = _store_reference(qkv[..., :hidden], _tensor_dtype(ir, q_name))
+            values[k_name] = _store_reference(qkv[..., hidden : 2 * hidden], _tensor_dtype(ir, k_name))
+            values[v_name] = _store_reference(qkv[..., 2 * hidden :], _tensor_dtype(ir, v_name))
         else:
             raise ValueError(f"Unsupported op: {node['op']}")
 
@@ -328,7 +370,9 @@ def _materialize_available_views(ir: Mapping[str, object], values: Dict[str, np.
             source = str(view["source"])
             if tensor in values or source not in values:
                 continue
-            values[tensor] = np.reshape(values[source], tuple(int(dim) for dim in view["shape"])).copy()
+            offset = int(view.get("offset_elements", 0))
+            numel = int(np.prod([int(dim) for dim in view["shape"]], dtype=np.int64))
+            values[tensor] = np.reshape(values[source].reshape(-1)[offset : offset + numel], tuple(int(dim) for dim in view["shape"])).copy()
             progressed = True
         if not progressed:
             return
@@ -787,6 +831,33 @@ def _execute_bmm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     if spec.epilogue == "add":
         result = result + inputs[2]
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_flash_attention(q: np.ndarray, k: np.ndarray, v: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    q_value = np.asarray(q, dtype=np.float32)
+    k_value = np.asarray(k, dtype=np.float32)
+    v_value = np.asarray(v, dtype=np.float32)
+    if q_value.ndim != 4 or k_value.ndim != 4 or v_value.ndim != 4:
+        raise ValueError("CPU reference flash_attention expects rank-4 q, k, and v")
+    if k_value.shape != v_value.shape:
+        raise ValueError("CPU reference flash_attention key/value shape mismatch")
+    batch, seqlen_q, heads_q, head_dim = q_value.shape
+    batch_k, seqlen_k, heads_k, head_dim_k = k_value.shape
+    if batch != batch_k or head_dim != head_dim_k or heads_q % heads_k != 0:
+        raise ValueError("CPU reference flash_attention shape mismatch")
+    if heads_q != heads_k:
+        repeat = heads_q // heads_k
+        k_value = np.repeat(k_value, repeat, axis=2)
+        v_value = np.repeat(v_value, repeat, axis=2)
+    scores = np.einsum("bqhd,bkhd->bhqk", q_value, k_value) * np.float32(1.0 / math.sqrt(float(head_dim)))
+    if bool(attrs.get("causal", False)):
+        q_idx = np.arange(seqlen_q)[:, None]
+        k_idx = np.arange(seqlen_k)[None, :]
+        scores = np.where(k_idx > q_idx, np.float32(-1.0e30), scores)
+    shifted = scores - np.max(scores, axis=-1, keepdims=True)
+    probs = np.exp(shifted)
+    probs = probs / np.sum(probs, axis=-1, keepdims=True)
+    return np.einsum("bhqk,bkhd->bqhd", probs, v_value).astype(np.float32, copy=False)
 
 
 def _logical_bmm_a(value: np.ndarray, layout: str) -> np.ndarray:

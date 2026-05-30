@@ -16,6 +16,11 @@ from dinoml.kernels.manifest import build_support_manifest
 from dinoml.kernels.providers.ck.gemm import ck_gemm_cmake_target, ck_gemm_static_library_name
 from dinoml.kernels.providers.ck.bmm import ck_bmm_cmake_target, ck_bmm_static_library_name
 from dinoml.kernels.providers.ck.conv import ck_conv_cmake_target, ck_conv_static_library_name
+from dinoml.kernels.providers.ck.flash_attention import (
+    FLASH_ATTN_CK_LIBRARY,
+    flash_attn_ck_cmake_target,
+    flash_attn_ck_static_library_name,
+)
 from dinoml.libgguf_cuda import file_sha256
 from dinoml.lowering.gpu import render_template
 from dinoml.lowering.rocm import render_rocm_module
@@ -51,6 +56,7 @@ class RocmSupportLibs:
     ck_gemm_archives: tuple[Path, ...]
     ck_bmm_archives: tuple[Path, ...]
     ck_conv_archives: tuple[Path, ...]
+    flash_attn_ck_archives: tuple[Path, ...]
     runtime_include: Path
     common_include: Path
     kernels_include: Path
@@ -73,6 +79,7 @@ def build_rocm_module(
     ck_gemm_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_gemm_archives)
     ck_bmm_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_bmm_archives)
     ck_conv_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.ck_conv_archives)
+    flash_attn_ck_archives = tuple(artifact_lib_dir / archive.name for archive in support_libs.flash_attn_ck_archives)
     shutil.copy2(support_libs.runtime_lib, runtime_lib)
     shutil.copy2(support_libs.rocm_runtime_lib, rocm_runtime_lib)
     shutil.copy2(support_libs.kernels_lib, kernels_lib)
@@ -81,6 +88,8 @@ def build_rocm_module(
     for source_archive, artifact_archive in zip(support_libs.ck_bmm_archives, ck_bmm_archives):
         shutil.copy2(source_archive, artifact_archive)
     for source_archive, artifact_archive in zip(support_libs.ck_conv_archives, ck_conv_archives):
+        shutil.copy2(source_archive, artifact_archive)
+    for source_archive, artifact_archive in zip(support_libs.flash_attn_ck_archives, flash_attn_ck_archives):
         shutil.copy2(source_archive, artifact_archive)
 
     generated_src_dir.mkdir(parents=True, exist_ok=True)
@@ -107,6 +116,7 @@ def build_rocm_module(
                 "ck_gemm_archives": [_cmake_path(path) for path in ck_gemm_archives],
                 "ck_bmm_archives": [_cmake_path(path) for path in ck_bmm_archives],
                 "ck_conv_archives": [_cmake_path(path) for path in ck_conv_archives],
+                "flash_attn_ck_archives": [_cmake_path(path) for path in flash_attn_ck_archives],
                 "runtime_implib": _cmake_path(_import_library_path(support_libs.runtime_lib)),
                 "rocm_runtime_implib": _cmake_path(_import_library_path(support_libs.rocm_runtime_lib)),
                 "kernels_implib": _cmake_path(_import_library_path(support_libs.kernels_lib)),
@@ -153,6 +163,7 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
     ck_gemm_archives: tuple[Path, ...] = ()
     ck_bmm_archives: tuple[Path, ...] = ()
     ck_conv_archives: tuple[Path, ...] = ()
+    flash_attn_ck_archives: tuple[Path, ...] = ()
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     configure_cmd = [
@@ -167,6 +178,7 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         "-DDINOML_ENABLE_CK_GEMM=OFF",
         "-DDINOML_ENABLE_CK_BMM=OFF",
         "-DDINOML_ENABLE_CK_CONV=OFF",
+        "-DDINOML_ENABLE_FLASH_ATTN_CK=OFF",
         f"-DCMAKE_HIP_ARCHITECTURES={_cmake_arch(arch)}",
         f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
         f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -195,6 +207,8 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         ck_bmm_archives = _ensure_cmake_ck_bmm_archives(arch, kernel_manifest)
     if _requires_kernel_library(kernel_manifest, "ck_conv"):
         ck_conv_archives = _ensure_cmake_ck_conv_archives(arch, kernel_manifest)
+    if _requires_kernel_library(kernel_manifest, FLASH_ATTN_CK_LIBRARY):
+        flash_attn_ck_archives = _ensure_cmake_flash_attn_ck_archives(arch, kernel_manifest)
     support_target = (
         dict(kernel_manifest.get("target", {"name": "rocm", "arch": _cmake_arch(arch)}))
         if kernel_manifest is not None
@@ -211,6 +225,8 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         libraries["ck_bmm_static"] = [archive.name for archive in ck_bmm_archives]
     if ck_conv_archives:
         libraries["ck_conv_static"] = [archive.name for archive in ck_conv_archives]
+    if flash_attn_ck_archives:
+        libraries["flash_attn_ck_static"] = [archive.name for archive in flash_attn_ck_archives]
     write_json(
         lib_dir / "support_manifest.json",
         build_support_manifest(
@@ -226,6 +242,7 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         ck_gemm_archives=ck_gemm_archives,
         ck_bmm_archives=ck_bmm_archives,
         ck_conv_archives=ck_conv_archives,
+        flash_attn_ck_archives=flash_attn_ck_archives,
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "rocm" / "include",
@@ -475,6 +492,83 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
     return archives
 
 
+def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
+    del kernel_manifest
+    repo_root = _repo_root()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    arch_name = _cmake_arch(arch)
+    support_root = cache_root / "support" / _rocm_support_cache_dir_name(arch_name) / "flash-attn-ck" / "cmake-full"
+    build_dir = support_root / "build"
+    lib_dir = support_root / "lib"
+    archive = lib_dir / flash_attn_ck_static_library_name("float16")
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_cmake_build_dir(build_dir)
+    if not archive.exists() or not build_dir.exists():
+        _run_cmake(
+            [
+                "cmake",
+                "-S",
+                str(repo_root),
+                "-B",
+                str(build_dir),
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DDINOML_ENABLE_CUDA=OFF",
+                "-DDINOML_ENABLE_ROCM=ON",
+                "-DDINOML_ENABLE_CK_GEMM=OFF",
+                "-DDINOML_ENABLE_CK_BMM=OFF",
+                "-DDINOML_ENABLE_CK_CONV=OFF",
+                "-DDINOML_ENABLE_FLASH_ATTN_CK=ON",
+                f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+            ],
+            cwd=repo_root,
+        )
+    target = flash_attn_ck_cmake_target()
+    _run_cmake(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--target",
+            target,
+            "--parallel",
+        ],
+        cwd=repo_root,
+    )
+    if not archive.exists():
+        raise RuntimeError(f"Expected CMake-built CK FlashAttention static archive, but it was not produced: {archive}")
+    write_json(
+        lib_dir / "flash_attn_ck_manifest.json",
+        {
+            "schema_version": 1,
+            "target": {"name": "rocm", "arch": arch_name},
+            "provider": "ck",
+            "library_name": FLASH_ATTN_CK_LIBRARY,
+            "family": "flash_attention_fwd",
+            "build_mode": "cmake_static_archive",
+            "modules": [
+                {
+                    "op": "flash_attention",
+                    "dtype": "float16",
+                    "archive": archive.name,
+                    "target": target,
+                    "archive_sha256": file_sha256(archive),
+                }
+            ],
+            "source_sha256": _flash_attn_ck_source_sha256(repo_root),
+            "compile": {
+                "system": "cmake",
+                "targets": [target],
+                "build_dir": str(build_dir),
+            },
+            "cache_key": "cmake-full",
+        },
+    )
+    return (archive,)
+
+
 def _required_ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
     modules = {}
     for item in kernel_manifest.get("required_kernels", []):
@@ -573,6 +667,30 @@ def _ck_conv_source_sha256(repo_root: Path) -> str:
     return digest.hexdigest()
 
 
+def _flash_attn_ck_source_sha256(repo_root: Path) -> str:
+    generator_dir = repo_root / "third_party" / "composable_kernel" / "example" / "ck_tile" / "01_fmha"
+    source_paths = [
+        repo_root / "CMakeLists.txt",
+        repo_root / "kernels" / "rocm" / "src" / "flash_attn_ck_wrapper.cpp",
+        repo_root / "kernels" / "rocm" / "include" / "dinoml" / "rocm_kernels.h",
+        repo_root / "third_party" / "flash_attn_ck" / "flash_attn_dinoml.h",
+        repo_root / "third_party" / "flash_attn_ck" / "interface_src" / "flash_attn_dinoml.cpp",
+        generator_dir / "bias.hpp",
+        generator_dir / "fmha_fwd.hpp",
+        generator_dir / "generate.py",
+        generator_dir / "mask.hpp",
+        generator_dir / "rotary.hpp",
+        *sorted((generator_dir / "codegen").rglob("*.py")),
+    ]
+    digest = hashlib.sha256()
+    for path in source_paths:
+        digest.update(str(path.relative_to(repo_root)).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def _import_library_path(shared_library: Path) -> Path | None:
     if os.name != "nt":
         return None
@@ -611,6 +729,7 @@ def _cmake_cache_list(values) -> str:
 
 
 def _run_cmake(cmd: list[str], *, cwd: Path) -> None:
+    cmd = _with_rocm_cmake_cache_args(cmd)
     cmd = _with_default_cmake_generator(cmd)
     proc = subprocess.run(
         cmd,
@@ -629,8 +748,47 @@ def _run_cmake(cmd: list[str], *, cwd: Path) -> None:
         )
 
 
+def _with_rocm_cmake_cache_args(cmd: list[str]) -> list[str]:
+    if len(cmd) < 2 or Path(cmd[0]).stem != "cmake":
+        return cmd
+    if "--build" in cmd or "-S" not in cmd:
+        return cmd
+    args = _rocm_cmake_cache_args()
+    if not args:
+        return cmd
+    return [cmd[0], *args, *cmd[1:]]
+
+
+def _rocm_cmake_cache_args() -> list[str]:
+    root = os.environ.get("DINOML_ROCM_ROOT") or _run_rocm_sdk_path("--root") or _rocm_sdk_devel_root()
+    if not root:
+        return []
+    cmake_prefix = os.environ.get("DINOML_ROCM_CMAKE_PREFIX") or _run_rocm_sdk_path("--cmake")
+    bin_dir = os.environ.get("DINOML_ROCM_BIN") or _run_rocm_sdk_path("--bin")
+    llvm_bin = Path(root) / "lib" / "llvm" / "bin"
+    args = [
+        f"-DDINOML_ROCM_ROOT={root}",
+        f"-DDINOML_ROCM_CMAKE_PREFIX={cmake_prefix or Path(root) / 'lib' / 'cmake'}",
+        f"-DDINOML_ROCM_BIN={bin_dir or Path(root) / 'bin'}",
+    ]
+    if llvm_bin.exists():
+        args.append(f"-DDINOML_ROCM_LLVM_BIN={llvm_bin}")
+    return args
+
+
+def _rocm_sdk_devel_root() -> str | None:
+    candidates = [
+        Path(sys.prefix) / "Lib" / "site-packages" / "_rocm_sdk_devel",
+        Path(sys.prefix) / "lib" / "site-packages" / "_rocm_sdk_devel",
+    ]
+    for candidate in candidates:
+        if (candidate / "lib" / "cmake" / "hip-lang" / "hip-lang-config.cmake").exists():
+            return str(candidate)
+    return None
+
+
 def _with_default_cmake_generator(cmd: list[str]) -> list[str]:
-    if len(cmd) < 2 or Path(cmd[0]).name != "cmake":
+    if len(cmd) < 2 or Path(cmd[0]).stem != "cmake":
         return cmd
     if "--build" in cmd or "-G" in cmd:
         return cmd
@@ -667,7 +825,11 @@ def _cmake_env() -> dict[str, str]:
         return dict(_CMAKE_ENV)
     env = os.environ.copy()
     if os.name == "nt":
-        env.update(_visual_studio_environment())
+        original_path = env.get("PATH", "")
+        vs_env = _visual_studio_environment()
+        env.update(vs_env)
+        if original_path and vs_env.get("PATH"):
+            env["PATH"] = os.pathsep.join([vs_env["PATH"], original_path])
         _prepend_paths(env, _rocm_runtime_paths())
     _CMAKE_ENV = env
     return dict(env)
@@ -736,6 +898,12 @@ def _run_rocm_sdk_path(arg: str) -> str | None:
     if rocm_sdk is None:
         return None
     try:
+        subprocess.run(
+            [*rocm_sdk, "init"],
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         proc = subprocess.run(
             [*rocm_sdk, "path", arg],
             text=True,

@@ -84,6 +84,14 @@ set_target_properties(dinoml_ck_conv_{{ loop.index0 }} PROPERTIES
 )
 {% endfor %}
 
+{% for flash_attn_ck_archive in flash_attn_ck_archives | default([]) %}
+add_library(dinoml_flash_attn_ck_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_flash_attn_ck_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ flash_attn_ck_archive }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endfor %}
+
 add_library(module SHARED module.hip)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
@@ -102,6 +110,9 @@ target_link_libraries(module PRIVATE
 {% endfor %}
 {% for ck_conv_archive in ck_conv_archives %}
   dinoml_ck_conv_{{ loop.index0 }}
+{% endfor %}
+{% for flash_attn_ck_archive in flash_attn_ck_archives | default([]) %}
+  dinoml_flash_attn_ck_{{ loop.index0 }}
 {% endfor %}
   hip::host
   hip::device

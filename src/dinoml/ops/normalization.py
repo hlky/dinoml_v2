@@ -11,6 +11,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 NORMALIZATION_DTYPES = ("float16", "float32", "bfloat16")
 T5_LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
 LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
+ADD_LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
 
 
 def infer_t5_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -22,6 +23,12 @@ def infer_t5_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
 def infer_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(shapes) != 3:
         raise ValueError("layer_norm expects exactly three inputs")
+    return list(shapes[0])
+
+
+def infer_add_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(shapes) != 4:
+        raise ValueError("add_layer_norm expects exactly four inputs")
     return list(shapes[0])
 
 
@@ -97,6 +104,51 @@ class LayerNorm(OpDef):
         )
 
 
+@op_def
+class AddLayerNorm(OpDef):
+    name = "add_layer_norm"
+    schema = OpSchema(inputs=("x", "residual", "weight", "bias"), attrs=(AttrDef("eps", "float", 1e-5),))
+    infer_shape = infer_add_layer_norm
+    backend_kernels = {
+        "cuda": KernelBinding("generated_add_layer_norm", "model", source_template="add_layer_norm_gpu"),
+        "rocm": KernelBinding("generated_add_layer_norm", "model", source_template="add_layer_norm_gpu"),
+        "cpu": KernelBinding("generated_add_layer_norm", "model", source_template="add_layer_norm_cpu"),
+    }
+    frontend = FrontendBinding("add_layer_norm")
+    allowed_dtypes = ADD_LAYER_NORM_DTYPES
+    description = "Fused residual add plus affine LayerNorm; returns both the summed residual and normalized output."
+
+    @classmethod
+    def forward(cls, x: object, residual: object, weight: object, bias: object, eps: float = 1e-5) -> tuple[Tensor, Tensor]:
+        x_tensor, weight_tensor, bias_tensor = _validate_affine_norm_inputs(
+            "add_layer_norm",
+            x,
+            weight,
+            bias,
+            allowed_dtypes=ADD_LAYER_NORM_DTYPES,
+        )
+        residual_tensor = as_tensor(residual, dtype_hint=x_tensor.dtype)
+        if residual_tensor.builder is not x_tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if residual_tensor.dtype != x_tensor.dtype:
+            raise ValueError(f"add_layer_norm dtype mismatch: {x_tensor.dtype} vs {residual_tensor.dtype}")
+        if list(residual_tensor.shape) != list(x_tensor.shape):
+            raise ValueError(f"add_layer_norm residual shape must match input: {residual_tensor.shape} vs {x_tensor.shape}")
+        if list(residual_tensor.shape_spec) != list(x_tensor.shape_spec):
+            raise ValueError("add_layer_norm residual shape_spec must match input")
+        assert bias_tensor is not None
+        summed, normalized = x_tensor.builder.emit_multi(
+            "add_layer_norm",
+            [x_tensor, residual_tensor, weight_tensor, bias_tensor],
+            (
+                (x_tensor.shape, x_tensor.dtype, x_tensor.shape_spec),
+                (x_tensor.shape, x_tensor.dtype, x_tensor.shape_spec),
+            ),
+            {"eps": float(eps)},
+        )
+        return summed, normalized
+
+
 def _validate_affine_norm_inputs(
     op_name: str,
     x: object,
@@ -155,6 +207,10 @@ def layer_norm(x: object, weight: object, bias: object, eps: float = 1e-5) -> Te
     return LayerNorm.forward(x, weight, bias, eps)
 
 
+def add_layer_norm(x: object, residual: object, weight: object, bias: object, eps: float = 1e-5) -> tuple[Tensor, Tensor]:
+    return AddLayerNorm.forward(x, residual, weight, bias, eps)
+
+
 def rms_norm(x: object, weight: object | None = None, eps: float = 1e-6) -> Tensor:
     x_tensor = as_tensor(x, dtype_hint="float32")
     if x_tensor.dtype not in T5_LAYER_NORM_DTYPES:
@@ -172,11 +228,15 @@ def rms_norm(x: object, weight: object | None = None, eps: float = 1e-6) -> Tens
 
 
 __all__ = [
+    "ADD_LAYER_NORM_DTYPES",
+    "AddLayerNorm",
     "LAYER_NORM_DTYPES",
     "LayerNorm",
     "NORMALIZATION_DTYPES",
     "T5_LAYER_NORM_DTYPES",
     "T5LayerNorm",
+    "add_layer_norm",
+    "infer_add_layer_norm",
     "infer_layer_norm",
     "infer_t5_layer_norm",
     "layer_norm",

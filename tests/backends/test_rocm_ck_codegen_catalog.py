@@ -28,10 +28,11 @@ def test_ck_gemm_provider_tracks_upstream_multiple_d_codegen_tiles():
         for config in ck_gemm_provider._CK_GEMM_CODEGEN_TILES
     ]
 
-    assert provider_tiles == upstream_tiles
+    v1_small_m_tile = (64, 64, 32, 32, 8, 8, 16, 16, 2, 2, 1)
+    assert provider_tiles == [*upstream_tiles, v1_small_m_tile]
     assert len(ck_gemm_provider._CK_GEMM_SCHEDULER_PIPELINES) == 3
     assert len(ck_gemm_provider.ck_gemm_candidates("gemm_rcr_bias_add_relu", "float16")) == (
-        len(upstream_tiles) * len(ck_gemm_provider._CK_GEMM_SCHEDULER_PIPELINES)
+        len(provider_tiles) * len(ck_gemm_provider._CK_GEMM_SCHEDULER_PIPELINES)
     )
 
 

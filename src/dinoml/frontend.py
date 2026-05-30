@@ -271,6 +271,34 @@ class GraphBuilder:
         self.tensors[output_name] = _tensor_info(tensor)
         return tensor
 
+    def emit_multi(
+        self,
+        op: str,
+        inputs: Sequence[Tensor],
+        outputs: Sequence[tuple[Sequence[int], str, Sequence[int | Mapping[str, Any]] | None]],
+        attrs: Optional[Dict[str, Any]] = None,
+    ) -> tuple[Tensor, ...]:
+        output_tensors = []
+        output_names = []
+        for shape, dtype, shape_spec in outputs:
+            output_name = self._new_tensor_name()
+            tensor = Tensor(output_name, shape=shape, dtype=dtype, builder=self, shape_spec=shape_spec)
+            output_tensors.append(tensor)
+            output_names.append(output_name)
+            self.tensors[output_name] = _tensor_info(tensor)
+        node_id = f"n{self._next_node_id}"
+        self._next_node_id += 1
+        self.nodes.append(
+            {
+                "id": node_id,
+                "op": op,
+                "inputs": [tensor.name for tensor in inputs],
+                "outputs": output_names,
+                "attrs": attrs or {},
+            }
+        )
+        return tuple(output_tensors)
+
     def emit_view(
         self,
         transform: str,

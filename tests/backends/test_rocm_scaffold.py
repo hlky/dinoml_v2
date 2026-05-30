@@ -697,6 +697,7 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
             "ck_gemm_archives": ["H:/cache/lib/dinoml_ck_gemm.a"],
             "ck_bmm_archives": ["H:/cache/lib/dinoml_ck_bmm.a"],
             "ck_conv_archives": ["H:/cache/lib/dinoml_ck_conv.a"],
+            "flash_attn_ck_archives": ["H:/cache/lib/dinoml_flash_attn_ck.a"],
             "runtime_implib": "",
             "rocm_runtime_implib": "",
             "kernels_implib": "",
@@ -709,15 +710,18 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
     assert "add_library(dinoml_ck_gemm_0 STATIC IMPORTED GLOBAL)" in cmake
     assert "add_library(dinoml_ck_bmm_0 STATIC IMPORTED GLOBAL)" in cmake
     assert "add_library(dinoml_ck_conv_0 STATIC IMPORTED GLOBAL)" in cmake
+    assert "add_library(dinoml_flash_attn_ck_0 STATIC IMPORTED GLOBAL)" in cmake
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_gemm.a"' in cmake
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_bmm.a"' in cmake
     assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_ck_conv.a"' in cmake
+    assert 'IMPORTED_LOCATION "H:/cache/lib/dinoml_flash_attn_ck.a"' in cmake
     assert cmake.count(
         'INTERFACE_INCLUDE_DIRECTORIES "H:/dinoml_v2/kernels/common/include;H:/dinoml_v2/kernels/rocm/include"'
     ) == 3
     assert "dinoml_ck_gemm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_bmm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_conv_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+    assert "dinoml_flash_attn_ck_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert 'SUFFIX ".so"' in cmake
     assert 'BUILD_RPATH "$ORIGIN/lib"' in cmake
     assert 'INSTALL_RPATH "$ORIGIN/lib"' in cmake
@@ -852,14 +856,14 @@ def test_rocm_ck_conv_support_configure_pins_required_ops_and_dtypes(tmp_path, m
 def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16")
 
-    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
     item = manifest["required_kernels"][0]
     plan = create_codegen_plan(manifest, tmp_path)
 
     assert item["kernel_library"] == "ck_gemm"
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1"
     assert item["support_archive"] == ck_gemm_static_library_name("gemm_rcr_bias_add_relu", "float16")
-    assert len(item["candidates"]) == 27
+    assert len(item["candidates"]) == 30
     assert item["candidates"][0]["ck"]["api"] == "device_gemm_multiple_d_xdl_cshuffle"
     assert item["candidates"][0]["ck"]["mode"] == "custom_ck_xdl_instances"
     assert item["candidates"][1]["ck"]["config"]["name"] == "wide_m"
@@ -878,9 +882,9 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
         (candidate["ck"]["config"]["scheduler"], candidate["ck"]["config"]["pipeline"])
         for candidate in item["candidates"]
     ]
-    assert scheduler_pipeline_pairs.count(("default", "v1")) == 9
-    assert scheduler_pipeline_pairs.count(("interwave", "v1")) == 9
-    assert scheduler_pipeline_pairs.count(("default", "v2")) == 9
+    assert scheduler_pipeline_pairs.count(("default", "v1")) == 10
+    assert scheduler_pipeline_pairs.count(("interwave", "v1")) == 10
+    assert scheduler_pipeline_pairs.count(("default", "v2")) == 10
     assert plan.external_support_libraries[0]["name"] == "ck_gemm"
     assert plan.external_support_libraries[0]["modules"] == [
         {
@@ -896,11 +900,43 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
 def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
 
-    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
     item = manifest["required_kernels"][0]
 
     assert item["selected_candidate_id"] == "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
+
+
+@pytest.mark.parametrize(
+    ("op_name", "m", "n", "k", "selected_candidate_id"),
+    [
+        ("gemm_rcr_bias", 77, 1536, 512, "ck_gemm_rcr_bias_float16_xdl_codegen_t09_default_v1"),
+        ("gemm_rcr_bias", 77, 512, 2048, "ck_gemm_rcr_bias_float16_xdl_codegen_t09_default_v1"),
+        ("gemm_rcr_bias", 50, 2304, 768, "ck_gemm_rcr_bias_float16_xdl_codegen_t09_interwave_v1"),
+        ("gemm_rcr_bias", 50, 768, 3072, "ck_gemm_rcr_bias_float16_xdl_codegen_t09_interwave_v1"),
+        (
+            "gemm_rcr_bias_quick_gelu",
+            77,
+            2048,
+            512,
+            "ck_gemm_rcr_bias_quick_gelu_float16_xdl_codegen_t09_default_v1",
+        ),
+        (
+            "gemm_rcr_bias_quick_gelu",
+            50,
+            3072,
+            768,
+            "ck_gemm_rcr_bias_quick_gelu_float16_xdl_codegen_t09_interwave_v1",
+        ),
+    ],
+)
+def test_rocm_gemm_manifest_selects_profiled_clip_candidates(op_name, m, n, k, selected_candidate_id):
+    ir = _rocm_gemm_ir(op_name, "float16", m=m, n=n, k=k)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
+    item = manifest["required_kernels"][0]
+
+    assert item["selected_candidate_id"] == selected_candidate_id
 
 
 @pytest.mark.parametrize(
@@ -948,7 +984,7 @@ def test_rocm_ck_manifest_selects_float32_candidate_shapes(
         ir = _rocm_conv2d_bias_ir("float32", batch=2, in_channels=8, out_channels=64, height=16, width=16)
     else:
         raise AssertionError(f"unhandled CK float32 case: {case}")
-    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
     item = manifest["required_kernels"][0]
     selected = next(candidate for candidate in item["candidates"] if candidate["candidate_id"] == selected_candidate_id)
 
@@ -962,13 +998,63 @@ def test_rocm_ck_manifest_selects_float32_candidate_shapes(
     assert selected["ck"]["config"]["cde_vector_width"] == cde_vector_width
 
 
+@pytest.mark.parametrize(
+    ("case", "op_name", "expected_library", "expected_symbol"),
+    [
+        (
+            "gemm",
+            "gemm_rcr_bias_add_relu",
+            "rocm_tile_gemm",
+            "dinoml_rocm_tile_gemm_rcr_bias_add_relu_float32_v1",
+        ),
+        (
+            "bmm",
+            "bmm_rcr_add",
+            "rocm_tile_bmm",
+            "dinoml_rocm_tile_bmm_rcr_add_float32_v1",
+        ),
+        (
+            "conv",
+            "conv2d_bias",
+            "rocm_tile_conv",
+            "dinoml_rocm_tile_conv2d_bias_float32_v1",
+        ),
+    ],
+)
+def test_rocm_gfx120x_float32_dense_ops_use_rocm_tile_fallback(
+    case: str,
+    op_name: str,
+    expected_library: str,
+    expected_symbol: str,
+):
+    if case == "gemm":
+        ir = _rocm_gemm_ir(op_name, "float32", m=128, n=128, k=64)
+    elif case == "bmm":
+        ir = _rocm_bmm_ir(op_name, "float32", batch=2, m=128, n=128, k=96)
+    elif case == "conv":
+        ir = _rocm_conv2d_bias_ir("float32", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    else:
+        raise AssertionError(f"unhandled ROCm Tile fallback case: {case}")
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    assert item["kernel_library"] == expected_library
+    assert item["kernel_symbol"] == expected_symbol
+    assert item["support_archive"] == "dinoml_rocm_kernels"
+    assert "candidates" not in item
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+    assert expected_symbol in source
+    assert "dinoml_ck_" not in source
+
+
 def test_rocm_gemm_profile_workloads_cover_ck_candidate_set():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
 
     workloads = build_profile_workloads(ir, manifest)
 
-    assert len(workloads) == 27
+    assert len(workloads) == 30
     assert {workload.kernel_library for workload in workloads} == {"ck_gemm"}
     assert {workload.candidate_id for workload in workloads} >= {
         "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1",
@@ -1652,7 +1738,7 @@ def test_rocm_bmm_rrr_profile_workloads_use_layout_specific_alignment():
 
 def test_rocm_bmm_small_float32_uses_scalar_transfer_metadata():
     ir = _rocm_bmm_ir("bmm_rrr", "float32", batch=2, m=16, n=16, k=48)
-    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
     item = manifest["required_kernels"][0]
 
     candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "small")
@@ -1667,7 +1753,7 @@ def test_rocm_bmm_small_float32_uses_scalar_transfer_metadata():
 
 def test_rocm_bmm_row_major_b_uses_scalar_b_transfer_metadata():
     ir = _rocm_bmm_ir("bmm_rrr", "float32", batch=2, m=128, n=128, k=96)
-    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
     item = manifest["required_kernels"][0]
 
     candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "wide_m")

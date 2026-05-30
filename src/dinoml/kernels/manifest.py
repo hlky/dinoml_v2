@@ -22,6 +22,10 @@ from dinoml.kernels.providers.ck.conv import (
     ck_conv_candidates,
     ck_conv_static_library_name,
 )
+from dinoml.kernels.providers.ck.flash_attention import (
+    FLASH_ATTN_CK_LIBRARY,
+    flash_attn_ck_static_library_name,
+)
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidate_compatible_with_plan,
@@ -38,6 +42,22 @@ from dinoml.kernels.providers.ck.gemm import (
     ck_gemm_candidate_set,
     ck_gemm_candidates,
     ck_gemm_static_library_name,
+)
+from dinoml.kernels.providers.rocm_tile.bmm import (
+    ROCM_TILE_BMM_LIBRARY,
+    rocm_tile_bmm_supported,
+    rocm_tile_bmm_symbol,
+)
+from dinoml.kernels.providers.rocm_tile.common import rocm_tile_fp32_fallback_required
+from dinoml.kernels.providers.rocm_tile.conv import (
+    ROCM_TILE_CONV_LIBRARY,
+    rocm_tile_conv_supported,
+    rocm_tile_conv_symbol,
+)
+from dinoml.kernels.providers.rocm_tile.gemm import (
+    ROCM_TILE_GEMM_LIBRARY,
+    rocm_tile_gemm_supported,
+    rocm_tile_gemm_symbol,
 )
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
@@ -96,11 +116,28 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         dtype = str(tensor_map[output_name]["dtype"])
         resolved = binding.resolve(dtype)
         kernel_symbol = resolved.symbol
+        kernel_library = resolved.library
         profiler_symbol = resolved.profiler_symbol
         candidates = [dict(candidate) for candidate in resolved.candidates]
         candidate_set = dict(resolved.candidate_set) if resolved.candidate_set else None
         selected_candidate_id = candidates[0]["candidate_id"] if candidates else None
-        if resolved.library == "cutlass_gemm":
+        rocm_tile_fallback = _rocm_tile_fp32_fallback(str(node["op"]), dtype, target, kernel_library)
+        if rocm_tile_fallback is not None:
+            kernel_library = str(rocm_tile_fallback["kernel_library"])
+            kernel_symbol = str(rocm_tile_fallback["kernel_symbol"])
+            profiler_symbol = None
+            candidates = []
+            candidate_set = None
+            selected_candidate_id = None
+            gguf_runtime_dequant = None
+            cutlass_conv_plan = None
+        elif _unsafe_rocm_fp32_ck_library(dtype, target, kernel_library):
+            arch = str(target.get("arch", ""))
+            raise NotImplementedError(
+                f"ROCm {arch} FP32 {kernel_library} is disabled because CK Device FP32 produced "
+                "incorrect results on gfx11/gfx120x; use the ROCm Tile fallback or another dtype"
+            )
+        elif kernel_library == "cutlass_gemm":
             candidates = [dict(candidate) for candidate in cutlass_gemm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_gemm_candidate_set(str(node["op"]), dtype, target=target)
             alignment_context = cutlass_alignment_contexts.get((str(node["op"]), dtype))
@@ -120,7 +157,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
                 dtype=dtype,
             )
             cutlass_conv_plan = None
-        elif resolved.library == "ck_gemm":
+        elif kernel_library == "ck_gemm":
             candidates = [dict(candidate) for candidate in ck_gemm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = ck_gemm_candidate_set(str(node["op"]), dtype, target=target)
             if not candidates:
@@ -131,7 +168,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
-        elif resolved.library == "cutlass_bmm":
+        elif kernel_library == "cutlass_bmm":
             candidates = [dict(candidate) for candidate in cutlass_bmm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_bmm_candidate_set(str(node["op"]), dtype, target=target)
             alignment_context = cutlass_bmm_alignment_contexts.get((str(node["op"]), dtype))
@@ -146,7 +183,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
-        elif resolved.library == "ck_bmm":
+        elif kernel_library == "ck_bmm":
             candidates = [dict(candidate) for candidate in ck_bmm_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = ck_bmm_candidate_set(str(node["op"]), dtype, target=target)
             if not candidates:
@@ -157,7 +194,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
-        elif resolved.library == "ck_conv":
+        elif kernel_library == "ck_conv":
             candidates = [dict(candidate) for candidate in ck_conv_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = ck_conv_candidate_set(str(node["op"]), dtype, target=target)
             if not candidates:
@@ -168,7 +205,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
-        elif resolved.library == "cutlass_conv":
+        elif kernel_library == "cutlass_conv":
             candidates = [dict(candidate) for candidate in cutlass_conv_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_conv_candidate_set(str(node["op"]), dtype, target=target)
             cutlass_conv_plan = cutlass_conv_layout_plan(node, tensor_map=tensor_map)
@@ -192,11 +229,12 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
         model_generated_source = (
-            generated_source_provenance(target_name, node, tensor_map) if resolved.library == "model" else None
+            generated_source_provenance(target_name, node, tensor_map) if kernel_library == "model" else None
         )
         key = (
             node["op"],
             kernel_symbol,
+            kernel_library,
             canonical_json(model_generated_source) if model_generated_source is not None else "",
             canonical_json(gguf_runtime_dequant) if gguf_runtime_dequant is not None else "",
             canonical_json(cutlass_conv_plan) if cutlass_conv_plan is not None else "",
@@ -208,18 +246,22 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             "op": node["op"],
             "dtype": dtype,
             "kernel_symbol": kernel_symbol,
-            "kernel_library": resolved.library,
+            "kernel_library": kernel_library,
             "profiler_symbol": profiler_symbol,
             "has_profiler": op_def.profiler,
         }
-        if resolved.library == "cutlass_gemm":
+        if kernel_library == "cutlass_gemm":
             item["support_archive"] = cutlass_gemm_static_library_name(str(node["op"]), dtype)
-        if resolved.library == "ck_gemm":
+        if kernel_library == "ck_gemm":
             item["support_archive"] = ck_gemm_static_library_name(str(node["op"]), dtype)
-        if resolved.library == "ck_bmm":
+        if kernel_library == "ck_bmm":
             item["support_archive"] = ck_bmm_static_library_name(str(node["op"]), dtype)
-        if resolved.library == "ck_conv":
+        if kernel_library == "ck_conv":
             item["support_archive"] = ck_conv_static_library_name(str(node["op"]), dtype)
+        if kernel_library == FLASH_ATTN_CK_LIBRARY:
+            item["support_archive"] = flash_attn_ck_static_library_name(dtype)
+        if kernel_library in {ROCM_TILE_GEMM_LIBRARY, ROCM_TILE_BMM_LIBRARY, ROCM_TILE_CONV_LIBRARY}:
+            item["support_archive"] = "dinoml_rocm_kernels"
         if model_generated_source is not None:
             item["generated_source"] = dict(model_generated_source)
         if candidates:
@@ -229,7 +271,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set_id"] = candidate_set["candidate_set_id"]
             item["candidate_set_key"] = candidate_set["candidate_set_key"]
             item["candidate_set"] = candidate_set
-        if resolved.library == "ck_conv":
+        if kernel_library == "ck_conv":
             item.update(_ck_conv_profile_blocked_metadata(node))
         if gguf_runtime_dequant is not None:
             item["gguf_runtime_dequant"] = gguf_runtime_dequant
@@ -238,10 +280,10 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             if cutlass_conv_plan.get("source_op") is not None:
                 item["source_op"] = str(cutlass_conv_plan["source_op"])
                 item["bias_mode"] = str(cutlass_conv_plan["bias_mode"])
-        if resolved.library in {"cutlass_gemm", "cutlass_bmm"}:
+        if kernel_library in {"cutlass_gemm", "cutlass_bmm"}:
             alignment_context = (
                 cutlass_alignment_contexts.get((str(node["op"]), dtype))
-                if resolved.library == "cutlass_gemm"
+                if kernel_library == "cutlass_gemm"
                 else cutlass_bmm_alignment_contexts.get((str(node["op"]), dtype))
             )
             if alignment_context is not None:
@@ -264,6 +306,31 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     if session_resources:
         manifest["session_resources"] = session_resources
     return _with_kernel_manifest_cache_keys(manifest)
+
+
+def _rocm_tile_fp32_fallback(
+    op_name: str,
+    dtype: str,
+    target: Mapping[str, Any],
+    kernel_library: str,
+) -> dict[str, str] | None:
+    if target.get("name") != "rocm" or not rocm_tile_fp32_fallback_required(dtype, target):
+        return None
+    if kernel_library == "ck_gemm" and rocm_tile_gemm_supported(op_name, dtype, target):
+        return {"kernel_library": ROCM_TILE_GEMM_LIBRARY, "kernel_symbol": rocm_tile_gemm_symbol(op_name, dtype)}
+    if kernel_library == "ck_bmm" and rocm_tile_bmm_supported(op_name, dtype, target):
+        return {"kernel_library": ROCM_TILE_BMM_LIBRARY, "kernel_symbol": rocm_tile_bmm_symbol(op_name, dtype)}
+    if kernel_library == "ck_conv" and rocm_tile_conv_supported(op_name, dtype, target):
+        return {"kernel_library": ROCM_TILE_CONV_LIBRARY, "kernel_symbol": rocm_tile_conv_symbol(op_name, dtype)}
+    return None
+
+
+def _unsafe_rocm_fp32_ck_library(dtype: str, target: Mapping[str, Any], kernel_library: str) -> bool:
+    return (
+        kernel_library in {"ck_gemm", "ck_bmm", "ck_conv"}
+        and target.get("name") == "rocm"
+        and rocm_tile_fp32_fallback_required(dtype, target)
+    )
 
 
 def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]:
@@ -320,6 +387,11 @@ def _select_ck_gemm_manifest_candidate(
         "output_n": n,
         "base_layout": spec.base_layout,
     }
+    preferred_symbol_id = _ck_gemm_preferred_symbol_id(str(node["op"]), candidates, problem)
+    if preferred_symbol_id is not None:
+        preferred = _select_ck_candidate_by_symbol_id(candidates, problem, preferred_symbol_id)
+        if preferred is not None:
+            return preferred
     return _select_ck_candidate(candidates, problem)
 
 
@@ -404,6 +476,45 @@ def _select_ck_candidate(
         compatible,
         key=lambda candidate: int(candidate.get("selection_predicate", {}).get("priority", 0)),
     )
+
+
+def _select_ck_candidate_by_symbol_id(
+    candidates: Sequence[Mapping[str, Any]],
+    problem: Mapping[str, int | str],
+    symbol_id: str,
+) -> Mapping[str, Any] | None:
+    for candidate in candidates:
+        if str(candidate.get("symbol_id", "")) == symbol_id and _ck_candidate_compatible(candidate, problem):
+            return candidate
+    return None
+
+
+def _ck_gemm_preferred_symbol_id(
+    op_name: str,
+    candidates: Sequence[Mapping[str, Any]],
+    problem: Mapping[str, int | str],
+) -> str | None:
+    if problem.get("base_layout") != "rcr":
+        return None
+    dtype = str(candidates[0].get("dtype", "")) if candidates else ""
+    if dtype != "float16":
+        return None
+    shape = (int(problem["m"]), int(problem["n"]), int(problem["k"]))
+    if op_name == "gemm_rcr_bias":
+        return {
+            (77, 1536, 512): "xdl_codegen_t09_default_v1",
+            (77, 512, 512): "xdl_codegen_t09_default_v1",
+            (77, 512, 2048): "xdl_codegen_t09_default_v1",
+            (50, 2304, 768): "xdl_codegen_t09_interwave_v1",
+            (50, 768, 768): "xdl_codegen_t09_interwave_v1",
+            (50, 768, 3072): "xdl_codegen_t09_interwave_v1",
+        }.get(shape)
+    if op_name == "gemm_rcr_bias_quick_gelu":
+        return {
+            (77, 2048, 512): "xdl_codegen_t09_default_v1",
+            (50, 3072, 768): "xdl_codegen_t09_interwave_v1",
+        }.get(shape)
+    return None
 
 
 def _ck_candidate_compatible(candidate: Mapping[str, Any], problem: Mapping[str, int | str]) -> bool:

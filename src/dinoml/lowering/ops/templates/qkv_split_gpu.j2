@@ -1,0 +1,53 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT qkv,
+    {{ storage_type }}* DINO_RESTRICT q,
+    {{ storage_type }}* DINO_RESTRICT k,
+    {{ storage_type }}* DINO_RESTRICT v,
+    int64_t output_total) {
+  constexpr int64_t hidden = {{ hidden }};
+  constexpr int vector_width = {{ vector_width }};
+  const int64_t total_units = output_total / vector_width;
+  const int64_t unit = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (unit >= total_units) {
+    return;
+  }
+{% if vector_width == 8 %}
+  using Vec = uint4;
+  const int64_t elem = unit * 8;
+  const int64_t row = elem / hidden;
+  const int64_t col = elem - row * hidden;
+  const int64_t input_base = row * hidden * 3 + col;
+  reinterpret_cast<Vec*>(q)[unit] = reinterpret_cast<const Vec*>(qkv)[input_base / 8];
+  reinterpret_cast<Vec*>(k)[unit] = reinterpret_cast<const Vec*>(qkv)[(input_base + hidden) / 8];
+  reinterpret_cast<Vec*>(v)[unit] = reinterpret_cast<const Vec*>(qkv)[(input_base + 2 * hidden) / 8];
+{% else %}
+  const int64_t elem = unit;
+  const int64_t row = elem / hidden;
+  const int64_t col = elem - row * hidden;
+  const int64_t input_base = row * hidden * 3 + col;
+  q[elem] = qkv[input_base];
+  k[elem] = qkv[input_base + hidden];
+  v[elem] = qkv[input_base + 2 * hidden];
+{% endif %}
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT qkv,
+    {{ storage_type }}* DINO_RESTRICT q,
+    {{ storage_type }}* DINO_RESTRICT k,
+    {{ storage_type }}* DINO_RESTRICT v,
+    int64_t output_total,
+    {{ gpu_stream_type }} stream) {
+  if (qkv == nullptr || q == nullptr || k == nullptr || v == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (output_total % {{ vector_width }} != 0) {
+    return dino_runtime_fail("{{ func }} received non-vector-aligned element count");
+  }
+  const int threads = 256;
+  const int64_t total_units = output_total / {{ vector_width }};
+  const int blocks = static_cast<int>((total_units + threads - 1) / threads);
+  {{ kernel }}<<<blocks, threads, 0, stream>>>(qkv, q, k, v, output_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

@@ -1,0 +1,42 @@
+static int {{ func }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    const {{ cpu_storage_type }}* DINO_RESTRICT residual,
+    const {{ cpu_storage_type }}* DINO_RESTRICT weight,
+    const {{ cpu_storage_type }}* DINO_RESTRICT bias,
+    {{ cpu_storage_type }}* DINO_RESTRICT summed,
+    {{ cpu_storage_type }}* DINO_RESTRICT normalized,
+    int64_t runtime_total) {
+  if (x == nullptr || residual == nullptr || weight == nullptr || bias == nullptr || summed == nullptr || normalized == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t cols = {{ cols }};
+  constexpr float eps = {{ eps_literal }};
+  constexpr float inv_cols = {{ inv_cols_literal }};
+  if (runtime_total % cols != 0) {
+    return dino_runtime_fail("{{ func }} received non-row-aligned element count");
+  }
+  const int64_t rows = runtime_total / cols;
+  for (int64_t row = 0; row < rows; ++row) {
+    const int64_t base = row * cols;
+    float sum = 0.0f;
+    float sum_sq = 0.0f;
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value =
+          dinoml::math::cast<float>(x[base + col]) + dinoml::math::cast<float>(residual[base + col]);
+      summed[base + col] = dinoml::math::cast<{{ cpu_storage_type }}>(value);
+      sum += value;
+      sum_sq += value * value;
+    }
+    const float mean = sum * inv_cols;
+    const float variance = fmaxf(sum_sq * inv_cols - mean * mean, 0.0f);
+    const float inv_std = 1.0f / sqrtf(variance + eps);
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value = dinoml::math::cast<float>(summed[base + col]);
+      const float scale = dinoml::math::cast<float>(weight[col]);
+      const float shift = dinoml::math::cast<float>(bias[col]);
+      normalized[base + col] =
+          dinoml::math::cast<{{ cpu_storage_type }}>((value - mean) * inv_std * scale + shift);
+    }
+  }
+  return 0;
+}

@@ -42,6 +42,7 @@ set(DINOML_CUTLASS_CONV_PROFILER_TARGETS "" CACHE STRING "Semicolon-separated CU
 option(DINOML_ENABLE_CK_GEMM "Build CK GEMM support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_CK_BMM "Build CK BMM support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_CK_CONV "Build CK Conv support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
+option(DINOML_ENABLE_FLASH_ATTN_CK "Build CK FlashAttention support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_LIBGGUF_CUDA "Build libgguf CUDA runtime-dequant support archive" OFF)
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
@@ -126,12 +127,21 @@ if(DINOML_ENABLE_ROCM)
 
   add_library(dinoml_rocm_kernels SHARED
     kernels/rocm/src/kernels.hip
+    kernels/rocm/src/ck_tile_fp32_fallback.hip
   )
   target_include_directories(dinoml_rocm_kernels
     PUBLIC
       ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
       ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
       ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+    PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+  )
+  target_compile_definitions(dinoml_rocm_kernels
+    PRIVATE
+      DINOML_HIP=1
+      $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
   )
   target_link_libraries(dinoml_rocm_kernels
     PUBLIC dinoml_runtime dinoml_rocm_runtime hip::host hip::device
@@ -457,6 +467,123 @@ if(DINOML_ENABLE_ROCM)
       endforeach()
     endforeach()
     add_custom_target(dinoml_ck_conv DEPENDS ${DINOML_CK_CONV_TARGETS})
+  endif()
+
+  if(DINOML_ENABLE_FLASH_ATTN_CK)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_BF16 ON)
+    set(CK_ENABLE_FP32 ON)
+    set(CK_ENABLE_FP64 ON)
+    set(CK_USE_XDL ON)
+    set(_dinoml_flash_attn_ck_config_include "${CMAKE_CURRENT_BINARY_DIR}/flash_attn_ck_config/include")
+    configure_file(
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include/ck/config.h.in
+      ${_dinoml_flash_attn_ck_config_include}/ck/config.h
+      @ONLY
+    )
+    set(_dinoml_flash_attn_ck_generator_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/example/ck_tile/01_fmha")
+    set(_dinoml_flash_attn_ck_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/fa_ck")
+    set(_dinoml_flash_attn_ck_blob_list "${_dinoml_flash_attn_ck_generated_dir}/fwd_blob_list.txt")
+    set(_dinoml_flash_attn_ck_filter "*fp16*batch*nlogits*nbias*mask*nlse*ndropout*")
+    set(DINOML_FLASH_ATTN_CK_TARGETS "" CACHE STRING "Comma-separated CK FlashAttention generator targets. Defaults to CMAKE_HIP_ARCHITECTURES.")
+    if(DINOML_FLASH_ATTN_CK_TARGETS)
+      set(_dinoml_flash_attn_ck_targets "${DINOML_FLASH_ATTN_CK_TARGETS}")
+    elseif(CMAKE_HIP_ARCHITECTURES)
+      string(REPLACE ";" "," _dinoml_flash_attn_ck_targets "${CMAKE_HIP_ARCHITECTURES}")
+    else()
+      set(_dinoml_flash_attn_ck_targets "gfx12")
+    endif()
+    file(MAKE_DIRECTORY "${_dinoml_flash_attn_ck_generated_dir}")
+    execute_process(
+      COMMAND
+        ${Python3_EXECUTABLE}
+        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        --targets "${_dinoml_flash_attn_ck_targets}"
+        --api fwd
+        --receipt 2
+        --optdim 64
+        --filter "${_dinoml_flash_attn_ck_filter}"
+        --list_blobs "${_dinoml_flash_attn_ck_blob_list}"
+      WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
+      COMMAND_ERROR_IS_FATAL ANY
+    )
+    file(STRINGS "${_dinoml_flash_attn_ck_blob_list}" DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
+    set(_dinoml_flash_attn_ck_generated_sources_normalized)
+    foreach(_dinoml_flash_attn_ck_source IN LISTS DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
+      file(TO_CMAKE_PATH "${_dinoml_flash_attn_ck_source}" _dinoml_flash_attn_ck_source_normalized)
+      list(APPEND _dinoml_flash_attn_ck_generated_sources_normalized "${_dinoml_flash_attn_ck_source_normalized}")
+    endforeach()
+    set(DINOML_FLASH_ATTN_CK_GENERATED_SOURCES ${_dinoml_flash_attn_ck_generated_sources_normalized})
+    file(GLOB_RECURSE _DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS CONFIGURE_DEPENDS
+      "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+      "${_dinoml_flash_attn_ck_generator_dir}/codegen/*.py"
+    )
+    add_custom_command(
+      OUTPUT ${DINOML_FLASH_ATTN_CK_GENERATED_SOURCES}
+      COMMAND
+        ${Python3_EXECUTABLE}
+        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        --targets "${_dinoml_flash_attn_ck_targets}"
+        --api fwd
+        --receipt 2
+        --optdim 64
+        --filter "${_dinoml_flash_attn_ck_filter}"
+        --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
+      DEPENDS ${_DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS}
+      WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
+      VERBATIM
+    )
+    set(DINOML_FLASH_ATTN_CK_SOURCES
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flash_attn_ck/interface_src/flash_attn_dinoml.cpp
+      ${DINOML_FLASH_ATTN_CK_GENERATED_SOURCES}
+      ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/flash_attn_ck_wrapper.cpp
+    )
+    set_source_files_properties(${DINOML_FLASH_ATTN_CK_SOURCES} PROPERTIES LANGUAGE HIP)
+    add_library(dinoml_flash_attn_ck STATIC ${DINOML_FLASH_ATTN_CK_SOURCES})
+    target_include_directories(dinoml_flash_attn_ck
+      PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flash_attn_ck
+        ${_dinoml_flash_attn_ck_config_include}
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/library/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/example/ck_tile/01_fmha
+    )
+    target_link_libraries(dinoml_flash_attn_ck
+      PRIVATE hip::host hip::device
+    )
+    target_compile_definitions(dinoml_flash_attn_ck
+      PRIVATE
+        DINOML_HIP=1
+        _USE_MATH_DEFINES
+        CK_TILE_FMHA_FWD_FAST_EXP2=1
+        CK_ENABLE_FP16
+        CK_ENABLE_BF16
+        CK_ENABLE_FP32
+        CK_ENABLE_FP64
+        CK_USE_XDL
+        USE_PROF_API=1
+        CK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3
+        __HIP_PLATFORM_AMD__
+        __HIPCC__
+        $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>
+    )
+    target_compile_options(dinoml_flash_attn_ck
+      PRIVATE
+        $<$<COMPILE_LANGUAGE:HIP>:-w>
+        $<$<COMPILE_LANGUAGE:HIP>:-O3>
+        $<$<COMPILE_LANGUAGE:HIP>:-fgpu-flush-denormals-to-zero>
+        $<$<COMPILE_LANGUAGE:HIP>:-mllvm>
+        $<$<COMPILE_LANGUAGE:HIP>:--lsr-drop-solution=1>
+        $<$<COMPILE_LANGUAGE:HIP>:-fno-offload-uniform-block>
+    )
+    set_target_properties(dinoml_flash_attn_ck PROPERTIES
+      OUTPUT_NAME "dinoml_flash_attn_ck"
+      HIP_SEPARABLE_COMPILATION OFF
+    )
   endif()
 endif()
 

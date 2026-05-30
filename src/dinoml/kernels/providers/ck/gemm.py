@@ -239,6 +239,28 @@ _CK_GEMM_CODEGEN_TILES = (
         "cde_vector_width": 1,
         "min_problem": {},
     },
+    {
+        "tile_index": 9,
+        "legacy_name": "v1_small_m",
+        "priority": 25,
+        "tile": {
+            "block_size": 64,
+            "m_per_block": 64,
+            "n_per_block": 32,
+            "k_per_block": 32,
+            "ak1": 8,
+            "bk1": 8,
+            "m_per_xdl": 16,
+            "n_per_xdl": 16,
+            "m_xdl_per_wave": 2,
+            "n_xdl_per_wave": 2,
+            "num_gemmk_prefetch_stage": 1,
+        },
+        "a_vector_width": 8,
+        "b_vector_width_by_layout": {"rcr": 8, "rrr": 1},
+        "cde_vector_width": 4,
+        "min_problem": {"m": 33, "n": 64, "k": 32},
+    },
 )
 
 
@@ -303,8 +325,8 @@ def _ck_gemm_codegen_config(tile: Mapping[str, Any], scheduler_pipeline: Mapping
 
 def _ck_gemm_codegen_configs() -> tuple[dict[str, Any], ...]:
     default_v1 = [_ck_gemm_codegen_config(tile, _CK_GEMM_SCHEDULER_PIPELINES[0]) for tile in _CK_GEMM_CODEGEN_TILES]
-    baseline = default_v1[-1]
-    non_baseline_default_v1 = default_v1[:-1]
+    baseline = next(config for config in default_v1 if config["symbol_id"] == CK_GEMM_DEFAULT_SYMBOL_ID)
+    non_baseline_default_v1 = [config for config in default_v1 if config["symbol_id"] != CK_GEMM_DEFAULT_SYMBOL_ID]
     expanded = [
         _ck_gemm_codegen_config(tile, scheduler_pipeline)
         for scheduler_pipeline in _CK_GEMM_SCHEDULER_PIPELINES[1:]

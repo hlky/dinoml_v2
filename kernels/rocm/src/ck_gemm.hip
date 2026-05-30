@@ -32,6 +32,7 @@ enum class GemmConfig {
   kCodegenT02DefaultV1,
   kCodegenT04DefaultV1,
   kCodegenT05DefaultV1,
+  kCodegenT09DefaultV1,
   kCodegenT00InterwaveV1,
   kCodegenT01InterwaveV1,
   kCodegenT02InterwaveV1,
@@ -41,6 +42,7 @@ enum class GemmConfig {
   kCodegenT06InterwaveV1,
   kCodegenT07InterwaveV1,
   kCodegenT08InterwaveV1,
+  kCodegenT09InterwaveV1,
   kCodegenT00DefaultV2,
   kCodegenT01DefaultV2,
   kCodegenT02DefaultV2,
@@ -50,6 +52,7 @@ enum class GemmConfig {
   kCodegenT06DefaultV2,
   kCodegenT07DefaultV2,
   kCodegenT08DefaultV2,
+  kCodegenT09DefaultV2,
 };
 
 enum class EpilogueKind {
@@ -269,6 +272,26 @@ struct GemmCodegenTile<8> {
   using CDEBlockTransferClusterLengths = S<1, 16, 1, 4>;
 };
 
+template <>
+struct GemmCodegenTile<9> {
+  static constexpr ck::index_t BlockSize = 64;
+  static constexpr ck::index_t MPerBlock = 64;
+  static constexpr ck::index_t NPerBlock = 32;
+  static constexpr ck::index_t KPerBlock = 32;
+  static constexpr ck::index_t AK1 = 8;
+  static constexpr ck::index_t BK1 = 8;
+  static constexpr ck::index_t MPerXDL = 16;
+  static constexpr ck::index_t NPerXDL = 16;
+  static constexpr ck::index_t MXdlPerWave = 2;
+  static constexpr ck::index_t NXdlPerWave = 2;
+  static constexpr ck::index_t NumGemmKPrefetchStage = 1;
+  static constexpr ck::index_t CShuffleMXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CShuffleNXdlPerWavePerShuffle = 1;
+  static constexpr ck::index_t CDEBlockTransferScalarPerVector_NPerBlock = 4;
+  using ABlockTransferThreadClusterLengths = S<4, 16, 1>;
+  using CDEBlockTransferClusterLengths = S<1, 16, 1, 4>;
+};
+
 template <GemmBLayout LayoutB, int TileIndex>
 struct GemmBBlockTransferTraits;
 
@@ -317,6 +340,11 @@ struct GemmBBlockTransferRowMajorSrcScalarPerVector<7> {
 
 template <>
 struct GemmBBlockTransferRowMajorSrcScalarPerVector<8> {
+  static constexpr ck::index_t value = 1;
+};
+
+template <>
+struct GemmBBlockTransferRowMajorSrcScalarPerVector<9> {
   static constexpr ck::index_t value = 1;
 };
 
@@ -375,6 +403,7 @@ DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT02DefaultV1, 2, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kSquare, 3, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT04DefaultV1, 4, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05DefaultV1, 5, Default, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT09DefaultV1, 9, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kSkinnyN, 6, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kSkinnyM, 7, Default, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kBaseline, 8, Default, v1)
@@ -387,6 +416,7 @@ DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05InterwaveV1, 5, Interwave, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT06InterwaveV1, 6, Interwave, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT07InterwaveV1, 7, Interwave, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT08InterwaveV1, 8, Interwave, v1)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT09InterwaveV1, 9, Interwave, v1)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT00DefaultV2, 0, Default, v2)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT01DefaultV2, 1, Default, v2)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT02DefaultV2, 2, Default, v2)
@@ -396,6 +426,7 @@ DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT05DefaultV2, 5, Default, v2)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT06DefaultV2, 6, Default, v2)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT07DefaultV2, 7, Default, v2)
 DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT08DefaultV2, 8, Default, v2)
+DINOML_CK_GEMM_CONFIG_TRAITS(kCodegenT09DefaultV2, 9, Default, v2)
 
 #undef DINOML_CK_GEMM_CONFIG_TRAITS
 
@@ -516,7 +547,11 @@ __host__ __device__ float to_float(const T& value) {
 }
 
 __host__ __device__ float sigmoid(float value) {
+#if defined(__HIP_DEVICE_COMPILE__)
+  return 1.0f / (1.0f + __expf(-value));
+#else
   return 1.0f / (1.0f + ck::math::exp(-value));
+#endif
 }
 
 __host__ __device__ float gelu(float value) {

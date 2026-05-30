@@ -1,5 +1,5 @@
 #include <dinoml/rocm_kernels.h>
 
 namespace dinoml::rocm {
-// Intentionally empty until reusable ROCm op kernels are ported.
+// Anchor translation unit for the shared ROCm support library.
 }

@@ -68,6 +68,14 @@ def render_launch(
     dtype = str(tensor_map[c_name]["dtype"])
     kernel_library = "cutlass_gemm" if target == "cuda" else "ck_gemm"
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]), kernel_library=kernel_library)
+    if target == "rocm" and manifest_item is None:
+        manifest_item = _manifest_kernel_item(
+            kernel_manifest,
+            op_name,
+            dtype,
+            node_id=str(node["id"]),
+            kernel_library="rocm_tile_gemm",
+        )
     runtime_dequant_plan = _gguf_runtime_dequant_plan(manifest_item, node_id=str(node["id"])) if target == "cuda" else None
     launch_b_ident = b_ident
     if runtime_dequant_plan is not None:
@@ -114,9 +122,10 @@ def render_launch(
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
     if target == "rocm":
         lines.extend(
-            _ck_launch_lines(
+            _rocm_launch_lines(
                 op_name=op_name,
                 symbol=symbol,
+                kernel_library=str(manifest_item.get("kernel_library", "ck_gemm")) if manifest_item is not None else "ck_gemm",
                 a_ident=a_ident,
                 b_ident=b_ident,
                 epilogue_arg_text=epilogue_arg_text,
@@ -358,10 +367,11 @@ def _cutlass_launch_lines(
     return lines
 
 
-def _ck_launch_lines(
+def _rocm_launch_lines(
     *,
     op_name: str,
     symbol: str,
+    kernel_library: str,
     a_ident: str,
     b_ident: str,
     epilogue_arg_text: str,
@@ -370,10 +380,11 @@ def _ck_launch_lines(
     n_expr: str,
     k_expr: str,
 ) -> list[str]:
+    provider = "ROCm Tile" if kernel_library == "rocm_tile_gemm" else "CK"
     return [
         f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, {epilogue_arg_text}ptr_{c_ident}, "
         f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), session->stream)) "
-        f'return dinoml::module::fail("{op_name} CK launcher failed");'
+        f'return dinoml::module::fail("{op_name} {provider} launcher failed");'
     ]
 
 
@@ -692,6 +703,8 @@ def _manifest_kernel_item(
         else:
             candidate_set = item.get("candidate_set", {})
             if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
+                matches.append(item)
+            elif item.get("dtype") == dtype and not item.get("candidates"):
                 matches.append(item)
     if not matches:
         return None

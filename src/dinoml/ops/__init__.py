@@ -24,6 +24,7 @@ from dinoml.ops.bmm import (
     bmm_xxx,
     bmm_xxx_add,
 )
+from dinoml.ops.attention import flash_attention, flash_attention_qkv, qkv_split
 from dinoml.ops.broadcasting import expand, expand_static_shape, meshgrid
 from dinoml.ops.cast import cast
 from dinoml.ops.collections import (
@@ -143,7 +144,7 @@ from dinoml.ops.gemm import (
     gemm_rrr_bias_tanh,
 )
 from dinoml.ops.internal import ShapeBufferCountTrue
-from dinoml.ops.normalization import layer_norm, rms_norm, t5_layer_norm
+from dinoml.ops.normalization import add_layer_norm, layer_norm, rms_norm, t5_layer_norm
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
 from dinoml.ops.positional import get_1d_rotary_pos_embed, get_timestep_embedding
 from dinoml.ops.reductions import (
@@ -220,6 +221,7 @@ def _normalize_symbolic_index(index: Any, length: int, name: str) -> int:
 
 __all__ = [
     "abs",
+    "add_layer_norm",
     "add",
     "arange",
     "argmax",
@@ -271,6 +273,9 @@ __all__ = [
     "flip",
     "floor",
     "floor_div",
+    "flash_attention",
+    "flash_attention_qkv",
+    "qkv_split",
     "full",
     "gather",
     "ge",

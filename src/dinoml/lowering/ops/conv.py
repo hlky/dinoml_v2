@@ -142,11 +142,19 @@ def _render_rocm_launch(
     attrs = _validate_cpu_contract(node, x, weight, bias, output, residual)
     dtype = str(output["dtype"])
     item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")), kernel_library="ck_conv")
+    if item is None:
+        item = _manifest_kernel_item(
+            kernel_manifest,
+            op_name,
+            node_id=str(node.get("id", "")),
+            kernel_library="rocm_tile_conv",
+        )
     symbol = (
         str(item["kernel_symbol"])
         if item is not None
         else get_op_def(op_name).backend_kernels["rocm"].resolve(dtype).symbol
     )
+    kernel_library = str(item.get("kernel_library", "ck_conv")) if item is not None else "ck_conv"
     x_ident = _c_ident(x_name)
     weight_ident = _c_ident(weight_name)
     bias_ident = _c_ident(bias_name)
@@ -193,7 +201,7 @@ def _render_rocm_launch(
             f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
             f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
             f"{dilation_h}, {dilation_w}, session->stream)) "
-            f'return dinoml::module::fail("{op_name} CK Conv launcher failed");'
+            f'return dinoml::module::fail("{op_name} {"ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv"} launcher failed");'
         )
     )
     return "\n".join(lines)

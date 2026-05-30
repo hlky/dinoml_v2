@@ -73,6 +73,8 @@ def render_launch(
     dtype = str(tensor_map[c_name]["dtype"])
     kernel_library = "cutlass_bmm" if target == "cuda" else "ck_bmm"
     manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, kernel_library=kernel_library)
+    if target == "rocm" and manifest_item is None:
+        manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, kernel_library="rocm_tile_bmm")
     if target == "cuda":
         _validate_cutlass_execution_plan_metadata(op_name, manifest_item)
     symbol = (
@@ -100,9 +102,10 @@ def render_launch(
         lines.append(_d0_shape_check(op_name, d0_ident, c_ident, d0_layout))
     if target == "rocm":
         lines.extend(
-            _ck_launch_lines(
+            _rocm_launch_lines(
                 op_name=op_name,
                 symbol=symbol,
+                kernel_library=str(manifest_item.get("kernel_library", "ck_bmm")) if manifest_item is not None else "ck_bmm",
                 a_ident=a_ident,
                 b_ident=b_ident,
                 d0_ident=d0_ident,
@@ -327,10 +330,11 @@ def _validate_cutlass_execution_plan_selection(op_name: str, selection: Mapping[
         )
 
 
-def _ck_launch_lines(
+def _rocm_launch_lines(
     *,
     op_name: str,
     symbol: str,
+    kernel_library: str,
     a_ident: str,
     b_ident: str,
     d0_ident: str | None,
@@ -348,6 +352,7 @@ def _ck_launch_lines(
     ldd0_expr: str,
     ldc_expr: str,
 ) -> list[str]:
+    provider = "ROCm Tile" if kernel_library == "rocm_tile_bmm" else "CK BMM"
     if d0_ident is None:
         return [
             f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{c_ident}, "
@@ -355,7 +360,7 @@ def _ck_launch_lines(
             f"static_cast<int>({k_expr}), static_cast<int64_t>({batch_stride_a}), "
             f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_c}), "
             f"static_cast<int>({lda_expr}), static_cast<int>({ldb_expr}), static_cast<int>({ldc_expr}), "
-            f'session->stream)) return dinoml::module::fail("{op_name} CK BMM launcher failed");'
+            f'session->stream)) return dinoml::module::fail("{op_name} {provider} launcher failed");'
         ]
     return [
         f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b_ident}, ptr_{d0_ident}, ptr_{c_ident}, "
@@ -364,7 +369,7 @@ def _ck_launch_lines(
         f"static_cast<int64_t>({batch_stride_b}), static_cast<int64_t>({batch_stride_d0}), "
         f"static_cast<int64_t>({batch_stride_c}), static_cast<int>({lda_expr}), "
         f"static_cast<int>({ldb_expr}), static_cast<int>({ldd0_expr}), static_cast<int>({ldc_expr}), "
-        f'session->stream)) return dinoml::module::fail("{op_name} CK BMM launcher failed");'
+        f'session->stream)) return dinoml::module::fail("{op_name} {provider} launcher failed");'
     ]
 
 
@@ -763,6 +768,8 @@ def _manifest_kernel_item(
                 }
         candidate_set = item.get("candidate_set", {})
         if isinstance(candidate_set, Mapping) and candidate_set.get("dtype") == dtype:
+            return item
+        if item.get("dtype") == dtype and not item.get("candidates"):
             return item
     return None
 

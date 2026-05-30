@@ -1,0 +1,142 @@
+#include <dinoml/rocm_kernels.h>
+
+#include "flash_attn_dinoml.h"
+
+#include <cmath>
+#include <cstdint>
+
+extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  if (q == nullptr || k == nullptr || v == nullptr || output == nullptr) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if (batch_size <= 0 || seqlen_q <= 0 || seqlen_k <= 0 || num_heads_q <= 0 ||
+      num_heads_k <= 0 || head_dim <= 0) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+
+  const int64_t q_batch_stride = seqlen_q * num_heads_q * head_dim;
+  const int64_t k_batch_stride = seqlen_k * num_heads_k * head_dim;
+  const int64_t v_batch_stride = seqlen_k * num_heads_k * head_dim;
+  const int64_t output_batch_stride = seqlen_q * num_heads_q * head_dim;
+  const int64_t q_row_stride = num_heads_q * head_dim;
+  const int64_t k_row_stride = num_heads_k * head_dim;
+  const int64_t v_row_stride = num_heads_k * head_dim;
+  const int64_t output_row_stride = num_heads_q * head_dim;
+  const int64_t q_head_stride = head_dim;
+  const int64_t k_head_stride = head_dim;
+  const int64_t v_head_stride = head_dim;
+  const int64_t output_head_stride = head_dim;
+  const MaskType mask_type = causal != 0 ? MaskType::kCausalFromTopLeft : MaskType::kNone;
+
+  const float elapsed_ms = FlashAttentionLauncher(
+      output,
+      output_batch_stride,
+      output_row_stride,
+      output_head_stride,
+      const_cast<void*>(q),
+      q_batch_stride,
+      q_row_stride,
+      q_head_stride,
+      const_cast<void*>(k),
+      k_batch_stride,
+      k_row_stride,
+      k_head_stride,
+      const_cast<void*>(v),
+      v_batch_stride,
+      v_row_stride,
+      v_head_stride,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      mask_type,
+      DataType::kFloat16,
+      -1,
+      -1,
+      stream);
+  if (elapsed_ms < 0.0f) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  return 0;
+}
+
+extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
+    const void* qkv,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen,
+    int64_t num_heads,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  if (qkv == nullptr || output == nullptr) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if (batch_size <= 0 || seqlen <= 0 || num_heads <= 0 || head_dim <= 0) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+
+  const int64_t packed_row_stride = 3 * num_heads * head_dim;
+  const int64_t qkv_batch_stride = seqlen * packed_row_stride;
+  const int64_t output_batch_stride = seqlen * num_heads * head_dim;
+  const int64_t output_row_stride = num_heads * head_dim;
+  const int64_t output_head_stride = head_dim;
+  const int64_t q_row_stride = packed_row_stride;
+  const int64_t k_row_stride = packed_row_stride;
+  const int64_t v_row_stride = packed_row_stride;
+  const int64_t q_head_stride = head_dim;
+  const int64_t k_head_stride = head_dim;
+  const int64_t v_head_stride = head_dim;
+  const int64_t head_block = num_heads * head_dim;
+  auto* q_ptr = const_cast<void*>(qkv);
+  auto* k_ptr = static_cast<void*>(static_cast<char*>(const_cast<void*>(qkv)) + head_block * sizeof(uint16_t));
+  auto* v_ptr = static_cast<void*>(static_cast<char*>(const_cast<void*>(qkv)) + 2 * head_block * sizeof(uint16_t));
+  const MaskType mask_type = causal != 0 ? MaskType::kCausalFromTopLeft : MaskType::kNone;
+
+  const float elapsed_ms = FlashAttentionLauncher(
+      output,
+      output_batch_stride,
+      output_row_stride,
+      output_head_stride,
+      q_ptr,
+      qkv_batch_stride,
+      q_row_stride,
+      q_head_stride,
+      k_ptr,
+      qkv_batch_stride,
+      k_row_stride,
+      k_head_stride,
+      v_ptr,
+      qkv_batch_stride,
+      v_row_stride,
+      v_head_stride,
+      batch_size,
+      seqlen,
+      seqlen,
+      num_heads,
+      num_heads,
+      head_dim,
+      mask_type,
+      DataType::kFloat16,
+      -1,
+      -1,
+      stream);
+  if (elapsed_ms < 0.0f) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  return 0;
+}

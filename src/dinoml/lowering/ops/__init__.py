@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from dinoml.ir import canonical_json
+from dinoml.lowering.ops.add_layer_norm import ADD_LAYER_NORM_LOWERING
 from dinoml.lowering.ops.argmax import ARGMAX_LOWERING
 from dinoml.lowering.ops.arange import ARANGE_LOWERING
 from dinoml.lowering.ops.avg_pool1d import AVG_POOL1D_LOWERING
@@ -22,6 +23,7 @@ from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.dynamic_slice import DYNAMIC_SLICE_LOWERING
 from dinoml.lowering.ops.embedding import EMBEDDING_LOWERING
 from dinoml.lowering.ops.expand import EXPAND_LOWERING
+from dinoml.lowering.ops.flash_attention import FLASH_ATTENTION_LOWERING, FLASH_ATTENTION_QKV_LOWERING
 from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gather import GATHER_LOWERING
@@ -34,6 +36,7 @@ from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
+from dinoml.lowering.ops.qkv_split import QKV_SPLIT_LOWERING
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
@@ -48,6 +51,7 @@ from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
 
 OP_LOWERINGS: dict[str, OpLowering] = {
+    ADD_LAYER_NORM_LOWERING.op_name: ADD_LAYER_NORM_LOWERING,
     ARGMAX_LOWERING.op_name: ARGMAX_LOWERING,
     ARANGE_LOWERING.op_name: ARANGE_LOWERING,
     AVG_POOL1D_LOWERING.op_name: AVG_POOL1D_LOWERING,
@@ -61,6 +65,8 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     DYNAMIC_SLICE_LOWERING.op_name: DYNAMIC_SLICE_LOWERING,
     EMBEDDING_LOWERING.op_name: EMBEDDING_LOWERING,
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,
+    FLASH_ATTENTION_LOWERING.op_name: FLASH_ATTENTION_LOWERING,
+    FLASH_ATTENTION_QKV_LOWERING.op_name: FLASH_ATTENTION_QKV_LOWERING,
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     GATHER_LOWERING.op_name: GATHER_LOWERING,
@@ -70,6 +76,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     LAYER_NORM_LOWERING.op_name: LAYER_NORM_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
+    QKV_SPLIT_LOWERING.op_name: QKV_SPLIT_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
     SHAPE_BUFFER_COUNT_TRUE_LOWERING.op_name: SHAPE_BUFFER_COUNT_TRUE_LOWERING,

@@ -106,16 +106,18 @@ def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str
         source = tensors[source_name]
         if tensor["dtype"] != source["dtype"]:
             raise ValidationError(f"View tensor {tensor_name} dtype must match source {source_name}")
-        if prod(tensor["shape"]) != prod(source["shape"]):
-            raise ValidationError(f"View tensor {tensor_name} must preserve source element count")
+        offset_elements = view.get("offset_elements", 0)
+        if not isinstance(offset_elements, int) or offset_elements < 0:
+            raise ValidationError(f"View tensor {tensor_name} must use a non-negative integer offset")
+        tensor_numel = prod(tensor["shape"])
+        source_numel = prod(source["shape"])
+        if offset_elements + tensor_numel > source_numel:
+            raise ValidationError(f"View tensor {tensor_name} exceeds source {source_name} storage")
         if view.get("kind") != "shape_view":
             raise ValidationError(f"View tensor {tensor_name} must use kind shape_view")
         transform = view.get("transform")
         if transform not in VIEW_ONLY_TRANSFORMS:
             raise ValidationError(f"View tensor {tensor_name} has unsupported transform {transform}")
-        offset_elements = view.get("offset_elements", 0)
-        if not isinstance(offset_elements, int) or offset_elements != 0:
-            raise ValidationError(f"View tensor {tensor_name} must use zero offset for shape-only aliases")
         if "shape" in view and list(view["shape"]) != list(tensor["shape"]):
             raise ValidationError(f"View tensor {tensor_name} shape metadata must match tensor table")
         if "shape_spec" in view:
@@ -130,7 +132,7 @@ def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str
                 "source": source_name,
                 "kind": "shape_view",
                 "transform": transform,
-                "offset_elements": 0,
+                "offset_elements": offset_elements,
                 "shape": list(tensor["shape"]),
                 "shape_spec": list(view.get("shape_spec", tensor.get("shape_spec", tensor["shape"]))),
             }
@@ -201,6 +203,12 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] == "layer_norm":
         _validate_layer_norm_node(node, inputs, tensors)
+        return
+    if node["op"] == "add_layer_norm":
+        _validate_add_layer_norm_node(node, inputs, tensors)
+        return
+    if node["op"] == "qkv_split":
+        _validate_qkv_split_node(node, inputs, tensors)
         return
     if node["op"] == "embedding":
         _validate_embedding_node(node, inputs, tensors)
@@ -588,6 +596,87 @@ def _validate_layer_norm_node(
         )
 
 
+def _validate_add_layer_norm_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("add_layer_norm")
+    if len(node["outputs"]) != 2:
+        raise ValidationError(f"Node {node['id']} must have exactly two outputs")
+    if not op_def.accepts_input_count(len(inputs)):
+        raise ValidationError("add_layer_norm expects exactly four inputs")
+    x_tensor, residual_tensor, weight_tensor, bias_tensor = inputs
+    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+    weight_shape_spec = weight_tensor.get("shape_spec", weight_tensor["shape"])
+    bias_shape_spec = bias_tensor.get("shape_spec", bias_tensor["shape"])
+    if not x_tensor["shape"]:
+        raise ValidationError("add_layer_norm requires rank >= 1 input")
+    if list(residual_tensor["shape"]) != list(x_tensor["shape"]):
+        raise ValidationError("add_layer_norm residual shape must match input shape")
+    if len(weight_tensor["shape"]) != 1:
+        raise ValidationError("add_layer_norm requires rank-1 weight")
+    if len(bias_tensor["shape"]) != 1:
+        raise ValidationError("add_layer_norm requires rank-1 bias")
+    if not isinstance(x_shape_spec[-1], int):
+        raise ValidationError("add_layer_norm currently requires a static last dimension")
+    if not isinstance(weight_shape_spec[0], int):
+        raise ValidationError("add_layer_norm currently requires a static weight shape")
+    if not isinstance(bias_shape_spec[0], int):
+        raise ValidationError("add_layer_norm currently requires a static bias shape")
+    if int(weight_tensor["shape"][0]) != int(x_tensor["shape"][-1]):
+        raise ValidationError(
+            "add_layer_norm weight length must match the input hidden size: "
+            f"got hidden={x_tensor['shape'][-1]}, weight={weight_tensor['shape'][0]}"
+        )
+    if int(bias_tensor["shape"][0]) != int(x_tensor["shape"][-1]):
+        raise ValidationError(
+            "add_layer_norm bias length must match the input hidden size: "
+            f"got hidden={x_tensor['shape'][-1]}, bias={bias_tensor['shape'][0]}"
+        )
+    if any(input_info["dtype"] != x_tensor["dtype"] for input_info in inputs):
+        raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
+    if x_tensor["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"add_layer_norm does not support dtype {x_tensor['dtype']}")
+    for output_name in node["outputs"]:
+        output = tensors[output_name]
+        if list(output["shape"]) != list(x_tensor["shape"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has shape {output['shape']}, "
+                f"expected {x_tensor['shape']}"
+            )
+        if str(output["dtype"]) != str(x_tensor["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {x_tensor['dtype']}"
+            )
+
+
+def _validate_qkv_split_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("qkv_split")
+    if len(inputs) != 1:
+        raise ValidationError("qkv_split expects exactly one input")
+    if len(node["outputs"]) != 3:
+        raise ValidationError("qkv_split expects exactly three outputs")
+    qkv_tensor = inputs[0]
+    if not qkv_tensor["shape"]:
+        raise ValidationError("qkv_split requires rank >= 1 input")
+    if not isinstance(qkv_tensor["shape"][-1], int) or int(qkv_tensor["shape"][-1]) % 3 != 0:
+        raise ValidationError("qkv_split requires a static input last dimension divisible by 3")
+    if qkv_tensor["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"qkv_split does not support dtype {qkv_tensor['dtype']}")
+    expected_shape = list(qkv_tensor["shape"])
+    expected_shape[-1] = int(expected_shape[-1]) // 3
+    for output_name in node["outputs"]:
+        output_tensor = tensors[output_name]
+        if list(output_tensor["shape"]) != expected_shape:
+            raise ValidationError("qkv_split output shape must equal input shape with last dim / 3")
+        if output_tensor["dtype"] != qkv_tensor["dtype"]:
+            raise ValidationError("qkv_split output dtype must match input dtype")
 def _validate_collection_node(
     node: Mapping[str, Any],
     inputs: Sequence[Mapping[str, Any]],

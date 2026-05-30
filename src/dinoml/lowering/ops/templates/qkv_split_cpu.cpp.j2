@@ -1,0 +1,20 @@
+static int {{ func }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT qkv,
+    {{ cpu_storage_type }}* DINO_RESTRICT q,
+    {{ cpu_storage_type }}* DINO_RESTRICT k,
+    {{ cpu_storage_type }}* DINO_RESTRICT v,
+    int64_t output_total) {
+  if (qkv == nullptr || q == nullptr || k == nullptr || v == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t hidden = {{ hidden }};
+  for (int64_t elem = 0; elem < output_total; ++elem) {
+    const int64_t row = elem / hidden;
+    const int64_t col = elem - row * hidden;
+    const int64_t input_base = row * hidden * 3 + col;
+    q[elem] = qkv[input_base];
+    k[elem] = qkv[input_base + hidden];
+    v[elem] = qkv[input_base + 2 * hidden];
+  }
+  return 0;
+}

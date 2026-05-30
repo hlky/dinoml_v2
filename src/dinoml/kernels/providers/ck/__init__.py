@@ -30,6 +30,14 @@ from dinoml.kernels.providers.ck.conv import (
     ck_conv_used_candidate_plan,
     render_ck_conv_source,
 )
+from dinoml.kernels.providers.ck.flash_attention import (
+    FLASH_ATTN_CK_LIBRARY,
+    FLASH_ATTN_CK_SUPPORTED_DTYPES,
+    flash_attn_ck_cmake_target,
+    flash_attn_ck_qkv_symbol,
+    flash_attn_ck_static_library_name,
+    flash_attn_ck_symbol,
+)
 from dinoml.kernels.providers.ck.gemm import (
     CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
     CK_GEMM_DEFAULT_SYMBOL_ID,
@@ -58,6 +66,8 @@ __all__ = [
     "CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION",
     "CK_GEMM_DEFAULT_SYMBOL_ID",
     "CK_GEMM_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
+    "FLASH_ATTN_CK_LIBRARY",
+    "FLASH_ATTN_CK_SUPPORTED_DTYPES",
     "ck_bmm_candidate_set",
     "ck_bmm_candidate_set_id",
     "ck_bmm_candidates",
@@ -76,6 +86,10 @@ __all__ = [
     "ck_conv_static_library_name",
     "ck_conv_symbol",
     "ck_conv_used_candidate_plan",
+    "flash_attn_ck_cmake_target",
+    "flash_attn_ck_qkv_symbol",
+    "flash_attn_ck_static_library_name",
+    "flash_attn_ck_symbol",
     "ck_gemm_candidate_set",
     "ck_gemm_candidate_set_id",
     "ck_gemm_candidates",

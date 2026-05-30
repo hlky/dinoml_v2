@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -57,11 +58,16 @@ def render_gpu_module(
     )
     generated_kernel_sources = list(generated_kernels) if generated_kernels is not None else render_generated_kernels(target_name, ir["nodes"], tensor_map)
     launches = [render_launch(target_name, node, tensor_map, kernel_manifest=kernel_manifest) for node in ir["nodes"]]
+    launch_contexts = _launch_contexts(ir["nodes"], launches)
     output_shape_reports = _output_shape_report_contexts(ir, tensor_map=tensor_map)
     shape_buffer_idents = _required_shape_buffer_idents(
         tensor_map=tensor_map,
         launches=launches,
         output_shape_reports=output_shape_reports,
+    )
+    shape_buffer_run_update_idents = _shape_buffer_run_update_idents(
+        tensor_map=tensor_map,
+        shape_buffer_idents=shape_buffer_idents,
     )
     return render_template(
         "gpu_module.cu.j2",
@@ -98,9 +104,12 @@ def render_gpu_module(
                     views=views,
                     tensor_map=tensor_map,
                     shape_buffer_idents=shape_buffer_idents,
+                    shape_buffer_run_update_idents=shape_buffer_run_update_idents,
                 )
             ),
             "launches": launches,
+            "launch_contexts": launch_contexts,
+            "profile_ops": _profile_op_contexts(launch_contexts),
             "output_materializations": _output_materializations(views, target_name=target_name),
             "output_shape_reports": output_shape_reports,
             "cutlass_conv_temporaries": [],
@@ -119,15 +128,30 @@ def _gpu_target_config(target_name: str, spec: LoweringTargetSpec) -> dict[str, 
             "stream_type": str(spec.stream_type),
             "check_macro": str(spec.check_macro),
             "runtime_check_function": "dino_runtime_cuda_check",
+            "device_error_type": "cudaError_t",
+            "success_constant": "cudaSuccess",
             "device_malloc": "cudaMalloc",
             "device_free": "cudaFree",
             "device_synchronize": "cudaDeviceSynchronize",
+            "stream_create_with_flags": "cudaStreamCreateWithFlags",
+            "stream_destroy": "cudaStreamDestroy",
+            "stream_non_blocking": "cudaStreamNonBlocking",
             "event_type": "cudaEvent_t",
-            "event_create": "cudaEventCreate",
+            "event_create": "cudaEventCreateWithFlags",
+            "event_flags": "cudaEventDefault",
             "event_destroy": "cudaEventDestroy",
             "event_record": "cudaEventRecord",
             "event_synchronize": "cudaEventSynchronize",
             "event_elapsed_time": "cudaEventElapsedTime",
+            "graph_type": "cudaGraph_t",
+            "graph_exec_type": "cudaGraphExec_t",
+            "graph_capture_mode": "cudaStreamCaptureModeThreadLocal",
+            "stream_begin_capture": "cudaStreamBeginCapture",
+            "stream_end_capture": "cudaStreamEndCapture",
+            "graph_instantiate": "cudaGraphInstantiate",
+            "graph_launch": "cudaGraphLaunch",
+            "graph_destroy": "cudaGraphDestroy",
+            "graph_exec_destroy": "cudaGraphExecDestroy",
             "memcpy": "cudaMemcpy",
             "memcpy_async": "cudaMemcpyAsync",
             "stream_synchronize": "cudaStreamSynchronize",
@@ -142,15 +166,30 @@ def _gpu_target_config(target_name: str, spec: LoweringTargetSpec) -> dict[str, 
             "stream_type": str(spec.stream_type),
             "check_macro": str(spec.check_macro),
             "runtime_check_function": "dino_runtime_rocm_check",
+            "device_error_type": "hipError_t",
+            "success_constant": "hipSuccess",
             "device_malloc": "hipMalloc",
             "device_free": "hipFree",
             "device_synchronize": "hipDeviceSynchronize",
+            "stream_create_with_flags": "hipStreamCreateWithFlags",
+            "stream_destroy": "hipStreamDestroy",
+            "stream_non_blocking": "hipStreamNonBlocking",
             "event_type": "hipEvent_t",
-            "event_create": "hipEventCreate",
+            "event_create": "hipEventCreateWithFlags",
+            "event_flags": "hipEventDisableSystemFence",
             "event_destroy": "hipEventDestroy",
             "event_record": "hipEventRecord",
             "event_synchronize": "hipEventSynchronize",
             "event_elapsed_time": "hipEventElapsedTime",
+            "graph_type": "hipGraph_t",
+            "graph_exec_type": "hipGraphExec_t",
+            "graph_capture_mode": "hipStreamCaptureModeThreadLocal",
+            "stream_begin_capture": "hipStreamBeginCapture",
+            "stream_end_capture": "hipStreamEndCapture",
+            "graph_instantiate": "hipGraphInstantiate",
+            "graph_launch": "hipGraphLaunch",
+            "graph_destroy": "hipGraphDestroy",
+            "graph_exec_destroy": "hipGraphExecDestroy",
             "memcpy": "hipMemcpy",
             "memcpy_async": "hipMemcpyAsync",
             "stream_synchronize": "hipStreamSynchronize",
@@ -159,6 +198,37 @@ def _gpu_target_config(target_name: str, spec: LoweringTargetSpec) -> dict[str, 
             "memcpy_device_to_host": "hipMemcpyDeviceToHost",
         }
     raise ValueError(f"Unsupported GPU module target: {target_name}")
+
+
+def _launch_contexts(nodes: Iterable[Mapping[str, Any]], launches: Iterable[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "index": idx,
+            "op": str(node.get("op", "unknown")),
+            "label": _profile_launch_label(idx, node),
+            "profile_op_index": 0,
+            "launch": launch,
+        }
+        for idx, (node, launch) in enumerate(zip(nodes, launches))
+    ]
+
+
+def _profile_launch_label(index: int, node: Mapping[str, Any]) -> str:
+    inputs = ",".join(str(name) for name in node.get("inputs", ()))
+    outputs = ",".join(str(name) for name in node.get("outputs", ()))
+    return json.dumps(f"{index}:{node.get('op', 'unknown')} in={inputs} out={outputs}")
+
+
+def _profile_op_contexts(launch_contexts: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    op_to_index: dict[str, int] = {}
+    contexts: list[dict[str, Any]] = []
+    for launch in launch_contexts:
+        op = str(launch["op"])
+        if op not in op_to_index:
+            op_to_index[op] = len(contexts)
+            contexts.append({"index": op_to_index[op], "name": op})
+        launch["profile_op_index"] = op_to_index[op]
+    return contexts
 
 
 def _view_contexts(
@@ -195,6 +265,7 @@ def _view_contexts(
                 "ident": _c_ident(tensor_name),
                 "source": str(view["source"]),
                 "source_ident": _c_ident(str(view["source"])),
+                "offset_elements": int(view.get("offset_elements", 0)),
                 "output_index": output_map.get(tensor_name),
                 "nbytes_expr": f"runtime_numel_{_c_ident(tensor_name)} * sizeof({cpp_type})",
             }
@@ -287,6 +358,7 @@ def _pointer_decls(
     views: Iterable[Mapping[str, Any]],
     tensor_map: Mapping[str, Mapping[str, Any]],
     shape_buffer_idents: set[str],
+    shape_buffer_run_update_idents: set[str],
 ) -> Iterable[str]:
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
     view_by_tensor = {str(view["tensor"]): view for view in views}
@@ -301,8 +373,9 @@ def _pointer_decls(
         yield f"const {cpp_type}* ptr_{ident} = static_cast<const {cpp_type}*>(dinoml::module::tensor_data(inputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = inputs[{idx}].shape[{axis}];"
-        if ident in shape_buffer_idents:
+        if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
             yield f"{check_macro}({memcpy}(session->shape_{ident}, inputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(inputs[{idx}]);"
     for tensor_name in constant_tensors:
@@ -312,8 +385,9 @@ def _pointer_decls(
         yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(rank):
             yield f"const int64_t shape_{ident}_{axis} = module->const_shape_{ident}[{axis}];"
-        if ident in shape_buffer_idents:
+        if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
             yield f"{check_macro}({memcpy}(session->shape_{ident}, module->const_shape_{ident}.data(), sizeof(int64_t) * {rank}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, rank)};"
         yield (
@@ -327,9 +401,10 @@ def _pointer_decls(
         yield f"const DinoTensor* abi_{ident} = nullptr;"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
-        if ident in shape_buffer_idents:
+        if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
             yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
             yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
         yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(session->tmp_{ident});"
@@ -342,8 +417,9 @@ def _pointer_decls(
         yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(dinoml::module::tensor_data(outputs[{idx}]));"
         for axis in range(len(tensor_map[tensor_name]["shape"])):
             yield f"const int64_t shape_{ident}_{axis} = outputs[{idx}].shape[{axis}];"
-        if ident in shape_buffer_idents:
+        if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
             yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{idx}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(outputs[{idx}]);"
     for view in views:
@@ -357,18 +433,18 @@ def _pointer_decls(
         if output_idx is None:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
                 yield f"const int64_t shape_{ident}_{axis} = {shape_dim_expr(tensor_map[tensor_name], axis, dynamic_dims)};"
-            if ident in shape_buffer_idents:
+            if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
                 yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, len(tensor_map[tensor_name]['shape']))} }};"
                 yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
         else:
             for axis in range(len(tensor_map[tensor_name]["shape"])):
                 yield f"const int64_t shape_{ident}_{axis} = outputs[{int(output_idx)}].shape[{axis}];"
-            if ident in shape_buffer_idents:
+            if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
                 yield f"{check_macro}({memcpy}(session->shape_{ident}, outputs[{int(output_idx)}].shape, sizeof(int64_t) * {len(tensor_map[tensor_name]['shape'])}, {memcpy_h2d}));"
         if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident};"
+        yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident} + {int(view.get('offset_elements', 0))};"
 
 
 def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> dict[str, int] | None:
@@ -474,6 +550,23 @@ def _required_shape_buffer_idents(
         if report.get("source") == "shape_buffer":
             required.add(str(report["ident"]))
     return required
+
+
+def _shape_buffer_run_update_idents(
+    *,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    shape_buffer_idents: set[str],
+) -> set[str]:
+    by_ident = {_c_ident(str(name)): tensor for name, tensor in tensor_map.items()}
+    return {
+        ident
+        for ident in shape_buffer_idents
+        if not _shape_spec_is_static(by_ident[ident].get("shape_spec", by_ident[ident]["shape"]))
+    }
+
+
+def _shape_spec_is_static(shape_spec: Iterable[Any]) -> bool:
+    return all(isinstance(dim, int) for dim in shape_spec)
 
 
 def _dim_ranges(shape_spec: Iterable[Any]) -> list[dict[str, int]]:

@@ -6,6 +6,9 @@
 #include <dinoml/tensor_accessor.h>
 
 #include <cstddef>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -40,6 +43,7 @@ struct DinoModule {
 struct DinoSession {
   DinoModule* module = nullptr;
   {{ stream_type }} stream = nullptr;
+  {{ stream_type }} owned_stream = nullptr;
   bool external_stream = false;
   std::vector<std::vector<int64_t>> last_output_shapes;
   std::vector<bool> last_output_shapes_valid;
@@ -85,6 +89,20 @@ struct DinoGpuBenchmarkEvents {
     }
     if (stop != nullptr) {
       {{ event_destroy }}(stop);
+    }
+  }
+};
+
+struct DinoGpuBenchmarkGraph {
+  {{ graph_type }} graph = nullptr;
+  {{ graph_exec_type }} executable = nullptr;
+
+  ~DinoGpuBenchmarkGraph() {
+    if (executable != nullptr) {
+      {{ graph_exec_destroy }}(executable);
+    }
+    if (graph != nullptr) {
+      {{ graph_destroy }}(graph);
     }
   }
 };
@@ -298,6 +316,8 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
       return _dino_err;                                               \
     }                                                                 \
   } while (0)
+  DINO_SESSION_CREATE_GPU_CHECK({{ stream_create_with_flags }}(&session->owned_stream, {{ stream_non_blocking }}));
+  session->stream = session->owned_stream;
 {% if cutlass_workspace %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
 {% endif %}
@@ -365,6 +385,9 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
     {{ device_free }}(session->topk_scratch);
   }
 {% endif %}
+  if (session->owned_stream) {
+    {{ stream_destroy }}(session->owned_stream);
+  }
   delete session;
   return 0;
 }
@@ -375,6 +398,9 @@ DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream) {
   }
   session->stream = reinterpret_cast<{{ stream_type }}>(stream);
   session->external_stream = stream != nullptr;
+  if (session->stream == nullptr) {
+    session->stream = session->owned_stream;
+  }
   return 0;
 }
 
@@ -493,12 +519,205 @@ static int dino_session_run_impl(
 {% for pointer in pointer_decls %}
   {{ pointer }}
 {% endfor %}
-{% for launch in launches %}
-  {{ launch }}
+  const bool profile_run = std::getenv("DINOML_PROFILE_RUN") != nullptr;
+  const bool profile_verbose = std::getenv("DINOML_PROFILE_RUN_VERBOSE") != nullptr;
+  const char* profile_sections_env = std::getenv("DINOML_PROFILE_RUN_SECTIONS");
+  struct DinoProfileSection {
+    std::string name;
+    int start_launch = -1;
+    int end_launch = -1;
+    {{ event_type }} start_event = nullptr;
+    {{ event_type }} stop_event = nullptr;
+    bool started = false;
+    bool stopped = false;
+  };
+  std::vector<DinoProfileSection> profile_sections;
+  if (profile_sections_env != nullptr && profile_sections_env[0] != '\0') {
+    const char* cursor = profile_sections_env;
+    while (*cursor != '\0') {
+      const char* name_begin = cursor;
+      const char* name_end = std::strchr(name_begin, ':');
+      if (name_end == nullptr) {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS entry is missing first ':'");
+      }
+      const char* start_begin = name_end + 1;
+      char* start_end = nullptr;
+      long start_value = std::strtol(start_begin, &start_end, 10);
+      if (start_end == start_begin || start_end == nullptr || *start_end != ':') {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS entry has invalid start launch");
+      }
+      const char* end_begin = start_end + 1;
+      char* end_end = nullptr;
+      long end_value = std::strtol(end_begin, &end_end, 10);
+      if (end_end == end_begin || end_end == nullptr) {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS entry has invalid end launch");
+      }
+      if (start_value < 0 || end_value < start_value) {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS requires non-negative start <= end");
+      }
+      DinoProfileSection section;
+      section.name.assign(name_begin, static_cast<size_t>(name_end - name_begin));
+      section.start_launch = static_cast<int>(start_value);
+      section.end_launch = static_cast<int>(end_value);
+      {{ check_macro }}({{ event_create }}(&section.start_event, {{ event_flags }}));
+      {{ check_macro }}({{ event_create }}(&section.stop_event, {{ event_flags }}));
+      profile_sections.push_back(section);
+      if (*end_end == ',') {
+        cursor = end_end + 1;
+      } else if (*end_end == '\0') {
+        cursor = end_end;
+      } else {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS entries must be comma-separated");
+      }
+    }
+  }
+  DinoGpuBenchmarkEvents profile_total_events;
+  double profile_op_ms[{{ profile_ops|length }}] = {};
+  size_t profile_op_counts[{{ profile_ops|length }}] = {};
+  double profile_output_materialization_ms = 0.0;
+  size_t profile_output_materialization_count = 0;
+  std::vector<{{ event_type }}> profile_start_events;
+  std::vector<{{ event_type }}> profile_stop_events;
+  std::vector<int> profile_event_op_indices;
+  std::vector<int> profile_event_launch_indices;
+  size_t profile_event_index = 0;
+  if (profile_run) {
+    {{ check_macro }}({{ event_create }}(&profile_total_events.start, {{ event_flags }}));
+    {{ check_macro }}({{ event_create }}(&profile_total_events.stop, {{ event_flags }}));
+    profile_start_events.resize({{ launch_contexts|length + output_materializations|length }}, nullptr);
+    profile_stop_events.resize({{ launch_contexts|length + output_materializations|length }}, nullptr);
+    profile_event_op_indices.resize({{ launch_contexts|length + output_materializations|length }}, -2);
+    profile_event_launch_indices.resize({{ launch_contexts|length + output_materializations|length }}, -1);
+    for (size_t event_index = 0; event_index < profile_start_events.size(); ++event_index) {
+      {{ check_macro }}({{ event_create }}(&profile_start_events[event_index], {{ event_flags }}));
+      {{ check_macro }}({{ event_create }}(&profile_stop_events[event_index], {{ event_flags }}));
+    }
+    {{ check_macro }}({{ event_record }}(profile_total_events.start, session->stream));
+  }
+{% for launch in launch_contexts %}
+  for (DinoProfileSection& section : profile_sections) {
+    if (!section.started && section.start_launch == {{ launch.index }}) {
+      {{ check_macro }}({{ event_record }}(section.start_event, session->stream));
+      section.started = true;
+    }
+  }
+  if (profile_run) {
+    const size_t event_index = profile_event_index++;
+    profile_event_op_indices[event_index] = {{ launch.profile_op_index }};
+    profile_event_launch_indices[event_index] = {{ launch.index }};
+    {{ check_macro }}({{ event_record }}(profile_start_events[event_index], session->stream));
+    {{ launch.launch }}
+    {{ check_macro }}({{ event_record }}(profile_stop_events[event_index], session->stream));
+  } else {
+    {{ launch.launch }}
+  }
+  for (DinoProfileSection& section : profile_sections) {
+    if (section.started && !section.stopped && section.end_launch == {{ launch.index }}) {
+      {{ check_macro }}({{ event_record }}(section.stop_event, session->stream));
+      section.stopped = true;
+    }
+  }
 {% endfor %}
 {% for materialization in output_materializations %}
-  {{ materialization }}
+  if (profile_run) {
+    const size_t event_index = profile_event_index++;
+    profile_event_op_indices[event_index] = -1;
+    {{ check_macro }}({{ event_record }}(profile_start_events[event_index], session->stream));
+    {{ materialization }}
+    {{ check_macro }}({{ event_record }}(profile_stop_events[event_index], session->stream));
+  } else {
+    {{ materialization }}
+  }
 {% endfor %}
+  if (profile_run) {
+    {{ check_macro }}({{ event_record }}(profile_total_events.stop, session->stream));
+    {{ check_macro }}({{ event_synchronize }}(profile_total_events.stop));
+    for (size_t event_index = 0; event_index < profile_event_index; ++event_index) {
+      float profile_elapsed_ms = 0.0f;
+      {{ check_macro }}({{ event_elapsed_time }}(
+          &profile_elapsed_ms,
+          profile_start_events[event_index],
+          profile_stop_events[event_index]));
+      const int op_index = profile_event_op_indices[event_index];
+      if (op_index >= 0) {
+        profile_op_ms[op_index] += static_cast<double>(profile_elapsed_ms);
+        profile_op_counts[op_index] += 1;
+      } else if (op_index == -1) {
+        profile_output_materialization_ms += static_cast<double>(profile_elapsed_ms);
+        profile_output_materialization_count += 1;
+      }
+      if (profile_verbose) {
+        const int launch_index = profile_event_launch_indices[event_index];
+        const char* launch_label = "output_materialization";
+{% for launch in launch_contexts %}
+        if (launch_index == {{ launch.index }}) {
+          launch_label = {{ launch.label }};
+        }
+{% endfor %}
+        std::fprintf(
+            stderr,
+            "[dinoml_profile_launch] label=%s ms=%.6f\n",
+            launch_label,
+            static_cast<double>(profile_elapsed_ms));
+      }
+    }
+    for (size_t event_index = 0; event_index < profile_start_events.size(); ++event_index) {
+      if (profile_start_events[event_index] != nullptr) {
+        {{ event_destroy }}(profile_start_events[event_index]);
+      }
+      if (profile_stop_events[event_index] != nullptr) {
+        {{ event_destroy }}(profile_stop_events[event_index]);
+      }
+    }
+    float profile_total_elapsed_ms = 0.0f;
+    {{ check_macro }}({{ event_elapsed_time }}(
+        &profile_total_elapsed_ms,
+        profile_total_events.start,
+        profile_total_events.stop));
+    std::fprintf(stderr, "[dinoml_profile] total_gpu_ms=%.6f\n", static_cast<double>(profile_total_elapsed_ms));
+{% for op in profile_ops %}
+    if (profile_op_counts[{{ op.index }}] != 0) {
+      std::fprintf(
+          stderr,
+          "[dinoml_profile] op={{ op.name }} count=%zu total_ms=%.6f mean_ms=%.6f\n",
+          profile_op_counts[{{ op.index }}],
+          profile_op_ms[{{ op.index }}],
+          profile_op_ms[{{ op.index }}] / static_cast<double>(profile_op_counts[{{ op.index }}]));
+    }
+{% endfor %}
+    if (profile_output_materialization_count != 0) {
+      std::fprintf(
+          stderr,
+          "[dinoml_profile] op=output_materialization count=%zu total_ms=%.6f mean_ms=%.6f\n",
+          profile_output_materialization_count,
+          profile_output_materialization_ms,
+          profile_output_materialization_ms / static_cast<double>(profile_output_materialization_count));
+    }
+    std::fflush(stderr);
+  }
+  if (!profile_sections.empty()) {
+    {{ check_macro }}({{ stream_synchronize }}(session->stream));
+    for (DinoProfileSection& section : profile_sections) {
+      if (!section.started || !section.stopped) {
+        return dinoml::module::fail("DINOML_PROFILE_RUN_SECTIONS range did not match generated launch indices");
+      }
+      float profile_section_elapsed_ms = 0.0f;
+      {{ check_macro }}({{ event_elapsed_time }}(
+          &profile_section_elapsed_ms,
+          section.start_event,
+          section.stop_event));
+      std::fprintf(
+          stderr,
+          "[dinoml_profile_section] name=%s start=%d end=%d ms=%.6f\n",
+          section.name.c_str(),
+          section.start_launch,
+          section.end_launch,
+          static_cast<double>(profile_section_elapsed_ms));
+      {{ event_destroy }}(section.start_event);
+      {{ event_destroy }}(section.stop_event);
+    }
+    std::fflush(stderr);
+  }
   if (synchronize_after_launch && !session->external_stream) {
     {{ check_macro }}({{ device_synchronize }}());
   }
@@ -555,19 +774,88 @@ DINO_EXPORT int dino_session_benchmark(
   } else {
     {{ check_macro }}({{ device_synchronize }}());
   }
+  const bool benchmark_wall_sync = std::getenv("DINOML_BENCHMARK_WALL_SYNC") != nullptr;
   DinoGpuBenchmarkEvents events;
-  {{ check_macro }}({{ event_create }}(&events.start));
-  {{ check_macro }}({{ event_create }}(&events.stop));
-  for (size_t i = 0; i < measured_runs; ++i) {
-    {{ check_macro }}({{ event_record }}(events.start, session->stream));
-    if (int err = dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)) {
-      return err;
+  if (!benchmark_wall_sync) {
+    {{ check_macro }}({{ event_create }}(&events.start, {{ event_flags }}));
+    {{ check_macro }}({{ event_create }}(&events.stop, {{ event_flags }}));
+  }
+  DinoGpuBenchmarkGraph graph;
+  bool use_graph_replay = false;
+  {{ device_error_type }} graph_capture_status = {{ success_constant }};
+  {{ device_error_type }} graph_instantiate_status = {{ success_constant }};
+  if (!session->external_stream && std::getenv("DINOML_PROFILE_RUN") == nullptr) {
+    auto capture_err = {{ stream_begin_capture }}(session->stream, {{ graph_capture_mode }});
+    graph_capture_status = capture_err;
+    if (capture_err == {{ success_constant }}) {
+      int capture_run_err = dino_session_run_impl(
+          session,
+          inputs,
+          num_inputs,
+          outputs,
+          num_outputs,
+          false,
+          false);
+      if (capture_run_err) {
+        {{ graph_type }} discarded_graph = nullptr;
+        auto discard_err = {{ stream_end_capture }}(session->stream, &discarded_graph);
+        if (discarded_graph != nullptr) {
+          {{ graph_destroy }}(discarded_graph);
+        }
+        (void)discard_err;
+        return capture_run_err;
+      }
+      auto end_capture_err = {{ stream_end_capture }}(session->stream, &graph.graph);
+      graph_capture_status = end_capture_err;
+      if (end_capture_err == {{ success_constant }}) {
+        auto instantiate_err = {{ graph_instantiate }}(&graph.executable, graph.graph, nullptr, nullptr, 0);
+        graph_instantiate_status = instantiate_err;
+        if (instantiate_err == {{ success_constant }} && graph.executable != nullptr) {
+          use_graph_replay = true;
+        }
+      }
     }
-    {{ check_macro }}({{ event_record }}(events.stop, session->stream));
-    {{ check_macro }}({{ event_synchronize }}(events.stop));
-    float elapsed_ms = 0.0f;
-    {{ check_macro }}({{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop));
-    out_elapsed_ms[i] = static_cast<double>(elapsed_ms);
+    if (!use_graph_replay && graph.graph != nullptr) {
+      {{ graph_destroy }}(graph.graph);
+      graph.graph = nullptr;
+    }
+    if (!use_graph_replay && graph.executable != nullptr) {
+      {{ graph_exec_destroy }}(graph.executable);
+      graph.executable = nullptr;
+    }
+  }
+  if (!use_graph_replay && std::getenv("DINOML_REQUIRE_BENCHMARK_GRAPH") != nullptr) {
+    return dinoml::module::fail(
+        "dino_session_benchmark graph replay unavailable; capture status " +
+        std::to_string(static_cast<int>(graph_capture_status)) +
+        ", instantiate status " +
+        std::to_string(static_cast<int>(graph_instantiate_status)));
+  }
+  for (size_t i = 0; i < measured_runs; ++i) {
+    std::chrono::steady_clock::time_point wall_start;
+    if (benchmark_wall_sync) {
+      wall_start = std::chrono::steady_clock::now();
+    } else {
+      {{ check_macro }}({{ event_record }}(events.start, session->stream));
+    }
+    if (use_graph_replay) {
+      {{ check_macro }}({{ graph_launch }}(graph.executable, session->stream));
+    } else {
+      if (int err = dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)) {
+        return err;
+      }
+    }
+    if (benchmark_wall_sync) {
+      {{ check_macro }}({{ stream_synchronize }}(session->stream));
+      const auto wall_stop = std::chrono::steady_clock::now();
+      out_elapsed_ms[i] = std::chrono::duration<double, std::milli>(wall_stop - wall_start).count();
+    } else {
+      {{ check_macro }}({{ event_record }}(events.stop, session->stream));
+      {{ check_macro }}({{ event_synchronize }}(events.stop));
+      float elapsed_ms = 0.0f;
+      {{ check_macro }}({{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop));
+      out_elapsed_ms[i] = static_cast<double>(elapsed_ms);
+    }
   }
   if (int err = dino_session_report_output_shapes(session, outputs)) {
     return err;

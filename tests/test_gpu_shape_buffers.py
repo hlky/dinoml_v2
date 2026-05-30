@@ -3,6 +3,7 @@ from __future__ import annotations
 import dinoml as dml
 from dinoml.lowering.gpu import render_gpu_module
 from dinoml.passes import PassManager
+from dinoml.shapes import Dim
 
 
 class DenseElementwiseModule(dml.Module):
@@ -46,6 +47,29 @@ def test_gpu_generic_fused_elementwise_broadcast_keeps_required_shape_buffers():
     assert "int64_t* shape_x = nullptr;" in source
     assert "int64_t* shape_y = nullptr;" in source
     assert "int64_t* shape_t0 = nullptr;" in source
+    assert "DINO_SESSION_CREATE_GPU_CHECK(hipMemcpy(" in source
+    assert "hipMemcpy(session->shape_x, inputs[0].shape" not in source
+    assert "hipMemcpy(session->shape_y, inputs[1].shape" not in source
+    assert "hipMemcpy(session->shape_t0, outputs[0].shape" not in source
+
+
+def test_gpu_dynamic_shape_buffers_still_refresh_during_run():
+    batch = Dim("batch", min=1, max=4)
+    spec = dml.trace(
+        GenericBroadcastModule(),
+        inputs={
+            "x": dml.TensorSpec([batch, 1, 3], "float32"),
+            "y": dml.TensorSpec([1, 4, 1], "float32"),
+        },
+        name="dynamic_broadcast_shape_buffer_required",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+
+    source = render_gpu_module("rocm", lowered)
+
+    assert "int64_t* shape_x = nullptr;" in source
+    assert "int64_t* shape_y = nullptr;" in source
+    assert "int64_t* shape_t0 = nullptr;" in source
     assert "hipMemcpy(session->shape_x, inputs[0].shape" in source
-    assert "hipMemcpy(session->shape_y, inputs[1].shape" in source
+    assert "hipMemcpy(session->shape_y, inputs[1].shape" not in source
     assert "hipMemcpy(session->shape_t0, outputs[0].shape" in source

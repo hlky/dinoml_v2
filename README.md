@@ -96,6 +96,9 @@ ROCm example:
 python -m dinoml.cli compile examples/cuda_linear.py --target rocm --arch gfx1201 --out build/cuda_linear_rocm.dinoml
 ```
 
+See [docs/rocm.md](docs/rocm.md) for ROCm benchmarking notes, including graph
+replay timing, event flags, and CLIP tower comparison guidance.
+
 Profiling-enabled compile:
 
 ```powershell

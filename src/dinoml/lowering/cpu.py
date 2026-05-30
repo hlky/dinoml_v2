@@ -208,7 +208,7 @@ def _pointer_decls(
             yield f"session->shape_{ident}.assign(outputs[{int(output_idx)}].shape, outputs[{int(output_idx)}].shape + {len(tensor_map[tensor_name]['shape'])});"
         yield f"const int64_t* shape_{ident} = session->shape_{ident}.data();"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident};"
+        yield f"const {cpp_type}* ptr_{ident} = ptr_{source_ident} + {int(view.get('offset_elements', 0))};"
 
 
 def _view_contexts(
@@ -244,6 +244,7 @@ def _view_contexts(
                 "ident": _c_ident(tensor_name),
                 "source": str(view["source"]),
                 "source_ident": _c_ident(str(view["source"])),
+                "offset_elements": int(view.get("offset_elements", 0)),
                 "output_index": output_map.get(tensor_name),
                 "nbytes_expr": f"runtime_numel_{_c_ident(tensor_name)} * sizeof({cpp_type})",
             }

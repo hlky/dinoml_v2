@@ -147,7 +147,7 @@ def test_cuda_randn_torch_uses_curand_philox_normal4():
     assert "curand_normal4" in source
 
 
-def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():
+def test_rocm_layer_norm_benchmark_shape_uses_block_reduction_for_clip_hidden():
     spec = dml.trace(
         _LayerNormModule(),
         inputs={
@@ -161,7 +161,8 @@ def test_rocm_layer_norm_benchmark_shape_keeps_two_warp_rows():
 
     source = render_generated_kernels("rocm", spec.ir["nodes"], tensor_map)[0]
 
-    assert "dim3 block(32, 2)" in source
+    assert "dim3 block(32, 2)" not in source
+    assert "<<<static_cast<unsigned int>(rows), block, block * 2 * sizeof(float), stream>>>" in source
 
 
 def test_rocm_t5_layer_norm_benchmark_shape_keeps_two_warp_rows():

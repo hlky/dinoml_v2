@@ -156,25 +156,24 @@ def _numpy_float_dtype(dtype: str):
     return np.float16 if dtype == "float16" else np.float32
 
 
-def _cast_floating_parameters(model: object, dtype: str) -> None:
-    dtype = _normalize_workflow_dtype(dtype)
-    if dtype == "float32":
-        return
-    named_parameters = getattr(model, "named_parameters", None)
-    if named_parameters is None:
-        raise TypeError("expected DinoML model with named_parameters() for dtype casting")
-    numpy_dtype = _numpy_float_dtype(dtype)
-    for _, parameter in named_parameters():
-        if getattr(parameter, "dtype", None) != "float32" or getattr(parameter, "value", None) is None:
-            continue
-        parameter.dtype = dtype
-        parameter._value = np.asarray(parameter.value, dtype=numpy_dtype)
-
-
-def _trace_spec(*, clip_model, dtype: str = "float32") -> tuple[dml.ir.ModelSpec, dict[str, np.ndarray], object, object]:
-    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_model.config)
-    adapted_model = legacy_clip_model_from_transformers_clip_model(clip_model)
-    _cast_floating_parameters(adapted_model, dtype)
+def _trace_spec(
+    *,
+    clip_model,
+    dtype: str = "float32",
+    flash_attention: bool = False,
+) -> tuple[dml.ir.ModelSpec, dict[str, np.ndarray], object, object]:
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(
+        clip_model.config,
+        use_flash_attention=flash_attention,
+        assume_unpadded_attention_mask=flash_attention,
+        dtype=dtype,
+    )
+    adapted_model = legacy_clip_model_from_transformers_clip_model(
+        clip_model,
+        use_flash_attention=flash_attention,
+        assume_unpadded_attention_mask=flash_attention,
+        dtype=dtype,
+    )
     seq_len, inputs = _build_runtime_inputs(text_config=text_config, vision_config=vision_config, dtype=dtype)
     spec = dml.trace(
         adapted_model,
@@ -242,12 +241,15 @@ def run_workflow(
     artifact_dir: str | Path | None = None,
     transformers_src: str | Path = DEFAULT_TRANSFORMERS_SRC,
     hf_home: str | Path = DEFAULT_HF_HOME,
+    flash_attention: bool = False,
 ) -> dict[str, object]:
     target = str(target)
     dtype = _normalize_workflow_dtype(dtype)
     transformers_src = Path(transformers_src).resolve()
     hf_home = Path(hf_home).resolve()
     cache_dir = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")).resolve()
+    if flash_attention and (target != "rocm" or dtype != "float16"):
+        raise ValueError("flash_attention is currently supported only for ROCm float16 CLIP workflow runs")
     if target == "cuda":
         if shutil.which("nvcc") is None:
             raise RuntimeError("nvcc is required for --target cuda")
@@ -266,7 +268,11 @@ def run_workflow(
         transformers_src=transformers_src,
         hf_home=hf_home,
     )
-    spec, inputs, text_config, vision_config = _trace_spec(clip_model=clip_model, dtype=dtype)
+    spec, inputs, text_config, vision_config = _trace_spec(
+        clip_model=clip_model,
+        dtype=dtype,
+        flash_attention=flash_attention,
+    )
     expected = _expected_outputs(clip_model=clip_model, inputs=inputs, target=target, dtype=dtype)
 
     target_spec = _target_spec(target)
@@ -287,6 +293,7 @@ def run_workflow(
         "checkpoint_id": checkpoint_id,
         "target": target_spec.to_json(),
         "dtype": dtype,
+        "flash_attention": bool(flash_attention),
         "transformers_src": str(transformers_src),
         "hf_home": str(hf_home),
         "dinoml_cache_dir": str(cache_dir),
@@ -324,6 +331,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", type=Path, default=None)
     parser.add_argument("--transformers-src", type=Path, default=DEFAULT_TRANSFORMERS_SRC)
     parser.add_argument("--hf-home", type=Path, default=DEFAULT_HF_HOME)
+    parser.add_argument("--flash-attention", action="store_true")
     args = parser.parse_args()
     summary = run_workflow(
         checkpoint_id=args.checkpoint_id,
@@ -332,6 +340,7 @@ def main() -> None:
         artifact_dir=args.artifact_dir,
         transformers_src=args.transformers_src,
         hf_home=args.hf_home,
+        flash_attention=args.flash_attention,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 

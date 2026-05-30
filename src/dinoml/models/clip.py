@@ -7,6 +7,21 @@ from typing import Mapping
 import numpy as np
 
 import dinoml as dml
+from dinoml.ir import dtype_numpy, normalize_dtype
+
+
+_CLIP_FLOAT_DTYPES = frozenset({"float16", "float32"})
+
+
+def _normalize_clip_dtype(dtype: str) -> str:
+    normalized = normalize_dtype(dtype)
+    if normalized not in _CLIP_FLOAT_DTYPES:
+        raise ValueError(f"CLIP currently supports float16/float32 parameters, got {dtype!r}")
+    return normalized
+
+
+def _numpy_clip_dtype(dtype: str) -> np.dtype:
+    return dtype_numpy(_normalize_clip_dtype(dtype))
 
 
 @dataclass(frozen=True)
@@ -30,8 +45,12 @@ class LegacyCLIPTextConfig:
     layer_norm_eps: float = 1.0e-5
     eos_token_id: int = 2
     mask_fill_value: float = -1.0e4
+    use_flash_attention: bool = False
+    assume_unpadded_attention_mask: bool = False
+    dtype: str = "float32"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dtype", _normalize_clip_dtype(self.dtype))
         if self.vocab_size <= 0:
             raise ValueError("vocab_size must be positive")
         if self.max_position_embeddings <= 0:
@@ -69,8 +88,10 @@ class LegacyCLIPVisionEmbeddingsConfig:
     image_size: int
     patch_size: int
     num_channels: int = 3
+    dtype: str = "float32"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dtype", _normalize_clip_dtype(self.dtype))
         if self.hidden_size <= 0:
             raise ValueError("hidden_size must be positive")
         if self.image_size <= 0:
@@ -112,8 +133,11 @@ class LegacyCLIPVisionConfig:
     patch_size: int
     num_channels: int = 3
     layer_norm_eps: float = 1.0e-5
+    use_flash_attention: bool = False
+    dtype: str = "float32"
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "dtype", _normalize_clip_dtype(self.dtype))
         if self.hidden_size <= 0:
             raise ValueError("hidden_size must be positive")
         if self.intermediate_size <= 0:
@@ -148,12 +172,13 @@ class LegacyCLIPVisionConfig:
         return self.hidden_size // self.num_attention_heads
 
 
-def build_clip_causal_mask(seq_len: int, mask_fill_value: float = -1.0e4) -> np.ndarray:
+def build_clip_causal_mask(seq_len: int, mask_fill_value: float = -1.0e4, *, dtype: str = "float32") -> np.ndarray:
     if seq_len <= 0:
         raise ValueError("seq_len must be positive")
-    causal = np.zeros((1, seq_len, seq_len), dtype=np.float32)
+    numpy_dtype = _numpy_clip_dtype(dtype)
+    causal = np.zeros((1, seq_len, seq_len), dtype=numpy_dtype)
     rows, cols = np.triu_indices(seq_len, k=1)
-    causal[:, rows, cols] = np.float32(mask_fill_value)
+    causal[:, rows, cols] = np.asarray(mask_fill_value, dtype=numpy_dtype)
     return causal
 
 
@@ -166,26 +191,28 @@ def _loaded_linear(
     out_features: int,
     bias_key: str | None = None,
     specialization: str | None = None,
+    dtype: str = "float32",
 ) -> dml.nn.Linear:
+    dtype = _normalize_clip_dtype(dtype)
     layer = dml.nn.Linear(
         in_features,
         out_features,
         bias=bias_key is not None,
-        dtype="float32",
+        dtype=dtype,
         specialization=specialization,
     )
     layer.weight = dml.Parameter(
         [out_features, in_features],
-        dtype="float32",
+        dtype=dtype,
         name=f"{parameter_prefix}_weight",
-        value=_weight_value(weights, weight_key, (out_features, in_features)),
+        value=_weight_value(weights, weight_key, (out_features, in_features), dtype=dtype),
     )
     if bias_key is not None:
         layer.bias = dml.Parameter(
             [out_features],
-            dtype="float32",
+            dtype=dtype,
             name=f"{parameter_prefix}_bias",
-            value=_weight_value(weights, bias_key, (out_features,)),
+            value=_weight_value(weights, bias_key, (out_features,), dtype=dtype),
         )
     return layer
 
@@ -198,19 +225,21 @@ def _loaded_layer_norm(
     bias_key: str,
     hidden_size: int,
     eps: float,
+    dtype: str = "float32",
 ) -> dml.nn.LayerNorm:
-    layer = dml.nn.LayerNorm(hidden_size, eps=eps, dtype="float32")
+    dtype = _normalize_clip_dtype(dtype)
+    layer = dml.nn.LayerNorm(hidden_size, eps=eps, dtype=dtype)
     layer.weight = dml.Parameter(
         [hidden_size],
-        dtype="float32",
+        dtype=dtype,
         name=f"{parameter_prefix}_weight",
-        value=_weight_value(weights, weight_key, (hidden_size,)),
+        value=_weight_value(weights, weight_key, (hidden_size,), dtype=dtype),
     )
     layer.bias = dml.Parameter(
         [hidden_size],
-        dtype="float32",
+        dtype=dtype,
         name=f"{parameter_prefix}_bias",
-        value=_weight_value(weights, bias_key, (hidden_size,)),
+        value=_weight_value(weights, bias_key, (hidden_size,), dtype=dtype),
     )
     return layer
 
@@ -222,13 +251,15 @@ def _loaded_embedding(
     weight_key: str,
     num_embeddings: int,
     embedding_dim: int,
+    dtype: str = "float32",
 ) -> dml.nn.Embedding:
-    layer = dml.nn.Embedding(num_embeddings, embedding_dim, dtype="float32")
+    dtype = _normalize_clip_dtype(dtype)
+    layer = dml.nn.Embedding(num_embeddings, embedding_dim, dtype=dtype)
     layer.weight = dml.Parameter(
         [num_embeddings, embedding_dim],
-        dtype="float32",
+        dtype=dtype,
         name=f"{parameter_prefix}_weight",
-        value=_weight_value(weights, weight_key, (num_embeddings, embedding_dim)),
+        value=_weight_value(weights, weight_key, (num_embeddings, embedding_dim), dtype=dtype),
     )
     return layer
 
@@ -242,7 +273,9 @@ def _loaded_conv2d(
     out_channels: int,
     kernel_size: int,
     stride: int,
+    dtype: str = "float32",
 ) -> dml.nn.Conv2d:
+    dtype = _normalize_clip_dtype(dtype)
     layer = dml.nn.Conv2d(
         in_channels,
         out_channels,
@@ -250,13 +283,13 @@ def _loaded_conv2d(
         stride=stride,
         padding=0,
         bias=False,
-        dtype="float32",
+        dtype=dtype,
     )
     layer.weight = dml.Parameter(
         [out_channels, in_channels, kernel_size, kernel_size],
-        dtype="float32",
+        dtype=dtype,
         name=f"{parameter_prefix}_weight",
-        value=_weight_value(weights, weight_key, (out_channels, in_channels, kernel_size, kernel_size)),
+        value=_weight_value(weights, weight_key, (out_channels, in_channels, kernel_size, kernel_size), dtype=dtype),
     )
     return layer
 
@@ -270,29 +303,32 @@ class _LegacyCLIPSelfAttention(dml.nn.Module):
     ):
         self.config = config
         hidden = config.hidden_size
-        self.q_proj = _loaded_linear(
-            weights,
-            parameter_prefix="q_proj",
-            weight_key=f"{prefix}.self_attn.q_proj.weight",
-            bias_key=f"{prefix}.self_attn.q_proj.bias",
-            in_features=hidden,
-            out_features=hidden,
+        self.qkv_proj = dml.nn.Linear(hidden, hidden * 3, dtype=config.dtype)
+        self.qkv_proj.weight = dml.Parameter(
+            [hidden * 3, hidden],
+            dtype=config.dtype,
+            name="qkv_proj_weight",
+            value=np.concatenate(
+                [
+                    _weight_value(weights, f"{prefix}.self_attn.q_proj.weight", (hidden, hidden), dtype=config.dtype),
+                    _weight_value(weights, f"{prefix}.self_attn.k_proj.weight", (hidden, hidden), dtype=config.dtype),
+                    _weight_value(weights, f"{prefix}.self_attn.v_proj.weight", (hidden, hidden), dtype=config.dtype),
+                ],
+                axis=0,
+            ),
         )
-        self.k_proj = _loaded_linear(
-            weights,
-            parameter_prefix="k_proj",
-            weight_key=f"{prefix}.self_attn.k_proj.weight",
-            bias_key=f"{prefix}.self_attn.k_proj.bias",
-            in_features=hidden,
-            out_features=hidden,
-        )
-        self.v_proj = _loaded_linear(
-            weights,
-            parameter_prefix="v_proj",
-            weight_key=f"{prefix}.self_attn.v_proj.weight",
-            bias_key=f"{prefix}.self_attn.v_proj.bias",
-            in_features=hidden,
-            out_features=hidden,
+        self.qkv_proj.bias = dml.Parameter(
+            [hidden * 3],
+            dtype=config.dtype,
+            name="qkv_proj_bias",
+            value=np.concatenate(
+                [
+                    _weight_value(weights, f"{prefix}.self_attn.q_proj.bias", (hidden,), dtype=config.dtype),
+                    _weight_value(weights, f"{prefix}.self_attn.k_proj.bias", (hidden,), dtype=config.dtype),
+                    _weight_value(weights, f"{prefix}.self_attn.v_proj.bias", (hidden,), dtype=config.dtype),
+                ],
+                axis=0,
+            ),
         )
         self.out_proj = _loaded_linear(
             weights,
@@ -301,19 +337,29 @@ class _LegacyCLIPSelfAttention(dml.nn.Module):
             bias_key=f"{prefix}.self_attn.out_proj.bias",
             in_features=hidden,
             out_features=hidden,
+            dtype=config.dtype,
         )
 
-    def forward(self, hidden_states, attention_mask=None, causal_mask=None):
+    def forward(self, hidden_states, attention_mask=None, causal_mask=None, *, causal: bool = False):
         seq_len = _hidden_sequence_length(hidden_states.shape)
         batch = _first_static_dim(hidden_states.shape)
         hidden = self.config.hidden_size
         num_heads = self.config.num_attention_heads
         head_dim = self.config.head_dim
 
-        q = self._project_heads(self.q_proj, hidden_states, batch, seq_len, num_heads, head_dim)
-        k = self._project_heads(self.k_proj, hidden_states, batch, seq_len, num_heads, head_dim)
-        v = self._project_heads(self.v_proj, hidden_states, batch, seq_len, num_heads, head_dim)
+        if self._use_flash_attention(hidden_states, attention_mask):
+            qkv = self.qkv_proj(hidden_states)
+            qkv_5d = dml.ops.reshape(qkv, [batch, seq_len, 3, num_heads, head_dim])
+            context = dml.ops.flash_attention_qkv(qkv_5d, causal=bool(causal) or causal_mask is not None)
+            context = dml.ops.reshape(context, [batch, seq_len, hidden])
+            return self.out_proj(context)
 
+        if causal and causal_mask is None:
+            raise ValueError("non-flash causal CLIP attention requires a causal_mask tensor")
+        q_4d, k_4d, v_4d = self._project_qkv_heads_4d(hidden_states, batch, seq_len, hidden, num_heads, head_dim)
+        q = self._flatten_heads(q_4d)
+        k = self._flatten_heads(k_4d)
+        v = self._flatten_heads(v_4d)
         scores = dml.ops.bmm_rcr(q, k)
         scores = dml.ops.mul(scores, 1.0 / math.sqrt(head_dim))
         if causal_mask is not None:
@@ -328,11 +374,27 @@ class _LegacyCLIPSelfAttention(dml.nn.Module):
         context = dml.ops.reshape(context, [batch, seq_len, hidden])
         return self.out_proj(context)
 
-    def _project_heads(self, projection, hidden_states, batch: int, seq_len: int, num_heads: int, head_dim: int):
-        values = projection(hidden_states)
-        values = dml.ops.reshape(values, [batch, seq_len, num_heads, head_dim])
+    def _project_qkv_heads_4d(self, hidden_states, batch: int, seq_len: int, hidden: int, num_heads: int, head_dim: int):
+        qkv = self.qkv_proj(hidden_states)
+        q, k, v = dml.ops.split(qkv, hidden, dim=2)
+        return (
+            dml.ops.reshape(q, [batch, seq_len, num_heads, head_dim]),
+            dml.ops.reshape(k, [batch, seq_len, num_heads, head_dim]),
+            dml.ops.reshape(v, [batch, seq_len, num_heads, head_dim]),
+        )
+
+    def _flatten_heads(self, values):
         values = dml.ops.permute0213(values)
         return dml.ops.flatten(values, start_dim=0, end_dim=1)
+
+    def _use_flash_attention(self, hidden_states, attention_mask) -> bool:
+        if not bool(getattr(self.config, "use_flash_attention", False)):
+            return False
+        if hidden_states.dtype != "float16":
+            return False
+        if attention_mask is None:
+            return True
+        return bool(getattr(self.config, "assume_unpadded_attention_mask", False))
 
     def _apply_attention_mask(self, scores, attention_mask, batch: int, seq_len: int, num_heads: int):
         keep = dml.ops.reshape(attention_mask, [batch, 1, 1, seq_len])
@@ -362,6 +424,7 @@ class _LegacyCLIPMLP(dml.nn.Module):
             in_features=config.hidden_size,
             out_features=config.intermediate_size,
             specialization="quick_gelu",
+            dtype=config.dtype,
         )
         self.fc2 = _loaded_linear(
             weights,
@@ -370,10 +433,12 @@ class _LegacyCLIPMLP(dml.nn.Module):
             bias_key=f"{prefix}.mlp.fc2.bias",
             in_features=config.intermediate_size,
             out_features=config.hidden_size,
+            dtype=config.dtype,
         )
 
     def forward(self, hidden_states):
-        return self.fc2(self.fc1(hidden_states))
+        hidden_states = self.fc1(hidden_states)
+        return self.fc2(hidden_states)
 
 
 class _LegacyCLIPEncoderLayer(dml.nn.Module):
@@ -391,6 +456,7 @@ class _LegacyCLIPEncoderLayer(dml.nn.Module):
             bias_key=f"{prefix}.layer_norm1.bias",
             hidden_size=config.hidden_size,
             eps=config.layer_norm_eps,
+            dtype=config.dtype,
         )
         self.self_attn = _LegacyCLIPSelfAttention(config, weights, prefix)
         self.layer_norm2 = _loaded_layer_norm(
@@ -400,17 +466,26 @@ class _LegacyCLIPEncoderLayer(dml.nn.Module):
             bias_key=f"{prefix}.layer_norm2.bias",
             hidden_size=config.hidden_size,
             eps=config.layer_norm_eps,
+            dtype=config.dtype,
         )
         self.mlp = _LegacyCLIPMLP(config, weights, prefix)
 
-    def forward(self, hidden_states, attention_mask=None, causal_mask=None):
+    def forward(self, hidden_states, attention_mask=None, causal_mask=None, *, causal: bool = False):
         residual = hidden_states
         hidden_states = self.layer_norm1(hidden_states)
-        hidden_states = self.self_attn(hidden_states, attention_mask=attention_mask, causal_mask=causal_mask)
-        hidden_states = dml.ops.add(residual, hidden_states)
-
-        residual = hidden_states
-        hidden_states = self.layer_norm2(hidden_states)
+        hidden_states = self.self_attn(
+            hidden_states,
+            attention_mask=attention_mask,
+            causal_mask=causal_mask,
+            causal=causal,
+        )
+        residual, hidden_states = dml.ops.add_layer_norm(
+            hidden_states,
+            residual,
+            self.layer_norm2.weight,
+            self.layer_norm2.bias,
+            eps=self.config.layer_norm_eps,
+        )
         hidden_states = self.mlp(hidden_states)
         return dml.ops.add(residual, hidden_states)
 
@@ -419,8 +494,13 @@ class _LegacyCLIPTextEncoderLayer(_LegacyCLIPEncoderLayer):
     def __init__(self, config: LegacyCLIPTextConfig, weights: Mapping[str, np.ndarray], layer_idx: int):
         super().__init__(config, weights, f"text_model.encoder.layers.{layer_idx}")
 
-    def forward(self, hidden_states, attention_mask, causal_mask):
-        return super().forward(hidden_states, attention_mask=attention_mask, causal_mask=causal_mask)
+    def forward(self, hidden_states, attention_mask, causal_mask, *, causal: bool = False):
+        return super().forward(
+            hidden_states,
+            attention_mask=attention_mask,
+            causal_mask=causal_mask,
+            causal=causal,
+        )
 
 
 class _LegacyCLIPVisionEncoderLayer(_LegacyCLIPEncoderLayer):
@@ -437,6 +517,7 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
             weight_key="text_model.embeddings.token_embedding.weight",
             num_embeddings=config.vocab_size,
             embedding_dim=config.hidden_size,
+            dtype=config.dtype,
         )
         self.position_embedding = _loaded_embedding(
             weights,
@@ -444,6 +525,7 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
             weight_key="text_model.embeddings.position_embedding.weight",
             num_embeddings=config.max_position_embeddings,
             embedding_dim=config.hidden_size,
+            dtype=config.dtype,
         )
         self.layers = dml.nn.ModuleList(
             _LegacyCLIPTextEncoderLayer(config, weights, layer_idx)
@@ -456,6 +538,7 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
             bias_key="text_model.final_layer_norm.bias",
             hidden_size=config.hidden_size,
             eps=config.layer_norm_eps,
+            dtype=config.dtype,
         )
         self.text_projection = _loaded_linear(
             weights,
@@ -463,12 +546,26 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
             weight_key="text_projection.weight",
             in_features=config.hidden_size,
             out_features=config.projection_dim,
+            dtype=config.dtype,
         )
-        self.causal_mask = dml.Parameter(
-            [1, config.max_position_embeddings, config.max_position_embeddings],
-            dtype="float32",
-            name="causal_mask",
-            value=build_clip_causal_mask(config.max_position_embeddings, config.mask_fill_value),
+        self.causal_mask = None
+        if not self._can_skip_causal_mask_parameter():
+            self.causal_mask = dml.Parameter(
+                [1, config.max_position_embeddings, config.max_position_embeddings],
+                dtype=config.dtype,
+                name="causal_mask",
+                value=build_clip_causal_mask(
+                    config.max_position_embeddings,
+                    config.mask_fill_value,
+                    dtype=config.dtype,
+                ),
+            )
+
+    def _can_skip_causal_mask_parameter(self) -> bool:
+        return bool(
+            self.config.use_flash_attention
+            and self.config.assume_unpadded_attention_mask
+            and self.config.dtype == "float16"
         )
 
     def _causal_mask_for_sequence(self, seq_len: int):
@@ -478,6 +575,8 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
             raise ValueError(
                 "traced seq_len must be less than or equal to max_position_embeddings"
             )
+        if self.causal_mask is None:
+            raise ValueError("causal mask tensor is not available for this flash-attention CLIP text config")
         return dml.ops.dynamic_slice(
             self.causal_mask,
             start_indices=(0, 0, 0),
@@ -503,10 +602,10 @@ class LegacyCLIPTextModelWithProjection(dml.nn.Module):
         token_embeddings = self.token_embedding(input_ids)
         position_embeddings = self.position_embedding(position_ids)
         hidden_states = dml.ops.add(token_embeddings, position_embeddings)
-        causal_mask = self._causal_mask_for_sequence(seq_len)
+        causal_mask = None if self._can_skip_causal_mask_parameter() else self._causal_mask_for_sequence(seq_len)
 
         for layer in self.layers:
-            hidden_states = layer(hidden_states, attention_mask, causal_mask)
+            hidden_states = layer(hidden_states, attention_mask, causal_mask, causal=True)
 
         last_hidden_state = self.final_layer_norm(hidden_states)
         pooled_output = self._pool_hidden_state(input_ids, last_hidden_state)
@@ -526,12 +625,13 @@ class LegacyCLIPVisionEmbeddings(dml.nn.Module):
         self.config = config
         self.class_embedding = dml.Parameter(
             [1, 1, config.hidden_size],
-            dtype="float32",
+            dtype=config.dtype,
             name="class_embedding",
             value=_weight_value(
                 weights,
                 "vision_model.embeddings.class_embedding",
                 (config.hidden_size,),
+                dtype=config.dtype,
             ).reshape(1, 1, config.hidden_size),
         )
         self.patch_embedding = _loaded_conv2d(
@@ -542,6 +642,7 @@ class LegacyCLIPVisionEmbeddings(dml.nn.Module):
             out_channels=config.hidden_size,
             kernel_size=config.patch_size,
             stride=config.patch_size,
+            dtype=config.dtype,
         )
         self.position_embedding = _loaded_embedding(
             weights,
@@ -549,6 +650,7 @@ class LegacyCLIPVisionEmbeddings(dml.nn.Module):
             weight_key="vision_model.embeddings.position_embedding.weight",
             num_embeddings=config.num_positions,
             embedding_dim=config.hidden_size,
+            dtype=config.dtype,
         )
         self.position_ids = dml.Parameter(
             np.arange(config.num_positions, dtype=np.int64).reshape(1, config.num_positions),
@@ -573,7 +675,6 @@ class LegacyCLIPVisionEmbeddings(dml.nn.Module):
         patch_embeds = dml.ops.permute021(patch_embeds)
 
         class_embeds = dml.ops.expand(self.class_embedding, [batch, 1, self.config.hidden_size])
-
         embeddings = dml.ops.concatenate([class_embeds, patch_embeds], dim=1)
         position_embeddings = self.position_embedding(self.position_ids)
         return dml.ops.add(embeddings, position_embeddings)
@@ -598,6 +699,7 @@ class LegacyCLIPVisionModelWithProjection(dml.nn.Module):
             bias_key="vision_model.pre_layrnorm.bias",
             hidden_size=config.hidden_size,
             eps=config.layer_norm_eps,
+            dtype=config.dtype,
         )
         self.post_layernorm = _loaded_layer_norm(
             weights,
@@ -606,6 +708,7 @@ class LegacyCLIPVisionModelWithProjection(dml.nn.Module):
             bias_key="vision_model.post_layernorm.bias",
             hidden_size=config.hidden_size,
             eps=config.layer_norm_eps,
+            dtype=config.dtype,
         )
         self.visual_projection = _loaded_linear(
             weights,
@@ -613,6 +716,7 @@ class LegacyCLIPVisionModelWithProjection(dml.nn.Module):
             weight_key="visual_projection.weight",
             in_features=config.hidden_size,
             out_features=config.projection_dim,
+            dtype=config.dtype,
         )
 
     def encode_vision(self, pixel_values):
@@ -651,12 +755,16 @@ class LegacyCLIPModel(dml.nn.Module):
     ):
         if text_config.projection_dim != vision_config.projection_dim:
             raise ValueError("text and vision projection_dim must match")
+        if text_config.dtype != vision_config.dtype:
+            raise ValueError("text and vision dtype must match")
+        dtype = text_config.dtype
+        numpy_dtype = _numpy_clip_dtype(dtype)
         self.text_model = LegacyCLIPTextModelWithProjection(text_config, weights)
         self.vision_model = LegacyCLIPVisionModelWithProjection(vision_config, weights)
         self.logit_scale = dml.Parameter(
             [1],
-            dtype="float32",
-            value=np.asarray([_scalar_weight_value(weights, "logit_scale")], dtype=np.float32),
+            dtype=dtype,
+            value=np.asarray([_scalar_weight_value(weights, "logit_scale", dtype=dtype)], dtype=numpy_dtype),
         )
 
     def get_text_features(self, input_ids, attention_mask, position_ids=None):
@@ -687,6 +795,10 @@ class LegacyCLIPModel(dml.nn.Module):
 
 def legacy_clip_configs_from_transformers_clip_config(
     clip_config: object,
+    *,
+    use_flash_attention: bool = False,
+    assume_unpadded_attention_mask: bool = False,
+    dtype: str = "float32",
 ) -> tuple[LegacyCLIPTextConfig, LegacyCLIPVisionConfig]:
     """Derive bounded LegacyCLIP configs from a Transformers CLIPConfig.
 
@@ -702,6 +814,7 @@ def legacy_clip_configs_from_transformers_clip_config(
         raise TypeError("expected a Transformers CLIPConfig-like object with text_config, vision_config, and projection_dim")
     _validate_transformers_clip_hidden_act(text_config, tower="text")
     _validate_transformers_clip_hidden_act(vision_config, tower="vision")
+    dtype = _normalize_clip_dtype(dtype)
     return (
         LegacyCLIPTextConfig(
             vocab_size=int(text_config.vocab_size),
@@ -713,6 +826,9 @@ def legacy_clip_configs_from_transformers_clip_config(
             projection_dim=int(projection_dim),
             layer_norm_eps=float(text_config.layer_norm_eps),
             eos_token_id=int(text_config.eos_token_id),
+            use_flash_attention=bool(use_flash_attention),
+            assume_unpadded_attention_mask=bool(assume_unpadded_attention_mask),
+            dtype=dtype,
         ),
         LegacyCLIPVisionConfig(
             hidden_size=int(vision_config.hidden_size),
@@ -724,6 +840,8 @@ def legacy_clip_configs_from_transformers_clip_config(
             patch_size=int(vision_config.patch_size),
             num_channels=int(vision_config.num_channels),
             layer_norm_eps=float(vision_config.layer_norm_eps),
+            use_flash_attention=bool(use_flash_attention),
+            dtype=dtype,
         ),
     )
 
@@ -732,25 +850,36 @@ def legacy_clip_weights_from_transformers_state_dict(
     state_dict: Mapping[str, object],
     text_config: LegacyCLIPTextConfig,
     vision_config: LegacyCLIPVisionConfig,
+    *,
+    dtype: str | None = None,
 ) -> dict[str, np.ndarray]:
     """Convert a Transformers CLIPModel state dict into LegacyCLIP weights."""
 
+    dtype = text_config.dtype if dtype is None else _normalize_clip_dtype(dtype)
+    if text_config.dtype != vision_config.dtype:
+        raise ValueError("text and vision dtype must match")
     required = _legacy_clip_required_weight_names(text_config, vision_config)
     missing = [name for name in required if name not in state_dict]
     if missing:
         preview = ", ".join(missing[:5])
         suffix = "" if len(missing) <= 5 else f", ... ({len(missing)} missing total)"
         raise KeyError(f"Missing Transformers CLIP state_dict weights: {preview}{suffix}")
-    return {name: _transformers_state_value_to_numpy(state_dict[name], name) for name in required}
+    return {name: _transformers_state_value_to_numpy(state_dict[name], name, dtype=dtype) for name in required}
 
 
-def legacy_clip_model_from_transformers_clip_model(clip_model: object) -> LegacyCLIPModel:
+def legacy_clip_model_from_transformers_clip_model(
+    clip_model: object,
+    *,
+    use_flash_attention: bool = False,
+    assume_unpadded_attention_mask: bool = False,
+    dtype: str = "float32",
+) -> LegacyCLIPModel:
     """Build a bounded DinoML LegacyCLIPModel from a local Transformers CLIPModel.
 
     The adapter is intentionally inference-only: it transfers config and
     checkpoint weights for the existing LegacyCLIP text/vision towers and
     contrastive head, but it does not add tokenizer/processor plumbing, loss,
-    position interpolation, FlashAttention dispatch, or other broader CLIP
+    position interpolation, or other broader CLIP
     surfaces beyond the current LegacyCLIPModel contract.
     """
 
@@ -758,31 +887,44 @@ def legacy_clip_model_from_transformers_clip_model(clip_model: object) -> Legacy
     state_dict_fn = getattr(clip_model, "state_dict", None)
     if clip_config is None or state_dict_fn is None:
         raise TypeError("expected a Transformers CLIPModel-like object with config and state_dict()")
-    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(clip_config)
+    text_config, vision_config = legacy_clip_configs_from_transformers_clip_config(
+        clip_config,
+        use_flash_attention=use_flash_attention,
+        assume_unpadded_attention_mask=assume_unpadded_attention_mask,
+        dtype=dtype,
+    )
     weights = legacy_clip_weights_from_transformers_state_dict(
         state_dict_fn(),
         text_config,
         vision_config,
+        dtype=dtype,
     )
     return LegacyCLIPModel(text_config, vision_config, weights)
 
 
-def _weight_value(weights: Mapping[str, np.ndarray], name: str, shape: tuple[int, ...]) -> np.ndarray:
+def _weight_value(
+    weights: Mapping[str, np.ndarray],
+    name: str,
+    shape: tuple[int, ...],
+    *,
+    dtype: str = "float32",
+) -> np.ndarray:
     if name not in weights:
         raise KeyError(f"Missing CLIP weight: {name}")
-    value = np.asarray(weights[name], dtype=np.float32)
+    value = np.asarray(weights[name], dtype=_numpy_clip_dtype(dtype))
     if value.shape != shape:
         raise ValueError(f"Weight {name} has shape {value.shape}, expected {shape}")
     return value
 
 
-def _scalar_weight_value(weights: Mapping[str, np.ndarray], name: str) -> np.float32:
+def _scalar_weight_value(weights: Mapping[str, np.ndarray], name: str, *, dtype: str = "float32") -> np.generic:
     if name not in weights:
         raise KeyError(f"Missing CLIP weight: {name}")
-    value = np.asarray(weights[name], dtype=np.float32)
+    numpy_dtype = _numpy_clip_dtype(dtype)
+    value = np.asarray(weights[name], dtype=numpy_dtype)
     if value.shape not in {(), (1,)}:
         raise ValueError(f"Weight {name} has shape {value.shape}, expected scalar or [1]")
-    return np.float32(value.reshape(-1)[0] if value.shape == (1,) else value)
+    return np.asarray(value.reshape(-1)[0] if value.shape == (1,) else value, dtype=numpy_dtype).reshape(())[()]
 
 
 def _first_static_dim(shape: list[int]) -> int:
@@ -898,14 +1040,14 @@ def _legacy_clip_required_weight_names(
     return names
 
 
-def _transformers_state_value_to_numpy(value: object, name: str) -> np.ndarray:
+def _transformers_state_value_to_numpy(value: object, name: str, *, dtype: str = "float32") -> np.ndarray:
     if hasattr(value, "detach"):
         value = value.detach()
     if hasattr(value, "cpu"):
         value = value.cpu()
     if hasattr(value, "numpy"):
         value = value.numpy()
-    array = np.asarray(value, dtype=np.float32)
+    array = np.asarray(value, dtype=_numpy_clip_dtype(dtype))
     if array.size == 0:
         raise ValueError(f"Transformers CLIP weight {name} is empty")
     return array

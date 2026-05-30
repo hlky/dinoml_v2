@@ -72,7 +72,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "block_size": _cuda_block_size(cols),
         "cols_per_thread": (cols + 31) // 32,
         "rows_per_block": _cuda_rows_per_block(cols),
-        "use_warp_kernel": cols <= 1024,
+        "use_warp_kernel": cols < 512,
     }
 
 

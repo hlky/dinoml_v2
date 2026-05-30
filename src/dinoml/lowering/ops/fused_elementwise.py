@@ -209,21 +209,8 @@ def _broadcast_helpers(inputs: Sequence[Mapping[str, Any]], output_shape: Sequen
 
 
 def _accessor_decls(inputs: Sequence[Mapping[str, Any]], outputs: Sequence[Mapping[str, Any]]) -> str:
-    lines = []
-    for input_info in inputs:
-        pattern = _accessor_pattern(input_info["index_kind"])
-        if pattern is None:
-            continue
-        lines.append(
-            f"  const dinoml::access::TensorAccessor acc_{input_info['ident']}{{"
-            f"dinoml::access::Pattern::{pattern}, 0, {int(input_info['numel'])}, -1, -1}};"
-        )
-    for output in outputs:
-        lines.append(
-            f"  const dinoml::access::TensorAccessor acc_{output['ident']}{{"
-            "dinoml::access::Pattern::kDense, 0, 1, -1, -1};"
-        )
-    return "\n".join(lines)
+    del inputs, outputs
+    return ""
 
 
 def _accessor_pattern(index_kind: str) -> str | None:
@@ -309,7 +296,7 @@ def _scalar_body(
         if output_name not in exprs:
             raise ValueError(f"Fused output {output_name} was not produced by sub_ops")
         lines.append(
-            f"    ptr_{output['ident']}[acc_{output['ident']}.index(idx)] = "
+            f"    ptr_{output['ident']}[idx] = "
             f"dinoml::math::cast<{output['storage_type']}>({exprs[output_name]});"
         )
     return "\n".join(lines)
@@ -347,8 +334,11 @@ def _vector_body(
             value = f"v_{input_info['ident']}_{lane}"
             if input_info["index_kind"] == "full":
                 source = f"lane_{input_info['ident']}[{lane}]"
-            elif input_info["index_kind"] in {"scalar", "suffix"}:
-                source = f"ptr_{input_info['ident']}[acc_{input_info['ident']}.index(vec_idx * {vector_width} + {lane})]"
+            elif input_info["index_kind"] == "scalar":
+                source = f"ptr_{input_info['ident']}[0]"
+            elif input_info["index_kind"] == "suffix":
+                source_index = _direct_suffix_index_expr(input_info, f"vec_idx * {vector_width} + {lane}")
+                source = f"ptr_{input_info['ident']}[{source_index}]"
             else:
                 raise ValueError(f"Input {input_info['name']} is not vectorizable")
             value_type = "bool" if input_info["dtype"] == "bool" else compute_type
@@ -437,19 +427,28 @@ def _input_index_expr(
     suffix_index_var: str | None = None,
     suffix_extent: int | None = None,
 ) -> str:
-    if input_info["index_kind"] in {"full", "scalar", "suffix"}:
-        if input_info["index_kind"] == "suffix" and suffix_index_var is not None:
-            return f"acc_{input_info['ident']}.index(idx, {suffix_index_var})"
-        return f"acc_{input_info['ident']}.index(idx)"
+    if input_info["index_kind"] == "full":
+        return "idx"
+    if input_info["index_kind"] == "scalar":
+        return "0"
     if input_info["index_kind"] == "suffix" and suffix_index_var is not None:
         input_numel = int(input_info["numel"])
         if suffix_extent == input_numel:
             return suffix_index_var
         return f"{suffix_index_var} % {input_numel}"
+    if input_info["index_kind"] == "suffix":
+        return _direct_suffix_index_expr(input_info, "idx")
     index_expr = input_info["index_expr"]
     if index_expr is None:
         return f"{input_info['broadcast_func']}(idx, shape_{input_info['ident']}, {output_shape_ident})"
     return str(index_expr)
+
+
+def _direct_suffix_index_expr(input_info: Mapping[str, Any], index_expr: str) -> str:
+    input_numel = int(input_info["numel"])
+    if input_numel == 1:
+        return "0"
+    return f"({index_expr}) % {input_numel}"
 
 
 def _broadcast_index_expr(input_shape: Sequence[int], output_shape: Sequence[int]) -> tuple[str, str | None]:

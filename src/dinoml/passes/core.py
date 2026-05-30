@@ -172,6 +172,7 @@ def dead_code_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
     for node in reversed(ir["nodes"]):
         if any(output in required_tensors for output in node["outputs"]):
             kept_nodes_reversed.append(node)
+            required_tensors.update(node["outputs"])
             required_tensors.update(node["inputs"])
             _include_view_sources(required_tensors, view_sources)
     required_tensors.update(input_info["tensor"] for input_info in ir["inputs"])
@@ -179,6 +180,111 @@ def dead_code_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
     ir["nodes"] = list(reversed(kept_nodes_reversed))
     ir["tensors"] = [tensor for tensor in ir["tensors"] if tensor["name"] in required_tensors]
     return ir
+
+
+def dynamic_slice_view_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
+    tensors = tensor_map(ir)
+    views = [dict(view) for view in ir.get("metadata", {}).get("views", {}).get("views", [])]
+    views_by_source: dict[str, list[dict[str, Any]]] = {}
+    for view in views:
+        views_by_source.setdefault(str(view["source"]), []).append(view)
+
+    removed_outputs: set[str] = set()
+    replacement_views: dict[str, dict[str, Any]] = {}
+    new_nodes = []
+    for node in ir["nodes"]:
+        if node["op"] != "dynamic_slice" or len(node.get("inputs", [])) != 1 or len(node.get("outputs", [])) != 1:
+            new_nodes.append(node)
+            continue
+        input_name = str(node["inputs"][0])
+        output_name = str(node["outputs"][0])
+        view = _dynamic_slice_static_contiguous_view(node, tensors[input_name], tensors[output_name])
+        if view is None:
+            new_nodes.append(node)
+            continue
+        source_name, offset = view
+        removed_outputs.add(output_name)
+        replacement_views[output_name] = {
+            "tensor": output_name,
+            "source": source_name,
+            "kind": "shape_view",
+            "transform": "dynamic_slice",
+            "offset_elements": offset,
+            "shape": list(tensors[output_name]["shape"]),
+            "shape_spec": list(tensors[output_name].get("shape_spec", tensors[output_name]["shape"])),
+        }
+
+    rewritten_views = []
+    for view in views:
+        source = str(view["source"])
+        if source not in replacement_views:
+            rewritten_views.append(view)
+            continue
+        replacement = replacement_views[source]
+        rewritten = dict(view)
+        rewritten["source"] = replacement["source"]
+        rewritten["offset_elements"] = int(replacement["offset_elements"]) + int(view.get("offset_elements", 0))
+        rewritten_views.append(rewritten)
+
+    direct_uses = {
+        str(input_name)
+        for node in new_nodes
+        for input_name in node.get("inputs", [])
+    }
+    direct_uses.update(str(output["tensor"]) for output in ir.get("outputs", []))
+    for output_name, view in replacement_views.items():
+        if output_name not in views_by_source or output_name in direct_uses:
+            rewritten_views.append(view)
+
+    if replacement_views:
+        ir["nodes"] = new_nodes
+        metadata = ir.setdefault("metadata", {})
+        metadata["views"] = {"version": VIEW_METADATA_VERSION, "views": rewritten_views}
+        metadata.pop("memory_plan", None)
+        view_tensor_names = {str(view["tensor"]) for view in rewritten_views}
+        ir["tensors"] = [
+            tensor
+            for tensor in ir["tensors"]
+            if str(tensor["name"]) not in removed_outputs or str(tensor["name"]) in view_tensor_names
+        ]
+    return ir
+
+
+def _dynamic_slice_static_contiguous_view(
+    node: Mapping[str, Any],
+    input_tensor: Mapping[str, Any],
+    output_tensor: Mapping[str, Any],
+) -> tuple[str, int] | None:
+    attrs = node.get("attrs", {})
+    starts = [int(value) for value in attrs.get("start_indices", [])]
+    sizes = [int(value) for value in attrs.get("slice_sizes", [])]
+    input_shape = [int(dim) for dim in input_tensor["shape"]]
+    output_shape = [int(dim) for dim in output_tensor["shape"]]
+    if len(starts) != len(input_shape) or len(sizes) != len(input_shape) or sizes != output_shape:
+        return None
+    strides = _dense_strides(input_shape)
+    offset = sum(start * stride for start, stride in zip(starts, strides))
+    if int(np.prod(output_shape, dtype=np.int64)) == 0:
+        return None
+    innermost_changed = False
+    for axis, (start, size, extent) in enumerate(zip(starts, sizes, input_shape)):
+        if size == extent and start == 0:
+            continue
+        if innermost_changed:
+            return None
+        if axis != len(input_shape) - 1 and any(sizes[later] != input_shape[later] for later in range(axis + 1, len(input_shape))):
+            return None
+        innermost_changed = True
+    return str(node["inputs"][0]), int(offset)
+
+
+def _dense_strides(shape: Sequence[int]) -> list[int]:
+    strides = [1] * len(shape)
+    running = 1
+    for axis in range(len(shape) - 1, -1, -1):
+        strides[axis] = running
+        running *= int(shape[axis])
+    return strides
 
 
 def _include_view_sources(required_tensors: Set[str], view_sources: Dict[str, str]) -> None:

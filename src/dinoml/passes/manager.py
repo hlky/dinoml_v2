@@ -5,9 +5,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
-from dinoml.fusions.elementwise import elementwise_fusion
+from dinoml.fusions.elementwise import add_layer_norm_fusion, elementwise_fusion, sliced_add_layer_norm_fusion
 from dinoml.ir import graph_hash, write_json
-from dinoml.passes.core import backend_lower, canonicalize, constant_bind, dead_code_eliminate, memory_plan, shape_type_infer
+from dinoml.passes.core import (
+    backend_lower,
+    canonicalize,
+    constant_bind,
+    dead_code_eliminate,
+    dynamic_slice_view_eliminate,
+    memory_plan,
+    shape_type_infer,
+)
 from dinoml.passes.validation import validate_ir
 
 
@@ -32,6 +40,9 @@ class PassManager:
         "constant_bind",
         "dead_code_eliminate",
         "elementwise_fusion",
+        "add_layer_norm_fusion",
+        "dynamic_slice_view_eliminate",
+        "sliced_add_layer_norm_fusion",
         "memory_plan",
         "backend_lower",
     )
@@ -44,6 +55,9 @@ class PassManager:
             "constant_bind": constant_bind,
             "dead_code_eliminate": dead_code_eliminate,
             "elementwise_fusion": elementwise_fusion,
+            "add_layer_norm_fusion": add_layer_norm_fusion,
+            "dynamic_slice_view_eliminate": dynamic_slice_view_eliminate,
+            "sliced_add_layer_norm_fusion": sliced_add_layer_norm_fusion,
             "memory_plan": memory_plan,
             "backend_lower": backend_lower,
         }

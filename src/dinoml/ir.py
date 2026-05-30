@@ -15,7 +15,7 @@ ARTIFACT_SCHEMA_VERSION = 1
 RUNTIME_ABI_VERSION = 7
 VIEW_METADATA_VERSION = 1
 OUTPUT_SHAPE_REPORT_METADATA_VERSION = 1
-VIEW_ONLY_TRANSFORMS = frozenset({"identity", "reshape", "flatten", "squeeze", "unsqueeze"})
+VIEW_ONLY_TRANSFORMS = frozenset({"identity", "reshape", "flatten", "squeeze", "unsqueeze", "dynamic_slice"})
 
 
 @dataclass(frozen=True)

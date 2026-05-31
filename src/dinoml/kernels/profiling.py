@@ -1401,6 +1401,8 @@ def _runtime_tensor_shape(
         if dim_values:
             return _validate_profile_runtime_shape(tensor, overrides[name], dim_values)
         return tuple(validate_runtime_shape(name, overrides[name], tensor))
+    if dim_values:
+        return _shape_from_dim_assignments(tensor, dim_values)
     return tuple(int(dim) for dim in tensor["shape"])
 
 
@@ -1410,17 +1412,18 @@ def _profile_shape_scenarios(
     overrides: Mapping[str, Sequence[int]],
 ) -> list[ProfileShapeScenario]:
     if overrides:
+        dim_values, dim_sources = _profile_dim_values_from_overrides(tensor_map, overrides)
         return [
             ProfileShapeScenario(
                 source="runtime_override",
                 case_id="runtime_override",
-                dim_values={},
-                dim_sources={},
+                dim_values=dim_values,
+                dim_sources=dim_sources,
                 overrides=overrides,
             )
         ]
     dynamic_values = _profile_dim_values(node, tensor_map)
-    if not dynamic_values or not any(info["source"] == "bucket" for info in dynamic_values.values()):
+    if not dynamic_values or not any(info["source"] != "max" or len(info["values"]) > 1 for info in dynamic_values.values()):
         return [
             ProfileShapeScenario(
                 source="graph_max_shape",
@@ -1433,6 +1436,8 @@ def _profile_shape_scenarios(
 
     scenarios = []
     dim_names = sorted(dynamic_values)
+    scenario_source = "dim_buckets" if any(info["source"] == "bucket" for info in dynamic_values.values()) else "dim_typical"
+    case_prefix = "bucket" if scenario_source == "dim_buckets" else "shape"
     for values in itertools.product(*(dynamic_values[name]["values"] for name in dim_names)):
         assignments = dict(zip(dim_names, values))
         scenario_overrides = {
@@ -1441,8 +1446,8 @@ def _profile_shape_scenarios(
         }
         scenarios.append(
             ProfileShapeScenario(
-                source="dim_buckets",
-                case_id="bucket_" + "_".join(f"{name}={assignments[name]}" for name in dim_names),
+                source=scenario_source,
+                case_id=f"{case_prefix}_" + "_".join(f"{name}={assignments[name]}" for name in dim_names),
                 dim_values=assignments,
                 dim_sources={name: str(dynamic_values[name]["source"]) for name in dim_names},
                 overrides=scenario_overrides,
@@ -1464,25 +1469,72 @@ def _profile_dim_values(
     return {name: dict(info) for name, info in sorted(by_name.items())}
 
 
+def _profile_dim_values_from_overrides(
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    overrides: Mapping[str, Sequence[int]],
+) -> tuple[dict[str, int], dict[str, str]]:
+    assignments: dict[str, int] = {}
+    sources: dict[str, str] = {}
+    for tensor_name, shape in sorted(overrides.items()):
+        tensor = tensor_map.get(str(tensor_name))
+        if tensor is None:
+            continue
+        actual_shape = tuple(validate_runtime_shape(str(tensor_name), shape, tensor))
+        shape_spec = tensor.get("shape_spec", tensor["shape"])
+        for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
+            if not isinstance(dim_spec, Mapping) or dim_spec.get("kind") != "dim":
+                continue
+            dim_name = str(dim_spec["name"])
+            existing = assignments.get(dim_name)
+            if existing is not None and existing != int(actual):
+                raise ValueError(
+                    f"Runtime profile override for tensor {tensor_name!r} axis {axis} assigns "
+                    f"dynamic dimension {dim_name!r}={actual}, conflicting with earlier {existing}"
+                )
+            assignments[dim_name] = int(actual)
+            sources[dim_name] = "runtime_override"
+    return assignments, sources
+
+
 def _record_profile_dim_value(by_name: dict[str, dict[str, Any]], dim: Mapping[str, Any]) -> None:
     name = str(dim["name"])
     buckets = tuple(int(bucket) for bucket in dim.get("buckets", ()))
+    typical = None if dim.get("typical") is None else int(dim["typical"])
+    values = _profile_dim_candidate_values(
+        max_dim=int(dim["max"]),
+        typical=typical,
+        buckets=buckets,
+    )
     signature = (
         int(dim["min"]),
         int(dim["max"]),
         int(dim.get("divisible_by", 1)),
+        typical,
         buckets,
     )
     info = by_name.setdefault(
         name,
         {
             "signature": signature,
-            "values": buckets or (int(dim["max"]),),
-            "source": "bucket" if buckets else "max",
+            "values": values,
+            "source": "bucket" if buckets else ("typical" if typical is not None else "max"),
         },
     )
     if info["signature"] != signature:
         raise ValueError(f"Inconsistent profiling bucket metadata for dynamic dimension {name!r}")
+
+
+def _profile_dim_candidate_values(
+    *,
+    max_dim: int,
+    typical: int | None,
+    buckets: Sequence[int],
+) -> tuple[int, ...]:
+    values = list(int(bucket) for bucket in buckets)
+    if not values and typical is not None:
+        values.append(int(typical))
+    values.append(int(max_dim))
+    return tuple(dict.fromkeys(values))
 
 
 def _shape_from_dim_assignments(

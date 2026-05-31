@@ -570,6 +570,8 @@ def test_rocm_runtime_paths_resolve_from_active_rocm_sdk_command(tmp_path, monke
 
     def fake_run(cmd, *, text, stdout, stderr):
         del text, stdout, stderr
+        if cmd[:2] == ["rocm-sdk.exe", "init"]:
+            return subprocess.CompletedProcess(cmd, 0)
         assert cmd[:2] == ["rocm-sdk.exe", "path"]
         if cmd[-1] == "--root":
             value = sdk_root
@@ -605,6 +607,8 @@ def test_rocm_runtime_paths_can_use_active_python_rocm_sdk_module(tmp_path, monk
             return subprocess.CompletedProcess(cmd, 1)
         if cmd[:2] == ["python.exe", "-c"]:
             return subprocess.CompletedProcess(cmd, 0)
+        if cmd[:4] == ["python.exe", "-m", "rocm_sdk", "init"]:
+            return subprocess.CompletedProcess(cmd, 0)
         assert cmd[:4] == ["python.exe", "-m", "rocm_sdk", "path"]
         if cmd[-1] == "--root":
             value = sdk_root
@@ -632,6 +636,8 @@ def test_rocm_runtime_paths_prefer_current_python_rocm_sdk_module(tmp_path, monk
     def fake_run(cmd, *, text, stdout, stderr):
         del text, stdout, stderr
         if cmd[:2] == ["active-python.exe", "-c"]:
+            return subprocess.CompletedProcess(cmd, 0)
+        if cmd[:4] == ["active-python.exe", "-m", "rocm_sdk", "init"]:
             return subprocess.CompletedProcess(cmd, 0)
         assert cmd[:4] == ["active-python.exe", "-m", "rocm_sdk", "path"]
         if cmd[-1] == "--root":
@@ -1163,6 +1169,21 @@ def test_rocm_gemm_profile_workloads_cover_ck_candidate_set():
         "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t00_default_v2",
     }
     assert workloads[0].alignment_context["kind"] == "ck_gemm_profile_alignment_context"
+
+
+def test_rocm_gemm_profile_workloads_cover_typical_dynamic_shape_without_buckets():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=128, n=128, k=64)
+    m_dim = {"kind": "dim", "name": "m", "min": 32, "max": 128, "divisible_by": 32, "typical": 64}
+    _set_shape_spec(ir, "a", [m_dim, 64])
+    _set_shape_spec(ir, "c", [m_dim, 128])
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert {workload.m for workload in workloads} == {64, 128}
+    assert {workload.shape_source for workload in workloads} == {"dim_typical"}
+    assert {workload.dim_sources["m"] for workload in workloads} == {"typical"}
+    assert {workload.output_shape for workload in workloads} == {(64, 128), (128, 128)}
 
 
 def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
@@ -2076,6 +2097,25 @@ def test_rocm_conv2d_bias_profile_workloads_cover_ck_candidate_set():
         "ck_conv2d_bias_float16_xdl_small_v1",
     }
     assert workloads[0].conv_config == {"stride": [1, 1], "padding": [1, 1], "dilation": [1, 1], "groups": 1}
+
+
+def test_rocm_conv2d_profile_runtime_override_infers_dynamic_output_shape():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    h_dim = {"kind": "dim", "name": "h", "min": 8, "max": 16, "divisible_by": 8}
+    w_dim = {"kind": "dim", "name": "w", "min": 8, "max": 16, "divisible_by": 8}
+    _set_shape_spec(ir, "x", [2, 8, h_dim, w_dim])
+    _set_shape_spec(ir, "y", [2, 64, h_dim, w_dim])
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest, input_shapes={"x": [2, 8, 8, 8]})
+
+    assert workloads
+    assert {workload.shape_source for workload in workloads} == {"runtime_override"}
+    assert {workload.x_shape for workload in workloads} == {(2, 8, 8, 8)}
+    assert {workload.output_shape for workload in workloads} == {(2, 64, 8, 8)}
+    assert {tuple(sorted(workload.dim_values.items())) for workload in workloads} == {
+        (("h", 8), ("w", 8))
+    }
 
 
 def test_rocm_conv2d_bias_profile_workloads_use_ck_codegen_k_blocks():
@@ -3162,6 +3202,13 @@ def _tensor(name: str, shape: list[int], dtype: str, kind: str) -> dict:
         "kind": kind,
         "nbytes": nbytes,
     }
+
+
+def _set_shape_spec(ir: dict, tensor_name: str, shape_spec: list) -> None:
+    for section in ("tensors", "inputs", "outputs"):
+        for item in ir.get(section, []):
+            if item.get("name") == tensor_name or item.get("tensor") == tensor_name:
+                item["shape_spec"] = shape_spec
 
 
 def _dense_layout(shape: list[int]) -> dict:

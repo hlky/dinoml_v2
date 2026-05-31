@@ -18,7 +18,7 @@ CK_CONV_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
 CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
-CK_CONV_SUPPORTED_DTYPES = ("float16", "float32")
+CK_CONV_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 CK_CONV_DEFAULT_WORKSPACE_NBYTES = 0
 _CK_CONV_EPILOGUE_BY_OP = {
     "conv2d_bias": "bias",
@@ -398,6 +398,8 @@ def _ck_export_ctype(dtype: str) -> str:
         return "float"
     if dtype == "float16":
         return "half"
+    if dtype == "bfloat16":
+        return "dinoml::bfloat16"
     raise ValueError(f"Unsupported CK Conv export dtype: {dtype!r}")
 
 

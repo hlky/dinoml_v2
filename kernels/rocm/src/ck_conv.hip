@@ -230,6 +230,11 @@ struct CkElement<half> {
   using Type = ck::half_t;
 };
 
+template <>
+struct CkElement<dinoml::bfloat16> {
+  using Type = ck::bhalf_t;
+};
+
 template <typename Storage, typename Element>
 Element const* ck_ptr(Storage const* ptr) {
   static_assert(sizeof(Storage) == sizeof(Element), "CK element storage size mismatch");

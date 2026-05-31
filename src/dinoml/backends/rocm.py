@@ -268,6 +268,13 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
     dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
+    _prepare_ck_cmake_build_dir(
+        build_dir,
+        required_cache={
+            "DINOML_CK_GEMM_OPS": ops,
+            "DINOML_CK_GEMM_DTYPES": dtypes,
+        },
+    )
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
         _run_cmake(
             [
@@ -346,6 +353,13 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
     dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
+    _prepare_ck_cmake_build_dir(
+        build_dir,
+        required_cache={
+            "DINOML_CK_BMM_OPS": ops,
+            "DINOML_CK_BMM_DTYPES": dtypes,
+        },
+    )
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
         _run_cmake(
             [
@@ -425,6 +439,13 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
     dtypes = _cmake_cache_list(module["dtype"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
+    _prepare_ck_cmake_build_dir(
+        build_dir,
+        required_cache={
+            "DINOML_CK_CONV_OPS": ops,
+            "DINOML_CK_CONV_DTYPES": dtypes,
+        },
+    )
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
         _run_cmake(
             [
@@ -811,12 +832,31 @@ def _prepare_cmake_build_dir(build_dir: Path) -> None:
         shutil.rmtree(build_dir)
 
 
+def _prepare_ck_cmake_build_dir(build_dir: Path, *, required_cache: Mapping[str, str]) -> None:
+    cache_path = build_dir / "CMakeCache.txt"
+    if not cache_path.exists():
+        return
+    for key, required in required_cache.items():
+        cached = _cmake_cache_value(cache_path, key)
+        if cached is None:
+            continue
+        cached_values = set(_cmake_cache_split(cached))
+        required_values = set(_cmake_cache_split(required))
+        if not required_values.issubset(cached_values):
+            shutil.rmtree(build_dir)
+            return
+
+
 def _cmake_cache_value(cache_path: Path, key: str) -> str | None:
     for line in cache_path.read_text(encoding="utf-8", errors="replace").splitlines():
         if line.startswith(f"{key}:"):
             _, value = line.split("=", 1)
             return value
     return None
+
+
+def _cmake_cache_split(value: str) -> list[str]:
+    return [part for part in value.split(";") if part]
 
 
 def _cmake_env() -> dict[str, str]:

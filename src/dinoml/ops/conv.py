@@ -13,6 +13,7 @@ from dinoml.kernels.providers.cutlass.conv import (
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV_OPS,
+    CK_CONV_SUPPORTED_DTYPES,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_profiler_symbol,
@@ -21,7 +22,8 @@ from dinoml.kernels.providers.ck.conv import (
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
-CONV2D_BIAS_DTYPES = ("float16", "float32")
+CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
+CUTLASS_CONV2D_BIAS_DTYPES = ("float16", "float32")
 CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
 
 
@@ -401,7 +403,7 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
                     candidates=cutlass_conv_candidates(op_name, dtype),
                     candidate_set=cutlass_conv_candidate_set(op_name, dtype),
                 )
-                for dtype in CONV2D_BIAS_DTYPES
+                for dtype in CUTLASS_CONV2D_BIAS_DTYPES
             },
         )
     }
@@ -417,7 +419,7 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
                     candidates=ck_conv_candidates(op_name, dtype),
                     candidate_set=ck_conv_candidate_set(op_name, dtype),
                 )
-                for dtype in CONV2D_BIAS_DTYPES
+                for dtype in CK_CONV_SUPPORTED_DTYPES
             },
         )
     return kernels

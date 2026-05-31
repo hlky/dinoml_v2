@@ -92,7 +92,12 @@ set_target_properties(dinoml_flash_attn_ck_{{ loop.index0 }} PROPERTIES
 )
 {% endfor %}
 
-add_library(module SHARED module.hip)
+add_library(module SHARED
+  module.hip
+{% for generated_source_file in generated_source_files | default([]) %}
+  "{{ generated_source_file }}"
+{% endfor %}
+)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
   "{{ common_include }}"

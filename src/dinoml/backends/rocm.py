@@ -8,10 +8,10 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from dinoml.backends.registry import _shared_library_name
-from dinoml.ir import write_json
+from dinoml.ir import canonical_json, read_json, write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.kernels.providers.ck.gemm import ck_gemm_cmake_target, ck_gemm_static_library_name
 from dinoml.kernels.providers.ck.bmm import ck_bmm_cmake_target, ck_bmm_static_library_name
@@ -28,6 +28,8 @@ from dinoml.lowering.ops import collect_generated_sources
 
 
 _CMAKE_ENV: dict[str, str] | None = None
+_ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
+_ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
 
 _VISUAL_STUDIO_ENV_KEYS = frozenset(
     {
@@ -100,8 +102,14 @@ def build_rocm_module(
         tensor_map,
         generated_src_dir=generated_src_dir,
     )
+    split_generated_sources = _split_rocm_generated_sources(generated_sources["manifest"], generated_src_dir)
     (generated_src_dir / "module.hip").write_text(
-        render_rocm_module(ir, generated_kernels=generated_sources["kernels"], kernel_manifest=kernel_manifest),
+        render_rocm_module(
+            ir,
+            generated_kernels=[] if split_generated_sources["source_files"] else generated_sources["kernels"],
+            generated_kernel_declarations=split_generated_sources["declarations"],
+            kernel_manifest=kernel_manifest,
+        ),
         encoding="utf-8",
     )
     repo_root = _repo_root()
@@ -117,6 +125,10 @@ def build_rocm_module(
                 "ck_bmm_archives": [_cmake_path(path) for path in ck_bmm_archives],
                 "ck_conv_archives": [_cmake_path(path) for path in ck_conv_archives],
                 "flash_attn_ck_archives": [_cmake_path(path) for path in flash_attn_ck_archives],
+                "generated_source_files": [
+                    _cmake_path(generated_src_dir / source_file)
+                    for source_file in split_generated_sources["source_files"]
+                ],
                 "runtime_implib": _cmake_path(_import_library_path(support_libs.runtime_lib)),
                 "rocm_runtime_implib": _cmake_path(_import_library_path(support_libs.rocm_runtime_lib)),
                 "kernels_implib": _cmake_path(_import_library_path(support_libs.kernels_lib)),
@@ -129,6 +141,15 @@ def build_rocm_module(
     )
 
     build_dir = generated_src_dir / "build"
+    cache_entry = _rocm_module_cache_entry(
+        arch=target.arch,
+        module_source=generated_src_dir / "module.hip",
+        generated_sources=[generated_src_dir / source_file for source_file in split_generated_sources["source_files"]],
+        support_libs=support_libs,
+    )
+    module_lib = artifact_dir / "module.so"
+    if _restore_rocm_module_from_cache(cache_entry, module_lib):
+        return None
     _run_cmake(
         [
             "cmake",
@@ -144,9 +165,9 @@ def build_rocm_module(
         cwd=artifact_dir,
     )
     _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
-    module_lib = artifact_dir / "module.so"
     if not module_lib.exists():
         raise RuntimeError(f"Expected ROCm generated module at {module_lib}, but it was not produced")
+    _store_rocm_module_in_cache(cache_entry, module_lib)
     return None
 
 
@@ -246,6 +267,194 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
         runtime_include=repo_root / "runtime" / "include",
         common_include=repo_root / "kernels" / "common" / "include",
         kernels_include=repo_root / "kernels" / "rocm" / "include",
+    )
+
+
+def _split_rocm_generated_sources(
+    generated_manifest: Mapping[str, Any],
+    generated_src_dir: Path,
+) -> dict[str, Any]:
+    unique_sources = _unique_generated_source_paths(generated_manifest)
+    if not unique_sources:
+        return {"source_files": [], "declarations": []}
+    chunks = _chunk_rocm_generated_sources(unique_sources, generated_src_dir)
+    declarations: list[str] = []
+    source_files: list[Path] = []
+    chunk_dir = generated_src_dir / "generated_kernel_units"
+    if chunk_dir.exists():
+        shutil.rmtree(chunk_dir)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+    for index, chunk in enumerate(chunks):
+        source_file = chunk_dir / f"generated_kernels_{index:04d}.hip"
+        rendered_sources = []
+        for source_path in chunk:
+            source = (generated_src_dir / source_path).read_text(encoding="utf-8")
+            declarations.extend(_rocm_generated_function_declarations(source))
+            rendered_sources.append(_externalize_rocm_generated_functions(source))
+        source_file.write_text(
+            _rocm_generated_source_preamble() + "\n\n".join(rendered_sources),
+            encoding="utf-8",
+        )
+        source_files.append(source_file.relative_to(generated_src_dir))
+    return {
+        "source_files": source_files,
+        "declarations": declarations,
+    }
+
+
+def _unique_generated_source_paths(generated_manifest: Mapping[str, Any]) -> list[Path]:
+    unique: dict[str, Path] = {}
+    for source in generated_manifest.get("sources", []):
+        if not isinstance(source, Mapping) or not source.get("emitted_new_source"):
+            continue
+        source_hash = str(source.get("source_hash", ""))
+        emitted_path = str(source.get("emitted_source_path", ""))
+        if not source_hash or not emitted_path:
+            continue
+        unique[source_hash] = Path(emitted_path)
+    return [unique[key] for key in sorted(unique)]
+
+
+def _chunk_rocm_generated_sources(source_paths: list[Path], generated_src_dir: Path) -> list[list[Path]]:
+    limit = _rocm_generated_source_chunk_bytes()
+    chunks: list[list[Path]] = []
+    current: list[Path] = []
+    current_bytes = 0
+    for source_path in source_paths:
+        source_bytes = (generated_src_dir / source_path).stat().st_size
+        if current and current_bytes + source_bytes > limit:
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(source_path)
+        current_bytes += source_bytes
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _rocm_generated_source_chunk_bytes() -> int:
+    value = os.environ.get("DINOML_ROCM_GENERATED_SOURCE_CHUNK_BYTES")
+    if value is None:
+        return _ROCM_GENERATED_SOURCE_CHUNK_BYTES
+    try:
+        return max(64 * 1024, int(value))
+    except ValueError:
+        return _ROCM_GENERATED_SOURCE_CHUNK_BYTES
+
+
+def _rocm_generated_function_declarations(source: str) -> list[str]:
+    declarations = []
+    for match in re.finditer(r"\bstatic\s+int\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{", source, re.MULTILINE):
+        declarations.append(f"int {match.group(1)}({match.group(2).strip()});")
+    return declarations
+
+
+def _externalize_rocm_generated_functions(source: str) -> str:
+    return re.sub(
+        r"\bstatic\s+int\s+([A-Za-z_][A-Za-z0-9_]*\s*\()",
+        r"int \1",
+        source,
+    )
+
+
+def _rocm_generated_source_preamble() -> str:
+    return """// Generated by DinoML v2. Do not edit by hand.
+#include <dinoml/rocm_kernels.h>
+#include <dinoml/math.h>
+#include <dinoml/module_support.h>
+#include <dinoml/runtime_rocm.h>
+#include <dinoml/tensor_accessor.h>
+
+#include <cstddef>
+#include <cstdint>
+
+#if defined(_MSC_VER)
+#define DINO_RESTRICT __restrict
+#else
+#define DINO_RESTRICT __restrict__
+#endif
+"""
+
+
+def _rocm_module_cache_entry(
+    *,
+    arch: str,
+    module_source: Path,
+    support_libs: RocmSupportLibs,
+    generated_sources: Sequence[Path] = (),
+) -> dict[str, Any]:
+    arch_name = _cmake_arch(arch)
+    support_paths = (
+        support_libs.runtime_lib,
+        support_libs.rocm_runtime_lib,
+        support_libs.kernels_lib,
+        *support_libs.ck_gemm_archives,
+        *support_libs.ck_bmm_archives,
+        *support_libs.ck_conv_archives,
+        *support_libs.flash_attn_ck_archives,
+    )
+    cache_inputs = {
+        "schema_version": _ROCM_MODULE_CACHE_SCHEMA_VERSION,
+        "target": {"name": "rocm", "arch": arch_name},
+        "module_source_sha256": file_sha256(module_source),
+        "generated_source_sha256": [
+            {"name": path.name, "sha256": file_sha256(path)}
+            for path in generated_sources
+        ],
+        "support_libraries": [
+            {"name": path.name, "sha256": file_sha256(path)}
+            for path in support_paths
+        ],
+    }
+    cache_key = hashlib.sha256(canonical_json(cache_inputs).encode("utf-8")).hexdigest()
+    cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
+    cache_dir = cache_root / "modules" / _rocm_support_cache_dir_name(arch_name) / cache_key[:16]
+    return {
+        "cache_key": cache_key,
+        "cache_inputs": cache_inputs,
+        "cache_dir": cache_dir,
+        "module": cache_dir / "module.so",
+        "manifest": cache_dir / "module_cache_manifest.json",
+    }
+
+
+def _restore_rocm_module_from_cache(cache_entry: Mapping[str, Any], module_lib: Path) -> bool:
+    cached_module = Path(cache_entry["module"])
+    manifest_path = Path(cache_entry["manifest"])
+    if not cached_module.exists() or not manifest_path.exists():
+        return False
+    try:
+        manifest = read_json(manifest_path)
+    except Exception:
+        return False
+    if manifest.get("cache_key") != cache_entry["cache_key"]:
+        return False
+    if manifest.get("cache_inputs") != cache_entry["cache_inputs"]:
+        return False
+    module_sha256 = str(manifest.get("module_sha256", ""))
+    if not module_sha256 or module_sha256 != file_sha256(cached_module):
+        return False
+    module_lib.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(cached_module, module_lib)
+    return True
+
+
+def _store_rocm_module_in_cache(cache_entry: Mapping[str, Any], module_lib: Path) -> None:
+    cache_dir = Path(cache_entry["cache_dir"])
+    cached_module = Path(cache_entry["module"])
+    manifest_path = Path(cache_entry["manifest"])
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(module_lib, cached_module)
+    write_json(
+        manifest_path,
+        {
+            "schema_version": _ROCM_MODULE_CACHE_SCHEMA_VERSION,
+            "cache_key": cache_entry["cache_key"],
+            "cache_inputs": cache_entry["cache_inputs"],
+            "module": cached_module.name,
+            "module_sha256": file_sha256(cached_module),
+        },
     )
 
 

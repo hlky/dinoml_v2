@@ -10,6 +10,7 @@ def render_rocm_module(
     ir: Mapping[str, Any],
     *,
     generated_kernels: Iterable[str] | None = None,
+    generated_kernel_declarations: Iterable[str] | None = None,
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     return render_gpu_module(
@@ -17,7 +18,10 @@ def render_rocm_module(
         ir,
         generated_kernels=generated_kernels,
         kernel_manifest=kernel_manifest,
-        external_kernel_declarations=_external_kernel_declarations(kernel_manifest),
+        external_kernel_declarations=[
+            *(list(generated_kernel_declarations) if generated_kernel_declarations is not None else []),
+            *_external_kernel_declarations(kernel_manifest),
+        ],
     )
 
 

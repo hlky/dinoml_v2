@@ -425,6 +425,107 @@ def test_rocm_support_cache_dir_sanitizes_feature_suffixed_arch():
     assert rocm_backend._rocm_support_cache_dir_name(" gfx90a:xnack- ") == "rocm-gfx90a_xnack-"
 
 
+def test_rocm_module_cache_round_trip(tmp_path, monkeypatch):
+    cache_root = tmp_path / "cache"
+    support_dir = tmp_path / "support"
+    support_dir.mkdir()
+    runtime = support_dir / "dinoml_runtime.dll"
+    rocm_runtime = support_dir / "dinoml_rocm_runtime.dll"
+    kernels = support_dir / "dinoml_rocm_kernels.dll"
+    ck_archive = support_dir / "dinoml_ck_gemm_rcr_float16.lib"
+    for path in (runtime, rocm_runtime, kernels, ck_archive):
+        path.write_bytes(path.name.encode("utf-8"))
+    source = tmp_path / "module.hip"
+    source.write_text("__global__ void kernel() {}\n", encoding="utf-8")
+    built_module = tmp_path / "module.so"
+    built_module.write_bytes(b"compiled module")
+
+    support_libs = rocm_backend.RocmSupportLibs(
+        runtime_lib=runtime,
+        rocm_runtime_lib=rocm_runtime,
+        kernels_lib=kernels,
+        ck_gemm_archives=(ck_archive,),
+        ck_bmm_archives=(),
+        ck_conv_archives=(),
+        flash_attn_ck_archives=(),
+        runtime_include=tmp_path / "runtime_include",
+        common_include=tmp_path / "common_include",
+        kernels_include=tmp_path / "kernels_include",
+    )
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
+    entry = rocm_backend._rocm_module_cache_entry(
+        arch="gfx1201",
+        module_source=source,
+        support_libs=support_libs,
+    )
+    rocm_backend._store_rocm_module_in_cache(entry, built_module)
+
+    restored = tmp_path / "restored" / "module.so"
+    assert rocm_backend._restore_rocm_module_from_cache(entry, restored)
+    assert restored.read_bytes() == b"compiled module"
+
+    source.write_text("__global__ void changed() {}\n", encoding="utf-8")
+    changed_entry = rocm_backend._rocm_module_cache_entry(
+        arch="gfx1201",
+        module_source=source,
+        support_libs=support_libs,
+    )
+    assert not rocm_backend._restore_rocm_module_from_cache(changed_entry, tmp_path / "changed.so")
+
+
+def test_rocm_split_generated_sources_emit_chunks_and_declarations(tmp_path, monkeypatch):
+    ops_dir = tmp_path / "ops" / "fused_elementwise"
+    ops_dir.mkdir(parents=True)
+    first = ops_dir / "first.hip"
+    second = ops_dir / "second.hip"
+    first.write_text(
+        "static int generated_first(const dinoml::bfloat16* x, dinoml::bfloat16* y, hipStream_t stream) {\n"
+        "  return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    second.write_text(
+        "static int generated_second(const int64_t* shape, hipStream_t stream) {\n"
+        "  return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "sources": [
+            {
+                "source_hash": "first",
+                "emitted_source_path": "ops/fused_elementwise/first.hip",
+                "emitted_new_source": True,
+            },
+            {
+                "source_hash": "first",
+                "emitted_source_path": "ops/fused_elementwise/first.hip",
+                "emitted_new_source": False,
+            },
+            {
+                "source_hash": "second",
+                "emitted_source_path": "ops/fused_elementwise/second.hip",
+                "emitted_new_source": True,
+            },
+        ]
+    }
+
+    monkeypatch.setenv("DINOML_ROCM_GENERATED_SOURCE_CHUNK_BYTES", "65536")
+    split = rocm_backend._split_rocm_generated_sources(manifest, tmp_path)
+
+    assert split["source_files"] == [Path("generated_kernel_units/generated_kernels_0000.hip")]
+    assert split["declarations"] == [
+        "int generated_first(const dinoml::bfloat16* x, dinoml::bfloat16* y, hipStream_t stream);",
+        "int generated_second(const int64_t* shape, hipStream_t stream);",
+    ]
+    chunk_source = (tmp_path / split["source_files"][0]).read_text(encoding="utf-8")
+    assert "#include <dinoml/rocm_kernels.h>" in chunk_source
+    assert "int generated_first(" in chunk_source
+    assert "static int generated_first(" not in chunk_source
+    assert chunk_source.count("int generated_first(") == 1
+
+
 def test_rocm_lowering_target_spec_uses_hip_runtime_contract():
     spec = lowering_target_spec("rocm")
     context = spec.gpu_template_context()

@@ -31,6 +31,10 @@ _CMAKE_ENV: dict[str, str] | None = None
 _ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
 _FLASH_ATTN_CK_FILTER = "*batch*nlogits*nbias*mask*nlse*ndropout*"
+_FLASH_ATTN_CK_SPLITKV_FILTER = (
+    "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_nbias_nmask_lse_nsquant_npagedkv*"
+)
+_FLASH_ATTN_CK_APPENDKV_FILTER = "*vr_psskddv"
 _FLASH_ATTN_CK_OPTDIMS = "64,128"
 
 _VISUAL_STUDIO_ENV_KEYS = frozenset(
@@ -751,6 +755,8 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
                 "-DDINOML_ENABLE_CK_CONV=OFF",
                 "-DDINOML_ENABLE_FLASH_ATTN_CK=ON",
                 f"-DDINOML_FLASH_ATTN_CK_FILTER={_FLASH_ATTN_CK_FILTER}",
+                f"-DDINOML_FLASH_ATTN_CK_SPLITKV_FILTER={_FLASH_ATTN_CK_SPLITKV_FILTER}",
+                f"-DDINOML_FLASH_ATTN_CK_APPENDKV_FILTER={_FLASH_ATTN_CK_APPENDKV_FILTER}",
                 f"-DDINOML_FLASH_ATTN_CK_OPTDIMS={_FLASH_ATTN_CK_OPTDIMS}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
@@ -1091,6 +1097,8 @@ def _prepare_flash_attn_ck_cmake_build_dir(build_dir: Path) -> None:
         return
     required_cache = {
         "DINOML_FLASH_ATTN_CK_FILTER": _FLASH_ATTN_CK_FILTER,
+        "DINOML_FLASH_ATTN_CK_SPLITKV_FILTER": _FLASH_ATTN_CK_SPLITKV_FILTER,
+        "DINOML_FLASH_ATTN_CK_APPENDKV_FILTER": _FLASH_ATTN_CK_APPENDKV_FILTER,
         "DINOML_FLASH_ATTN_CK_OPTDIMS": _FLASH_ATTN_CK_OPTDIMS,
     }
     for key, required in required_cache.items():

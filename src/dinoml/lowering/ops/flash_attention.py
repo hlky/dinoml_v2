@@ -110,8 +110,8 @@ def _render_static_kv_cache_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None,
 ) -> str:
-    if target != "cuda":
-        raise ValueError(f"flash_attention_static_kv_cache lowering is only implemented for CUDA, got {target!r}")
+    if target not in {"cuda", "rocm"}:
+        raise ValueError(f"flash_attention_static_kv_cache lowering is only implemented for CUDA and ROCm, got {target!r}")
     q_name, past_key_name, past_value_name, new_key_name, new_value_name, cache_seqlens_name = (
         str(name) for name in node["inputs"]
     )
@@ -125,10 +125,16 @@ def _render_static_kv_cache_launch(
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
     if dtype not in {"float16", "bfloat16"}:
-        raise ValueError(f"flash_attention_static_kv_cache CUDA lowering only supports float16 and bfloat16, got {dtype}")
+        raise ValueError(f"flash_attention_static_kv_cache {target} lowering only supports float16 and bfloat16, got {dtype}")
     symbol = _manifest_symbol(kernel_manifest, target, str(node["op"]), dtype)
     if symbol is None:
         symbol = get_op_def(str(node["op"])).backend_kernels[target].resolve(dtype).symbol
+    rocm_scratch_args = ""
+    if target == "rocm":
+        rocm_scratch_args = (
+            ", session->flash_attention_static_kv_cache_scratch, "
+            "session->flash_attention_static_kv_cache_scratch_nbytes"
+        )
     return "\n".join(
         [
             f'if (shape_{q_ident}_1 != 1) '
@@ -161,7 +167,7 @@ def _render_static_kv_cache_launch(
             f"ptr_{new_key_ident}, ptr_{new_value_ident}, ptr_{cache_seqlens_ident}, ptr_{output_ident}, "
             f"static_cast<int64_t>(shape_{q_ident}_0), static_cast<int64_t>(shape_{past_key_ident}_2), "
             f"static_cast<int64_t>(shape_{q_ident}_2), static_cast<int64_t>(shape_{past_key_ident}_1), "
-            f"static_cast<int64_t>(shape_{q_ident}_3), session->stream)) "
+            f"static_cast<int64_t>(shape_{q_ident}_3){rocm_scratch_args}, session->stream)) "
             'return dinoml::module::fail("flash_attention_static_kv_cache launcher failed");',
         ]
     )
@@ -197,3 +203,36 @@ FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING = OpLowering(
     render_generated_kernel=render_generated_kernel,
     render_launch=render_launch,
 )
+
+
+def flash_attention_static_kv_cache_scratch_nbytes_for_node(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> int:
+    if target != "rocm" or node.get("op") != "flash_attention_static_kv_cache":
+        return 0
+    q_name, past_key_name, _past_value_name, _new_key_name, _new_value_name, _cache_seqlens_name = (
+        str(name) for name in node["inputs"]
+    )
+    q_tensor = tensor_map[q_name]
+    past_key_tensor = tensor_map[past_key_name]
+    batch = int(q_tensor["shape"][0])
+    seqlen_q = int(q_tensor["shape"][1])
+    num_heads_q = int(q_tensor["shape"][2])
+    head_dim = int(q_tensor["shape"][3])
+    max_cache_len = int(past_key_tensor["shape"][2])
+    num_splits = 1
+    seqlens_nbytes = _align_nbytes(batch * 4, 16)
+    lse_acc_nbytes = _align_nbytes(batch * num_heads_q * num_splits * seqlen_q * 4, 16)
+    lse_nbytes = _align_nbytes(batch * num_heads_q * seqlen_q * 4, 16)
+    o_acc_nbytes = _align_nbytes(batch * num_heads_q * num_splits * seqlen_q * head_dim * 4, 16)
+    # The split-KV API uses runtime max_cache_len for shape checks, but the scratch scales
+    # with q/output sizes for num_splits=1. Keep max_cache_len referenced here so invalid
+    # cache specs fail early through integer conversion above.
+    del max_cache_len
+    return seqlens_nbytes + lse_acc_nbytes + lse_nbytes + o_acc_nbytes
+
+
+def _align_nbytes(value: int, alignment: int) -> int:
+    return ((int(value) + int(alignment) - 1) // int(alignment)) * int(alignment)

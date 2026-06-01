@@ -59,6 +59,10 @@ struct DinoSession {
   void* topk_scratch = nullptr;
   size_t topk_scratch_nbytes = {{ topk_scratch.nbytes }};
 {% endif %}
+{% if flash_attention_static_kv_cache_scratch %}
+  void* flash_attention_static_kv_cache_scratch = nullptr;
+  size_t flash_attention_static_kv_cache_scratch_nbytes = {{ flash_attention_static_kv_cache_scratch.nbytes }};
+{% endif %}
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
@@ -327,6 +331,9 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
 {% if topk_scratch %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->topk_scratch, {{ topk_scratch.nbytes }}));
 {% endif %}
+{% if flash_attention_static_kv_cache_scratch %}
+  DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->flash_attention_static_kv_cache_scratch, {{ flash_attention_static_kv_cache_scratch.nbytes }}));
+{% endif %}
 {% for temp in temporaries %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
@@ -383,6 +390,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
 {% if topk_scratch %}
   if (session->topk_scratch) {
     {{ device_free }}(session->topk_scratch);
+  }
+{% endif %}
+{% if flash_attention_static_kv_cache_scratch %}
+  if (session->flash_attention_static_kv_cache_scratch) {
+    {{ device_free }}(session->flash_attention_static_kv_cache_scratch);
   }
 {% endif %}
   if (session->owned_stream) {

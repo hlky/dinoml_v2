@@ -242,3 +242,154 @@ extern "C" int dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1(
       DataType::kBFloat16,
       stream);
 }
+
+int launch_flash_attention_static_kv_cache(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    DataType dtype,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream) {
+  if (q == nullptr || k_cache == nullptr || v_cache == nullptr || knew == nullptr ||
+      vnew == nullptr || cache_seqlens == nullptr || output == nullptr ||
+      scratch == nullptr) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if (batch_size <= 0 || max_cache_len <= 0 || num_heads_q <= 0 || num_heads_k <= 0 ||
+      head_dim <= 0 || (num_heads_q % num_heads_k) != 0) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+
+  const int64_t output_batch_stride = num_heads_q * head_dim;
+  const int64_t output_row_stride = num_heads_q * head_dim;
+  const int64_t output_head_stride = head_dim;
+  const int64_t q_batch_stride = num_heads_q * head_dim;
+  const int64_t q_row_stride = num_heads_q * head_dim;
+  const int64_t q_head_stride = head_dim;
+  const int64_t cache_batch_stride = num_heads_k * max_cache_len * head_dim;
+  const int64_t cache_row_stride = head_dim;
+  const int64_t cache_head_stride = max_cache_len * head_dim;
+  const int64_t new_batch_stride = num_heads_k * head_dim;
+  const int64_t new_row_stride = head_dim;
+  const int64_t new_head_stride = head_dim;
+
+  const float elapsed_ms = FlashAttentionStaticKvCacheLauncher(
+      output,
+      output_batch_stride,
+      output_row_stride,
+      output_head_stride,
+      const_cast<void*>(q),
+      q_batch_stride,
+      q_row_stride,
+      q_head_stride,
+      const_cast<void*>(k_cache),
+      cache_batch_stride,
+      cache_row_stride,
+      cache_head_stride,
+      const_cast<void*>(v_cache),
+      cache_batch_stride,
+      cache_row_stride,
+      cache_head_stride,
+      const_cast<void*>(knew),
+      new_batch_stride,
+      new_row_stride,
+      new_head_stride,
+      const_cast<void*>(vnew),
+      new_batch_stride,
+      new_row_stride,
+      new_head_stride,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      cache_seqlens,
+      dtype,
+      scratch,
+      scratch_nbytes,
+      stream);
+  if (elapsed_ms < 0.0f) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  return 0;
+}
+
+extern "C" int dinoml_flash_attn_ck_static_kv_cache_fwd_float16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream) {
+  return launch_flash_attention_static_kv_cache(
+      q,
+      k_cache,
+      v_cache,
+      knew,
+      vnew,
+      cache_seqlens,
+      output,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      DataType::kFloat16,
+      scratch,
+      scratch_nbytes,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream) {
+  return launch_flash_attention_static_kv_cache(
+      q,
+      k_cache,
+      v_cache,
+      knew,
+      vnew,
+      cache_seqlens,
+      output,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      DataType::kBFloat16,
+      scratch,
+      scratch_nbytes,
+      stream);
+}

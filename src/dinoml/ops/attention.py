@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.kernels.providers.ck.flash_attention import flash_attn_ck_qkv_symbol, flash_attn_ck_symbol
+from dinoml.kernels.providers.ck.flash_attention import (
+    flash_attn_ck_qkv_symbol,
+    flash_attn_ck_static_kv_cache_symbol,
+    flash_attn_ck_symbol,
+)
 from dinoml.kernels.providers.cuda_flash_attention import (
     flash_attn_cuda_qkv_symbol,
     flash_attn_cuda_static_kv_cache_symbol,
@@ -305,9 +309,17 @@ class FlashAttentionStaticKvCache(OpDef):
                 "bfloat16": KernelVariant(flash_attn_cuda_static_kv_cache_symbol("bfloat16")),
             },
         ),
+        "rocm": KernelBinding(
+            flash_attn_ck_static_kv_cache_symbol("float16"),
+            "flash_attn_ck",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_ck_static_kv_cache_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_static_kv_cache_symbol("bfloat16")),
+            },
+        ),
     }
     frontend = FrontendBinding("flash_attention_static_kv_cache")
-    description = "CUDA FlashAttention decode op for static [batch, kv_heads, max_cache_len, head_dim] KV caches."
+    description = "FlashAttention decode op for static [batch, kv_heads, max_cache_len, head_dim] KV caches."
 
 
 @op_def

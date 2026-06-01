@@ -1,6 +1,9 @@
 #include "../flash_attn_dinoml.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <limits>
+#include <string>
 #include <vector>
 
 #include <cstdint>
@@ -10,6 +13,77 @@
 #include <type_traits>
 
 #include "fmha_fwd.hpp"
+
+namespace {
+
+constexpr size_t kStaticKvScratchAlignment = 16;
+
+size_t align_nbytes(size_t value, size_t alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+void* next_scratch_slice(char* base, size_t& offset, size_t nbytes) {
+  offset = align_nbytes(offset, kStaticKvScratchAlignment);
+  void* result = base + offset;
+  offset += nbytes;
+  return result;
+}
+
+std::string dtype_string(DataType dtype) {
+  if (dtype == DataType::kFloat16) {
+    return "fp16";
+  }
+  if (dtype == DataType::kBFloat16) {
+    return "bf16";
+  }
+  return "";
+}
+
+__global__ void build_total_seqlens_kernel(
+    const int32_t* cache_seqlens,
+    int32_t* total_seqlens,
+    int32_t batch_size,
+    int32_t max_cache_len) {
+  const int32_t index = static_cast<int32_t>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (index >= batch_size) {
+    return;
+  }
+  int32_t total = cache_seqlens[index] + 1;
+  if (total < 0) {
+    total = 0;
+  }
+  if (total > max_cache_len) {
+    total = max_cache_len;
+  }
+  total_seqlens[index] = total;
+}
+
+float build_total_seqlens(
+    const int32_t* cache_seqlens,
+    int32_t* total_seqlens,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    hipStream_t stream) {
+  if (batch_size > static_cast<int64_t>(std::numeric_limits<int32_t>::max()) ||
+      max_cache_len > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+    return -1.0f;
+  }
+  constexpr int threads = 256;
+  const int blocks = static_cast<int>((batch_size + threads - 1) / threads);
+  hipLaunchKernelGGL(
+      build_total_seqlens_kernel,
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      cache_seqlens,
+      total_seqlens,
+      static_cast<int32_t>(batch_size),
+      static_cast<int32_t>(max_cache_len));
+  return hipGetLastError() == hipSuccess ? 0.0f : -1.0f;
+}
+
+} // namespace
 
 fmha_fwd_traits get_ck_fmha_fwd_traits(
     const mask_info& mask,
@@ -211,4 +285,208 @@ float FlashAttentionLauncher(
       1.0f / std::sqrt(static_cast<float>(head_dim)));
 
   return run_mha_fwd(traits, args, stream_config);
+}
+
+float FlashAttentionStaticKvCacheLauncher(
+    void* output,
+    int64_t output_batch_stride,
+    int64_t output_row_stride,
+    int64_t output_head_stride,
+    void* q,
+    int64_t q_batch_stride,
+    int64_t q_row_stride,
+    int64_t q_head_stride,
+    void* k_cache,
+    int64_t k_cache_batch_stride,
+    int64_t k_cache_row_stride,
+    int64_t k_cache_head_stride,
+    void* v_cache,
+    int64_t v_cache_batch_stride,
+    int64_t v_cache_row_stride,
+    int64_t v_cache_head_stride,
+    void* knew,
+    int64_t knew_batch_stride,
+    int64_t knew_row_stride,
+    int64_t knew_head_stride,
+    void* vnew,
+    int64_t vnew_batch_stride,
+    int64_t vnew_row_stride,
+    int64_t vnew_head_stride,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    const int32_t* cache_seqlens,
+    DataType dtype,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream) {
+  if (output == nullptr || q == nullptr || k_cache == nullptr || v_cache == nullptr || knew == nullptr ||
+      vnew == nullptr || cache_seqlens == nullptr || scratch == nullptr) {
+    return -1.0f;
+  }
+  if (batch_size <= 0 || max_cache_len <= 0 || num_heads_q <= 0 || num_heads_k <= 0 || head_dim <= 0) {
+    return -1.0f;
+  }
+  if ((num_heads_q % num_heads_k) != 0) {
+    return -1.0f;
+  }
+  const std::string dtype_str = dtype_string(dtype);
+  if (dtype_str.empty()) {
+    return -1.0f;
+  }
+
+  constexpr int64_t seqlen_q = 1;
+  constexpr int64_t seqlen_knew = 1;
+  constexpr int64_t num_splits = 1;
+  size_t offset = 0;
+  char* scratch_base = static_cast<char*>(scratch);
+  auto* total_seqlens = static_cast<int32_t*>(
+      next_scratch_slice(scratch_base, offset, static_cast<size_t>(batch_size) * sizeof(int32_t)));
+  auto* lse_acc = static_cast<float*>(next_scratch_slice(
+      scratch_base,
+      offset,
+      static_cast<size_t>(batch_size * num_heads_q * num_splits * seqlen_q) * sizeof(float)));
+  auto* lse = static_cast<float*>(next_scratch_slice(
+      scratch_base,
+      offset,
+      static_cast<size_t>(batch_size * num_heads_q * seqlen_q) * sizeof(float)));
+  auto* o_acc = static_cast<float*>(next_scratch_slice(
+      scratch_base,
+      offset,
+      static_cast<size_t>(batch_size * num_heads_q * num_splits * seqlen_q * head_dim) * sizeof(float)));
+  if (offset > scratch_nbytes) {
+    return -1.0f;
+  }
+
+  ck_tile::stream_config stream_config{stream};
+  fmha_fwd_appendkv_traits append_traits{
+      static_cast<int>(head_dim),
+      static_cast<int>(head_dim),
+      dtype_str,
+      true,
+      rope_enum::none};
+  fmha_fwd_appendkv_args append_args{};
+  append_args.q_ptr = q;
+  append_args.k_ptr = k_cache;
+  append_args.knew_ptr = knew;
+  append_args.v_ptr = v_cache;
+  append_args.vnew_ptr = vnew;
+  append_args.seqlen_k_ptr = cache_seqlens;
+  append_args.seqlen_q = seqlen_q;
+  append_args.seqlen_knew = seqlen_knew;
+  append_args.batch = batch_size;
+  append_args.hdim_q = head_dim;
+  append_args.hdim_v = head_dim;
+  append_args.nhead_q = num_heads_q;
+  append_args.nhead_k = num_heads_k;
+  append_args.rotary_cos_ptr = nullptr;
+  append_args.rotary_sin_ptr = nullptr;
+  append_args.rotary_dim = 0;
+  append_args.has_mask = false;
+  append_args.block_table_ptr = nullptr;
+  append_args.batch_stride_block_table = 0;
+  append_args.page_block_size = 0;
+  append_args.cache_batch_idx = nullptr;
+  append_args.stride_q = q_row_stride;
+  append_args.stride_k = k_cache_row_stride;
+  append_args.stride_knew = knew_row_stride;
+  append_args.stride_v = v_cache_row_stride;
+  append_args.stride_vnew = vnew_row_stride;
+  append_args.nhead_stride_q = q_head_stride;
+  append_args.nhead_stride_k = k_cache_head_stride;
+  append_args.nhead_stride_knew = knew_head_stride;
+  append_args.nhead_stride_v = v_cache_head_stride;
+  append_args.nhead_stride_vnew = vnew_head_stride;
+  append_args.batch_stride_q = q_batch_stride;
+  append_args.batch_stride_k = k_cache_batch_stride;
+  append_args.batch_stride_knew = knew_batch_stride;
+  append_args.batch_stride_v = v_cache_batch_stride;
+  append_args.batch_stride_vnew = vnew_batch_stride;
+
+  const float append_elapsed_ms = fmha_fwd_appendkv(append_traits, append_args, stream_config);
+  if (append_elapsed_ms < 0.0f) {
+    return -1.0f;
+  }
+  const float seqlens_elapsed_ms =
+      build_total_seqlens(cache_seqlens, total_seqlens, batch_size, max_cache_len, stream);
+  if (seqlens_elapsed_ms < 0.0f) {
+    return -1.0f;
+  }
+
+  fmha_fwd_splitkv_traits split_traits{
+      static_cast<int>(head_dim),
+      static_cast<int>(head_dim),
+      dtype_str,
+      false,
+      true,
+      false,
+      mask_enum::no_mask,
+      bias_enum::no_bias,
+      false,
+      false};
+  fmha_fwd_splitkv_args split_args{};
+  split_args.q_ptr = q;
+  split_args.k_ptr = k_cache;
+  split_args.v_ptr = v_cache;
+  split_args.bias_ptr = nullptr;
+  split_args.lse_acc_ptr = lse_acc;
+  split_args.o_acc_ptr = o_acc;
+  split_args.lse_ptr = lse;
+  split_args.o_ptr = output;
+  split_args.block_table_ptr = nullptr;
+  split_args.batch_stride_block_table = 0;
+  split_args.page_block_size = 0;
+  split_args.is_gappy = false;
+  split_args.cache_batch_idx = nullptr;
+  split_args.seqstart_q_ptr = nullptr;
+  split_args.seqstart_k_ptr = nullptr;
+  split_args.seqlen_k_ptr = total_seqlens;
+  split_args.seqlen_q = seqlen_q;
+  split_args.seqlen_k = max_cache_len;
+  split_args.batch = batch_size;
+  split_args.max_seqlen_q = seqlen_q;
+  split_args.hdim_q = head_dim;
+  split_args.hdim_v = head_dim;
+  split_args.nhead_q = num_heads_q;
+  split_args.nhead_k = num_heads_k;
+  split_args.num_splits = num_splits;
+  split_args.scale_s = 1.0f / std::sqrt(static_cast<float>(head_dim));
+  split_args.scale_p = 1.0f;
+  split_args.scale_o = 1.0f;
+  split_args.logits_soft_cap = 0.0f;
+  split_args.stride_q = q_row_stride;
+  split_args.stride_k = k_cache_row_stride;
+  split_args.stride_v = v_cache_row_stride;
+  split_args.stride_bias = 0;
+  split_args.stride_o_acc = head_dim;
+  split_args.stride_o = output_row_stride;
+  split_args.nhead_stride_q = q_head_stride;
+  split_args.nhead_stride_k = k_cache_head_stride;
+  split_args.nhead_stride_v = v_cache_head_stride;
+  split_args.nhead_stride_bias = 0;
+  split_args.nhead_stride_lse = seqlen_q;
+  split_args.nhead_stride_lse_acc = num_splits * seqlen_q;
+  split_args.nhead_stride_o_acc = num_splits * seqlen_q * head_dim;
+  split_args.nhead_stride_o = output_head_stride;
+  split_args.batch_stride_q = q_batch_stride;
+  split_args.batch_stride_k = k_cache_batch_stride;
+  split_args.batch_stride_v = v_cache_batch_stride;
+  split_args.batch_stride_bias = 0;
+  split_args.batch_stride_lse = num_heads_q * seqlen_q;
+  split_args.batch_stride_lse_acc = num_heads_q * num_splits * seqlen_q;
+  split_args.batch_stride_o_acc = num_heads_q * num_splits * seqlen_q * head_dim;
+  split_args.batch_stride_o = output_batch_stride;
+  split_args.split_stride_lse_acc = seqlen_q;
+  split_args.split_stride_o_acc = seqlen_q * head_dim;
+  split_args.window_size_left = -1;
+  split_args.window_size_right = -1;
+  split_args.mask_type = static_cast<ck_tile::index_t>(mask_enum::no_mask);
+
+  const float split_elapsed_ms = fmha_fwd_splitkv(split_traits, split_args, stream_config);
+  if (split_elapsed_ms < 0.0f) {
+    return -1.0f;
+  }
+  return append_elapsed_ms + seqlens_elapsed_ms + split_elapsed_ms;
 }

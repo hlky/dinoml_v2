@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <hip/hip_runtime.h>
 
@@ -33,4 +34,40 @@ float FlashAttentionLauncher(
     DataType dtype,
     int window_size_left,
     int window_size_right,
+    hipStream_t stream);
+
+float FlashAttentionStaticKvCacheLauncher(
+    void* output,
+    int64_t output_batch_stride,
+    int64_t output_row_stride,
+    int64_t output_head_stride,
+    void* q,
+    int64_t q_batch_stride,
+    int64_t q_row_stride,
+    int64_t q_head_stride,
+    void* k_cache,
+    int64_t k_cache_batch_stride,
+    int64_t k_cache_row_stride,
+    int64_t k_cache_head_stride,
+    void* v_cache,
+    int64_t v_cache_batch_stride,
+    int64_t v_cache_row_stride,
+    int64_t v_cache_head_stride,
+    void* knew,
+    int64_t knew_batch_stride,
+    int64_t knew_row_stride,
+    int64_t knew_head_stride,
+    void* vnew,
+    int64_t vnew_batch_stride,
+    int64_t vnew_row_stride,
+    int64_t vnew_head_stride,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    const int32_t* cache_seqlens,
+    DataType dtype,
+    void* scratch,
+    size_t scratch_nbytes,
     hipStream_t stream);

@@ -489,6 +489,12 @@ if(DINOML_ENABLE_ROCM)
     set(DINOML_FLASH_ATTN_CK_FILTER
         "*batch*nlogits*nbias*mask*nlse*ndropout*"
         CACHE STRING "CK FlashAttention generator filter")
+    set(DINOML_FLASH_ATTN_CK_SPLITKV_FILTER
+        "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_nbias_nmask_lse_nsquant_npagedkv*"
+        CACHE STRING "CK FlashAttention split-KV generator filter")
+    set(DINOML_FLASH_ATTN_CK_APPENDKV_FILTER
+        "*vr_psskddv"
+        CACHE STRING "CK FlashAttention append-KV generator filter")
     set(DINOML_FLASH_ATTN_CK_OPTDIMS
         "64,128"
         CACHE STRING "Comma-separated CK FlashAttention head dimensions to generate")
@@ -506,10 +512,10 @@ if(DINOML_ENABLE_ROCM)
         ${Python3_EXECUTABLE}
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd
+        --api fwd,fwd_splitkv,fwd_appendkv
         --receipt 2
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
+        --filter "${DINOML_FLASH_ATTN_CK_FILTER},${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER},${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
         --list_blobs "${_dinoml_flash_attn_ck_blob_list}"
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
         COMMAND_ERROR_IS_FATAL ANY
@@ -531,10 +537,10 @@ if(DINOML_ENABLE_ROCM)
         ${Python3_EXECUTABLE}
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd
+        --api fwd,fwd_splitkv,fwd_appendkv
         --receipt 2
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
+        --filter "${DINOML_FLASH_ATTN_CK_FILTER},${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER},${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
         --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
       DEPENDS ${_DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS}
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
@@ -573,6 +579,9 @@ if(DINOML_ENABLE_ROCM)
         CK_USE_XDL
         USE_PROF_API=1
         CK_TILE_FLOAT_TO_BFLOAT16_DEFAULT=3
+        CK_TILE_FMHA_FWD_SPLITKV_API=1
+        CK_TILE_FMHA_FWD_APPENDKV_API=1
+        CK_TILE_FMHA_FWD_PAGEDKV_API=0
         __HIP_PLATFORM_AMD__
         __HIPCC__
         $<$<PLATFORM_ID:Windows>:_ITERATOR_DEBUG_LEVEL=0>

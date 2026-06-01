@@ -26,13 +26,12 @@ EXPECTED_FLOAT_DTYPE_GAPS = {
     ),
 }
 
-EXPECTED_CUDA_NOT_ROCM = ("flash_attention_static_kv_cache",)
+EXPECTED_CUDA_NOT_ROCM: tuple[str, ...] = ()
 EXPECTED_ROCM_NOT_CUDA: tuple[str, ...] = ()
 
 EXPECTED_BACKEND_BUCKETS = {
     "cpu,cuda,rocm": 52,
-    "cuda": 1,
-    "cuda,rocm": 51,
+    "cuda,rocm": 52,
     "fused/no direct": 39,
 }
 

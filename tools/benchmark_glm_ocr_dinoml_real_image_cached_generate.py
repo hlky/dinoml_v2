@@ -361,7 +361,7 @@ def _float_input(values: np.ndarray, dtype: str) -> np.ndarray:
 
 
 def _use_flash_static_kv_cache(args: argparse.Namespace, config) -> bool:
-    return args.target == "cuda" and config.text_config.dtype in {"float16", "bfloat16"}
+    return args.target in {"cuda", "rocm"} and config.text_config.dtype in {"float16", "bfloat16"}
 
 
 def main() -> None:

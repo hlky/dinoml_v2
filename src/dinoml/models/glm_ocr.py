@@ -488,6 +488,18 @@ class GlmOcrTextAttention(dml.nn.Module):
         v = dml.ops.permute(v, (0, 2, 1, 3))
         present_key = dml.ops.concatenate([past_key, k], dim=2)
         present_value = dml.ops.concatenate([past_value, v], dim=2)
+        if (
+            self.config.use_flash_attention
+            and q.dtype in {"float16", "bfloat16"}
+            and attention_mask is None
+            and seq_len == 1
+        ):
+            attn_key = dml.ops.permute(present_key, (0, 2, 1, 3))
+            attn_value = dml.ops.permute(present_value, (0, 2, 1, 3))
+            q = dml.ops.permute(q, (0, 2, 1, 3))
+            context = dml.ops.flash_attention(q, attn_key, attn_value, causal=False)
+            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+            return self.o_proj(context), present_key, present_value
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
         attn_key = _materialize(attn_key)

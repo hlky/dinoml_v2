@@ -173,4 +173,38 @@ int dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1(
     int causal,
     hipStream_t stream);
 
+int dinoml_flash_attn_ck_static_kv_cache_fwd_float16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream);
+
+int dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    void* scratch,
+    size_t scratch_nbytes,
+    hipStream_t stream);
+
 }

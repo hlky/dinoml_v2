@@ -160,6 +160,35 @@ def test_flash_attention_qkv_rocm_manifest_requests_ck_bfloat16_head_dim128_arch
     assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1"
 
 
+def test_flash_attention_static_kv_cache_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 128], "bfloat16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 128], "bfloat16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 128], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+        },
+        name="flash_attention_static_kv_cache_rocm_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_static_kv_cache")
+    launch = render_launch("rocm", node, tensors, kernel_manifest=manifest)
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_static_kv_cache"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1"
+    assert "dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1" in launch
+    assert "ptr_cache_seqlens" in launch
+    assert "flash_attention_static_kv_cache_scratch" in launch
+
+
 def test_flash_attention_rocm_support_manifest_records_requested_ck_dtype_modules(tmp_path: Path):
     archive = tmp_path / "libdinoml_flash_attn_ck.a"
     archive.write_bytes(b"archive")

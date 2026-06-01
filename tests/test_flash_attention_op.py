@@ -5,6 +5,7 @@ import math
 import numpy as np
 
 import dinoml as dml
+from dinoml.compiler import _validate_mvp_runtime_contract
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import render_launch
 from dinoml.reference import reference_numpy
@@ -198,6 +199,23 @@ def test_flash_attention_static_kv_cache_cuda_lowering_uses_cache_seqlens_symbol
 
     assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1" in launch
     assert "ptr_cache_seqlens" in launch
+
+
+def test_flash_attention_static_kv_cache_cuda_contract_accepts_int32_cache_seqlens():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 64], "bfloat16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 64], "bfloat16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 64], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+        },
+        name="flash_attention_static_kv_cache_cuda_contract",
+    )
+
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("cuda"))
 
 
 def _naive_flash_attention(q, k, v, *, causal: bool) -> np.ndarray:

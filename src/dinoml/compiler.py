@@ -833,6 +833,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
     }
+    flash_attention_static_kv_cache_seqlens_tensors = {
+        node["inputs"][5]
+        for node in ir["nodes"]
+        if node.get("op") == "flash_attention_static_kv_cache" and len(node.get("inputs", [])) == 6
+    }
     fused_integer_eq_tensors = {
         tensor_name
         for node in ir["nodes"]
@@ -937,6 +942,21 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"unsupported compiled dtypes: {[output_dtype]}"
                 )
             continue
+        if node.get("op") == "flash_attention_static_kv_cache":
+            data_dtypes = sorted({str(tensor_map[name]["dtype"]) for name in [*node["inputs"][:5], *node["outputs"]]})
+            unsupported_data_dtypes = [dtype for dtype in data_dtypes if dtype not in op_def.allowed_dtypes]
+            if unsupported_data_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports data dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {unsupported_data_dtypes}"
+                )
+            cache_seqlens_dtype = str(tensor_map[node["inputs"][5]]["dtype"])
+            if cache_seqlens_dtype != "int32":
+                raise NotImplementedError(
+                    "Op flash_attention_static_kv_cache cache_seqlens supports dtype ['int32']; "
+                    f"unsupported compiled dtypes: {[cache_seqlens_dtype]}"
+                )
+            continue
         node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
         node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
         unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]
@@ -955,6 +975,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_input_tensors
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
+            and str(tensor["name"]) not in flash_attention_static_kv_cache_seqlens_tensors
             and str(tensor["name"]) not in fused_integer_eq_tensors
         }
     )

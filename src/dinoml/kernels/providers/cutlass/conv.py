@@ -172,27 +172,28 @@ def cutlass_conv_candidates(
                     optional=True,
                 )
             )
-        candidates.append(
-            _cutlass_conv_candidate_from_gemm_config(
-                op_name,
-                normalized_dtype,
-                config,
-                iterator_algorithm="few_channels",
-                align_a=1,
-                align_b=1,
-                target_policy=normalized_target,
-                status=status,
-                selection_predicate={
-                    "kind": "semantic_input_channels",
-                    "input_channels": 3,
-                    "dtype": normalized_dtype,
-                    "groups": 1,
-                    "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
-                    "padding_policy": "none",
-                },
-                optional=True,
+        if normalized_dtype == "float16":
+            candidates.append(
+                _cutlass_conv_candidate_from_gemm_config(
+                    op_name,
+                    normalized_dtype,
+                    config,
+                    iterator_algorithm="few_channels",
+                    align_a=1,
+                    align_b=1,
+                    target_policy=normalized_target,
+                    status=status,
+                    selection_predicate={
+                        "kind": "semantic_input_channels",
+                        "input_channels": 3,
+                        "dtype": normalized_dtype,
+                        "groups": 1,
+                        "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
+                        "padding_policy": "none",
+                    },
+                    optional=True,
+                )
             )
-        )
     return candidates
 
 

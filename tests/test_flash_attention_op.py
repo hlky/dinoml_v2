@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import numpy as np
 
 import dinoml as dml
+from dinoml.backends import rocm as rocm_backend
 from dinoml.compiler import _validate_mvp_runtime_contract
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.lowering.ops import render_launch
@@ -114,6 +116,87 @@ def test_flash_attention_rocm_manifest_requests_ck_archive():
     assert required[0]["support_archive"].endswith("dinoml_flash_attn_ck.lib") or required[0][
         "support_archive"
     ].endswith("libdinoml_flash_attn_ck.a")
+
+
+def test_flash_attention_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
+    spec = dml.trace(
+        _FlashAttentionModule(causal=True),
+        inputs={
+            "q": dml.TensorSpec([1, 5, 4, 128], "bfloat16"),
+            "k": dml.TensorSpec([1, 5, 2, 128], "bfloat16"),
+            "v": dml.TensorSpec([1, 5, 2, 128], "bfloat16"),
+        },
+        name="flash_attention_bfloat16_head_dim128_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention")
+    launch = render_launch("rocm", node, tensors, kernel_manifest=manifest)
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_fwd_bfloat16_v1"
+    assert "dinoml_flash_attn_ck_fwd_bfloat16_v1" in launch
+    assert "!= 64" not in launch
+    assert "> 256" in launch
+
+
+def test_flash_attention_qkv_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
+    spec = dml.trace(
+        _FlashAttentionQKVModule(causal=True),
+        inputs={"qkv": dml.TensorSpec([1, 5, 3, 2, 128], "bfloat16")},
+        name="flash_attention_qkv_bfloat16_head_dim128_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_qkv"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1"
+
+
+def test_flash_attention_rocm_support_manifest_records_requested_ck_dtype_modules(tmp_path: Path):
+    archive = tmp_path / "libdinoml_flash_attn_ck.a"
+    archive.write_bytes(b"archive")
+    modules = rocm_backend._required_flash_attn_ck_modules(
+        {
+            "required_kernels": [
+                {
+                    "kernel_library": "flash_attn_ck",
+                    "op": "flash_attention",
+                    "dtype": "float16",
+                    "kernel_symbol": "dinoml_flash_attn_ck_fwd_float16_v1",
+                },
+                {
+                    "kernel_library": "flash_attn_ck",
+                    "op": "flash_attention",
+                    "dtype": "bfloat16",
+                    "kernel_symbol": "dinoml_flash_attn_ck_fwd_bfloat16_v1",
+                },
+                {
+                    "kernel_library": "flash_attn_ck",
+                    "op": "flash_attention",
+                    "dtype": "bfloat16",
+                    "kernel_symbol": "dinoml_flash_attn_ck_fwd_bfloat16_v1",
+                },
+            ]
+        },
+        archive=archive,
+        target="dinoml_flash_attn_ck",
+    )
+
+    assert [module["dtype"] for module in modules] == ["bfloat16", "float16"]
+    assert [module["kernel_symbol"] for module in modules] == [
+        "dinoml_flash_attn_ck_fwd_bfloat16_v1",
+        "dinoml_flash_attn_ck_fwd_float16_v1",
+    ]
+    assert all(module["archive"] == archive.name for module in modules)
+    assert all(module["archive_sha256"] for module in modules)
 
 
 def test_flash_attention_cuda_manifest_requests_flash_attn_archive():

@@ -486,7 +486,12 @@ if(DINOML_ENABLE_ROCM)
     set(_dinoml_flash_attn_ck_generator_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/example/ck_tile/01_fmha")
     set(_dinoml_flash_attn_ck_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/fa_ck")
     set(_dinoml_flash_attn_ck_blob_list "${_dinoml_flash_attn_ck_generated_dir}/fwd_blob_list.txt")
-    set(_dinoml_flash_attn_ck_filter "*fp16*batch*nlogits*nbias*mask*nlse*ndropout*")
+    set(DINOML_FLASH_ATTN_CK_FILTER
+        "*batch*nlogits*nbias*mask*nlse*ndropout*"
+        CACHE STRING "CK FlashAttention generator filter")
+    set(DINOML_FLASH_ATTN_CK_OPTDIMS
+        "64,128"
+        CACHE STRING "Comma-separated CK FlashAttention head dimensions to generate")
     set(DINOML_FLASH_ATTN_CK_TARGETS "" CACHE STRING "Comma-separated CK FlashAttention generator targets. Defaults to CMAKE_HIP_ARCHITECTURES.")
     if(DINOML_FLASH_ATTN_CK_TARGETS)
       set(_dinoml_flash_attn_ck_targets "${DINOML_FLASH_ATTN_CK_TARGETS}")
@@ -503,11 +508,11 @@ if(DINOML_ENABLE_ROCM)
         --targets "${_dinoml_flash_attn_ck_targets}"
         --api fwd
         --receipt 2
-        --optdim 64
-        --filter "${_dinoml_flash_attn_ck_filter}"
+        --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
+        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --list_blobs "${_dinoml_flash_attn_ck_blob_list}"
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
-      COMMAND_ERROR_IS_FATAL ANY
+        COMMAND_ERROR_IS_FATAL ANY
     )
     file(STRINGS "${_dinoml_flash_attn_ck_blob_list}" DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
     set(_dinoml_flash_attn_ck_generated_sources_normalized)
@@ -528,8 +533,8 @@ if(DINOML_ENABLE_ROCM)
         --targets "${_dinoml_flash_attn_ck_targets}"
         --api fwd
         --receipt 2
-        --optdim 64
-        --filter "${_dinoml_flash_attn_ck_filter}"
+        --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
+        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
       DEPENDS ${_DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS}
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"

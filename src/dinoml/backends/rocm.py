@@ -30,6 +30,8 @@ from dinoml.lowering.ops import collect_generated_sources
 _CMAKE_ENV: dict[str, str] | None = None
 _ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
+_FLASH_ATTN_CK_FILTER = "*batch*nlogits*nbias*mask*nlse*ndropout*"
+_FLASH_ATTN_CK_OPTDIMS = "64,128"
 
 _VISUAL_STUDIO_ENV_KEYS = frozenset(
     {
@@ -723,7 +725,6 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
 
 
 def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str, Any]) -> tuple[Path, ...]:
-    del kernel_manifest
     repo_root = _repo_root()
     cache_root = Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2"))
     arch_name = _cmake_arch(arch)
@@ -733,6 +734,7 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
     archive = lib_dir / flash_attn_ck_static_library_name("float16")
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
+    _prepare_flash_attn_ck_cmake_build_dir(build_dir)
     if not archive.exists() or not build_dir.exists():
         _run_cmake(
             [
@@ -748,6 +750,8 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
                 "-DDINOML_ENABLE_CK_BMM=OFF",
                 "-DDINOML_ENABLE_CK_CONV=OFF",
                 "-DDINOML_ENABLE_FLASH_ATTN_CK=ON",
+                f"-DDINOML_FLASH_ATTN_CK_FILTER={_FLASH_ATTN_CK_FILTER}",
+                f"-DDINOML_FLASH_ATTN_CK_OPTDIMS={_FLASH_ATTN_CK_OPTDIMS}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -769,6 +773,7 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
     )
     if not archive.exists():
         raise RuntimeError(f"Expected CMake-built CK FlashAttention static archive, but it was not produced: {archive}")
+    modules = _required_flash_attn_ck_modules(kernel_manifest, archive=archive, target=target)
     write_json(
         lib_dir / "flash_attn_ck_manifest.json",
         {
@@ -778,15 +783,7 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
             "library_name": FLASH_ATTN_CK_LIBRARY,
             "family": "flash_attention_fwd",
             "build_mode": "cmake_static_archive",
-            "modules": [
-                {
-                    "op": "flash_attention",
-                    "dtype": "float16",
-                    "archive": archive.name,
-                    "target": target,
-                    "archive_sha256": file_sha256(archive),
-                }
-            ],
+            "modules": modules,
             "source_sha256": _flash_attn_ck_source_sha256(repo_root),
             "compile": {
                 "system": "cmake",
@@ -797,6 +794,38 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
         },
     )
     return (archive,)
+
+
+def _required_flash_attn_ck_modules(
+    kernel_manifest: Mapping[str, Any],
+    *,
+    archive: Path,
+    target: str,
+) -> list[dict[str, Any]]:
+    archive_digest = file_sha256(archive)
+    modules: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in kernel_manifest.get("required_kernels", []):
+        if item.get("kernel_library") != FLASH_ATTN_CK_LIBRARY:
+            continue
+        op_name = str(item["op"])
+        dtype = str(item["dtype"])
+        symbol = str(item["kernel_symbol"])
+        key = (op_name, dtype, symbol)
+        if key in seen:
+            continue
+        seen.add(key)
+        modules.append(
+            {
+                "op": op_name,
+                "dtype": dtype,
+                "kernel_symbol": symbol,
+                "archive": archive.name,
+                "target": target,
+                "archive_sha256": archive_digest,
+            }
+        )
+    return sorted(modules, key=lambda module: (str(module["op"]), str(module["dtype"]), str(module["kernel_symbol"])))
 
 
 def _required_ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[str, str], ...]:
@@ -1052,6 +1081,20 @@ def _prepare_ck_cmake_build_dir(build_dir: Path, *, required_cache: Mapping[str,
         cached_values = set(_cmake_cache_split(cached))
         required_values = set(_cmake_cache_split(required))
         if not required_values.issubset(cached_values):
+            shutil.rmtree(build_dir)
+            return
+
+
+def _prepare_flash_attn_ck_cmake_build_dir(build_dir: Path) -> None:
+    cache_path = build_dir / "CMakeCache.txt"
+    if not cache_path.exists():
+        return
+    required_cache = {
+        "DINOML_FLASH_ATTN_CK_FILTER": _FLASH_ATTN_CK_FILTER,
+        "DINOML_FLASH_ATTN_CK_OPTDIMS": _FLASH_ATTN_CK_OPTDIMS,
+    }
+    for key, required in required_cache.items():
+        if _cmake_cache_value(cache_path, key) != required:
             shutil.rmtree(build_dir)
             return
 

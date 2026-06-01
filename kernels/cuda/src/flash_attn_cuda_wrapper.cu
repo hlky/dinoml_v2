@@ -25,6 +25,14 @@ int launch_flash_attention_float16(
     int64_t head_dim,
     bool causal,
     cudaStream_t stream) {
+  void* softmax_lse = nullptr;
+  cudaError_t alloc_status = cudaMallocAsync(
+      &softmax_lse,
+      static_cast<size_t>(batch_size * num_heads_q * seqlen_q) * sizeof(float),
+      stream);
+  if (alloc_status != cudaSuccess) {
+    return static_cast<int>(alloc_status);
+  }
   const int64_t output_batch_stride = seqlen_q * num_heads_q * head_dim;
   const int64_t output_row_stride = num_heads_q * head_dim;
   const int64_t output_head_stride = head_dim;
@@ -60,7 +68,7 @@ int launch_flash_attention_float16(
       num_heads_k,
       head_dim,
       mask_type,
-      nullptr,
+      softmax_lse,
       flash::DataType::kFloat16,
       -1,
       -1,
@@ -68,7 +76,9 @@ int launch_flash_attention_float16(
       nullptr,
       nullptr,
       stream);
-  return static_cast<int>(cudaGetLastError());
+  cudaError_t launch_status = cudaGetLastError();
+  cudaError_t free_status = cudaFreeAsync(softmax_lse, stream);
+  return static_cast<int>(launch_status != cudaSuccess ? launch_status : free_status);
 }
 
 }  // namespace
@@ -110,6 +120,14 @@ extern "C" int dinoml_flash_attn_cuda_qkv_fwd_float16_v1(
     int64_t head_dim,
     int causal,
     cudaStream_t stream) {
+  void* softmax_lse = nullptr;
+  cudaError_t alloc_status = cudaMallocAsync(
+      &softmax_lse,
+      static_cast<size_t>(batch_size * num_heads * seqlen) * sizeof(float),
+      stream);
+  if (alloc_status != cudaSuccess) {
+    return static_cast<int>(alloc_status);
+  }
   const int64_t qkv_batch_stride = seqlen * 3 * num_heads * head_dim;
   const int64_t qkv_row_stride = 3 * num_heads * head_dim;
   const int64_t packed_axis_stride = num_heads * head_dim;
@@ -145,7 +163,7 @@ extern "C" int dinoml_flash_attn_cuda_qkv_fwd_float16_v1(
       num_heads,
       head_dim,
       mask_type,
-      nullptr,
+      softmax_lse,
       flash::DataType::kFloat16,
       -1,
       -1,
@@ -153,5 +171,7 @@ extern "C" int dinoml_flash_attn_cuda_qkv_fwd_float16_v1(
       nullptr,
       nullptr,
       stream);
-  return static_cast<int>(cudaGetLastError());
+  cudaError_t launch_status = cudaGetLastError();
+  cudaError_t free_status = cudaFreeAsync(softmax_lse, stream);
+  return static_cast<int>(launch_status != cudaSuccess ? launch_status : free_status);
 }

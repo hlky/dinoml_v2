@@ -84,7 +84,7 @@ def build_inputs(processor, image_path: Path, prompt: str, device: torch.device)
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-            return_mm_token_type_ids=True,
+            processor_kwargs={"return_mm_token_type_ids": True},
         )
     except TypeError:
         text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)

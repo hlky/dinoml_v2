@@ -5,8 +5,10 @@ import json
 import statistics
 import sys
 import time
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -112,7 +114,7 @@ def processor_inputs(processor, image_path: Path, prompt: str):
             tokenize=True,
             return_dict=True,
             return_tensors="pt",
-            return_mm_token_type_ids=True,
+            processor_kwargs={"return_mm_token_type_ids": True},
         )
     except TypeError:
         text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
@@ -267,8 +269,25 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         decode_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{flash_bias_suffix}_{args.dtype}_{args.target}.dinoml"
         )
-    prefill_ready = _artifact_ready(prefill_artifact)
-    decode_ready = _artifact_ready(decode_artifact)
+    prefill_ready = _prefill_artifact_compatible(prefill_artifact, config)
+    decode_ready = _decode_artifact_compatible(
+        decode_artifact,
+        config,
+        max_cache_len,
+        use_flash_static_kv_cache=use_flash_static_kv_cache,
+        use_session_static_kv_cache=use_session_static_kv_cache,
+    )
+    if not args.force_compile:
+        if args.prefill_artifact is not None and _artifact_ready(prefill_artifact) and not prefill_ready:
+            raise ValueError(
+                f"Prefill artifact {prefill_artifact} is not compatible with the requested GLM-OCR benchmark. "
+                "Pass a compatible artifact or use --force-compile to overwrite it."
+            )
+        if args.decode_artifact is not None and _artifact_ready(decode_artifact) and not decode_ready:
+            raise ValueError(
+                f"Decode artifact {decode_artifact} is not compatible with the requested GLM-OCR benchmark. "
+                "Pass a compatible artifact or use --force-compile to overwrite it."
+            )
     if prefill_ready and decode_ready and not args.force_compile:
         return prefill_artifact, decode_artifact
 
@@ -316,6 +335,138 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
 
 def _artifact_ready(path: Path) -> bool:
     return (path / "manifest.json").is_file() and (path / "module.so").is_file()
+
+
+def _prefill_artifact_compatible(path: Path, config) -> bool:
+    metadata = _artifact_metadata(path)
+    if metadata is None:
+        return False
+    input_names = _metadata_names(metadata, "inputs")
+    output_names = _metadata_names(metadata, "outputs")
+    required_inputs = {"input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin", "attention_mask"}
+    required_outputs = {"logits"} | {
+        name
+        for layer_idx in range(config.text_config.num_hidden_layers)
+        for name in (f"present_key_{layer_idx}", f"present_value_{layer_idx}")
+    }
+    if not required_inputs <= input_names or not required_outputs <= output_names:
+        return False
+    if config.text_config.use_flash_attention_bias and "flash_attention_bias" not in _artifact_kernel_ops(path):
+        return False
+    return True
+
+
+def _decode_artifact_compatible(
+    path: Path,
+    config,
+    max_cache_len: int,
+    *,
+    use_flash_static_kv_cache: bool,
+    use_session_static_kv_cache: bool,
+) -> bool:
+    metadata = _artifact_metadata(path)
+    if metadata is None:
+        return False
+    input_names = _metadata_names(metadata, "inputs")
+    output_names = _metadata_names(metadata, "outputs")
+    state_names = _metadata_names(metadata, "states")
+    cache_spec = cache_spec_for_config(config, max_cache_len)
+    state_cache_names = {
+        name
+        for layer_idx in range(cache_spec.num_layers)
+        for name in (cache_spec.past_key_name(layer_idx), cache_spec.past_value_name(layer_idx))
+    }
+    input_cache_names = set(state_cache_names)
+    output_update_names = {
+        name
+        for layer_idx in range(cache_spec.num_layers)
+        for name in (cache_spec.new_key_name(layer_idx), cache_spec.new_value_name(layer_idx))
+    }
+    required_inputs = {"input_ids", "cos", "sin", "attention_mask"}
+    if use_flash_static_kv_cache:
+        required_inputs.add("cache_seqlens")
+    if not required_inputs <= input_names:
+        return False
+    if use_session_static_kv_cache:
+        if state_names != state_cache_names:
+            return False
+        if input_cache_names & input_names:
+            return False
+        if output_names != {"logits"}:
+            return False
+        if not _decode_states_have_expected_shape(metadata, cache_spec):
+            return False
+    else:
+        if state_names:
+            return False
+        if not input_cache_names <= input_names:
+            return False
+        if not ({"logits"} | output_update_names) <= output_names:
+            return False
+    if use_flash_static_kv_cache:
+        required_op = (
+            "flash_attention_static_kv_cache_bias"
+            if config.text_config.use_flash_attention_bias
+            else "flash_attention_static_kv_cache"
+        )
+        if required_op not in _artifact_kernel_ops(path):
+            return False
+    return True
+
+
+def _artifact_metadata(path: Path) -> Mapping[str, Any] | None:
+    if not _artifact_ready(path):
+        return None
+    metadata = _read_artifact_json(path, "metadata.json")
+    return metadata if isinstance(metadata, Mapping) else None
+
+
+def _artifact_kernel_ops(path: Path) -> set[str]:
+    manifest = _read_artifact_json(path, "kernel_manifest.json")
+    if not isinstance(manifest, Mapping):
+        return set()
+    return {
+        str(item.get("op"))
+        for item in manifest.get("required_kernels", [])
+        if isinstance(item, Mapping) and item.get("op") is not None
+    }
+
+
+def _read_artifact_json(path: Path, filename: str) -> object | None:
+    try:
+        return json.loads((path / filename).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _metadata_names(metadata: Mapping[str, Any], key: str) -> set[str]:
+    items = metadata.get(key, [])
+    if not isinstance(items, list):
+        return set()
+    return {str(item.get("name")) for item in items if isinstance(item, Mapping) and item.get("name") is not None}
+
+
+def _decode_states_have_expected_shape(metadata: Mapping[str, Any], spec: StaticKvCacheSpec) -> bool:
+    states = metadata.get("states", [])
+    if not isinstance(states, list):
+        return False
+    expected_shape = spec.shape()
+    expected_dtype = spec.dtype
+    expected_names = {
+        name
+        for layer_idx in range(spec.num_layers)
+        for name in (spec.past_key_name(layer_idx), spec.past_value_name(layer_idx))
+    }
+    by_name = {str(item.get("name")): item for item in states if isinstance(item, Mapping)}
+    for name in expected_names:
+        item = by_name.get(name)
+        if item is None:
+            return False
+        if [int(dim) for dim in item.get("shape", [])] != expected_shape:
+            return False
+        if str(item.get("dtype")) != expected_dtype:
+            return False
+    return True
 
 
 def generate_once(

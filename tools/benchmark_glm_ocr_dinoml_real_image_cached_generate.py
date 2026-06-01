@@ -28,6 +28,7 @@ from dinoml.models.glm_ocr import (
 )
 from dinoml.models.kv_cache import (
     StaticKvCacheSpec,
+    empty_static_kv_cache,
     seed_static_kv_cache,
     static_kv_cache_input_specs,
     write_static_kv_cache_update,
@@ -51,11 +52,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--warmup", type=int, default=0)
     parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument("--benchmark-warmup", type=int, default=5)
+    parser.add_argument("--benchmark-iterations", type=int, default=20)
+    parser.add_argument("--skip-generation", action="store_true")
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--target", choices=("rocm", "cuda", "cpu"), default="rocm")
     parser.add_argument("--arch", default=None)
-    parser.add_argument("--min-pixels", type=int, default=784)
-    parser.add_argument("--max-pixels", type=int, default=1298237)
+    parser.add_argument("--min-pixels", type=int, default=None)
+    parser.add_argument("--max-pixels", type=int, default=None)
     parser.add_argument("--prefill-artifact", type=Path)
     parser.add_argument("--decode-artifact", type=Path)
     parser.add_argument("--prefill-execution-plan", type=Path)
@@ -205,7 +209,11 @@ def build_decode_spec(
         "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
         "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
         "attention_mask": dml.TensorSpec(
-            [config.text_config.num_attention_heads, 1, max_cache_len + 1],
+            [
+                config.text_config.num_attention_heads,
+                1,
+                max_cache_len if use_flash_static_kv_cache and config.text_config.use_flash_attention_bias else max_cache_len + 1,
+            ],
             config.text_config.dtype,
         ),
         **static_kv_cache_input_specs(cache_spec),
@@ -243,7 +251,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
     if decode_artifact is None:
         cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
         decode_artifact = Path("build") / (
-            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}_{args.dtype}_{args.target}.dinoml"
+            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{flash_bias_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     prefill_ready = _artifact_ready(prefill_artifact)
     decode_ready = _artifact_ready(decode_artifact)
@@ -323,7 +331,12 @@ def generate_once(
             "input_ids": np.asarray([[next_id]], dtype=np.int64),
             "cos": _slice_position(prefill_inputs["text_cos"], position),
             "sin": _slice_position(prefill_inputs["text_sin"], position),
-            "attention_mask": _decode_attention_mask(config, max_cache_len, valid_past_len=position),
+            "attention_mask": _decode_attention_mask(
+                config,
+                max_cache_len,
+                valid_past_len=position,
+                use_flash_static_kv_cache=use_flash_static_kv_cache,
+            ),
             **cache,
         }
         if use_flash_static_kv_cache:
@@ -334,6 +347,118 @@ def generate_once(
         write_static_kv_cache_update(cache, decode_outputs, cache_spec, position=position)
         next_id = int(np.argmax(decode_outputs["logits"][0, 0, :]))
     return generated, run_times_ms
+
+
+def benchmark_modules_native(
+    prefill_session,
+    decode_session,
+    prefill_inputs: dict[str, np.ndarray],
+    config,
+    prompt_len: int,
+    max_cache_len: int,
+    max_new_tokens: int,
+    *,
+    warmup: int,
+    iterations: int,
+    use_flash_static_kv_cache: bool,
+) -> dict[str, object]:
+    prefill_run_inputs = _prefill_run_inputs(prefill_inputs, prompt_len)
+    prefill_summary = prefill_session.benchmark_numpy(prefill_run_inputs, warmup=warmup, iterations=iterations)
+
+    prefill_outputs = prefill_session.run_numpy(prefill_run_inputs)
+    next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
+    cache_spec = cache_spec_for_config(config, max_cache_len)
+    cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
+    first_decode_position = prompt_len
+    late_decode_position = min(max_cache_len - 1, prompt_len + max(0, max_new_tokens - 2))
+
+    first_decode_inputs = _decode_run_inputs(
+        prefill_inputs,
+        config,
+        max_cache_len,
+        next_id=next_id,
+        position=first_decode_position,
+        cache=cache,
+        use_flash_static_kv_cache=use_flash_static_kv_cache,
+    )
+    first_decode_summary = decode_session.benchmark_numpy(
+        first_decode_inputs,
+        warmup=warmup,
+        iterations=iterations,
+    )
+
+    late_cache = _cache_with_zero_filled_future(cache_spec)
+    for name, value in cache.items():
+        late_cache[name][...] = value
+    late_decode_inputs = _decode_run_inputs(
+        prefill_inputs,
+        config,
+        max_cache_len,
+        next_id=next_id,
+        position=late_decode_position,
+        cache=late_cache,
+        use_flash_static_kv_cache=use_flash_static_kv_cache,
+    )
+    late_decode_summary = decode_session.benchmark_numpy(
+        late_decode_inputs,
+        warmup=warmup,
+        iterations=iterations,
+    )
+
+    prefill_median_ms = float(prefill_summary["median_ms"])
+    first_decode_median_ms = float(first_decode_summary["median_ms"])
+    late_decode_median_ms = float(late_decode_summary["median_ms"])
+    decode_steps_for_max_new_tokens = max(0, int(max_new_tokens) - 1)
+    return {
+        "method": "session.benchmark_numpy",
+        "warmup": warmup,
+        "iterations": iterations,
+        "prefill": prefill_summary,
+        "decode_first": {
+            "position": first_decode_position,
+            "summary": first_decode_summary,
+        },
+        "decode_late": {
+            "position": late_decode_position,
+            "summary": late_decode_summary,
+        },
+        "estimated_generate_ms_using_first_decode": prefill_median_ms
+        + decode_steps_for_max_new_tokens * first_decode_median_ms,
+        "estimated_generate_ms_using_late_decode": prefill_median_ms
+        + decode_steps_for_max_new_tokens * late_decode_median_ms,
+        "decode_steps_for_max_new_tokens": decode_steps_for_max_new_tokens,
+    }
+
+
+def _decode_run_inputs(
+    prefill_inputs: dict[str, np.ndarray],
+    config,
+    max_cache_len: int,
+    *,
+    next_id: int,
+    position: int,
+    cache: dict[str, np.ndarray],
+    use_flash_static_kv_cache: bool,
+) -> dict[str, np.ndarray]:
+    decode_inputs = {
+        "input_ids": np.asarray([[next_id]], dtype=np.int64),
+        "cos": _slice_position(prefill_inputs["text_cos"], position),
+        "sin": _slice_position(prefill_inputs["text_sin"], position),
+        "attention_mask": _decode_attention_mask(
+            config,
+            max_cache_len,
+            valid_past_len=position,
+            use_flash_static_kv_cache=use_flash_static_kv_cache,
+        ),
+        **cache,
+    }
+    if use_flash_static_kv_cache:
+        decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
+    return decode_inputs
+
+
+def _cache_with_zero_filled_future(spec: StaticKvCacheSpec) -> dict[str, np.ndarray]:
+    return empty_static_kv_cache(spec)
 
 
 def _prefill_run_inputs(inputs: dict[str, np.ndarray], prompt_len: int) -> dict[str, np.ndarray]:
@@ -352,7 +477,17 @@ def _slice_position(values: np.ndarray, position: int) -> np.ndarray:
     return np.ascontiguousarray(values[:, int(position) : int(position) + 1, :])
 
 
-def _decode_attention_mask(config, max_cache_len: int, *, valid_past_len: int) -> np.ndarray:
+def _decode_attention_mask(
+    config,
+    max_cache_len: int,
+    *,
+    valid_past_len: int,
+    use_flash_static_kv_cache: bool,
+) -> np.ndarray:
+    if use_flash_static_kv_cache and config.text_config.use_flash_attention_bias:
+        mask = np.full((config.text_config.num_attention_heads, 1, max_cache_len), -1.0e4, dtype=np.float32)
+        mask[:, :, : int(valid_past_len) + 1] = 0.0
+        return _float_input(mask, config.text_config.dtype)
     mask = np.full((config.text_config.num_attention_heads, 1, max_cache_len + 1), -1.0e4, dtype=np.float32)
     mask[:, :, : int(valid_past_len)] = 0.0
     # The decode graph concatenates the new token after the fixed-size cache buffer.
@@ -398,36 +533,49 @@ def main() -> None:
         prefill_session = prefill_module.create_session()
         decode_session = decode_module.create_session()
         eos_token_id = int(processor.tokenizer.eos_token_id)
-        for _ in range(args.warmup):
-            generate_once(
-                prefill_session,
-                decode_session,
-                inputs,
-                config,
-                prompt_len,
-                max_cache_len,
-                args.max_new_tokens,
-                eos_token_id,
-                use_flash_static_kv_cache=use_flash_static_kv_cache,
-            )
+        native_module_benchmark = benchmark_modules_native(
+            prefill_session,
+            decode_session,
+            inputs,
+            config,
+            prompt_len,
+            max_cache_len,
+            args.max_new_tokens,
+            warmup=args.benchmark_warmup,
+            iterations=args.benchmark_iterations,
+            use_flash_static_kv_cache=use_flash_static_kv_cache,
+        )
         times_ms: list[float] = []
         token_run_times_ms: list[list[float]] = []
         generated_ids: list[int] = []
-        for _ in range(args.iterations):
-            started = time.perf_counter()
-            generated_ids, per_token_times = generate_once(
-                prefill_session,
-                decode_session,
-                inputs,
-                config,
-                prompt_len,
-                max_cache_len,
-                args.max_new_tokens,
-                eos_token_id,
-                use_flash_static_kv_cache=use_flash_static_kv_cache,
-            )
-            times_ms.append((time.perf_counter() - started) * 1000.0)
-            token_run_times_ms.append(per_token_times)
+        if not args.skip_generation:
+            for _ in range(args.warmup):
+                generate_once(
+                    prefill_session,
+                    decode_session,
+                    inputs,
+                    config,
+                    prompt_len,
+                    max_cache_len,
+                    args.max_new_tokens,
+                    eos_token_id,
+                    use_flash_static_kv_cache=use_flash_static_kv_cache,
+                )
+            for _ in range(args.iterations):
+                started = time.perf_counter()
+                generated_ids, per_token_times = generate_once(
+                    prefill_session,
+                    decode_session,
+                    inputs,
+                    config,
+                    prompt_len,
+                    max_cache_len,
+                    args.max_new_tokens,
+                    eos_token_id,
+                    use_flash_static_kv_cache=use_flash_static_kv_cache,
+                )
+                times_ms.append((time.perf_counter() - started) * 1000.0)
+                token_run_times_ms.append(per_token_times)
     finally:
         if decode_session is not None:
             decode_session.close()
@@ -436,7 +584,11 @@ def main() -> None:
         decode_module.close()
         prefill_module.close()
 
-    text = processor.post_process_image_text_to_text(np.asarray([generated_ids], dtype=np.int64), skip_special_tokens=True)[0]
+    text = (
+        ""
+        if args.skip_generation
+        else processor.post_process_image_text_to_text(np.asarray([generated_ids], dtype=np.int64), skip_special_tokens=True)[0]
+    )
     payload = {
         "benchmark": "dinoml_glm_ocr_real_image_cached_generate",
         "prefill_artifact": str(prefill_artifact),
@@ -461,13 +613,19 @@ def main() -> None:
         "image_token_start": image_token_start,
         "warmup": args.warmup,
         "iterations": args.iterations,
+        "skip_generation": args.skip_generation,
+        "generation_wall_timing_note": (
+            "times_ms and token_run_times_ms are Python parity-generation wall timings and include "
+            "host-side cache/input/output handling; use native_module_benchmark for performance."
+        ),
+        "native_module_benchmark": native_module_benchmark,
         "compile_seconds": compile_seconds,
         "times_ms": times_ms,
         "token_run_times_ms": token_run_times_ms,
-        "median_ms": statistics.median(times_ms),
-        "mean_ms": statistics.fmean(times_ms),
-        "min_ms": min(times_ms),
-        "max_ms": max(times_ms),
+        "median_ms": None if not times_ms else statistics.median(times_ms),
+        "mean_ms": None if not times_ms else statistics.fmean(times_ms),
+        "min_ms": None if not times_ms else min(times_ms),
+        "max_ms": None if not times_ms else max(times_ms),
         "text": text,
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))

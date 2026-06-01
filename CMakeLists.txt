@@ -486,12 +486,13 @@ if(DINOML_ENABLE_ROCM)
     set(_dinoml_flash_attn_ck_generator_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/example/ck_tile/01_fmha")
     set(_dinoml_flash_attn_ck_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/fa_ck")
     set(_dinoml_flash_attn_ck_blob_list "${_dinoml_flash_attn_ck_generated_dir}/fwd_blob_list.txt")
-    set(_dinoml_flash_attn_ck_kv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/kv_blob_list.txt")
+    set(_dinoml_flash_attn_ck_splitkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/splitkv_blob_list.txt")
+    set(_dinoml_flash_attn_ck_appendkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/appendkv_blob_list.txt")
     set(DINOML_FLASH_ATTN_CK_FILTER
         "*batch*nlogits*bias*mask*nlse*ndropout*"
         CACHE STRING "CK FlashAttention generator filter")
     set(DINOML_FLASH_ATTN_CK_SPLITKV_FILTER
-        "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_nbias_nmask_lse_nsquant_npagedkv*"
+        "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
         CACHE STRING "CK FlashAttention split-KV generator filter")
     set(DINOML_FLASH_ATTN_CK_APPENDKV_FILTER
         "*vr_psskddv"
@@ -526,17 +527,34 @@ if(DINOML_ENABLE_ROCM)
         ${Python3_EXECUTABLE}
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd_splitkv,fwd_appendkv
+        --api fwd_splitkv
+        --receipt 600
+        --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
+        --filter "${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER}"
+        --list_blobs "${_dinoml_flash_attn_ck_splitkv_blob_list}"
+      WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    execute_process(
+      COMMAND
+        ${Python3_EXECUTABLE}
+        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        --targets "${_dinoml_flash_attn_ck_targets}"
+        --api fwd_appendkv
         --receipt 2
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER},${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
-        --list_blobs "${_dinoml_flash_attn_ck_kv_blob_list}"
+        --filter "${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
+        --list_blobs "${_dinoml_flash_attn_ck_appendkv_blob_list}"
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
         COMMAND_ERROR_IS_FATAL ANY
     )
     file(STRINGS "${_dinoml_flash_attn_ck_blob_list}" DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
-    file(STRINGS "${_dinoml_flash_attn_ck_kv_blob_list}" DINOML_FLASH_ATTN_CK_KV_GENERATED_SOURCES)
-    list(APPEND DINOML_FLASH_ATTN_CK_GENERATED_SOURCES ${DINOML_FLASH_ATTN_CK_KV_GENERATED_SOURCES})
+    file(STRINGS "${_dinoml_flash_attn_ck_splitkv_blob_list}" DINOML_FLASH_ATTN_CK_SPLITKV_GENERATED_SOURCES)
+    file(STRINGS "${_dinoml_flash_attn_ck_appendkv_blob_list}" DINOML_FLASH_ATTN_CK_APPENDKV_GENERATED_SOURCES)
+    list(APPEND DINOML_FLASH_ATTN_CK_GENERATED_SOURCES
+      ${DINOML_FLASH_ATTN_CK_SPLITKV_GENERATED_SOURCES}
+      ${DINOML_FLASH_ATTN_CK_APPENDKV_GENERATED_SOURCES}
+    )
     list(REMOVE_DUPLICATES DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
     set(_dinoml_flash_attn_ck_generated_sources_normalized)
     foreach(_dinoml_flash_attn_ck_source IN LISTS DINOML_FLASH_ATTN_CK_GENERATED_SOURCES)
@@ -563,10 +581,19 @@ if(DINOML_ENABLE_ROCM)
         ${Python3_EXECUTABLE}
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd_splitkv,fwd_appendkv
+        --api fwd_splitkv
+        --receipt 600
+        --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
+        --filter "${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER}"
+        --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
+      COMMAND
+        ${Python3_EXECUTABLE}
+        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        --targets "${_dinoml_flash_attn_ck_targets}"
+        --api fwd_appendkv
         --receipt 2
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_SPLITKV_FILTER},${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
+        --filter "${DINOML_FLASH_ATTN_CK_APPENDKV_FILTER}"
         --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
       DEPENDS ${_DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS}
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"

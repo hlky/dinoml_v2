@@ -543,9 +543,29 @@ class GlmOcrTextAttention(dml.nn.Module):
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
         if self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"} and cache_seqlens is not None:
-            context = dml.ops.flash_attention_static_kv_cache(q, past_key, past_value, new_key, new_value, cache_seqlens)
-            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-            return self.o_proj(context), new_key, new_value
+            if attention_mask is None:
+                context = dml.ops.flash_attention_static_kv_cache(
+                    q,
+                    past_key,
+                    past_value,
+                    new_key,
+                    new_value,
+                    cache_seqlens,
+                )
+                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+                return self.o_proj(context), new_key, new_value
+            if self.config.use_flash_attention_bias:
+                context = dml.ops.flash_attention_static_kv_cache_bias(
+                    q,
+                    past_key,
+                    past_value,
+                    new_key,
+                    new_value,
+                    cache_seqlens,
+                    attention_mask,
+                )
+                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+                return self.o_proj(context), new_key, new_value
         q = dml.ops.permute(q, (0, 2, 1, 3))
         attn_key, attn_value = append_static_kv_cache(past_key, past_value, new_key, new_value)
         attn_key = _repeat_kv_heads(attn_key, self.config.num_key_value_groups)

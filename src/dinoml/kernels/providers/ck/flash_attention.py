@@ -27,6 +27,11 @@ def flash_attn_ck_static_kv_cache_symbol(dtype: str) -> str:
     return f"dinoml_flash_attn_ck_static_kv_cache_fwd_{normalized}_v1"
 
 
+def flash_attn_ck_static_kv_cache_bias_symbol(dtype: str) -> str:
+    normalized = _normalize_flash_attn_dtype(dtype)
+    return f"dinoml_flash_attn_ck_static_kv_cache_bias_fwd_{normalized}_v1"
+
+
 def flash_attn_ck_static_library_name(dtype: str = "float16") -> str:
     _normalize_flash_attn_dtype(dtype)
     stem = "dinoml_flash_attn_ck"

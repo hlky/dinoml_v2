@@ -210,7 +210,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "qkv_split":
         _validate_qkv_split_node(node, inputs, tensors)
         return
-    if node["op"] == "flash_attention_static_kv_cache":
+    if node["op"] in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         _validate_flash_attention_static_kv_cache_node(node, inputs, tensors)
         return
     if node["op"] == "embedding":
@@ -687,12 +687,14 @@ def _validate_flash_attention_static_kv_cache_node(
     inputs: Sequence[Mapping[str, Any]],
     tensors: Mapping[str, Mapping[str, Any]],
 ) -> None:
-    op_def = get_op_def("flash_attention_static_kv_cache")
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
+    expected_input_count = 7 if op_name == "flash_attention_static_kv_cache_bias" else 6
     if len(node["outputs"]) != 1:
         raise ValidationError(f"Node {node['id']} must have exactly one output")
-    if len(inputs) != 6:
-        raise ValidationError("flash_attention_static_kv_cache expects exactly six inputs")
-    q_tensor, past_key_tensor, past_value_tensor, new_key_tensor, new_value_tensor, cache_seqlens_tensor = inputs
+    if len(inputs) != expected_input_count:
+        raise ValidationError(f"{op_name} expects exactly {expected_input_count} inputs")
+    q_tensor, past_key_tensor, past_value_tensor, new_key_tensor, new_value_tensor, cache_seqlens_tensor = inputs[:6]
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
     except ValueError as exc:
@@ -705,13 +707,16 @@ def _validate_flash_attention_static_kv_cache_node(
         )
     data_dtype = str(q_tensor["dtype"])
     if data_dtype not in op_def.allowed_dtypes:
-        raise ValidationError(f"flash_attention_static_kv_cache does not support dtype {data_dtype}")
-    for input_tensor in (past_key_tensor, past_value_tensor, new_key_tensor, new_value_tensor):
+        raise ValidationError(f"{op_name} does not support dtype {data_dtype}")
+    data_tensors = [past_key_tensor, past_value_tensor, new_key_tensor, new_value_tensor]
+    if op_name == "flash_attention_static_kv_cache_bias":
+        data_tensors.append(inputs[6])
+    for input_tensor in data_tensors:
         if str(input_tensor["dtype"]) != data_dtype:
-            raise ValidationError(f"Node {node['id']} has mismatched KV input dtype")
+            raise ValidationError(f"Node {node['id']} has mismatched {op_name} data input dtype")
     if str(cache_seqlens_tensor["dtype"]) != "int32":
         raise ValidationError(
-            f"flash_attention_static_kv_cache cache_seqlens must have dtype int32, got {cache_seqlens_tensor['dtype']}"
+            f"{op_name} cache_seqlens must have dtype int32, got {cache_seqlens_tensor['dtype']}"
         )
     if str(output["dtype"]) != data_dtype:
         raise ValidationError(

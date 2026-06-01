@@ -374,6 +374,21 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "flash_attention_static_kv_cache_bias":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_flash_attention_static_kv_cache_bias(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    values[node["inputs"][4]],
+                    values[node["inputs"][5]],
+                    values[node["inputs"][6]],
+                ),
+                output_dtype,
+            )
         elif node["op"] == "qkv_split":
             q_name, k_name, v_name = node["outputs"]
             qkv = np.asarray(values[node["inputs"][0]])
@@ -952,12 +967,54 @@ def _execute_flash_attention_static_kv_cache(
     new_value: np.ndarray,
     cache_seqlens: np.ndarray,
 ) -> np.ndarray:
+    return _execute_flash_attention_static_kv_cache_impl(
+        q,
+        past_key,
+        past_value,
+        new_key,
+        new_value,
+        cache_seqlens,
+        bias=None,
+    )
+
+
+def _execute_flash_attention_static_kv_cache_bias(
+    q: np.ndarray,
+    past_key: np.ndarray,
+    past_value: np.ndarray,
+    new_key: np.ndarray,
+    new_value: np.ndarray,
+    cache_seqlens: np.ndarray,
+    bias: np.ndarray,
+) -> np.ndarray:
+    return _execute_flash_attention_static_kv_cache_impl(
+        q,
+        past_key,
+        past_value,
+        new_key,
+        new_value,
+        cache_seqlens,
+        bias=bias,
+    )
+
+
+def _execute_flash_attention_static_kv_cache_impl(
+    q: np.ndarray,
+    past_key: np.ndarray,
+    past_value: np.ndarray,
+    new_key: np.ndarray,
+    new_value: np.ndarray,
+    cache_seqlens: np.ndarray,
+    *,
+    bias: np.ndarray | None,
+) -> np.ndarray:
     q_value = np.asarray(q, dtype=np.float32)
     past_key_value = np.asarray(past_key, dtype=np.float32)
     past_value_value = np.asarray(past_value, dtype=np.float32)
     new_key_value = np.asarray(new_key, dtype=np.float32)
     new_value_value = np.asarray(new_value, dtype=np.float32)
     cache_lengths = np.asarray(cache_seqlens, dtype=np.int32)
+    bias_value = None if bias is None else np.asarray(bias, dtype=np.float32)
     if q_value.ndim != 4 or past_key_value.ndim != 4 or past_value_value.ndim != 4:
         raise ValueError("CPU reference flash_attention_static_kv_cache expects rank-4 q and cache tensors")
     if new_key_value.ndim != 4 or new_value_value.ndim != 4:
@@ -971,11 +1028,18 @@ def _execute_flash_attention_static_kv_cache(
         raise ValueError("CPU reference flash_attention_static_kv_cache expects q sequence length 1")
     if cache_lengths.shape != (batch,):
         raise ValueError("CPU reference flash_attention_static_kv_cache cache_seqlens shape mismatch")
+    max_cache_len = past_key_value.shape[2]
+    broadcast_bias = (
+        None
+        if bias_value is None
+        else _broadcast_flash_attention_bias(bias_value, batch, heads_q, seqlen_q, max_cache_len)
+    )
     outputs = []
     for batch_idx in range(batch):
         valid_past = int(cache_lengths[batch_idx])
-        if valid_past < 0 or valid_past > past_key_value.shape[2]:
+        if valid_past < 0 or valid_past >= max_cache_len:
             raise ValueError("CPU reference flash_attention_static_kv_cache cache length out of range")
+        total_len = valid_past + 1
         k_batch = np.concatenate(
             [
                 np.transpose(past_key_value[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
@@ -990,7 +1054,20 @@ def _execute_flash_attention_static_kv_cache(
             ],
             axis=1,
         )
-        outputs.append(_execute_flash_attention(q_value[batch_idx : batch_idx + 1], k_batch, v_batch, {"causal": False}))
+        if broadcast_bias is None:
+            outputs.append(
+                _execute_flash_attention(q_value[batch_idx : batch_idx + 1], k_batch, v_batch, {"causal": False})
+            )
+        else:
+            outputs.append(
+                _execute_flash_attention_bias(
+                    q_value[batch_idx : batch_idx + 1],
+                    k_batch,
+                    v_batch,
+                    broadcast_bias[batch_idx : batch_idx + 1, :, :, :total_len],
+                    {"causal": False},
+                )
+            )
     return np.concatenate(outputs, axis=0).astype(np.float32, copy=False)
 
 

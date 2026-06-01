@@ -32,7 +32,7 @@ _ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
 _FLASH_ATTN_CK_FILTER = "*batch*nlogits*bias*mask*nlse*ndropout*"
 _FLASH_ATTN_CK_SPLITKV_FILTER = (
-    "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_nbias_nmask_lse_nsquant_npagedkv*"
+    "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
 )
 _FLASH_ATTN_CK_APPENDKV_FILTER = "*vr_psskddv"
 _FLASH_ATTN_CK_OPTDIMS = "64,128"

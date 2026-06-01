@@ -836,7 +836,8 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     flash_attention_static_kv_cache_seqlens_tensors = {
         node["inputs"][5]
         for node in ir["nodes"]
-        if node.get("op") == "flash_attention_static_kv_cache" and len(node.get("inputs", [])) == 6
+        if node.get("op") in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}
+        and len(node.get("inputs", [])) >= 6
     }
     fused_integer_eq_tensors = {
         tensor_name
@@ -942,8 +943,12 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"unsupported compiled dtypes: {[output_dtype]}"
                 )
             continue
-        if node.get("op") == "flash_attention_static_kv_cache":
-            data_dtypes = sorted({str(tensor_map[name]["dtype"]) for name in [*node["inputs"][:5], *node["outputs"]]})
+        if node.get("op") in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
+            op_name = str(node["op"])
+            data_input_names = list(node["inputs"][:5])
+            if op_name == "flash_attention_static_kv_cache_bias":
+                data_input_names.append(node["inputs"][6])
+            data_dtypes = sorted({str(tensor_map[name]["dtype"]) for name in [*data_input_names, *node["outputs"]]})
             unsupported_data_dtypes = [dtype for dtype in data_dtypes if dtype not in op_def.allowed_dtypes]
             if unsupported_data_dtypes:
                 raise NotImplementedError(
@@ -953,7 +958,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             cache_seqlens_dtype = str(tensor_map[node["inputs"][5]]["dtype"])
             if cache_seqlens_dtype != "int32":
                 raise NotImplementedError(
-                    "Op flash_attention_static_kv_cache cache_seqlens supports dtype ['int32']; "
+                    f"Op {op_name} cache_seqlens supports dtype ['int32']; "
                     f"unsupported compiled dtypes: {[cache_seqlens_dtype]}"
                 )
             continue

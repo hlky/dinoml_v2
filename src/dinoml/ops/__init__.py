@@ -29,6 +29,7 @@ from dinoml.ops.attention import (
     flash_attention_bias,
     flash_attention_qkv,
     flash_attention_static_kv_cache,
+    flash_attention_static_kv_cache_bias,
     qkv_split,
 )
 from dinoml.ops.broadcasting import expand, expand_static_shape, meshgrid
@@ -280,8 +281,10 @@ __all__ = [
     "floor",
     "floor_div",
     "flash_attention",
+    "flash_attention_bias",
     "flash_attention_qkv",
     "flash_attention_static_kv_cache",
+    "flash_attention_static_kv_cache_bias",
     "qkv_split",
     "full",
     "gather",

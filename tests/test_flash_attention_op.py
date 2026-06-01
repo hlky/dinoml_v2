@@ -45,6 +45,22 @@ class _FlashAttentionStaticKvCacheModule(dml.nn.Module):
         )
 
 
+class _FlashAttentionStaticKvCacheBiasModule(dml.nn.Module):
+    def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens, bias):
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache_bias(
+                q,
+                past_key,
+                past_value,
+                new_key,
+                new_value,
+                cache_seqlens,
+                bias,
+            ),
+            "out",
+        )
+
+
 def test_flash_attention_reference_matches_naive_causal_attention():
     spec = dml.trace(
         _FlashAttentionModule(causal=True),
@@ -112,7 +128,7 @@ def test_flash_attention_static_kv_cache_reference_matches_naive_attention():
         "past_value": rng.normal(size=(2, 2, 5, 32)).astype(np.float16),
         "new_key": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
         "new_value": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
-        "cache_seqlens": np.asarray([3, 5], dtype=np.int32),
+        "cache_seqlens": np.asarray([3, 4], dtype=np.int32),
     }
 
     actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
@@ -123,6 +139,45 @@ def test_flash_attention_static_kv_cache_reference_matches_naive_attention():
         inputs["new_key"],
         inputs["new_value"],
         inputs["cache_seqlens"],
+    )
+
+    np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
+
+
+def test_flash_attention_static_kv_cache_bias_reference_matches_naive_attention():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheBiasModule(),
+        inputs={
+            "q": dml.TensorSpec([2, 1, 4, 32], "float16"),
+            "past_key": dml.TensorSpec([2, 2, 5, 32], "float16"),
+            "past_value": dml.TensorSpec([2, 2, 5, 32], "float16"),
+            "new_key": dml.TensorSpec([2, 2, 1, 32], "float16"),
+            "new_value": dml.TensorSpec([2, 2, 1, 32], "float16"),
+            "cache_seqlens": dml.TensorSpec([2], "int32"),
+            "bias": dml.TensorSpec([2, 4, 1, 5], "float16"),
+        },
+        name="flash_attention_static_kv_cache_bias_reference",
+    )
+    rng = np.random.default_rng(123)
+    inputs = {
+        "q": rng.normal(size=(2, 1, 4, 32)).astype(np.float16),
+        "past_key": rng.normal(size=(2, 2, 5, 32)).astype(np.float16),
+        "past_value": rng.normal(size=(2, 2, 5, 32)).astype(np.float16),
+        "new_key": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
+        "new_value": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
+        "cache_seqlens": np.asarray([2, 4], dtype=np.int32),
+        "bias": rng.normal(size=(2, 4, 1, 5)).astype(np.float16),
+    }
+
+    actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
+    expected = _naive_static_kv_cache_attention_bias(
+        inputs["q"],
+        inputs["past_key"],
+        inputs["past_value"],
+        inputs["new_key"],
+        inputs["new_value"],
+        inputs["cache_seqlens"],
+        inputs["bias"],
     )
 
     np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
@@ -247,6 +302,38 @@ def test_flash_attention_static_kv_cache_rocm_manifest_requests_ck_bfloat16_head
     assert "dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1" in launch
     assert "ptr_cache_seqlens" in launch
     assert "flash_attention_static_kv_cache_scratch" in launch
+
+
+def test_flash_attention_static_kv_cache_bias_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheBiasModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 128], "bfloat16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 128], "bfloat16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 128], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+            "bias": dml.TensorSpec([4, 1, 8], "bfloat16"),
+        },
+        name="flash_attention_static_kv_cache_bias_rocm_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_static_kv_cache_bias")
+    launch = render_launch("rocm", node, tensors, kernel_manifest=manifest)
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_static_kv_cache_bias"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1"
+    assert "dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1" in launch
+    assert "ptr_bias" in launch
+    assert "shape_bias_0" in launch
+    assert "flash_attention_static_kv_cache_scratch" in launch
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
 
 
 def test_flash_attention_rocm_support_manifest_records_requested_ck_dtype_modules(tmp_path: Path):
@@ -458,4 +545,40 @@ def _naive_static_kv_cache_attention(q, past_key, past_value, new_key, new_value
             axis=1,
         )
         outputs.append(_naive_flash_attention(q[batch_idx : batch_idx + 1], k, v, causal=False))
+    return np.concatenate(outputs, axis=0)
+
+
+def _naive_static_kv_cache_attention_bias(q, past_key, past_value, new_key, new_value, cache_seqlens, bias) -> np.ndarray:
+    bias_value = bias.astype(np.float32)
+    if bias_value.ndim == 2:
+        bias_value = bias_value.reshape(1, 1, bias_value.shape[0], bias_value.shape[1])
+    elif bias_value.ndim == 3:
+        bias_value = bias_value.reshape(1, bias_value.shape[0], bias_value.shape[1], bias_value.shape[2])
+    broadcast_bias = np.broadcast_to(bias_value, (q.shape[0], q.shape[2], q.shape[1], past_key.shape[2]))
+    outputs = []
+    for batch_idx, valid_past in enumerate(cache_seqlens.tolist()):
+        total_len = int(valid_past) + 1
+        k = np.concatenate(
+            [
+                np.transpose(past_key[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_key[batch_idx : batch_idx + 1], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        v = np.concatenate(
+            [
+                np.transpose(past_value[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_value[batch_idx : batch_idx + 1], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        outputs.append(
+            _naive_flash_attention_bias(
+                q[batch_idx : batch_idx + 1],
+                k,
+                v,
+                broadcast_bias[batch_idx : batch_idx + 1, :, :, :total_len],
+                causal=False,
+            )
+        )
     return np.concatenate(outputs, axis=0)

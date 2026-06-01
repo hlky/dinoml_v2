@@ -442,7 +442,7 @@ def test_glm_ocr_tiny_static_cache_decode_returns_one_token_cache_updates():
 @pytest.mark.parametrize("dtype", ("float16", "bfloat16"))
 def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype: str):
     base_config = _tiny_config()
-    config = replace(base_config, text_config=replace(base_config.text_config, dtype=dtype))
+    config = replace(base_config, text_config=replace(base_config.text_config, dtype=dtype, use_flash_attention_bias=True))
     weights = _tiny_weights(config)
     model = GlmOcrForConditionalGenerationDecodeStaticCache(config, weights)
     max_past_len = 5
@@ -458,7 +458,7 @@ def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype:
         "input_ids": dml.TensorSpec([1, 1], "int64"),
         "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], dtype),
         "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], dtype),
-        "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_past_len + 1], dtype),
+        "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_past_len], dtype),
         "cache_seqlens": dml.TensorSpec([1], "int32"),
         **static_kv_cache_input_specs(cache_spec),
     }
@@ -466,7 +466,8 @@ def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype:
     spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_static_cache_flash")
     counts = Counter(node["op"] for node in spec.ir["nodes"])
 
-    assert counts["flash_attention_static_kv_cache"] == 1
+    assert counts["flash_attention_static_kv_cache_bias"] == 1
+    assert counts["flash_attention_static_kv_cache"] == 0
     assert counts["concatenate"] == 0
     assert counts["bmm_rcr"] == 0
     assert counts["bmm_rrr"] == 0

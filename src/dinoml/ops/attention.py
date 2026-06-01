@@ -6,6 +6,7 @@ from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.providers.ck.flash_attention import (
     flash_attn_ck_bias_symbol,
     flash_attn_ck_qkv_symbol,
+    flash_attn_ck_static_kv_cache_bias_symbol,
     flash_attn_ck_static_kv_cache_symbol,
     flash_attn_ck_symbol,
 )
@@ -129,6 +130,47 @@ def flash_attention_static_kv_cache(
     )
 
 
+def flash_attention_static_kv_cache_bias(
+    q: object,
+    past_key: object,
+    past_value: object,
+    new_key: object,
+    new_value: object,
+    cache_seqlens: object,
+    bias: object,
+) -> Tensor:
+    q_tensor = as_tensor(q, dtype_hint="float32")
+    tensors = (
+        q_tensor,
+        as_tensor(past_key, dtype_hint=q_tensor.dtype),
+        as_tensor(past_value, dtype_hint=q_tensor.dtype),
+        as_tensor(new_key, dtype_hint=q_tensor.dtype),
+        as_tensor(new_value, dtype_hint=q_tensor.dtype),
+        as_tensor(cache_seqlens, dtype_hint="int32"),
+        as_tensor(bias, dtype_hint=q_tensor.dtype),
+    )
+    for tensor in tensors[1:]:
+        if q_tensor.builder is not tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+    if q_tensor.dtype not in FLASH_ATTENTION_DTYPES:
+        supported = ", ".join(FLASH_ATTENTION_DTYPES)
+        raise ValueError(f"flash_attention_static_kv_cache_bias supports {supported}, got {q_tensor.dtype}")
+    for tensor in (*tensors[1:5], tensors[6]):
+        if tensor.dtype != q_tensor.dtype:
+            raise ValueError(f"flash_attention_static_kv_cache_bias dtype mismatch: {q_tensor.dtype} vs {tensor.dtype}")
+    if tensors[5].dtype != "int32":
+        raise ValueError(f"flash_attention_static_kv_cache_bias cache_seqlens must be int32, got {tensors[5].dtype}")
+    _validate_flash_attention_static_kv_cache_bias_shapes([tensor.shape for tensor in tensors])
+    return q_tensor.builder.emit(
+        "flash_attention_static_kv_cache_bias",
+        tensors,
+        q_tensor.shape,
+        q_tensor.dtype,
+        {},
+        shape_spec=q_tensor.shape_spec,
+    )
+
+
 def qkv_split(qkv: object) -> tuple[Tensor, Tensor, Tensor]:
     qkv_tensor = as_tensor(qkv)
     if qkv_tensor.dtype not in QKV_SPLIT_DTYPES:
@@ -172,6 +214,11 @@ def _infer_flash_attention_qkv_shape(shapes: Sequence[Sequence[int]]) -> list[in
 
 def _infer_flash_attention_static_kv_cache_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
     _validate_flash_attention_static_kv_cache_shapes(shapes)
+    return list(shapes[0])
+
+
+def _infer_flash_attention_static_kv_cache_bias_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    _validate_flash_attention_static_kv_cache_bias_shapes(shapes)
     return list(shapes[0])
 
 
@@ -248,6 +295,19 @@ def _validate_flash_attention_static_kv_cache_shapes(shapes: Sequence[Sequence[i
         raise ValueError("flash_attention_static_kv_cache num_heads_q must be divisible by num_heads_kv")
     if cache_seqlens_shape != [q_shape[0]]:
         raise ValueError("flash_attention_static_kv_cache cache_seqlens must have shape [batch]")
+
+
+def _validate_flash_attention_static_kv_cache_bias_shapes(shapes: Sequence[Sequence[int]]) -> None:
+    if len(shapes) != 7:
+        raise ValueError(f"flash_attention_static_kv_cache_bias expects 7 inputs, got {len(shapes)}")
+    _validate_flash_attention_static_kv_cache_shapes(shapes[:6])
+    q_shape = list(shapes[0])
+    past_key_shape = list(shapes[1])
+    _validate_flash_attention_bias_shape(
+        q_shape,
+        [q_shape[0], past_key_shape[2], past_key_shape[1], past_key_shape[3]],
+        shapes[6],
+    )
 
 
 def _validate_flash_attention_qkv_shape(shape: Sequence[int]) -> None:
@@ -419,6 +479,26 @@ class FlashAttentionStaticKvCache(OpDef):
     }
     frontend = FrontendBinding("flash_attention_static_kv_cache")
     description = "FlashAttention decode op for static [batch, kv_heads, max_cache_len, head_dim] KV caches."
+
+
+@op_def
+class FlashAttentionStaticKvCacheBias(OpDef):
+    name = "flash_attention_static_kv_cache_bias"
+    schema = OpSchema(inputs=("q", "past_key", "past_value", "new_key", "new_value", "cache_seqlens", "bias"))
+    infer_shape = _infer_flash_attention_static_kv_cache_bias_shape
+    allowed_dtypes = FLASH_ATTENTION_DTYPES
+    backend_kernels = {
+        "rocm": KernelBinding(
+            flash_attn_ck_static_kv_cache_bias_symbol("float16"),
+            "flash_attn_ck",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_ck_static_kv_cache_bias_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_static_kv_cache_bias_symbol("bfloat16")),
+            },
+        ),
+    }
+    frontend = FrontendBinding("flash_attention_static_kv_cache_bias")
+    description = "ROCm CK FlashAttention decode op for static KV caches with additive elementwise attention bias."
 
 
 @op_def

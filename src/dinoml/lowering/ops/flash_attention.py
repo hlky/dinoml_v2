@@ -24,7 +24,7 @@ def render_launch(
     op_name = str(node["op"])
     if op_name == "flash_attention_qkv":
         return _render_qkv_launch(target, node, tensor_map, kernel_manifest)
-    if op_name == "flash_attention_static_kv_cache":
+    if op_name in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         return _render_static_kv_cache_launch(target, node, tensor_map, kernel_manifest)
     if op_name == "flash_attention_bias":
         return _render_bias_launch(target, node, tensor_map, kernel_manifest)
@@ -188,11 +188,21 @@ def _render_static_kv_cache_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None,
 ) -> str:
+    op_name = str(node["op"])
+    has_bias = op_name == "flash_attention_static_kv_cache_bias"
     if target not in {"cuda", "rocm"}:
-        raise ValueError(f"flash_attention_static_kv_cache lowering is only implemented for CUDA and ROCm, got {target!r}")
-    q_name, past_key_name, past_value_name, new_key_name, new_value_name, cache_seqlens_name = (
-        str(name) for name in node["inputs"]
-    )
+        raise ValueError(f"{op_name} lowering is only implemented for CUDA and ROCm, got {target!r}")
+    if has_bias and target != "rocm":
+        raise ValueError(f"{op_name} lowering is only implemented for ROCm, got {target!r}")
+    if has_bias:
+        q_name, past_key_name, past_value_name, new_key_name, new_value_name, cache_seqlens_name, bias_name = (
+            str(name) for name in node["inputs"]
+        )
+    else:
+        q_name, past_key_name, past_value_name, new_key_name, new_value_name, cache_seqlens_name = (
+            str(name) for name in node["inputs"]
+        )
+        bias_name = ""
     output_name = str(node["outputs"][0])
     q_ident = _c_ident(q_name)
     past_key_ident = _c_ident(past_key_name)
@@ -200,53 +210,90 @@ def _render_static_kv_cache_launch(
     new_key_ident = _c_ident(new_key_name)
     new_value_ident = _c_ident(new_value_name)
     cache_seqlens_ident = _c_ident(cache_seqlens_name)
+    bias_ident = _c_ident(bias_name) if has_bias else ""
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
     if dtype not in {"float16", "bfloat16"}:
-        raise ValueError(f"flash_attention_static_kv_cache {target} lowering only supports float16 and bfloat16, got {dtype}")
-    symbol = _manifest_symbol(kernel_manifest, target, str(node["op"]), dtype)
+        raise ValueError(f"{op_name} {target} lowering only supports float16 and bfloat16, got {dtype}")
+    symbol = _manifest_symbol(kernel_manifest, target, op_name, dtype)
     if symbol is None:
-        symbol = get_op_def(str(node["op"])).backend_kernels[target].resolve(dtype).symbol
+        symbol = get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
     rocm_scratch_args = ""
     if target == "rocm":
         rocm_scratch_args = (
             ", session->flash_attention_static_kv_cache_scratch, "
             "session->flash_attention_static_kv_cache_scratch_nbytes"
         )
+    bias_checks: list[str] = []
+    bias_call_arg = ""
+    bias_dim_args = ""
+    if has_bias:
+        bias_shape = list(tensor_map[bias_name]["shape"])
+        if len(bias_shape) == 2:
+            bias_batch_dim = "1"
+            bias_heads_dim = "1"
+            bias_seq_q_dim = f"shape_{bias_ident}_0"
+            bias_seq_k_dim = f"shape_{bias_ident}_1"
+        elif len(bias_shape) == 3:
+            bias_batch_dim = "1"
+            bias_heads_dim = f"shape_{bias_ident}_0"
+            bias_seq_q_dim = f"shape_{bias_ident}_1"
+            bias_seq_k_dim = f"shape_{bias_ident}_2"
+        elif len(bias_shape) == 4:
+            bias_batch_dim = f"shape_{bias_ident}_0"
+            bias_heads_dim = f"shape_{bias_ident}_1"
+            bias_seq_q_dim = f"shape_{bias_ident}_2"
+            bias_seq_k_dim = f"shape_{bias_ident}_3"
+        else:
+            raise ValueError("flash_attention_static_kv_cache_bias bias must have rank 2, 3, or 4")
+        bias_checks = [
+            f"if (({bias_batch_dim}) != 1 && ({bias_batch_dim}) != shape_{q_ident}_0) "
+            f'return dinoml::module::fail("{op_name} bias batch shape mismatch");',
+            f"if (({bias_heads_dim}) != 1 && ({bias_heads_dim}) != shape_{q_ident}_2) "
+            f'return dinoml::module::fail("{op_name} bias head shape mismatch");',
+            f"if (({bias_seq_q_dim}) != shape_{q_ident}_1 || ({bias_seq_k_dim}) != shape_{past_key_ident}_2) "
+            f'return dinoml::module::fail("{op_name} bias sequence shape mismatch");',
+        ]
+        bias_call_arg = f"ptr_{bias_ident}, "
+        bias_dim_args = (
+            f", static_cast<int64_t>({bias_batch_dim}), static_cast<int64_t>({bias_heads_dim}), "
+            f"static_cast<int64_t>({bias_seq_q_dim}), static_cast<int64_t>({bias_seq_k_dim})"
+        )
     return "\n".join(
         [
             f'if (shape_{q_ident}_1 != 1) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache expected q sequence length 1");',
+            f'return dinoml::module::fail("{op_name} expected q sequence length 1");',
             f'if (shape_{new_key_ident}_2 != 1 || shape_{new_value_ident}_2 != 1) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache expected new K/V sequence length 1");',
+            f'return dinoml::module::fail("{op_name} expected new K/V sequence length 1");',
             f'if (shape_{q_ident}_0 != shape_{past_key_ident}_0 || shape_{q_ident}_0 != shape_{past_value_ident}_0 || '
             f'shape_{q_ident}_0 != shape_{new_key_ident}_0 || shape_{q_ident}_0 != shape_{new_value_ident}_0) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache batch dimension mismatch");',
+            f'return dinoml::module::fail("{op_name} batch dimension mismatch");',
             f'if (shape_{past_key_ident}_0 != shape_{past_value_ident}_0 || shape_{past_key_ident}_1 != shape_{past_value_ident}_1 || '
             f'shape_{past_key_ident}_2 != shape_{past_value_ident}_2 || shape_{past_key_ident}_3 != shape_{past_value_ident}_3) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache past key/value shape mismatch");',
+            f'return dinoml::module::fail("{op_name} past key/value shape mismatch");',
             f'if (shape_{new_key_ident}_0 != shape_{new_value_ident}_0 || shape_{new_key_ident}_1 != shape_{new_value_ident}_1 || '
             f'shape_{new_key_ident}_2 != shape_{new_value_ident}_2 || shape_{new_key_ident}_3 != shape_{new_value_ident}_3) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache new key/value shape mismatch");',
+            f'return dinoml::module::fail("{op_name} new key/value shape mismatch");',
             f'if (shape_{past_key_ident}_1 != shape_{new_key_ident}_1) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache KV head dimension mismatch");',
+            f'return dinoml::module::fail("{op_name} KV head dimension mismatch");',
             f'if (shape_{q_ident}_3 != shape_{past_key_ident}_3 || shape_{q_ident}_3 != shape_{new_key_ident}_3) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache head_dim mismatch");',
+            f'return dinoml::module::fail("{op_name} head_dim mismatch");',
             f'if ((shape_{q_ident}_2 % shape_{past_key_ident}_1) != 0) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache head grouping mismatch");',
+            f'return dinoml::module::fail("{op_name} head grouping mismatch");',
             f'if (shape_{q_ident}_3 <= 0 || shape_{q_ident}_3 > 256) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache unsupported head_dim");',
+            f'return dinoml::module::fail("{op_name} unsupported head_dim");',
             f'if (shape_{cache_seqlens_ident}_0 != shape_{q_ident}_0) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache cache_seqlens shape mismatch");',
+            f'return dinoml::module::fail("{op_name} cache_seqlens shape mismatch");',
+            *bias_checks,
             f'if (shape_{output_ident}_0 != shape_{q_ident}_0 || shape_{output_ident}_1 != shape_{q_ident}_1 || '
             f'shape_{output_ident}_2 != shape_{q_ident}_2 || shape_{output_ident}_3 != shape_{q_ident}_3) '
-            'return dinoml::module::fail("flash_attention_static_kv_cache output shape mismatch");',
+            f'return dinoml::module::fail("{op_name} output shape mismatch");',
             f"if (int err = {symbol}(ptr_{q_ident}, ptr_{past_key_ident}, ptr_{past_value_ident}, "
-            f"ptr_{new_key_ident}, ptr_{new_value_ident}, ptr_{cache_seqlens_ident}, ptr_{output_ident}, "
+            f"ptr_{new_key_ident}, ptr_{new_value_ident}, ptr_{cache_seqlens_ident}, {bias_call_arg}ptr_{output_ident}, "
             f"static_cast<int64_t>(shape_{q_ident}_0), static_cast<int64_t>(shape_{past_key_ident}_2), "
             f"static_cast<int64_t>(shape_{q_ident}_2), static_cast<int64_t>(shape_{past_key_ident}_1), "
-            f"static_cast<int64_t>(shape_{q_ident}_3){rocm_scratch_args}, session->stream)) "
-            'return dinoml::module::fail("flash_attention_static_kv_cache launcher failed");',
+            f"static_cast<int64_t>(shape_{q_ident}_3){bias_dim_args}{rocm_scratch_args}, session->stream)) "
+            f'return dinoml::module::fail("{op_name} launcher failed");',
         ]
     )
 
@@ -288,17 +335,21 @@ FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING = OpLowering(
     render_launch=render_launch,
 )
 
+FLASH_ATTENTION_STATIC_KV_CACHE_BIAS_LOWERING = OpLowering(
+    op_name="flash_attention_static_kv_cache_bias",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+)
+
 
 def flash_attention_static_kv_cache_scratch_nbytes_for_node(
     target: str,
     node: Mapping[str, Any],
     tensor_map: Mapping[str, Mapping[str, Any]],
 ) -> int:
-    if target != "rocm" or node.get("op") != "flash_attention_static_kv_cache":
+    if target != "rocm" or node.get("op") not in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         return 0
-    q_name, past_key_name, _past_value_name, _new_key_name, _new_value_name, _cache_seqlens_name = (
-        str(name) for name in node["inputs"]
-    )
+    q_name, past_key_name = (str(name) for name in node["inputs"][:2])
     q_tensor = tensor_map[q_name]
     past_key_tensor = tensor_map[past_key_name]
     batch = int(q_tensor["shape"][0])

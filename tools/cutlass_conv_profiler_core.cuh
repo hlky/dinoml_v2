@@ -5,6 +5,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cstdint>
+#include <algorithm>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -117,6 +118,16 @@ class DeviceBuffer {
   void copy_from(const std::vector<std::uint8_t>& host) {
     if (!host.empty()) {
       check_cuda(cudaMemcpy(ptr_, host.data(), host.size(), cudaMemcpyHostToDevice), "cudaMemcpy H2D");
+    }
+  }
+  void fill(int value, std::size_t nbytes) {
+    if (nbytes != 0) {
+      check_cuda(cudaMemset(ptr_, value, nbytes), "cudaMemset");
+    }
+  }
+  void copy_to(std::vector<std::uint8_t>& host) const {
+    if (!host.empty()) {
+      check_cuda(cudaMemcpy(host.data(), ptr_, host.size(), cudaMemcpyDeviceToHost), "cudaMemcpy D2H");
     }
   }
 
@@ -238,11 +249,11 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
   DeviceBuffer activation(activation_elements * element_size);
   DeviceBuffer weight(weight_elements * element_size);
   DeviceBuffer bias(static_cast<std::size_t>(request.out_c) * element_size);
-  DeviceBuffer output(output_elements * element_size);
+  const std::size_t output_nbytes = output_elements * element_size;
+  DeviceBuffer output(output_nbytes);
   activation.copy_from(random_storage(activation_elements, request.dtype, rng));
   weight.copy_from(random_storage(weight_elements, request.dtype, rng));
   bias.copy_from(random_storage(static_cast<std::size_t>(request.out_c), request.dtype, rng));
-  check_cuda(cudaMemset(output.get(), 0, output_elements * element_size), "cudaMemset output");
 
   DeviceBuffer residual;
   if (request.residual_count == 1) {
@@ -260,10 +271,20 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
     result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
     bool failed = false;
     for (int repeat = 0; repeat < request.repeats; ++repeat) {
+      output.fill(0xA5, output_nbytes);
       float elapsed_ms = run_candidate(request, candidate, activation.get(), weight.get(), bias.get(), residual.get(), output.get());
       if (elapsed_ms < 0.0f) {
         failed = true;
         break;
+      }
+      check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize candidate");
+      if (repeat == 0) {
+        std::vector<std::uint8_t> output_host(output_nbytes);
+        output.copy_to(output_host);
+        if (std::all_of(output_host.begin(), output_host.end(), [](std::uint8_t value) { return value == 0xA5; })) {
+          failed = true;
+          break;
+        }
       }
       result.samples_ms.push_back(elapsed_ms);
     }

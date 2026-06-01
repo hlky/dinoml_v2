@@ -1148,6 +1148,9 @@ if(DINOML_ENABLE_CUDA)
 
   if(DINOML_ENABLE_FLASH_ATTN_CUDA)
     add_subdirectory(third_party/flash_attn)
+    if(CMAKE_CUDA_ARCHITECTURES)
+      set_property(TARGET flash_attention PROPERTY CUDA_ARCHITECTURES ${CMAKE_CUDA_ARCHITECTURES})
+    endif()
     add_library(dinoml_flash_attn_cuda STATIC
       kernels/cuda/src/flash_attn_cuda_wrapper.cu
     )

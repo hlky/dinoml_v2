@@ -809,6 +809,7 @@ def _ensure_cmake_flash_attn_cuda_archives(arch: str, kernel_manifest: Mapping[s
             target,
             flash_attn_cuda_upstream_cmake_target(),
             "--parallel",
+            os.environ.get("DINOML_CUDA_FLASH_ATTN_BUILD_PARALLEL", "2"),
         ],
         cwd=repo_root,
     )

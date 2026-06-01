@@ -330,17 +330,19 @@ def generate_once(
     use_flash_static_kv_cache: bool = False,
     use_session_static_kv_cache: bool = False,
 ) -> tuple[list[int], list[float]]:
+    cache_spec = cache_spec_for_config(config, max_cache_len)
     started = time.perf_counter()
-    prefill_outputs = prefill_session.run_numpy(_prefill_run_inputs(prefill_inputs, prompt_len))
+    prefill_outputs, cache = _run_prefill_for_decode(
+        prefill_session,
+        decode_session,
+        _prefill_run_inputs(prefill_inputs, prompt_len),
+        cache_spec,
+        cache_len=prompt_len,
+        use_session_static_kv_cache=use_session_static_kv_cache,
+    )
     run_times_ms = [(time.perf_counter() - started) * 1000.0]
     next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
     generated: list[int] = []
-    cache_spec = cache_spec_for_config(config, max_cache_len)
-    if use_session_static_kv_cache:
-        _seed_decode_session_state(decode_session, prefill_outputs, cache_spec, cache_len=prompt_len)
-        cache: dict[str, np.ndarray] = {}
-    else:
-        cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
 
     for step in range(max_new_tokens):
         generated.append(next_id)
@@ -388,12 +390,16 @@ def benchmark_modules_native(
     prefill_run_inputs = _prefill_run_inputs(prefill_inputs, prompt_len)
     prefill_summary = prefill_session.benchmark_numpy(prefill_run_inputs, warmup=warmup, iterations=iterations)
 
-    prefill_outputs = prefill_session.run_numpy(prefill_run_inputs)
-    next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
     cache_spec = cache_spec_for_config(config, max_cache_len)
-    cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
-    if use_session_static_kv_cache:
-        _set_decode_session_state_from_cache(decode_session, cache_spec, cache)
+    prefill_outputs, cache = _run_prefill_for_decode(
+        prefill_session,
+        decode_session,
+        prefill_run_inputs,
+        cache_spec,
+        cache_len=prompt_len,
+        use_session_static_kv_cache=use_session_static_kv_cache,
+    )
+    next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
     first_decode_position = prompt_len
     late_decode_position = min(max_cache_len - 1, prompt_len + max(0, max_new_tokens - 2))
 
@@ -413,11 +419,9 @@ def benchmark_modules_native(
         iterations=iterations,
     )
 
-    late_cache = _cache_with_zero_filled_future(cache_spec)
+    late_cache = _cache_with_zero_filled_future(cache_spec) if not use_session_static_kv_cache else {}
     for name, value in cache.items():
         late_cache[name][...] = value
-    if use_session_static_kv_cache:
-        _set_decode_session_state_from_cache(decode_session, cache_spec, late_cache)
     late_decode_inputs = _decode_run_inputs(
         prefill_inputs,
         config,
@@ -488,25 +492,94 @@ def _decode_run_inputs(
     return decode_inputs
 
 
-def _seed_decode_session_state(
+def _run_prefill_for_decode(
+    prefill_session,
     decode_session,
-    outputs: dict[str, np.ndarray],
+    prefill_run_inputs: dict[str, np.ndarray],
+    spec: StaticKvCacheSpec,
+    *,
+    cache_len: int,
+    use_session_static_kv_cache: bool,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    if not use_session_static_kv_cache:
+        outputs = prefill_session.run_numpy(prefill_run_inputs)
+        cache = seed_static_kv_cache(outputs, spec, cache_len=cache_len)
+        return outputs, cache
+
+    device_output_names = _present_output_names(spec)
+    result = prefill_session.run_numpy_device_outputs(
+        prefill_run_inputs,
+        host_outputs=("logits",),
+        device_outputs=device_output_names,
+    )
+    _copy_prefill_device_outputs_to_decode_state(decode_session, result, spec, cache_len=cache_len)
+    return {"logits": result["host_outputs"]["logits"]}, {}
+
+
+def _present_output_names(spec: StaticKvCacheSpec) -> tuple[str, ...]:
+    return tuple(
+        name
+        for layer_idx in range(spec.num_layers)
+        for name in (spec.present_key_name(layer_idx), spec.present_value_name(layer_idx))
+    )
+
+
+def _copy_prefill_device_outputs_to_decode_state(
+    decode_session,
+    result: dict[str, object],
     spec: StaticKvCacheSpec,
     *,
     cache_len: int,
 ) -> None:
-    cache = seed_static_kv_cache(outputs, spec, cache_len=cache_len)
-    _set_decode_session_state_from_cache(decode_session, spec, cache)
+    device_outputs = result["device_outputs"]
+    output_shapes = result["output_shapes"]
+    if not isinstance(device_outputs, dict) or not isinstance(output_shapes, dict):
+        raise TypeError("run_numpy_device_outputs result must contain device_outputs and output_shapes dictionaries")
+    for layer_idx in range(spec.num_layers):
+        _copy_present_output_to_state(
+            decode_session,
+            spec,
+            device_outputs,
+            output_shapes,
+            present_name=spec.present_key_name(layer_idx),
+            state_name=spec.past_key_name(layer_idx),
+            cache_len=cache_len,
+        )
+        _copy_present_output_to_state(
+            decode_session,
+            spec,
+            device_outputs,
+            output_shapes,
+            present_name=spec.present_value_name(layer_idx),
+            state_name=spec.past_value_name(layer_idx),
+            cache_len=cache_len,
+        )
 
 
-def _set_decode_session_state_from_cache(
+def _copy_present_output_to_state(
     decode_session,
     spec: StaticKvCacheSpec,
-    cache: dict[str, np.ndarray],
+    device_outputs: dict[str, object],
+    output_shapes: dict[str, object],
+    *,
+    present_name: str,
+    state_name: str,
+    cache_len: int,
 ) -> None:
-    for layer_idx in range(spec.num_layers):
-        decode_session.set_state_numpy(spec.past_key_name(layer_idx), cache[spec.past_key_name(layer_idx)])
-        decode_session.set_state_numpy(spec.past_value_name(layer_idx), cache[spec.past_value_name(layer_idx)])
+    if present_name not in device_outputs:
+        raise ValueError(f"Prefill did not return device output {present_name}")
+    if present_name not in output_shapes:
+        raise ValueError(f"Prefill did not report output shape for {present_name}")
+    shape = tuple(int(dim) for dim in output_shapes[present_name])
+    expected = tuple(spec.shape(cache_len=cache_len))
+    if shape != expected:
+        raise ValueError(f"Prefill output {present_name} has shape {shape}, expected {expected}")
+    decode_session.copy_device_to_state_slice(
+        state_name,
+        int(device_outputs[present_name]),
+        src_shape=shape,
+        dst_start=(0, 0, 0, 0),
+    )
 
 
 def _cache_with_zero_filled_future(spec: StaticKvCacheSpec) -> dict[str, np.ndarray]:

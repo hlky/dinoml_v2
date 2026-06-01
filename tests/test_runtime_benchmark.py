@@ -129,6 +129,39 @@ def test_session_benchmark_requires_recompiled_artifact_symbol():
         session._benchmark_native(input_tensors, 0, output_tensors, 0, warmup=0, iterations=1)
 
 
+def test_copy_device_to_state_slice_uses_destination_strides_for_compact_prefix():
+    session = _fake_session()
+    session.module.target_name = "rocm"
+    session.module.metadata = {
+        "states": [{"name": "past_key", "shape": [1, 2, 5, 4], "dtype": "float32"}],
+    }
+    session.state_device_pointer = lambda _index_or_name: 1000
+    calls = []
+    session._copy_d2d = lambda dst, src, nbytes: calls.append((int(dst.value), int(src.value), int(nbytes)))
+
+    session.copy_device_to_state_slice("past_key", 2000, src_shape=(1, 2, 3, 4))
+
+    assert calls == [
+        (1000, 2000, 3 * 4 * 4),
+        (1000 + 5 * 4 * 4, 2000 + 3 * 4 * 4, 3 * 4 * 4),
+    ]
+
+
+def test_copy_device_to_state_slice_collapses_full_shape_to_one_copy():
+    session = _fake_session()
+    session.module.target_name = "rocm"
+    session.module.metadata = {
+        "states": [{"name": "past_key", "shape": [1, 2, 3, 4], "dtype": "float32"}],
+    }
+    session.state_device_pointer = lambda _index_or_name: 1000
+    calls = []
+    session._copy_d2d = lambda dst, src, nbytes: calls.append((int(dst.value), int(src.value), int(nbytes)))
+
+    session.copy_device_to_state_slice("past_key", 2000, src_shape=(1, 2, 3, 4))
+
+    assert calls == [(1000, 2000, 1 * 2 * 3 * 4 * 4)]
+
+
 def test_cli_benchmark_reports_session_run_summary(tmp_path, monkeypatch, capsys):
     model_path = tmp_path / "benchmark_inputs.py"
     model_path.write_text(

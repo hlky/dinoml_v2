@@ -893,6 +893,23 @@ class Session:
             return self._run_numpy_cpu(inputs)
         return self._run_numpy_cuda(inputs)
 
+    def run_numpy_device_outputs(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        *,
+        host_outputs: Sequence[str] = (),
+        device_outputs: Sequence[str] = (),
+    ) -> dict[str, object]:
+        self._require_open()
+        _require_mapping(inputs, "run_numpy_device_outputs inputs")
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("run_numpy_device_outputs is only available for GPU artifacts")
+        return self._run_numpy_device_outputs_cuda(
+            inputs,
+            host_outputs=tuple(str(name) for name in host_outputs),
+            device_outputs=tuple(str(name) for name in device_outputs),
+        )
+
     def benchmark_numpy(
         self,
         inputs: Mapping[str, np.ndarray],
@@ -986,6 +1003,75 @@ class Session:
         dst = ctypes.c_void_p(self.state_device_pointer(index_or_name))
         src = ctypes.c_void_p(int(src_device_pointer))
         self._copy_d2d(dst, src, copy_nbytes)
+
+    def copy_device_to_state_slice(
+        self,
+        index_or_name: int | str,
+        src_device_pointer: int,
+        *,
+        src_shape: Sequence[int],
+        dst_start: Sequence[int] | None = None,
+    ) -> None:
+        self._require_open()
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("copy_device_to_state_slice is only available for GPU artifacts")
+        state_spec = self._state_spec(index_or_name)
+        state_shape = tuple(int(dim) for dim in state_spec["shape"])
+        source_shape = tuple(int(dim) for dim in src_shape)
+        if len(source_shape) != len(state_shape):
+            raise ValueError(
+                f"Source rank {len(source_shape)} does not match state rank {len(state_shape)} "
+                f"for {state_spec['name']}"
+            )
+        start = tuple(0 for _ in state_shape) if dst_start is None else tuple(int(dim) for dim in dst_start)
+        if len(start) != len(state_shape):
+            raise ValueError(f"State slice start rank {len(start)} does not match state rank {len(state_shape)}")
+        for dim, (offset, extent, limit) in enumerate(zip(start, source_shape, state_shape)):
+            if offset < 0 or extent < 0 or offset + extent > limit:
+                raise ValueError(
+                    f"State slice dimension {dim} with start {offset} and extent {extent} "
+                    f"is outside state shape {state_shape}"
+                )
+        if _shape_numel(source_shape) == 0:
+            return
+
+        dtype_size = dtype_numpy(str(state_spec["dtype"])).itemsize
+        src_strides = _contiguous_strides(source_shape)
+        dst_strides = _contiguous_strides(state_shape)
+        block_start = len(source_shape) - 1
+        for candidate in range(len(source_shape) - 2, -1, -1):
+            trailing_full = all(
+                start[dim] == 0 and source_shape[dim] == state_shape[dim]
+                for dim in range(candidate + 1, len(source_shape))
+            )
+            if not trailing_full:
+                break
+            block_start = candidate
+
+        block_nbytes = _shape_numel(source_shape[block_start:]) * dtype_size
+        outer_shape = source_shape[:block_start]
+        src_base = int(src_device_pointer)
+        dst_base = self.state_device_pointer(index_or_name)
+        dst_start_offset = sum(start[dim] * dst_strides[dim] for dim in range(len(state_shape))) * dtype_size
+
+        if outer_shape:
+            for outer_index in np.ndindex(*outer_shape):
+                src_offset = sum(outer_index[dim] * src_strides[dim] for dim in range(block_start)) * dtype_size
+                dst_offset = (
+                    dst_start_offset
+                    + sum(outer_index[dim] * dst_strides[dim] for dim in range(block_start)) * dtype_size
+                )
+                self._copy_d2d(
+                    ctypes.c_void_p(dst_base + dst_offset),
+                    ctypes.c_void_p(src_base + src_offset),
+                    block_nbytes,
+                )
+        else:
+            self._copy_d2d(
+                ctypes.c_void_p(dst_base + dst_start_offset),
+                ctypes.c_void_p(src_base),
+                block_nbytes,
+            )
 
     def _materialize_output_array(self, output: np.ndarray, actual_shape: tuple[int, ...]) -> np.ndarray:
         actual_numel = _shape_numel(actual_shape)
@@ -1463,6 +1549,100 @@ class Session:
             for spec, array in zip(output_specs, output_arrays)
         }
 
+    def _run_numpy_device_outputs_cuda(
+        self,
+        inputs: Mapping[str, np.ndarray],
+        *,
+        host_outputs: Sequence[str],
+        device_outputs: Sequence[str],
+    ) -> dict[str, object]:
+        input_specs = self.module.metadata["inputs"]
+        output_specs = self.module.metadata["outputs"]
+        output_names = [str(spec["name"]) for spec in output_specs]
+        _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
+        _reject_unknown_names(host_outputs, output_names, "host output")
+        _reject_unknown_names(device_outputs, output_names, "device output")
+        host_output_names = set(host_outputs)
+        device_output_names = set(device_outputs)
+        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        output_shapes = {
+            str(spec["name"]): infer_output_shape(spec, input_specs, input_shapes)
+            for spec in output_specs
+        }
+
+        shape_buffers = []
+        input_tensors = (_DinoTensor * len(input_arrays))()
+        for idx, (spec, array) in enumerate(zip(input_specs, input_arrays)):
+            ptr = self._device_buffer(f"input:{spec['name']}", array.nbytes)
+            self._copy_h2d(ptr, array)
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                array.shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=array.nbytes,
+                device_type=_target_device_type(str(self.module.target_name)),
+            )
+            shape_buffers.extend(keepalive)
+            input_tensors[idx] = tensor
+
+        output_tensors = (_DinoTensor * len(output_specs))()
+        output_device_ptrs: dict[str, int] = {}
+        for idx, spec in enumerate(output_specs):
+            name = str(spec["name"])
+            actual_shape = output_shapes[name]
+            nbytes = _shape_nbytes(actual_shape, str(spec["dtype"]))
+            ptr = self._device_buffer(f"output:{name}", nbytes)
+            tensor, keepalive = _make_dino_tensor(
+                ptr,
+                actual_shape,
+                dtype_runtime_enum(str(spec["dtype"])),
+                nbytes=nbytes,
+                device_type=_target_device_type(str(self.module.target_name)),
+            )
+            shape_buffers.extend(keepalive)
+            output_tensors[idx] = tensor
+            if name in device_output_names:
+                output_device_ptrs[name] = int(ptr.value)
+
+        self.module._check(
+            self.module._dll.dino_session_run(
+                self._handle,
+                input_tensors,
+                ctypes.c_size_t(len(input_arrays)),
+                output_tensors,
+                ctypes.c_size_t(len(output_specs)),
+            )
+        )
+
+        reported_shapes: dict[str, tuple[int, ...]] = {}
+        output_spec_by_name = {str(spec["name"]): spec for spec in output_specs}
+        for name in sorted(host_output_names | device_output_names):
+            if self._shape_buffer_report_unavailable_on_external_stream(name):
+                reported_shape = output_shapes[name]
+            else:
+                reported_shape = self.get_output_shape(name)
+            if _shape_numel(reported_shape) > _shape_numel(output_shapes[name]):
+                raise ValueError(
+                    f"Output shape {reported_shape} has more elements than allocated output buffer "
+                    f"{output_shapes[name]}"
+                )
+            reported_shapes[name] = tuple(int(dim) for dim in reported_shape)
+
+        host_result: dict[str, np.ndarray] = {}
+        for name in host_output_names:
+            tensor = output_tensors[output_names.index(name)]
+            spec = output_spec_by_name[name]
+            array = np.empty(reported_shapes[name], dtype=dtype_numpy(str(spec["dtype"])))
+            self._copy_d2h(array, tensor.data)
+            host_result[name] = array_from_storage(array, str(spec["dtype"]))
+
+        return {
+            "host_outputs": host_result,
+            "device_outputs": output_device_ptrs,
+            "output_shapes": reported_shapes,
+        }
+
     def _device_malloc(self, nbytes: int) -> ctypes.c_void_p:
         ptr = ctypes.c_void_p()
         self.module._check_cuda_runtime(
@@ -1602,6 +1782,14 @@ def _reject_unexpected_keys(mapping: Mapping[str, object], expected_names: Seque
     if unexpected:
         suffix = "s" if len(unexpected) != 1 else ""
         raise ValueError(f"Unexpected {label}{suffix}: {', '.join(unexpected)}")
+
+
+def _reject_unknown_names(names: Sequence[str], expected_names: Sequence[str], label: str) -> None:
+    expected = set(expected_names)
+    unknown = sorted(str(name) for name in names if str(name) not in expected)
+    if unknown:
+        suffix = "s" if len(unknown) != 1 else ""
+        raise ValueError(f"Unknown {label}{suffix}: {', '.join(unknown)}")
 
 
 def _shape_buffer(shape: object) -> ctypes.Array:

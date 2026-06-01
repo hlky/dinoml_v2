@@ -16,6 +16,7 @@ import dinoml as dml
 from dinoml import runtime
 from dinoml.ir import array_to_storage
 from dinoml.models.glm_ocr import (
+    GlmOcrForConditionalGenerationDecodeSessionStaticCache,
     GlmOcrForConditionalGenerationDecodeStaticCache,
     GlmOcrForConditionalGenerationImagePrefillWithCache,
     glm_ocr_config_from_transformers_dict,
@@ -202,6 +203,7 @@ def build_decode_spec(
     max_cache_len: int,
     *,
     use_flash_static_kv_cache: bool,
+    use_session_static_kv_cache: bool,
 ):
     cache_spec = cache_spec_for_config(config, max_cache_len)
     inputs = {
@@ -216,12 +218,20 @@ def build_decode_spec(
             ],
             config.text_config.dtype,
         ),
-        **static_kv_cache_input_specs(cache_spec),
     }
     if use_flash_static_kv_cache:
         inputs["cache_seqlens"] = dml.TensorSpec([1], "int32")
+    if not use_session_static_kv_cache:
+        inputs.update(static_kv_cache_input_specs(cache_spec))
+        model = GlmOcrForConditionalGenerationDecodeStaticCache(config, weights)
+    else:
+        model = GlmOcrForConditionalGenerationDecodeSessionStaticCache(
+            config,
+            weights,
+            max_cache_len=max_cache_len,
+        )
     return dml.trace(
-        GlmOcrForConditionalGenerationDecodeStaticCache(config, weights),
+        model,
         inputs=inputs,
         name=f"glm_ocr_real_image_cached_decode_past{max_cache_len}",
     )
@@ -240,6 +250,7 @@ def cache_spec_for_config(config, max_cache_len: int) -> StaticKvCacheSpec:
 
 def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start: int, max_cache_len: int) -> tuple[Path, Path]:
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
+    use_session_static_kv_cache = _use_session_static_kv_cache(args, config)
     flash_bias_suffix = "_flash_bias" if config.text_config.use_flash_attention_bias else ""
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
@@ -249,7 +260,10 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         )
     decode_artifact = args.decode_artifact
     if decode_artifact is None:
-        cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
+        if use_session_static_kv_cache:
+            cache_suffix = "_session_static_kv"
+        else:
+            cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
         decode_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{flash_bias_suffix}_{args.dtype}_{args.target}.dinoml"
         )
@@ -288,6 +302,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
                 text_weights,
                 max_cache_len,
                 use_flash_static_kv_cache=use_flash_static_kv_cache,
+                use_session_static_kv_cache=use_session_static_kv_cache,
             ),
             target=dml.Target(args.target, arch=args.arch),
             output=decode_artifact,
@@ -313,6 +328,7 @@ def generate_once(
     max_new_tokens: int,
     eos_token_id: int,
     use_flash_static_kv_cache: bool = False,
+    use_session_static_kv_cache: bool = False,
 ) -> tuple[list[int], list[float]]:
     started = time.perf_counter()
     prefill_outputs = prefill_session.run_numpy(_prefill_run_inputs(prefill_inputs, prompt_len))
@@ -320,7 +336,11 @@ def generate_once(
     next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
     generated: list[int] = []
     cache_spec = cache_spec_for_config(config, max_cache_len)
-    cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
+    if use_session_static_kv_cache:
+        _seed_decode_session_state(decode_session, prefill_outputs, cache_spec, cache_len=prompt_len)
+        cache: dict[str, np.ndarray] = {}
+    else:
+        cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
 
     for step in range(max_new_tokens):
         generated.append(next_id)
@@ -337,14 +357,16 @@ def generate_once(
                 valid_past_len=position,
                 use_flash_static_kv_cache=use_flash_static_kv_cache,
             ),
-            **cache,
         }
+        if not use_session_static_kv_cache:
+            decode_inputs.update(cache)
         if use_flash_static_kv_cache:
             decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
         started = time.perf_counter()
         decode_outputs = decode_session.run_numpy(decode_inputs)
         run_times_ms.append((time.perf_counter() - started) * 1000.0)
-        write_static_kv_cache_update(cache, decode_outputs, cache_spec, position=position)
+        if not use_session_static_kv_cache:
+            write_static_kv_cache_update(cache, decode_outputs, cache_spec, position=position)
         next_id = int(np.argmax(decode_outputs["logits"][0, 0, :]))
     return generated, run_times_ms
 
@@ -361,6 +383,7 @@ def benchmark_modules_native(
     warmup: int,
     iterations: int,
     use_flash_static_kv_cache: bool,
+    use_session_static_kv_cache: bool,
 ) -> dict[str, object]:
     prefill_run_inputs = _prefill_run_inputs(prefill_inputs, prompt_len)
     prefill_summary = prefill_session.benchmark_numpy(prefill_run_inputs, warmup=warmup, iterations=iterations)
@@ -369,6 +392,8 @@ def benchmark_modules_native(
     next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
     cache_spec = cache_spec_for_config(config, max_cache_len)
     cache = seed_static_kv_cache(prefill_outputs, cache_spec, cache_len=prompt_len)
+    if use_session_static_kv_cache:
+        _set_decode_session_state_from_cache(decode_session, cache_spec, cache)
     first_decode_position = prompt_len
     late_decode_position = min(max_cache_len - 1, prompt_len + max(0, max_new_tokens - 2))
 
@@ -380,6 +405,7 @@ def benchmark_modules_native(
         position=first_decode_position,
         cache=cache,
         use_flash_static_kv_cache=use_flash_static_kv_cache,
+        use_session_static_kv_cache=use_session_static_kv_cache,
     )
     first_decode_summary = decode_session.benchmark_numpy(
         first_decode_inputs,
@@ -390,6 +416,8 @@ def benchmark_modules_native(
     late_cache = _cache_with_zero_filled_future(cache_spec)
     for name, value in cache.items():
         late_cache[name][...] = value
+    if use_session_static_kv_cache:
+        _set_decode_session_state_from_cache(decode_session, cache_spec, late_cache)
     late_decode_inputs = _decode_run_inputs(
         prefill_inputs,
         config,
@@ -398,6 +426,7 @@ def benchmark_modules_native(
         position=late_decode_position,
         cache=late_cache,
         use_flash_static_kv_cache=use_flash_static_kv_cache,
+        use_session_static_kv_cache=use_session_static_kv_cache,
     )
     late_decode_summary = decode_session.benchmark_numpy(
         late_decode_inputs,
@@ -439,6 +468,7 @@ def _decode_run_inputs(
     position: int,
     cache: dict[str, np.ndarray],
     use_flash_static_kv_cache: bool,
+    use_session_static_kv_cache: bool,
 ) -> dict[str, np.ndarray]:
     decode_inputs = {
         "input_ids": np.asarray([[next_id]], dtype=np.int64),
@@ -450,11 +480,33 @@ def _decode_run_inputs(
             valid_past_len=position,
             use_flash_static_kv_cache=use_flash_static_kv_cache,
         ),
-        **cache,
     }
+    if not use_session_static_kv_cache:
+        decode_inputs.update(cache)
     if use_flash_static_kv_cache:
         decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
     return decode_inputs
+
+
+def _seed_decode_session_state(
+    decode_session,
+    outputs: dict[str, np.ndarray],
+    spec: StaticKvCacheSpec,
+    *,
+    cache_len: int,
+) -> None:
+    cache = seed_static_kv_cache(outputs, spec, cache_len=cache_len)
+    _set_decode_session_state_from_cache(decode_session, spec, cache)
+
+
+def _set_decode_session_state_from_cache(
+    decode_session,
+    spec: StaticKvCacheSpec,
+    cache: dict[str, np.ndarray],
+) -> None:
+    for layer_idx in range(spec.num_layers):
+        decode_session.set_state_numpy(spec.past_key_name(layer_idx), cache[spec.past_key_name(layer_idx)])
+        decode_session.set_state_numpy(spec.past_value_name(layer_idx), cache[spec.past_value_name(layer_idx)])
 
 
 def _cache_with_zero_filled_future(spec: StaticKvCacheSpec) -> dict[str, np.ndarray]:
@@ -507,6 +559,14 @@ def _use_flash_static_kv_cache(args: argparse.Namespace, config) -> bool:
     return args.target in {"cuda", "rocm"} and config.text_config.dtype in {"float16", "bfloat16"}
 
 
+def _use_session_static_kv_cache(args: argparse.Namespace, config) -> bool:
+    return (
+        args.target == "rocm"
+        and config.text_config.dtype in {"float16", "bfloat16"}
+        and bool(config.text_config.use_flash_attention_bias)
+    )
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -521,6 +581,7 @@ def main() -> None:
     config = enable_rocm_flash_attention_bias(build_config(args.snapshot, args.dtype), args.target)
     inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
+    use_session_static_kv_cache = _use_session_static_kv_cache(args, config)
     started_compile = time.perf_counter()
     prefill_artifact, decode_artifact = ensure_artifacts(args, config, inputs, image_token_start, max_cache_len)
     compile_seconds = time.perf_counter() - started_compile
@@ -544,6 +605,7 @@ def main() -> None:
             warmup=args.benchmark_warmup,
             iterations=args.benchmark_iterations,
             use_flash_static_kv_cache=use_flash_static_kv_cache,
+            use_session_static_kv_cache=use_session_static_kv_cache,
         )
         times_ms: list[float] = []
         token_run_times_ms: list[list[float]] = []
@@ -560,6 +622,7 @@ def main() -> None:
                     args.max_new_tokens,
                     eos_token_id,
                     use_flash_static_kv_cache=use_flash_static_kv_cache,
+                    use_session_static_kv_cache=use_session_static_kv_cache,
                 )
             for _ in range(args.iterations):
                 started = time.perf_counter()
@@ -573,6 +636,7 @@ def main() -> None:
                     args.max_new_tokens,
                     eos_token_id,
                     use_flash_static_kv_cache=use_flash_static_kv_cache,
+                    use_session_static_kv_cache=use_session_static_kv_cache,
                 )
                 times_ms.append((time.perf_counter() - started) * 1000.0)
                 token_run_times_ms.append(per_token_times)
@@ -603,6 +667,7 @@ def main() -> None:
         "target": args.target,
         "arch": args.arch,
         "use_flash_static_kv_cache": use_flash_static_kv_cache,
+        "use_session_static_kv_cache": use_session_static_kv_cache,
         "processor_image_size": processor_image_size,
         "max_new_tokens": args.max_new_tokens,
         "prompt_len": prompt_len,

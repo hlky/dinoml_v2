@@ -5,7 +5,7 @@
 #include <cmath>
 #include <cstdint>
 
-extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
+int launch_flash_attention(
     const void* q,
     const void* k,
     const void* v,
@@ -17,6 +17,7 @@ extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
     int64_t num_heads_k,
     int64_t head_dim,
     int causal,
+    DataType dtype,
     hipStream_t stream) {
   if (q == nullptr || k == nullptr || v == nullptr || output == nullptr) {
     return static_cast<int>(hipErrorInvalidValue);
@@ -64,7 +65,7 @@ extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
       num_heads_k,
       head_dim,
       mask_type,
-      DataType::kFloat16,
+      dtype,
       -1,
       -1,
       stream);
@@ -74,7 +75,65 @@ extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
   return 0;
 }
 
-extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
+extern "C" int dinoml_flash_attn_ck_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention(
+      q,
+      k,
+      v,
+      output,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      causal,
+      DataType::kFloat16,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_ck_fwd_bfloat16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention(
+      q,
+      k,
+      v,
+      output,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      causal,
+      DataType::kBFloat16,
+      stream);
+}
+
+int launch_flash_attention_qkv(
     const void* qkv,
     void* output,
     int64_t batch_size,
@@ -82,6 +141,7 @@ extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
     int64_t num_heads,
     int64_t head_dim,
     int causal,
+    DataType dtype,
     hipStream_t stream) {
   if (qkv == nullptr || output == nullptr) {
     return static_cast<int>(hipErrorInvalidValue);
@@ -131,7 +191,7 @@ extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
       num_heads,
       head_dim,
       mask_type,
-      DataType::kFloat16,
+      dtype,
       -1,
       -1,
       stream);
@@ -139,4 +199,46 @@ extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
     return static_cast<int>(hipErrorInvalidValue);
   }
   return 0;
+}
+
+extern "C" int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
+    const void* qkv,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen,
+    int64_t num_heads,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_qkv(
+      qkv,
+      output,
+      batch_size,
+      seqlen,
+      num_heads,
+      head_dim,
+      causal,
+      DataType::kFloat16,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1(
+    const void* qkv,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen,
+    int64_t num_heads,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_qkv(
+      qkv,
+      output,
+      batch_size,
+      seqlen,
+      num_heads,
+      head_dim,
+      causal,
+      DataType::kBFloat16,
+      stream);
 }

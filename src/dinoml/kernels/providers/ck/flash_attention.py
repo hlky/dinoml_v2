@@ -4,7 +4,7 @@ import os
 
 
 FLASH_ATTN_CK_LIBRARY = "flash_attn_ck"
-FLASH_ATTN_CK_SUPPORTED_DTYPES = ("float16",)
+FLASH_ATTN_CK_SUPPORTED_DTYPES = ("float16", "bfloat16")
 
 
 def flash_attn_ck_symbol(dtype: str) -> str:

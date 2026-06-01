@@ -53,7 +53,7 @@ class GlmOcrVisionConfig:
     intermediate_size: int = 4096
     initializer_range: float = 0.02
     dtype: str = "bfloat16"
-    use_flash_attention: bool = False
+    use_flash_attention: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _normalize_glm_ocr_dtype(self.dtype))
@@ -109,7 +109,7 @@ class GlmOcrTextConfig:
     tie_word_embeddings: bool = False
     dtype: str = "bfloat16"
     mask_fill_value: float = -1.0e4
-    use_flash_attention: bool = False
+    use_flash_attention: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _normalize_glm_ocr_dtype(self.dtype))
@@ -456,7 +456,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         return self._attention_output(q, k, v, attention_mask, batch, seq_len), present_key, present_value
 
     def _attention_output(self, q, k, v, attention_mask, batch: int, seq_len: int):
-        if self.config.use_flash_attention and q.dtype == "float16":
+        if self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"}:
             context = dml.ops.flash_attention(q, k, v, causal=True)
             context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
             return self.o_proj(context)
@@ -839,7 +839,7 @@ class GlmOcrVisionAttention(dml.nn.Module):
         q = _materialize(q)
         k = _materialize(k)
         v = _materialize(v)
-        if self.config.use_flash_attention and self.config.dtype == "float16":
+        if self.config.use_flash_attention and self.config.dtype in {"float16", "bfloat16"}:
             q4 = dml.ops.reshape(q, [1, seq_len, self.config.num_heads, self.config.head_dim])
             k4 = dml.ops.reshape(k, [1, seq_len, self.config.num_heads, self.config.head_dim])
             v4 = dml.ops.reshape(v, [1, seq_len, self.config.num_heads, self.config.head_dim])

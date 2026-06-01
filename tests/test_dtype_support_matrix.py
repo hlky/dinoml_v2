@@ -17,8 +17,6 @@ EXPECTED_FLOAT_DTYPE_GAPS = {
     "float32": ("_shape_buffer_count_true", "flash_attention", "flash_attention_qkv"),
     "bfloat16": (
         "_shape_buffer_count_true",
-        "flash_attention",
-        "flash_attention_qkv",
         "var",
     ),
 }
@@ -77,13 +75,13 @@ EXPECTED_GPU_ONLY_PROVIDER_COUNT = 51
 EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
     "float16": 6,
     "float32": 3,
-    "bfloat16": 4,
+    "bfloat16": 6,
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {
     "float16": 6,
     "float32": 3,
-    "bfloat16": 4,
+    "bfloat16": 6,
 }
 
 

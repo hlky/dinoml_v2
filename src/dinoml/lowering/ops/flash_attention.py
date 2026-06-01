@@ -30,8 +30,8 @@ def render_launch(
     v_ident = _c_ident(v_name)
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
-    if dtype != "float16":
-        raise ValueError(f"flash_attention {target} lowering only supports float16, got {dtype}")
+    if dtype not in {"float16", "bfloat16"}:
+        raise ValueError(f"flash_attention {target} lowering only supports float16 and bfloat16, got {dtype}")
     causal = node.get("attrs", {}).get("causal", False)
     if not isinstance(causal, bool):
         raise TypeError("flash_attention causal attr must be a bool")
@@ -50,7 +50,7 @@ def render_launch(
             'return dinoml::module::fail("flash_attention head_dim mismatch");',
             f'if ((shape_{q_ident}_2 % shape_{k_ident}_2) != 0) '
             'return dinoml::module::fail("flash_attention head grouping mismatch");',
-            f'if (shape_{q_ident}_3 != 64) '
+            f'if (shape_{q_ident}_3 <= 0 || shape_{q_ident}_3 > 256) '
             'return dinoml::module::fail("flash_attention unsupported head_dim");',
             f'if (shape_{output_ident}_0 != shape_{q_ident}_0 || shape_{output_ident}_1 != shape_{q_ident}_1 || '
             f'shape_{output_ident}_2 != shape_{q_ident}_2 || shape_{output_ident}_3 != shape_{q_ident}_3) '
@@ -75,8 +75,8 @@ def _render_qkv_launch(
     qkv_ident = _c_ident(qkv_name)
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
-    if dtype != "float16":
-        raise ValueError(f"flash_attention_qkv {target} lowering only supports float16, got {dtype}")
+    if dtype not in {"float16", "bfloat16"}:
+        raise ValueError(f"flash_attention_qkv {target} lowering only supports float16 and bfloat16, got {dtype}")
     causal = node.get("attrs", {}).get("causal", False)
     if not isinstance(causal, bool):
         raise TypeError("flash_attention_qkv causal attr must be a bool")
@@ -88,7 +88,7 @@ def _render_qkv_launch(
         [
             f'if (shape_{qkv_ident}_2 != 3) '
             'return dinoml::module::fail("flash_attention_qkv expected packed axis size 3");',
-            f'if (shape_{qkv_ident}_4 != 64) '
+            f'if (shape_{qkv_ident}_4 <= 0 || shape_{qkv_ident}_4 > 256) '
             'return dinoml::module::fail("flash_attention_qkv unsupported head_dim");',
             f'if (shape_{output_ident}_0 != shape_{qkv_ident}_0 || shape_{output_ident}_1 != shape_{qkv_ident}_1 || '
             f'shape_{output_ident}_2 != shape_{qkv_ident}_3 || shape_{output_ident}_3 != shape_{qkv_ident}_4) '

@@ -8,7 +8,7 @@ from dinoml.kernels.providers.cuda_flash_attention import flash_attn_cuda_qkv_sy
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
-FLASH_ATTENTION_DTYPES = ("float16",)
+FLASH_ATTENTION_DTYPES = ("float16", "bfloat16")
 QKV_SPLIT_DTYPES = ("float16", "float32", "bfloat16")
 
 
@@ -162,6 +162,7 @@ class FlashAttention(OpDef):
             "flash_attn_cuda",
             dtype_variants={
                 "float16": KernelVariant(flash_attn_cuda_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_cuda_symbol("bfloat16")),
             },
         ),
         "rocm": KernelBinding(
@@ -169,6 +170,7 @@ class FlashAttention(OpDef):
             "flash_attn_ck",
             dtype_variants={
                 "float16": KernelVariant(flash_attn_ck_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_symbol("bfloat16")),
             },
         )
     }
@@ -192,6 +194,7 @@ class FlashAttentionQKV(OpDef):
             "flash_attn_cuda",
             dtype_variants={
                 "float16": KernelVariant(flash_attn_cuda_qkv_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_cuda_qkv_symbol("bfloat16")),
             },
         ),
         "rocm": KernelBinding(
@@ -199,6 +202,7 @@ class FlashAttentionQKV(OpDef):
             "flash_attn_ck",
             dtype_variants={
                 "float16": KernelVariant(flash_attn_ck_qkv_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_qkv_symbol("bfloat16")),
             },
         )
     }

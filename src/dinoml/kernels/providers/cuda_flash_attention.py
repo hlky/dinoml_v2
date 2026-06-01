@@ -4,7 +4,7 @@ import os
 
 
 FLASH_ATTN_CUDA_LIBRARY = "flash_attn_cuda"
-FLASH_ATTN_CUDA_SUPPORTED_DTYPES = ("float16",)
+FLASH_ATTN_CUDA_SUPPORTED_DTYPES = ("float16", "bfloat16")
 
 
 def flash_attn_cuda_symbol(dtype: str) -> str:

@@ -592,6 +592,7 @@ def _runtime_metadata(ir: Dict) -> Dict:
         "runtime_abi_version": RUNTIME_ABI_VERSION,
         "name": ir["name"],
         "inputs": ir["inputs"],
+        "states": ir.get("states", []),
         "outputs": ir["outputs"],
         "constants": ir["constants"],
         "memory_plan": ir.get("metadata", {}).get("memory_plan", {}),

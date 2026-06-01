@@ -9,6 +9,7 @@ import dinoml as dml
 from dinoml.backends import rocm as rocm_backend
 from dinoml.compiler import _validate_mvp_runtime_contract
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.ops import render_launch
 from dinoml.reference import reference_numpy
 
@@ -47,6 +48,27 @@ class _FlashAttentionStaticKvCacheModule(dml.nn.Module):
 
 class _FlashAttentionStaticKvCacheBiasModule(dml.nn.Module):
     def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens, bias):
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache_bias(
+                q,
+                past_key,
+                past_value,
+                new_key,
+                new_value,
+                cache_seqlens,
+                bias,
+            ),
+            "out",
+        )
+
+
+class _FlashAttentionStaticKvCacheBiasStateModule(dml.nn.Module):
+    def __init__(self, *, max_cache_len: int):
+        self.max_cache_len = int(max_cache_len)
+
+    def forward(self, q, new_key, new_value, cache_seqlens, bias):
+        past_key = dml.state("past_key", dml.TensorSpec([1, 2, self.max_cache_len, 128], "bfloat16"))
+        past_value = dml.state("past_value", dml.TensorSpec([1, 2, self.max_cache_len, 128], "bfloat16"))
         return dml.ops.output(
             dml.ops.flash_attention_static_kv_cache_bias(
                 q,
@@ -333,6 +355,37 @@ def test_flash_attention_static_kv_cache_bias_rocm_manifest_requests_ck_bfloat16
     assert "ptr_bias" in launch
     assert "shape_bias_0" in launch
     assert "flash_attention_static_kv_cache_scratch" in launch
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
+
+
+def test_flash_attention_static_kv_cache_bias_can_use_session_state_buffers():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheBiasStateModule(max_cache_len=8),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 128], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+            "bias": dml.TensorSpec([4, 1, 8], "bfloat16"),
+        },
+        name="flash_attention_static_kv_cache_bias_state",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    source = render_rocm_module(spec.ir, kernel_manifest=manifest)
+    input_names = {item["name"] for item in spec.ir["inputs"]}
+    state_names = {item["name"] for item in spec.ir["states"]}
+
+    assert "past_key" not in input_names
+    assert "past_value" not in input_names
+    assert state_names == {"past_key", "past_value"}
+    assert "void* state_past_key" in source
+    assert "void* state_past_value" in source
+    assert "ptr_past_key = static_cast" in source
+    assert "ptr_past_value = static_cast" in source
+    assert "session->state_past_key" in source
+    assert "session->state_past_value" in source
+    assert "dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1" in source
     _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
 
 

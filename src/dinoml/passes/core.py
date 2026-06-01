@@ -176,6 +176,7 @@ def dead_code_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
             required_tensors.update(node["inputs"])
             _include_view_sources(required_tensors, view_sources)
     required_tensors.update(input_info["tensor"] for input_info in ir["inputs"])
+    required_tensors.update(state["tensor"] for state in ir.get("states", []))
     required_tensors.update(constant["tensor"] for constant in ir["constants"])
     ir["nodes"] = list(reversed(kept_nodes_reversed))
     ir["tensors"] = [tensor for tensor in ir["tensors"] if tensor["name"] in required_tensors]
@@ -300,6 +301,7 @@ def _include_view_sources(required_tensors: Set[str], view_sources: Dict[str, st
 def memory_plan(ir: Dict[str, Any]) -> Dict[str, Any]:
     output_tensors = {output["tensor"] for output in ir["outputs"]}
     input_tensors = {input_info["tensor"] for input_info in ir["inputs"]}
+    state_tensors = {state["tensor"] for state in ir.get("states", [])}
     constant_tensors = {constant["tensor"] for constant in ir["constants"]}
     tensors = tensor_map(ir)
     views = validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
@@ -307,7 +309,7 @@ def memory_plan(ir: Dict[str, Any]) -> Dict[str, Any]:
     temporaries = []
     for tensor in ir["tensors"]:
         name = tensor["name"]
-        if name in output_tensors or name in input_tensors or name in constant_tensors or name in view_tensors:
+        if name in output_tensors or name in input_tensors or name in state_tensors or name in constant_tensors or name in view_tensors:
             continue
         temporaries.append({"tensor": name, "nbytes": tensor["nbytes"]})
     ir.setdefault("metadata", {})["memory_plan"] = {

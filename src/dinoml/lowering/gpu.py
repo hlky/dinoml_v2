@@ -45,6 +45,7 @@ def render_gpu_module(
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     input_map = {item["tensor"]: idx for idx, item in enumerate(ir["inputs"])}
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
+    state_tensors = {item["tensor"]: item for item in ir.get("states", [])}
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
     temporaries = ir.get("metadata", {}).get("memory_plan", {}).get("temporaries", [])
     views = _view_contexts(ir, output_map=output_map, tensor_map=tensor_map, target_name=target_name)
@@ -84,6 +85,7 @@ def render_gpu_module(
                 for idx, item in enumerate(ir["outputs"])
             ],
             "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
+            "states": [_state_context(item) for item in ir.get("states", [])],
             "temporaries": [_temporary_context(item) for item in temporaries],
             "shape_buffers": [
                 shape_buffer_context(item)
@@ -102,6 +104,7 @@ def render_gpu_module(
                     target_name=target_name,
                     input_map=input_map,
                     output_map=output_map,
+                    state_tensors=state_tensors,
                     constant_tensors=constant_tensors,
                     temporaries=temporaries,
                     views=views,
@@ -156,6 +159,7 @@ def _gpu_target_config(target_name: str, spec: LoweringTargetSpec) -> dict[str, 
             "graph_destroy": "cudaGraphDestroy",
             "graph_exec_destroy": "cudaGraphExecDestroy",
             "memcpy": "cudaMemcpy",
+            "memset": "cudaMemset",
             "memcpy_async": "cudaMemcpyAsync",
             "stream_synchronize": "cudaStreamSynchronize",
             "memcpy_host_to_device": "cudaMemcpyHostToDevice",
@@ -194,6 +198,7 @@ def _gpu_target_config(target_name: str, spec: LoweringTargetSpec) -> dict[str, 
             "graph_destroy": "hipGraphDestroy",
             "graph_exec_destroy": "hipGraphExecDestroy",
             "memcpy": "hipMemcpy",
+            "memset": "hipMemset",
             "memcpy_async": "hipMemcpyAsync",
             "stream_synchronize": "hipStreamSynchronize",
             "memcpy_host_to_device": "hipMemcpyHostToDevice",
@@ -351,11 +356,20 @@ def _temporary_context(item: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _state_context(item: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "name": item["name"],
+        "ident": _c_ident(item["tensor"]),
+        "nbytes": int(item["nbytes"]),
+    }
+
+
 def _pointer_decls(
     *,
     target_name: str,
     input_map: Mapping[str, int],
     output_map: Mapping[str, int],
+    state_tensors: Mapping[str, Mapping[str, Any]],
     constant_tensors: Mapping[str, Mapping[str, Any]],
     temporaries: Iterable[Mapping[str, Any]],
     views: Iterable[Mapping[str, Any]],
@@ -381,6 +395,20 @@ def _pointer_decls(
         if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = dinoml::module::tensor_numel(inputs[{idx}]);"
+    for tensor_name in state_tensors:
+        ident = _c_ident(tensor_name)
+        cpp_type = storage_type(str(tensor_map[tensor_name]["dtype"]), target_name)
+        rank = len(tensor_map[tensor_name]["shape"])
+        yield f"const DinoTensor* abi_{ident} = nullptr;"
+        for axis in range(rank):
+            yield f"const int64_t shape_{ident}_{axis} = {int(tensor_map[tensor_name]['shape'][axis])};"
+        if ident in shape_buffer_idents and ident in shape_buffer_run_update_idents:
+            yield f"const int64_t host_shape_{ident}[] = {{ {shape_vars_literal(ident, rank)} }};"
+            yield f"{check_macro}({memcpy}(session->shape_{ident}, host_shape_{ident}, sizeof(int64_t) * {rank}, {memcpy_h2d}));"
+        if ident in shape_buffer_idents:
+            yield f"const int64_t* shape_{ident} = session->shape_{ident};"
+        yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, rank)};"
+        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(session->state_{ident});"
     for tensor_name in constant_tensors:
         ident = _c_ident(tensor_name)
         cpp_type = storage_type(str(tensor_map[tensor_name]["dtype"]), target_name)

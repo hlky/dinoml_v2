@@ -181,6 +181,7 @@ class GraphBuilder:
         self.nodes: List[Dict[str, Any]] = []
         self.tensors: Dict[str, Dict[str, Any]] = {}
         self.inputs: List[Dict[str, Any]] = []
+        self.states: List[Dict[str, Any]] = []
         self.constants: List[Dict[str, Any]] = []
         self.constant_values: Dict[str, np.ndarray] = {}
         self.views: List[Dict[str, Any]] = []
@@ -211,6 +212,15 @@ class GraphBuilder:
         tensor = Tensor(name=name, shape=spec.max_shape, dtype=spec.dtype, builder=self, kind="input", shape_spec=spec.shape_spec)
         info = _tensor_info(tensor)
         self.inputs.append(_io_info(name, tensor))
+        self.tensors[name] = info
+        return tensor
+
+    def state(self, name: str, spec: TensorSpec) -> Tensor:
+        if name in self.tensors:
+            raise ValueError(f"Duplicate tensor name: {name}")
+        tensor = Tensor(name=name, shape=spec.max_shape, dtype=spec.dtype, builder=self, kind="state", shape_spec=spec.shape_spec)
+        info = _tensor_info(tensor)
+        self.states.append(_state_info(name, tensor))
         self.tensors[name] = info
         return tensor
 
@@ -328,12 +338,13 @@ class GraphBuilder:
         output_infos = []
         aliased_output_tensors: set[str] = set()
         input_tensors = {item["tensor"] for item in self.inputs}
+        state_tensors = {item["tensor"] for item in self.states}
         constant_tensors = {item["tensor"] for item in self.constants}
         view_tensors = {view["tensor"] for view in self.views}
         for idx, tensor in enumerate(outputs):
             output_name = tensor.output_name or f"output_{idx}"
             output_tensor = tensor
-            if tensor.name in input_tensors or tensor.name in constant_tensors or tensor.name in aliased_output_tensors:
+            if tensor.name in input_tensors or tensor.name in state_tensors or tensor.name in constant_tensors or tensor.name in aliased_output_tensors:
                 if tensor.name in view_tensors:
                     raise NotImplementedError("Duplicate public outputs of view aliases are not supported yet")
                 output_tensor = self._add_public_output_alias(tensor)
@@ -350,7 +361,7 @@ class GraphBuilder:
             )
             self.tensors[output_tensor.name]["kind"] = "output"
 
-        metadata = _shape_metadata([*self.inputs, *self.constants, *output_infos, *self.tensors.values()])
+        metadata = _shape_metadata([*self.inputs, *self.states, *self.constants, *output_infos, *self.tensors.values()])
         if self.views:
             metadata["views"] = {"version": VIEW_METADATA_VERSION, "views": self.views}
 
@@ -358,6 +369,7 @@ class GraphBuilder:
             "schema_version": IR_SCHEMA_VERSION,
             "name": self.name,
             "inputs": self.inputs,
+            "states": self.states,
             "constants": self.constants,
             "outputs": output_infos,
             "nodes": self.nodes,
@@ -420,6 +432,22 @@ def _io_info(name: str, tensor: Tensor) -> Dict[str, Any]:
         "layout": dense_layout(tensor.shape),
         "dtype": tensor.dtype,
     }
+
+
+def _state_info(name: str, tensor: Tensor) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "tensor": tensor.name,
+        "shape": tensor.shape,
+        "shape_spec": tensor.shape_spec,
+        "layout": dense_layout(tensor.shape),
+        "dtype": tensor.dtype,
+        "nbytes": int(shape_numel(tensor.shape) * dtype_nbytes(tensor.dtype)),
+    }
+
+
+def state(name: str, spec: TensorSpec) -> Tensor:
+    return GraphBuilder.current().state(name, spec)
 
 
 def as_tensor(value: Any, dtype_hint: str | None = None) -> Tensor:

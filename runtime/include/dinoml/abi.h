@@ -70,6 +70,12 @@ DINO_EXPORT int dino_session_get_output_shape(
     size_t output_index,
     int64_t* out_shape,
     size_t* inout_ndim);
+// Optional generated-module extension. Modules without per-session state may
+// omit this symbol.
+DINO_EXPORT int dino_session_get_state_pointer(
+    DinoSession* session,
+    size_t state_index,
+    void** out_data);
 DINO_EXPORT int dino_session_benchmark(
     DinoSession* session,
     const DinoTensor* inputs,

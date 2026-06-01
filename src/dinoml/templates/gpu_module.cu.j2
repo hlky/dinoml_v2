@@ -6,7 +6,6 @@
 #include <dinoml/tensor_accessor.h>
 
 #include <cstddef>
-#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -47,6 +46,10 @@ struct DinoSession {
   bool external_stream = false;
   std::vector<std::vector<int64_t>> last_output_shapes;
   std::vector<bool> last_output_shapes_valid;
+{% for state in states %}
+  void* state_{{ state.ident }} = nullptr;
+  size_t state_{{ state.ident }}_nbytes = {{ state.nbytes }};
+{% endfor %}
 {% if cutlass_workspace %}
   void* cutlass_workspace = nullptr;
   size_t cutlass_workspace_nbytes = {{ cutlass_workspace.nbytes }};
@@ -322,6 +325,10 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   } while (0)
   DINO_SESSION_CREATE_GPU_CHECK({{ stream_create_with_flags }}(&session->owned_stream, {{ stream_non_blocking }}));
   session->stream = session->owned_stream;
+{% for state in states %}
+  DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->state_{{ state.ident }}, {{ state.nbytes }}));
+  DINO_SESSION_CREATE_GPU_CHECK({{ memset }}(session->state_{{ state.ident }}, 0, {{ state.nbytes }}));
+{% endfor %}
 {% if cutlass_workspace %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->cutlass_workspace, {{ cutlass_workspace.nbytes }}));
 {% endif %}
@@ -365,6 +372,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
 {% for shape in shape_buffers %}
   if (session->shape_{{ shape.ident }}) {
     {{ device_free }}(session->shape_{{ shape.ident }});
+  }
+{% endfor %}
+{% for state in states %}
+  if (session->state_{{ state.ident }}) {
+    {{ device_free }}(session->state_{{ state.ident }});
   }
 {% endfor %}
 {% for temp in temporaries %}
@@ -446,6 +458,24 @@ DINO_EXPORT int dino_session_get_output_shape(
   }
   *inout_ndim = rank;
   return 0;
+}
+
+DINO_EXPORT int dino_session_get_state_pointer(
+    DinoSession* session,
+    size_t state_index,
+    void** out_data) {
+  if (session == nullptr || out_data == nullptr) {
+    return dinoml::module::fail("dino_session_get_state_pointer received null argument");
+  }
+  switch (state_index) {
+{% for state in states %}
+    case {{ loop.index0 }}:
+      *out_data = session->state_{{ state.ident }};
+      return 0;
+{% endfor %}
+    default:
+      return dinoml::module::fail("dino_session_get_state_pointer received invalid state index");
+  }
 }
 
 static int dino_session_report_output_shapes(
@@ -786,12 +816,9 @@ DINO_EXPORT int dino_session_benchmark(
   } else {
     {{ check_macro }}({{ device_synchronize }}());
   }
-  const bool benchmark_wall_sync = std::getenv("DINOML_BENCHMARK_WALL_SYNC") != nullptr;
   DinoGpuBenchmarkEvents events;
-  if (!benchmark_wall_sync) {
-    {{ check_macro }}({{ event_create }}(&events.start, {{ event_flags }}));
-    {{ check_macro }}({{ event_create }}(&events.stop, {{ event_flags }}));
-  }
+  {{ check_macro }}({{ event_create }}(&events.start, {{ event_flags }}));
+  {{ check_macro }}({{ event_create }}(&events.stop, {{ event_flags }}));
   DinoGpuBenchmarkGraph graph;
   bool use_graph_replay = false;
   {{ device_error_type }} graph_capture_status = {{ success_constant }};
@@ -844,12 +871,7 @@ DINO_EXPORT int dino_session_benchmark(
         std::to_string(static_cast<int>(graph_instantiate_status)));
   }
   for (size_t i = 0; i < measured_runs; ++i) {
-    std::chrono::steady_clock::time_point wall_start;
-    if (benchmark_wall_sync) {
-      wall_start = std::chrono::steady_clock::now();
-    } else {
-      {{ check_macro }}({{ event_record }}(events.start, session->stream));
-    }
+    {{ check_macro }}({{ event_record }}(events.start, session->stream));
     if (use_graph_replay) {
       {{ check_macro }}({{ graph_launch }}(graph.executable, session->stream));
     } else {
@@ -857,17 +879,11 @@ DINO_EXPORT int dino_session_benchmark(
         return err;
       }
     }
-    if (benchmark_wall_sync) {
-      {{ check_macro }}({{ stream_synchronize }}(session->stream));
-      const auto wall_stop = std::chrono::steady_clock::now();
-      out_elapsed_ms[i] = std::chrono::duration<double, std::milli>(wall_stop - wall_start).count();
-    } else {
-      {{ check_macro }}({{ event_record }}(events.stop, session->stream));
-      {{ check_macro }}({{ event_synchronize }}(events.stop));
-      float elapsed_ms = 0.0f;
-      {{ check_macro }}({{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop));
-      out_elapsed_ms[i] = static_cast<double>(elapsed_ms);
-    }
+    {{ check_macro }}({{ event_record }}(events.stop, session->stream));
+    {{ check_macro }}({{ event_synchronize }}(events.stop));
+    float elapsed_ms = 0.0f;
+    {{ check_macro }}({{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop));
+    out_elapsed_ms[i] = static_cast<double>(elapsed_ms);
   }
   if (int err = dino_session_report_output_shapes(session, outputs)) {
     return err;

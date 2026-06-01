@@ -743,6 +743,17 @@ class RuntimeModule:
             ctypes.POINTER(ctypes.c_size_t),
         ]
         self._dll.dino_session_get_output_shape.restype = ctypes.c_int
+        try:
+            self._session_get_state_pointer = self._dll.dino_session_get_state_pointer
+        except AttributeError:
+            self._session_get_state_pointer = None
+        else:
+            self._session_get_state_pointer.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+                ctypes.POINTER(ctypes.c_void_p),
+            ]
+            self._session_get_state_pointer.restype = ctypes.c_int
         self._dll.dino_session_run.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(_DinoTensor),
@@ -931,6 +942,50 @@ class Session:
         reported_shape = tuple(int(shape[i]) for i in range(ndim.value))
         _shape_numel(reported_shape)
         return reported_shape
+
+    def state_device_pointer(self, index_or_name: int | str) -> int:
+        self._require_open()
+        state_index = self._state_index(index_or_name)
+        getter = getattr(self.module, "_session_get_state_pointer", None)
+        if getter is None:
+            raise RuntimeError("Artifact does not expose dino_session_get_state_pointer; recompile it to use state APIs")
+        ptr = ctypes.c_void_p()
+        self.module._check(getter(self._handle, ctypes.c_size_t(state_index), ctypes.byref(ptr)))
+        if not ptr:
+            raise RuntimeError(f"State {index_or_name!r} returned a null device pointer")
+        return int(ptr.value)
+
+    def set_state_numpy(self, index_or_name: int | str, value: np.ndarray) -> None:
+        self._require_open()
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("set_state_numpy is only available for GPU artifacts")
+        state_spec = self._state_spec(index_or_name)
+        array = array_to_storage(value, str(state_spec["dtype"]))
+        validate_runtime_shape(str(state_spec["name"]), array.shape, state_spec)
+        ptr = ctypes.c_void_p(self.state_device_pointer(index_or_name))
+        self._copy_h2d(ptr, array)
+
+    def get_state_numpy(self, index_or_name: int | str) -> np.ndarray:
+        self._require_open()
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("get_state_numpy is only available for GPU artifacts")
+        state_spec = self._state_spec(index_or_name)
+        storage = np.empty(tuple(int(dim) for dim in state_spec["shape"]), dtype=dtype_numpy(str(state_spec["dtype"])))
+        ptr = ctypes.c_void_p(self.state_device_pointer(index_or_name))
+        self._copy_d2h(storage, ptr)
+        return array_from_storage(storage, str(state_spec["dtype"]))
+
+    def copy_device_to_state(self, index_or_name: int | str, src_device_pointer: int, *, nbytes: int | None = None) -> None:
+        self._require_open()
+        if self.module.target_name not in {"cuda", "rocm"}:
+            raise RuntimeError("copy_device_to_state is only available for GPU artifacts")
+        state_spec = self._state_spec(index_or_name)
+        copy_nbytes = int(_shape_nbytes(state_spec["shape"], str(state_spec["dtype"])) if nbytes is None else nbytes)
+        if copy_nbytes < 0 or copy_nbytes > _shape_nbytes(state_spec["shape"], str(state_spec["dtype"])):
+            raise ValueError(f"State copy size {copy_nbytes} is outside the allocated state size")
+        dst = ctypes.c_void_p(self.state_device_pointer(index_or_name))
+        src = ctypes.c_void_p(int(src_device_pointer))
+        self._copy_d2d(dst, src, copy_nbytes)
 
     def _materialize_output_array(self, output: np.ndarray, actual_shape: tuple[int, ...]) -> np.ndarray:
         actual_numel = _shape_numel(actual_shape)
@@ -1454,6 +1509,11 @@ class Session:
             self.module._cuda_runtime_dll.dino_copy_device_to_host(ctypes.c_void_p(dst.ctypes.data), src_device, ctypes.c_size_t(dst.nbytes))
         )
 
+    def _copy_d2d(self, dst_device: ctypes.c_void_p, src_device: ctypes.c_void_p, nbytes: int) -> None:
+        self.module._check_cuda_runtime(
+            self.module._cuda_runtime_dll.dino_copy_device_to_device(dst_device, src_device, ctypes.c_size_t(int(nbytes)))
+        )
+
     def _require_open(self) -> None:
         if not getattr(self, "_handle", None):
             raise RuntimeError("Session is closed")
@@ -1468,6 +1528,21 @@ class Session:
         index = int(index_or_name)
         if index < 0 or index >= len(output_specs):
             raise IndexError(f"Output index out of range: {index}")
+        return index
+
+    def _state_spec(self, index_or_name: int | str) -> Mapping[str, object]:
+        return self.module.metadata["states"][self._state_index(index_or_name)]
+
+    def _state_index(self, index_or_name: int | str) -> int:
+        state_specs = self.module.metadata.get("states", [])
+        if isinstance(index_or_name, str):
+            for idx, spec in enumerate(state_specs):
+                if str(spec["name"]) == index_or_name:
+                    return idx
+            raise ValueError(f"Unknown state: {index_or_name}")
+        index = int(index_or_name)
+        if index < 0 or index >= len(state_specs):
+            raise IndexError(f"State index out of range: {index}")
         return index
 
     def _shape_buffer_report_unavailable_on_external_stream(self, output_name: str) -> bool:

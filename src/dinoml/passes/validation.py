@@ -67,6 +67,15 @@ def validate_ir(ir: Mapping[str, Any]) -> None:
     for output in ir["outputs"]:
         if output["tensor"] not in tensors:
             raise ValidationError(f"Output {output['name']} references missing tensor {output['tensor']}")
+    for state in ir.get("states", []):
+        tensor_name = state.get("tensor")
+        if tensor_name not in tensors:
+            raise ValidationError(f"State {state.get('name')} references missing tensor {tensor_name}")
+        tensor = tensors[tensor_name]
+        if list(state.get("shape", [])) != list(tensor["shape"]):
+            raise ValidationError(f"State {state.get('name')} shape metadata must match tensor table")
+        if str(state.get("dtype")) != str(tensor["dtype"]):
+            raise ValidationError(f"State {state.get('name')} dtype metadata must match tensor table")
     validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
     validate_view_metadata(ir.get("metadata", {}).get("memory_plan", {}).get("views"), tensors)
     validate_output_shape_report_metadata(ir.get("metadata", {}).get("output_shape_reports"), ir["outputs"], tensors)

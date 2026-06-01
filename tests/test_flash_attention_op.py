@@ -21,6 +21,14 @@ class _FlashAttentionModule(dml.nn.Module):
         return dml.ops.output(dml.ops.flash_attention(q, k, v, causal=self.causal), "out")
 
 
+class _FlashAttentionBiasModule(dml.nn.Module):
+    def __init__(self, *, causal: bool):
+        self.causal = causal
+
+    def forward(self, q, k, v, bias):
+        return dml.ops.output(dml.ops.flash_attention_bias(q, k, v, bias, causal=self.causal), "out")
+
+
 class _FlashAttentionQKVModule(dml.nn.Module):
     def __init__(self, *, causal: bool):
         self.causal = causal
@@ -55,6 +63,31 @@ def test_flash_attention_reference_matches_naive_causal_attention():
 
     actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
     expected = _naive_flash_attention(inputs["q"], inputs["k"], inputs["v"], causal=True)
+
+    np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
+
+
+def test_flash_attention_bias_reference_matches_naive_per_head_bias():
+    spec = dml.trace(
+        _FlashAttentionBiasModule(causal=False),
+        inputs={
+            "q": dml.TensorSpec([1, 4, 2, 64], "float16"),
+            "k": dml.TensorSpec([1, 4, 1, 64], "float16"),
+            "v": dml.TensorSpec([1, 4, 1, 64], "float16"),
+            "bias": dml.TensorSpec([2, 4, 4], "float16"),
+        },
+        name="flash_attention_bias_reference",
+    )
+    rng = np.random.default_rng(123)
+    inputs = {
+        "q": rng.normal(size=(1, 4, 2, 64)).astype(np.float16),
+        "k": rng.normal(size=(1, 4, 1, 64)).astype(np.float16),
+        "v": rng.normal(size=(1, 4, 1, 64)).astype(np.float16),
+        "bias": rng.normal(size=(2, 4, 4)).astype(np.float16),
+    }
+
+    actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
+    expected = _naive_flash_attention_bias(inputs["q"], inputs["k"], inputs["v"], inputs["bias"], causal=False)
 
     np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
 
@@ -142,6 +175,33 @@ def test_flash_attention_rocm_manifest_requests_ck_bfloat16_head_dim128_archive(
     assert "dinoml_flash_attn_ck_fwd_bfloat16_v1" in launch
     assert "!= 64" not in launch
     assert "> 256" in launch
+
+
+def test_flash_attention_bias_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
+    spec = dml.trace(
+        _FlashAttentionBiasModule(causal=False),
+        inputs={
+            "q": dml.TensorSpec([1, 5, 4, 128], "bfloat16"),
+            "k": dml.TensorSpec([1, 5, 2, 128], "bfloat16"),
+            "v": dml.TensorSpec([1, 5, 2, 128], "bfloat16"),
+            "bias": dml.TensorSpec([4, 5, 5], "bfloat16"),
+        },
+        name="flash_attention_bias_bfloat16_head_dim128_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_bias")
+    launch = render_launch("rocm", node, tensors, kernel_manifest=manifest)
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_bias"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_bias_fwd_bfloat16_v1"
+    assert "dinoml_flash_attn_ck_bias_fwd_bfloat16_v1" in launch
+    assert "ptr_bias" in launch
+    assert "shape_bias_0" in launch
 
 
 def test_flash_attention_qkv_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
@@ -342,6 +402,34 @@ def _naive_flash_attention(q, k, v, *, causal: bool) -> np.ndarray:
         v_value = np.repeat(v_value, repeat, axis=2)
     seqlen_k = k_value.shape[1]
     scores = np.einsum("bqhd,bkhd->bhqk", q_value, k_value) * np.float32(1.0 / math.sqrt(head_dim))
+    if causal:
+        q_idx = np.arange(seqlen_q)[:, None]
+        k_idx = np.arange(seqlen_k)[None, :]
+        scores = np.where(k_idx > q_idx, np.float32(-1.0e30), scores)
+    shifted = scores - np.max(scores, axis=-1, keepdims=True)
+    probs = np.exp(shifted)
+    probs = probs / np.sum(probs, axis=-1, keepdims=True)
+    return np.einsum("bhqk,bkhd->bqhd", probs, v_value)
+
+
+def _naive_flash_attention_bias(q, k, v, bias, *, causal: bool) -> np.ndarray:
+    q_value = q.astype(np.float32)
+    k_value = k.astype(np.float32)
+    v_value = v.astype(np.float32)
+    bias_value = bias.astype(np.float32)
+    batch, seqlen_q, heads_q, head_dim = q_value.shape
+    heads_k = k_value.shape[2]
+    if heads_q != heads_k:
+        repeat = heads_q // heads_k
+        k_value = np.repeat(k_value, repeat, axis=2)
+        v_value = np.repeat(v_value, repeat, axis=2)
+    seqlen_k = k_value.shape[1]
+    if bias_value.ndim == 2:
+        bias_value = bias_value.reshape(1, 1, seqlen_q, seqlen_k)
+    elif bias_value.ndim == 3:
+        bias_value = bias_value.reshape(1, bias_value.shape[0], seqlen_q, seqlen_k)
+    scores = np.einsum("bqhd,bkhd->bhqk", q_value, k_value) * np.float32(1.0 / math.sqrt(head_dim))
+    scores = scores + np.broadcast_to(bias_value, (batch, heads_q, seqlen_q, seqlen_k))
     if causal:
         q_idx = np.arange(seqlen_q)[:, None]
         k_idx = np.arange(seqlen_k)[None, :]

@@ -5,6 +5,7 @@ import json
 import statistics
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -70,6 +71,12 @@ def parse_args() -> argparse.Namespace:
 def build_config(snapshot: Path, dtype: str):
     payload = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
     return glm_ocr_config_from_transformers_dict(payload, dtype=dtype)
+
+
+def enable_rocm_flash_attention_bias(config, target: str):
+    if target != "rocm" or config.text_config.dtype not in {"float16", "bfloat16"}:
+        return config
+    return replace(config, text_config=replace(config.text_config, use_flash_attention_bias=True))
 
 
 def configure_processor_image_size(processor, min_pixels: int | None, max_pixels: int | None) -> dict[str, int] | None:
@@ -225,11 +232,12 @@ def cache_spec_for_config(config, max_cache_len: int) -> StaticKvCacheSpec:
 
 def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start: int, max_cache_len: int) -> tuple[Path, Path]:
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
+    flash_bias_suffix = "_flash_bias" if config.text_config.use_flash_attention_bias else ""
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
         prefill_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_prefill_s{inputs['input_ids'].shape[1]}"
-            f"_p{inputs['pixel_values'].shape[0]}_{args.dtype}_{args.target}.dinoml"
+            f"_p{inputs['pixel_values'].shape[0]}{flash_bias_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     decode_artifact = args.decode_artifact
     if decode_artifact is None:
@@ -375,7 +383,7 @@ def main() -> None:
     processor = AutoProcessor.from_pretrained(args.snapshot)
     processor_image_size = configure_processor_image_size(processor, args.min_pixels, args.max_pixels)
     processed, image_size = processor_inputs(processor, args.image, args.prompt)
-    config = build_config(args.snapshot, args.dtype)
+    config = enable_rocm_flash_attention_bias(build_config(args.snapshot, args.dtype), args.target)
     inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     started_compile = time.perf_counter()

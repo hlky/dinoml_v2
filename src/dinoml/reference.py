@@ -339,6 +339,19 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "flash_attention_bias":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_flash_attention_bias(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "flash_attention_qkv":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -872,6 +885,63 @@ def _execute_flash_attention(q: np.ndarray, k: np.ndarray, v: np.ndarray, attrs:
     probs = np.exp(shifted)
     probs = probs / np.sum(probs, axis=-1, keepdims=True)
     return np.einsum("bhqk,bkhd->bqhd", probs, v_value).astype(np.float32, copy=False)
+
+
+def _execute_flash_attention_bias(
+    q: np.ndarray,
+    k: np.ndarray,
+    v: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    q_value = np.asarray(q, dtype=np.float32)
+    k_value = np.asarray(k, dtype=np.float32)
+    v_value = np.asarray(v, dtype=np.float32)
+    bias_value = np.asarray(bias, dtype=np.float32)
+    if q_value.ndim != 4 or k_value.ndim != 4 or v_value.ndim != 4:
+        raise ValueError("CPU reference flash_attention_bias expects rank-4 q, k, and v")
+    if k_value.shape != v_value.shape:
+        raise ValueError("CPU reference flash_attention_bias key/value shape mismatch")
+    batch, seqlen_q, heads_q, head_dim = q_value.shape
+    batch_k, seqlen_k, heads_k, head_dim_k = k_value.shape
+    if batch != batch_k or head_dim != head_dim_k or heads_q % heads_k != 0:
+        raise ValueError("CPU reference flash_attention_bias shape mismatch")
+    if heads_q != heads_k:
+        repeat = heads_q // heads_k
+        k_value = np.repeat(k_value, repeat, axis=2)
+        v_value = np.repeat(v_value, repeat, axis=2)
+    scores = np.einsum("bqhd,bkhd->bhqk", q_value, k_value) * np.float32(1.0 / math.sqrt(float(head_dim)))
+    scores = scores + _broadcast_flash_attention_bias(bias_value, batch, heads_q, seqlen_q, seqlen_k)
+    if bool(attrs.get("causal", False)):
+        q_idx = np.arange(seqlen_q)[:, None]
+        k_idx = np.arange(seqlen_k)[None, :]
+        scores = np.where(k_idx > q_idx, np.float32(-1.0e30), scores)
+    shifted = scores - np.max(scores, axis=-1, keepdims=True)
+    probs = np.exp(shifted)
+    probs = probs / np.sum(probs, axis=-1, keepdims=True)
+    return np.einsum("bhqk,bkhd->bqhd", probs, v_value).astype(np.float32, copy=False)
+
+
+def _broadcast_flash_attention_bias(
+    bias: np.ndarray,
+    batch: int,
+    heads: int,
+    seqlen_q: int,
+    seqlen_k: int,
+) -> np.ndarray:
+    if bias.ndim == 2:
+        bias_value = bias.reshape(1, 1, bias.shape[0], bias.shape[1])
+    elif bias.ndim == 3:
+        bias_value = bias.reshape(1, bias.shape[0], bias.shape[1], bias.shape[2])
+    elif bias.ndim == 4:
+        bias_value = bias
+    else:
+        raise ValueError("CPU reference flash_attention_bias bias must have rank 2, 3, or 4")
+    if bias_value.shape[0] not in (1, batch) or bias_value.shape[1] not in (1, heads):
+        raise ValueError("CPU reference flash_attention_bias bias batch/head shape mismatch")
+    if bias_value.shape[2] != seqlen_q or bias_value.shape[3] != seqlen_k:
+        raise ValueError("CPU reference flash_attention_bias bias sequence shape mismatch")
+    return np.broadcast_to(bias_value, (batch, heads, seqlen_q, seqlen_k))
 
 
 def _execute_flash_attention_static_kv_cache(

@@ -110,6 +110,7 @@ class GlmOcrTextConfig:
     dtype: str = "bfloat16"
     mask_fill_value: float = -1.0e4
     use_flash_attention: bool = True
+    use_flash_attention_bias: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "dtype", _normalize_glm_ocr_dtype(self.dtype))
@@ -457,9 +458,14 @@ class GlmOcrTextAttention(dml.nn.Module):
 
     def _attention_output(self, q, k, v, attention_mask, batch: int, seq_len: int):
         if self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"}:
-            context = dml.ops.flash_attention(q, k, v, causal=True)
-            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-            return self.o_proj(context)
+            if attention_mask is None:
+                context = dml.ops.flash_attention(q, k, v, causal=True)
+                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+                return self.o_proj(context)
+            if self.config.use_flash_attention_bias:
+                context = dml.ops.flash_attention_bias(q, k, v, attention_mask, causal=True)
+                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+                return self.o_proj(context)
         q = dml.ops.permute(q, (0, 2, 1, 3))
         k = dml.ops.permute(k, (0, 2, 1, 3))
         v = dml.ops.permute(v, (0, 2, 1, 3))
@@ -498,6 +504,19 @@ class GlmOcrTextAttention(dml.nn.Module):
             attn_value = dml.ops.permute(present_value, (0, 2, 1, 3))
             q = dml.ops.permute(q, (0, 2, 1, 3))
             context = dml.ops.flash_attention(q, attn_key, attn_value, causal=False)
+            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+            return self.o_proj(context), present_key, present_value
+        if (
+            self.config.use_flash_attention
+            and self.config.use_flash_attention_bias
+            and q.dtype in {"float16", "bfloat16"}
+            and attention_mask is not None
+            and seq_len == 1
+        ):
+            attn_key = dml.ops.permute(present_key, (0, 2, 1, 3))
+            attn_value = dml.ops.permute(present_value, (0, 2, 1, 3))
+            q = dml.ops.permute(q, (0, 2, 1, 3))
+            context = dml.ops.flash_attention_bias(q, attn_key, attn_value, attention_mask, causal=False)
             context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
             return self.o_proj(context), present_key, present_value
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)

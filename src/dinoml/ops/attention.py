@@ -4,6 +4,7 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.providers.ck.flash_attention import (
+    flash_attn_ck_bias_symbol,
     flash_attn_ck_qkv_symbol,
     flash_attn_ck_static_kv_cache_symbol,
     flash_attn_ck_symbol,
@@ -36,6 +37,35 @@ def flash_attention(q: object, k: object, v: object, *, causal: bool = False) ->
     _validate_flash_attention_shapes([tensor.shape for tensor in tensors])
     return q_tensor.builder.emit(
         "flash_attention",
+        tensors,
+        q_tensor.shape,
+        q_tensor.dtype,
+        {"causal": bool(causal)},
+        shape_spec=q_tensor.shape_spec,
+    )
+
+
+def flash_attention_bias(q: object, k: object, v: object, bias: object, *, causal: bool = False) -> Tensor:
+    q_tensor = as_tensor(q, dtype_hint=k.dtype if isinstance(k, Tensor) else "float32")
+    k_tensor = as_tensor(k, dtype_hint=q_tensor.dtype)
+    v_tensor = as_tensor(v, dtype_hint=q_tensor.dtype)
+    bias_tensor = as_tensor(bias, dtype_hint=q_tensor.dtype)
+    tensors = (q_tensor, k_tensor, v_tensor, bias_tensor)
+    for tensor in tensors[1:]:
+        if q_tensor.builder is not tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+    for tensor in tensors[1:3]:
+        if q_tensor.dtype != tensor.dtype:
+            raise ValueError(f"flash_attention_bias dtype mismatch: {q_tensor.dtype} vs {tensor.dtype}")
+    if bias_tensor.dtype != q_tensor.dtype:
+        raise ValueError(f"flash_attention_bias bias dtype mismatch: {q_tensor.dtype} vs {bias_tensor.dtype}")
+    if q_tensor.dtype not in FLASH_ATTENTION_DTYPES:
+        supported = ", ".join(FLASH_ATTENTION_DTYPES)
+        raise ValueError(f"flash_attention_bias supports {supported}, got {q_tensor.dtype}")
+    _validate_flash_attention_shapes([q_tensor.shape, k_tensor.shape, v_tensor.shape])
+    _validate_flash_attention_bias_shape(q_tensor.shape, k_tensor.shape, bias_tensor.shape)
+    return q_tensor.builder.emit(
+        "flash_attention_bias",
         tensors,
         q_tensor.shape,
         q_tensor.dtype,
@@ -124,6 +154,14 @@ def _infer_flash_attention_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
     return list(shapes[0])
 
 
+def _infer_flash_attention_bias_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(shapes) != 4:
+        raise ValueError(f"flash_attention_bias expects 4 inputs, got {len(shapes)}")
+    _validate_flash_attention_shapes(shapes[:3])
+    _validate_flash_attention_bias_shape(shapes[0], shapes[1], shapes[3])
+    return list(shapes[0])
+
+
 def _infer_flash_attention_qkv_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(shapes) != 1:
         raise ValueError(f"flash_attention_qkv expects 1 input, got {len(shapes)}")
@@ -151,6 +189,33 @@ def _validate_flash_attention_shapes(shapes: Sequence[Sequence[int]]) -> None:
         raise ValueError("flash_attention head_dim mismatch")
     if q_shape[2] % k_shape[2] != 0:
         raise ValueError("flash_attention num_heads_q must be divisible by num_heads_k")
+
+
+def _validate_flash_attention_bias_shape(
+    q_shape: Sequence[int],
+    k_shape: Sequence[int],
+    bias_shape: Sequence[int],
+) -> None:
+    q = list(q_shape)
+    k = list(k_shape)
+    bias = list(bias_shape)
+    if len(bias) == 2:
+        bias_batch = 1
+        bias_heads = 1
+        bias_seq_q, bias_seq_k = bias
+    elif len(bias) == 3:
+        bias_batch = 1
+        bias_heads, bias_seq_q, bias_seq_k = bias
+    elif len(bias) == 4:
+        bias_batch, bias_heads, bias_seq_q, bias_seq_k = bias
+    else:
+        raise ValueError("flash_attention_bias expects bias with shape [seq_q, seq_k], [heads, seq_q, seq_k], or [batch, heads, seq_q, seq_k]")
+    if bias_batch not in (1, q[0]):
+        raise ValueError("flash_attention_bias bias batch dimension must be 1 or match q batch")
+    if bias_heads not in (1, q[2]):
+        raise ValueError("flash_attention_bias bias heads dimension must be 1 or match q heads")
+    if bias_seq_q != q[1] or bias_seq_k != k[1]:
+        raise ValueError("flash_attention_bias bias sequence dimensions must match [seq_q, seq_k]")
 
 
 def _validate_flash_attention_static_kv_cache_shapes(shapes: Sequence[Sequence[int]]) -> None:
@@ -220,6 +285,16 @@ def _infer_flash_attention_shape_with_attrs(
     return _infer_flash_attention_shape(shapes)
 
 
+def _infer_flash_attention_bias_shape_with_attrs(
+    shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    causal = attrs.get("causal", False)
+    if not isinstance(causal, bool):
+        raise TypeError("flash_attention_bias causal attr must be a bool")
+    return _infer_flash_attention_bias_shape(shapes)
+
+
 def _infer_flash_attention_qkv_shape_with_attrs(
     shapes: Sequence[Sequence[int]],
     attrs: Mapping[str, Any],
@@ -260,6 +335,30 @@ class FlashAttention(OpDef):
     }
     frontend = FrontendBinding("flash_attention")
     description = "CK FlashAttention forward op for contiguous [batch, seq, heads, head_dim] tensors."
+
+
+@op_def
+class FlashAttentionBias(OpDef):
+    name = "flash_attention_bias"
+    schema = OpSchema(
+        inputs=("q", "k", "v", "bias"),
+        attrs=(AttrDef("causal", "bool", default=False),),
+    )
+    infer_shape = _infer_flash_attention_bias_shape
+    infer_shape_with_attrs = _infer_flash_attention_bias_shape_with_attrs
+    allowed_dtypes = FLASH_ATTENTION_DTYPES
+    backend_kernels = {
+        "rocm": KernelBinding(
+            flash_attn_ck_bias_symbol("float16"),
+            "flash_attn_ck",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_ck_bias_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_bias_symbol("bfloat16")),
+            },
+        ),
+    }
+    frontend = FrontendBinding("flash_attention_bias")
+    description = "CK FlashAttention forward op with additive elementwise attention bias."
 
 
 @op_def

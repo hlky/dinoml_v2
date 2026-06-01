@@ -244,6 +244,7 @@ def test_glm_ocr_bf16_text_head_dim128_trace_uses_flash_attention():
             "rope_theta": 10000.0,
         },
         dtype="bfloat16",
+        use_flash_attention_bias=True,
     )
     config = replace(base_config, text_config=text_config)
     weights = _tiny_weights(config)
@@ -261,7 +262,8 @@ def test_glm_ocr_bf16_text_head_dim128_trace_uses_flash_attention():
     )
     counts = Counter(node["op"] for node in spec.ir["nodes"])
 
-    assert counts["flash_attention"] == config.text_config.num_hidden_layers
+    assert counts["flash_attention_bias"] == config.text_config.num_hidden_layers
+    assert counts["flash_attention"] == 0
     assert counts["bmm_rcr"] == 0
     assert counts["bmm_rrr"] == 0
 

@@ -153,6 +153,44 @@ int dinoml_flash_attn_ck_fwd_bfloat16_v1(
     int causal,
     hipStream_t stream);
 
+int dinoml_flash_attn_ck_bias_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const void* bias,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int64_t bias_batch,
+    int64_t bias_heads,
+    int64_t bias_seqlen_q,
+    int64_t bias_seqlen_k,
+    int causal,
+    hipStream_t stream);
+
+int dinoml_flash_attn_ck_bias_fwd_bfloat16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const void* bias,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int64_t bias_batch,
+    int64_t bias_heads,
+    int64_t bias_seqlen_q,
+    int64_t bias_seqlen_k,
+    int causal,
+    hipStream_t stream);
+
 int dinoml_flash_attn_ck_qkv_fwd_float16_v1(
     const void* qkv,
     void* output,

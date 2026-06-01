@@ -17,6 +17,7 @@ EXPECTED_FLOAT_DTYPE_GAPS = {
     "float32": (
         "_shape_buffer_count_true",
         "flash_attention",
+        "flash_attention_bias",
         "flash_attention_qkv",
         "flash_attention_static_kv_cache",
     ),
@@ -27,11 +28,12 @@ EXPECTED_FLOAT_DTYPE_GAPS = {
 }
 
 EXPECTED_CUDA_NOT_ROCM: tuple[str, ...] = ()
-EXPECTED_ROCM_NOT_CUDA: tuple[str, ...] = ()
+EXPECTED_ROCM_NOT_CUDA: tuple[str, ...] = ("flash_attention_bias",)
 
 EXPECTED_BACKEND_BUCKETS = {
     "cpu,cuda,rocm": 52,
     "cuda,rocm": 52,
+    "rocm": 1,
     "fused/no direct": 39,
 }
 
@@ -78,18 +80,18 @@ EXPECTED_DIRECTLESS_OPS = (
 )
 
 EXPECTED_GPU_ONLY_PROVIDER_PREFIXES = ("bmm_", "flash_attention", "gemm_")
-EXPECTED_GPU_ONLY_PROVIDER_COUNT = 52
+EXPECTED_GPU_ONLY_PROVIDER_COUNT = 53
 
 EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
-    "float16": 7,
+    "float16": 8,
     "float32": 3,
-    "bfloat16": 7,
+    "bfloat16": 8,
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {
-    "float16": 7,
+    "float16": 8,
     "float32": 3,
-    "bfloat16": 7,
+    "bfloat16": 8,
 }
 
 

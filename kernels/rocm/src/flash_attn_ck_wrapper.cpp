@@ -133,6 +133,172 @@ extern "C" int dinoml_flash_attn_ck_fwd_bfloat16_v1(
       stream);
 }
 
+int launch_flash_attention_bias(
+    const void* q,
+    const void* k,
+    const void* v,
+    const void* bias,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int64_t bias_batch,
+    int64_t bias_heads,
+    int64_t bias_seqlen_q,
+    int64_t bias_seqlen_k,
+    int causal,
+    DataType dtype,
+    hipStream_t stream) {
+  if (q == nullptr || k == nullptr || v == nullptr || bias == nullptr || output == nullptr) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if (batch_size <= 0 || seqlen_q <= 0 || seqlen_k <= 0 || num_heads_q <= 0 ||
+      num_heads_k <= 0 || head_dim <= 0 || bias_batch <= 0 || bias_heads <= 0 ||
+      bias_seqlen_q != seqlen_q || bias_seqlen_k != seqlen_k) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if ((num_heads_q % num_heads_k) != 0 ||
+      (bias_batch != 1 && bias_batch != batch_size) ||
+      (bias_heads != 1 && bias_heads != num_heads_q)) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+
+  const int64_t q_batch_stride = seqlen_q * num_heads_q * head_dim;
+  const int64_t k_batch_stride = seqlen_k * num_heads_k * head_dim;
+  const int64_t v_batch_stride = seqlen_k * num_heads_k * head_dim;
+  const int64_t output_batch_stride = seqlen_q * num_heads_q * head_dim;
+  const int64_t q_row_stride = num_heads_q * head_dim;
+  const int64_t k_row_stride = num_heads_k * head_dim;
+  const int64_t v_row_stride = num_heads_k * head_dim;
+  const int64_t output_row_stride = num_heads_q * head_dim;
+  const int64_t q_head_stride = head_dim;
+  const int64_t k_head_stride = head_dim;
+  const int64_t v_head_stride = head_dim;
+  const int64_t output_head_stride = head_dim;
+  const int64_t bias_batch_stride = bias_batch == 1 ? 0 : bias_heads * seqlen_q * seqlen_k;
+  const int64_t bias_head_stride = bias_heads == 1 ? 0 : seqlen_q * seqlen_k;
+  const int64_t bias_row_stride = seqlen_k;
+  const MaskType mask_type = causal != 0 ? MaskType::kCausalFromTopLeft : MaskType::kNone;
+
+  const float elapsed_ms = FlashAttentionBiasLauncher(
+      output,
+      output_batch_stride,
+      output_row_stride,
+      output_head_stride,
+      const_cast<void*>(q),
+      q_batch_stride,
+      q_row_stride,
+      q_head_stride,
+      const_cast<void*>(k),
+      k_batch_stride,
+      k_row_stride,
+      k_head_stride,
+      const_cast<void*>(v),
+      v_batch_stride,
+      v_row_stride,
+      v_head_stride,
+      const_cast<void*>(bias),
+      bias_batch_stride,
+      bias_row_stride,
+      bias_head_stride,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      mask_type,
+      dtype,
+      -1,
+      -1,
+      stream);
+  if (elapsed_ms < 0.0f) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  return 0;
+}
+
+extern "C" int dinoml_flash_attn_ck_bias_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const void* bias,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int64_t bias_batch,
+    int64_t bias_heads,
+    int64_t bias_seqlen_q,
+    int64_t bias_seqlen_k,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_bias(
+      q,
+      k,
+      v,
+      bias,
+      output,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      bias_batch,
+      bias_heads,
+      bias_seqlen_q,
+      bias_seqlen_k,
+      causal,
+      DataType::kFloat16,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_ck_bias_fwd_bfloat16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const void* bias,
+    void* output,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int64_t bias_batch,
+    int64_t bias_heads,
+    int64_t bias_seqlen_q,
+    int64_t bias_seqlen_k,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_bias(
+      q,
+      k,
+      v,
+      bias,
+      output,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      bias_batch,
+      bias_heads,
+      bias_seqlen_q,
+      bias_seqlen_k,
+      causal,
+      DataType::kBFloat16,
+      stream);
+}
+
 int launch_flash_attention_qkv(
     const void* qkv,
     void* output,

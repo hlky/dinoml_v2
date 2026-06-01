@@ -87,11 +87,11 @@ float build_total_seqlens(
 
 fmha_fwd_traits get_ck_fmha_fwd_traits(
     const mask_info& mask,
+    const bias_info& bias,
     std::string dtype,
     int head_size,
     bool has_dropout,
-    bool has_lse,
-    bool enable_alibi) {
+    bool has_lse) {
   return fmha_fwd_traits{
       head_size,
       head_size,
@@ -100,7 +100,7 @@ fmha_fwd_traits get_ck_fmha_fwd_traits(
       true, // is_v_rowmajor
       false, // has_logits_soft_cap
       mask.type,
-      enable_alibi ? bias_enum::alibi : bias_enum::no_bias,
+      bias.type,
       has_lse,
       has_dropout,
       false, // do_fp8_static_quant
@@ -129,10 +129,14 @@ fmha_fwd_args get_ck_fmha_fwd_args(
     const int batch_stride_k,
     const int batch_stride_v,
     const int batch_stride_o,
+    const int bias_row_stride,
+    const int bias_head_stride,
+    const int bias_batch_stride,
     // device pointers
     const void* q,
     const void* k,
     const void* v,
+    const void* bias,
     void* out,
     float softmax_scale) {
   ck_tile::index_t stride_randval = 0;
@@ -144,14 +148,11 @@ fmha_fwd_args get_ck_fmha_fwd_args(
   ck_tile::index_t batch_stride_lse = 0;
   ck_tile::index_t batch_stride_randval = 0;
 
-  void* alibi_slopes_ptr = nullptr;
-  ck_tile::index_t stride_alibi_slopes = 0;
-
   fmha_fwd_args args{};
   args.q_ptr = q;
   args.k_ptr = k;
   args.v_ptr = v;
-  args.bias_ptr = alibi_slopes_ptr;
+  args.bias_ptr = bias;
   args.rand_val_ptr = nullptr;
   args.lse_ptr = nullptr;
   args.o_ptr = out;
@@ -176,20 +177,20 @@ fmha_fwd_args get_ck_fmha_fwd_args(
   args.stride_q = stride_q;
   args.stride_k = stride_k;
   args.stride_v = stride_v;
-  args.stride_bias = stride_alibi_slopes;
+  args.stride_bias = bias_row_stride;
   args.stride_randval = stride_randval;
   args.stride_o = stride_o;
   args.nhead_stride_q = nhead_stride_q;
   args.nhead_stride_k = nhead_stride_k;
   args.nhead_stride_v = nhead_stride_v;
-  args.nhead_stride_bias = 0;
+  args.nhead_stride_bias = bias_head_stride;
   args.nhead_stride_randval = nhead_stride_randval;
   args.nhead_stride_lse = nhead_stride_lse;
   args.nhead_stride_o = nhead_stride_o;
   args.batch_stride_q = batch_stride_q;
   args.batch_stride_k = batch_stride_k;
   args.batch_stride_v = batch_stride_v;
-  args.batch_stride_bias = 0;
+  args.batch_stride_bias = bias_batch_stride;
   args.batch_stride_randval = batch_stride_randval;
   args.batch_stride_lse = batch_stride_lse;
   args.batch_stride_o = batch_stride_o;
@@ -255,8 +256,9 @@ float FlashAttentionLauncher(
     dtype_str = "bf16";
   }
   auto mask = mask_info::decode(mask_type_str, seqlen_q, seqlen_k);
+  auto bias = bias_info::decode("0");
   auto traits =
-      get_ck_fmha_fwd_traits(mask, dtype_str, head_dim, false, false, false);
+      get_ck_fmha_fwd_traits(mask, bias, dtype_str, head_dim, false, false);
 
   auto args = get_ck_fmha_fwd_args(
       mask,
@@ -278,9 +280,99 @@ float FlashAttentionLauncher(
       k_batch_stride,
       v_batch_stride,
       output_batch_stride,
+      0,
+      0,
+      0,
       q,
       k,
       v,
+      nullptr,
+      output,
+      1.0f / std::sqrt(static_cast<float>(head_dim)));
+
+  return run_mha_fwd(traits, args, stream_config);
+}
+
+float FlashAttentionBiasLauncher(
+    void* output,
+    int64_t output_batch_stride,
+    int64_t output_row_stride,
+    int64_t output_head_stride,
+    void* q,
+    int64_t q_batch_stride,
+    int64_t q_row_stride,
+    int64_t q_head_stride,
+    void* k,
+    int64_t k_batch_stride,
+    int64_t k_row_stride,
+    int64_t k_head_stride,
+    void* v,
+    int64_t v_batch_stride,
+    int64_t v_row_stride,
+    int64_t v_head_stride,
+    void* bias_ptr,
+    int64_t bias_batch_stride,
+    int64_t bias_row_stride,
+    int64_t bias_head_stride,
+    int64_t batch_size,
+    int64_t seqlen_q,
+    int64_t seqlen_k,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    MaskType mask_type,
+    DataType dtype,
+    int window_size_left,
+    int window_size_right,
+    hipStream_t stream) {
+  if (bias_ptr == nullptr) {
+    return -1.0f;
+  }
+  ck_tile::stream_config stream_config{stream};
+
+  std::string mask_type_str;
+  if (mask_type == MaskType::kNone) {
+    mask_type_str = "0";
+  } else if (mask_type == MaskType::kCausalFromTopLeft) {
+    mask_type_str = "1";
+  } else if (mask_type == MaskType::kCausalFromBottomRight) {
+    mask_type_str = "2";
+  }
+  const std::string dtype_str = dtype_string(dtype);
+  if (dtype_str.empty()) {
+    return -1.0f;
+  }
+  auto mask = mask_info::decode(mask_type_str, seqlen_q, seqlen_k);
+  auto bias = bias_info::decode("1");
+  auto traits = get_ck_fmha_fwd_traits(mask, bias, dtype_str, head_dim, false, false);
+
+  auto args = get_ck_fmha_fwd_args(
+      mask,
+      batch_size,
+      seqlen_q,
+      seqlen_k,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      q_row_stride,
+      k_row_stride,
+      v_row_stride,
+      output_row_stride,
+      q_head_stride,
+      k_head_stride,
+      v_head_stride,
+      output_head_stride,
+      q_batch_stride,
+      k_batch_stride,
+      v_batch_stride,
+      output_batch_stride,
+      bias_row_stride,
+      bias_head_stride,
+      bias_batch_stride,
+      q,
+      k,
+      v,
+      bias_ptr,
       output,
       1.0f / std::sqrt(static_cast<float>(head_dim)));
 

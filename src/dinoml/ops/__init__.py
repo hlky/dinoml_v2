@@ -24,7 +24,13 @@ from dinoml.ops.bmm import (
     bmm_xxx,
     bmm_xxx_add,
 )
-from dinoml.ops.attention import flash_attention, flash_attention_qkv, flash_attention_static_kv_cache, qkv_split
+from dinoml.ops.attention import (
+    flash_attention,
+    flash_attention_bias,
+    flash_attention_qkv,
+    flash_attention_static_kv_cache,
+    qkv_split,
+)
 from dinoml.ops.broadcasting import expand, expand_static_shape, meshgrid
 from dinoml.ops.cast import cast
 from dinoml.ops.collections import (

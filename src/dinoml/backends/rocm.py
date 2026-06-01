@@ -30,7 +30,7 @@ from dinoml.lowering.ops import collect_generated_sources
 _CMAKE_ENV: dict[str, str] | None = None
 _ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
-_FLASH_ATTN_CK_FILTER = "*batch*nlogits*nbias*mask*nlse*ndropout*"
+_FLASH_ATTN_CK_FILTER = "*batch*nlogits*bias*mask*nlse*ndropout*"
 _FLASH_ATTN_CK_SPLITKV_FILTER = (
     "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_nbias_nmask_lse_nsquant_npagedkv*"
 )
@@ -739,32 +739,31 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     _prepare_flash_attn_ck_cmake_build_dir(build_dir)
-    if not archive.exists() or not build_dir.exists():
-        _run_cmake(
-            [
-                "cmake",
-                "-S",
-                str(repo_root),
-                "-B",
-                str(build_dir),
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-DDINOML_ENABLE_CUDA=OFF",
-                "-DDINOML_ENABLE_ROCM=ON",
-                "-DDINOML_ENABLE_CK_GEMM=OFF",
-                "-DDINOML_ENABLE_CK_BMM=OFF",
-                "-DDINOML_ENABLE_CK_CONV=OFF",
-                "-DDINOML_ENABLE_FLASH_ATTN_CK=ON",
-                f"-DDINOML_FLASH_ATTN_CK_FILTER={_FLASH_ATTN_CK_FILTER}",
-                f"-DDINOML_FLASH_ATTN_CK_SPLITKV_FILTER={_FLASH_ATTN_CK_SPLITKV_FILTER}",
-                f"-DDINOML_FLASH_ATTN_CK_APPENDKV_FILTER={_FLASH_ATTN_CK_APPENDKV_FILTER}",
-                f"-DDINOML_FLASH_ATTN_CK_OPTDIMS={_FLASH_ATTN_CK_OPTDIMS}",
-                f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
-                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
-                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
-                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
-            ],
-            cwd=repo_root,
-        )
+    _run_cmake(
+        [
+            "cmake",
+            "-S",
+            str(repo_root),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DDINOML_ENABLE_CUDA=OFF",
+            "-DDINOML_ENABLE_ROCM=ON",
+            "-DDINOML_ENABLE_CK_GEMM=OFF",
+            "-DDINOML_ENABLE_CK_BMM=OFF",
+            "-DDINOML_ENABLE_CK_CONV=OFF",
+            "-DDINOML_ENABLE_FLASH_ATTN_CK=ON",
+            f"-DDINOML_FLASH_ATTN_CK_FILTER={_FLASH_ATTN_CK_FILTER}",
+            f"-DDINOML_FLASH_ATTN_CK_SPLITKV_FILTER={_FLASH_ATTN_CK_SPLITKV_FILTER}",
+            f"-DDINOML_FLASH_ATTN_CK_APPENDKV_FILTER={_FLASH_ATTN_CK_APPENDKV_FILTER}",
+            f"-DDINOML_FLASH_ATTN_CK_OPTDIMS={_FLASH_ATTN_CK_OPTDIMS}",
+            f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+            f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+            f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+        ],
+        cwd=repo_root,
+    )
     target = flash_attn_ck_cmake_target()
     _run_cmake(
         [

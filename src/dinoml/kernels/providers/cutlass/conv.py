@@ -13,7 +13,7 @@ from dinoml.kernels.providers.cutlass.gemm import (
 CUTLASS_CONV_CANDIDATE_SET_SCHEMA_VERSION = 1
 CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
-CONV_SUPPORTED_DTYPES = ("float16", "float32")
+CONV_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "conv_analytic_simt_sm80_f32_128x64x8_s2_w32x64x8_f32_align1"
 _CUTLASS_CONV_PLAN_KIND = "cutlass_conv2d_bias_plan"
 _CUTLASS_CONV_STATUS = "runtime"
@@ -124,7 +124,7 @@ def cutlass_conv_candidates(
                 )
             )
             continue
-        if normalized_dtype != "float16":
+        if normalized_dtype not in {"float16", "bfloat16"}:
             continue
         candidates.append(
             _cutlass_conv_candidate_from_gemm_config(
@@ -138,7 +138,7 @@ def cutlass_conv_candidates(
                 status=status,
                 selection_predicate={
                     "kind": "natural_alignment",
-                    "dtype": "float16",
+                    "dtype": normalized_dtype,
                     "groups": 1,
                     "min_input_channels": int(cutlass_config["align"]),
                     "input_channels_multiple": int(cutlass_config["align"]),
@@ -164,7 +164,7 @@ def cutlass_conv_candidates(
                     selection_predicate={
                         "kind": "semantic_input_channels",
                         "input_channels": channel_count,
-                        "dtype": "float16",
+                        "dtype": normalized_dtype,
                         "groups": 1,
                         "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
                         "padding_policy": "none",
@@ -185,7 +185,7 @@ def cutlass_conv_candidates(
                 selection_predicate={
                     "kind": "semantic_input_channels",
                     "input_channels": 3,
-                    "dtype": "float16",
+                    "dtype": normalized_dtype,
                     "groups": 1,
                     "requires_layout_translation": "nchw_oihw_to_nhwc_ohwi",
                     "padding_policy": "none",
@@ -1516,8 +1516,7 @@ def _cutlass_conv_transform_export(helper: Mapping[str, Any]) -> str:
     dtype = str(helper.get("dtype", ""))
     transform = str(helper.get("transform", ""))
     _normalize_conv_dtype(dtype)
-    dtype_prefix = "Fp32" if dtype == "float32" else "Fp16"
-    launch_prefix = "fp32" if dtype == "float32" else "fp16"
+    dtype_prefix, launch_prefix = _cutlass_conv_dtype_prefixes(dtype)
     macro_by_transform = {
         "nchw_to_nhwc_temporary": "DINOML_CUTLASS_CONV_NCHW_TO_NHWC_EXPORT",
         "oihw_to_ohwi_temporary": "DINOML_CUTLASS_CONV_OIHW_TO_OHWI_EXPORT",
@@ -1537,8 +1536,7 @@ def _cutlass_conv_launcher_export(candidate: Mapping[str, Any]) -> str:
     profiler_symbol = str(candidate.get("profiler_symbol", ""))
     if not symbol or not profiler_symbol:
         raise ValueError(f"CUTLASS Conv candidate is missing launcher/profiler symbols: {candidate!r}")
-    dtype_prefix = "Fp32" if dtype == "float32" else "Fp16"
-    launch_prefix = "fp32" if dtype == "float32" else "fp16"
+    dtype_prefix, launch_prefix = _cutlass_conv_dtype_prefixes(dtype)
     macro = {
         "bias": "DINOML_CUTLASS_CONV_BIAS_EXPORT",
         "bias_relu": "DINOML_CUTLASS_CONV_BIAS_RELU_EXPORT",
@@ -1580,6 +1578,17 @@ def _shape_macro_args(field: str, cutlass_config: Mapping[str, Any]) -> str:
     if not isinstance(shape, (list, tuple)) or len(shape) != 3:
         raise ValueError(f"CUTLASS Conv candidate is missing {field}: {cutlass_config!r}")
     return ", ".join(str(int(dim)) for dim in shape)
+
+
+def _cutlass_conv_dtype_prefixes(dtype: str) -> tuple[str, str]:
+    normalized = _normalize_conv_dtype(dtype)
+    if normalized == "float32":
+        return "Fp32", "fp32"
+    if normalized == "float16":
+        return "Fp16", "fp16"
+    if normalized == "bfloat16":
+        return "Bf16", "bf16"
+    raise ValueError(f"Unsupported CUTLASS Conv dtype: {dtype!r}")
 
 
 def _cutlass_conv_symbol_requires_residual(symbol: str) -> bool:

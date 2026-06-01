@@ -13,22 +13,19 @@ FLOAT_DTYPES = ("float16", "float32", "bfloat16")
 PUBLIC_DTYPES = (*FLOAT_DTYPES, "bool", "int32", "int64")
 
 EXPECTED_FLOAT_DTYPE_GAPS = {
-    "float16": ("_shape_buffer_count_true", "var", "vector_norm"),
-    "float32": ("_shape_buffer_count_true",),
+    "float16": ("_shape_buffer_count_true", "var"),
+    "float32": ("_shape_buffer_count_true", "flash_attention", "flash_attention_qkv"),
     "bfloat16": (
         "_shape_buffer_count_true",
-        "conv2d_bias",
-        "conv2d_bias_add",
-        "conv2d_bias_add_relu",
-        "conv2d_bias_relu",
+        "flash_attention",
+        "flash_attention_qkv",
         "var",
-        "vector_norm",
     ),
 }
 
 EXPECTED_BACKEND_BUCKETS = {
-    "cpu,cuda,rocm": 50,
-    "cuda,rocm": 49,
+    "cpu,cuda,rocm": 52,
+    "cuda,rocm": 51,
     "fused/no direct": 39,
 }
 
@@ -74,19 +71,19 @@ EXPECTED_DIRECTLESS_OPS = (
     "where",
 )
 
-EXPECTED_GPU_ONLY_PROVIDER_PREFIXES = ("bmm_", "gemm_")
-EXPECTED_GPU_ONLY_PROVIDER_COUNT = 49
+EXPECTED_GPU_ONLY_PROVIDER_PREFIXES = ("bmm_", "flash_attention", "gemm_")
+EXPECTED_GPU_ONLY_PROVIDER_COUNT = 51
 
 EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
-    "float16": 1,
-    "float32": 1,
-    "bfloat16": 1,
+    "float16": 6,
+    "float32": 3,
+    "bfloat16": 4,
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {
-    "float16": 1,
-    "float32": 1,
-    "bfloat16": 1,
+    "float16": 6,
+    "float32": 3,
+    "bfloat16": 4,
 }
 
 

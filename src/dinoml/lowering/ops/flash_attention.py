@@ -8,7 +8,7 @@ from dinoml.ops.definitions import get_op_def
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
-    if target == "rocm":
+    if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported FlashAttention lowering target: {target}")
 
@@ -19,8 +19,8 @@ def render_launch(
     tensor_map: Mapping[str, Mapping[str, Any]],
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
-    if target != "rocm":
-        raise ValueError(f"flash_attention lowering is only implemented for ROCm, got {target!r}")
+    if target not in {"cuda", "rocm"}:
+        raise ValueError(f"flash_attention lowering is only implemented for CUDA and ROCm, got {target!r}")
     if str(node["op"]) == "flash_attention_qkv":
         return _render_qkv_launch(target, node, tensor_map, kernel_manifest)
     q_name, k_name, v_name = (str(name) for name in node["inputs"])
@@ -31,11 +31,11 @@ def render_launch(
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
     if dtype != "float16":
-        raise ValueError(f"flash_attention ROCm lowering only supports float16, got {dtype}")
+        raise ValueError(f"flash_attention {target} lowering only supports float16, got {dtype}")
     causal = node.get("attrs", {}).get("causal", False)
     if not isinstance(causal, bool):
         raise TypeError("flash_attention causal attr must be a bool")
-    symbol = _manifest_symbol(kernel_manifest, str(node["op"]), dtype)
+    symbol = _manifest_symbol(kernel_manifest, target, str(node["op"]), dtype)
     if symbol is None:
         symbol = get_op_def(str(node["op"])).backend_kernels[target].resolve(dtype).symbol
     causal_arg = 1 if causal else 0
@@ -59,7 +59,7 @@ def render_launch(
             f"static_cast<int64_t>(shape_{q_ident}_0), static_cast<int64_t>(shape_{q_ident}_1), "
             f"static_cast<int64_t>(shape_{k_ident}_1), static_cast<int64_t>(shape_{q_ident}_2), "
             f"static_cast<int64_t>(shape_{k_ident}_2), static_cast<int64_t>(shape_{q_ident}_3), "
-            f'{causal_arg}, session->stream)) return dinoml::module::fail("flash_attention CK launcher failed");',
+            f'{causal_arg}, session->stream)) return dinoml::module::fail("flash_attention launcher failed");',
         ]
     )
 
@@ -76,11 +76,11 @@ def _render_qkv_launch(
     output_ident = _c_ident(output_name)
     dtype = str(tensor_map[output_name]["dtype"])
     if dtype != "float16":
-        raise ValueError(f"flash_attention_qkv ROCm lowering only supports float16, got {dtype}")
+        raise ValueError(f"flash_attention_qkv {target} lowering only supports float16, got {dtype}")
     causal = node.get("attrs", {}).get("causal", False)
     if not isinstance(causal, bool):
         raise TypeError("flash_attention_qkv causal attr must be a bool")
-    symbol = _manifest_symbol(kernel_manifest, str(node["op"]), dtype)
+    symbol = _manifest_symbol(kernel_manifest, target, str(node["op"]), dtype)
     if symbol is None:
         symbol = get_op_def(str(node["op"])).backend_kernels[target].resolve(dtype).symbol
     causal_arg = 1 if causal else 0
@@ -96,16 +96,20 @@ def _render_qkv_launch(
             f"if (int err = {symbol}(ptr_{qkv_ident}, ptr_{output_ident}, "
             f"static_cast<int64_t>(shape_{qkv_ident}_0), static_cast<int64_t>(shape_{qkv_ident}_1), "
             f"static_cast<int64_t>(shape_{qkv_ident}_3), static_cast<int64_t>(shape_{qkv_ident}_4), "
-            f'{causal_arg}, session->stream)) return dinoml::module::fail("flash_attention_qkv CK launcher failed");',
+            f'{causal_arg}, session->stream)) return dinoml::module::fail("flash_attention_qkv launcher failed");',
         ]
     )
 
 
-def _manifest_symbol(kernel_manifest: Mapping[str, Any] | None, op_name: str, dtype: str) -> str | None:
+def _manifest_symbol(kernel_manifest: Mapping[str, Any] | None, target: str, op_name: str, dtype: str) -> str | None:
     if kernel_manifest is None:
         return None
+    expected_library = {
+        "cuda": "flash_attn_cuda",
+        "rocm": "flash_attn_ck",
+    }[target]
     for item in kernel_manifest.get("required_kernels", []):
-        if item.get("op") == op_name and item.get("dtype") == dtype and item.get("kernel_library") == "flash_attn_ck":
+        if item.get("op") == op_name and item.get("dtype") == dtype and item.get("kernel_library") == expected_library:
             return str(item["kernel_symbol"])
     return None
 

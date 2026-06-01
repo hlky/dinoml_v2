@@ -21,6 +21,7 @@ def render_cuda_module(
     ir: Mapping[str, Any],
     *,
     generated_kernels: Iterable[str] | None = None,
+    generated_kernel_declarations: Iterable[str] | None = None,
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     return render_gpu_module(
@@ -29,7 +30,10 @@ def render_cuda_module(
         generated_kernels=generated_kernels,
         kernel_manifest=kernel_manifest,
         cutlass_conv_temporaries=_cutlass_conv_temporary_contexts(kernel_manifest),
-        external_kernel_declarations=_external_kernel_declarations(kernel_manifest),
+        external_kernel_declarations=[
+            *(list(generated_kernel_declarations) if generated_kernel_declarations is not None else []),
+            *_external_kernel_declarations(kernel_manifest),
+        ],
         cutlass_workspace=_cutlass_workspace_context(kernel_manifest),
     )
 

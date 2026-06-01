@@ -4,6 +4,7 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.providers.ck.flash_attention import flash_attn_ck_qkv_symbol, flash_attn_ck_symbol
+from dinoml.kernels.providers.cuda_flash_attention import flash_attn_cuda_qkv_symbol, flash_attn_cuda_symbol
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
@@ -156,6 +157,13 @@ class FlashAttention(OpDef):
     infer_shape_with_attrs = _infer_flash_attention_shape_with_attrs
     allowed_dtypes = FLASH_ATTENTION_DTYPES
     backend_kernels = {
+        "cuda": KernelBinding(
+            flash_attn_cuda_symbol("float16"),
+            "flash_attn_cuda",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_cuda_symbol("float16")),
+            },
+        ),
         "rocm": KernelBinding(
             flash_attn_ck_symbol("float16"),
             "flash_attn_ck",
@@ -179,6 +187,13 @@ class FlashAttentionQKV(OpDef):
     infer_shape_with_attrs = _infer_flash_attention_qkv_shape_with_attrs
     allowed_dtypes = FLASH_ATTENTION_DTYPES
     backend_kernels = {
+        "cuda": KernelBinding(
+            flash_attn_cuda_qkv_symbol("float16"),
+            "flash_attn_cuda",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_cuda_qkv_symbol("float16")),
+            },
+        ),
         "rocm": KernelBinding(
             flash_attn_ck_qkv_symbol("float16"),
             "flash_attn_ck",

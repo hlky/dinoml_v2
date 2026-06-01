@@ -43,6 +43,7 @@ option(DINOML_ENABLE_CK_GEMM "Build CK GEMM support library when ROCm is enabled
 option(DINOML_ENABLE_CK_BMM "Build CK BMM support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_CK_CONV "Build CK Conv support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
 option(DINOML_ENABLE_FLASH_ATTN_CK "Build CK FlashAttention support library when ROCm is enabled" ${DINOML_ENABLE_ROCM})
+option(DINOML_ENABLE_FLASH_ATTN_CUDA "Build CUDA FlashAttention support library" OFF)
 option(DINOML_ENABLE_LIBGGUF_CUDA "Build libgguf CUDA runtime-dequant support archive" OFF)
 if(WIN32)
   set(DINOML_DEFAULT_OPENMP OFF)
@@ -999,7 +1000,7 @@ if(DINOML_ENABLE_CUDA)
     set(DINOML_CUTLASS_CONV_OPS
       conv2d_bias conv2d_bias_relu conv2d_bias_add conv2d_bias_add_relu
     )
-    set(DINOML_CUTLASS_CONV_DTYPES float32 float16)
+    set(DINOML_CUTLASS_CONV_DTYPES float32 float16 bfloat16)
     set(DINOML_CUTLASS_CONV_TARGETS)
     foreach(_cutlass_conv_op IN LISTS DINOML_CUTLASS_CONV_OPS)
       foreach(_cutlass_conv_dtype IN LISTS DINOML_CUTLASS_CONV_DTYPES)
@@ -1072,7 +1073,7 @@ if(DINOML_ENABLE_CUDA)
       set(DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT)
       foreach(_cutlass_conv_target IN LISTS DINOML_CUTLASS_CONV_PROFILER_LINK_TARGETS)
         string(REGEX REPLACE "^dinoml_cutlass_conv_" "" _cutlass_conv_profiler_group_id "${_cutlass_conv_target}")
-        if(NOT _cutlass_conv_profiler_group_id MATCHES "^(.+)_(float32|float16)$")
+        if(NOT _cutlass_conv_profiler_group_id MATCHES "^(.+)_(float32|float16|bfloat16)$")
           message(FATAL_ERROR "Could not derive CUTLASS Conv profiler op/dtype from target: ${_cutlass_conv_target}")
         endif()
         set(_cutlass_conv_profiler_op "${CMAKE_MATCH_1}")
@@ -1143,6 +1144,32 @@ if(DINOML_ENABLE_CUDA)
         add_custom_target(dinoml_cutlass_conv_profilers DEPENDS ${DINOML_CUTLASS_CONV_PROFILER_TARGETS_BUILT})
       endif()
     endif()
+  endif()
+
+  if(DINOML_ENABLE_FLASH_ATTN_CUDA)
+    add_subdirectory(third_party/flash_attn)
+    add_library(dinoml_flash_attn_cuda STATIC
+      kernels/cuda/src/flash_attn_cuda_wrapper.cu
+    )
+    target_include_directories(dinoml_flash_attn_cuda
+      PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/flash_attn
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cutlass/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/runtime/include
+    )
+    target_link_libraries(dinoml_flash_attn_cuda PRIVATE flash_attention CUDA::cudart)
+    target_compile_options(dinoml_flash_attn_cuda
+      PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--use_fast_math>
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-extended-lambda>
+    )
+    set_target_properties(dinoml_flash_attn_cuda PROPERTIES
+      OUTPUT_NAME "dinoml_flash_attn_cuda"
+      CUDA_SEPARABLE_COMPILATION OFF
+      POSITION_INDEPENDENT_CODE ON
+    )
   endif()
 
   if(DINOML_ENABLE_LIBGGUF_CUDA)

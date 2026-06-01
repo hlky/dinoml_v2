@@ -23,7 +23,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelV
 
 
 CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
-CUTLASS_CONV2D_BIAS_DTYPES = ("float16", "float32")
+CUTLASS_CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
 CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
 
 

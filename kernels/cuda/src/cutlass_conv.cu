@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include "cutlass/cutlass.h"
+#include "cutlass/bfloat16.h"
 #include "cutlass/half.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop_with_broadcast.h"
@@ -161,6 +162,10 @@ using DinomlCutlassConvFp16Element = cutlass::half_t;
 using DinomlCutlassConvFp16Accumulator = float;
 using DinomlCutlassConvFp16Compute = float;
 using DinomlCutlassConvFp16Layout = cutlass::layout::TensorNHWC;
+using DinomlCutlassConvBf16Element = cutlass::bfloat16_t;
+using DinomlCutlassConvBf16Accumulator = float;
+using DinomlCutlassConvBf16Compute = float;
+using DinomlCutlassConvBf16Layout = cutlass::layout::TensorNHWC;
 using DinomlCutlassConvFp32Element = float;
 using DinomlCutlassConvFp32Accumulator = float;
 using DinomlCutlassConvFp32Compute = float;
@@ -711,6 +716,93 @@ int dinoml_cutlass_conv_launch_fp32_kernel_bias_relu(
   }
   return static_cast<int>(cudaGetLastError());
 }
+
+#define DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_LAUNCH(LAUNCH_PREFIX, DTYPE_PREFIX, SUFFIX) \
+template <typename ImplicitGemm> \
+int dinoml_cutlass_conv_launch_##LAUNCH_PREFIX##_kernel_##SUFFIX( \
+    const void* activation_nhwc, const void* weight_ohwi, const void* bias, void* output_nhwc, \
+    int n, int h, int w, int c, int out_h, int out_w, int out_c, int kernel_h, int kernel_w, \
+    int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w, cudaStream_t stream) { \
+  cutlass::conv::Conv2dProblemSize problem_size( \
+      n, h, w, c, out_c, kernel_h, kernel_w, out_h, out_w, \
+      pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w, \
+      cutlass::conv::Mode::kCrossCorrelation, 1, 1); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout activation_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(n, h, w, c)); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout weight_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(out_c, kernel_h, kernel_w, c)); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout output_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(n, out_h, out_w, out_c)); \
+  typename ImplicitGemm::Arguments arguments{ \
+      problem_size, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(activation_nhwc)), \
+       activation_layout}, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(weight_ohwi)), \
+       weight_layout}, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(bias)), \
+       DinomlCutlassConv##DTYPE_PREFIX##Layout::Stride(0)}, \
+      {static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>(output_nhwc), output_layout}, \
+      {DinomlCutlassConv##DTYPE_PREFIX##Compute(1), DinomlCutlassConv##DTYPE_PREFIX##Compute(1)}}; \
+  ImplicitGemm implicit_gemm; \
+  cutlass::Status status = implicit_gemm.can_implement(arguments); \
+  if (status != cutlass::Status::kSuccess) { return 1000 + static_cast<int>(status); } \
+  status = implicit_gemm.initialize(arguments, nullptr, stream); \
+  if (status != cutlass::Status::kSuccess) { return 1100 + static_cast<int>(status); } \
+  status = implicit_gemm.run(stream); \
+  if (status != cutlass::Status::kSuccess) { return 1200 + static_cast<int>(status); } \
+  return static_cast<int>(cudaGetLastError()); \
+}
+
+#define DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH(LAUNCH_PREFIX, DTYPE_PREFIX, SUFFIX) \
+template <typename ImplicitGemm> \
+int dinoml_cutlass_conv_launch_##LAUNCH_PREFIX##_kernel_##SUFFIX( \
+    const void* activation_nhwc, const void* weight_ohwi, const void* bias, const void* residual_nhwc, \
+    void* output_nhwc, int n, int h, int w, int c, int out_h, int out_w, int out_c, int kernel_h, int kernel_w, \
+    int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w, cudaStream_t stream) { \
+  cutlass::conv::Conv2dProblemSize problem_size( \
+      n, h, w, c, out_c, kernel_h, kernel_w, out_h, out_w, \
+      pad_h, pad_w, stride_h, stride_w, dilation_h, dilation_w, \
+      cutlass::conv::Mode::kCrossCorrelation, 1, 1); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout activation_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(n, h, w, c)); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout weight_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(out_c, kernel_h, kernel_w, c)); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout output_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(cutlass::Tensor4DCoord(n, out_h, out_w, out_c)); \
+  typename ImplicitGemm::Arguments arguments( \
+      problem_size, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(activation_nhwc)), activation_layout}, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(weight_ohwi)), weight_layout}, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(residual_nhwc)), output_layout}, \
+      {static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>(output_nhwc), output_layout}, \
+      {DinomlCutlassConv##DTYPE_PREFIX##Compute(1), DinomlCutlassConv##DTYPE_PREFIX##Compute(1)}, \
+      cutlass::conv::SplitKMode::kSerial, \
+      const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+          static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(bias)), \
+      nullptr, 0, out_c); \
+  ImplicitGemm implicit_gemm; \
+  cutlass::Status status = implicit_gemm.can_implement(arguments); \
+  if (status != cutlass::Status::kSuccess) { return 1000 + static_cast<int>(status); } \
+  status = implicit_gemm.initialize(arguments, nullptr, stream); \
+  if (status != cutlass::Status::kSuccess) { return 1100 + static_cast<int>(status); } \
+  status = implicit_gemm.run(stream); \
+  if (status != cutlass::Status::kSuccess) { return 1200 + static_cast<int>(status); } \
+  return static_cast<int>(cudaGetLastError()); \
+}
+
+DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_LAUNCH(bf16, Bf16, bias)
+DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_LAUNCH(bf16, Bf16, bias_relu)
+DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH(bf16, Bf16, bias_add)
+DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH(bf16, Bf16, bias_add_relu)
+
+#undef DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_LAUNCH
+#undef DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH
 
 }  // namespace
 

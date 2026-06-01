@@ -51,6 +51,14 @@ set_target_properties(dinoml_cutlass_conv_{{ loop.index0 }} PROPERTIES
 )
 {% endfor %}
 
+{% for flash_attn_cuda_archive in flash_attn_cuda_archives | default([]) %}
+add_library(dinoml_flash_attn_cuda_{{ loop.index0 }} STATIC IMPORTED GLOBAL)
+set_target_properties(dinoml_flash_attn_cuda_{{ loop.index0 }} PROPERTIES
+  IMPORTED_LOCATION "{{ flash_attn_cuda_archive }}"
+  INTERFACE_INCLUDE_DIRECTORIES "{{ kernels_include }}"
+)
+{% endfor %}
+
 {% if gguf_cuda_native_lib %}
 add_library(dinoml_libgguf_cuda_native {{ gguf_cuda_native_lib_kind }} IMPORTED GLOBAL)
 set_target_properties(dinoml_libgguf_cuda_native PROPERTIES
@@ -59,7 +67,12 @@ set_target_properties(dinoml_libgguf_cuda_native PROPERTIES
 )
 {% endif %}
 
-add_library(module SHARED module.cu)
+add_library(module SHARED
+  module.cu
+{% for generated_source_file in generated_source_files | default([]) %}
+  "{{ generated_source_file }}"
+{% endfor %}
+)
 target_include_directories(module PRIVATE
   "{{ runtime_include }}"
   "{{ common_include }}"
@@ -77,6 +90,9 @@ target_link_libraries(module PRIVATE
 {% endfor %}
 {% for cutlass_conv_archive in cutlass_conv_archives %}
   dinoml_cutlass_conv_{{ loop.index0 }}
+{% endfor %}
+{% for flash_attn_cuda_archive in flash_attn_cuda_archives | default([]) %}
+  dinoml_flash_attn_cuda_{{ loop.index0 }}
 {% endfor %}
 {% if gguf_cuda_native_lib %}
   dinoml_libgguf_cuda_native

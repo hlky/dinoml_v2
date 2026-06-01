@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_runtime_api.h>
 
@@ -62,6 +63,9 @@ inline std::size_t dtype_size(const std::string& dtype) {
   if (dtype == "float16") {
     return sizeof(__half);
   }
+  if (dtype == "bfloat16") {
+    return sizeof(__nv_bfloat16);
+  }
   throw std::runtime_error("Unsupported CUTLASS Conv profiler dtype: " + dtype);
 }
 
@@ -75,9 +79,16 @@ inline std::vector<std::uint8_t> random_storage(std::size_t count, const std::st
     }
     return storage;
   }
-  auto* out = reinterpret_cast<__half*>(storage.data());
+  if (dtype == "float16") {
+    auto* out = reinterpret_cast<__half*>(storage.data());
+    for (std::size_t i = 0; i < count; ++i) {
+      out[i] = __float2half(dist(rng));
+    }
+    return storage;
+  }
+  auto* out = reinterpret_cast<__nv_bfloat16*>(storage.data());
   for (std::size_t i = 0; i < count; ++i) {
-    out[i] = __float2half(dist(rng));
+    out[i] = __float2bfloat16(dist(rng));
   }
   return storage;
 }

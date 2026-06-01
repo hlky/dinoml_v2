@@ -26,6 +26,10 @@ from dinoml.kernels.providers.ck.flash_attention import (
     FLASH_ATTN_CK_LIBRARY,
     flash_attn_ck_static_library_name,
 )
+from dinoml.kernels.providers.cuda_flash_attention import (
+    FLASH_ATTN_CUDA_LIBRARY,
+    flash_attn_cuda_static_library_name,
+)
 from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_set,
     cutlass_conv_candidate_compatible_with_plan,
@@ -260,6 +264,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["support_archive"] = ck_conv_static_library_name(str(node["op"]), dtype)
         if kernel_library == FLASH_ATTN_CK_LIBRARY:
             item["support_archive"] = flash_attn_ck_static_library_name(dtype)
+        if kernel_library == FLASH_ATTN_CUDA_LIBRARY:
+            item["support_archive"] = flash_attn_cuda_static_library_name(dtype)
         if kernel_library in {ROCM_TILE_GEMM_LIBRARY, ROCM_TILE_BMM_LIBRARY, ROCM_TILE_CONV_LIBRARY}:
             item["support_archive"] = "dinoml_rocm_kernels"
         if model_generated_source is not None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -396,6 +397,38 @@ def test_glm_ocr_tiny_static_cache_decode_returns_one_token_cache_updates():
     assert counts["concatenate"] == 2
     assert counts["bmm_rcr"] == 1
     assert counts["bmm_rrr"] == 1
+
+
+def test_glm_ocr_tiny_fp16_static_cache_decode_uses_flash_attention_cache_path():
+    base_config = _tiny_config()
+    config = replace(base_config, text_config=replace(base_config.text_config, dtype="float16"))
+    weights = _tiny_weights(config)
+    model = GlmOcrForConditionalGenerationDecodeStaticCache(config, weights)
+    max_past_len = 5
+    cache_spec = StaticKvCacheSpec(
+        num_layers=config.text_config.num_hidden_layers,
+        batch=1,
+        num_key_value_heads=config.text_config.num_key_value_heads,
+        max_cache_len=max_past_len,
+        head_dim=config.text_config.head_dim,
+        dtype="float16",
+    )
+    inputs = {
+        "input_ids": dml.TensorSpec([1, 1], "int64"),
+        "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], "float16"),
+        "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], "float16"),
+        "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_past_len + 1], "float16"),
+        "cache_seqlens": dml.TensorSpec([1], "int32"),
+        **static_kv_cache_input_specs(cache_spec),
+    }
+
+    spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_static_cache_flash")
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+
+    assert counts["flash_attention_static_kv_cache"] == 1
+    assert counts["concatenate"] == 0
+    assert counts["bmm_rcr"] == 0
+    assert counts["bmm_rrr"] == 0
 
 
 def test_glm_ocr_tiny_prefill_can_keep_only_last_token_logits():

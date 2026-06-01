@@ -347,6 +347,20 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 _execute_flash_attention(qkv[:, :, 0, :, :], qkv[:, :, 1, :, :], qkv[:, :, 2, :, :], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "flash_attention_static_kv_cache":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_flash_attention_static_kv_cache(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    values[node["inputs"][4]],
+                    values[node["inputs"][5]],
+                ),
+                output_dtype,
+            )
         elif node["op"] == "qkv_split":
             q_name, k_name, v_name = node["outputs"]
             qkv = np.asarray(values[node["inputs"][0]])
@@ -858,6 +872,56 @@ def _execute_flash_attention(q: np.ndarray, k: np.ndarray, v: np.ndarray, attrs:
     probs = np.exp(shifted)
     probs = probs / np.sum(probs, axis=-1, keepdims=True)
     return np.einsum("bhqk,bkhd->bqhd", probs, v_value).astype(np.float32, copy=False)
+
+
+def _execute_flash_attention_static_kv_cache(
+    q: np.ndarray,
+    past_key: np.ndarray,
+    past_value: np.ndarray,
+    new_key: np.ndarray,
+    new_value: np.ndarray,
+    cache_seqlens: np.ndarray,
+) -> np.ndarray:
+    q_value = np.asarray(q, dtype=np.float32)
+    past_key_value = np.asarray(past_key, dtype=np.float32)
+    past_value_value = np.asarray(past_value, dtype=np.float32)
+    new_key_value = np.asarray(new_key, dtype=np.float32)
+    new_value_value = np.asarray(new_value, dtype=np.float32)
+    cache_lengths = np.asarray(cache_seqlens, dtype=np.int32)
+    if q_value.ndim != 4 or past_key_value.ndim != 4 or past_value_value.ndim != 4:
+        raise ValueError("CPU reference flash_attention_static_kv_cache expects rank-4 q and cache tensors")
+    if new_key_value.ndim != 4 or new_value_value.ndim != 4:
+        raise ValueError("CPU reference flash_attention_static_kv_cache expects rank-4 new K/V tensors")
+    if past_key_value.shape != past_value_value.shape:
+        raise ValueError("CPU reference flash_attention_static_kv_cache past key/value shape mismatch")
+    if new_key_value.shape != new_value_value.shape:
+        raise ValueError("CPU reference flash_attention_static_kv_cache new key/value shape mismatch")
+    batch, seqlen_q, heads_q, head_dim = q_value.shape
+    if seqlen_q != 1:
+        raise ValueError("CPU reference flash_attention_static_kv_cache expects q sequence length 1")
+    if cache_lengths.shape != (batch,):
+        raise ValueError("CPU reference flash_attention_static_kv_cache cache_seqlens shape mismatch")
+    outputs = []
+    for batch_idx in range(batch):
+        valid_past = int(cache_lengths[batch_idx])
+        if valid_past < 0 or valid_past > past_key_value.shape[2]:
+            raise ValueError("CPU reference flash_attention_static_kv_cache cache length out of range")
+        k_batch = np.concatenate(
+            [
+                np.transpose(past_key_value[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_key_value[batch_idx : batch_idx + 1, :, :, :], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        v_batch = np.concatenate(
+            [
+                np.transpose(past_value_value[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_value_value[batch_idx : batch_idx + 1, :, :, :], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        outputs.append(_execute_flash_attention(q_value[batch_idx : batch_idx + 1], k_batch, v_batch, {"causal": False}))
+    return np.concatenate(outputs, axis=0).astype(np.float32, copy=False)
 
 
 def _logical_bmm_a(value: np.ndarray, layout: str) -> np.ndarray:

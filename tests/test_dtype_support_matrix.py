@@ -14,15 +14,24 @@ PUBLIC_DTYPES = (*FLOAT_DTYPES, "bool", "int32", "int64")
 
 EXPECTED_FLOAT_DTYPE_GAPS = {
     "float16": ("_shape_buffer_count_true", "var"),
-    "float32": ("_shape_buffer_count_true", "flash_attention", "flash_attention_qkv"),
+    "float32": (
+        "_shape_buffer_count_true",
+        "flash_attention",
+        "flash_attention_qkv",
+        "flash_attention_static_kv_cache",
+    ),
     "bfloat16": (
         "_shape_buffer_count_true",
         "var",
     ),
 }
 
+EXPECTED_CUDA_NOT_ROCM = ("flash_attention_static_kv_cache",)
+EXPECTED_ROCM_NOT_CUDA: tuple[str, ...] = ()
+
 EXPECTED_BACKEND_BUCKETS = {
     "cpu,cuda,rocm": 52,
+    "cuda": 1,
     "cuda,rocm": 51,
     "fused/no direct": 39,
 }
@@ -70,18 +79,18 @@ EXPECTED_DIRECTLESS_OPS = (
 )
 
 EXPECTED_GPU_ONLY_PROVIDER_PREFIXES = ("bmm_", "flash_attention", "gemm_")
-EXPECTED_GPU_ONLY_PROVIDER_COUNT = 51
+EXPECTED_GPU_ONLY_PROVIDER_COUNT = 52
 
 EXPECTED_CONTRACT_FLOAT_GAP_COUNTS = {
-    "float16": 6,
+    "float16": 7,
     "float32": 3,
-    "bfloat16": 6,
+    "bfloat16": 7,
 }
 
 EXPECTED_BENCHMARK_FLOAT_GAP_COUNTS = {
-    "float16": 6,
+    "float16": 7,
     "float32": 3,
-    "bfloat16": 6,
+    "bfloat16": 7,
 }
 
 
@@ -95,7 +104,7 @@ def test_registered_float_dtype_gaps_are_explicit():
     assert missing == EXPECTED_FLOAT_DTYPE_GAPS, _format_float_gap_report(missing)
 
 
-def test_cuda_and_rocm_backend_surfaces_stay_symmetric():
+def test_cuda_and_rocm_backend_surface_differences_are_explicit():
     matrix = _registered_op_matrix()
     cuda_not_rocm = tuple(
         name
@@ -109,8 +118,8 @@ def test_cuda_and_rocm_backend_surfaces_stay_symmetric():
     )
     backend_buckets = Counter(",".join(entry["backends"]) or "fused/no direct" for entry in matrix.values())
 
-    assert cuda_not_rocm == ()
-    assert rocm_not_cuda == ()
+    assert cuda_not_rocm == EXPECTED_CUDA_NOT_ROCM
+    assert rocm_not_cuda == EXPECTED_ROCM_NOT_CUDA
     assert dict(backend_buckets) == EXPECTED_BACKEND_BUCKETS
 
 

@@ -249,3 +249,139 @@ extern "C" int dinoml_flash_attn_cuda_qkv_fwd_bfloat16_v1(
       flash::DataType::kBFloat16,
       stream);
 }
+
+int launch_flash_attention_static_kv_cache(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    flash::DataType dtype,
+    cudaStream_t stream) {
+  void* softmax_lse = nullptr;
+  cudaError_t alloc_status = cudaMallocAsync(
+      &softmax_lse,
+      static_cast<size_t>(batch_size * num_heads_q) * sizeof(float),
+      stream);
+  if (alloc_status != cudaSuccess) {
+    return static_cast<int>(alloc_status);
+  }
+  const int64_t output_batch_stride = num_heads_q * head_dim;
+  const int64_t output_row_stride = num_heads_q * head_dim;
+  const int64_t output_head_stride = head_dim;
+  const int64_t q_batch_stride = num_heads_q * head_dim;
+  const int64_t q_row_stride = num_heads_q * head_dim;
+  const int64_t q_head_stride = head_dim;
+  const int64_t cache_batch_stride = num_heads_k * max_cache_len * head_dim;
+  const int64_t cache_row_stride = head_dim;
+  const int64_t cache_head_stride = max_cache_len * head_dim;
+  const int64_t new_batch_stride = num_heads_k * head_dim;
+  const int64_t new_row_stride = head_dim;
+  const int64_t new_head_stride = head_dim;
+  flash::FlashAttentionStaticKvCacheLauncher(
+      output,
+      output_batch_stride,
+      output_row_stride,
+      output_head_stride,
+      const_cast<void*>(q),
+      q_batch_stride,
+      q_row_stride,
+      q_head_stride,
+      const_cast<void*>(k_cache),
+      cache_batch_stride,
+      cache_row_stride,
+      cache_head_stride,
+      const_cast<void*>(v_cache),
+      cache_batch_stride,
+      cache_row_stride,
+      cache_head_stride,
+      const_cast<void*>(knew),
+      new_batch_stride,
+      new_row_stride,
+      new_head_stride,
+      const_cast<void*>(vnew),
+      new_batch_stride,
+      new_row_stride,
+      new_head_stride,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      const_cast<int32_t*>(cache_seqlens),
+      softmax_lse,
+      dtype,
+      stream);
+  cudaError_t launch_status = cudaGetLastError();
+  cudaError_t free_status = cudaFreeAsync(softmax_lse, stream);
+  return static_cast<int>(launch_status != cudaSuccess ? launch_status : free_status);
+}
+
+extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    cudaStream_t stream) {
+  return launch_flash_attention_static_kv_cache(
+      q,
+      k_cache,
+      v_cache,
+      knew,
+      vnew,
+      cache_seqlens,
+      output,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      flash::DataType::kFloat16,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1(
+    const void* q,
+    const void* k_cache,
+    const void* v_cache,
+    const void* knew,
+    const void* vnew,
+    const int32_t* cache_seqlens,
+    void* output,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    cudaStream_t stream) {
+  return launch_flash_attention_static_kv_cache(
+      q,
+      k_cache,
+      v_cache,
+      knew,
+      vnew,
+      cache_seqlens,
+      output,
+      batch_size,
+      max_cache_len,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      flash::DataType::kBFloat16,
+      stream);
+}

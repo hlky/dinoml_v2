@@ -4,7 +4,11 @@ from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
 from dinoml.kernels.providers.ck.flash_attention import flash_attn_ck_qkv_symbol, flash_attn_ck_symbol
-from dinoml.kernels.providers.cuda_flash_attention import flash_attn_cuda_qkv_symbol, flash_attn_cuda_symbol
+from dinoml.kernels.providers.cuda_flash_attention import (
+    flash_attn_cuda_qkv_symbol,
+    flash_attn_cuda_static_kv_cache_symbol,
+    flash_attn_cuda_symbol,
+)
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, KernelVariant, OpDef, OpSchema, op_def
 
 
@@ -52,6 +56,45 @@ def flash_attention_qkv(qkv: object, *, causal: bool = False) -> Tensor:
     )
 
 
+def flash_attention_static_kv_cache(
+    q: object,
+    past_key: object,
+    past_value: object,
+    new_key: object,
+    new_value: object,
+    cache_seqlens: object,
+) -> Tensor:
+    q_tensor = as_tensor(q, dtype_hint="float32")
+    tensors = (
+        q_tensor,
+        as_tensor(past_key, dtype_hint=q_tensor.dtype),
+        as_tensor(past_value, dtype_hint=q_tensor.dtype),
+        as_tensor(new_key, dtype_hint=q_tensor.dtype),
+        as_tensor(new_value, dtype_hint=q_tensor.dtype),
+        as_tensor(cache_seqlens, dtype_hint="int32"),
+    )
+    for tensor in tensors[1:]:
+        if q_tensor.builder is not tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+    if q_tensor.dtype not in FLASH_ATTENTION_DTYPES:
+        supported = ", ".join(FLASH_ATTENTION_DTYPES)
+        raise ValueError(f"flash_attention_static_kv_cache supports {supported}, got {q_tensor.dtype}")
+    for tensor in tensors[1:5]:
+        if tensor.dtype != q_tensor.dtype:
+            raise ValueError(f"flash_attention_static_kv_cache dtype mismatch: {q_tensor.dtype} vs {tensor.dtype}")
+    if tensors[5].dtype != "int32":
+        raise ValueError(f"flash_attention_static_kv_cache cache_seqlens must be int32, got {tensors[5].dtype}")
+    _validate_flash_attention_static_kv_cache_shapes([tensor.shape for tensor in tensors])
+    return q_tensor.builder.emit(
+        "flash_attention_static_kv_cache",
+        tensors,
+        q_tensor.shape,
+        q_tensor.dtype,
+        {},
+        shape_spec=q_tensor.shape_spec,
+    )
+
+
 def qkv_split(qkv: object) -> tuple[Tensor, Tensor, Tensor]:
     qkv_tensor = as_tensor(qkv)
     if qkv_tensor.dtype not in QKV_SPLIT_DTYPES:
@@ -85,6 +128,11 @@ def _infer_flash_attention_qkv_shape(shapes: Sequence[Sequence[int]]) -> list[in
     return [qkv_shape[0], qkv_shape[1], qkv_shape[3], qkv_shape[4]]
 
 
+def _infer_flash_attention_static_kv_cache_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    _validate_flash_attention_static_kv_cache_shapes(shapes)
+    return list(shapes[0])
+
+
 def _validate_flash_attention_shapes(shapes: Sequence[Sequence[int]]) -> None:
     if len(shapes) != 3:
         raise ValueError(f"flash_attention expects 3 inputs, got {len(shapes)}")
@@ -99,6 +147,38 @@ def _validate_flash_attention_shapes(shapes: Sequence[Sequence[int]]) -> None:
         raise ValueError("flash_attention head_dim mismatch")
     if q_shape[2] % k_shape[2] != 0:
         raise ValueError("flash_attention num_heads_q must be divisible by num_heads_k")
+
+
+def _validate_flash_attention_static_kv_cache_shapes(shapes: Sequence[Sequence[int]]) -> None:
+    if len(shapes) != 6:
+        raise ValueError(f"flash_attention_static_kv_cache expects 6 inputs, got {len(shapes)}")
+    q_shape, past_key_shape, past_value_shape, new_key_shape, new_value_shape, cache_seqlens_shape = [
+        list(shape) for shape in shapes
+    ]
+    if len(q_shape) != 4:
+        raise ValueError("flash_attention_static_kv_cache expects q with shape [batch, 1, heads_q, head_dim]")
+    if q_shape[1] != 1:
+        raise ValueError("flash_attention_static_kv_cache currently expects q sequence length 1")
+    if any(len(shape) != 4 for shape in (past_key_shape, past_value_shape, new_key_shape, new_value_shape)):
+        raise ValueError(
+            "flash_attention_static_kv_cache expects past/new K/V with shape [batch, heads_kv, seq, head_dim]"
+        )
+    if past_key_shape != past_value_shape:
+        raise ValueError("flash_attention_static_kv_cache past key/value shape mismatch")
+    if new_key_shape != new_value_shape:
+        raise ValueError("flash_attention_static_kv_cache new key/value shape mismatch")
+    if q_shape[0] != past_key_shape[0] or q_shape[0] != new_key_shape[0]:
+        raise ValueError("flash_attention_static_kv_cache batch dimension mismatch")
+    if past_key_shape[1] != new_key_shape[1]:
+        raise ValueError("flash_attention_static_kv_cache KV head dimension mismatch")
+    if new_key_shape[2] != 1:
+        raise ValueError("flash_attention_static_kv_cache expects new K/V sequence length 1")
+    if q_shape[3] != past_key_shape[3] or q_shape[3] != new_key_shape[3]:
+        raise ValueError("flash_attention_static_kv_cache head_dim mismatch")
+    if q_shape[2] % past_key_shape[1] != 0:
+        raise ValueError("flash_attention_static_kv_cache num_heads_q must be divisible by num_heads_kv")
+    if cache_seqlens_shape != [q_shape[0]]:
+        raise ValueError("flash_attention_static_kv_cache cache_seqlens must have shape [batch]")
 
 
 def _validate_flash_attention_qkv_shape(shape: Sequence[int]) -> None:
@@ -208,6 +288,26 @@ class FlashAttentionQKV(OpDef):
     }
     frontend = FrontendBinding("flash_attention_qkv")
     description = "CK FlashAttention forward op for packed [batch, seq, 3, heads, head_dim] QKV tensors."
+
+
+@op_def
+class FlashAttentionStaticKvCache(OpDef):
+    name = "flash_attention_static_kv_cache"
+    schema = OpSchema(inputs=("q", "past_key", "past_value", "new_key", "new_value", "cache_seqlens"))
+    infer_shape = _infer_flash_attention_static_kv_cache_shape
+    allowed_dtypes = FLASH_ATTENTION_DTYPES
+    backend_kernels = {
+        "cuda": KernelBinding(
+            flash_attn_cuda_static_kv_cache_symbol("float16"),
+            "flash_attn_cuda",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_cuda_static_kv_cache_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_cuda_static_kv_cache_symbol("bfloat16")),
+            },
+        ),
+    }
+    frontend = FrontendBinding("flash_attention_static_kv_cache")
+    description = "CUDA FlashAttention decode op for static [batch, kv_heads, max_cache_len, head_dim] KV caches."
 
 
 @op_def

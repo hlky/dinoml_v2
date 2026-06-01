@@ -6,6 +6,7 @@ import numpy as np
 
 import dinoml as dml
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.ops import render_launch
 from dinoml.reference import reference_numpy
 
 
@@ -23,6 +24,14 @@ class _FlashAttentionQKVModule(dml.nn.Module):
 
     def forward(self, qkv):
         return dml.ops.output(dml.ops.flash_attention_qkv(qkv, causal=self.causal), "out")
+
+
+class _FlashAttentionStaticKvCacheModule(dml.nn.Module):
+    def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens):
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache(q, past_key, past_value, new_key, new_value, cache_seqlens),
+            "out",
+        )
 
 
 def test_flash_attention_reference_matches_naive_causal_attention():
@@ -43,6 +52,42 @@ def test_flash_attention_reference_matches_naive_causal_attention():
 
     actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
     expected = _naive_flash_attention(inputs["q"], inputs["k"], inputs["v"], causal=True)
+
+    np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
+
+
+def test_flash_attention_static_kv_cache_reference_matches_naive_attention():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheModule(),
+        inputs={
+            "q": dml.TensorSpec([2, 1, 4, 32], "float16"),
+            "past_key": dml.TensorSpec([2, 2, 5, 32], "float16"),
+            "past_value": dml.TensorSpec([2, 2, 5, 32], "float16"),
+            "new_key": dml.TensorSpec([2, 2, 1, 32], "float16"),
+            "new_value": dml.TensorSpec([2, 2, 1, 32], "float16"),
+            "cache_seqlens": dml.TensorSpec([2], "int32"),
+        },
+        name="flash_attention_static_kv_cache_reference",
+    )
+    rng = np.random.default_rng(123)
+    inputs = {
+        "q": rng.normal(size=(2, 1, 4, 32)).astype(np.float16),
+        "past_key": rng.normal(size=(2, 2, 5, 32)).astype(np.float16),
+        "past_value": rng.normal(size=(2, 2, 5, 32)).astype(np.float16),
+        "new_key": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
+        "new_value": rng.normal(size=(2, 2, 1, 32)).astype(np.float16),
+        "cache_seqlens": np.asarray([3, 5], dtype=np.int32),
+    }
+
+    actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
+    expected = _naive_static_kv_cache_attention(
+        inputs["q"],
+        inputs["past_key"],
+        inputs["past_value"],
+        inputs["new_key"],
+        inputs["new_value"],
+        inputs["cache_seqlens"],
+    )
 
     np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
 
@@ -109,11 +154,62 @@ def test_flash_attention_qkv_cuda_manifest_requests_flash_attn_archive():
     assert required[0]["kernel_symbol"] == "dinoml_flash_attn_cuda_qkv_fwd_float16_v1"
 
 
+def test_flash_attention_static_kv_cache_cuda_manifest_requests_flash_attn_archive():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 64], "bfloat16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 64], "bfloat16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 64], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+        },
+        name="flash_attention_static_kv_cache_cuda_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("cuda").to_json())
+    required = manifest["required_kernels"]
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_static_kv_cache"
+    assert required[0]["kernel_library"] == "flash_attn_cuda"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1"
+
+
+def test_flash_attention_static_kv_cache_cuda_lowering_uses_cache_seqlens_symbol():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 64], "float16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 64], "float16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 64], "float16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 64], "float16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 64], "float16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+        },
+        name="flash_attention_static_kv_cache_cuda_lowering",
+    )
+    manifest = build_kernel_manifest(spec.ir, dml.Target("cuda").to_json())
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_static_kv_cache")
+
+    launch = render_launch("cuda", node, tensors, kernel_manifest=manifest)
+
+    assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1" in launch
+    assert "ptr_cache_seqlens" in launch
+
+
 def _naive_flash_attention(q, k, v, *, causal: bool) -> np.ndarray:
     q_value = q.astype(np.float32)
     k_value = k.astype(np.float32)
     v_value = v.astype(np.float32)
-    _, seqlen_q, _, head_dim = q_value.shape
+    _, seqlen_q, heads_q, head_dim = q_value.shape
+    heads_k = k_value.shape[2]
+    if heads_q != heads_k:
+        repeat = heads_q // heads_k
+        k_value = np.repeat(k_value, repeat, axis=2)
+        v_value = np.repeat(v_value, repeat, axis=2)
     seqlen_k = k_value.shape[1]
     scores = np.einsum("bqhd,bkhd->bhqk", q_value, k_value) * np.float32(1.0 / math.sqrt(head_dim))
     if causal:
@@ -124,3 +220,24 @@ def _naive_flash_attention(q, k, v, *, causal: bool) -> np.ndarray:
     probs = np.exp(shifted)
     probs = probs / np.sum(probs, axis=-1, keepdims=True)
     return np.einsum("bhqk,bkhd->bqhd", probs, v_value)
+
+
+def _naive_static_kv_cache_attention(q, past_key, past_value, new_key, new_value, cache_seqlens) -> np.ndarray:
+    outputs = []
+    for batch_idx, valid_past in enumerate(cache_seqlens.tolist()):
+        k = np.concatenate(
+            [
+                np.transpose(past_key[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_key[batch_idx : batch_idx + 1], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        v = np.concatenate(
+            [
+                np.transpose(past_value[batch_idx : batch_idx + 1, :, :valid_past, :], (0, 2, 1, 3)),
+                np.transpose(new_value[batch_idx : batch_idx + 1], (0, 2, 1, 3)),
+            ],
+            axis=1,
+        )
+        outputs.append(_naive_flash_attention(q[batch_idx : batch_idx + 1], k, v, causal=False))
+    return np.concatenate(outputs, axis=0)

@@ -23,7 +23,11 @@ from dinoml.lowering.ops.base import OpLowering
 from dinoml.lowering.ops.dynamic_slice import DYNAMIC_SLICE_LOWERING
 from dinoml.lowering.ops.embedding import EMBEDDING_LOWERING
 from dinoml.lowering.ops.expand import EXPAND_LOWERING
-from dinoml.lowering.ops.flash_attention import FLASH_ATTENTION_LOWERING, FLASH_ATTENTION_QKV_LOWERING
+from dinoml.lowering.ops.flash_attention import (
+    FLASH_ATTENTION_LOWERING,
+    FLASH_ATTENTION_QKV_LOWERING,
+    FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING,
+)
 from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gather import GATHER_LOWERING
@@ -67,6 +71,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     EXPAND_LOWERING.op_name: EXPAND_LOWERING,
     FLASH_ATTENTION_LOWERING.op_name: FLASH_ATTENTION_LOWERING,
     FLASH_ATTENTION_QKV_LOWERING.op_name: FLASH_ATTENTION_QKV_LOWERING,
+    FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING.op_name: FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING,
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     GATHER_LOWERING.op_name: GATHER_LOWERING,

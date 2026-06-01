@@ -37,7 +37,7 @@ DEFAULT_SNAPSHOT = Path(
     r"C:\Users\user\.cache\huggingface\hub\models--zai-org--GLM-OCR\snapshots\ca5d8b3e287e52589e37c28385d9655ee4372f9d"
 )
 DEFAULT_IMAGE = Path(
-    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.TIF"
+    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.preview.png"
 )
 DEFAULT_PROMPT = "Perform OCR on this document image. Return the text only."
 
@@ -47,14 +47,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--snapshot", type=Path, default=DEFAULT_SNAPSHOT)
     parser.add_argument("--image", type=Path, default=DEFAULT_IMAGE)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
-    parser.add_argument("--max-new-tokens", type=int, default=32)
+    parser.add_argument("--max-new-tokens", type=int, default=128)
     parser.add_argument("--warmup", type=int, default=0)
     parser.add_argument("--iterations", type=int, default=1)
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--target", choices=("rocm", "cuda", "cpu"), default="rocm")
     parser.add_argument("--arch", default=None)
     parser.add_argument("--min-pixels", type=int, default=784)
-    parser.add_argument("--max-pixels", type=int, default=50176)
+    parser.add_argument("--max-pixels", type=int, default=1298237)
     parser.add_argument("--prefill-artifact", type=Path)
     parser.add_argument("--decode-artifact", type=Path)
     parser.add_argument("--prefill-execution-plan", type=Path)
@@ -185,7 +185,13 @@ def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str,
     )
 
 
-def build_decode_spec(config, weights: dict[str, np.ndarray], max_cache_len: int):
+def build_decode_spec(
+    config,
+    weights: dict[str, np.ndarray],
+    max_cache_len: int,
+    *,
+    use_flash_static_kv_cache: bool,
+):
     cache_spec = cache_spec_for_config(config, max_cache_len)
     inputs = {
         "input_ids": dml.TensorSpec([1, 1], "int64"),
@@ -197,6 +203,8 @@ def build_decode_spec(config, weights: dict[str, np.ndarray], max_cache_len: int
         ),
         **static_kv_cache_input_specs(cache_spec),
     }
+    if use_flash_static_kv_cache:
+        inputs["cache_seqlens"] = dml.TensorSpec([1], "int32")
     return dml.trace(
         GlmOcrForConditionalGenerationDecodeStaticCache(config, weights),
         inputs=inputs,
@@ -216,6 +224,7 @@ def cache_spec_for_config(config, max_cache_len: int) -> StaticKvCacheSpec:
 
 
 def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start: int, max_cache_len: int) -> tuple[Path, Path]:
+    use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
         prefill_artifact = Path("build") / (
@@ -224,8 +233,9 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         )
     decode_artifact = args.decode_artifact
     if decode_artifact is None:
+        cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
         decode_artifact = Path("build") / (
-            f"glm_ocr_real_image_cached_decode_past{max_cache_len}_{args.dtype}_{args.target}.dinoml"
+            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     if prefill_artifact.exists() and decode_artifact.exists() and not args.force_compile:
         return prefill_artifact, decode_artifact
@@ -255,7 +265,12 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         )
         decode_artifact.parent.mkdir(parents=True, exist_ok=True)
         dml.compile(
-            build_decode_spec(config, text_weights, max_cache_len),
+            build_decode_spec(
+                config,
+                text_weights,
+                max_cache_len,
+                use_flash_static_kv_cache=use_flash_static_kv_cache,
+            ),
             target=dml.Target(args.target, arch=args.arch),
             output=decode_artifact,
             execution_plan=args.decode_execution_plan,
@@ -275,6 +290,7 @@ def generate_once(
     max_cache_len: int,
     max_new_tokens: int,
     eos_token_id: int,
+    use_flash_static_kv_cache: bool = False,
 ) -> tuple[list[int], list[float]]:
     started = time.perf_counter()
     prefill_outputs = prefill_session.run_numpy(_prefill_run_inputs(prefill_inputs, prompt_len))
@@ -296,6 +312,8 @@ def generate_once(
             "attention_mask": _decode_attention_mask(config, max_cache_len, valid_past_len=position),
             **cache,
         }
+        if use_flash_static_kv_cache:
+            decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
         started = time.perf_counter()
         decode_outputs = decode_session.run_numpy(decode_inputs)
         run_times_ms.append((time.perf_counter() - started) * 1000.0)
@@ -336,6 +354,10 @@ def _float_input(values: np.ndarray, dtype: str) -> np.ndarray:
     return values.astype(dtype, copy=False)
 
 
+def _use_flash_static_kv_cache(args: argparse.Namespace, config) -> bool:
+    return args.target == "cuda" and config.text_config.dtype in {"float16", "bfloat16"}
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -349,6 +371,7 @@ def main() -> None:
     processed, image_size = processor_inputs(processor, args.image, args.prompt)
     config = build_config(args.snapshot, args.dtype)
     inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
+    use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     started_compile = time.perf_counter()
     prefill_artifact, decode_artifact = ensure_artifacts(args, config, inputs, image_token_start, max_cache_len)
     compile_seconds = time.perf_counter() - started_compile
@@ -362,7 +385,17 @@ def main() -> None:
         decode_session = decode_module.create_session()
         eos_token_id = int(processor.tokenizer.eos_token_id)
         for _ in range(args.warmup):
-            generate_once(prefill_session, decode_session, inputs, config, prompt_len, max_cache_len, args.max_new_tokens, eos_token_id)
+            generate_once(
+                prefill_session,
+                decode_session,
+                inputs,
+                config,
+                prompt_len,
+                max_cache_len,
+                args.max_new_tokens,
+                eos_token_id,
+                use_flash_static_kv_cache=use_flash_static_kv_cache,
+            )
         times_ms: list[float] = []
         token_run_times_ms: list[list[float]] = []
         generated_ids: list[int] = []
@@ -377,6 +410,7 @@ def main() -> None:
                 max_cache_len,
                 args.max_new_tokens,
                 eos_token_id,
+                use_flash_static_kv_cache=use_flash_static_kv_cache,
             )
             times_ms.append((time.perf_counter() - started) * 1000.0)
             token_run_times_ms.append(per_token_times)
@@ -402,6 +436,7 @@ def main() -> None:
         "dtype": args.dtype,
         "target": args.target,
         "arch": args.arch,
+        "use_flash_static_kv_cache": use_flash_static_kv_cache,
         "processor_image_size": processor_image_size,
         "max_new_tokens": args.max_new_tokens,
         "prompt_len": prompt_len,

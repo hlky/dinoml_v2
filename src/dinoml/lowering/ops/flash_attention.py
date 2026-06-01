@@ -21,8 +21,11 @@ def render_launch(
 ) -> str:
     if target not in {"cuda", "rocm"}:
         raise ValueError(f"flash_attention lowering is only implemented for CUDA and ROCm, got {target!r}")
-    if str(node["op"]) == "flash_attention_qkv":
+    op_name = str(node["op"])
+    if op_name == "flash_attention_qkv":
         return _render_qkv_launch(target, node, tensor_map, kernel_manifest)
+    if op_name == "flash_attention_static_kv_cache":
+        return _render_static_kv_cache_launch(target, node, tensor_map, kernel_manifest)
     q_name, k_name, v_name = (str(name) for name in node["inputs"])
     output_name = str(node["outputs"][0])
     q_ident = _c_ident(q_name)
@@ -101,6 +104,69 @@ def _render_qkv_launch(
     )
 
 
+def _render_static_kv_cache_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None,
+) -> str:
+    if target != "cuda":
+        raise ValueError(f"flash_attention_static_kv_cache lowering is only implemented for CUDA, got {target!r}")
+    q_name, past_key_name, past_value_name, new_key_name, new_value_name, cache_seqlens_name = (
+        str(name) for name in node["inputs"]
+    )
+    output_name = str(node["outputs"][0])
+    q_ident = _c_ident(q_name)
+    past_key_ident = _c_ident(past_key_name)
+    past_value_ident = _c_ident(past_value_name)
+    new_key_ident = _c_ident(new_key_name)
+    new_value_ident = _c_ident(new_value_name)
+    cache_seqlens_ident = _c_ident(cache_seqlens_name)
+    output_ident = _c_ident(output_name)
+    dtype = str(tensor_map[output_name]["dtype"])
+    if dtype not in {"float16", "bfloat16"}:
+        raise ValueError(f"flash_attention_static_kv_cache CUDA lowering only supports float16 and bfloat16, got {dtype}")
+    symbol = _manifest_symbol(kernel_manifest, target, str(node["op"]), dtype)
+    if symbol is None:
+        symbol = get_op_def(str(node["op"])).backend_kernels[target].resolve(dtype).symbol
+    return "\n".join(
+        [
+            f'if (shape_{q_ident}_1 != 1) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache expected q sequence length 1");',
+            f'if (shape_{new_key_ident}_2 != 1 || shape_{new_value_ident}_2 != 1) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache expected new K/V sequence length 1");',
+            f'if (shape_{q_ident}_0 != shape_{past_key_ident}_0 || shape_{q_ident}_0 != shape_{past_value_ident}_0 || '
+            f'shape_{q_ident}_0 != shape_{new_key_ident}_0 || shape_{q_ident}_0 != shape_{new_value_ident}_0) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache batch dimension mismatch");',
+            f'if (shape_{past_key_ident}_0 != shape_{past_value_ident}_0 || shape_{past_key_ident}_1 != shape_{past_value_ident}_1 || '
+            f'shape_{past_key_ident}_2 != shape_{past_value_ident}_2 || shape_{past_key_ident}_3 != shape_{past_value_ident}_3) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache past key/value shape mismatch");',
+            f'if (shape_{new_key_ident}_0 != shape_{new_value_ident}_0 || shape_{new_key_ident}_1 != shape_{new_value_ident}_1 || '
+            f'shape_{new_key_ident}_2 != shape_{new_value_ident}_2 || shape_{new_key_ident}_3 != shape_{new_value_ident}_3) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache new key/value shape mismatch");',
+            f'if (shape_{past_key_ident}_1 != shape_{new_key_ident}_1) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache KV head dimension mismatch");',
+            f'if (shape_{q_ident}_3 != shape_{past_key_ident}_3 || shape_{q_ident}_3 != shape_{new_key_ident}_3) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache head_dim mismatch");',
+            f'if ((shape_{q_ident}_2 % shape_{past_key_ident}_1) != 0) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache head grouping mismatch");',
+            f'if (shape_{q_ident}_3 <= 0 || shape_{q_ident}_3 > 256) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache unsupported head_dim");',
+            f'if (shape_{cache_seqlens_ident}_0 != shape_{q_ident}_0) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache cache_seqlens shape mismatch");',
+            f'if (shape_{output_ident}_0 != shape_{q_ident}_0 || shape_{output_ident}_1 != shape_{q_ident}_1 || '
+            f'shape_{output_ident}_2 != shape_{q_ident}_2 || shape_{output_ident}_3 != shape_{q_ident}_3) '
+            'return dinoml::module::fail("flash_attention_static_kv_cache output shape mismatch");',
+            f"if (int err = {symbol}(ptr_{q_ident}, ptr_{past_key_ident}, ptr_{past_value_ident}, "
+            f"ptr_{new_key_ident}, ptr_{new_value_ident}, ptr_{cache_seqlens_ident}, ptr_{output_ident}, "
+            f"static_cast<int64_t>(shape_{q_ident}_0), static_cast<int64_t>(shape_{past_key_ident}_2), "
+            f"static_cast<int64_t>(shape_{q_ident}_2), static_cast<int64_t>(shape_{past_key_ident}_1), "
+            f"static_cast<int64_t>(shape_{q_ident}_3), session->stream)) "
+            'return dinoml::module::fail("flash_attention_static_kv_cache launcher failed");',
+        ]
+    )
+
+
 def _manifest_symbol(kernel_manifest: Mapping[str, Any] | None, target: str, op_name: str, dtype: str) -> str | None:
     if kernel_manifest is None:
         return None
@@ -122,6 +188,12 @@ FLASH_ATTENTION_LOWERING = OpLowering(
 
 FLASH_ATTENTION_QKV_LOWERING = OpLowering(
     op_name="flash_attention_qkv",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+)
+
+FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING = OpLowering(
+    op_name="flash_attention_static_kv_cache",
     render_generated_kernel=render_generated_kernel,
     render_launch=render_launch,
 )

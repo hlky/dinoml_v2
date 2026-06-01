@@ -228,6 +228,44 @@ def test_glm_ocr_tiny_text_trace_has_explicit_gqa_widths():
     assert counts["gemm_rcr"] == 8
 
 
+def test_glm_ocr_bf16_text_head_dim128_trace_uses_flash_attention():
+    base_config = _tiny_config()
+    text_config = replace(
+        base_config.text_config,
+        hidden_size=256,
+        intermediate_size=64,
+        num_attention_heads=2,
+        num_key_value_heads=1,
+        head_dim=128,
+        rope_parameters={
+            "rope_type": "default",
+            "mrope_section": [16, 24, 24],
+            "partial_rotary_factor": 1.0,
+            "rope_theta": 10000.0,
+        },
+        dtype="bfloat16",
+    )
+    config = replace(base_config, text_config=text_config)
+    weights = _tiny_weights(config)
+    model = GlmOcrForConditionalGeneration(config, weights, logits_to_keep=1)
+
+    spec = dml.trace(
+        model,
+        inputs={
+            "input_ids": dml.TensorSpec([1, 3], "int64"),
+            "cos": dml.TensorSpec([1, 3, config.text_config.head_dim], "bfloat16"),
+            "sin": dml.TensorSpec([1, 3, config.text_config.head_dim], "bfloat16"),
+            "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 3, 3], "bfloat16"),
+        },
+        name="glm_ocr_bf16_text_head_dim128_flash",
+    )
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+
+    assert counts["flash_attention"] == config.text_config.num_hidden_layers
+    assert counts["bmm_rcr"] == 0
+    assert counts["bmm_rrr"] == 0
+
+
 def test_glm_ocr_tiny_text_logits_match_transformers_head():
     torch = pytest.importorskip("torch")
     pytest.importorskip("transformers.models.glm_ocr.configuration_glm_ocr")
@@ -399,9 +437,10 @@ def test_glm_ocr_tiny_static_cache_decode_returns_one_token_cache_updates():
     assert counts["bmm_rrr"] == 1
 
 
-def test_glm_ocr_tiny_fp16_static_cache_decode_uses_flash_attention_cache_path():
+@pytest.mark.parametrize("dtype", ("float16", "bfloat16"))
+def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype: str):
     base_config = _tiny_config()
-    config = replace(base_config, text_config=replace(base_config.text_config, dtype="float16"))
+    config = replace(base_config, text_config=replace(base_config.text_config, dtype=dtype))
     weights = _tiny_weights(config)
     model = GlmOcrForConditionalGenerationDecodeStaticCache(config, weights)
     max_past_len = 5
@@ -411,13 +450,13 @@ def test_glm_ocr_tiny_fp16_static_cache_decode_uses_flash_attention_cache_path()
         num_key_value_heads=config.text_config.num_key_value_heads,
         max_cache_len=max_past_len,
         head_dim=config.text_config.head_dim,
-        dtype="float16",
+        dtype=dtype,
     )
     inputs = {
         "input_ids": dml.TensorSpec([1, 1], "int64"),
-        "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], "float16"),
-        "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], "float16"),
-        "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_past_len + 1], "float16"),
+        "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], dtype),
+        "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], dtype),
+        "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_past_len + 1], dtype),
         "cache_seqlens": dml.TensorSpec([1], "int32"),
         **static_kv_cache_input_specs(cache_spec),
     }

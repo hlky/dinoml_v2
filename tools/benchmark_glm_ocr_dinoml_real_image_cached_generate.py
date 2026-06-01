@@ -237,10 +237,12 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         decode_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}_{args.dtype}_{args.target}.dinoml"
         )
-    if prefill_artifact.exists() and decode_artifact.exists() and not args.force_compile:
+    prefill_ready = _artifact_ready(prefill_artifact)
+    decode_ready = _artifact_ready(decode_artifact)
+    if prefill_ready and decode_ready and not args.force_compile:
         return prefill_artifact, decode_artifact
 
-    if args.force_compile or not prefill_artifact.exists():
+    if args.force_compile or not prefill_ready:
         full_weights = glm_ocr_weights_from_safetensors_file(
             args.snapshot / "model.safetensors",
             config,
@@ -256,7 +258,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
             profile_iterations=args.profile_iterations,
             profile_repeats=args.profile_repeats,
         )
-    if args.force_compile or not decode_artifact.exists():
+    if args.force_compile or not decode_ready:
         text_weights = glm_ocr_weights_from_safetensors_file(
             args.snapshot / "model.safetensors",
             config,
@@ -279,6 +281,10 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
             profile_repeats=args.profile_repeats,
         )
     return prefill_artifact, decode_artifact
+
+
+def _artifact_ready(path: Path) -> bool:
+    return (path / "manifest.json").is_file() and (path / "module.so").is_file()
 
 
 def generate_once(

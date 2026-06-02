@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from PIL import Image
+
+from tools import glm_ocr_benchmark_common as glm_ocr_common
 from tools import benchmark_glm_ocr_dinoml_real_image_cached_generate as glm_ocr_tool
 from tools import benchmark_glm_ocr_dinoml_real_image_prefill_generate as glm_ocr_prefill_tool
 from tools import benchmark_glm_ocr_transformers_real_image as transformers_tool
@@ -46,8 +50,26 @@ def _items(names: list[str], *, shape: list[int] | None = None, dtype: str = "bf
 
 
 def test_real_image_benchmark_defaults_use_same_image():
+    assert glm_ocr_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
+    assert glm_ocr_prefill_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
+    assert transformers_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
     assert glm_ocr_tool.DEFAULT_IMAGE == glm_ocr_prefill_tool.DEFAULT_IMAGE
     assert glm_ocr_tool.DEFAULT_IMAGE == transformers_tool.DEFAULT_IMAGE
+
+
+def test_real_image_benchmark_longest_side_resize_preserves_aspect_ratio():
+    image = Image.new("RGB", (2496, 3150))
+
+    resized = glm_ocr_common.resize_image_longest_side(image, 1024)
+
+    assert resized.size == (811, 1024)
+
+
+def test_real_image_benchmark_longest_side_resize_rejects_non_positive_value():
+    image = Image.new("RGB", (10, 20))
+
+    with pytest.raises(ValueError, match="--longest-side must be positive"):
+        glm_ocr_common.resize_image_longest_side(image, 0)
 
 
 def test_prefill_artifact_requires_flash_attention_bias_when_config_uses_bias(tmp_path: Path):

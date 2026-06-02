@@ -8,17 +8,22 @@ import time
 from pathlib import Path
 
 import torch
-from PIL import Image
-from transformers.image_utils import SizeDict
-
-
-DEFAULT_SNAPSHOT = Path(
-    r"C:\Users\user\.cache\huggingface\hub\models--zai-org--GLM-OCR\snapshots\ca5d8b3e287e52589e37c28385d9655ee4372f9d"
-)
-DEFAULT_IMAGE = Path(
-    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.TIF"
-)
-DEFAULT_PROMPT = "Perform OCR on this document image. Return the text only."
+try:
+    from tools.glm_ocr_benchmark_common import (
+        DEFAULT_IMAGE,
+        DEFAULT_PROMPT,
+        DEFAULT_SNAPSHOT,
+        configure_processor_image_size,
+        open_rgb_image,
+    )
+except ModuleNotFoundError:
+    from glm_ocr_benchmark_common import (
+        DEFAULT_IMAGE,
+        DEFAULT_PROMPT,
+        DEFAULT_SNAPSHOT,
+        configure_processor_image_size,
+        open_rgb_image,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,8 +36,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default="bfloat16")
-    parser.add_argument("--min-pixels", type=int, help="Override processor image resize shortest_edge.")
-    parser.add_argument("--max-pixels", type=int, help="Override processor image resize longest_edge.")
+    parser.add_argument("--longest-side", type=int, default=None, help="Resize the source image to this longest edge before processing.")
+    parser.add_argument("--min-pixels", type=int, help="Override processor shortest_edge pixel-count bound.")
+    parser.add_argument("--max-pixels", type=int, help="Override processor longest_edge pixel-count bound.")
     parser.add_argument("--output-json", type=Path)
     return parser.parse_args()
 
@@ -56,18 +62,8 @@ def load_model(snapshot: Path, dtype: torch.dtype, device: torch.device):
     return model.to(device).eval()
 
 
-def configure_processor_image_size(processor, min_pixels: int | None, max_pixels: int | None) -> dict[str, int] | None:
-    if min_pixels is None and max_pixels is None:
-        return None
-    current = processor.image_processor.size
-    shortest_edge = min_pixels if min_pixels is not None else int(current.shortest_edge)
-    longest_edge = max_pixels if max_pixels is not None else int(current.longest_edge)
-    processor.image_processor.size = SizeDict(shortest_edge=shortest_edge, longest_edge=longest_edge)
-    return {"shortest_edge": shortest_edge, "longest_edge": longest_edge}
-
-
-def build_inputs(processor, image_path: Path, prompt: str, device: torch.device):
-    image = Image.open(image_path).convert("RGB")
+def build_inputs(processor, image_path: Path, prompt: str, device: torch.device, *, longest_side: int | None = None):
+    image, source_image_size = open_rgb_image(image_path, longest_side=longest_side)
     messages = [
         {
             "role": "user",
@@ -89,7 +85,7 @@ def build_inputs(processor, image_path: Path, prompt: str, device: torch.device)
     except TypeError:
         text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         inputs = processor(text=[text], images=[image], return_tensors="pt", return_mm_token_type_ids=True)
-    return {name: value.to(device) for name, value in inputs.items()}, image.size
+    return {name: value.to(device) for name, value in inputs.items()}, image.size, source_image_size
 
 
 def generated_suffix(output_ids: torch.Tensor, prompt_len: int) -> torch.Tensor:
@@ -114,7 +110,13 @@ def main() -> None:
     started = time.perf_counter()
     model = load_model(args.snapshot, dtype, device)
     load_seconds = time.perf_counter() - started
-    inputs, image_size = build_inputs(processor, args.image, args.prompt, device)
+    inputs, image_size, source_image_size = build_inputs(
+        processor,
+        args.image,
+        args.prompt,
+        device,
+        longest_side=args.longest_side,
+    )
     prompt_len = int(inputs["input_ids"].shape[1])
 
     def generate_once() -> torch.Tensor:
@@ -155,7 +157,9 @@ def main() -> None:
         "benchmark": "transformers_glm_ocr_real_image_generate",
         "snapshot": str(args.snapshot),
         "image": str(args.image),
+        "source_image_size": list(source_image_size),
         "image_size": list(image_size),
+        "longest_side": args.longest_side,
         "prompt": args.prompt,
         "transformers_version": transformers_version,
         "transformers_file": transformers_file,

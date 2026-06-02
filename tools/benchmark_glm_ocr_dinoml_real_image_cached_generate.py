@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
-from transformers.image_utils import SizeDict
 
 import dinoml as dml
 from dinoml import runtime
@@ -36,15 +34,22 @@ from dinoml.models.kv_cache import (
     static_kv_cache_input_specs,
     write_static_kv_cache_update,
 )
-
-
-DEFAULT_SNAPSHOT = Path(
-    r"C:\Users\user\.cache\huggingface\hub\models--zai-org--GLM-OCR\snapshots\ca5d8b3e287e52589e37c28385d9655ee4372f9d"
-)
-DEFAULT_IMAGE = Path(
-    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.TIF"
-)
-DEFAULT_PROMPT = "Perform OCR on this document image. Return the text only."
+try:
+    from tools.glm_ocr_benchmark_common import (
+        DEFAULT_IMAGE,
+        DEFAULT_PROMPT,
+        DEFAULT_SNAPSHOT,
+        configure_processor_image_size,
+        open_rgb_image,
+    )
+except ModuleNotFoundError:
+    from glm_ocr_benchmark_common import (
+        DEFAULT_IMAGE,
+        DEFAULT_PROMPT,
+        DEFAULT_SNAPSHOT,
+        configure_processor_image_size,
+        open_rgb_image,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,8 +66,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--target", choices=("rocm", "cuda", "cpu"), default="rocm")
     parser.add_argument("--arch", default=None)
-    parser.add_argument("--min-pixels", type=int, default=None)
-    parser.add_argument("--max-pixels", type=int, default=None)
+    parser.add_argument("--longest-side", type=int, default=None, help="Resize the source image to this longest edge before processing.")
+    parser.add_argument("--min-pixels", type=int, default=None, help="Override processor shortest_edge pixel-count bound.")
+    parser.add_argument("--max-pixels", type=int, default=None, help="Override processor longest_edge pixel-count bound.")
     parser.add_argument("--prefill-artifact", type=Path)
     parser.add_argument("--decode-artifact", type=Path)
     parser.add_argument("--prefill-execution-plan", type=Path)
@@ -86,18 +92,8 @@ def enable_rocm_flash_attention_bias(config, target: str):
     return replace(config, text_config=replace(config.text_config, use_flash_attention_bias=True))
 
 
-def configure_processor_image_size(processor, min_pixels: int | None, max_pixels: int | None) -> dict[str, int] | None:
-    if min_pixels is None and max_pixels is None:
-        return None
-    current = processor.image_processor.size
-    shortest_edge = min_pixels if min_pixels is not None else int(current.shortest_edge)
-    longest_edge = max_pixels if max_pixels is not None else int(current.longest_edge)
-    processor.image_processor.size = SizeDict(shortest_edge=shortest_edge, longest_edge=longest_edge)
-    return {"shortest_edge": shortest_edge, "longest_edge": longest_edge}
-
-
-def processor_inputs(processor, image_path: Path, prompt: str):
-    image = Image.open(image_path).convert("RGB")
+def processor_inputs(processor, image_path: Path, prompt: str, *, longest_side: int | None = None):
+    image, source_image_size = open_rgb_image(image_path, longest_side=longest_side)
     messages = [
         {
             "role": "user",
@@ -119,7 +115,7 @@ def processor_inputs(processor, image_path: Path, prompt: str):
     except TypeError:
         text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
         inputs = processor(text=[text], images=[image], return_tensors="pt", return_mm_token_type_ids=True)
-    return {name: value.detach().cpu().numpy() for name, value in inputs.items()}, image.size
+    return {name: value.detach().cpu().numpy() for name, value in inputs.items()}, image.size, source_image_size
 
 
 def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int):
@@ -819,7 +815,12 @@ def main() -> None:
 
     processor = AutoProcessor.from_pretrained(args.snapshot)
     processor_image_size = configure_processor_image_size(processor, args.min_pixels, args.max_pixels)
-    processed, image_size = processor_inputs(processor, args.image, args.prompt)
+    processed, image_size, source_image_size = processor_inputs(
+        processor,
+        args.image,
+        args.prompt,
+        longest_side=args.longest_side,
+    )
     config = enable_rocm_flash_attention_bias(build_config(args.snapshot, args.dtype), args.target)
     inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
@@ -901,7 +902,9 @@ def main() -> None:
         "decode_artifact": str(decode_artifact),
         "snapshot": str(args.snapshot),
         "image": str(args.image),
+        "source_image_size": list(source_image_size),
         "image_size": list(image_size),
+        "longest_side": args.longest_side,
         "prompt": args.prompt,
         "transformers_version": transformers_version,
         "transformers_file": transformers_file,

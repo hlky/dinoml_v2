@@ -284,15 +284,14 @@ def _dynamic_slice_static_contiguous_view(
     offset = sum(start * stride for start, stride in zip(starts, strides))
     if int(np.prod(output_shape, dtype=np.int64)) == 0:
         return None
-    innermost_changed = False
-    for axis, (start, size, extent) in enumerate(zip(starts, sizes, input_shape)):
-        if size == extent and start == 0:
-            continue
-        if innermost_changed:
-            return None
-        if axis != len(input_shape) - 1 and any(sizes[later] != input_shape[later] for later in range(axis + 1, len(input_shape))):
-            return None
-        innermost_changed = True
+    first_varying_axis = next((axis for axis, size in enumerate(sizes) if size > 1), None)
+    if first_varying_axis is None:
+        return str(node["inputs"][0]), int(offset)
+    if any(
+        starts[later] != 0 or sizes[later] != input_shape[later]
+        for later in range(first_varying_axis + 1, len(input_shape))
+    ):
+        return None
     return str(node["inputs"][0]), int(offset)
 
 

@@ -10,7 +10,6 @@ from PIL import Image
 
 from tools import glm_ocr_benchmark_common as glm_ocr_common
 from tools import benchmark_glm_ocr_dinoml_real_image_cached_generate as glm_ocr_tool
-from tools import benchmark_glm_ocr_dinoml_real_image_prefill_generate as glm_ocr_prefill_tool
 from tools import benchmark_glm_ocr_transformers_real_image as transformers_tool
 
 
@@ -56,9 +55,7 @@ def _items(names: list[str], *, shape: list[int] | None = None, dtype: str = "bf
 
 def test_real_image_benchmark_defaults_use_same_image():
     assert glm_ocr_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
-    assert glm_ocr_prefill_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
     assert transformers_tool.DEFAULT_IMAGE == glm_ocr_common.DEFAULT_IMAGE
-    assert glm_ocr_tool.DEFAULT_IMAGE == glm_ocr_prefill_tool.DEFAULT_IMAGE
     assert glm_ocr_tool.DEFAULT_IMAGE == transformers_tool.DEFAULT_IMAGE
 
 

@@ -1,0 +1,32 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t output_total) {
+  constexpr int64_t hidden = {{ hidden }};
+  const int64_t elem = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (elem >= output_total) {
+    return;
+  }
+  const int64_t row = elem / hidden;
+  const int64_t col = elem - row * hidden;
+  const int64_t input_base = row * hidden * 2 + col;
+  const float gate = dinoml::math::cast<float>(x[input_base]);
+  const float up = dinoml::math::cast<float>(x[input_base + hidden]);
+  const float sigmoid = 1.0f / (1.0f + expf(-gate));
+  y[elem] = dinoml::math::cast<{{ storage_type }}>(up * gate * sigmoid);
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t output_total,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int threads = 256;
+  const int blocks = static_cast<int>((output_total + threads - 1) / threads);
+  {{ kernel }}<<<blocks, threads, 0, stream>>>(x, y, output_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

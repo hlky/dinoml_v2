@@ -175,6 +175,26 @@ def test_glm_ocr_fused_vision_rope_reference_matches_numpy():
     np.testing.assert_allclose(actual["k"], expected(inputs["k"]), rtol=1e-6, atol=1e-6)
 
 
+def test_swiglu_reference_matches_numpy():
+    class SwiGLUModule(dml.nn.Module):
+        def forward(self, x):
+            return dml.ops.output(dml.ops.swiglu(x), "out")
+
+    spec = dml.trace(
+        SwiGLUModule(),
+        inputs={"x": dml.TensorSpec([2, 3, 8], "float32")},
+        name="swiglu_reference",
+    )
+    x = np.arange(48, dtype=np.float32).reshape(2, 3, 8) / 13.0 - 1.0
+    actual = reference_numpy(spec, {"x": x})["out"]
+    gate, up = np.split(x, 2, axis=-1)
+    expected = up * (gate / (1.0 + np.exp(-gate)))
+
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+    assert counts["swiglu"] == 1
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+
+
 def test_glm_ocr_rope_index_matches_source_grouping_for_image_tokens():
     input_ids = np.asarray([[11, 12, 59280, 59280, 13]], dtype=np.int64)
     mm_token_type_ids = np.asarray([[0, 0, 1, 1, 0]], dtype=np.int64)
@@ -308,7 +328,8 @@ def test_glm_ocr_tiny_text_trace_has_explicit_gqa_widths():
     assert counts["t5_layer_norm"] == 5
     assert counts["bmm_rcr"] == 1
     assert counts["bmm_rrr"] == 1
-    assert counts["gemm_rcr"] == 8
+    assert counts["gemm_rcr"] == 7
+    assert counts["swiglu"] == 1
 
 
 def test_glm_ocr_bf16_text_head_dim128_trace_uses_flash_attention():
@@ -550,6 +571,7 @@ def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype:
     counts = Counter(node["op"] for node in spec.ir["nodes"])
 
     assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
+    assert counts["swiglu"] == config.text_config.num_hidden_layers
     assert counts["flash_attention_static_kv_cache_bias"] == 1
     assert counts["flash_attention_static_kv_cache"] == 0
     assert counts["concatenate"] == 0
@@ -589,6 +611,7 @@ def test_glm_ocr_tiny_session_static_cache_decode_uses_state_buffers():
     assert "past_value_0" not in input_names
     assert state_names == {"past_key_0", "past_value_0"}
     assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
+    assert counts["swiglu"] == config.text_config.num_hidden_layers
     assert counts["flash_attention_static_kv_cache_bias"] == 1
     assert counts["flash_attention_static_kv_cache"] == 0
     assert counts["concatenate"] == 0
@@ -615,6 +638,7 @@ def test_glm_ocr_tiny_prefill_can_keep_only_last_token_logits():
 
     assert spec.ir["outputs"][0]["shape"] == [1, 1, config.text_config.vocab_size]
     assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
+    assert counts["swiglu"] == config.text_config.num_hidden_layers
 
 
 def test_glm_ocr_tiny_vision_trace_uses_linear_patch_embed_and_downsample_rewrites():

@@ -109,6 +109,7 @@ from dinoml.ops.elementwise import (
     tanh,
 )
 from dinoml.ops.embedding import embedding
+from dinoml.ops.gating import swiglu
 from dinoml.ops.gemm import (
     gemm_rcr,
     gemm_rcr_bias,
@@ -392,6 +393,7 @@ __all__ = [
     "softmax",
     "softplus",
     "softsign",
+    "swiglu",
     "split",
     "sqrt",
     "squeeze",

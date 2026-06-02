@@ -126,6 +126,13 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 _execute_reduction(node["op"], values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] == "swiglu":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_swiglu(values[node["inputs"][0]]),
+                output_dtype,
+            )
         elif node["op"] == "argmax":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -813,6 +820,14 @@ def _execute_glm_ocr_vision_rope(
         return source * cos_value + rotated * sin_value
 
     return apply(q), apply(k)
+
+
+def _execute_swiglu(value: np.ndarray) -> np.ndarray:
+    source = np.asarray(value, dtype=np.float32)
+    hidden = source.shape[-1] // 2
+    gate = source[..., :hidden]
+    up = source[..., hidden:]
+    return up * (gate / (1.0 + np.exp(-gate)))
 
 
 def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

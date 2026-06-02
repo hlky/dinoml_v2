@@ -630,22 +630,12 @@ class GlmOcrTextAttention(dml.nn.Module):
 class GlmOcrTextMLP(dml.nn.Module):
     def __init__(self, config: GlmOcrTextConfig, weights: Mapping[str, np.ndarray], prefix: str):
         self.config = config
-        self.gate_proj = _loaded_linear_row_slice(
+        self.gate_up_proj = _loaded_linear(
             weights,
-            parameter_prefix="gate_proj",
+            parameter_prefix="gate_up_proj",
             weight_key=f"{prefix}.mlp.gate_up_proj.weight",
             in_features=config.hidden_size,
-            out_features=config.intermediate_size,
-            start_row=0,
-            dtype=config.dtype,
-        )
-        self.up_proj = _loaded_linear_row_slice(
-            weights,
-            parameter_prefix="up_proj",
-            weight_key=f"{prefix}.mlp.gate_up_proj.weight",
-            in_features=config.hidden_size,
-            out_features=config.intermediate_size,
-            start_row=config.intermediate_size,
+            out_features=2 * config.intermediate_size,
             dtype=config.dtype,
         )
         self.down_proj = _loaded_linear(
@@ -658,9 +648,7 @@ class GlmOcrTextMLP(dml.nn.Module):
         )
 
     def forward(self, hidden_states):
-        gate = self.gate_proj(hidden_states)
-        up = self.up_proj(hidden_states)
-        return self.down_proj(dml.ops.mul(up, dml.ops.silu(gate)))
+        return self.down_proj(dml.ops.swiglu(self.gate_up_proj(hidden_states)))
 
 
 class GlmOcrTextDecoderLayer(dml.nn.Module):
@@ -1623,26 +1611,6 @@ def _loaded_linear(
             name=f"{parameter_prefix}_bias",
             value=_weight_value(weights, bias_key, (out_features,), dtype=dtype),
         )
-    return layer
-
-
-def _loaded_linear_row_slice(
-    weights: Mapping[str, np.ndarray],
-    *,
-    parameter_prefix: str,
-    weight_key: str,
-    in_features: int,
-    out_features: int,
-    start_row: int,
-    dtype: str = "float32",
-) -> dml.nn.Linear:
-    dtype = _normalize_glm_ocr_dtype(dtype)
-    layer = dml.nn.Linear(in_features, out_features, bias=False, dtype=dtype)
-    full_weight = _weight_value(weights, weight_key, None, dtype=dtype)
-    end_row = int(start_row) + int(out_features)
-    weight = np.ascontiguousarray(full_weight[int(start_row) : end_row])
-    _check_shape(weight, (out_features, in_features), weight_key)
-    layer.weight = dml.Parameter([out_features, in_features], dtype=dtype, name=f"{parameter_prefix}_weight", value=weight)
     return layer
 
 

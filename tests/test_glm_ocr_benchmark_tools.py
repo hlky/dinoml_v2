@@ -430,6 +430,19 @@ def test_session_static_kv_cache_selection_does_not_require_bias_flag():
     assert not glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention=False))
 
 
+def test_session_static_kv_cache_selection_supports_cuda_without_decode_mask():
+    args = SimpleNamespace(target="cuda", attention_mask=False)
+
+    assert glm_ocr_tool._use_flash_static_kv_cache(args, _config(use_flash_attention_bias=False))
+    assert glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention_bias=False))
+
+
+def test_session_static_kv_cache_selection_disables_cuda_when_decode_mask_is_requested():
+    args = SimpleNamespace(target="cuda", attention_mask=True)
+
+    assert not glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention_bias=False))
+
+
 def test_decode_run_inputs_can_include_flash_static_attention_mask():
     config = _config(use_flash_attention_bias=True)
     prefill_inputs = {

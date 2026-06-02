@@ -970,7 +970,11 @@ def _use_flash_static_kv_cache(args: argparse.Namespace, config) -> bool:
 
 
 def _use_session_static_kv_cache(args: argparse.Namespace, config) -> bool:
-    return args.target == "rocm" and _use_flash_static_kv_cache(args, config)
+    return (
+        args.target in {"cuda", "rocm"}
+        and _use_flash_static_kv_cache(args, config)
+        and not (args.target == "cuda" and bool(getattr(args, "attention_mask", False)))
+    )
 
 
 def _enable_flash_attention_bias(config):

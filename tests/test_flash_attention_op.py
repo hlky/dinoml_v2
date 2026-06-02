@@ -9,6 +9,7 @@ import dinoml as dml
 from dinoml.backends import rocm as rocm_backend
 from dinoml.compiler import _validate_mvp_runtime_contract
 from dinoml.kernels.manifest import build_kernel_manifest
+from dinoml.lowering.cuda import render_cuda_module
 from dinoml.lowering.rocm import render_rocm_module
 from dinoml.lowering.ops import render_launch
 from dinoml.reference import reference_numpy
@@ -79,6 +80,28 @@ class _FlashAttentionStaticKvCacheBiasStateModule(dml.nn.Module):
                 new_value,
                 cache_seqlens,
                 bias,
+                advance_cache_seqlens=True,
+            ),
+            "out",
+        )
+
+
+class _FlashAttentionStaticKvCacheStateModule(dml.nn.Module):
+    def __init__(self, *, max_cache_len: int):
+        self.max_cache_len = int(max_cache_len)
+
+    def forward(self, q, new_key, new_value):
+        past_key = dml.state("past_key", dml.TensorSpec([1, 2, self.max_cache_len, 64], "bfloat16"))
+        past_value = dml.state("past_value", dml.TensorSpec([1, 2, self.max_cache_len, 64], "bfloat16"))
+        cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([1], "int32"))
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache(
+                q,
+                past_key,
+                past_value,
+                new_key,
+                new_value,
+                cache_seqlens,
                 advance_cache_seqlens=True,
             ),
             "out",
@@ -395,6 +418,41 @@ def test_flash_attention_static_kv_cache_bias_can_use_session_state_buffers():
     assert "dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1" in source
     assert ", 1, session->flash_attention_static_kv_cache_scratch" in source
     _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
+
+
+def test_flash_attention_static_kv_cache_cuda_can_use_session_state_buffers_and_advance_cache_seqlens():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheStateModule(max_cache_len=8),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 64], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 64], "bfloat16"),
+        },
+        name="flash_attention_static_kv_cache_cuda_state",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("cuda").to_json())
+    source = render_cuda_module(spec.ir, kernel_manifest=manifest)
+    input_names = {item["name"] for item in spec.ir["inputs"]}
+    state_names = {item["name"] for item in spec.ir["states"]}
+
+    assert "past_key" not in input_names
+    assert "past_value" not in input_names
+    assert "cache_seqlens" not in input_names
+    assert state_names == {"past_key", "past_value", "cache_seqlens"}
+    assert "void* state_past_key" in source
+    assert "void* state_past_value" in source
+    assert "void* state_cache_seqlens" in source
+    assert "ptr_past_key = static_cast" in source
+    assert "ptr_past_value = static_cast" in source
+    assert "ptr_cache_seqlens = static_cast" in source
+    assert "session->state_past_key" in source
+    assert "session->state_past_value" in source
+    assert "session->state_cache_seqlens" in source
+    assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1" in source
+    assert "dinoml_cuda_increment_cache_seqlens<<<" in source
+    assert "cudaGetLastError()" in source
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("cuda"))
 
 
 def test_flash_attention_rocm_support_manifest_records_requested_ck_dtype_modules(tmp_path: Path):

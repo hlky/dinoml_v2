@@ -129,6 +129,76 @@ def test_prefill_artifact_accepts_current_text_swiglu_graph(tmp_path: Path):
     assert glm_ocr_tool._prefill_artifact_compatible(artifact, config)
 
 
+def test_prefill_artifact_accepts_masked_ck_bias_graph(tmp_path: Path):
+    config = _config(use_flash_attention_bias=True)
+    prompt_len = 5
+    outputs = ["logits"]
+    for layer_idx in range(config.text_config.num_hidden_layers):
+        outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
+    metadata = {
+        "inputs": [
+            {"name": "input_ids", "shape": [1, prompt_len], "dtype": "int64"},
+            {"name": "pixel_values", "shape": [8, 1176], "dtype": "bfloat16"},
+            {"name": "vision_cos", "shape": [8, 64], "dtype": "float32"},
+            {"name": "vision_sin", "shape": [8, 64], "dtype": "float32"},
+            {"name": "text_cos", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "attention_mask", "shape": [2, prompt_len, prompt_len], "dtype": "bfloat16"},
+        ],
+        "outputs": [
+            {"name": "logits", "shape": [1, 1, 32], "dtype": "bfloat16"},
+            {"name": "present_key_0", "shape": [1, 1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "present_value_0", "shape": [1, 1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "present_key_1", "shape": [1, 1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "present_value_1", "shape": [1, 1, prompt_len, 4], "dtype": "bfloat16"},
+        ],
+    }
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_bias"}, graph_ops=["swiglu", "swiglu"])
+    expected_inputs = {
+        "input_ids": np.zeros((1, prompt_len), dtype=np.int64),
+        "pixel_values": np.zeros((8, 1176), dtype=np.uint16),
+        "vision_cos": np.zeros((8, 64), dtype=np.float32),
+        "vision_sin": np.zeros((8, 64), dtype=np.float32),
+        "text_cos": np.zeros((1, prompt_len, 4), dtype=np.uint16),
+        "text_sin": np.zeros((1, prompt_len, 4), dtype=np.uint16),
+        "attention_mask": np.zeros((2, prompt_len, prompt_len), dtype=np.uint16),
+    }
+
+    assert glm_ocr_tool._prefill_artifact_compatible(artifact, config, expected_inputs=expected_inputs)
+
+
+def test_prefill_artifact_rejects_masked_graph_without_ck_bias(tmp_path: Path):
+    config = _config(use_flash_attention_bias=True)
+    prompt_len = 5
+    outputs = ["logits"]
+    for layer_idx in range(config.text_config.num_hidden_layers):
+        outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
+    metadata = {
+        "inputs": [
+            {"name": "input_ids", "shape": [1, prompt_len], "dtype": "int64"},
+            {"name": "pixel_values", "shape": [8, 1176], "dtype": "bfloat16"},
+            {"name": "vision_cos", "shape": [8, 64], "dtype": "float32"},
+            {"name": "vision_sin", "shape": [8, 64], "dtype": "float32"},
+            {"name": "text_cos", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
+            {"name": "attention_mask", "shape": [2, prompt_len, prompt_len], "dtype": "bfloat16"},
+        ],
+        "outputs": _items(outputs),
+    }
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention"}, graph_ops=["swiglu", "swiglu"])
+    expected_inputs = {
+        "input_ids": np.zeros((1, prompt_len), dtype=np.int64),
+        "pixel_values": np.zeros((8, 1176), dtype=np.uint16),
+        "vision_cos": np.zeros((8, 64), dtype=np.float32),
+        "vision_sin": np.zeros((8, 64), dtype=np.float32),
+        "text_cos": np.zeros((1, prompt_len, 4), dtype=np.uint16),
+        "text_sin": np.zeros((1, prompt_len, 4), dtype=np.uint16),
+        "attention_mask": np.zeros((2, prompt_len, prompt_len), dtype=np.uint16),
+    }
+
+    assert not glm_ocr_tool._prefill_artifact_compatible(artifact, config, expected_inputs=expected_inputs)
+
+
 def test_prefill_artifact_rejects_stale_shape_when_expected_inputs_are_available(tmp_path: Path):
     config = _config(use_flash_attention_bias=True)
     outputs = ["logits"]
@@ -224,6 +294,62 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
     )
 
 
+def test_session_decode_artifact_accepts_state_cache_masked_bias_artifact(tmp_path: Path):
+    config = _config()
+    state_names = ["past_key_0", "past_value_0", "past_key_1", "past_value_1"]
+    metadata = {
+        "inputs": [
+            {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
+            {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
+            {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
+            {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
+        ],
+        "outputs": _items(["logits"], shape=[1, 1, 32]),
+        "states": [
+            *_items(state_names, shape=[1, 1, 8, 4]),
+            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+    }
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
+
+    assert glm_ocr_tool._decode_artifact_compatible(
+        artifact,
+        config,
+        8,
+        use_flash_static_kv_cache=True,
+        use_session_static_kv_cache=True,
+        use_decode_attention_mask=True,
+    )
+
+
+def test_session_decode_artifact_rejects_masked_state_cache_without_ck_bias(tmp_path: Path):
+    config = _config()
+    state_names = ["past_key_0", "past_value_0", "past_key_1", "past_value_1"]
+    metadata = {
+        "inputs": [
+            {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
+            {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
+            {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
+            {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
+        ],
+        "outputs": _items(["logits"], shape=[1, 1, 32]),
+        "states": [
+            *_items(state_names, shape=[1, 1, 8, 4]),
+            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+    }
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
+
+    assert not glm_ocr_tool._decode_artifact_compatible(
+        artifact,
+        config,
+        8,
+        use_flash_static_kv_cache=True,
+        use_session_static_kv_cache=True,
+        use_decode_attention_mask=True,
+    )
+
+
 def test_session_decode_artifact_rejects_stale_attention_mask_input(tmp_path: Path):
     config = _config()
     state_names = ["past_key_0", "past_value_0", "past_key_1", "past_value_1"]
@@ -258,3 +384,27 @@ def test_session_static_kv_cache_selection_does_not_require_bias_flag():
     assert glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention_bias=False))
     assert not glm_ocr_tool._use_flash_static_kv_cache(args, _config(use_flash_attention=False))
     assert not glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention=False))
+
+
+def test_decode_run_inputs_can_include_flash_static_attention_mask():
+    config = _config(use_flash_attention_bias=True)
+    prefill_inputs = {
+        "text_cos": np.zeros((1, 8, 4), dtype=np.uint16),
+        "text_sin": np.zeros((1, 8, 4), dtype=np.uint16),
+    }
+
+    inputs = glm_ocr_tool._decode_run_inputs(
+        prefill_inputs,
+        config,
+        8,
+        next_id=7,
+        position=3,
+        cache={},
+        use_flash_static_kv_cache=True,
+        use_session_static_kv_cache=True,
+        use_decode_attention_mask=True,
+    )
+
+    assert set(inputs) == {"input_ids", "cos", "sin", "attention_mask"}
+    assert inputs["attention_mask"].shape == (2, 1, 8)
+    assert inputs["attention_mask"].dtype == np.uint16

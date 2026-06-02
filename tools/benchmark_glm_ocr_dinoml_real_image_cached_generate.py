@@ -6,6 +6,7 @@ import statistics
 import sys
 import time
 from collections.abc import Mapping
+from dataclasses import is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-warmup", type=int, default=5)
     parser.add_argument("--benchmark-iterations", type=int, default=20)
     parser.add_argument("--skip-generation", action="store_true")
+    parser.add_argument(
+        "--attention-mask",
+        action="store_true",
+        help="Compile and run additive prefill/decode attention masks; ROCm flash paths use CK bias kernels.",
+    )
     parser.add_argument("--dtype", choices=("bfloat16", "float16", "float32"), default="bfloat16")
     parser.add_argument("--target", choices=("rocm", "cuda", "cpu"), default="rocm")
     parser.add_argument("--arch", default=None)
@@ -111,7 +117,7 @@ def processor_inputs(processor, image_path: Path, prompt: str, *, longest_side: 
     return {name: value.detach().cpu().numpy() for name, value in inputs.items()}, image.size, source_image_size
 
 
-def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int):
+def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int, *, use_attention_mask: bool = False):
     input_ids = np.asarray(processed["input_ids"], dtype=np.int64)
     mm_token_type_ids = np.asarray(processed["mm_token_type_ids"], dtype=np.int64)
     image_grid_thw = np.asarray(processed["image_grid_thw"], dtype=np.int64)
@@ -140,19 +146,21 @@ def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int):
         image_positions = np.flatnonzero(input_ids[0] == config.image_token_id)
     if image_positions.size == 0:
         raise RuntimeError("processor inputs did not contain image placeholder tokens")
-    return (
-        {
-            "input_ids": input_ids,
-            "pixel_values": _float_input(pixel_values, config.vision_config.dtype),
-            "vision_cos": _float_input(vision_cos, "float32"),
-            "vision_sin": _float_input(vision_sin, "float32"),
-            "text_cos": _float_input(text_cos, config.text_config.dtype),
-            "text_sin": _float_input(text_sin, config.text_config.dtype),
-        },
-        prompt_len,
-        max_cache_len,
-        int(image_positions[0]),
-    )
+    inputs = {
+        "input_ids": input_ids,
+        "pixel_values": _float_input(pixel_values, config.vision_config.dtype),
+        "vision_cos": _float_input(vision_cos, "float32"),
+        "vision_sin": _float_input(vision_sin, "float32"),
+        "text_cos": _float_input(text_cos, config.text_config.dtype),
+        "text_sin": _float_input(text_sin, config.text_config.dtype),
+    }
+    if use_attention_mask:
+        inputs["attention_mask"] = _prefill_attention_mask(
+            config,
+            processed.get("attention_mask"),
+            prompt_len=prompt_len,
+        )
+    return inputs, prompt_len, max_cache_len, int(image_positions[0])
 
 
 def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str, np.ndarray], image_token_start: int):
@@ -176,6 +184,16 @@ def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str,
                 [inputs["input_ids"].shape[0], inputs["input_ids"].shape[1], config.text_config.head_dim],
                 config.text_config.dtype,
             ),
+            **(
+                {
+                    "attention_mask": dml.TensorSpec(
+                        list(inputs["attention_mask"].shape),
+                        config.text_config.dtype,
+                    )
+                }
+                if "attention_mask" in inputs
+                else {}
+            ),
         },
         name=f"glm_ocr_real_image_cached_prefill_s{inputs['input_ids'].shape[1]}_p{inputs['pixel_values'].shape[0]}",
     )
@@ -188,6 +206,7 @@ def build_decode_spec(
     *,
     use_flash_static_kv_cache: bool,
     use_session_static_kv_cache: bool,
+    use_decode_attention_mask: bool = False,
 ):
     cache_spec = cache_spec_for_config(config, max_cache_len)
     inputs = {
@@ -195,9 +214,10 @@ def build_decode_spec(
         "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
         "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
     }
-    if not use_flash_static_kv_cache:
+    if use_decode_attention_mask or not use_flash_static_kv_cache:
+        mask_cache_len = max_cache_len if use_flash_static_kv_cache else max_cache_len + 1
         inputs["attention_mask"] = dml.TensorSpec(
-            [config.text_config.num_attention_heads, 1, max_cache_len + 1],
+            [config.text_config.num_attention_heads, 1, mask_cache_len],
             config.text_config.dtype,
         )
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
@@ -232,12 +252,14 @@ def cache_spec_for_config(config, max_cache_len: int) -> StaticKvCacheSpec:
 def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start: int, max_cache_len: int) -> tuple[Path, Path]:
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     use_session_static_kv_cache = _use_session_static_kv_cache(args, config)
+    use_decode_attention_mask = bool(getattr(args, "attention_mask", False))
     flash_suffix = "_flash" if getattr(config.text_config, "use_flash_attention", True) else ""
+    mask_suffix = "_mask" if bool(getattr(args, "attention_mask", False)) else ""
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
         prefill_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_prefill_s{inputs['input_ids'].shape[1]}"
-            f"_p{inputs['pixel_values'].shape[0]}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
+            f"_p{inputs['pixel_values'].shape[0]}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     decode_artifact = args.decode_artifact
     if decode_artifact is None:
@@ -246,7 +268,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         else:
             cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
         decode_artifact = Path("build") / (
-            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
+            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     prefill_ready = _prefill_artifact_compatible(prefill_artifact, config, expected_inputs=inputs)
     decode_ready = _decode_artifact_compatible(
@@ -255,6 +277,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         max_cache_len,
         use_flash_static_kv_cache=use_flash_static_kv_cache,
         use_session_static_kv_cache=use_session_static_kv_cache,
+        use_decode_attention_mask=use_decode_attention_mask,
     )
     if not args.force_compile:
         if args.prefill_artifact is not None and _artifact_ready(prefill_artifact) and not prefill_ready:
@@ -301,6 +324,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
                 max_cache_len,
                 use_flash_static_kv_cache=use_flash_static_kv_cache,
                 use_session_static_kv_cache=use_session_static_kv_cache,
+                use_decode_attention_mask=use_decode_attention_mask,
             ),
             target=dml.Target(args.target, arch=args.arch),
             output=decode_artifact,
@@ -322,7 +346,10 @@ def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping
         return False
     input_names = _metadata_names(metadata, "inputs")
     output_names = _metadata_names(metadata, "outputs")
+    uses_attention_mask = expected_inputs is not None and "attention_mask" in expected_inputs
     required_inputs = {"input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"}
+    if uses_attention_mask:
+        required_inputs.add("attention_mask")
     required_outputs = {"logits"} | {
         name
         for layer_idx in range(config.text_config.num_hidden_layers)
@@ -330,7 +357,9 @@ def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping
     }
     if input_names != required_inputs or not required_outputs <= output_names:
         return False
-    if "flash_attention" not in _artifact_kernel_ops(path):
+    kernel_ops = _artifact_kernel_ops(path)
+    required_flash_op = "flash_attention_bias" if uses_attention_mask else "flash_attention"
+    if required_flash_op not in kernel_ops:
         return False
     graph_op_counts = _artifact_graph_op_counts(path)
     if graph_op_counts.get("swiglu") != int(config.text_config.num_hidden_layers):
@@ -345,6 +374,11 @@ def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping
             "text_cos": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
             "text_sin": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
         }
+        if uses_attention_mask:
+            input_expectations["attention_mask"] = (
+                [config.text_config.num_attention_heads, prompt_len, prompt_len],
+                config.text_config.dtype,
+            )
         output_expectations = {
             "logits": ([1, 1, config.text_config.vocab_size], config.text_config.dtype),
             **{
@@ -367,6 +401,7 @@ def _decode_artifact_compatible(
     *,
     use_flash_static_kv_cache: bool,
     use_session_static_kv_cache: bool,
+    use_decode_attention_mask: bool = False,
 ) -> bool:
     metadata = _artifact_metadata(path)
     if metadata is None:
@@ -387,7 +422,7 @@ def _decode_artifact_compatible(
         for name in (cache_spec.new_key_name(layer_idx), cache_spec.new_value_name(layer_idx))
     }
     required_inputs = {"input_ids", "cos", "sin"}
-    if not use_flash_static_kv_cache:
+    if use_decode_attention_mask or not use_flash_static_kv_cache:
         required_inputs.add("attention_mask")
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
         required_inputs.add("cache_seqlens")
@@ -398,9 +433,10 @@ def _decode_artifact_compatible(
         "cos": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
         "sin": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
     }
-    if not use_flash_static_kv_cache:
+    if use_decode_attention_mask or not use_flash_static_kv_cache:
+        mask_cache_len = max_cache_len if use_flash_static_kv_cache else max_cache_len + 1
         input_expectations["attention_mask"] = (
-            [config.text_config.num_attention_heads, 1, max_cache_len + 1],
+            [config.text_config.num_attention_heads, 1, mask_cache_len],
             config.text_config.dtype,
         )
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
@@ -449,7 +485,7 @@ def _decode_artifact_compatible(
         ):
             return False
     if use_flash_static_kv_cache:
-        required_op = "flash_attention_static_kv_cache"
+        required_op = "flash_attention_static_kv_cache_bias" if use_decode_attention_mask else "flash_attention_static_kv_cache"
         if required_op not in _artifact_kernel_ops(path):
             return False
     return True
@@ -574,6 +610,7 @@ def generate_once(
     eos_token_id: int,
     use_flash_static_kv_cache: bool = False,
     use_session_static_kv_cache: bool = False,
+    use_decode_attention_mask: bool = False,
 ) -> tuple[list[int], list[float]]:
     cache_spec = cache_spec_for_config(config, max_cache_len)
     started = time.perf_counter()
@@ -599,7 +636,7 @@ def generate_once(
             "cos": _slice_position(prefill_inputs["text_cos"], position),
             "sin": _slice_position(prefill_inputs["text_sin"], position),
         }
-        if not use_flash_static_kv_cache:
+        if use_decode_attention_mask or not use_flash_static_kv_cache:
             decode_inputs["attention_mask"] = _decode_attention_mask(
                 config,
                 max_cache_len,
@@ -632,6 +669,7 @@ def benchmark_modules_native(
     iterations: int,
     use_flash_static_kv_cache: bool,
     use_session_static_kv_cache: bool,
+    use_decode_attention_mask: bool = False,
 ) -> dict[str, object]:
     prefill_run_inputs = _prefill_run_inputs(prefill_inputs, prompt_len)
     prefill_summary = prefill_session.benchmark_numpy(prefill_run_inputs, warmup=warmup, iterations=iterations)
@@ -658,6 +696,7 @@ def benchmark_modules_native(
         cache=cache,
         use_flash_static_kv_cache=use_flash_static_kv_cache,
         use_session_static_kv_cache=use_session_static_kv_cache,
+        use_decode_attention_mask=use_decode_attention_mask,
     )
     first_decode_summary = decode_session.benchmark_numpy(
         first_decode_inputs,
@@ -679,6 +718,7 @@ def benchmark_modules_native(
         cache=late_cache,
         use_flash_static_kv_cache=use_flash_static_kv_cache,
         use_session_static_kv_cache=use_session_static_kv_cache,
+        use_decode_attention_mask=use_decode_attention_mask,
     )
     late_decode_summary = decode_session.benchmark_numpy(
         late_decode_inputs,
@@ -721,13 +761,14 @@ def _decode_run_inputs(
     cache: dict[str, np.ndarray],
     use_flash_static_kv_cache: bool,
     use_session_static_kv_cache: bool,
+    use_decode_attention_mask: bool = False,
 ) -> dict[str, np.ndarray]:
     decode_inputs = {
         "input_ids": np.asarray([[next_id]], dtype=np.int64),
         "cos": _slice_position(prefill_inputs["text_cos"], position),
         "sin": _slice_position(prefill_inputs["text_sin"], position),
     }
-    if not use_flash_static_kv_cache:
+    if use_decode_attention_mask or not use_flash_static_kv_cache:
         decode_inputs["attention_mask"] = _decode_attention_mask(
             config,
             max_cache_len,
@@ -837,7 +878,7 @@ def _cache_with_zero_filled_future(spec: StaticKvCacheSpec) -> dict[str, np.ndar
 
 
 def _prefill_run_inputs(inputs: dict[str, np.ndarray], prompt_len: int) -> dict[str, np.ndarray]:
-    return {
+    run_inputs = {
         "input_ids": inputs["input_ids"],
         "pixel_values": inputs["pixel_values"],
         "vision_cos": inputs["vision_cos"],
@@ -845,6 +886,27 @@ def _prefill_run_inputs(inputs: dict[str, np.ndarray], prompt_len: int) -> dict[
         "text_cos": inputs["text_cos"][:, :prompt_len, :],
         "text_sin": inputs["text_sin"][:, :prompt_len, :],
     }
+    if "attention_mask" in inputs:
+        run_inputs["attention_mask"] = inputs["attention_mask"][:, :prompt_len, :prompt_len]
+    return run_inputs
+
+
+def _prefill_attention_mask(config, attention_mask: object | None, *, prompt_len: int) -> np.ndarray:
+    mask_fill_value = float(getattr(config.text_config, "mask_fill_value", -1.0e4))
+    mask = np.triu(
+        np.full(
+            (config.text_config.num_attention_heads, prompt_len, prompt_len),
+            mask_fill_value,
+            dtype=np.float32,
+        ),
+        k=1,
+    )
+    if attention_mask is not None:
+        keep = np.asarray(attention_mask, dtype=bool)
+        if keep.ndim != 2 or keep.shape[0] != 1 or keep.shape[1] < prompt_len:
+            raise ValueError(f"attention_mask must have shape [1, >= {prompt_len}], got {keep.shape}")
+        mask[:, :, ~keep[0, :prompt_len]] = mask_fill_value
+    return _float_input(mask, config.text_config.dtype)
 
 
 def _slice_position(values: np.ndarray, position: int) -> np.ndarray:
@@ -858,7 +920,7 @@ def _decode_attention_mask(
     valid_past_len: int,
     use_flash_static_kv_cache: bool,
 ) -> np.ndarray:
-    if use_flash_static_kv_cache and config.text_config.use_flash_attention_bias:
+    if use_flash_static_kv_cache:
         mask = np.full((config.text_config.num_attention_heads, 1, max_cache_len), -1.0e4, dtype=np.float32)
         mask[:, :, : int(valid_past_len) + 1] = 0.0
         return _float_input(mask, config.text_config.dtype)
@@ -889,6 +951,16 @@ def _use_session_static_kv_cache(args: argparse.Namespace, config) -> bool:
     return args.target == "rocm" and _use_flash_static_kv_cache(args, config)
 
 
+def _enable_flash_attention_bias(config):
+    text_config = config.text_config
+    if bool(getattr(text_config, "use_flash_attention_bias", False)):
+        return config
+    if is_dataclass(config) and is_dataclass(text_config):
+        return replace(config, text_config=replace(text_config, use_flash_attention_bias=True))
+    setattr(text_config, "use_flash_attention_bias", True)
+    return config
+
+
 def main() -> None:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -906,7 +978,14 @@ def main() -> None:
         longest_side=args.longest_side,
     )
     config = build_config(args.snapshot, args.dtype)
-    inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
+    if args.attention_mask and args.target == "rocm":
+        config = _enable_flash_attention_bias(config)
+    inputs, prompt_len, max_cache_len, image_token_start = build_inputs(
+        config,
+        processed,
+        args.max_new_tokens,
+        use_attention_mask=args.attention_mask,
+    )
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     use_session_static_kv_cache = _use_session_static_kv_cache(args, config)
     started_compile = time.perf_counter()
@@ -933,6 +1012,7 @@ def main() -> None:
             iterations=args.benchmark_iterations,
             use_flash_static_kv_cache=use_flash_static_kv_cache,
             use_session_static_kv_cache=use_session_static_kv_cache,
+            use_decode_attention_mask=args.attention_mask,
         )
         times_ms: list[float] = []
         token_run_times_ms: list[list[float]] = []
@@ -950,6 +1030,7 @@ def main() -> None:
                     eos_token_id,
                     use_flash_static_kv_cache=use_flash_static_kv_cache,
                     use_session_static_kv_cache=use_session_static_kv_cache,
+                    use_decode_attention_mask=args.attention_mask,
                 )
             for _ in range(args.iterations):
                 started = time.perf_counter()
@@ -964,6 +1045,7 @@ def main() -> None:
                     eos_token_id,
                     use_flash_static_kv_cache=use_flash_static_kv_cache,
                     use_session_static_kv_cache=use_session_static_kv_cache,
+                    use_decode_attention_mask=args.attention_mask,
                 )
                 times_ms.append((time.perf_counter() - started) * 1000.0)
                 token_run_times_ms.append(per_token_times)
@@ -995,6 +1077,7 @@ def main() -> None:
         "dtype": args.dtype,
         "target": args.target,
         "arch": args.arch,
+        "use_attention_mask": args.attention_mask,
         "use_flash_static_kv_cache": use_flash_static_kv_cache,
         "use_session_static_kv_cache": use_session_static_kv_cache,
         "processor_image_size": processor_image_size,

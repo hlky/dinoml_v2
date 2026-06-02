@@ -397,6 +397,21 @@ def glm_ocr_prepare_inputs_for_generation(
     return prepared
 
 
+def _optional_constant_parameter(name: str, value: object | None, dtype: str) -> dml.Parameter | None:
+    if value is None:
+        return None
+    array = np.asarray(value)
+    return dml.Parameter(list(array.shape), dtype=_normalize_glm_ocr_dtype(dtype), name=name, value=value)
+
+
+def _prefill_rope_input(name: str, provided: object | None, parameter: dml.Parameter | None):
+    if provided is not None:
+        return provided
+    if parameter is None:
+        raise ValueError(f"{name} must be provided as a trace input or baked prefill constant")
+    return parameter
+
+
 class GlmOcrTextAttention(dml.nn.Module):
     def __init__(self, config: GlmOcrTextConfig, weights: Mapping[str, np.ndarray], prefix: str):
         self.config = config
@@ -1232,6 +1247,11 @@ class GlmOcrForConditionalGenerationImagePrefill(dml.nn.Module):
         *,
         image_token_start: int,
         logits_to_keep: int = 0,
+        vision_cos: object | None = None,
+        vision_sin: object | None = None,
+        text_cos: object | None = None,
+        text_sin: object | None = None,
+        vision_rope_dtype: str = "float32",
     ):
         self.config = config
         self.image_token_start = int(image_token_start)
@@ -1240,6 +1260,10 @@ class GlmOcrForConditionalGenerationImagePrefill(dml.nn.Module):
             raise ValueError("image_token_start must be non-negative")
         if self.logits_to_keep not in {0, 1}:
             raise ValueError("GlmOcrForConditionalGenerationImagePrefill currently supports logits_to_keep=0 or 1")
+        self._vision_cos = _optional_constant_parameter("vision_cos", vision_cos, vision_rope_dtype)
+        self._vision_sin = _optional_constant_parameter("vision_sin", vision_sin, vision_rope_dtype)
+        self._text_cos = _optional_constant_parameter("text_cos", text_cos, config.text_config.dtype)
+        self._text_sin = _optional_constant_parameter("text_sin", text_sin, config.text_config.dtype)
         self.visual = GlmOcrVisionModel(config.vision_config, weights)
         self.language_model = GlmOcrTextModel(config.text_config, weights)
         self.lm_head = _loaded_linear(
@@ -1251,7 +1275,11 @@ class GlmOcrForConditionalGenerationImagePrefill(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, pixel_values, vision_cos, vision_sin, text_cos, text_sin, attention_mask=None):
+    def forward(self, input_ids, pixel_values, vision_cos=None, vision_sin=None, text_cos=None, text_sin=None, attention_mask=None):
+        vision_cos = _prefill_rope_input("vision_cos", vision_cos, self._vision_cos)
+        vision_sin = _prefill_rope_input("vision_sin", vision_sin, self._vision_sin)
+        text_cos = _prefill_rope_input("text_cos", text_cos, self._text_cos)
+        text_sin = _prefill_rope_input("text_sin", text_sin, self._text_sin)
         _, image_features = self.visual.encode(pixel_values, vision_cos, vision_sin)
         image_features = dml.ops.unsqueeze(image_features, 0)
         inputs_embeds = self.language_model.embed_tokens(input_ids)
@@ -1274,6 +1302,11 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
         *,
         image_token_start: int,
         logits_to_keep: int = 1,
+        vision_cos: object | None = None,
+        vision_sin: object | None = None,
+        text_cos: object | None = None,
+        text_sin: object | None = None,
+        vision_rope_dtype: str = "float32",
     ):
         self.config = config
         self.image_token_start = int(image_token_start)
@@ -1282,6 +1315,10 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
             raise ValueError("image_token_start must be non-negative")
         if self.logits_to_keep not in {0, 1}:
             raise ValueError("GlmOcrForConditionalGenerationImagePrefillWithCache currently supports logits_to_keep=0 or 1")
+        self._vision_cos = _optional_constant_parameter("vision_cos", vision_cos, vision_rope_dtype)
+        self._vision_sin = _optional_constant_parameter("vision_sin", vision_sin, vision_rope_dtype)
+        self._text_cos = _optional_constant_parameter("text_cos", text_cos, config.text_config.dtype)
+        self._text_sin = _optional_constant_parameter("text_sin", text_sin, config.text_config.dtype)
         self.visual = GlmOcrVisionModel(config.vision_config, weights)
         self.language_model = GlmOcrTextModel(config.text_config, weights)
         self.lm_head = _loaded_linear(
@@ -1293,7 +1330,11 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, pixel_values, vision_cos, vision_sin, text_cos, text_sin, attention_mask=None):
+    def forward(self, input_ids, pixel_values, vision_cos=None, vision_sin=None, text_cos=None, text_sin=None, attention_mask=None):
+        vision_cos = _prefill_rope_input("vision_cos", vision_cos, self._vision_cos)
+        vision_sin = _prefill_rope_input("vision_sin", vision_sin, self._vision_sin)
+        text_cos = _prefill_rope_input("text_cos", text_cos, self._text_cos)
+        text_sin = _prefill_rope_input("text_sin", text_sin, self._text_sin)
         _, image_features = self.visual.encode(pixel_values, vision_cos, vision_sin)
         image_features = dml.ops.unsqueeze(image_features, 0)
         inputs_embeds = self.language_model.embed_tokens(input_ids)

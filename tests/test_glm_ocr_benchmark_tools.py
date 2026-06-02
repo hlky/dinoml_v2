@@ -91,13 +91,31 @@ def test_prefill_artifact_rejects_stale_mask_input_artifact(tmp_path: Path):
     assert not glm_ocr_tool._prefill_artifact_compatible(artifact, config)
 
 
+def test_prefill_artifact_rejects_stale_rope_input_artifact(tmp_path: Path):
+    config = _config(use_flash_attention_bias=True)
+    outputs = ["logits"]
+    for layer_idx in range(config.text_config.num_hidden_layers):
+        outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
+    artifact = _write_artifact(
+        tmp_path,
+        {
+            "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"]),
+            "outputs": _items(outputs),
+        },
+        ops={"flash_attention"},
+        graph_ops=["swiglu", "swiglu"],
+    )
+
+    assert not glm_ocr_tool._prefill_artifact_compatible(artifact, config)
+
+
 def test_prefill_artifact_rejects_stale_vision_swiglu_graph(tmp_path: Path):
     config = _config(use_flash_attention_bias=True)
     outputs = ["logits"]
     for layer_idx in range(config.text_config.num_hidden_layers):
         outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
     metadata = {
-        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"]),
+        "inputs": _items(["input_ids", "pixel_values"]),
         "outputs": _items(outputs),
     }
     artifact = _write_artifact(
@@ -116,7 +134,7 @@ def test_prefill_artifact_accepts_current_text_swiglu_graph(tmp_path: Path):
     for layer_idx in range(config.text_config.num_hidden_layers):
         outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
     metadata = {
-        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"]),
+        "inputs": _items(["input_ids", "pixel_values"]),
         "outputs": _items(outputs),
     }
     artifact = _write_artifact(
@@ -139,10 +157,6 @@ def test_prefill_artifact_accepts_masked_ck_bias_graph(tmp_path: Path):
         "inputs": [
             {"name": "input_ids", "shape": [1, prompt_len], "dtype": "int64"},
             {"name": "pixel_values", "shape": [8, 1176], "dtype": "bfloat16"},
-            {"name": "vision_cos", "shape": [8, 64], "dtype": "float32"},
-            {"name": "vision_sin", "shape": [8, 64], "dtype": "float32"},
-            {"name": "text_cos", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
-            {"name": "text_sin", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, prompt_len, prompt_len], "dtype": "bfloat16"},
         ],
         "outputs": [
@@ -177,10 +191,6 @@ def test_prefill_artifact_rejects_masked_graph_without_ck_bias(tmp_path: Path):
         "inputs": [
             {"name": "input_ids", "shape": [1, prompt_len], "dtype": "int64"},
             {"name": "pixel_values", "shape": [8, 1176], "dtype": "bfloat16"},
-            {"name": "vision_cos", "shape": [8, 64], "dtype": "float32"},
-            {"name": "vision_sin", "shape": [8, 64], "dtype": "float32"},
-            {"name": "text_cos", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
-            {"name": "text_sin", "shape": [1, prompt_len, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, prompt_len, prompt_len], "dtype": "bfloat16"},
         ],
         "outputs": _items(outputs),
@@ -210,10 +220,6 @@ def test_prefill_artifact_rejects_stale_shape_when_expected_inputs_are_available
             "inputs": [
                 {"name": "input_ids", "shape": [1, 3], "dtype": "int64"},
                 {"name": "pixel_values", "shape": [4, 1176], "dtype": "bfloat16"},
-                {"name": "vision_cos", "shape": [4, 64], "dtype": "float32"},
-                {"name": "vision_sin", "shape": [4, 64], "dtype": "float32"},
-                {"name": "text_cos", "shape": [1, 3, 4], "dtype": "bfloat16"},
-                {"name": "text_sin", "shape": [1, 3, 4], "dtype": "bfloat16"},
             ],
             "outputs": [
                 {"name": "logits", "shape": [1, 1, 32], "dtype": "bfloat16"},

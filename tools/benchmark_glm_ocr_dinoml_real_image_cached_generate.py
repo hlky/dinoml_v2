@@ -170,20 +170,14 @@ def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str,
             weights,
             image_token_start=image_token_start,
             logits_to_keep=1,
+            vision_cos=inputs["vision_cos"],
+            vision_sin=inputs["vision_sin"],
+            text_cos=inputs["text_cos"][:, : inputs["input_ids"].shape[1], :],
+            text_sin=inputs["text_sin"][:, : inputs["input_ids"].shape[1], :],
         ),
         inputs={
             "input_ids": dml.TensorSpec(list(inputs["input_ids"].shape), "int64"),
             "pixel_values": dml.TensorSpec(list(inputs["pixel_values"].shape), config.vision_config.dtype),
-            "vision_cos": dml.TensorSpec(list(inputs["vision_cos"].shape), "float32"),
-            "vision_sin": dml.TensorSpec(list(inputs["vision_sin"].shape), "float32"),
-            "text_cos": dml.TensorSpec(
-                [inputs["input_ids"].shape[0], inputs["input_ids"].shape[1], config.text_config.head_dim],
-                config.text_config.dtype,
-            ),
-            "text_sin": dml.TensorSpec(
-                [inputs["input_ids"].shape[0], inputs["input_ids"].shape[1], config.text_config.head_dim],
-                config.text_config.dtype,
-            ),
             **(
                 {
                     "attention_mask": dml.TensorSpec(
@@ -255,11 +249,12 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
     use_decode_attention_mask = bool(getattr(args, "attention_mask", False))
     flash_suffix = "_flash" if getattr(config.text_config, "use_flash_attention", True) else ""
     mask_suffix = "_mask" if bool(getattr(args, "attention_mask", False)) else ""
+    rope_suffix = "_rope_const"
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
         prefill_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_prefill_s{inputs['input_ids'].shape[1]}"
-            f"_p{inputs['pixel_values'].shape[0]}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
+            f"_p{inputs['pixel_values'].shape[0]}{rope_suffix}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     decode_artifact = args.decode_artifact
     if decode_artifact is None:
@@ -347,7 +342,7 @@ def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping
     input_names = _metadata_names(metadata, "inputs")
     output_names = _metadata_names(metadata, "outputs")
     uses_attention_mask = expected_inputs is not None and "attention_mask" in expected_inputs
-    required_inputs = {"input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"}
+    required_inputs = {"input_ids", "pixel_values"}
     if uses_attention_mask:
         required_inputs.add("attention_mask")
     required_outputs = {"logits"} | {
@@ -369,10 +364,6 @@ def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping
         input_expectations = {
             "input_ids": (list(expected_inputs["input_ids"].shape), "int64"),
             "pixel_values": (list(expected_inputs["pixel_values"].shape), config.vision_config.dtype),
-            "vision_cos": (list(expected_inputs["vision_cos"].shape), "float32"),
-            "vision_sin": (list(expected_inputs["vision_sin"].shape), "float32"),
-            "text_cos": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
-            "text_sin": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
         }
         if uses_attention_mask:
             input_expectations["attention_mask"] = (
@@ -881,10 +872,6 @@ def _prefill_run_inputs(inputs: dict[str, np.ndarray], prompt_len: int) -> dict[
     run_inputs = {
         "input_ids": inputs["input_ids"],
         "pixel_values": inputs["pixel_values"],
-        "vision_cos": inputs["vision_cos"],
-        "vision_sin": inputs["vision_sin"],
-        "text_cos": inputs["text_cos"][:, :prompt_len, :],
-        "text_sin": inputs["text_sin"][:, :prompt_len, :],
     }
     if "attention_mask" in inputs:
         run_inputs["attention_mask"] = inputs["attention_mask"][:, :prompt_len, :prompt_len]
@@ -1078,6 +1065,7 @@ def main() -> None:
         "target": args.target,
         "arch": args.arch,
         "use_attention_mask": args.attention_mask,
+        "prefill_uses_rope_constants": True,
         "use_flash_static_kv_cache": use_flash_static_kv_cache,
         "use_session_static_kv_cache": use_session_static_kv_cache,
         "processor_image_size": processor_image_size,

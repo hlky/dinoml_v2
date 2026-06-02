@@ -887,6 +887,48 @@ def test_glm_ocr_tiny_image_prefill_with_cache_outputs_decode_cache_shapes():
         ]
 
 
+def test_glm_ocr_tiny_image_prefill_with_cache_can_bake_rope_constants():
+    config = _tiny_config()
+    weights = _tiny_weights(config)
+    input_ids = np.asarray([[1, config.image_token_id, config.image_token_id, config.image_token_id, config.image_token_id, 2]], dtype=np.int64)
+    mm_token_type_ids = np.asarray([[0, 1, 1, 1, 1, 0]], dtype=np.int64)
+    image_grid_thw = np.asarray([[1, 4, 4]], dtype=np.int64)
+    text_position_ids, _ = glm_ocr_rope_index(
+        input_ids,
+        mm_token_type_ids,
+        image_grid_thw=image_grid_thw,
+        spatial_merge_size=config.vision_config.spatial_merge_size,
+    )
+    text_cos, text_sin = glm_ocr_text_rope_embeddings(text_position_ids, config.text_config)
+    vision_position_ids = glm_ocr_vision_position_ids(image_grid_thw, config.vision_config.spatial_merge_size)
+    vision_cos, vision_sin = glm_ocr_vision_rope_embeddings(vision_position_ids, head_dim=config.vision_config.head_dim)
+    seq_len = int(input_ids.shape[1])
+    model = GlmOcrForConditionalGenerationImagePrefillWithCache(
+        config,
+        weights,
+        image_token_start=1,
+        vision_cos=vision_cos,
+        vision_sin=vision_sin,
+        text_cos=text_cos,
+        text_sin=text_sin,
+    )
+
+    spec = dml.trace(
+        model,
+        inputs={
+            "input_ids": dml.TensorSpec([1, seq_len], "int64"),
+            "pixel_values": dml.TensorSpec([16, config.vision_config.patch_dim], "float32"),
+            "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, seq_len, seq_len], "float32"),
+        },
+        name="glm_ocr_tiny_image_prefill_with_cache_baked_rope",
+    )
+    input_names = {item["name"] for item in spec.ir["inputs"]}
+    constant_names = {item["name"] for item in spec.ir["constants"]}
+
+    assert input_names == {"input_ids", "pixel_values", "attention_mask"}
+    assert {"vision_cos", "vision_sin", "text_cos", "text_sin"} <= constant_names
+
+
 def _tiny_config() -> GlmOcrConfig:
     text = GlmOcrTextConfig(
         vocab_size=32,

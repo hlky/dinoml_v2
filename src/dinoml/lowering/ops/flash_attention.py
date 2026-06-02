@@ -215,13 +215,18 @@ def _render_static_kv_cache_launch(
     dtype = str(tensor_map[output_name]["dtype"])
     if dtype not in {"float16", "bfloat16"}:
         raise ValueError(f"{op_name} {target} lowering only supports float16 and bfloat16, got {dtype}")
+    advance_cache_seqlens = node.get("attrs", {}).get("advance_cache_seqlens", False)
+    if not isinstance(advance_cache_seqlens, bool):
+        raise TypeError(f"{op_name} advance_cache_seqlens attr must be a bool")
+    if advance_cache_seqlens and target != "rocm":
+        raise ValueError(f"{op_name} advance_cache_seqlens is currently implemented only for ROCm")
     symbol = _manifest_symbol(kernel_manifest, target, op_name, dtype)
     if symbol is None:
         symbol = get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
     rocm_scratch_args = ""
     if target == "rocm":
         rocm_scratch_args = (
-            ", session->flash_attention_static_kv_cache_scratch, "
+            f", {1 if advance_cache_seqlens else 0}, session->flash_attention_static_kv_cache_scratch, "
             "session->flash_attention_static_kv_cache_scratch_nbytes"
         )
     bias_checks: list[str] = []

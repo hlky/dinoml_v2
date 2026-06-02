@@ -216,7 +216,7 @@ def build_decode_spec(
             config.text_config.dtype,
         ),
     }
-    if use_flash_static_kv_cache:
+    if use_flash_static_kv_cache and not use_session_static_kv_cache:
         inputs["cache_seqlens"] = dml.TensorSpec([1], "int32")
     if not use_session_static_kv_cache:
         inputs.update(static_kv_cache_input_specs(cache_spec))
@@ -404,7 +404,7 @@ def _decode_artifact_compatible(
         for name in (cache_spec.new_key_name(layer_idx), cache_spec.new_value_name(layer_idx))
     }
     required_inputs = {"input_ids", "cos", "sin", "attention_mask"}
-    if use_flash_static_kv_cache:
+    if use_flash_static_kv_cache and not use_session_static_kv_cache:
         required_inputs.add("cache_seqlens")
     if not required_inputs <= input_names:
         return False
@@ -419,12 +419,13 @@ def _decode_artifact_compatible(
         "sin": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
         "attention_mask": ([config.text_config.num_attention_heads, 1, expected_attention_mask_len], config.text_config.dtype),
     }
-    if use_flash_static_kv_cache:
+    if use_flash_static_kv_cache and not use_session_static_kv_cache:
         input_expectations["cache_seqlens"] = ([1], "int32")
     if not _metadata_tensors_match(metadata, "inputs", input_expectations):
         return False
     if use_session_static_kv_cache:
-        if state_names != state_cache_names:
+        expected_state_names = state_cache_names | {"cache_seqlens"}
+        if state_names != expected_state_names:
             return False
         if input_cache_names & input_names:
             return False
@@ -436,7 +437,7 @@ def _decode_artifact_compatible(
             {"logits": ([1, 1, config.text_config.vocab_size], config.text_config.dtype)},
         ):
             return False
-        if not _decode_states_have_expected_shape(metadata, cache_spec):
+        if not _decode_states_have_expected_shape(metadata, cache_spec, include_cache_seqlens=True):
             return False
     else:
         if state_names:
@@ -546,7 +547,12 @@ def _metadata_tensors_match(
     return True
 
 
-def _decode_states_have_expected_shape(metadata: Mapping[str, Any], spec: StaticKvCacheSpec) -> bool:
+def _decode_states_have_expected_shape(
+    metadata: Mapping[str, Any],
+    spec: StaticKvCacheSpec,
+    *,
+    include_cache_seqlens: bool = False,
+) -> bool:
     states = metadata.get("states", [])
     if not isinstance(states, list):
         return False
@@ -557,15 +563,23 @@ def _decode_states_have_expected_shape(metadata: Mapping[str, Any], spec: Static
         for layer_idx in range(spec.num_layers)
         for name in (spec.past_key_name(layer_idx), spec.past_value_name(layer_idx))
     }
+    if include_cache_seqlens:
+        expected_names.add("cache_seqlens")
     by_name = {str(item.get("name")): item for item in states if isinstance(item, Mapping)}
     for name in expected_names:
         item = by_name.get(name)
         if item is None:
             return False
-        if [int(dim) for dim in item.get("shape", [])] != expected_shape:
-            return False
-        if str(item.get("dtype")) != expected_dtype:
-            return False
+        if name == "cache_seqlens":
+            if [int(dim) for dim in item.get("shape", [])] != [spec.batch]:
+                return False
+            if str(item.get("dtype")) != "int32":
+                return False
+        else:
+            if [int(dim) for dim in item.get("shape", [])] != expected_shape:
+                return False
+            if str(item.get("dtype")) != expected_dtype:
+                return False
     return True
 
 
@@ -613,7 +627,7 @@ def generate_once(
         }
         if not use_session_static_kv_cache:
             decode_inputs.update(cache)
-        if use_flash_static_kv_cache:
+        if use_flash_static_kv_cache and not use_session_static_kv_cache:
             decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
         started = time.perf_counter()
         decode_outputs = decode_session.run_numpy(decode_inputs)
@@ -673,6 +687,8 @@ def benchmark_modules_native(
     late_cache = _cache_with_zero_filled_future(cache_spec) if not use_session_static_kv_cache else {}
     for name, value in cache.items():
         late_cache[name][...] = value
+    if use_session_static_kv_cache:
+        decode_session.set_state_numpy("cache_seqlens", np.asarray([late_decode_position], dtype=np.int32))
     late_decode_inputs = _decode_run_inputs(
         prefill_inputs,
         config,
@@ -738,7 +754,7 @@ def _decode_run_inputs(
     }
     if not use_session_static_kv_cache:
         decode_inputs.update(cache)
-    if use_flash_static_kv_cache:
+    if use_flash_static_kv_cache and not use_session_static_kv_cache:
         decode_inputs["cache_seqlens"] = np.asarray([position], dtype=np.int32)
     return decode_inputs
 
@@ -764,6 +780,7 @@ def _run_prefill_for_decode(
         device_outputs=device_output_names,
     )
     _copy_prefill_device_outputs_to_decode_state(decode_session, result, spec, cache_len=cache_len)
+    decode_session.set_state_numpy("cache_seqlens", np.asarray([cache_len], dtype=np.int32))
     return {"logits": result["host_outputs"]["logits"]}, {}
 
 

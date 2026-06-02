@@ -98,6 +98,8 @@ def flash_attention_static_kv_cache(
     new_key: object,
     new_value: object,
     cache_seqlens: object,
+    *,
+    advance_cache_seqlens: bool = False,
 ) -> Tensor:
     q_tensor = as_tensor(q, dtype_hint="float32")
     tensors = (
@@ -125,7 +127,7 @@ def flash_attention_static_kv_cache(
         tensors,
         q_tensor.shape,
         q_tensor.dtype,
-        {},
+        {"advance_cache_seqlens": bool(advance_cache_seqlens)},
         shape_spec=q_tensor.shape_spec,
     )
 
@@ -138,6 +140,8 @@ def flash_attention_static_kv_cache_bias(
     new_value: object,
     cache_seqlens: object,
     bias: object,
+    *,
+    advance_cache_seqlens: bool = False,
 ) -> Tensor:
     q_tensor = as_tensor(q, dtype_hint="float32")
     tensors = (
@@ -166,7 +170,7 @@ def flash_attention_static_kv_cache_bias(
         tensors,
         q_tensor.shape,
         q_tensor.dtype,
-        {},
+        {"advance_cache_seqlens": bool(advance_cache_seqlens)},
         shape_spec=q_tensor.shape_spec,
     )
 

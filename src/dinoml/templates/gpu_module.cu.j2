@@ -114,6 +114,22 @@ struct DinoGpuBenchmarkGraph {
   }
 };
 
+{% if states %}
+struct DinoGpuBenchmarkStateSnapshots {
+{% for state in states %}
+  void* state_{{ state.ident }} = nullptr;
+{% endfor %}
+
+  ~DinoGpuBenchmarkStateSnapshots() {
+{% for state in states %}
+    if (state_{{ state.ident }} != nullptr) {
+      {{ device_free }}(state_{{ state.ident }});
+    }
+{% endfor %}
+  }
+};
+
+{% endif %}
 extern "C" {
 
 DINO_EXPORT int dino_module_load_constants(DinoModule* module, const char* path) {
@@ -806,7 +822,33 @@ DINO_EXPORT int dino_session_benchmark(
   if (out_elapsed_count < measured_runs) {
     return dinoml::module::fail("dino_session_benchmark elapsed buffer is too small");
   }
+{% if states %}
+  DinoGpuBenchmarkStateSnapshots state_snapshots;
+{% for state in states %}
+  {{ check_macro }}({{ device_malloc }}(&state_snapshots.state_{{ state.ident }}, session->state_{{ state.ident }}_nbytes));
+  {{ check_macro }}({{ memcpy }}(
+      state_snapshots.state_{{ state.ident }},
+      session->state_{{ state.ident }},
+      session->state_{{ state.ident }}_nbytes,
+      {{ memcpy_device_to_device }}));
+{% endfor %}
+  auto restore_benchmark_state = [&]() -> int {
+{% for state in states %}
+    {{ check_macro }}({{ memcpy }}(
+        session->state_{{ state.ident }},
+        state_snapshots.state_{{ state.ident }},
+        session->state_{{ state.ident }}_nbytes,
+        {{ memcpy_device_to_device }}));
+{% endfor %}
+    return 0;
+  };
+{% endif %}
   for (size_t i = 0; i < warmup_runs; ++i) {
+{% if states %}
+    if (int err = restore_benchmark_state()) {
+      return err;
+    }
+{% endif %}
     if (int err = dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)) {
       return err;
     }
@@ -824,6 +866,11 @@ DINO_EXPORT int dino_session_benchmark(
   {{ device_error_type }} graph_capture_status = {{ success_constant }};
   {{ device_error_type }} graph_instantiate_status = {{ success_constant }};
   if (!session->external_stream && std::getenv("DINOML_PROFILE_RUN") == nullptr) {
+{% if states %}
+    if (int err = restore_benchmark_state()) {
+      return err;
+    }
+{% endif %}
     auto capture_err = {{ stream_begin_capture }}(session->stream, {{ graph_capture_mode }});
     graph_capture_status = capture_err;
     if (capture_err == {{ success_constant }}) {
@@ -853,6 +900,11 @@ DINO_EXPORT int dino_session_benchmark(
           use_graph_replay = true;
         }
       }
+{% if states %}
+      if (int err = restore_benchmark_state()) {
+        return err;
+      }
+{% endif %}
     }
     if (!use_graph_replay && graph.graph != nullptr) {
       {{ graph_destroy }}(graph.graph);
@@ -871,6 +923,11 @@ DINO_EXPORT int dino_session_benchmark(
         std::to_string(static_cast<int>(graph_instantiate_status)));
   }
   for (size_t i = 0; i < measured_runs; ++i) {
+{% if states %}
+    if (int err = restore_benchmark_state()) {
+      return err;
+    }
+{% endif %}
     {{ check_macro }}({{ event_record }}(events.start, session->stream));
     if (use_graph_replay) {
       {{ check_macro }}({{ graph_launch }}(graph.executable, session->stream));
@@ -888,6 +945,11 @@ DINO_EXPORT int dino_session_benchmark(
   if (int err = dino_session_report_output_shapes(session, outputs)) {
     return err;
   }
+{% if states %}
+  if (int err = restore_benchmark_state()) {
+    return err;
+  }
+{% endif %}
   return 0;
 }
 

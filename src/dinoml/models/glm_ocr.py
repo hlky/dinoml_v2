@@ -537,7 +537,18 @@ class GlmOcrTextAttention(dml.nn.Module):
         context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
         return self.o_proj(context), present_key, present_value
 
-    def forward_with_static_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None, cache_seqlens=None):
+    def forward_with_static_cache(
+        self,
+        hidden_states,
+        cos,
+        sin,
+        past_key,
+        past_value,
+        attention_mask=None,
+        cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
+    ):
         batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
@@ -551,6 +562,7 @@ class GlmOcrTextAttention(dml.nn.Module):
                     new_key,
                     new_value,
                     cache_seqlens,
+                    advance_cache_seqlens=advance_cache_seqlens,
                 )
                 context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
                 return self.o_proj(context), new_key, new_value
@@ -563,6 +575,7 @@ class GlmOcrTextAttention(dml.nn.Module):
                     new_value,
                     cache_seqlens,
                     attention_mask,
+                    advance_cache_seqlens=advance_cache_seqlens,
                 )
                 context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
                 return self.o_proj(context), new_key, new_value
@@ -595,6 +608,8 @@ class GlmOcrTextAttention(dml.nn.Module):
         past_value,
         attention_mask=None,
         cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
     ):
         batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
@@ -610,6 +625,7 @@ class GlmOcrTextAttention(dml.nn.Module):
                 new_key,
                 new_value,
                 cache_seqlens,
+                advance_cache_seqlens=advance_cache_seqlens,
             )
         elif self.config.use_flash_attention_bias:
             context = dml.ops.flash_attention_static_kv_cache_bias(
@@ -620,6 +636,7 @@ class GlmOcrTextAttention(dml.nn.Module):
                 new_value,
                 cache_seqlens,
                 attention_mask,
+                advance_cache_seqlens=advance_cache_seqlens,
             )
         else:
             raise ValueError("Session static KV cache decode with a mask requires use_flash_attention_bias=True")
@@ -721,7 +738,18 @@ class GlmOcrTextDecoderLayer(dml.nn.Module):
         hidden_states = dml.ops.add(residual, hidden_states)
         return hidden_states, present_key, present_value
 
-    def forward_with_static_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None, cache_seqlens=None):
+    def forward_with_static_cache(
+        self,
+        hidden_states,
+        cos,
+        sin,
+        past_key,
+        past_value,
+        attention_mask=None,
+        cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
+    ):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
         hidden_states, new_key, new_value = self.self_attn.forward_with_static_cache(
@@ -732,6 +760,7 @@ class GlmOcrTextDecoderLayer(dml.nn.Module):
             past_value,
             attention_mask,
             cache_seqlens,
+            advance_cache_seqlens=advance_cache_seqlens,
         )
         hidden_states = self.post_self_attn_layernorm(hidden_states)
         hidden_states = dml.ops.add(residual, hidden_states)
@@ -751,6 +780,8 @@ class GlmOcrTextDecoderLayer(dml.nn.Module):
         past_value,
         attention_mask=None,
         cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
     ):
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -762,6 +793,7 @@ class GlmOcrTextDecoderLayer(dml.nn.Module):
             past_value,
             attention_mask,
             cache_seqlens,
+            advance_cache_seqlens=advance_cache_seqlens,
         )
         hidden_states = self.post_self_attn_layernorm(hidden_states)
         hidden_states = dml.ops.add(residual, hidden_states)
@@ -885,6 +917,8 @@ class GlmOcrTextModel(dml.nn.Module):
         cache_seqlens=None,
     ):
         batch, _ = _rank2_shape(input_ids.shape, "GLM-OCR decode input_ids")
+        if cache_seqlens is None:
+            cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([batch], "int32"))
         hidden_states = self.embed_tokens(input_ids)
         for layer_idx, layer in enumerate(self.layers):
             past_key = dml.state(
@@ -909,6 +943,7 @@ class GlmOcrTextModel(dml.nn.Module):
                 past_value,
                 attention_mask,
                 cache_seqlens,
+                advance_cache_seqlens=layer_idx == self.config.num_hidden_layers - 1,
             )
         return self.norm(hidden_states)
 
@@ -1361,14 +1396,13 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask, cache_seqlens):
+    def forward(self, input_ids, cos, sin, attention_mask):
         hidden_states = self.language_model.decode_session_static_cache(
             input_ids,
             cos,
             sin,
             attention_mask,
             max_cache_len=self.max_cache_len,
-            cache_seqlens=cache_seqlens,
         )
         logits = self.lm_head(hidden_states)
         return {"logits": dml.ops.output(logits, "logits")}

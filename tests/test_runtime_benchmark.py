@@ -272,6 +272,9 @@ def test_generated_module_templates_export_native_session_benchmark():
     assert "dino_session_run_impl(session, inputs, num_inputs, outputs, num_outputs, false, false)" in gpu_text
     assert "{{ event_record }}(events.start, session->stream)" in gpu_text
     assert "{{ event_elapsed_time }}(&elapsed_ms, events.start, events.stop)" in gpu_text
+    assert "DinoGpuBenchmarkStateSnapshots" in gpu_text
+    assert "restore_benchmark_state" in gpu_text
+    assert "{{ memcpy_device_to_device }}" in gpu_text
     assert "std::chrono" not in gpu_text
 
 

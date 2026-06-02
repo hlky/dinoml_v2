@@ -597,7 +597,6 @@ def test_glm_ocr_tiny_session_static_cache_decode_uses_state_buffers():
         "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], "bfloat16"),
         "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], "bfloat16"),
         "attention_mask": dml.TensorSpec([config.text_config.num_attention_heads, 1, max_cache_len], "bfloat16"),
-        "cache_seqlens": dml.TensorSpec([1], "int32"),
     }
 
     spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_session_static_cache")
@@ -609,7 +608,8 @@ def test_glm_ocr_tiny_session_static_cache_decode_uses_state_buffers():
     assert output_names == {"logits"}
     assert "past_key_0" not in input_names
     assert "past_value_0" not in input_names
-    assert state_names == {"past_key_0", "past_value_0"}
+    assert "cache_seqlens" not in input_names
+    assert state_names == {"past_key_0", "past_value_0", "cache_seqlens"}
     assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
     assert counts["swiglu"] == config.text_config.num_hidden_layers
     assert counts["flash_attention_static_kv_cache_bias"] == 1

@@ -91,6 +91,26 @@ class _FlashAttentionStaticKvCacheBiasModule(dml.nn.Module):
         )
 
 
+class _FlashAttentionStaticKvCacheBiasStateAdvanceModule(dml.nn.Module):
+    def forward(self, q, new_key, new_value, bias):
+        past_key = dml.state("past_key", dml.TensorSpec([1, 2, 6, 128], "bfloat16"))
+        past_value = dml.state("past_value", dml.TensorSpec([1, 2, 6, 128], "bfloat16"))
+        cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([1], "int32"))
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache_bias(
+                q,
+                past_key,
+                past_value,
+                new_key,
+                new_value,
+                cache_seqlens,
+                bias,
+                advance_cache_seqlens=True,
+            ),
+            "out",
+        )
+
+
 def test_rocm_flash_attention_static_kv_cache_bias_bfloat16_head_dim128_compiles_and_uses_bias(tmp_path):
     if not _rocm_module_compile_toolchain_available():
         pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
@@ -121,6 +141,46 @@ def test_rocm_flash_attention_static_kv_cache_bias_bfloat16_head_dim128_compiles
 
     _assert_bias_changes_reference(spec, inputs)
     _compile_run_and_compare(spec, inputs, tmp_path / "flash_attention_static_kv_cache_bias_bfloat16_hdim128.dinoml")
+
+
+def test_rocm_flash_attention_static_kv_cache_bias_state_advances_cache_seqlens(tmp_path):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheBiasStateAdvanceModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 128], "bfloat16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
+            "bias": dml.TensorSpec([4, 1, 6], "bfloat16"),
+        },
+        name="rocm_flash_attention_static_kv_cache_bias_state_advance_contract",
+    )
+    rng = np.random.default_rng(456)
+    inputs = {
+        "q": _bf16_storage(rng.normal(size=(1, 1, 4, 128)).astype(np.float32) * np.float32(0.125)),
+        "new_key": _bf16_storage(rng.normal(size=(1, 2, 1, 128)).astype(np.float32) * np.float32(0.125)),
+        "new_value": _bf16_storage(rng.normal(size=(1, 2, 1, 128)).astype(np.float32) * np.float32(0.125)),
+        "bias": _bf16_storage(_strong_bias([4, 1, 6], masked_key=3)),
+    }
+    past_key = _bf16_storage(rng.normal(size=(1, 2, 6, 128)).astype(np.float32) * np.float32(0.125))
+    past_value = _bf16_storage(rng.normal(size=(1, 2, 6, 128)).astype(np.float32) * np.float32(0.125))
+
+    artifact = dml.compile(spec, dml.Target("rocm"), tmp_path / "flash_attention_static_kv_cache_bias_state_advance.dinoml")
+    module = load(artifact.path)
+    session = module.create_session()
+    try:
+        session.set_state_numpy("past_key", past_key)
+        session.set_state_numpy("past_value", past_value)
+        session.set_state_numpy("cache_seqlens", np.asarray([4], dtype=np.int32))
+        session.run_numpy(inputs)
+        np.testing.assert_array_equal(session.get_state_numpy("cache_seqlens"), np.asarray([5], dtype=np.int32))
+        session.run_numpy(inputs)
+        np.testing.assert_array_equal(session.get_state_numpy("cache_seqlens"), np.asarray([6], dtype=np.int32))
+    finally:
+        session.close()
+        module.close()
 
 
 def _compile_run_and_compare(spec, inputs, artifact_path):

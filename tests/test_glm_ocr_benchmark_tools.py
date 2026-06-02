@@ -211,10 +211,12 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
             {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
-            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
         ],
         "outputs": _items(["logits"], shape=[1, 1, 32]),
-        "states": _items(state_names, shape=[1, 1, 8, 4]),
+        "states": [
+            *_items(state_names, shape=[1, 1, 8, 4]),
+            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
 
@@ -236,10 +238,12 @@ def test_session_decode_artifact_rejects_stale_attention_mask_shape(tmp_path: Pa
             {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, 1, 7], "dtype": "bfloat16"},
-            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
         ],
         "outputs": _items(["logits"]),
-        "states": _items(state_names, shape=[1, 1, 8, 4]),
+        "states": [
+            *_items(state_names, shape=[1, 1, 8, 4]),
+            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
 

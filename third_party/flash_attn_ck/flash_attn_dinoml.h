@@ -101,6 +101,7 @@ float FlashAttentionStaticKvCacheLauncher(
     int64_t head_dim,
     const int32_t* cache_seqlens,
     DataType dtype,
+    int advance_cache_seqlens_after_launch,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);
@@ -141,6 +142,7 @@ float FlashAttentionStaticKvCacheBiasLauncher(
     int64_t head_dim,
     const int32_t* cache_seqlens,
     DataType dtype,
+    int advance_cache_seqlens_after_launch,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);

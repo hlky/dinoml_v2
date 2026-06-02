@@ -224,6 +224,7 @@ int dinoml_flash_attn_ck_static_kv_cache_fwd_float16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);
@@ -241,6 +242,7 @@ int dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);
@@ -263,6 +265,7 @@ int dinoml_flash_attn_ck_static_kv_cache_bias_fwd_float16_v1(
     int64_t bias_heads,
     int64_t bias_seqlen_q,
     int64_t bias_seqlen_k,
+    int advance_cache_seqlens,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);
@@ -285,6 +288,7 @@ int dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1(
     int64_t bias_heads,
     int64_t bias_seqlen_q,
     int64_t bias_seqlen_k,
+    int advance_cache_seqlens,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream);

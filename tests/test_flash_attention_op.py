@@ -66,9 +66,10 @@ class _FlashAttentionStaticKvCacheBiasStateModule(dml.nn.Module):
     def __init__(self, *, max_cache_len: int):
         self.max_cache_len = int(max_cache_len)
 
-    def forward(self, q, new_key, new_value, cache_seqlens, bias):
+    def forward(self, q, new_key, new_value, bias):
         past_key = dml.state("past_key", dml.TensorSpec([1, 2, self.max_cache_len, 128], "bfloat16"))
         past_value = dml.state("past_value", dml.TensorSpec([1, 2, self.max_cache_len, 128], "bfloat16"))
+        cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([1], "int32"))
         return dml.ops.output(
             dml.ops.flash_attention_static_kv_cache_bias(
                 q,
@@ -78,6 +79,7 @@ class _FlashAttentionStaticKvCacheBiasStateModule(dml.nn.Module):
                 new_value,
                 cache_seqlens,
                 bias,
+                advance_cache_seqlens=True,
             ),
             "out",
         )
@@ -324,6 +326,7 @@ def test_flash_attention_static_kv_cache_rocm_manifest_requests_ck_bfloat16_head
     assert "dinoml_flash_attn_ck_static_kv_cache_fwd_bfloat16_v1" in launch
     assert "ptr_cache_seqlens" in launch
     assert "flash_attention_static_kv_cache_scratch" in launch
+    assert ", 0, session->flash_attention_static_kv_cache_scratch" in launch
 
 
 def test_flash_attention_static_kv_cache_bias_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():
@@ -355,6 +358,7 @@ def test_flash_attention_static_kv_cache_bias_rocm_manifest_requests_ck_bfloat16
     assert "ptr_bias" in launch
     assert "shape_bias_0" in launch
     assert "flash_attention_static_kv_cache_scratch" in launch
+    assert ", 0, session->flash_attention_static_kv_cache_scratch" in launch
     _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
 
 
@@ -365,7 +369,6 @@ def test_flash_attention_static_kv_cache_bias_can_use_session_state_buffers():
             "q": dml.TensorSpec([1, 1, 4, 128], "bfloat16"),
             "new_key": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
             "new_value": dml.TensorSpec([1, 2, 1, 128], "bfloat16"),
-            "cache_seqlens": dml.TensorSpec([1], "int32"),
             "bias": dml.TensorSpec([4, 1, 8], "bfloat16"),
         },
         name="flash_attention_static_kv_cache_bias_state",
@@ -378,14 +381,19 @@ def test_flash_attention_static_kv_cache_bias_can_use_session_state_buffers():
 
     assert "past_key" not in input_names
     assert "past_value" not in input_names
-    assert state_names == {"past_key", "past_value"}
+    assert "cache_seqlens" not in input_names
+    assert state_names == {"past_key", "past_value", "cache_seqlens"}
     assert "void* state_past_key" in source
     assert "void* state_past_value" in source
+    assert "void* state_cache_seqlens" in source
     assert "ptr_past_key = static_cast" in source
     assert "ptr_past_value = static_cast" in source
+    assert "ptr_cache_seqlens = static_cast" in source
     assert "session->state_past_key" in source
     assert "session->state_past_value" in source
+    assert "session->state_cache_seqlens" in source
     assert "dinoml_flash_attn_ck_static_kv_cache_bias_fwd_bfloat16_v1" in source
+    assert ", 1, session->flash_attention_static_kv_cache_scratch" in source
     _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
 
 

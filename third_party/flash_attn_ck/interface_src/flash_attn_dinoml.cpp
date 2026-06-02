@@ -58,6 +58,24 @@ __global__ void build_total_seqlens_kernel(
   total_seqlens[index] = total;
 }
 
+__global__ void advance_cache_seqlens_kernel(
+    int32_t* cache_seqlens,
+    int32_t batch_size,
+    int32_t max_cache_len) {
+  const int32_t index = static_cast<int32_t>(blockIdx.x * blockDim.x + threadIdx.x);
+  if (index >= batch_size) {
+    return;
+  }
+  int32_t next = cache_seqlens[index] + 1;
+  if (next < 0) {
+    next = 0;
+  }
+  if (next > max_cache_len) {
+    next = max_cache_len;
+  }
+  cache_seqlens[index] = next;
+}
+
 float build_total_seqlens(
     const int32_t* cache_seqlens,
     int32_t* total_seqlens,
@@ -78,6 +96,29 @@ float build_total_seqlens(
       stream,
       cache_seqlens,
       total_seqlens,
+      static_cast<int32_t>(batch_size),
+      static_cast<int32_t>(max_cache_len));
+  return hipGetLastError() == hipSuccess ? 0.0f : -1.0f;
+}
+
+float advance_cache_seqlens(
+    int32_t* cache_seqlens,
+    int64_t batch_size,
+    int64_t max_cache_len,
+    hipStream_t stream) {
+  if (batch_size > static_cast<int64_t>(std::numeric_limits<int32_t>::max()) ||
+      max_cache_len > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+    return -1.0f;
+  }
+  constexpr int threads = 256;
+  const int blocks = static_cast<int>((batch_size + threads - 1) / threads);
+  hipLaunchKernelGGL(
+      advance_cache_seqlens_kernel,
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      cache_seqlens,
       static_cast<int32_t>(batch_size),
       static_cast<int32_t>(max_cache_len));
   return hipGetLastError() == hipSuccess ? 0.0f : -1.0f;
@@ -416,6 +457,7 @@ static float run_static_kv_cache_launcher(
     int64_t head_dim,
     const int32_t* cache_seqlens,
     DataType dtype,
+    int advance_cache_seqlens_after_launch,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream) {
@@ -588,6 +630,14 @@ static float run_static_kv_cache_launcher(
   if (split_elapsed_ms < 0.0f) {
     return -1.0f;
   }
+  if (advance_cache_seqlens_after_launch != 0) {
+    const float advance_elapsed_ms =
+        advance_cache_seqlens(const_cast<int32_t*>(cache_seqlens), batch_size, max_cache_len, stream);
+    if (advance_elapsed_ms < 0.0f) {
+      return -1.0f;
+    }
+    return append_elapsed_ms + seqlens_elapsed_ms + split_elapsed_ms + advance_elapsed_ms;
+  }
   return append_elapsed_ms + seqlens_elapsed_ms + split_elapsed_ms;
 }
 
@@ -623,6 +673,7 @@ float FlashAttentionStaticKvCacheLauncher(
     int64_t head_dim,
     const int32_t* cache_seqlens,
     DataType dtype,
+    int advance_cache_seqlens_after_launch,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream) {
@@ -663,6 +714,7 @@ float FlashAttentionStaticKvCacheLauncher(
       head_dim,
       cache_seqlens,
       dtype,
+      advance_cache_seqlens_after_launch,
       scratch,
       scratch_nbytes,
       stream);
@@ -704,6 +756,7 @@ float FlashAttentionStaticKvCacheBiasLauncher(
     int64_t head_dim,
     const int32_t* cache_seqlens,
     DataType dtype,
+    int advance_cache_seqlens_after_launch,
     void* scratch,
     size_t scratch_nbytes,
     hipStream_t stream) {
@@ -744,6 +797,7 @@ float FlashAttentionStaticKvCacheBiasLauncher(
       head_dim,
       cache_seqlens,
       dtype,
+      advance_cache_seqlens_after_launch,
       scratch,
       scratch_nbytes,
       stream);

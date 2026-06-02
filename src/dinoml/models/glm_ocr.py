@@ -1406,12 +1406,21 @@ def apply_glm_ocr_text_rope(q, k, cos, sin, rotary_dim: int):
 
 
 def apply_glm_ocr_vision_rope(q, k, cos, sin):
+    q_dtype = q.dtype
+    k_dtype = k.dtype
+    q_rot = dml.ops.cast(q, "float32") if q_dtype != "float32" else q
+    k_rot = dml.ops.cast(k, "float32") if k_dtype != "float32" else k
     cos = dml.ops.unsqueeze(cos, 1)
     sin = dml.ops.unsqueeze(sin, 1)
-    return (
-        dml.ops.add(dml.ops.mul(q, cos), dml.ops.mul(_rotate_half(q), sin)),
-        dml.ops.add(dml.ops.mul(k, cos), dml.ops.mul(_rotate_half(k), sin)),
-    )
+    cos = dml.ops.cast(cos, "float32") if cos.dtype != "float32" else cos
+    sin = dml.ops.cast(sin, "float32") if sin.dtype != "float32" else sin
+    q_embed = dml.ops.add(dml.ops.mul(q_rot, cos), dml.ops.mul(_rotate_half(q_rot), sin))
+    k_embed = dml.ops.add(dml.ops.mul(k_rot, cos), dml.ops.mul(_rotate_half(k_rot), sin))
+    if q_dtype != "float32":
+        q_embed = dml.ops.cast(q_embed, q_dtype)
+    if k_dtype != "float32":
+        k_embed = dml.ops.cast(k_embed, k_dtype)
+    return q_embed, k_embed
 
 
 def glm_ocr_weights_from_transformers_state_dict(

@@ -130,7 +130,6 @@ def build_static_inputs(config, processed: dict[str, np.ndarray], max_new_tokens
     vision_cos, vision_sin = glm_ocr_vision_rope_embeddings(
         vision_position_ids,
         head_dim=config.vision_config.head_dim,
-        dtype=config.vision_config.dtype,
     )
     attention_mask = np.triu(
         np.full((config.text_config.num_attention_heads, max_seq_len, max_seq_len), -1.0e4, dtype=np.float32),
@@ -145,8 +144,8 @@ def build_static_inputs(config, processed: dict[str, np.ndarray], max_new_tokens
         {
             "input_ids": input_ids,
             "pixel_values": _float_input(pixel_values, config.vision_config.dtype),
-            "vision_cos": _float_input(vision_cos, config.vision_config.dtype),
-            "vision_sin": _float_input(vision_sin, config.vision_config.dtype),
+            "vision_cos": _float_input(vision_cos, "float32"),
+            "vision_sin": _float_input(vision_sin, "float32"),
             "text_cos": _float_input(text_cos, config.text_config.dtype),
             "text_sin": _float_input(text_sin, config.text_config.dtype),
             "attention_mask": _float_input(attention_mask, config.text_config.dtype),
@@ -167,8 +166,8 @@ def build_spec(config, weights: dict[str, np.ndarray], inputs: dict[str, np.ndar
         inputs={
             "input_ids": dml.TensorSpec(list(inputs["input_ids"].shape), "int64"),
             "pixel_values": dml.TensorSpec(list(inputs["pixel_values"].shape), config.vision_config.dtype),
-            "vision_cos": dml.TensorSpec(list(inputs["vision_cos"].shape), config.vision_config.dtype),
-            "vision_sin": dml.TensorSpec(list(inputs["vision_sin"].shape), config.vision_config.dtype),
+            "vision_cos": dml.TensorSpec(list(inputs["vision_cos"].shape), "float32"),
+            "vision_sin": dml.TensorSpec(list(inputs["vision_sin"].shape), "float32"),
             "text_cos": dml.TensorSpec(list(inputs["text_cos"].shape), config.text_config.dtype),
             "text_sin": dml.TensorSpec(list(inputs["text_sin"].shape), config.text_config.dtype),
             "attention_mask": dml.TensorSpec(list(inputs["attention_mask"].shape), config.text_config.dtype),

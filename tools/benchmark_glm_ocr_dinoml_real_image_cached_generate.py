@@ -145,7 +145,6 @@ def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int):
     vision_cos, vision_sin = glm_ocr_vision_rope_embeddings(
         vision_position_ids,
         head_dim=config.vision_config.head_dim,
-        dtype=config.vision_config.dtype,
     )
     prefill_attention_mask = np.triu(
         np.full((config.text_config.num_attention_heads, prompt_len, prompt_len), -1.0e4, dtype=np.float32),
@@ -160,8 +159,8 @@ def build_inputs(config, processed: dict[str, np.ndarray], max_new_tokens: int):
         {
             "input_ids": input_ids,
             "pixel_values": _float_input(pixel_values, config.vision_config.dtype),
-            "vision_cos": _float_input(vision_cos, config.vision_config.dtype),
-            "vision_sin": _float_input(vision_sin, config.vision_config.dtype),
+            "vision_cos": _float_input(vision_cos, "float32"),
+            "vision_sin": _float_input(vision_sin, "float32"),
             "text_cos": _float_input(text_cos, config.text_config.dtype),
             "text_sin": _float_input(text_sin, config.text_config.dtype),
             "attention_mask": _float_input(prefill_attention_mask, config.text_config.dtype),
@@ -183,8 +182,8 @@ def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str,
         inputs={
             "input_ids": dml.TensorSpec(list(inputs["input_ids"].shape), "int64"),
             "pixel_values": dml.TensorSpec(list(inputs["pixel_values"].shape), config.vision_config.dtype),
-            "vision_cos": dml.TensorSpec(list(inputs["vision_cos"].shape), config.vision_config.dtype),
-            "vision_sin": dml.TensorSpec(list(inputs["vision_sin"].shape), config.vision_config.dtype),
+            "vision_cos": dml.TensorSpec(list(inputs["vision_cos"].shape), "float32"),
+            "vision_sin": dml.TensorSpec(list(inputs["vision_sin"].shape), "float32"),
             "text_cos": dml.TensorSpec(
                 [inputs["input_ids"].shape[0], inputs["input_ids"].shape[1], config.text_config.head_dim],
                 config.text_config.dtype,

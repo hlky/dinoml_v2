@@ -596,6 +596,26 @@ def test_glm_ocr_tiny_vision_pooler_matches_transformers():
     np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-6)
 
 
+def test_glm_ocr_bfloat16_vision_rope_computes_rotation_in_float32():
+    config = _tiny_config()
+    config = replace(config, vision_config=replace(config.vision_config, dtype="bfloat16"))
+    weights = _tiny_weights(config)
+    spec = dml.trace(
+        GlmOcrVisionModel(config.vision_config, weights),
+        inputs={
+            "pixel_values": dml.TensorSpec([16, config.vision_config.patch_dim], "bfloat16"),
+            "cos": dml.TensorSpec([16, config.vision_config.head_dim], "float32"),
+            "sin": dml.TensorSpec([16, config.vision_config.head_dim], "float32"),
+        },
+        name="glm_ocr_tiny_vision_rope_bfloat16_float32_rotation",
+    )
+
+    cast_dtypes = [node.get("attrs", {}).get("dtype") for node in spec.ir["nodes"] if node["op"] == "cast"]
+
+    assert cast_dtypes.count("float32") >= 2
+    assert cast_dtypes.count("bfloat16") >= 2
+
+
 def test_glm_ocr_tiny_image_prefill_logits_match_transformers():
     torch = pytest.importorskip("torch")
     pytest.importorskip("transformers.models.glm_ocr.configuration_glm_ocr")

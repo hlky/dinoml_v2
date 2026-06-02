@@ -10,6 +10,7 @@ from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, 
 
 GET_TIMESTEP_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
 GET_1D_ROTARY_POS_EMBED_DTYPES = ("float16", "float32", "bfloat16")
+GLM_OCR_ROPE_DTYPES = ("float16", "float32", "bfloat16")
 GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS = (
     "get_1d_rotary_pos_embed_cos",
     "get_1d_rotary_pos_embed_sin",
@@ -166,6 +167,97 @@ def rotary_output_cols(attrs: Mapping[str, Any]) -> int:
     return int(attrs["dim"]) if bool(attrs["use_real"]) else int(attrs["dim"]) // 2
 
 
+def normalize_glm_ocr_text_rope_attrs(*, rotary_dim: Any) -> dict[str, int]:
+    if not isinstance(rotary_dim, int) or isinstance(rotary_dim, bool) or rotary_dim <= 0:
+        raise ValueError(f"glm_ocr_text_rope rotary_dim must be a positive integer, got {rotary_dim!r}")
+    if rotary_dim % 2 != 0:
+        raise ValueError("glm_ocr_text_rope rotary_dim must be even")
+    return {"rotary_dim": int(rotary_dim)}
+
+
+def _validate_glm_ocr_rope_common_inputs(
+    op_name: str,
+    q: Tensor,
+    k: Tensor,
+    cos: Tensor,
+    sin: Tensor,
+) -> None:
+    if any(tensor.builder is not q.builder for tensor in (k, cos, sin)):
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if q.dtype not in GLM_OCR_ROPE_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {q.dtype}")
+    if k.dtype != q.dtype:
+        raise ValueError(f"{op_name} q/k dtype mismatch: {q.dtype} vs {k.dtype}")
+    if cos.dtype != sin.dtype:
+        raise ValueError(f"{op_name} cos/sin dtype mismatch: {cos.dtype} vs {sin.dtype}")
+    if cos.dtype not in GLM_OCR_ROPE_DTYPES:
+        raise ValueError(f"{op_name} does not support cos/sin dtype {cos.dtype}")
+    if list(cos.shape) != list(sin.shape):
+        raise ValueError(f"{op_name} cos/sin shape mismatch: {cos.shape} vs {sin.shape}")
+
+
+def infer_glm_ocr_text_rope_q_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(shapes) != 4:
+        raise ValueError(f"glm_ocr_text_rope expects 4 inputs, got {len(shapes)}")
+    _validate_glm_ocr_text_rope_shapes(shapes, {"rotary_dim": list(shapes[0])[-1]})
+    return list(shapes[0])
+
+
+def infer_glm_ocr_text_rope_q_shape_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    _validate_glm_ocr_text_rope_shapes(input_shapes, attrs)
+    return list(input_shapes[0])
+
+
+def infer_glm_ocr_vision_rope_q_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(shapes) != 4:
+        raise ValueError(f"glm_ocr_vision_rope expects 4 inputs, got {len(shapes)}")
+    _validate_glm_ocr_vision_rope_shapes(shapes)
+    return list(shapes[0])
+
+
+def _validate_glm_ocr_text_rope_shapes(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> None:
+    if len(input_shapes) != 4:
+        raise ValueError(f"glm_ocr_text_rope expects 4 inputs, got {len(input_shapes)}")
+    q_shape, k_shape, cos_shape, sin_shape = [list(shape) for shape in input_shapes]
+    if len(q_shape) != 4 or len(k_shape) != 4:
+        raise ValueError("glm_ocr_text_rope expects q/k with shape [batch, seq, heads, head_dim]")
+    if len(cos_shape) != 3 or len(sin_shape) != 3:
+        raise ValueError("glm_ocr_text_rope expects cos/sin with shape [batch, seq, rotary_cols]")
+    if q_shape[0] != k_shape[0] or q_shape[1] != k_shape[1] or q_shape[3] != k_shape[3]:
+        raise ValueError("glm_ocr_text_rope q/k batch, sequence, and head_dim must match")
+    if cos_shape != sin_shape:
+        raise ValueError("glm_ocr_text_rope cos/sin shape mismatch")
+    if cos_shape[0] != q_shape[0] or cos_shape[1] != q_shape[1]:
+        raise ValueError("glm_ocr_text_rope cos/sin batch and sequence must match q/k")
+    normalized = normalize_glm_ocr_text_rope_attrs(rotary_dim=attrs.get("rotary_dim"))
+    rotary_dim = int(normalized["rotary_dim"])
+    if rotary_dim > int(q_shape[3]):
+        raise ValueError("glm_ocr_text_rope rotary_dim must not exceed head_dim")
+    if int(cos_shape[2]) < rotary_dim // 2:
+        raise ValueError("glm_ocr_text_rope cos/sin last dimension is smaller than rotary_dim / 2")
+
+
+def _validate_glm_ocr_vision_rope_shapes(input_shapes: Sequence[Sequence[int]]) -> None:
+    if len(input_shapes) != 4:
+        raise ValueError(f"glm_ocr_vision_rope expects 4 inputs, got {len(input_shapes)}")
+    q_shape, k_shape, cos_shape, sin_shape = [list(shape) for shape in input_shapes]
+    if len(q_shape) != 3 or len(k_shape) != 3:
+        raise ValueError("glm_ocr_vision_rope expects q/k with shape [seq, heads, head_dim]")
+    if q_shape != k_shape:
+        raise ValueError("glm_ocr_vision_rope q/k shapes must match")
+    if len(cos_shape) != 2 or len(sin_shape) != 2:
+        raise ValueError("glm_ocr_vision_rope expects cos/sin with shape [seq, head_dim]")
+    if cos_shape != sin_shape:
+        raise ValueError("glm_ocr_vision_rope cos/sin shape mismatch")
+    if cos_shape[0] != q_shape[0] or cos_shape[1] != q_shape[2]:
+        raise ValueError("glm_ocr_vision_rope cos/sin shape must match q/k sequence and head_dim")
+    if int(q_shape[2]) % 2 != 0:
+        raise ValueError("glm_ocr_vision_rope head_dim must be even")
+
+
 def infer_get_1d_rotary_pos_embed_component_shape_spec(
     input_shape_spec: Sequence[Any] | None,
     attrs: Mapping[str, Any],
@@ -315,6 +407,40 @@ class Get1dRotaryPosEmbedSin(_Get1dRotaryPosEmbedComponent):
     schema = _rotary_component_schema("sin")
 
 
+@op_def
+class GlmOcrTextRope(OpDef):
+    name = "glm_ocr_text_rope"
+    schema = OpSchema(
+        inputs=("q", "k", "cos", "sin"),
+        attrs=(AttrDef("rotary_dim", "int", required=True),),
+    )
+    infer_shape = infer_glm_ocr_text_rope_q_shape
+    infer_shape_with_attrs = infer_glm_ocr_text_rope_q_shape_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding("generated_glm_ocr_text_rope", "model", source_template="glm_ocr_text_rope_cpu"),
+        "cuda": KernelBinding("generated_glm_ocr_text_rope", "model", source_template="glm_ocr_text_rope_gpu"),
+        "rocm": KernelBinding("generated_glm_ocr_text_rope", "model", source_template="glm_ocr_text_rope_gpu"),
+    }
+    frontend = FrontendBinding("glm_ocr_text_rope")
+    allowed_dtypes = GLM_OCR_ROPE_DTYPES
+    description = "Fused GLM-OCR text RoPE for Q/K tensors using even/odd rotation."
+
+
+@op_def
+class GlmOcrVisionRope(OpDef):
+    name = "glm_ocr_vision_rope"
+    schema = OpSchema(inputs=("q", "k", "cos", "sin"))
+    infer_shape = infer_glm_ocr_vision_rope_q_shape
+    backend_kernels = {
+        "cpu": KernelBinding("generated_glm_ocr_vision_rope", "model", source_template="glm_ocr_vision_rope_cpu"),
+        "cuda": KernelBinding("generated_glm_ocr_vision_rope", "model", source_template="glm_ocr_vision_rope_gpu"),
+        "rocm": KernelBinding("generated_glm_ocr_vision_rope", "model", source_template="glm_ocr_vision_rope_gpu"),
+    }
+    frontend = FrontendBinding("glm_ocr_vision_rope")
+    allowed_dtypes = GLM_OCR_ROPE_DTYPES
+    description = "Fused GLM-OCR vision RoPE for Q/K tensors using half rotation and fp32 internal math."
+
+
 def get_timestep_embedding(
     timesteps: Any,
     embedding_dim: int,
@@ -455,6 +581,48 @@ def emit_get_1d_rotary_pos_embed_component(
     )
 
 
+def glm_ocr_text_rope(q: Any, k: Any, cos: Any, sin: Any, rotary_dim: int) -> tuple[Tensor, Tensor]:
+    q_tensor = as_tensor(q, dtype_hint="float32")
+    k_tensor = as_tensor(k, dtype_hint=q_tensor.dtype)
+    cos_tensor = as_tensor(cos, dtype_hint=q_tensor.dtype)
+    sin_tensor = as_tensor(sin, dtype_hint=cos_tensor.dtype)
+    _validate_glm_ocr_rope_common_inputs("glm_ocr_text_rope", q_tensor, k_tensor, cos_tensor, sin_tensor)
+    attrs = normalize_glm_ocr_text_rope_attrs(rotary_dim=rotary_dim)
+    _validate_glm_ocr_text_rope_shapes(
+        [q_tensor.shape, k_tensor.shape, cos_tensor.shape, sin_tensor.shape],
+        attrs,
+    )
+    q_out, k_out = q_tensor.builder.emit_multi(
+        "glm_ocr_text_rope",
+        [q_tensor, k_tensor, cos_tensor, sin_tensor],
+        (
+            (q_tensor.shape, q_tensor.dtype, q_tensor.shape_spec),
+            (k_tensor.shape, k_tensor.dtype, k_tensor.shape_spec),
+        ),
+        attrs,
+    )
+    return q_out, k_out
+
+
+def glm_ocr_vision_rope(q: Any, k: Any, cos: Any, sin: Any) -> tuple[Tensor, Tensor]:
+    q_tensor = as_tensor(q, dtype_hint="float32")
+    k_tensor = as_tensor(k, dtype_hint=q_tensor.dtype)
+    cos_tensor = as_tensor(cos, dtype_hint="float32")
+    sin_tensor = as_tensor(sin, dtype_hint=cos_tensor.dtype)
+    _validate_glm_ocr_rope_common_inputs("glm_ocr_vision_rope", q_tensor, k_tensor, cos_tensor, sin_tensor)
+    _validate_glm_ocr_vision_rope_shapes([q_tensor.shape, k_tensor.shape, cos_tensor.shape, sin_tensor.shape])
+    q_out, k_out = q_tensor.builder.emit_multi(
+        "glm_ocr_vision_rope",
+        [q_tensor, k_tensor, cos_tensor, sin_tensor],
+        (
+            (q_tensor.shape, q_tensor.dtype, q_tensor.shape_spec),
+            (k_tensor.shape, k_tensor.dtype, k_tensor.shape_spec),
+        ),
+        {},
+    )
+    return q_out, k_out
+
+
 def _copy_shape_dim(dim: Any) -> Any:
     if isinstance(dim, Mapping):
         return dict(dim)
@@ -463,17 +631,26 @@ __all__ = [
     "GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS",
     "GET_1D_ROTARY_POS_EMBED_DTYPES",
     "GET_TIMESTEP_EMBEDDING_DTYPES",
+    "GLM_OCR_ROPE_DTYPES",
     "Get1dRotaryPosEmbedCos",
     "Get1dRotaryPosEmbedSin",
+    "GlmOcrTextRope",
+    "GlmOcrVisionRope",
     "GetTimestepEmbedding",
     "emit_get_1d_rotary_pos_embed_component",
     "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
+    "glm_ocr_text_rope",
+    "glm_ocr_vision_rope",
     "infer_get_1d_rotary_pos_embed_component",
     "infer_get_1d_rotary_pos_embed_component_shape_spec",
     "infer_get_1d_rotary_pos_embed_component_with_attrs",
+    "infer_glm_ocr_text_rope_q_shape",
+    "infer_glm_ocr_text_rope_q_shape_with_attrs",
+    "infer_glm_ocr_vision_rope_q_shape",
     "infer_get_timestep_embedding",
     "infer_get_timestep_embedding_with_attrs",
+    "normalize_glm_ocr_text_rope_attrs",
     "normalize_get_1d_rotary_pos_embed_attrs",
     "normalize_get_timestep_embedding_attrs",
     "rotary_output_cols",

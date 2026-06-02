@@ -1,0 +1,46 @@
+static void {{ func }}_apply(
+    const {{ cpu_storage_type }}* DINO_RESTRICT input,
+    const {{ cpu_trig_storage_type }}* DINO_RESTRICT cos,
+    const {{ cpu_trig_storage_type }}* DINO_RESTRICT sin,
+    {{ cpu_storage_type }}* DINO_RESTRICT output,
+    int64_t total,
+    int64_t heads) {
+  constexpr int64_t seq_len = {{ seq_len }};
+  constexpr int64_t head_dim = {{ head_dim }};
+  constexpr int64_t trig_dim = {{ trig_dim }};
+  constexpr int64_t rotary_dim = {{ rotary_dim }};
+  for (int64_t elem = 0; elem < total; ++elem) {
+    const int64_t col = elem % head_dim;
+    float value = dinoml::math::cast<float>(input[elem]);
+    if (col < rotary_dim) {
+      const int64_t row = elem / head_dim;
+      const int64_t seq = (row / heads) % seq_len;
+      const int64_t batch = row / (heads * seq_len);
+      const int64_t pair_offset = (col & 1) == 0 ? 1 : -1;
+      const float pair_value = dinoml::math::cast<float>(input[elem + pair_offset]);
+      const float rotated = (col & 1) == 0 ? -pair_value : pair_value;
+      const int64_t trig_index = (batch * seq_len + seq) * trig_dim + col / 2;
+      const float c = dinoml::math::cast<float>(cos[trig_index]);
+      const float s = dinoml::math::cast<float>(sin[trig_index]);
+      value = value * c + rotated * s;
+    }
+    output[elem] = dinoml::math::cast<{{ cpu_storage_type }}>(value);
+  }
+}
+
+static int {{ func }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT q,
+    const {{ cpu_storage_type }}* DINO_RESTRICT k,
+    const {{ cpu_trig_storage_type }}* DINO_RESTRICT cos,
+    const {{ cpu_trig_storage_type }}* DINO_RESTRICT sin,
+    {{ cpu_storage_type }}* DINO_RESTRICT q_out,
+    {{ cpu_storage_type }}* DINO_RESTRICT k_out,
+    int64_t q_total,
+    int64_t k_total) {
+  if (q == nullptr || k == nullptr || cos == nullptr || sin == nullptr || q_out == nullptr || k_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  {{ func }}_apply(q, cos, sin, q_out, q_total, {{ q_heads }});
+  {{ func }}_apply(k, cos, sin, k_out, k_total, {{ k_heads }});
+  return 0;
+}

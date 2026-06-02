@@ -98,6 +98,27 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "glm_ocr_text_rope":
+            q_name, k_name = node["outputs"]
+            q_out, k_out = _execute_glm_ocr_text_rope(
+                values[node["inputs"][0]],
+                values[node["inputs"][1]],
+                values[node["inputs"][2]],
+                values[node["inputs"][3]],
+                node.get("attrs", {}),
+            )
+            values[q_name] = _store_reference(q_out, _tensor_dtype(ir, q_name))
+            values[k_name] = _store_reference(k_out, _tensor_dtype(ir, k_name))
+        elif node["op"] == "glm_ocr_vision_rope":
+            q_name, k_name = node["outputs"]
+            q_out, k_out = _execute_glm_ocr_vision_rope(
+                values[node["inputs"][0]],
+                values[node["inputs"][1]],
+                values[node["inputs"][2]],
+                values[node["inputs"][3]],
+            )
+            values[q_name] = _store_reference(q_out, _tensor_dtype(ir, q_name))
+            values[k_name] = _store_reference(k_out, _tensor_dtype(ir, k_name))
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -748,6 +769,50 @@ def _execute_get_1d_rotary_pos_embed_component(
     if bool(normalized["repeat_interleave_real"]):
         return np.repeat(base, 2, axis=1).astype(np.float32, copy=False)
     return np.concatenate([base, base], axis=1).astype(np.float32, copy=False)
+
+
+def _execute_glm_ocr_text_rope(
+    q: np.ndarray,
+    k: np.ndarray,
+    cos: np.ndarray,
+    sin: np.ndarray,
+    attrs: Mapping[str, object],
+) -> tuple[np.ndarray, np.ndarray]:
+    rotary_dim = int(attrs["rotary_dim"])
+    cos_value = np.asarray(cos, dtype=np.float32)
+    sin_value = np.asarray(sin, dtype=np.float32)
+
+    def apply(value: np.ndarray) -> np.ndarray:
+        source = np.asarray(value, dtype=np.float32)
+        result = source.copy()
+        rot = source[..., :rotary_dim]
+        c = np.repeat(cos_value[..., : rotary_dim // 2], 2, axis=-1)[..., None, :]
+        s = np.repeat(sin_value[..., : rotary_dim // 2], 2, axis=-1)[..., None, :]
+        rotated = np.empty_like(rot)
+        rotated[..., 0::2] = -rot[..., 1::2]
+        rotated[..., 1::2] = rot[..., 0::2]
+        result[..., :rotary_dim] = rot * c + rotated * s
+        return result
+
+    return apply(q), apply(k)
+
+
+def _execute_glm_ocr_vision_rope(
+    q: np.ndarray,
+    k: np.ndarray,
+    cos: np.ndarray,
+    sin: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    cos_value = np.asarray(cos, dtype=np.float32)[:, None, :]
+    sin_value = np.asarray(sin, dtype=np.float32)[:, None, :]
+
+    def apply(value: np.ndarray) -> np.ndarray:
+        source = np.asarray(value, dtype=np.float32)
+        half = source.shape[-1] // 2
+        rotated = np.concatenate([-source[..., half:], source[..., :half]], axis=-1)
+        return source * cos_value + rotated * sin_value
+
+    return apply(q), apply(k)
 
 
 def _execute_reduction(op: str, value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

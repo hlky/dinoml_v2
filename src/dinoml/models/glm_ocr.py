@@ -1387,6 +1387,10 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
 
 
 def apply_glm_ocr_text_rope(q, k, cos, sin, rotary_dim: int):
+    return dml.ops.glm_ocr_text_rope(q, k, cos, sin, rotary_dim)
+
+
+def _apply_glm_ocr_text_rope_base_ops(q, k, cos, sin, rotary_dim: int):
     cos = dml.ops.repeat_interleave(_prefix_last_dim(cos, rotary_dim // 2), 2, dim=-1)
     sin = dml.ops.repeat_interleave(_prefix_last_dim(sin, rotary_dim // 2), 2, dim=-1)
     cos = dml.ops.unsqueeze(cos, 2)
@@ -1406,6 +1410,10 @@ def apply_glm_ocr_text_rope(q, k, cos, sin, rotary_dim: int):
 
 
 def apply_glm_ocr_vision_rope(q, k, cos, sin):
+    return dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
+
+
+def _apply_glm_ocr_vision_rope_base_ops(q, k, cos, sin):
     q_dtype = q.dtype
     k_dtype = k.dtype
     q_rot = dml.ops.cast(q, "float32") if q_dtype != "float32" else q

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,6 +10,8 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml.passes.core import shape_type_infer
+from dinoml.passes.validation import validate_ir
 from dinoml.reference import reference_numpy
 from dinoml.models.glm_ocr import (
     GlmOcrConfig,
@@ -91,6 +94,85 @@ def test_glm_ocr_text_rope_uses_mrope_sections():
     expected = np.concatenate([expected_freqs, expected_freqs], axis=-1)
     np.testing.assert_allclose(cos, np.cos(expected), rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(sin, np.sin(expected), rtol=1e-6, atol=1e-6)
+
+
+def test_glm_ocr_fused_text_rope_reference_matches_numpy():
+    class TextRopeModule(dml.nn.Module):
+        def forward(self, q, k, cos, sin):
+            q_out, k_out = dml.ops.glm_ocr_text_rope(q, k, cos, sin, rotary_dim=4)
+            return {"q": dml.ops.output(q_out, "q"), "k": dml.ops.output(k_out, "k")}
+
+    spec = dml.trace(
+        TextRopeModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 2, 2, 6], "float32"),
+            "k": dml.TensorSpec([1, 2, 1, 6], "float32"),
+            "cos": dml.TensorSpec([1, 2, 6], "float32"),
+            "sin": dml.TensorSpec([1, 2, 6], "float32"),
+        },
+        name="glm_ocr_fused_text_rope",
+    )
+    inputs = {
+        "q": np.arange(24, dtype=np.float32).reshape(1, 2, 2, 6) / 10.0,
+        "k": np.arange(12, dtype=np.float32).reshape(1, 2, 1, 6) / 7.0,
+        "cos": np.cos(np.arange(12, dtype=np.float32).reshape(1, 2, 6) / 9.0),
+        "sin": np.sin(np.arange(12, dtype=np.float32).reshape(1, 2, 6) / 9.0),
+    }
+
+    actual = reference_numpy(spec, inputs)
+
+    def expected(value):
+        result = value.copy()
+        rot = value[..., :4]
+        cos = np.repeat(inputs["cos"][..., :2], 2, axis=-1)[..., None, :]
+        sin = np.repeat(inputs["sin"][..., :2], 2, axis=-1)[..., None, :]
+        rotated = np.empty_like(rot)
+        rotated[..., 0::2] = -rot[..., 1::2]
+        rotated[..., 1::2] = rot[..., 0::2]
+        result[..., :4] = rot * cos + rotated * sin
+        return result
+
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+    assert counts["glm_ocr_text_rope"] == 1
+    validate_ir(shape_type_infer(deepcopy(spec.ir)))
+    np.testing.assert_allclose(actual["q"], expected(inputs["q"]), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual["k"], expected(inputs["k"]), rtol=1e-6, atol=1e-6)
+
+
+def test_glm_ocr_fused_vision_rope_reference_matches_numpy():
+    class VisionRopeModule(dml.nn.Module):
+        def forward(self, q, k, cos, sin):
+            q_out, k_out = dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
+            return {"q": dml.ops.output(q_out, "q"), "k": dml.ops.output(k_out, "k")}
+
+    spec = dml.trace(
+        VisionRopeModule(),
+        inputs={
+            "q": dml.TensorSpec([3, 2, 4], "float32"),
+            "k": dml.TensorSpec([3, 2, 4], "float32"),
+            "cos": dml.TensorSpec([3, 4], "float32"),
+            "sin": dml.TensorSpec([3, 4], "float32"),
+        },
+        name="glm_ocr_fused_vision_rope",
+    )
+    inputs = {
+        "q": np.arange(24, dtype=np.float32).reshape(3, 2, 4) / 10.0,
+        "k": np.arange(24, dtype=np.float32).reshape(3, 2, 4) / 11.0,
+        "cos": np.cos(np.arange(12, dtype=np.float32).reshape(3, 4) / 13.0),
+        "sin": np.sin(np.arange(12, dtype=np.float32).reshape(3, 4) / 13.0),
+    }
+
+    actual = reference_numpy(spec, inputs)
+
+    def expected(value):
+        half = value.shape[-1] // 2
+        rotated = np.concatenate([-value[..., half:], value[..., :half]], axis=-1)
+        return value * inputs["cos"][:, None, :] + rotated * inputs["sin"][:, None, :]
+
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+    assert counts["glm_ocr_vision_rope"] == 1
+    np.testing.assert_allclose(actual["q"], expected(inputs["q"]), rtol=1e-6, atol=1e-6)
+    np.testing.assert_allclose(actual["k"], expected(inputs["k"]), rtol=1e-6, atol=1e-6)
 
 
 def test_glm_ocr_rope_index_matches_source_grouping_for_image_tokens():
@@ -467,6 +549,7 @@ def test_glm_ocr_tiny_static_cache_decode_uses_flash_attention_cache_path(dtype:
     spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_static_cache_flash")
     counts = Counter(node["op"] for node in spec.ir["nodes"])
 
+    assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
     assert counts["flash_attention_static_kv_cache_bias"] == 1
     assert counts["flash_attention_static_kv_cache"] == 0
     assert counts["concatenate"] == 0
@@ -505,6 +588,7 @@ def test_glm_ocr_tiny_session_static_cache_decode_uses_state_buffers():
     assert "past_key_0" not in input_names
     assert "past_value_0" not in input_names
     assert state_names == {"past_key_0", "past_value_0"}
+    assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
     assert counts["flash_attention_static_kv_cache_bias"] == 1
     assert counts["flash_attention_static_kv_cache"] == 0
     assert counts["concatenate"] == 0
@@ -527,8 +611,10 @@ def test_glm_ocr_tiny_prefill_can_keep_only_last_token_logits():
         },
         name="glm_ocr_tiny_text_last_token",
     )
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
 
     assert spec.ir["outputs"][0]["shape"] == [1, 1, config.text_config.vocab_size]
+    assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
 
 
 def test_glm_ocr_tiny_vision_trace_uses_linear_patch_embed_and_downsample_rewrites():
@@ -549,6 +635,7 @@ def test_glm_ocr_tiny_vision_trace_uses_linear_patch_embed_and_downsample_rewrit
     output_shapes = {output["name"]: output["shape"] for output in spec.ir["outputs"]}
 
     assert output_shapes == {"last_hidden_state": [1, config.vision_config.out_hidden_size], "pooler_output": [1, config.vision_config.out_hidden_size]}
+    assert counts["glm_ocr_vision_rope"] == config.vision_config.depth
     assert counts["conv2d_bias"] == 0
     assert counts["gemm_rcr_bias"] >= 6
     assert counts["bmm_rcr"] == 1
@@ -610,10 +697,9 @@ def test_glm_ocr_bfloat16_vision_rope_computes_rotation_in_float32():
         name="glm_ocr_tiny_vision_rope_bfloat16_float32_rotation",
     )
 
-    cast_dtypes = [node.get("attrs", {}).get("dtype") for node in spec.ir["nodes"] if node["op"] == "cast"]
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
 
-    assert cast_dtypes.count("float32") >= 2
-    assert cast_dtypes.count("bfloat16") >= 2
+    assert counts["glm_ocr_vision_rope"] == config.vision_config.depth
 
 
 def test_glm_ocr_tiny_image_prefill_logits_match_transformers():

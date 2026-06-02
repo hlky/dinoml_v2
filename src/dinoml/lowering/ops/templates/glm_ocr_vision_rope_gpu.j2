@@ -1,0 +1,61 @@
+__device__ void {{ func }}_apply_vision_rope(
+    const {{ storage_type }}* DINO_RESTRICT input,
+    const {{ trig_storage_type }}* DINO_RESTRICT cos,
+    const {{ trig_storage_type }}* DINO_RESTRICT sin,
+    {{ storage_type }}* DINO_RESTRICT output,
+    int64_t elem) {
+  constexpr int64_t heads = {{ heads }};
+  constexpr int64_t head_dim = {{ head_dim }};
+  constexpr int64_t half_dim = {{ half_dim }};
+  constexpr int64_t trig_dim = {{ trig_dim }};
+  const int64_t col = elem % head_dim;
+  const int64_t row = elem / head_dim;
+  const int64_t seq = row / heads;
+  const int64_t pair_offset = col < half_dim ? half_dim : -half_dim;
+  const float value = dinoml::math::cast<float>(input[elem]);
+  const float pair_value = dinoml::math::cast<float>(input[elem + pair_offset]);
+  const float rotated = col < half_dim ? -pair_value : pair_value;
+  const int64_t trig_index = seq * trig_dim + col;
+  const float c = dinoml::math::cast<float>(cos[trig_index]);
+  const float s = dinoml::math::cast<float>(sin[trig_index]);
+  output[elem] = dinoml::math::cast<{{ storage_type }}>(value * c + rotated * s);
+}
+
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT q,
+    const {{ storage_type }}* DINO_RESTRICT k,
+    const {{ trig_storage_type }}* DINO_RESTRICT cos,
+    const {{ trig_storage_type }}* DINO_RESTRICT sin,
+    {{ storage_type }}* DINO_RESTRICT q_out,
+    {{ storage_type }}* DINO_RESTRICT k_out,
+    int64_t q_total,
+    int64_t k_total) {
+  const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx < q_total) {
+    {{ func }}_apply_vision_rope(q, cos, sin, q_out, idx);
+  }
+  if (idx < k_total) {
+    {{ func }}_apply_vision_rope(k, cos, sin, k_out, idx);
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT q,
+    const {{ storage_type }}* DINO_RESTRICT k,
+    const {{ trig_storage_type }}* DINO_RESTRICT cos,
+    const {{ trig_storage_type }}* DINO_RESTRICT sin,
+    {{ storage_type }}* DINO_RESTRICT q_out,
+    {{ storage_type }}* DINO_RESTRICT k_out,
+    int64_t q_total,
+    int64_t k_total,
+    {{ gpu_stream_type }} stream) {
+  if (q == nullptr || k == nullptr || cos == nullptr || sin == nullptr || q_out == nullptr || k_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  const int threads = 256;
+  const int64_t total = q_total > k_total ? q_total : k_total;
+  const int blocks = static_cast<int>((total + threads - 1) / threads);
+  {{ kernel }}<<<blocks, threads, 0, stream>>>(q, k, cos, sin, q_out, k_out, q_total, k_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

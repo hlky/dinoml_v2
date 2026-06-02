@@ -31,6 +31,10 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
     for node in ir["nodes"]:
         inputs = [tensors[name] for name in node["inputs"]]
         op_def = get_op_def(node["op"])
+        if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
+            _assign_tensor_shape_type(tensors[node["outputs"][0]], inputs[0]["shape"], inputs[0].get("shape_spec", inputs[0]["shape"]), inputs[0]["dtype"])
+            _assign_tensor_shape_type(tensors[node["outputs"][1]], inputs[1]["shape"], inputs[1].get("shape_spec", inputs[1]["shape"]), inputs[1]["dtype"])
+            continue
         if node["op"] in REDUCTION_OPS:
             expected_shape = infer_reduction_with_attrs(
                 inputs[0]["shape"],
@@ -69,6 +73,19 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             output["layout"] = dict(tensor["layout"])
         output["dtype"] = tensor["dtype"]
     return ir
+
+
+def _assign_tensor_shape_type(
+    tensor: Dict[str, Any],
+    shape: Sequence[int],
+    shape_spec: Sequence[Any],
+    dtype: str,
+) -> None:
+    tensor["shape"] = list(shape)
+    tensor["shape_spec"] = _copy_shape_spec(shape_spec)
+    tensor["layout"] = dense_layout(shape)
+    tensor["dtype"] = str(dtype)
+    tensor["nbytes"] = int(np.prod(shape, dtype=np.int64) * dtype_nbytes(str(dtype)))
 
 
 def _infer_node_shape_spec(

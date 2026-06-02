@@ -153,7 +153,12 @@ from dinoml.ops.gemm import (
 from dinoml.ops.internal import ShapeBufferCountTrue
 from dinoml.ops.normalization import add_layer_norm, layer_norm, rms_norm, t5_layer_norm
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
-from dinoml.ops.positional import get_1d_rotary_pos_embed, get_timestep_embedding
+from dinoml.ops.positional import (
+    get_1d_rotary_pos_embed,
+    get_timestep_embedding,
+    glm_ocr_text_rope,
+    glm_ocr_vision_rope,
+)
 from dinoml.ops.reductions import (
     argmax,
     reduce_max,
@@ -332,6 +337,8 @@ __all__ = [
     "gemm_rrr_bias_tanh",
     "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
+    "glm_ocr_text_rope",
+    "glm_ocr_vision_rope",
     "getitem",
     "gt",
     "hardtanh",

@@ -219,6 +219,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "qkv_split":
         _validate_qkv_split_node(node, inputs, tensors)
         return
+    if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
+        _validate_glm_ocr_rope_node(node, inputs, tensors)
+        return
     if node["op"] in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         _validate_flash_attention_static_kv_cache_node(node, inputs, tensors)
         return
@@ -689,6 +692,42 @@ def _validate_qkv_split_node(
             raise ValidationError("qkv_split output shape must equal input shape with last dim / 3")
         if output_tensor["dtype"] != qkv_tensor["dtype"]:
             raise ValidationError("qkv_split output dtype must match input dtype")
+
+
+def _validate_glm_ocr_rope_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
+    if len(inputs) != 4:
+        raise ValidationError(f"{op_name} expects exactly four inputs")
+    if len(node["outputs"]) != 2:
+        raise ValidationError(f"{op_name} expects exactly two outputs")
+    q_tensor, k_tensor, cos_tensor, sin_tensor = inputs
+    try:
+        expected_q_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    q_output = tensors[node["outputs"][0]]
+    k_output = tensors[node["outputs"][1]]
+    if list(q_output["shape"]) != list(expected_q_shape):
+        raise ValidationError(f"{op_name} q output shape must match q input")
+    if list(k_output["shape"]) != list(k_tensor["shape"]):
+        raise ValidationError(f"{op_name} k output shape must match k input")
+    data_dtype = str(q_tensor["dtype"])
+    if data_dtype not in op_def.allowed_dtypes:
+        raise ValidationError(f"{op_name} does not support dtype {data_dtype}")
+    if str(k_tensor["dtype"]) != data_dtype:
+        raise ValidationError(f"{op_name} q/k dtype mismatch")
+    trig_dtype = str(cos_tensor["dtype"])
+    if trig_dtype != str(sin_tensor["dtype"]):
+        raise ValidationError(f"{op_name} cos/sin dtype mismatch")
+    if trig_dtype not in op_def.allowed_dtypes:
+        raise ValidationError(f"{op_name} does not support cos/sin dtype {trig_dtype}")
+    if str(q_output["dtype"]) != data_dtype or str(k_output["dtype"]) != data_dtype:
+        raise ValidationError(f"{op_name} output dtype must match q/k dtype")
 
 
 def _validate_flash_attention_static_kv_cache_node(

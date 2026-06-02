@@ -42,7 +42,7 @@ DEFAULT_SNAPSHOT = Path(
     r"C:\Users\user\.cache\huggingface\hub\models--zai-org--GLM-OCR\snapshots\ca5d8b3e287e52589e37c28385d9655ee4372f9d"
 )
 DEFAULT_IMAGE = Path(
-    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.preview.png"
+    r"K:\Mulder24B\data\mkultra\raw\DOC_0000017352\DOC_0000017352\0000017352_0001.TIF"
 )
 DEFAULT_PROMPT = "Perform OCR on this document image. Return the text only."
 

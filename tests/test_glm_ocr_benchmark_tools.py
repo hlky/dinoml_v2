@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tools import benchmark_glm_ocr_dinoml_real_image_cached_generate as glm_ocr_tool
+from tools import benchmark_glm_ocr_dinoml_real_image_prefill_generate as glm_ocr_prefill_tool
+from tools import benchmark_glm_ocr_transformers_real_image as transformers_tool
 
 
 def _config(*, use_flash_attention_bias: bool = True):
@@ -41,6 +43,11 @@ def _items(names: list[str], *, shape: list[int] | None = None, dtype: str = "bf
         {"name": name, "shape": [1] if shape is None else list(shape), "dtype": dtype}
         for name in names
     ]
+
+
+def test_real_image_benchmark_defaults_use_same_image():
+    assert glm_ocr_tool.DEFAULT_IMAGE == glm_ocr_prefill_tool.DEFAULT_IMAGE
+    assert glm_ocr_tool.DEFAULT_IMAGE == transformers_tool.DEFAULT_IMAGE
 
 
 def test_prefill_artifact_requires_flash_attention_bias_when_config_uses_bias(tmp_path: Path):

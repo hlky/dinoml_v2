@@ -264,7 +264,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         decode_artifact = Path("build") / (
             f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{flash_bias_suffix}_{args.dtype}_{args.target}.dinoml"
         )
-    prefill_ready = _prefill_artifact_compatible(prefill_artifact, config)
+    prefill_ready = _prefill_artifact_compatible(prefill_artifact, config, expected_inputs=inputs)
     decode_ready = _decode_artifact_compatible(
         decode_artifact,
         config,
@@ -332,7 +332,7 @@ def _artifact_ready(path: Path) -> bool:
     return (path / "manifest.json").is_file() and (path / "module.so").is_file()
 
 
-def _prefill_artifact_compatible(path: Path, config) -> bool:
+def _prefill_artifact_compatible(path: Path, config, *, expected_inputs: Mapping[str, np.ndarray] | None = None) -> bool:
     metadata = _artifact_metadata(path)
     if metadata is None:
         return False
@@ -351,6 +351,29 @@ def _prefill_artifact_compatible(path: Path, config) -> bool:
     graph_op_counts = _artifact_graph_op_counts(path)
     if graph_op_counts.get("swiglu") != int(config.text_config.num_hidden_layers):
         return False
+    if expected_inputs is not None:
+        prompt_len = int(expected_inputs["input_ids"].shape[1])
+        input_expectations = {
+            "input_ids": (list(expected_inputs["input_ids"].shape), "int64"),
+            "pixel_values": (list(expected_inputs["pixel_values"].shape), config.vision_config.dtype),
+            "vision_cos": (list(expected_inputs["vision_cos"].shape), "float32"),
+            "vision_sin": (list(expected_inputs["vision_sin"].shape), "float32"),
+            "text_cos": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
+            "text_sin": ([expected_inputs["input_ids"].shape[0], prompt_len, config.text_config.head_dim], config.text_config.dtype),
+            "attention_mask": (list(expected_inputs["attention_mask"].shape), config.text_config.dtype),
+        }
+        output_expectations = {
+            "logits": ([1, 1, config.text_config.vocab_size], config.text_config.dtype),
+            **{
+                name: ([1, config.text_config.num_key_value_heads, prompt_len, config.text_config.head_dim], config.text_config.dtype)
+                for layer_idx in range(config.text_config.num_hidden_layers)
+                for name in (f"present_key_{layer_idx}", f"present_value_{layer_idx}")
+            },
+        }
+        if not _metadata_tensors_match(metadata, "inputs", input_expectations):
+            return False
+        if not _metadata_tensors_match(metadata, "outputs", output_expectations):
+            return False
     return True
 
 
@@ -385,12 +408,33 @@ def _decode_artifact_compatible(
         required_inputs.add("cache_seqlens")
     if not required_inputs <= input_names:
         return False
+    expected_attention_mask_len = (
+        max_cache_len
+        if use_flash_static_kv_cache and config.text_config.use_flash_attention_bias
+        else max_cache_len + 1
+    )
+    input_expectations = {
+        "input_ids": ([1, 1], "int64"),
+        "cos": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
+        "sin": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
+        "attention_mask": ([config.text_config.num_attention_heads, 1, expected_attention_mask_len], config.text_config.dtype),
+    }
+    if use_flash_static_kv_cache:
+        input_expectations["cache_seqlens"] = ([1], "int32")
+    if not _metadata_tensors_match(metadata, "inputs", input_expectations):
+        return False
     if use_session_static_kv_cache:
         if state_names != state_cache_names:
             return False
         if input_cache_names & input_names:
             return False
         if output_names != {"logits"}:
+            return False
+        if not _metadata_tensors_match(
+            metadata,
+            "outputs",
+            {"logits": ([1, 1, config.text_config.vocab_size], config.text_config.dtype)},
+        ):
             return False
         if not _decode_states_have_expected_shape(metadata, cache_spec):
             return False
@@ -400,6 +444,24 @@ def _decode_artifact_compatible(
         if not input_cache_names <= input_names:
             return False
         if not ({"logits"} | output_update_names) <= output_names:
+            return False
+        cache_expectations = {
+            name: (cache_spec.shape(), cache_spec.dtype)
+            for layer_idx in range(cache_spec.num_layers)
+            for name in (cache_spec.past_key_name(layer_idx), cache_spec.past_value_name(layer_idx))
+        }
+        update_expectations = {
+            name: (cache_spec.shape(cache_len=1), cache_spec.dtype)
+            for layer_idx in range(cache_spec.num_layers)
+            for name in (cache_spec.new_key_name(layer_idx), cache_spec.new_value_name(layer_idx))
+        }
+        if not _metadata_tensors_match(metadata, "inputs", cache_expectations):
+            return False
+        if not _metadata_tensors_match(
+            metadata,
+            "outputs",
+            {"logits": ([1, 1, config.text_config.vocab_size], config.text_config.dtype), **update_expectations},
+        ):
             return False
     if use_flash_static_kv_cache:
         required_op = (
@@ -458,6 +520,30 @@ def _metadata_names(metadata: Mapping[str, Any], key: str) -> set[str]:
     if not isinstance(items, list):
         return set()
     return {str(item.get("name")) for item in items if isinstance(item, Mapping) and item.get("name") is not None}
+
+
+def _metadata_tensors_match(
+    metadata: Mapping[str, Any],
+    key: str,
+    expectations: Mapping[str, tuple[list[int], str]],
+) -> bool:
+    items = metadata.get(key, [])
+    if not isinstance(items, list):
+        return False
+    by_name = {str(item.get("name")): item for item in items if isinstance(item, Mapping) and item.get("name") is not None}
+    for name, (expected_shape, expected_dtype) in expectations.items():
+        item = by_name.get(name)
+        if item is None:
+            return False
+        try:
+            actual_shape = [int(dim) for dim in item.get("shape", [])]
+        except (TypeError, ValueError):
+            return False
+        if actual_shape != [int(dim) for dim in expected_shape]:
+            return False
+        if str(item.get("dtype")) != str(expected_dtype):
+            return False
+    return True
 
 
 def _decode_states_have_expected_shape(metadata: Mapping[str, Any], spec: StaticKvCacheSpec) -> bool:

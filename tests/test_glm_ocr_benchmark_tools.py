@@ -76,7 +76,7 @@ def test_real_image_benchmark_longest_side_resize_rejects_non_positive_value():
         glm_ocr_common.resize_image_longest_side(image, 0)
 
 
-def test_prefill_artifact_requires_flash_attention_bias_when_config_uses_bias(tmp_path: Path):
+def test_prefill_artifact_rejects_stale_mask_input_artifact(tmp_path: Path):
     config = _config(use_flash_attention_bias=True)
     outputs = ["logits"]
     for layer_idx in range(config.text_config.num_hidden_layers):
@@ -99,13 +99,13 @@ def test_prefill_artifact_rejects_stale_vision_swiglu_graph(tmp_path: Path):
     for layer_idx in range(config.text_config.num_hidden_layers):
         outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
     metadata = {
-        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin", "attention_mask"]),
+        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"]),
         "outputs": _items(outputs),
     }
     artifact = _write_artifact(
         tmp_path,
         metadata,
-        ops={"flash_attention_bias"},
+        ops={"flash_attention"},
         graph_ops=["swiglu", "swiglu", "swiglu"],
     )
 
@@ -118,13 +118,13 @@ def test_prefill_artifact_accepts_current_text_swiglu_graph(tmp_path: Path):
     for layer_idx in range(config.text_config.num_hidden_layers):
         outputs.extend([f"present_key_{layer_idx}", f"present_value_{layer_idx}"])
     metadata = {
-        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin", "attention_mask"]),
+        "inputs": _items(["input_ids", "pixel_values", "vision_cos", "vision_sin", "text_cos", "text_sin"]),
         "outputs": _items(outputs),
     }
     artifact = _write_artifact(
         tmp_path,
         metadata,
-        ops={"flash_attention_bias"},
+        ops={"flash_attention"},
         graph_ops=["swiglu", "swiglu"],
     )
 
@@ -146,7 +146,6 @@ def test_prefill_artifact_rejects_stale_shape_when_expected_inputs_are_available
                 {"name": "vision_sin", "shape": [4, 64], "dtype": "float32"},
                 {"name": "text_cos", "shape": [1, 3, 4], "dtype": "bfloat16"},
                 {"name": "text_sin", "shape": [1, 3, 4], "dtype": "bfloat16"},
-                {"name": "attention_mask", "shape": [2, 3, 3], "dtype": "bfloat16"},
             ],
             "outputs": [
                 {"name": "logits", "shape": [1, 1, 32], "dtype": "bfloat16"},
@@ -156,7 +155,7 @@ def test_prefill_artifact_rejects_stale_shape_when_expected_inputs_are_available
                 {"name": "present_value_1", "shape": [1, 1, 3, 4], "dtype": "bfloat16"},
             ],
         },
-        ops={"flash_attention_bias"},
+        ops={"flash_attention"},
         graph_ops=["swiglu", "swiglu"],
     )
     expected_inputs = {
@@ -166,7 +165,6 @@ def test_prefill_artifact_rejects_stale_shape_when_expected_inputs_are_available
         "vision_sin": np.zeros((8, 64), dtype=np.float32),
         "text_cos": np.zeros((1, 5, 4), dtype=np.uint16),
         "text_sin": np.zeros((1, 5, 4), dtype=np.uint16),
-        "attention_mask": np.zeros((2, 5, 5), dtype=np.uint16),
     }
 
     assert not glm_ocr_tool._prefill_artifact_compatible(artifact, config, expected_inputs=expected_inputs)
@@ -210,7 +208,6 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
             {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
             {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
-            {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
         ],
         "outputs": _items(["logits"], shape=[1, 1, 32]),
         "states": [
@@ -218,7 +215,7 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
         ],
     }
-    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
 
     assert glm_ocr_tool._decode_artifact_compatible(
         artifact,
@@ -229,7 +226,7 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
     )
 
 
-def test_session_decode_artifact_rejects_stale_attention_mask_shape(tmp_path: Path):
+def test_session_decode_artifact_rejects_stale_attention_mask_input(tmp_path: Path):
     config = _config()
     state_names = ["past_key_0", "past_value_0", "past_key_1", "past_value_1"]
     metadata = {
@@ -245,7 +242,7 @@ def test_session_decode_artifact_rejects_stale_attention_mask_shape(tmp_path: Pa
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
         ],
     }
-    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
 
     assert not glm_ocr_tool._decode_artifact_compatible(
         artifact,

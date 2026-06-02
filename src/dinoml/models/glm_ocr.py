@@ -1357,7 +1357,7 @@ class GlmOcrForConditionalGenerationDecodeStaticCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask, cache_seqlens=None, **past_key_values):
+    def forward(self, input_ids, cos, sin, attention_mask=None, cache_seqlens=None, **past_key_values):
         past = {}
         for layer_idx in range(self.config.text_config.num_hidden_layers):
             past[layer_idx] = (
@@ -1396,7 +1396,7 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask):
+    def forward(self, input_ids, cos, sin, attention_mask=None):
         hidden_states = self.language_model.decode_session_static_cache(
             input_ids,
             cos,

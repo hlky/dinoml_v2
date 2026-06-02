@@ -196,6 +196,7 @@ def build_prefill_spec(config, weights: dict[str, np.ndarray], inputs: dict[str,
 def build_decode_spec(
     config,
     weights: dict[str, np.ndarray],
+    prefill_inputs: dict[str, np.ndarray],
     max_cache_len: int,
     *,
     use_flash_static_kv_cache: bool,
@@ -203,31 +204,43 @@ def build_decode_spec(
     use_decode_attention_mask: bool = False,
 ):
     cache_spec = cache_spec_for_config(config, max_cache_len)
-    inputs = {
+    trace_inputs = {
         "input_ids": dml.TensorSpec([1, 1], "int64"),
-        "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
-        "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype),
     }
+    decode_rope_kwargs = {}
+    if use_flash_static_kv_cache:
+        decode_rope_kwargs = {
+            "text_cos": prefill_inputs["text_cos"][:, :max_cache_len, :],
+            "text_sin": prefill_inputs["text_sin"][:, :max_cache_len, :],
+        }
+    if not use_flash_static_kv_cache:
+        trace_inputs["cos"] = dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype)
+        trace_inputs["sin"] = dml.TensorSpec([1, 1, config.text_config.head_dim], config.text_config.dtype)
     if use_decode_attention_mask or not use_flash_static_kv_cache:
         mask_cache_len = max_cache_len if use_flash_static_kv_cache else max_cache_len + 1
-        inputs["attention_mask"] = dml.TensorSpec(
+        trace_inputs["attention_mask"] = dml.TensorSpec(
             [config.text_config.num_attention_heads, 1, mask_cache_len],
             config.text_config.dtype,
         )
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
-        inputs["cache_seqlens"] = dml.TensorSpec([1], "int32")
+        trace_inputs["cache_seqlens"] = dml.TensorSpec([1], "int32")
     if not use_session_static_kv_cache:
-        inputs.update(static_kv_cache_input_specs(cache_spec))
-        model = GlmOcrForConditionalGenerationDecodeStaticCache(config, weights)
+        trace_inputs.update(static_kv_cache_input_specs(cache_spec))
+        model = GlmOcrForConditionalGenerationDecodeStaticCache(
+            config,
+            weights,
+            **decode_rope_kwargs,
+        )
     else:
         model = GlmOcrForConditionalGenerationDecodeSessionStaticCache(
             config,
             weights,
             max_cache_len=max_cache_len,
+            **decode_rope_kwargs,
         )
     return dml.trace(
         model,
-        inputs=inputs,
+        inputs=trace_inputs,
         name=f"glm_ocr_real_image_cached_decode_past{max_cache_len}",
     )
 
@@ -250,6 +263,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
     flash_suffix = "_flash" if getattr(config.text_config, "use_flash_attention", True) else ""
     mask_suffix = "_mask" if bool(getattr(args, "attention_mask", False)) else ""
     rope_suffix = "_rope_const"
+    decode_rope_suffix = "_rope_const" if use_flash_static_kv_cache else ""
     prefill_artifact = args.prefill_artifact
     if prefill_artifact is None:
         prefill_artifact = Path("build") / (
@@ -263,7 +277,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
         else:
             cache_suffix = "_flash_static_kv" if use_flash_static_kv_cache else ""
         decode_artifact = Path("build") / (
-            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
+            f"glm_ocr_real_image_cached_decode_past{max_cache_len}{cache_suffix}{decode_rope_suffix}{mask_suffix}{flash_suffix}_{args.dtype}_{args.target}.dinoml"
         )
     prefill_ready = _prefill_artifact_compatible(prefill_artifact, config, expected_inputs=inputs)
     decode_ready = _decode_artifact_compatible(
@@ -316,6 +330,7 @@ def ensure_artifacts(args: argparse.Namespace, config, inputs, image_token_start
             build_decode_spec(
                 config,
                 text_weights,
+                inputs,
                 max_cache_len,
                 use_flash_static_kv_cache=use_flash_static_kv_cache,
                 use_session_static_kv_cache=use_session_static_kv_cache,
@@ -412,18 +427,27 @@ def _decode_artifact_compatible(
         for layer_idx in range(cache_spec.num_layers)
         for name in (cache_spec.new_key_name(layer_idx), cache_spec.new_value_name(layer_idx))
     }
-    required_inputs = {"input_ids", "cos", "sin"}
+    required_inputs = {"input_ids"}
+    if not use_flash_static_kv_cache:
+        required_inputs.update({"cos", "sin"})
     if use_decode_attention_mask or not use_flash_static_kv_cache:
         required_inputs.add("attention_mask")
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
         required_inputs.add("cache_seqlens")
+    if not use_session_static_kv_cache:
+        required_inputs.update(input_cache_names)
     if input_names != required_inputs:
         return False
     input_expectations = {
         "input_ids": ([1, 1], "int64"),
-        "cos": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
-        "sin": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
     }
+    if not use_flash_static_kv_cache:
+        input_expectations.update(
+            {
+                "cos": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
+                "sin": ([1, 1, config.text_config.head_dim], config.text_config.dtype),
+            }
+        )
     if use_decode_attention_mask or not use_flash_static_kv_cache:
         mask_cache_len = max_cache_len if use_flash_static_kv_cache else max_cache_len + 1
         input_expectations["attention_mask"] = (
@@ -433,6 +457,15 @@ def _decode_artifact_compatible(
     if use_flash_static_kv_cache and not use_session_static_kv_cache:
         input_expectations["cache_seqlens"] = ([1], "int32")
     if not _metadata_tensors_match(metadata, "inputs", input_expectations):
+        return False
+    if use_flash_static_kv_cache and not _metadata_tensors_match(
+        metadata,
+        "constants",
+        {
+            "text_cos": ([1, max_cache_len, config.text_config.head_dim], config.text_config.dtype),
+            "text_sin": ([1, max_cache_len, config.text_config.head_dim], config.text_config.dtype),
+        },
+    ):
         return False
     if use_session_static_kv_cache:
         expected_state_names = state_cache_names | {"cache_seqlens"}
@@ -624,9 +657,10 @@ def generate_once(
         position = prompt_len + step
         decode_inputs = {
             "input_ids": np.asarray([[next_id]], dtype=np.int64),
-            "cos": _slice_position(prefill_inputs["text_cos"], position),
-            "sin": _slice_position(prefill_inputs["text_sin"], position),
         }
+        if not use_flash_static_kv_cache:
+            decode_inputs["cos"] = _slice_position(prefill_inputs["text_cos"], position)
+            decode_inputs["sin"] = _slice_position(prefill_inputs["text_sin"], position)
         if use_decode_attention_mask or not use_flash_static_kv_cache:
             decode_inputs["attention_mask"] = _decode_attention_mask(
                 config,
@@ -756,9 +790,10 @@ def _decode_run_inputs(
 ) -> dict[str, np.ndarray]:
     decode_inputs = {
         "input_ids": np.asarray([[next_id]], dtype=np.int64),
-        "cos": _slice_position(prefill_inputs["text_cos"], position),
-        "sin": _slice_position(prefill_inputs["text_sin"], position),
     }
+    if not use_flash_static_kv_cache:
+        decode_inputs["cos"] = _slice_position(prefill_inputs["text_cos"], position)
+        decode_inputs["sin"] = _slice_position(prefill_inputs["text_sin"], position)
     if use_decode_attention_mask or not use_flash_static_kv_cache:
         decode_inputs["attention_mask"] = _decode_attention_mask(
             config,
@@ -1066,6 +1101,7 @@ def main() -> None:
         "arch": args.arch,
         "use_attention_mask": args.attention_mask,
         "prefill_uses_rope_constants": True,
+        "decode_uses_rope_constants": use_flash_static_kv_cache,
         "use_flash_static_kv_cache": use_flash_static_kv_cache,
         "use_session_static_kv_cache": use_session_static_kv_cache,
         "processor_image_size": processor_image_size,

@@ -619,6 +619,62 @@ def test_glm_ocr_tiny_session_static_cache_decode_uses_state_buffers():
     assert counts["bmm_rrr"] == 0
 
 
+@pytest.mark.parametrize(
+    ("use_attention_mask", "expected_flash_op", "unexpected_flash_op"),
+    (
+        (False, "flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"),
+        (True, "flash_attention_static_kv_cache_bias", "flash_attention_static_kv_cache"),
+    ),
+)
+def test_glm_ocr_tiny_session_static_cache_decode_can_bake_rope_constants(
+    use_attention_mask: bool,
+    expected_flash_op: str,
+    unexpected_flash_op: str,
+):
+    base_config = _tiny_config()
+    config = replace(
+        base_config,
+        text_config=replace(base_config.text_config, dtype="bfloat16", use_flash_attention_bias=True),
+    )
+    weights = _tiny_weights(config)
+    max_cache_len = 5
+    text_cos = np.ones((1, max_cache_len, config.text_config.head_dim), dtype=np.float32)
+    text_sin = np.zeros((1, max_cache_len, config.text_config.head_dim), dtype=np.float32)
+    model = GlmOcrForConditionalGenerationDecodeSessionStaticCache(
+        config,
+        weights,
+        max_cache_len=max_cache_len,
+        text_cos=text_cos,
+        text_sin=text_sin,
+    )
+    inputs = {
+        "input_ids": dml.TensorSpec([1, 1], "int64"),
+    }
+    if use_attention_mask:
+        inputs["attention_mask"] = dml.TensorSpec(
+            [config.text_config.num_attention_heads, 1, max_cache_len],
+            "bfloat16",
+        )
+
+    spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_session_static_cache_baked_rope")
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+    input_names = {item["name"] for item in spec.ir["inputs"]}
+    constant_names = {item["name"] for item in spec.ir["constants"]}
+    state_names = {item["name"] for item in spec.ir["states"]}
+
+    assert input_names == ({"input_ids", "attention_mask"} if use_attention_mask else {"input_ids"})
+    assert {"text_cos", "text_sin"} <= constant_names
+    assert state_names == {"past_key_0", "past_value_0", "cache_seqlens"}
+    assert counts["batch_gather"] == 2
+    assert counts["glm_ocr_text_rope"] == config.text_config.num_hidden_layers
+    assert counts["swiglu"] == config.text_config.num_hidden_layers
+    assert counts[expected_flash_op] == 1
+    assert counts[unexpected_flash_op] == 0
+    assert counts["concatenate"] == 0
+    assert counts["bmm_rcr"] == 0
+    assert counts["bmm_rrr"] == 0
+
+
 def test_glm_ocr_tiny_session_static_cache_decode_mask_uses_ck_bias_path():
     base_config = _tiny_config()
     config = replace(

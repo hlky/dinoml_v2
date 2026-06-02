@@ -412,6 +412,25 @@ def _prefill_rope_input(name: str, provided: object | None, parameter: dml.Param
     return parameter
 
 
+def _decode_rope_input(
+    name: str,
+    provided: object | None,
+    parameter: dml.Parameter | None,
+    cache_seqlens: object | None,
+):
+    if provided is not None:
+        return provided
+    if parameter is None:
+        raise ValueError(f"{name} must be provided as a trace input or baked decode constant")
+    if cache_seqlens is None:
+        raise ValueError(f"{name} baked decode constant requires cache_seqlens")
+    batch = int(cache_seqlens.shape[0])
+    if int(parameter.shape[0]) != batch:
+        raise ValueError(f"{name} baked decode constant batch {int(parameter.shape[0])} must match cache_seqlens batch {batch}")
+    indices = dml.ops.reshape(cache_seqlens, [batch, 1])
+    return dml.ops.batch_gather(parameter, indices)
+
+
 class GlmOcrTextAttention(dml.nn.Module):
     def __init__(self, config: GlmOcrTextConfig, weights: Mapping[str, np.ndarray], prefix: str):
         self.config = config
@@ -1386,8 +1405,17 @@ class GlmOcrForConditionalGenerationDecode(dml.nn.Module):
 
 
 class GlmOcrForConditionalGenerationDecodeStaticCache(dml.nn.Module):
-    def __init__(self, config: GlmOcrConfig, weights: Mapping[str, np.ndarray]):
+    def __init__(
+        self,
+        config: GlmOcrConfig,
+        weights: Mapping[str, np.ndarray],
+        *,
+        text_cos: object | None = None,
+        text_sin: object | None = None,
+    ):
         self.config = config
+        self._text_cos = _optional_constant_parameter("text_cos", text_cos, config.text_config.dtype)
+        self._text_sin = _optional_constant_parameter("text_sin", text_sin, config.text_config.dtype)
         self.language_model = GlmOcrTextModel(config.text_config, weights)
         self.lm_head = _loaded_linear(
             weights,
@@ -1398,7 +1426,9 @@ class GlmOcrForConditionalGenerationDecodeStaticCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask=None, cache_seqlens=None, **past_key_values):
+    def forward(self, input_ids, cos=None, sin=None, attention_mask=None, cache_seqlens=None, **past_key_values):
+        cos = _decode_rope_input("text_cos", cos, self._text_cos, cache_seqlens)
+        sin = _decode_rope_input("text_sin", sin, self._text_sin, cache_seqlens)
         past = {}
         for layer_idx in range(self.config.text_config.num_hidden_layers):
             past[layer_idx] = (
@@ -1422,11 +1452,21 @@ class GlmOcrForConditionalGenerationDecodeStaticCache(dml.nn.Module):
 
 
 class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
-    def __init__(self, config: GlmOcrConfig, weights: Mapping[str, np.ndarray], *, max_cache_len: int):
+    def __init__(
+        self,
+        config: GlmOcrConfig,
+        weights: Mapping[str, np.ndarray],
+        *,
+        max_cache_len: int,
+        text_cos: object | None = None,
+        text_sin: object | None = None,
+    ):
         self.config = config
         self.max_cache_len = int(max_cache_len)
         if self.max_cache_len <= 0:
             raise ValueError("max_cache_len must be positive")
+        self._text_cos = _optional_constant_parameter("text_cos", text_cos, config.text_config.dtype)
+        self._text_sin = _optional_constant_parameter("text_sin", text_sin, config.text_config.dtype)
         self.language_model = GlmOcrTextModel(config.text_config, weights)
         self.lm_head = _loaded_linear(
             weights,
@@ -1437,13 +1477,20 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask=None):
+    def forward(self, input_ids, cos=None, sin=None, attention_mask=None):
+        cache_seqlens = None
+        if cos is None or sin is None:
+            batch, _ = _rank2_shape(input_ids.shape, "GLM-OCR decode input_ids")
+            cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([batch], "int32"))
+            cos = _decode_rope_input("text_cos", cos, self._text_cos, cache_seqlens)
+            sin = _decode_rope_input("text_sin", sin, self._text_sin, cache_seqlens)
         hidden_states = self.language_model.decode_session_static_cache(
             input_ids,
             cos,
             sin,
             attention_mask,
             max_cache_len=self.max_cache_len,
+            cache_seqlens=cache_seqlens,
         )
         logits = self.lm_head(hidden_states)
         return {"logits": dml.ops.output(logits, "logits")}

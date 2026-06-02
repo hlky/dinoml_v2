@@ -280,6 +280,34 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
     metadata = {
         "inputs": [
             {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
+        ],
+        "outputs": _items(["logits"], shape=[1, 1, 32]),
+        "states": [
+            *_items(state_names, shape=[1, 1, 8, 4]),
+            {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+        "constants": [
+            {"name": "text_cos", "shape": [1, 8, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, 8, 4], "dtype": "bfloat16"},
+        ],
+    }
+    artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
+
+    assert glm_ocr_tool._decode_artifact_compatible(
+        artifact,
+        config,
+        8,
+        use_flash_static_kv_cache=True,
+        use_session_static_kv_cache=True,
+    )
+
+
+def test_session_decode_artifact_rejects_stale_rope_input_artifact(tmp_path: Path):
+    config = _config()
+    state_names = ["past_key_0", "past_value_0", "past_key_1", "past_value_1"]
+    metadata = {
+        "inputs": [
+            {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
             {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
         ],
@@ -288,10 +316,14 @@ def test_session_decode_artifact_accepts_state_cache_artifact(tmp_path: Path):
             *_items(state_names, shape=[1, 1, 8, 4]),
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
         ],
+        "constants": [
+            {"name": "text_cos", "shape": [1, 8, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, 8, 4], "dtype": "bfloat16"},
+        ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
 
-    assert glm_ocr_tool._decode_artifact_compatible(
+    assert not glm_ocr_tool._decode_artifact_compatible(
         artifact,
         config,
         8,
@@ -306,14 +338,16 @@ def test_session_decode_artifact_accepts_state_cache_masked_bias_artifact(tmp_pa
     metadata = {
         "inputs": [
             {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
-            {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
-            {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
         ],
         "outputs": _items(["logits"], shape=[1, 1, 32]),
         "states": [
             *_items(state_names, shape=[1, 1, 8, 4]),
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+        "constants": [
+            {"name": "text_cos", "shape": [1, 8, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, 8, 4], "dtype": "bfloat16"},
         ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache_bias"})
@@ -334,14 +368,16 @@ def test_session_decode_artifact_rejects_masked_state_cache_without_ck_bias(tmp_
     metadata = {
         "inputs": [
             {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
-            {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
-            {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, 1, 8], "dtype": "bfloat16"},
         ],
         "outputs": _items(["logits"], shape=[1, 1, 32]),
         "states": [
             *_items(state_names, shape=[1, 1, 8, 4]),
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+        "constants": [
+            {"name": "text_cos", "shape": [1, 8, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, 8, 4], "dtype": "bfloat16"},
         ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
@@ -362,14 +398,16 @@ def test_session_decode_artifact_rejects_stale_attention_mask_input(tmp_path: Pa
     metadata = {
         "inputs": [
             {"name": "input_ids", "shape": [1, 1], "dtype": "int64"},
-            {"name": "cos", "shape": [1, 1, 4], "dtype": "bfloat16"},
-            {"name": "sin", "shape": [1, 1, 4], "dtype": "bfloat16"},
             {"name": "attention_mask", "shape": [2, 1, 7], "dtype": "bfloat16"},
         ],
         "outputs": _items(["logits"]),
         "states": [
             *_items(state_names, shape=[1, 1, 8, 4]),
             {"name": "cache_seqlens", "shape": [1], "dtype": "int32"},
+        ],
+        "constants": [
+            {"name": "text_cos", "shape": [1, 8, 4], "dtype": "bfloat16"},
+            {"name": "text_sin", "shape": [1, 8, 4], "dtype": "bfloat16"},
         ],
     }
     artifact = _write_artifact(tmp_path, metadata, ops={"flash_attention_static_kv_cache"})
@@ -411,6 +449,6 @@ def test_decode_run_inputs_can_include_flash_static_attention_mask():
         use_decode_attention_mask=True,
     )
 
-    assert set(inputs) == {"input_ids", "cos", "sin", "attention_mask"}
+    assert set(inputs) == {"input_ids", "attention_mask"}
     assert inputs["attention_mask"].shape == (2, 1, 8)
     assert inputs["attention_mask"].dtype == np.uint16

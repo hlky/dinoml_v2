@@ -6,7 +6,6 @@ import statistics
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -84,12 +83,6 @@ def parse_args() -> argparse.Namespace:
 def build_config(snapshot: Path, dtype: str):
     payload = json.loads((snapshot / "config.json").read_text(encoding="utf-8"))
     return glm_ocr_config_from_transformers_dict(payload, dtype=dtype)
-
-
-def enable_rocm_flash_attention_bias(config, target: str):
-    if target != "rocm" or config.text_config.dtype not in {"float16", "bfloat16"}:
-        return config
-    return replace(config, text_config=replace(config.text_config, use_flash_attention_bias=True))
 
 
 def processor_inputs(processor, image_path: Path, prompt: str, *, longest_side: int | None = None):
@@ -885,15 +878,15 @@ def _float_input(values: np.ndarray, dtype: str) -> np.ndarray:
 
 
 def _use_flash_static_kv_cache(args: argparse.Namespace, config) -> bool:
-    return args.target in {"cuda", "rocm"} and config.text_config.dtype in {"float16", "bfloat16"}
+    return (
+        args.target in {"cuda", "rocm"}
+        and config.text_config.dtype in {"float16", "bfloat16"}
+        and bool(getattr(config.text_config, "use_flash_attention", True))
+    )
 
 
 def _use_session_static_kv_cache(args: argparse.Namespace, config) -> bool:
-    return (
-        args.target == "rocm"
-        and config.text_config.dtype in {"float16", "bfloat16"}
-        and bool(config.text_config.use_flash_attention_bias)
-    )
+    return args.target == "rocm" and _use_flash_static_kv_cache(args, config)
 
 
 def main() -> None:
@@ -912,7 +905,7 @@ def main() -> None:
         args.prompt,
         longest_side=args.longest_side,
     )
-    config = enable_rocm_flash_attention_bias(build_config(args.snapshot, args.dtype), args.target)
+    config = build_config(args.snapshot, args.dtype)
     inputs, prompt_len, max_cache_len, image_token_start = build_inputs(config, processed, args.max_new_tokens)
     use_flash_static_kv_cache = _use_flash_static_kv_cache(args, config)
     use_session_static_kv_cache = _use_session_static_kv_cache(args, config)

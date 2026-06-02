@@ -14,7 +14,7 @@ from tools import benchmark_glm_ocr_dinoml_real_image_prefill_generate as glm_oc
 from tools import benchmark_glm_ocr_transformers_real_image as transformers_tool
 
 
-def _config(*, use_flash_attention_bias: bool = True):
+def _config(*, use_flash_attention_bias: bool = True, use_flash_attention: bool = True):
     return SimpleNamespace(
         text_config=SimpleNamespace(
             num_hidden_layers=2,
@@ -23,6 +23,7 @@ def _config(*, use_flash_attention_bias: bool = True):
             head_dim=4,
             vocab_size=32,
             dtype="bfloat16",
+            use_flash_attention=use_flash_attention,
             use_flash_attention_bias=use_flash_attention_bias,
         ),
         vision_config=SimpleNamespace(dtype="bfloat16"),
@@ -251,3 +252,12 @@ def test_session_decode_artifact_rejects_stale_attention_mask_input(tmp_path: Pa
         use_flash_static_kv_cache=True,
         use_session_static_kv_cache=True,
     )
+
+
+def test_session_static_kv_cache_selection_does_not_require_bias_flag():
+    args = SimpleNamespace(target="rocm")
+
+    assert glm_ocr_tool._use_flash_static_kv_cache(args, _config(use_flash_attention_bias=False))
+    assert glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention_bias=False))
+    assert not glm_ocr_tool._use_flash_static_kv_cache(args, _config(use_flash_attention=False))
+    assert not glm_ocr_tool._use_session_static_kv_cache(args, _config(use_flash_attention=False))

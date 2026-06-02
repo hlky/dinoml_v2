@@ -916,7 +916,7 @@ class Session:
         *,
         warmup: int = 5,
         iterations: int = 20,
-    ) -> dict[str, float | int]:
+    ) -> dict[str, object]:
         self._require_open()
         _require_mapping(inputs, "benchmark_numpy inputs")
         if self.module.target_name == "cpu":
@@ -1237,7 +1237,7 @@ class Session:
         *,
         warmup: int,
         iterations: int,
-    ) -> dict[str, float | int]:
+    ) -> dict[str, object]:
         benchmark = getattr(self.module, "_session_benchmark", None)
         if benchmark is None:
             raise RuntimeError(
@@ -1258,7 +1258,35 @@ class Session:
                 ctypes.c_size_t(iteration_count),
             )
         )
-        return _summarize_benchmark_samples([float(elapsed[i]) for i in range(iteration_count)], warmup=warmup_count)
+        summary = _summarize_benchmark_samples([float(elapsed[i]) for i in range(iteration_count)], warmup=warmup_count)
+        summary.update(self._benchmark_metadata())
+        return summary
+
+    def _benchmark_metadata(self) -> dict[str, object]:
+        target_name = str(self.module.target_name)
+        is_gpu = target_name in {"cuda", "rocm"}
+        graph_required = bool(os.environ.get("DINOML_REQUIRE_BENCHMARK_GRAPH"))
+        profile_run = bool(os.environ.get("DINOML_PROFILE_RUN"))
+        metadata: dict[str, object] = {
+            "native_entrypoint": "dino_session_benchmark",
+            "target": target_name,
+            "timing_source": "device_events" if is_gpu else "steady_clock",
+        }
+        if is_gpu:
+            metadata.update(
+                {
+                    "graph_replay_required": graph_required,
+                    "profile_run": profile_run,
+                    "external_stream": bool(getattr(self, "_external_stream", False)),
+                    "graph_replay": True if graph_required else None,
+                    "graph_replay_note": (
+                        "DINOML_REQUIRE_BENCHMARK_GRAPH was set, so a successful benchmark implies graph replay."
+                        if graph_required
+                        else "Graph replay is attempted by the native module, but fallback is allowed unless DINOML_REQUIRE_BENCHMARK_GRAPH is set."
+                    ),
+                }
+            )
+        return metadata
 
     def run_torch(self, inputs: Mapping[str, object]) -> Dict[str, object]:
         self._require_open()
@@ -1328,7 +1356,7 @@ class Session:
         *,
         warmup: int,
         iterations: int,
-    ) -> dict[str, float | int]:
+    ) -> dict[str, object]:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
@@ -1376,7 +1404,7 @@ class Session:
         *,
         warmup: int,
         iterations: int,
-    ) -> dict[str, float | int]:
+    ) -> dict[str, object]:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")

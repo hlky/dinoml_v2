@@ -19,6 +19,7 @@ class _FakeModule:
     def __init__(self):
         self.calls: list[dict[str, int]] = []
         self._session_benchmark = self._benchmark
+        self.target_name = "cpu"
 
     def _check(self, err: int) -> None:
         if err:
@@ -55,6 +56,7 @@ def _fake_session(module: _FakeModule | None = None) -> Session:
     session = Session.__new__(Session)
     session.module = module or _FakeModule()
     session._handle = ctypes.c_void_p(123)
+    session._external_stream = False
     return session
 
 
@@ -106,7 +108,35 @@ def test_session_benchmark_native_summarizes_module_samples():
         "min_ms": 1.0,
         "max_ms": 3.0,
         "stddev_ms": pytest.approx(0.816496580927726),
+        "native_entrypoint": "dino_session_benchmark",
+        "target": "cpu",
+        "timing_source": "steady_clock",
     }
+
+
+def test_session_benchmark_native_records_required_graph_metadata(monkeypatch):
+    module = _FakeModule()
+    module.target_name = "rocm"
+    session = _fake_session(module)
+    input_tensors = (_DinoTensor * 0)()
+    output_tensors = (_DinoTensor * 0)()
+    monkeypatch.setenv("DINOML_REQUIRE_BENCHMARK_GRAPH", "1")
+
+    summary = session._benchmark_native(
+        input_tensors,
+        0,
+        output_tensors,
+        0,
+        warmup=0,
+        iterations=1,
+    )
+
+    assert summary["target"] == "rocm"
+    assert summary["timing_source"] == "device_events"
+    assert summary["graph_replay_required"] is True
+    assert summary["graph_replay"] is True
+    assert summary["profile_run"] is False
+    assert summary["external_stream"] is False
 
 
 def test_session_benchmark_rejects_non_positive_iteration_count():

@@ -352,6 +352,9 @@ def _prefill_artifact_compatible(path: Path, config) -> bool:
         return False
     if config.text_config.use_flash_attention_bias and "flash_attention_bias" not in _artifact_kernel_ops(path):
         return False
+    graph_op_counts = _artifact_graph_op_counts(path)
+    if graph_op_counts.get("swiglu") != int(config.text_config.num_hidden_layers):
+        return False
     return True
 
 
@@ -429,6 +432,22 @@ def _artifact_kernel_ops(path: Path) -> set[str]:
         for item in manifest.get("required_kernels", [])
         if isinstance(item, Mapping) and item.get("op") is not None
     }
+
+
+def _artifact_graph_op_counts(path: Path) -> dict[str, int]:
+    graph = _read_artifact_json(path, "graph.dinoir.json")
+    if not isinstance(graph, Mapping):
+        return {}
+    counts: dict[str, int] = {}
+    nodes = graph.get("nodes", [])
+    if not isinstance(nodes, list):
+        return counts
+    for node in nodes:
+        if not isinstance(node, Mapping) or node.get("op") is None:
+            continue
+        op = str(node["op"])
+        counts[op] = counts.get(op, 0) + 1
+    return counts
 
 
 def _read_artifact_json(path: Path, filename: str) -> object | None:

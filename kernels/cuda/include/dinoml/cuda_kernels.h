@@ -68,6 +68,7 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     cudaStream_t stream);
 
 extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1(
@@ -83,4 +84,5 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     cudaStream_t stream);

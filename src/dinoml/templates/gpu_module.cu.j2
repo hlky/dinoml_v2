@@ -87,15 +87,6 @@ struct DinoSession {
 {{ declaration }}
 
 {% endfor %}
-{% if cuda_cache_seqlens_increment_helper %}
-__global__ void dinoml_cuda_increment_cache_seqlens(int32_t* cache_seqlens, int64_t count) {
-  const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
-  if (idx < count) {
-    cache_seqlens[idx] += 1;
-  }
-}
-
-{% endif %}
 struct DinoGpuBenchmarkEvents {
   {{ event_type }} start = nullptr;
   {{ event_type }} stop = nullptr;

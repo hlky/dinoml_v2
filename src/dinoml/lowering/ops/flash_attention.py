@@ -218,18 +218,18 @@ def _render_static_kv_cache_launch(
     advance_cache_seqlens = node.get("attrs", {}).get("advance_cache_seqlens", False)
     if not isinstance(advance_cache_seqlens, bool):
         raise TypeError(f"{op_name} advance_cache_seqlens attr must be a bool")
-    cache_seqlens_is_state = str(tensor_map[cache_seqlens_name].get("kind", "")) == "state"
-    if advance_cache_seqlens and target == "cuda" and not cache_seqlens_is_state:
-        raise ValueError(f"{op_name} advance_cache_seqlens on CUDA requires cache_seqlens to be a state tensor")
     symbol = _manifest_symbol(kernel_manifest, target, op_name, dtype)
     if symbol is None:
         symbol = get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
     rocm_scratch_args = ""
+    cuda_advance_arg = ""
     if target == "rocm":
         rocm_scratch_args = (
             f", {1 if advance_cache_seqlens else 0}, session->flash_attention_static_kv_cache_scratch, "
             "session->flash_attention_static_kv_cache_scratch_nbytes"
         )
+    if target == "cuda":
+        cuda_advance_arg = f", {1 if advance_cache_seqlens else 0}"
     bias_checks: list[str] = []
     bias_call_arg = ""
     bias_dim_args = ""
@@ -265,14 +265,6 @@ def _render_static_kv_cache_launch(
             f", static_cast<int64_t>({bias_batch_dim}), static_cast<int64_t>({bias_heads_dim}), "
             f"static_cast<int64_t>({bias_seq_q_dim}), static_cast<int64_t>({bias_seq_k_dim})"
         )
-    cuda_cache_seqlens_advance: list[str] = []
-    if target == "cuda" and advance_cache_seqlens:
-        cuda_cache_seqlens_advance = [
-            f"dinoml_cuda_increment_cache_seqlens<<<static_cast<unsigned int>((shape_{cache_seqlens_ident}_0 + 255) / 256), 256, 0, session->stream>>>("
-            f"ptr_{cache_seqlens_ident}, static_cast<int64_t>(shape_{cache_seqlens_ident}_0));",
-            "if (auto advance_err = cudaGetLastError(); advance_err != cudaSuccess) "
-            f'return dinoml::module::fail("{op_name} cache_seqlens advance launch failed");',
-        ]
     return "\n".join(
         [
             f'if (shape_{q_ident}_1 != 1) '
@@ -306,9 +298,8 @@ def _render_static_kv_cache_launch(
             f"ptr_{new_key_ident}, ptr_{new_value_ident}, ptr_{cache_seqlens_ident}, {bias_call_arg}ptr_{output_ident}, "
             f"static_cast<int64_t>(shape_{q_ident}_0), static_cast<int64_t>(shape_{past_key_ident}_2), "
             f"static_cast<int64_t>(shape_{q_ident}_2), static_cast<int64_t>(shape_{past_key_ident}_1), "
-            f"static_cast<int64_t>(shape_{q_ident}_3){bias_dim_args}{rocm_scratch_args}, session->stream)) "
+            f"static_cast<int64_t>(shape_{q_ident}_3){bias_dim_args}{cuda_advance_arg}{rocm_scratch_args}, session->stream)) "
             f'return dinoml::module::fail("{op_name} launcher failed");',
-            *cuda_cache_seqlens_advance,
         ]
     )
 

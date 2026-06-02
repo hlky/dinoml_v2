@@ -263,6 +263,7 @@ int launch_flash_attention_static_kv_cache(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     flash::DataType dtype,
     cudaStream_t stream) {
   void* softmax_lse = nullptr;
@@ -318,6 +319,7 @@ int launch_flash_attention_static_kv_cache(
       const_cast<int32_t*>(cache_seqlens),
       softmax_lse,
       dtype,
+      advance_cache_seqlens,
       stream);
   cudaError_t launch_status = cudaGetLastError();
   cudaError_t free_status = cudaFreeAsync(softmax_lse, stream);
@@ -337,6 +339,7 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     cudaStream_t stream) {
   return launch_flash_attention_static_kv_cache(
       q,
@@ -351,6 +354,7 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1(
       num_heads_q,
       num_heads_k,
       head_dim,
+      advance_cache_seqlens,
       flash::DataType::kFloat16,
       stream);
 }
@@ -368,6 +372,7 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1(
     int64_t num_heads_q,
     int64_t num_heads_k,
     int64_t head_dim,
+    int advance_cache_seqlens,
     cudaStream_t stream) {
   return launch_flash_attention_static_kv_cache(
       q,
@@ -382,6 +387,7 @@ extern "C" int dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1(
       num_heads_q,
       num_heads_k,
       head_dim,
+      advance_cache_seqlens,
       flash::DataType::kBFloat16,
       stream);
 }

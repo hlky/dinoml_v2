@@ -47,6 +47,22 @@ class _FlashAttentionStaticKvCacheModule(dml.nn.Module):
         )
 
 
+class _FlashAttentionStaticKvCacheAdvanceModule(dml.nn.Module):
+    def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens):
+        return dml.ops.output(
+            dml.ops.flash_attention_static_kv_cache(
+                q,
+                past_key,
+                past_value,
+                new_key,
+                new_value,
+                cache_seqlens,
+                advance_cache_seqlens=True,
+            ),
+            "out",
+        )
+
+
 class _FlashAttentionStaticKvCacheBiasModule(dml.nn.Module):
     def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens, bias):
         return dml.ops.output(
@@ -450,8 +466,7 @@ def test_flash_attention_static_kv_cache_cuda_can_use_session_state_buffers_and_
     assert "session->state_past_value" in source
     assert "session->state_cache_seqlens" in source
     assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_bfloat16_v1" in source
-    assert "dinoml_cuda_increment_cache_seqlens<<<" in source
-    assert "cudaGetLastError()" in source
+    assert ", 1, session->stream))" in source
     _validate_mvp_runtime_contract(spec.ir, dml.Target("cuda"))
 
 
@@ -577,6 +592,29 @@ def test_flash_attention_static_kv_cache_cuda_lowering_uses_cache_seqlens_symbol
 
     assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1" in launch
     assert "ptr_cache_seqlens" in launch
+
+
+def test_flash_attention_static_kv_cache_cuda_lowering_can_advance_input_cache_seqlens():
+    spec = dml.trace(
+        _FlashAttentionStaticKvCacheAdvanceModule(),
+        inputs={
+            "q": dml.TensorSpec([1, 1, 4, 64], "float16"),
+            "past_key": dml.TensorSpec([1, 2, 8, 64], "float16"),
+            "past_value": dml.TensorSpec([1, 2, 8, 64], "float16"),
+            "new_key": dml.TensorSpec([1, 2, 1, 64], "float16"),
+            "new_value": dml.TensorSpec([1, 2, 1, 64], "float16"),
+            "cache_seqlens": dml.TensorSpec([1], "int32"),
+        },
+        name="flash_attention_static_kv_cache_cuda_advance_input",
+    )
+    manifest = build_kernel_manifest(spec.ir, dml.Target("cuda").to_json())
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_static_kv_cache")
+
+    launch = render_launch("cuda", node, tensors, kernel_manifest=manifest)
+
+    assert "dinoml_flash_attn_cuda_static_kv_cache_fwd_float16_v1" in launch
+    assert ", 1, session->stream))" in launch
 
 
 def test_flash_attention_static_kv_cache_cuda_contract_accepts_int32_cache_seqlens():

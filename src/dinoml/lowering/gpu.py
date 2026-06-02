@@ -118,7 +118,6 @@ def render_gpu_module(
             "profile_ops": _profile_op_contexts(launch_contexts),
             "output_materializations": _output_materializations(views, target_name=target_name),
             "output_shape_reports": output_shape_reports,
-            "cuda_cache_seqlens_increment_helper": _needs_cuda_cache_seqlens_increment_helper(target_name, ir["nodes"]),
             "cutlass_conv_temporaries": [],
             "external_kernel_declarations": [],
             "cutlass_workspace": None,
@@ -541,21 +540,6 @@ def _flash_attention_static_kv_cache_scratch_context(
     if max_scratch <= 0:
         return None
     return {"nbytes": max_scratch}
-
-
-
-def _needs_cuda_cache_seqlens_increment_helper(
-    target_name: str,
-    nodes: Iterable[Mapping[str, Any]],
-) -> bool:
-    if target_name != "cuda":
-        return False
-    return any(
-        str(node.get("op")) in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}
-        and bool(node.get("attrs", {}).get("advance_cache_seqlens", False))
-        for node in nodes
-    )
-
 
 def _output_materializations(views: Iterable[Mapping[str, Any]], *, target_name: str) -> list[str]:
     config = _gpu_target_config(target_name, lowering_target_spec(target_name))

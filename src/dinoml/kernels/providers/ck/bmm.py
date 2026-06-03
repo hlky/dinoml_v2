@@ -163,6 +163,11 @@ def ck_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, 
         candidates = _used_candidate_plan_candidates(item, all_candidates, selected)
         candidate_set = dict(item.get("candidate_set", {}))
         execution_plan_selection = item.get("execution_plan_selection")
+        execution_plan_dispatch = [
+            dict(selection)
+            for selection in item.get("execution_plan_dispatch", [])
+            if isinstance(selection, Mapping)
+        ]
         entry_config = {
             "op": str(item["op"]),
             "dtype": str(selected.get("dtype") or candidate_set.get("dtype") or ""),
@@ -183,10 +188,12 @@ def ck_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, 
             "selected_candidate": selected,
             "candidate_set": candidate_set,
             "candidates": candidates,
-            "pruned_by_execution_plan": isinstance(execution_plan_selection, Mapping),
+            "pruned_by_execution_plan": isinstance(execution_plan_selection, Mapping) or bool(execution_plan_dispatch),
         }
         if isinstance(execution_plan_selection, Mapping):
             entry_config["execution_plan_selection"] = dict(execution_plan_selection)
+        if execution_plan_dispatch:
+            entry_config["execution_plan_dispatch"] = execution_plan_dispatch
         entries.append(entry_config)
     entries = sorted(entries, key=lambda entry: (entry["op"], entry["dtype"], entry["kernel_symbol"]))
     candidate_sets = _unique_by_key((entry["candidate_set"] for entry in entries), "candidate_set_key")
@@ -220,6 +227,19 @@ def _used_candidate_plan_candidates(
 ) -> list[dict[str, Any]]:
     if isinstance(item.get("execution_plan_selection"), Mapping):
         return [dict(selected)] if selected else []
+    dispatch_candidate_ids = {
+        str(selection.get("selected_candidate_id", ""))
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and selection.get("selected_candidate_id")
+    }
+    if dispatch_candidate_ids:
+        if selected.get("candidate_id"):
+            dispatch_candidate_ids.add(str(selected["candidate_id"]))
+        return [
+            dict(candidate)
+            for candidate in candidates
+            if str(candidate.get("candidate_id", "")) in dispatch_candidate_ids
+        ]
     return candidates
 
 

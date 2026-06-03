@@ -125,6 +125,24 @@ def _candidate_profiler_symbols(kernel_manifest: Mapping[str, Any]) -> tuple[str
 
 
 def _generated_sources(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+        dispatches = [
+            selection
+            for selection in item.get("execution_plan_dispatch", [])
+            if isinstance(selection, Mapping)
+        ]
+        if dispatches:
+            for selection in dispatches:
+                append_symbol(selection.get("profiler_symbol") or item.get("profiler_symbol"))
+            selected_candidate = item.get("selected_candidate_id")
+            for candidate in item.get("candidates", []):
+                if (
+                    isinstance(candidate, Mapping)
+                    and selected_candidate is not None
+                    and candidate.get("candidate_id") == selected_candidate
+                ):
+                    append_symbol(candidate.get("profiler_symbol") or item.get("profiler_symbol"))
+                    break
+            continue
     sources = []
     for item in kernel_manifest["required_kernels"]:
         generated_source = item.get("generated_source")

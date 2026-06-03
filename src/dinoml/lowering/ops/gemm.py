@@ -121,20 +121,37 @@ def render_launch(
     lines.extend(epilogue_checks)
     epilogue_arg_text = "".join(f"{arg}, " for arg in epilogue_args)
     if target == "rocm":
-        lines.extend(
-            _rocm_launch_lines(
-                op_name=op_name,
-                symbol=symbol,
-                kernel_library=str(manifest_item.get("kernel_library", "ck_gemm")) if manifest_item is not None else "ck_gemm",
-                a_ident=a_ident,
-                b_ident=b_ident,
-                epilogue_arg_text=epilogue_arg_text,
-                c_ident=c_ident,
-                m_expr=m_expr,
-                n_expr=n_expr,
-                k_expr=k_expr,
-            )
+        default_launch = _rocm_launch_lines(
+            op_name=op_name,
+            symbol=symbol,
+            kernel_library=str(manifest_item.get("kernel_library", "ck_gemm")) if manifest_item is not None else "ck_gemm",
+            a_ident=a_ident,
+            b_ident=b_ident,
+            epilogue_arg_text=epilogue_arg_text,
+            c_ident=c_ident,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
         )
+        dispatches = _rocm_dispatch_selections(manifest_item, str(node["id"]))
+        if dispatches and manifest_item is not None and str(manifest_item.get("kernel_library")) == "ck_gemm":
+            lines.extend(
+                _rocm_dispatch_lines(
+                    op_name=op_name,
+                    item=manifest_item,
+                    dispatches=dispatches,
+                    default_launch=default_launch,
+                    a_ident=a_ident,
+                    b_ident=b_ident,
+                    epilogue_arg_text=epilogue_arg_text,
+                    c_ident=c_ident,
+                    m_expr=m_expr,
+                    n_expr=n_expr,
+                    k_expr=k_expr,
+                )
+            )
+        else:
+            lines.extend(default_launch)
         return "\n".join(lines)
     selected_candidate = _selected_cutlass_candidate(manifest_item)
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
@@ -386,6 +403,68 @@ def _rocm_launch_lines(
         f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), session->stream)) "
         f'return dinoml::module::fail("{op_name} {provider} launcher failed");'
     ]
+
+
+def _rocm_dispatch_lines(
+    *,
+    op_name: str,
+    item: Mapping[str, Any],
+    dispatches: list[Mapping[str, Any]],
+    default_launch: list[str],
+    a_ident: str,
+    b_ident: str,
+    epilogue_arg_text: str,
+    c_ident: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> list[str]:
+    lines = []
+    for index, dispatch in enumerate(dispatches):
+        candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
+        branch = "if" if index == 0 else "else if"
+        lines.append(f"{branch} ({_rocm_dispatch_guard(dispatch, m_expr, n_expr, k_expr)}) {{")
+        body = _rocm_launch_lines(
+            op_name=op_name,
+            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            kernel_library="ck_gemm",
+            a_ident=a_ident,
+            b_ident=b_ident,
+            epilogue_arg_text=epilogue_arg_text,
+            c_ident=c_ident,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
+    lines.append("else {")
+    lines.extend(f"  {line}" for line in default_launch)
+    lines.append("}")
+    return lines
+
+
+def _rocm_dispatch_guard(
+    selection: Mapping[str, Any],
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> str:
+    shape = selection.get("shape", {})
+    if not isinstance(shape, Mapping):
+        return "false"
+    m = int(shape.get("m", 0) or 0)
+    n = int(shape.get("n", 0) or 0)
+    k = int(shape.get("k", 0) or 0)
+    if m <= 0 or n <= 0 or k <= 0:
+        return "false"
+    return " && ".join(
+        [
+            f"({m_expr}) == {m}",
+            f"({n_expr}) == {n}",
+            f"({k_expr}) == {k}",
+        ]
+    )
 
 
 def _cutlass_launch_with_alignment_fallback_lines(
@@ -645,6 +724,16 @@ def _cutlass_alignment_fallback_candidates(
 
 
 def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping):
+        return []
+    return [
+        selection
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and str(selection.get("node_id")) == node_id
+    ]
+
+
+def _rocm_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
     if not isinstance(item, Mapping):
         return []
     return [

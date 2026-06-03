@@ -91,8 +91,6 @@ EXECUTION_PLAN_KERNEL_LIBRARIES = {
 }
 EXECUTION_PLAN_STATIC_ONLY_KERNEL_LIBRARIES = {
     "cutlass_conv",
-    "ck_gemm",
-    "ck_bmm",
     "ck_conv",
 }
 EXECUTION_PLAN_ZERO_WORKSPACE_KERNEL_LIBRARIES = {

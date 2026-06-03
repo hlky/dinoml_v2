@@ -1452,7 +1452,7 @@ def test_rocm_ck_execution_plan_static_overlay_selects_profiled_candidate(
     assert selection["split_k"] == 1
 
 
-def test_rocm_ck_execution_plan_conflict_rejects_static_only_guarded_selection():
+def test_rocm_ck_gemm_execution_plan_conflict_applies_guarded_dispatch():
     ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
     ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
     manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
@@ -1491,8 +1491,63 @@ def test_rocm_ck_execution_plan_conflict_rejects_static_only_guarded_selection()
     assert execution_plan["conflicts"][0]["selected_candidate_ids"] == sorted(
         {str(original_candidate_id), alternate_candidate_id}
     )
-    with pytest.raises(ValueError, match="ck_gemm execution plans only support static selections"):
-        apply_execution_plan(manifest, execution_plan, strict=True)
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+    item = overlaid["required_kernels"][0]
+    dispatch = item["execution_plan_dispatch"]
+
+    assert item["selected_candidate_id"] == original_candidate_id
+    assert "execution_plan_selection" not in item
+    assert len(dispatch) == 2
+    assert {entry["selected_candidate_id"] for entry in dispatch} == {str(original_candidate_id), alternate_candidate_id}
+    assert {
+        tuple(sorted((key, entry["shape"][key]) for key in ("m", "n", "k")))
+        for entry in dispatch
+    } == {
+        (("k", 64), ("m", 128), ("n", 256)),
+        (("k", 64), ("m", 128), ("n", 128)),
+    }
+
+
+def test_rocm_ck_bmm_execution_plan_conflict_applies_guarded_dispatch():
+    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    original_candidate_id = manifest["required_kernels"][0]["selected_candidate_id"]
+    alternate_candidate_id = "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
+    assert original_candidate_id != alternate_candidate_id
+
+    result_a = _ck_profile_result_for_candidate(
+        ir_a,
+        manifest,
+        str(original_candidate_id),
+        elapsed_ms=0.31,
+        profile_key="profile-original-shape",
+    )
+    result_b = _ck_profile_result_for_candidate(
+        ir_b,
+        manifest,
+        alternate_candidate_id,
+        elapsed_ms=0.29,
+        profile_key="profile-alternate-shape",
+    )
+    execution_plan = _ck_execution_plan_from_results(manifest, result_a, result_b)
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+    item = overlaid["required_kernels"][0]
+    dispatch = item["execution_plan_dispatch"]
+
+    assert execution_plan["summary"]["static_selection_count"] == 0
+    assert execution_plan["summary"]["conflict_count"] == 1
+    assert item["selected_candidate_id"] == original_candidate_id
+    assert "execution_plan_selection" not in item
+    assert len(dispatch) == 2
+    assert {entry["selected_candidate_id"] for entry in dispatch} == {str(original_candidate_id), alternate_candidate_id}
+    assert {
+        tuple(sorted((key, entry["shape"][key]) for key in ("batch_count", "m", "n", "k")))
+        for entry in dispatch
+    } == {
+        (("batch_count", 2), ("k", 96), ("m", 128), ("n", 128)),
+        (("batch_count", 2), ("k", 96), ("m", 64), ("n", 256)),
+    }
 
 
 def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
@@ -1881,6 +1936,39 @@ def test_rocm_bmm_row_major_b_uses_scalar_b_transfer_metadata():
     candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "wide_m")
 
     assert item["selected_candidate_id"] == "ck_bmm_rrr_float32_xdl_wide_m_v1"
+def test_rocm_ck_gemm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
+    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    alternate_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == "ck_gemm"
+    assert support["pruned_by_execution_plan"] is True
+    assert len(entry["execution_plan_dispatch"]) == 2
+    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
+        default_candidate_id,
+        alternate_candidate_id,
+    }
+    assert set(support["kernel_symbols"]) == {
+        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(support["profiler_symbols"]) == {
+        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
+
+
     assert candidate["ck"]["config"]["vector_width"] == 1
     assert candidate["ck"]["config"]["operand_vector_widths"] == {"a": 4, "b": 1}
     assert candidate["selection_predicate"]["alignment"]["a_k"] == 4
@@ -1935,6 +2023,39 @@ def test_rocm_ck_bmm_profiler_passes_plain_layout_strides():
         64 * 96,
         128 * 96,
         64 * 128,
+def test_rocm_ck_bmm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
+    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    alternate_candidate_id = "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == "ck_bmm"
+    assert support["pruned_by_execution_plan"] is True
+    assert len(entry["execution_plan_dispatch"]) == 2
+    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
+        default_candidate_id,
+        alternate_candidate_id,
+    }
+    assert set(support["kernel_symbols"]) == {
+        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(support["profiler_symbols"]) == {
+        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
+
+
         96,
         96,
         128,
@@ -1988,6 +2109,35 @@ def test_rocm_ck_bmm_profiler_passes_add_residual_layout_strides():
         128,
         13,
     )
+def test_rocm_gemm_module_dispatches_ck_execution_plan_by_shape():
+    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(
+            ir_b,
+            manifest,
+            "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1",
+            0.29,
+            profile_key="profile-alt",
+        ),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
+
+    assert source.count('extern "C" int dinoml_ck_gemm_rcr_bias_add_relu_float16_') >= 2
+    assert "(shape_a_0) == 128" in source
+    assert "(shape_b_0) == 256" in source
+    assert "(shape_b_0) == 128" in source
+    assert "(shape_a_1) == 64" in source
+    assert "else {" in source
+    assert "CK launcher failed" in source
+
+
     assert isinstance(call[-1], ctypes.c_void_p)
     assert call[-1].value is None
     assert fake_fn.argtypes == [
@@ -2377,6 +2527,37 @@ def test_rocm_conv2d_bias_manifest_reports_malformed_ck_profile_attrs():
         "float16",
         batch=2,
         in_channels=8,
+def test_rocm_bmm_module_dispatches_ck_execution_plan_by_shape():
+    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(
+            ir_b,
+            manifest,
+            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            0.29,
+            profile_key="profile-alt",
+        ),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
+
+    assert source.count('extern "C" int dinoml_ck_bmm_rcr_add_float16_') >= 2
+    assert "? shape_b_0 : shape_a_0" in source
+    assert "(shape_a_1) == 128" in source
+    assert "(shape_b_1) == 128" in source
+    assert "(shape_a_1) == 64" in source
+    assert "(shape_b_1) == 256" in source
+    assert "(shape_a_2) == 96" in source
+    assert "else {" in source
+    assert "CK BMM launcher failed" in source
+
+
         out_channels=64,
         height=16,
         width=16,
@@ -3240,3 +3421,16 @@ def _wait_for_path(path: Path, *, timeout_s: float) -> None:
         if path.exists():
             return
         time.sleep(0.1)
+def _ck_execution_plan_from_results(manifest: dict, *results: dict) -> dict:
+    return build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": 7,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": list(results),
+        }
+    )
+
+

@@ -101,29 +101,55 @@ def render_launch(
     if d0_ident is not None and d0_layout is not None:
         lines.append(_d0_shape_check(op_name, d0_ident, c_ident, d0_layout))
     if target == "rocm":
-        lines.extend(
-            _rocm_launch_lines(
-                op_name=op_name,
-                symbol=symbol,
-                kernel_library=str(manifest_item.get("kernel_library", "ck_bmm")) if manifest_item is not None else "ck_bmm",
-                a_ident=a_ident,
-                b_ident=b_ident,
-                d0_ident=d0_ident,
-                c_ident=c_ident,
-                batch_expr=batch_expr,
-                m_expr=m_expr,
-                n_expr=n_expr,
-                k_expr=k_expr,
-                batch_stride_a=batch_stride_a,
-                batch_stride_b=batch_stride_b,
-                batch_stride_d0=batch_stride_d0,
-                batch_stride_c=batch_stride_c,
-                lda_expr=lda_expr,
-                ldb_expr=ldb_expr,
-                ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
-                ldc_expr=ldc_expr,
-            )
+        default_launch = _rocm_launch_lines(
+            op_name=op_name,
+            symbol=symbol,
+            kernel_library=str(manifest_item.get("kernel_library", "ck_bmm")) if manifest_item is not None else "ck_bmm",
+            a_ident=a_ident,
+            b_ident=b_ident,
+            d0_ident=d0_ident,
+            c_ident=c_ident,
+            batch_expr=batch_expr,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            batch_stride_a=batch_stride_a,
+            batch_stride_b=batch_stride_b,
+            batch_stride_d0=batch_stride_d0,
+            batch_stride_c=batch_stride_c,
+            lda_expr=lda_expr,
+            ldb_expr=ldb_expr,
+            ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
+            ldc_expr=ldc_expr,
         )
+        dispatches = _rocm_dispatch_selections(manifest_item, str(node["id"]))
+        if dispatches and manifest_item is not None and str(manifest_item.get("kernel_library")) == "ck_bmm":
+            lines.extend(
+                _rocm_dispatch_lines(
+                    op_name=op_name,
+                    item=manifest_item,
+                    dispatches=dispatches,
+                    default_launch=default_launch,
+                    a_ident=a_ident,
+                    b_ident=b_ident,
+                    d0_ident=d0_ident,
+                    c_ident=c_ident,
+                    batch_expr=batch_expr,
+                    m_expr=m_expr,
+                    n_expr=n_expr,
+                    k_expr=k_expr,
+                    batch_stride_a=batch_stride_a,
+                    batch_stride_b=batch_stride_b,
+                    batch_stride_d0=batch_stride_d0,
+                    batch_stride_c=batch_stride_c,
+                    lda_expr=lda_expr,
+                    ldb_expr=ldb_expr,
+                    ldd0_expr=d0_layout["ld"] if d0_layout is not None else ldc_expr,
+                    ldc_expr=ldc_expr,
+                )
+            )
+        else:
+            lines.extend(default_launch)
         return "\n".join(lines)
     default_launch = _cutlass_launch_with_alignment_fallback_lines(
         op_name=op_name,
@@ -371,6 +397,89 @@ def _rocm_launch_lines(
         f"static_cast<int>({ldb_expr}), static_cast<int>({ldd0_expr}), static_cast<int>({ldc_expr}), "
         f'session->stream)) return dinoml::module::fail("{op_name} {provider} launcher failed");'
     ]
+
+
+def _rocm_dispatch_lines(
+    *,
+    op_name: str,
+    item: Mapping[str, Any],
+    dispatches: list[Mapping[str, Any]],
+    default_launch: list[str],
+    a_ident: str,
+    b_ident: str,
+    d0_ident: str | None,
+    c_ident: str,
+    batch_expr: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+    batch_stride_a: str,
+    batch_stride_b: str,
+    batch_stride_d0: str,
+    batch_stride_c: str,
+    lda_expr: str,
+    ldb_expr: str,
+    ldd0_expr: str,
+    ldc_expr: str,
+) -> list[str]:
+    lines = []
+    for index, dispatch in enumerate(dispatches):
+        candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
+        branch = "if" if index == 0 else "else if"
+        lines.append(f"{branch} ({_rocm_dispatch_guard(dispatch, batch_expr, m_expr, n_expr, k_expr)}) {{")
+        body = _rocm_launch_lines(
+            op_name=op_name,
+            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            kernel_library="ck_bmm",
+            a_ident=a_ident,
+            b_ident=b_ident,
+            d0_ident=d0_ident,
+            c_ident=c_ident,
+            batch_expr=batch_expr,
+            m_expr=m_expr,
+            n_expr=n_expr,
+            k_expr=k_expr,
+            batch_stride_a=batch_stride_a,
+            batch_stride_b=batch_stride_b,
+            batch_stride_d0=batch_stride_d0,
+            batch_stride_c=batch_stride_c,
+            lda_expr=lda_expr,
+            ldb_expr=ldb_expr,
+            ldd0_expr=ldd0_expr,
+            ldc_expr=ldc_expr,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
+    lines.append("else {")
+    lines.extend(f"  {line}" for line in default_launch)
+    lines.append("}")
+    return lines
+
+
+def _rocm_dispatch_guard(
+    selection: Mapping[str, Any],
+    batch_expr: str,
+    m_expr: str,
+    n_expr: str,
+    k_expr: str,
+) -> str:
+    shape = selection.get("shape", {})
+    if not isinstance(shape, Mapping):
+        return "false"
+    batch_count = int(shape.get("batch_count", 0) or 0)
+    m = int(shape.get("m", 0) or 0)
+    n = int(shape.get("n", 0) or 0)
+    k = int(shape.get("k", 0) or 0)
+    if batch_count <= 0 or m <= 0 or n <= 0 or k <= 0:
+        return "false"
+    return " && ".join(
+        [
+            f"({batch_expr}) == {batch_count}",
+            f"({m_expr}) == {m}",
+            f"({n_expr}) == {n}",
+            f"({k_expr}) == {k}",
+        ]
+    )
 
 
 def _cutlass_launch_lines(
@@ -737,6 +846,16 @@ def _cutlass_alignment_fallback_candidates(
 
 
 def _cutlass_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping):
+        return []
+    return [
+        selection
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and str(selection.get("node_id")) == node_id
+    ]
+
+
+def _rocm_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
     if not isinstance(item, Mapping):
         return []
     return [

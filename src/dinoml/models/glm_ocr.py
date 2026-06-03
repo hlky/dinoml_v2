@@ -468,7 +468,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         )
 
     def _project_qkv(self, hidden_states, cos, sin):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q = self.q_proj(hidden_states)
         k = self.k_proj(hidden_states)
         v = self.v_proj(hidden_states)
@@ -479,12 +479,12 @@ class GlmOcrTextAttention(dml.nn.Module):
         return q, k, v
 
     def forward(self, hidden_states, cos, sin, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         return self._attention_output(q, k, v, attention_mask, batch, seq_len)
 
     def prefill_with_cache(self, hidden_states, cos, sin, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         present_key = dml.ops.permute0213(k)
         present_value = dml.ops.permute0213(v)
@@ -1056,7 +1056,7 @@ class GlmOcrVisionAttention(dml.nn.Module):
         )
 
     def forward(self, hidden_states, cos, sin):
-        seq_len, _ = _rank2_shape(hidden_states.shape, "GLM-OCR vision hidden_states")
+        seq_len, _ = _rank2_shape(hidden_states.shape_spec, "GLM-OCR vision hidden_states")
         qkv = self.qkv(hidden_states)
         q, k, v = dml.ops.qkv_split(qkv)
         q = dml.ops.reshape(q, [seq_len, self.config.num_heads, self.config.head_dim])
@@ -1848,16 +1848,16 @@ def _single_vision_rope_index(
     return np.stack([temporal, height, width], axis=0)
 
 
-def _rank2_shape(shape: Sequence[int], name: str) -> tuple[int, int]:
+def _rank2_shape(shape: Sequence[Any], name: str) -> tuple[Any, Any]:
     if len(shape) != 2:
         raise ValueError(f"{name} must be rank 2")
-    return int(shape[0]), int(shape[1])
+    return shape[0], shape[1]
 
 
-def _rank3_shape(shape: Sequence[int], name: str) -> tuple[int, int, int]:
+def _rank3_shape(shape: Sequence[Any], name: str) -> tuple[Any, Any, Any]:
     if len(shape) != 3:
         raise ValueError(f"{name} must be rank 3")
-    return int(shape[0]), int(shape[1]), int(shape[2])
+    return shape[0], shape[1], shape[2]
 
 
 def _require_positive(value: int, name: str, *, allow_zero: bool = False) -> None:

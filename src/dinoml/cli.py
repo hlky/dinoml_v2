@@ -36,6 +36,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_parser.add_argument("model", help="Python model file defining build_spec()")
     compile_parser.add_argument(
+        "--build-spec-kwarg",
+        dest="build_spec_kwargs",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Pass a keyword argument to build_spec(); values are parsed as JSON when possible, "
+            "otherwise they are passed as strings. Repeat for multiple kwargs."
+        ),
+    )
+    compile_parser.add_argument(
         "--target",
         choices=registered_backend_names(),
         default="cpu",
@@ -74,12 +85,35 @@ def main(argv: list[str] | None = None) -> int:
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument("artifact")
     validate_parser.add_argument("--against", required=True)
+    validate_parser.add_argument(
+        "--against-kwarg",
+        dest="against_kwargs",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Pass a keyword argument to build_validation_inputs() and torch_reference(); "
+            "values are parsed as JSON when possible, otherwise they are passed as strings. "
+            "Repeat for multiple kwargs."
+        ),
+    )
     validate_parser.add_argument("--atol", type=float, default=1e-4)
     validate_parser.add_argument("--rtol", type=float, default=1e-4)
 
     benchmark_parser = subparsers.add_parser("benchmark")
     benchmark_parser.add_argument("artifact")
     benchmark_parser.add_argument("--against", help="Python model file defining build_validation_inputs()")
+    benchmark_parser.add_argument(
+        "--against-kwarg",
+        dest="against_kwargs",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Pass a keyword argument to build_validation_inputs(); values are parsed as JSON when possible, "
+            "otherwise they are passed as strings. Repeat for multiple kwargs."
+        ),
+    )
     benchmark_parser.add_argument("--warmup", type=int, default=5)
     benchmark_parser.add_argument("--iterations", "--iters", dest="iterations", type=int, default=20)
     benchmark_parser.add_argument("--out")
@@ -168,12 +202,15 @@ def _compile(args: argparse.Namespace) -> int:
     module = _load_python_file(Path(args.model))
     if not hasattr(module, "build_spec"):
         raise RuntimeError(f"{args.model} must define build_spec()")
+    build_spec_kwargs = parse_build_spec_kwargs(args.build_spec_kwargs)
     print(f"[dml.compile] Building spec")
     start = time.time()
-    spec = module.build_spec()
+    spec = module.build_spec(**build_spec_kwargs)
     end = time.time()
     took = end - start
     print(f"[dml.compile] Building spec took {took:.3f}s")
+    if build_spec_kwargs:
+        print(f"[dml.compile] build_spec kwargs: {json.dumps(build_spec_kwargs, sort_keys=True)}")
     compile_kwargs = {
         "target": dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
         "output": args.out,
@@ -239,8 +276,11 @@ def _validate(args: argparse.Namespace) -> int:
     for symbol in ("build_validation_inputs", "torch_reference"):
         if not hasattr(module, symbol):
             raise RuntimeError(f"{args.against} must define {symbol}()")
-    inputs = module.build_validation_inputs()
-    expected = module.torch_reference(inputs)
+    against_kwargs = parse_build_spec_kwargs(args.against_kwargs)
+    if against_kwargs:
+        print(f"[dml.validate] against kwargs: {json.dumps(against_kwargs, sort_keys=True)}")
+    inputs = module.build_validation_inputs(**against_kwargs)
+    expected = module.torch_reference(inputs, **against_kwargs)
     if not isinstance(expected, dict):
         expected = {"output_0": expected}
 
@@ -283,7 +323,10 @@ def _benchmark(args: argparse.Namespace) -> int:
             model_module = _load_python_file(Path(args.against))
             if not hasattr(model_module, "build_validation_inputs"):
                 raise RuntimeError(f"{args.against} must define build_validation_inputs()")
-            inputs = model_module.build_validation_inputs()
+            against_kwargs = parse_build_spec_kwargs(args.against_kwargs)
+            if against_kwargs:
+                print(f"[dml.benchmark] against kwargs: {json.dumps(against_kwargs, sort_keys=True)}")
+            inputs = model_module.build_validation_inputs(**against_kwargs)
         session = rt_module.create_session()
         summary = session.benchmark_numpy(inputs, warmup=args.warmup, iterations=args.iterations)
         report = {
@@ -437,6 +480,26 @@ def _profile_blocked_item_summary(item: Mapping[str, Any]) -> dict[str, Any]:
         "reason": item.get("reason"),
         "details": dict(details) if isinstance(details, Mapping) else {},
     }
+
+
+def parse_build_spec_kwargs(items: list[str] | None) -> dict[str, Any]:
+    if not items:
+        return {}
+    kwargs: dict[str, Any] = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"build_spec kwarg must use KEY=VALUE syntax, got {item!r}")
+        key, raw_value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"build_spec kwarg key must not be empty, got {item!r}")
+        value_text = raw_value.strip()
+        try:
+            value = json.loads(value_text)
+        except json.JSONDecodeError:
+            value = raw_value
+        kwargs[key] = value
+    return kwargs
 
 
 def _load_python_file(path: Path) -> Any:

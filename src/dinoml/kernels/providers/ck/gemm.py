@@ -550,6 +550,19 @@ def ck_gemm_cmake_target(op_name: str, dtype: str) -> str:
     return f"dinoml_ck_gemm_{op_name}_{normalized}"
 
 
+def ck_gemm_profiler_stem(op_name: str, dtype: str) -> str:
+    normalized = normalize_gemm_dtype(dtype)
+    return f"dinoml_ck_gemm_profiler_{op_name}_{normalized}"
+
+
+def ck_gemm_profiler_bind_target(op_name: str, dtype: str) -> str:
+    return f"{ck_gemm_profiler_stem(op_name, dtype)}_bind"
+
+
+def ck_gemm_profiler_executable_target(op_name: str, dtype: str) -> str:
+    return ck_gemm_profiler_stem(op_name, dtype)
+
+
 def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]) -> dict[str, Any]:
     spec = gemm_op_spec(op_name)
     symbol_id = str(kernel_config["symbol_id"])
@@ -759,6 +772,9 @@ __all__ = [
     "ck_gemm_candidates",
     "ck_gemm_cmake_target",
     "ck_gemm_default_candidate",
+    "ck_gemm_profiler_bind_target",
+    "ck_gemm_profiler_executable_target",
+    "ck_gemm_profiler_stem",
     "ck_gemm_profiler_symbol",
     "ck_gemm_static_library_name",
     "ck_gemm_symbol",

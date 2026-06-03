@@ -167,6 +167,8 @@ if(DINOML_ENABLE_ROCM)
 
   if(DINOML_ENABLE_CK_GEMM)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    option(DINOML_ENABLE_CK_GEMM_PROFILER "Build CK GEMM standalone profiler modules" OFF)
+    set(DINOML_CK_GEMM_PROFILER_TARGETS "" CACHE STRING "CK GEMM profiler targets or ALL")
     set(DINOML_CK_GEMM_OPS
       gemm_rcr gemm_rrr
       gemm_rcr_bias gemm_rrr_bias
@@ -257,6 +259,117 @@ if(DINOML_ENABLE_ROCM)
       endforeach()
     endforeach()
     add_custom_target(dinoml_ck_gemm DEPENDS ${DINOML_CK_GEMM_TARGETS})
+    if(DINOML_ENABLE_CK_GEMM_PROFILER)
+      find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+      if(NOT pybind11_DIR)
+        execute_process(
+          COMMAND ${Python3_EXECUTABLE} -m pybind11 --cmakedir
+          OUTPUT_VARIABLE _DINOML_PYBIND11_DIR
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_DINOML_PYBIND11_DIR)
+          set(pybind11_DIR "${_DINOML_PYBIND11_DIR}" CACHE PATH "pybind11 CMake package directory")
+        endif()
+      endif()
+      find_package(pybind11 CONFIG REQUIRED)
+      set(DINOML_CK_GEMM_PROFILER_LINK_TARGETS)
+      if(DINOML_CK_GEMM_PROFILER_TARGETS STREQUAL "ALL")
+        set(DINOML_CK_GEMM_PROFILER_LINK_TARGETS ${DINOML_CK_GEMM_TARGETS})
+      elseif(DINOML_CK_GEMM_PROFILER_TARGETS)
+        foreach(_ck_gemm_profiler_target IN LISTS DINOML_CK_GEMM_PROFILER_TARGETS)
+          if(NOT TARGET ${_ck_gemm_profiler_target})
+            message(FATAL_ERROR "Unknown CK GEMM profiler target: ${_ck_gemm_profiler_target}")
+          endif()
+          list(APPEND DINOML_CK_GEMM_PROFILER_LINK_TARGETS ${_ck_gemm_profiler_target})
+        endforeach()
+      endif()
+
+      set(DINOML_CK_GEMM_PROFILER_TARGETS_BUILT)
+      foreach(_ck_gemm_target IN LISTS DINOML_CK_GEMM_PROFILER_LINK_TARGETS)
+        string(REGEX REPLACE "^dinoml_ck_gemm_" "" _ck_gemm_profiler_group_id "${_ck_gemm_target}")
+        if(NOT _ck_gemm_profiler_group_id MATCHES "^(.+)_(float32|float16|bfloat16)$")
+          message(FATAL_ERROR "Could not derive CK GEMM profiler op/dtype from target: ${_ck_gemm_target}")
+        endif()
+        set(_ck_gemm_profiler_op "${CMAKE_MATCH_1}")
+        set(_ck_gemm_profiler_dtype "${CMAKE_MATCH_2}")
+        set(_ck_gemm_profiler_output "dinoml_ck_gemm_profiler_${_ck_gemm_profiler_group_id}")
+        set(_ck_gemm_profiler_bind_target "${_ck_gemm_profiler_output}_bind")
+        set(_ck_gemm_profiler_exe_target "${_ck_gemm_profiler_output}")
+        set(_ck_gemm_profiler_dispatch_source
+          "${CMAKE_CURRENT_BINARY_DIR}/ck_gemm_profiler_dispatch/${_ck_gemm_profiler_group_id}.cpp"
+        )
+        add_custom_command(
+          OUTPUT ${_ck_gemm_profiler_dispatch_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_gemm_profiler_dispatch.py
+            --op ${_ck_gemm_profiler_op}
+            --dtype ${_ck_gemm_profiler_dtype}
+            --output ${_ck_gemm_profiler_dispatch_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_gemm_profiler_dispatch.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/ck_gemm_profiler_core.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/gemm.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/gemm.py
+          VERBATIM
+        )
+        set(_ck_gemm_profiler_linker_flags
+          "LINKER:--whole-archive"
+          "$<TARGET_FILE:${_ck_gemm_target}>"
+          "LINKER:--no-whole-archive"
+        )
+        add_library(${_ck_gemm_profiler_bind_target} MODULE
+          tools/ck_gemm_profiler_pybind.cpp
+          ${_ck_gemm_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_gemm_profiler_bind_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_link_libraries(${_ck_gemm_profiler_bind_target}
+          PRIVATE pybind11::module hip::host ${CMAKE_DL_LIBS}
+        )
+        target_link_options(${_ck_gemm_profiler_bind_target} PRIVATE ${_ck_gemm_profiler_linker_flags})
+        set_target_properties(${_ck_gemm_profiler_bind_target} PROPERTIES
+          PREFIX ""
+          OUTPUT_NAME "${_ck_gemm_profiler_output}_bind"
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        if(WIN32)
+          set_target_properties(${_ck_gemm_profiler_bind_target} PROPERTIES SUFFIX ".pyd")
+        endif()
+
+        add_executable(${_ck_gemm_profiler_exe_target}
+          tools/ck_gemm_profiler_main.cpp
+          ${_ck_gemm_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_gemm_profiler_exe_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_link_libraries(${_ck_gemm_profiler_exe_target} PRIVATE hip::host ${CMAKE_DL_LIBS})
+        target_link_options(${_ck_gemm_profiler_exe_target} PRIVATE ${_ck_gemm_profiler_linker_flags})
+        set_target_properties(${_ck_gemm_profiler_exe_target} PROPERTIES
+          OUTPUT_NAME "${_ck_gemm_profiler_output}"
+          ENABLE_EXPORTS ON
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        add_dependencies(${_ck_gemm_profiler_bind_target} ${_ck_gemm_target})
+        add_dependencies(${_ck_gemm_profiler_exe_target} ${_ck_gemm_target})
+        list(APPEND DINOML_CK_GEMM_PROFILER_TARGETS_BUILT
+          ${_ck_gemm_profiler_bind_target}
+          ${_ck_gemm_profiler_exe_target}
+        )
+      endforeach()
+      if(DINOML_CK_GEMM_PROFILER_TARGETS_BUILT)
+        add_custom_target(dinoml_ck_gemm_profilers DEPENDS ${DINOML_CK_GEMM_PROFILER_TARGETS_BUILT})
+      endif()
+    endif()
   endif()
 
   option(DINOML_ENABLE_CK_GGUF_Q8_GEMM "Build prototype fused GGUF Q8_0 gemm_rcr ROCm archive" OFF)
@@ -321,6 +434,8 @@ if(DINOML_ENABLE_ROCM)
 
   if(DINOML_ENABLE_CK_BMM)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    option(DINOML_ENABLE_CK_BMM_PROFILER "Build CK BMM standalone profiler modules" OFF)
+    set(DINOML_CK_BMM_PROFILER_TARGETS "" CACHE STRING "CK BMM profiler targets or ALL")
     set(DINOML_CK_BMM_OPS
       bmm_ccc bmm_ccr bmm_crc bmm_crr bmm_rcc bmm_rcr bmm_rrc bmm_rrr
       bmm_ccc_add bmm_ccr_add bmm_crc_add bmm_crr_add bmm_rcc_add bmm_rcr_add bmm_rrc_add bmm_rrr_add
@@ -393,6 +508,117 @@ if(DINOML_ENABLE_ROCM)
       endforeach()
     endforeach()
     add_custom_target(dinoml_ck_bmm DEPENDS ${DINOML_CK_BMM_TARGETS})
+    if(DINOML_ENABLE_CK_BMM_PROFILER)
+      find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+      if(NOT pybind11_DIR)
+        execute_process(
+          COMMAND ${Python3_EXECUTABLE} -m pybind11 --cmakedir
+          OUTPUT_VARIABLE _DINOML_PYBIND11_DIR
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_DINOML_PYBIND11_DIR)
+          set(pybind11_DIR "${_DINOML_PYBIND11_DIR}" CACHE PATH "pybind11 CMake package directory")
+        endif()
+      endif()
+      find_package(pybind11 CONFIG REQUIRED)
+      set(DINOML_CK_BMM_PROFILER_LINK_TARGETS)
+      if(DINOML_CK_BMM_PROFILER_TARGETS STREQUAL "ALL")
+        set(DINOML_CK_BMM_PROFILER_LINK_TARGETS ${DINOML_CK_BMM_TARGETS})
+      elseif(DINOML_CK_BMM_PROFILER_TARGETS)
+        foreach(_ck_bmm_profiler_target IN LISTS DINOML_CK_BMM_PROFILER_TARGETS)
+          if(NOT TARGET ${_ck_bmm_profiler_target})
+            message(FATAL_ERROR "Unknown CK BMM profiler target: ${_ck_bmm_profiler_target}")
+          endif()
+          list(APPEND DINOML_CK_BMM_PROFILER_LINK_TARGETS ${_ck_bmm_profiler_target})
+        endforeach()
+      endif()
+
+      set(DINOML_CK_BMM_PROFILER_TARGETS_BUILT)
+      foreach(_ck_bmm_target IN LISTS DINOML_CK_BMM_PROFILER_LINK_TARGETS)
+        string(REGEX REPLACE "^dinoml_ck_bmm_" "" _ck_bmm_profiler_group_id "${_ck_bmm_target}")
+        if(NOT _ck_bmm_profiler_group_id MATCHES "^(.+)_(float32|float16|bfloat16)$")
+          message(FATAL_ERROR "Could not derive CK BMM profiler op/dtype from target: ${_ck_bmm_target}")
+        endif()
+        set(_ck_bmm_profiler_op "${CMAKE_MATCH_1}")
+        set(_ck_bmm_profiler_dtype "${CMAKE_MATCH_2}")
+        set(_ck_bmm_profiler_output "dinoml_ck_bmm_profiler_${_ck_bmm_profiler_group_id}")
+        set(_ck_bmm_profiler_bind_target "${_ck_bmm_profiler_output}_bind")
+        set(_ck_bmm_profiler_exe_target "${_ck_bmm_profiler_output}")
+        set(_ck_bmm_profiler_dispatch_source
+          "${CMAKE_CURRENT_BINARY_DIR}/ck_bmm_profiler_dispatch/${_ck_bmm_profiler_group_id}.cpp"
+        )
+        add_custom_command(
+          OUTPUT ${_ck_bmm_profiler_dispatch_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_bmm_profiler_dispatch.py
+            --op ${_ck_bmm_profiler_op}
+            --dtype ${_ck_bmm_profiler_dtype}
+            --output ${_ck_bmm_profiler_dispatch_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_bmm_profiler_dispatch.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/ck_bmm_profiler_core.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/bmm.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/bmm.py
+          VERBATIM
+        )
+        set(_ck_bmm_profiler_linker_flags
+          "LINKER:--whole-archive"
+          "$<TARGET_FILE:${_ck_bmm_target}>"
+          "LINKER:--no-whole-archive"
+        )
+        add_library(${_ck_bmm_profiler_bind_target} MODULE
+          tools/ck_bmm_profiler_pybind.cpp
+          ${_ck_bmm_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_bmm_profiler_bind_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_link_libraries(${_ck_bmm_profiler_bind_target}
+          PRIVATE pybind11::module hip::host ${CMAKE_DL_LIBS}
+        )
+        target_link_options(${_ck_bmm_profiler_bind_target} PRIVATE ${_ck_bmm_profiler_linker_flags})
+        set_target_properties(${_ck_bmm_profiler_bind_target} PROPERTIES
+          PREFIX ""
+          OUTPUT_NAME "${_ck_bmm_profiler_output}_bind"
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        if(WIN32)
+          set_target_properties(${_ck_bmm_profiler_bind_target} PROPERTIES SUFFIX ".pyd")
+        endif()
+
+        add_executable(${_ck_bmm_profiler_exe_target}
+          tools/ck_bmm_profiler_main.cpp
+          ${_ck_bmm_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_bmm_profiler_exe_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_link_libraries(${_ck_bmm_profiler_exe_target} PRIVATE hip::host ${CMAKE_DL_LIBS})
+        target_link_options(${_ck_bmm_profiler_exe_target} PRIVATE ${_ck_bmm_profiler_linker_flags})
+        set_target_properties(${_ck_bmm_profiler_exe_target} PROPERTIES
+          OUTPUT_NAME "${_ck_bmm_profiler_output}"
+          ENABLE_EXPORTS ON
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        add_dependencies(${_ck_bmm_profiler_bind_target} ${_ck_bmm_target})
+        add_dependencies(${_ck_bmm_profiler_exe_target} ${_ck_bmm_target})
+        list(APPEND DINOML_CK_BMM_PROFILER_TARGETS_BUILT
+          ${_ck_bmm_profiler_bind_target}
+          ${_ck_bmm_profiler_exe_target}
+        )
+      endforeach()
+      if(DINOML_CK_BMM_PROFILER_TARGETS_BUILT)
+        add_custom_target(dinoml_ck_bmm_profilers DEPENDS ${DINOML_CK_BMM_PROFILER_TARGETS_BUILT})
+      endif()
+    endif()
   endif()
 
   if(DINOML_ENABLE_CK_CONV)

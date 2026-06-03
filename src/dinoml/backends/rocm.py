@@ -15,7 +15,17 @@ from dinoml.backends.registry import _shared_library_name
 from dinoml.ir import canonical_json, read_json, write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.kernels.providers.ck.gemm import ck_gemm_cmake_target, ck_gemm_static_library_name
+from dinoml.kernels.providers.ck.gemm import (
+    ck_gemm_profiler_bind_target,
+    ck_gemm_profiler_executable_target,
+    ck_gemm_profiler_stem,
+)
 from dinoml.kernels.providers.ck.bmm import ck_bmm_cmake_target, ck_bmm_static_library_name
+from dinoml.kernels.providers.ck.bmm import (
+    ck_bmm_profiler_bind_target,
+    ck_bmm_profiler_executable_target,
+    ck_bmm_profiler_stem,
+)
 from dinoml.kernels.providers.ck.conv import ck_conv_cmake_target, ck_conv_static_library_name
 from dinoml.kernels.providers.ck.flash_attention import (
     FLASH_ATTN_CK_LIBRARY,
@@ -904,6 +914,9 @@ def _ck_gemm_source_sha256(repo_root: Path) -> str:
 def _ck_bmm_source_sha256(repo_root: Path) -> str:
     source_paths = [
         repo_root / "kernels" / "rocm" / "src" / "ck_bmm.hip",
+            "profiler_bind_target": ck_gemm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_gemm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_gemm_profiler_stem(op_name, dtype),
         repo_root / "tools" / "generate_ck_bmm_unit.py",
         repo_root / "src" / "dinoml" / "kernels" / "families" / "bmm.py",
         repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "bmm.py",
@@ -921,6 +934,9 @@ def _ck_conv_source_sha256(repo_root: Path) -> str:
     source_paths = [
         repo_root / "kernels" / "rocm" / "src" / "ck_conv.hip",
         repo_root / "tools" / "generate_ck_conv_unit.py",
+            "profiler_bind_target": ck_bmm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_bmm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_bmm_profiler_stem(op_name, dtype),
         repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "conv.py",
     ]
     digest = hashlib.sha256()

@@ -43,6 +43,9 @@ from dinoml.kernels.providers.ck.bmm import (
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV_OPS,
+    ck_bmm_profiler_bind_target,
+    ck_bmm_profiler_executable_target,
+    ck_bmm_profiler_stem,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_static_library_name,
@@ -56,6 +59,9 @@ from dinoml.kernels.providers.ck.gemm import (
 )
 from dinoml.kernels.providers.cutlass.conv import CONV_OPS
 from dinoml.lowering.rocm import render_rocm_module
+    ck_gemm_profiler_bind_target,
+    ck_gemm_profiler_executable_target,
+    ck_gemm_profiler_stem,
 from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.ops.elementwise import FusedElementwise
@@ -991,6 +997,24 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     ]
     assert scheduler_pipeline_pairs.count(("default", "v1")) == 10
     assert scheduler_pipeline_pairs.count(("interwave", "v1")) == 10
+            **(
+                {
+                    "profiler_bind_target": ck_gemm_profiler_bind_target(op, "float16"),
+                    "profiler_executable_target": ck_gemm_profiler_executable_target(op, "float16"),
+                    "profiler_stem": ck_gemm_profiler_stem(op, "float16"),
+                }
+                if library == "ck_gemm"
+                else {}
+            ),
+            **(
+                {
+                    "profiler_bind_target": ck_bmm_profiler_bind_target(op, "float16"),
+                    "profiler_executable_target": ck_bmm_profiler_executable_target(op, "float16"),
+                    "profiler_stem": ck_bmm_profiler_stem(op, "float16"),
+                }
+                if library == "ck_bmm"
+                else {}
+            ),
     assert scheduler_pipeline_pairs.count(("default", "v2")) == 10
     assert plan.external_support_libraries[0]["name"] == "ck_gemm"
     assert plan.external_support_libraries[0]["modules"] == [
@@ -1072,6 +1096,9 @@ def test_rocm_gemm_manifest_selects_profiled_clip_candidates(op_name, m, n, k, s
             16,
             4,
             4,
+            "profiler_bind_target": ck_gemm_profiler_bind_target("gemm_rcr_bias_add_relu", "float16"),
+            "profiler_executable_target": ck_gemm_profiler_executable_target("gemm_rcr_bias_add_relu", "float16"),
+            "profiler_stem": ck_gemm_profiler_stem("gemm_rcr_bias_add_relu", "float16"),
         ),
     ],
 )
@@ -1813,6 +1840,9 @@ def test_rocm_bmm_selects_baseline_when_tuned_k_loop_is_too_short_for_attention(
             "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
             {"wide_n", "small", "baseline"},
         ),
+            "profiler_bind_target": ck_bmm_profiler_bind_target("bmm_rcr_add", "float16"),
+            "profiler_executable_target": ck_bmm_profiler_executable_target("bmm_rcr_add", "float16"),
+            "profiler_stem": ck_bmm_profiler_stem("bmm_rcr_add", "float16"),
         (
             16,
             128,

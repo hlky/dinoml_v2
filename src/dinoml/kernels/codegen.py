@@ -15,11 +15,17 @@ from dinoml.kernels.providers.cutlass.conv import (
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_static_library_name, cutlass_gemm_used_candidate_plan
 from dinoml.kernels.providers.ck.gemm import (
     ck_gemm_cmake_target,
+    ck_gemm_profiler_bind_target,
+    ck_gemm_profiler_executable_target,
+    ck_gemm_profiler_stem,
     ck_gemm_static_library_name,
     ck_gemm_used_candidate_plan,
 )
 from dinoml.kernels.providers.ck.bmm import (
     ck_bmm_cmake_target,
+    ck_bmm_profiler_bind_target,
+    ck_bmm_profiler_executable_target,
+    ck_bmm_profiler_stem,
     ck_bmm_static_library_name,
     ck_bmm_used_candidate_plan,
 )
@@ -119,12 +125,6 @@ def _candidate_profiler_symbols(kernel_manifest: Mapping[str, Any]) -> tuple[str
         if isinstance(execution_plan_selection, Mapping):
             append_symbol(execution_plan_selection.get("profiler_symbol") or item.get("profiler_symbol"))
             continue
-        for candidate in item.get("candidates", []):
-            append_symbol(candidate.get("profiler_symbol"))
-    return tuple(symbols)
-
-
-def _generated_sources(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
         dispatches = [
             selection
             for selection in item.get("execution_plan_dispatch", [])
@@ -143,6 +143,12 @@ def _generated_sources(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str,
                     append_symbol(candidate.get("profiler_symbol") or item.get("profiler_symbol"))
                     break
             continue
+        for candidate in item.get("candidates", []):
+            append_symbol(candidate.get("profiler_symbol"))
+    return tuple(symbols)
+
+
+def _generated_sources(kernel_manifest: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
     sources = []
     for item in kernel_manifest["required_kernels"]:
         generated_source = item.get("generated_source")
@@ -365,6 +371,9 @@ def _ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]
             "dtype": dtype,
             "archive": f"lib/{archive}",
             "target": ck_gemm_cmake_target(op_name, dtype),
+            "profiler_bind_target": ck_gemm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_gemm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_gemm_profiler_stem(op_name, dtype),
         }
     return [modules[key] for key in sorted(modules)]
 
@@ -382,6 +391,9 @@ def _ck_bmm_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]:
             "dtype": dtype,
             "archive": f"lib/{archive}",
             "target": ck_bmm_cmake_target(op_name, dtype),
+            "profiler_bind_target": ck_bmm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_bmm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_bmm_profiler_stem(op_name, dtype),
         }
     return [modules[key] for key in sorted(modules)]
 

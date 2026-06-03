@@ -292,6 +292,19 @@ def ck_bmm_cmake_target(op_name: str, dtype: str) -> str:
     return f"dinoml_ck_bmm_{op_name}_{normalized}"
 
 
+def ck_bmm_profiler_stem(op_name: str, dtype: str) -> str:
+    normalized = normalize_bmm_dtype(dtype)
+    return f"dinoml_ck_bmm_profiler_{op_name}_{normalized}"
+
+
+def ck_bmm_profiler_bind_target(op_name: str, dtype: str) -> str:
+    return f"{ck_bmm_profiler_stem(op_name, dtype)}_bind"
+
+
+def ck_bmm_profiler_executable_target(op_name: str, dtype: str) -> str:
+    return ck_bmm_profiler_stem(op_name, dtype)
+
+
 def _ck_bmm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any]) -> dict[str, Any]:
     spec = bmm_op_spec(op_name)
     symbol_id = str(kernel_config["symbol_id"])
@@ -496,6 +509,9 @@ __all__ = [
     "ck_bmm_candidates",
     "ck_bmm_cmake_target",
     "ck_bmm_default_candidate",
+    "ck_bmm_profiler_bind_target",
+    "ck_bmm_profiler_executable_target",
+    "ck_bmm_profiler_stem",
     "ck_bmm_profiler_symbol",
     "ck_bmm_static_library_name",
     "ck_bmm_symbol",

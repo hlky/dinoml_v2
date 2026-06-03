@@ -328,6 +328,10 @@ if(DINOML_ENABLE_ROCM)
             ${CMAKE_CURRENT_SOURCE_DIR}/tools
             ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
         )
+        target_compile_definitions(${_ck_gemm_profiler_bind_target}
+          PRIVATE
+            DINOML_CK_GEMM_PROFILER_PY_MODULE=${_ck_gemm_profiler_output}_bind
+        )
         target_link_libraries(${_ck_gemm_profiler_bind_target}
           PRIVATE pybind11::module hip::host ${CMAKE_DL_LIBS}
         )
@@ -577,6 +581,10 @@ if(DINOML_ENABLE_ROCM)
             ${CMAKE_CURRENT_SOURCE_DIR}/tools
             ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
         )
+        target_compile_definitions(${_ck_bmm_profiler_bind_target}
+          PRIVATE
+            DINOML_CK_BMM_PROFILER_PY_MODULE=${_ck_bmm_profiler_output}_bind
+        )
         target_link_libraries(${_ck_bmm_profiler_bind_target}
           PRIVATE pybind11::module hip::host ${CMAKE_DL_LIBS}
         )
@@ -623,6 +631,8 @@ if(DINOML_ENABLE_ROCM)
 
   if(DINOML_ENABLE_CK_CONV)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    option(DINOML_ENABLE_CK_CONV_PROFILER "Build CK Conv standalone profiler modules" OFF)
+    set(DINOML_CK_CONV_PROFILER_TARGETS "" CACHE STRING "CK Conv profiler targets or ALL")
     set(DINOML_CK_CONV_OPS
       conv2d_bias
       conv2d_bias_relu
@@ -631,7 +641,7 @@ if(DINOML_ENABLE_ROCM)
       CACHE STRING "CK Conv ops to expose as op/dtype static archives"
     )
     set(DINOML_CK_CONV_DTYPES
-      float32 float16
+      float32 float16 bfloat16
       CACHE STRING "CK Conv dtypes to expose as op/dtype static archives"
     )
     set(DINOML_CK_CONV_GENERATOR_DEPS
@@ -640,6 +650,7 @@ if(DINOML_ENABLE_ROCM)
       ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/conv.py
     )
     set(CK_ENABLE_FP16 ON)
+    set(CK_ENABLE_BF16 ON)
     set(CK_ENABLE_FP32 ON)
     set(CK_USE_XDL ON)
     set(_dinoml_ck_config_include "${CMAKE_CURRENT_BINARY_DIR}/ck_config/include")
@@ -681,6 +692,7 @@ if(DINOML_ENABLE_ROCM)
           PRIVATE
             DINOML_HIP=1
             CK_ENABLE_FP16
+            CK_ENABLE_BF16
             CK_ENABLE_FP32
             CK_USE_XDL
             CK_TIME_KERNEL=0
@@ -694,6 +706,120 @@ if(DINOML_ENABLE_ROCM)
       endforeach()
     endforeach()
     add_custom_target(dinoml_ck_conv DEPENDS ${DINOML_CK_CONV_TARGETS})
+    if(DINOML_ENABLE_CK_CONV_PROFILER)
+      find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
+      if(NOT pybind11_DIR)
+        execute_process(
+          COMMAND ${Python3_EXECUTABLE} -m pybind11 --cmakedir
+          OUTPUT_VARIABLE _DINOML_PYBIND11_DIR
+          ERROR_QUIET
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_DINOML_PYBIND11_DIR)
+          set(pybind11_DIR "${_DINOML_PYBIND11_DIR}" CACHE PATH "pybind11 CMake package directory")
+        endif()
+      endif()
+      find_package(pybind11 CONFIG REQUIRED)
+      set(DINOML_CK_CONV_PROFILER_LINK_TARGETS)
+      if(DINOML_CK_CONV_PROFILER_TARGETS STREQUAL "ALL")
+        set(DINOML_CK_CONV_PROFILER_LINK_TARGETS ${DINOML_CK_CONV_TARGETS})
+      elseif(DINOML_CK_CONV_PROFILER_TARGETS)
+        foreach(_ck_conv_profiler_target IN LISTS DINOML_CK_CONV_PROFILER_TARGETS)
+          if(NOT TARGET ${_ck_conv_profiler_target})
+            message(FATAL_ERROR "Unknown CK Conv profiler target: ${_ck_conv_profiler_target}")
+          endif()
+          list(APPEND DINOML_CK_CONV_PROFILER_LINK_TARGETS ${_ck_conv_profiler_target})
+        endforeach()
+      endif()
+
+      set(DINOML_CK_CONV_PROFILER_TARGETS_BUILT)
+      foreach(_ck_conv_target IN LISTS DINOML_CK_CONV_PROFILER_LINK_TARGETS)
+        string(REGEX REPLACE "^dinoml_ck_conv_" "" _ck_conv_profiler_group_id "${_ck_conv_target}")
+        if(NOT _ck_conv_profiler_group_id MATCHES "^(.+)_(float32|float16|bfloat16)$")
+          message(FATAL_ERROR "Could not derive CK Conv profiler op/dtype from target: ${_ck_conv_target}")
+        endif()
+        set(_ck_conv_profiler_op "${CMAKE_MATCH_1}")
+        set(_ck_conv_profiler_dtype "${CMAKE_MATCH_2}")
+        set(_ck_conv_profiler_output "dinoml_ck_conv_profiler_${_ck_conv_profiler_group_id}")
+        set(_ck_conv_profiler_bind_target "${_ck_conv_profiler_output}_bind")
+        set(_ck_conv_profiler_exe_target "${_ck_conv_profiler_output}")
+        set(_ck_conv_profiler_dispatch_source
+          "${CMAKE_CURRENT_BINARY_DIR}/ck_conv_profiler_dispatch/${_ck_conv_profiler_group_id}.cpp"
+        )
+        add_custom_command(
+          OUTPUT ${_ck_conv_profiler_dispatch_source}
+          COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_conv_profiler_dispatch.py
+            --op ${_ck_conv_profiler_op}
+            --dtype ${_ck_conv_profiler_dtype}
+            --output ${_ck_conv_profiler_dispatch_source}
+          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+          DEPENDS
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_conv_profiler_dispatch.py
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/ck_conv_profiler_core.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/conv.py
+          VERBATIM
+        )
+        set(_ck_conv_profiler_linker_flags
+          "LINKER:--whole-archive"
+          "$<TARGET_FILE:${_ck_conv_target}>"
+          "LINKER:--no-whole-archive"
+        )
+        add_library(${_ck_conv_profiler_bind_target} MODULE
+          tools/ck_conv_profiler_pybind.cpp
+          ${_ck_conv_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_conv_profiler_bind_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_compile_definitions(${_ck_conv_profiler_bind_target}
+          PRIVATE
+            DINOML_CK_CONV_PROFILER_PY_MODULE=${_ck_conv_profiler_output}_bind
+        )
+        target_link_libraries(${_ck_conv_profiler_bind_target}
+          PRIVATE pybind11::module hip::host ${CMAKE_DL_LIBS}
+        )
+        target_link_options(${_ck_conv_profiler_bind_target} PRIVATE ${_ck_conv_profiler_linker_flags})
+        set_target_properties(${_ck_conv_profiler_bind_target} PROPERTIES
+          PREFIX ""
+          OUTPUT_NAME "${_ck_conv_profiler_output}_bind"
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        if(WIN32)
+          set_target_properties(${_ck_conv_profiler_bind_target} PROPERTIES SUFFIX ".pyd")
+        endif()
+
+        add_executable(${_ck_conv_profiler_exe_target}
+          tools/ck_conv_profiler_main.cpp
+          ${_ck_conv_profiler_dispatch_source}
+        )
+        target_include_directories(${_ck_conv_profiler_exe_target}
+          PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools
+            ${CMAKE_CURRENT_SOURCE_DIR}/kernels/common/include
+        )
+        target_link_libraries(${_ck_conv_profiler_exe_target} PRIVATE hip::host ${CMAKE_DL_LIBS})
+        target_link_options(${_ck_conv_profiler_exe_target} PRIVATE ${_ck_conv_profiler_linker_flags})
+        set_target_properties(${_ck_conv_profiler_exe_target} PROPERTIES
+          OUTPUT_NAME "${_ck_conv_profiler_output}"
+          ENABLE_EXPORTS ON
+          LINKER_LANGUAGE HIP
+          HIP_SEPARABLE_COMPILATION OFF
+        )
+        add_dependencies(${_ck_conv_profiler_bind_target} ${_ck_conv_target})
+        add_dependencies(${_ck_conv_profiler_exe_target} ${_ck_conv_target})
+        list(APPEND DINOML_CK_CONV_PROFILER_TARGETS_BUILT
+          ${_ck_conv_profiler_bind_target}
+          ${_ck_conv_profiler_exe_target}
+        )
+      endforeach()
+      if(DINOML_CK_CONV_PROFILER_TARGETS_BUILT)
+        add_custom_target(dinoml_ck_conv_profilers DEPENDS ${DINOML_CK_CONV_PROFILER_TARGETS_BUILT})
+      endif()
+    endif()
   endif()
 
   if(DINOML_ENABLE_FLASH_ATTN_CK)

@@ -116,7 +116,13 @@ def _compile_with_profile(
         pass_manager=pass_manager,
     )
     _validate_profile_shape_expressions(lowered_ir, target)
-    if target.name == "rocm":
+    kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    rocm_requires_bootstrap_module = target.name == "rocm" and any(
+        item.get("kernel_library") == "ck_conv"
+        for item in kernel_manifest.get("required_kernels", [])
+        if isinstance(item, Mapping)
+    )
+    if rocm_requires_bootstrap_module:
         bootstrap_dir = _prepare_artifact_dir(debug_dir / "profile_bootstrap_artifact", clean=True)
         profile_artifact_dir = bootstrap_dir
         _build_artifact_from_lowered_ir(
@@ -139,6 +145,7 @@ def _compile_with_profile(
             reports=reports,
             backend=backend,
             constant_load_policy=constant_load_policy,
+            kernel_manifest=kernel_manifest,
         )
     profile_report = profile_artifact(
         profile_artifact_dir,
@@ -180,6 +187,7 @@ def _materialize_profile_bootstrap_artifact(
     reports: Sequence[Any],
     backend: Any,
     constant_load_policy: str,
+    kernel_manifest: Mapping[str, Any] | None = None,
 ) -> None:
     debug_dir = artifact_dir / "debug"
     lowered_ir = dict(lowered_ir)
@@ -190,7 +198,7 @@ def _materialize_profile_bootstrap_artifact(
         write_json(artifact_dir / "encoded_constants.json", encoded_constants_manifest)
     else:
         (artifact_dir / "encoded_constants.json").unlink(missing_ok=True)
-    kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json()) if kernel_manifest is None else dict(kernel_manifest)
     _validate_gguf_runtime_dequant_admission(lowered_ir, target, kernel_manifest)
     write_json(artifact_dir / "kernel_manifest.json", kernel_manifest)
     codegen_plan = create_codegen_plan(
@@ -198,6 +206,10 @@ def _materialize_profile_bootstrap_artifact(
         Path(os.environ.get("DINOML_CACHE_DIR", Path.home() / ".cache" / "dinoml_v2")),
     )
     write_json(artifact_dir / "kernel_codegen_plan.json", codegen_plan.to_json())
+    if target.name == "rocm":
+        from dinoml.backends.rocm import ensure_rocm_support_libs
+
+        ensure_rocm_support_libs(target.arch, kernel_manifest=kernel_manifest)
     files = {
         "graph": "graph.dinoir.json",
         "metadata": "metadata.json",

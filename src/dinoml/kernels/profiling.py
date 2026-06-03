@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import hashlib
+import importlib.machinery
 import importlib.util
 import itertools
 import json
@@ -2233,8 +2234,35 @@ def _cache_modules(item: Mapping[str, Any], cache_dir: Path | None) -> list[dict
             continue
         path = cache_dir / relative
         if path.exists():
-            result.append({**dict(module), "sha256": _file_sha256(path)})
+            entry = {**dict(module), "sha256": _file_sha256(path)}
+            profiler_stem = str(module.get("profiler_stem", ""))
+            if profiler_stem:
+                bind_path = _first_matching_path(cache_dir / "lib", f"{profiler_stem}_bind")
+                exe_path = _first_matching_path(cache_dir / "lib", profiler_stem, exclude_substring="_bind")
+                if bind_path is not None:
+                    entry["profiler_bind"] = bind_path.name
+                    entry["profiler_bind_sha256"] = _file_sha256(bind_path)
+                if exe_path is not None:
+                    entry["profiler_executable"] = exe_path.name
+                    entry["profiler_executable_sha256"] = _file_sha256(exe_path)
+            result.append(entry)
     return result
+
+
+def _first_matching_path(directory: Path, stem: str, *, exclude_substring: str | None = None) -> Path | None:
+    patterns = [f"{stem}{suffix}" for suffix in importlib.machinery.EXTENSION_SUFFIXES]
+    patterns.append(f"{stem}*")
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for candidate in sorted(directory.glob(pattern)):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            if exclude_substring is not None and exclude_substring in candidate.name:
+                continue
+            if candidate.is_file():
+                return candidate
+    return None
 
 
 def _support_library_manifest_path(name: str, cache_dir: Path | None) -> Path | None:
@@ -3449,39 +3477,76 @@ def _stable_u32_seed(*parts: str) -> int:
 
 
 def _cutlass_gemm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
-    out_dir = cache_dir / "lib"
     stem = f"dinoml_cutlass_gemm_profiler_{op}_{dtype}"
-    candidates = sorted(out_dir.glob(f"{stem}_bind*.so"))
-    if not candidates:
-        raise RuntimeError(
-            f"CUTLASS GEMM profiler binding is missing from {out_dir}. "
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CUTLASS GEMM profiler binding is missing from {cache_dir / 'lib'}. "
             f"Build the CMake target `{stem}_bind` for this CUDA architecture."
-        )
-    return candidates[0]
+        ),
+    )
 
 
 def _cutlass_bmm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
-    out_dir = cache_dir / "lib"
     stem = f"dinoml_cutlass_bmm_profiler_{op}_{dtype}"
-    candidates = sorted(out_dir.glob(f"{stem}_bind*.so"))
-    if not candidates:
-        raise RuntimeError(
-            f"CUTLASS BMM profiler binding is missing from {out_dir}. "
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CUTLASS BMM profiler binding is missing from {cache_dir / 'lib'}. "
             f"Build the CMake target `{stem}_bind` for this CUDA architecture."
-        )
-    return candidates[0]
+        ),
+    )
 
 
 def _cutlass_conv_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
-    out_dir = cache_dir / "lib"
     stem = f"dinoml_cutlass_conv_profiler_{op}_{dtype}"
-    candidates = sorted(out_dir.glob(f"{stem}_bind*.so"))
-    if not candidates:
-        raise RuntimeError(
-            f"CUTLASS Conv profiler binding is missing from {out_dir}. "
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CUTLASS Conv profiler binding is missing from {cache_dir / 'lib'}. "
             f"Build the CMake target `{stem}_bind` for this CUDA architecture."
-        )
-    return candidates[0]
+        ),
+    )
+
+
+def _ck_gemm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
+    stem = f"dinoml_ck_gemm_profiler_{op}_{dtype}"
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CK GEMM profiler binding is missing from {cache_dir / 'lib'}. "
+            f"Build the CMake target `{stem}_bind` for this ROCm architecture."
+        ),
+    )
+
+
+def _ck_bmm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
+    stem = f"dinoml_ck_bmm_profiler_{op}_{dtype}"
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CK BMM profiler binding is missing from {cache_dir / 'lib'}. "
+            f"Build the CMake target `{stem}_bind` for this ROCm architecture."
+        ),
+    )
+
+
+def _python_extension_path(out_dir: Path, *, stem: str, error_label: str) -> Path:
+    patterns = [f"{stem}{suffix}" for suffix in importlib.machinery.EXTENSION_SUFFIXES]
+    patterns.append(f"{stem}*.so")
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for candidate in sorted(out_dir.glob(pattern)):
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            return candidate
+    raise RuntimeError(error_label)
 
 
 def _load_python_extension(path: Path, module_name: str) -> Any:
@@ -3505,8 +3570,166 @@ def _load_python_extension(path: Path, module_name: str) -> Any:
 def _profiler_for_target(artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]) -> Any:
     target_name = str(manifest.get("target", {}).get("name", ""))
     if target_name == "rocm":
-        return _CkRocmProfiler(artifact_dir, manifest)
+        return _RocmProfiler(artifact_dir, manifest, codegen_plan)
     return _CudaProfiler(artifact_dir, manifest, codegen_plan)
+
+
+class _CkGemmProfiler:
+    def __init__(self, modules: Mapping[tuple[str, str], Any]):
+        self._modules = dict(modules)
+
+    @classmethod
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkGemmProfiler | None":
+        item = _external_support_library(codegen_plan, "ck_gemm")
+        if item is None:
+            return None
+        cache_dir = Path(str(item["cache_dir"]))
+        modules = item.get("modules")
+        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+            raise RuntimeError("CK GEMM profiler support entry has no op/dtype modules")
+        loaded = {}
+        for module in modules:
+            if not isinstance(module, Mapping):
+                raise RuntimeError("CK GEMM profiler support entry has malformed op/dtype module metadata")
+            op = str(module.get("op", ""))
+            dtype = str(module.get("dtype", ""))
+            if not op or not dtype:
+                raise RuntimeError("CK GEMM profiler support entry is missing op/dtype metadata")
+            module_path = _ck_gemm_profiler_extension(cache_dir, op=op, dtype=dtype)
+            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_gemm_profiler_{op}_{dtype}_bind")
+        return cls(loaded)
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        module = self._modules.get((workload.op, workload.dtype))
+        if module is None:
+            raise RuntimeError(f"CK GEMM profiler for {workload.op}/{workload.dtype} is not loaded")
+        return list(
+            module.profile_gemm(
+                profiler_symbol=str(workload.profiler_symbol),
+                dtype=str(workload.dtype),
+                m=int(workload.m),
+                n=int(workload.n),
+                k=int(workload.k),
+                iterations=int(iterations),
+                repeats=int(repeats),
+                has_bias=workload.bias_shape is not None,
+                residual_count=len(workload.residual_shapes),
+                seed=_stable_u32_seed(
+                    workload.op,
+                    workload.dtype,
+                    workload.shape_case_id,
+                    str(workload.m),
+                    str(workload.n),
+                    str(workload.k),
+                    str(workload.profiler_symbol),
+                ),
+            )
+        )
+
+
+class _CkBmmProfiler:
+    def __init__(self, modules: Mapping[tuple[str, str], Any]):
+        self._modules = dict(modules)
+
+    @classmethod
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkBmmProfiler | None":
+        item = _external_support_library(codegen_plan, "ck_bmm")
+        if item is None:
+            return None
+        cache_dir = Path(str(item["cache_dir"]))
+        modules = item.get("modules")
+        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+            raise RuntimeError("CK BMM profiler support entry has no op/dtype modules")
+        loaded = {}
+        for module in modules:
+            if not isinstance(module, Mapping):
+                raise RuntimeError("CK BMM profiler support entry has malformed op/dtype module metadata")
+            op = str(module.get("op", ""))
+            dtype = str(module.get("dtype", ""))
+            if not op or not dtype:
+                raise RuntimeError("CK BMM profiler support entry is missing op/dtype metadata")
+            module_path = _ck_bmm_profiler_extension(cache_dir, op=op, dtype=dtype)
+            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_bmm_profiler_{op}_{dtype}_bind")
+        return cls(loaded)
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        module = self._modules.get((workload.op, workload.dtype))
+        if module is None:
+            raise RuntimeError(f"CK BMM profiler for {workload.op}/{workload.dtype} is not loaded")
+        return list(
+            module.profile_bmm(
+                profiler_symbol=str(workload.profiler_symbol),
+                dtype=str(workload.dtype),
+                batch_count=int(workload.batch_count or 1),
+                m=int(workload.m),
+                n=int(workload.n),
+                k=int(workload.k),
+                batch_stride_a=int(workload.batch_stride_a or 0),
+                batch_stride_b=int(workload.batch_stride_b or 0),
+                batch_stride_d0=int(workload.batch_stride_d0 or 0),
+                batch_stride_c=int(workload.batch_stride_c or 0),
+                lda=int(workload.lda or 0),
+                ldb=int(workload.ldb or 0),
+                ldd0=int(workload.ldd0 or 0),
+                ldc=int(workload.ldc or 0),
+                iterations=int(iterations),
+                repeats=int(repeats),
+                residual_count=len(workload.residual_shapes),
+                a_elements=int(np.prod(workload.a_shape, dtype=np.int64)),
+                b_elements=int(np.prod(workload.b_shape, dtype=np.int64)),
+                d0_elements=(int(np.prod(workload.residual_shapes[0], dtype=np.int64)) if workload.residual_shapes else 0),
+                c_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
+                seed=_stable_u32_seed(
+                    workload.op,
+                    workload.dtype,
+                    workload.shape_case_id,
+                    str(workload.batch_count or 1),
+                    str(workload.m),
+                    str(workload.n),
+                    str(workload.k),
+                    str(workload.profiler_symbol),
+                ),
+            )
+        )
+
+
+class _RocmProfiler:
+    def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
+        self._ck_gemm_profiler = _CkGemmProfiler.from_codegen_plan(codegen_plan)
+        self._ck_bmm_profiler = _CkBmmProfiler.from_codegen_plan(codegen_plan)
+        required_libraries = {
+            str(item.get("kernel_library", ""))
+            for item in manifest.get("required_kernels", [])
+            if isinstance(item, Mapping)
+        }
+        self._module_profiler = _CkRocmProfiler(artifact_dir, manifest) if "ck_conv" in required_libraries else None
+
+    def close(self) -> None:
+        if self._module_profiler is not None:
+            self._module_profiler.close()
+
+    def profile(
+        self,
+        workload: GemmProfileWorkload | ConvProfileWorkload,
+        *,
+        iterations: int,
+        rng: np.random.Generator,
+    ) -> tuple[float, int]:
+        if workload.kernel_library == "ck_gemm":
+            if self._ck_gemm_profiler is None:
+                raise RuntimeError("CK GEMM profiler requested but codegen plan has no ck_gemm support entry")
+            rows = self._ck_gemm_profiler.profile(workload, iterations=iterations, repeats=1)
+            first = rows[0]
+            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+        if workload.kernel_library == "ck_bmm":
+            if self._ck_bmm_profiler is None:
+                raise RuntimeError("CK BMM profiler requested but codegen plan has no ck_bmm support entry")
+            rows = self._ck_bmm_profiler.profile(workload, iterations=iterations, repeats=1)
+            first = rows[0]
+            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+        if self._module_profiler is None:
+            raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
+        return self._module_profiler.profile(workload, iterations=iterations, rng=rng)
 
 
 class _CkRocmProfiler:
@@ -3536,10 +3759,7 @@ class _CkRocmProfiler:
         self._rocm_runtime.dino_copy_host_to_device.restype = ctypes.c_int
 
     def close(self) -> None:
-        for index in range(len(self._buffers) - 1, -1, -1):
-            ptr = self._buffers[index]
-            self._check(self._rocm_runtime.dino_device_free(ptr))
-            del self._buffers[index]
+        self._release_buffers_since(0)
         for handle in reversed(self._dll_dirs):
             close = getattr(handle, "close", None)
             if close is not None:
@@ -3568,6 +3788,7 @@ class _CkRocmProfiler:
         iterations: int,
         rng: np.random.Generator,
     ) -> tuple[float, int]:
+        start_index = len(getattr(self, "_buffers", ()))
         fn = self._profiler_function(workload.profiler_symbol)
         abi = str(workload.candidate.get("launch_abi", ""))
         ptr = ctypes.c_void_p
@@ -3581,26 +3802,29 @@ class _CkRocmProfiler:
             fn.argtypes = [ptr, ptr, ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
         else:
             raise RuntimeError(f"Unsupported CK GEMM profiler ABI {abi!r} for {workload.candidate_id}")
-        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
-        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
-        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-        args: list[Any] = [a, b]
-        if abi != "dinoml_ck_gemm_v1":
-            if workload.bias_shape is None:
-                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires a bias tensor")
-            args.append(self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng)))
-        if abi in {"dinoml_ck_gemm_bias_residual_v1", "dinoml_ck_gemm_bias_residual2_v1"}:
-            if not workload.residual_shapes:
-                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d0")
-            args.append(self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng)))
-        if abi == "dinoml_ck_gemm_bias_residual2_v1":
-            if len(workload.residual_shapes) < 2:
-                raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d1")
-            args.append(self._device_array(_random_storage(workload.residual_shapes[1], workload.dtype, rng)))
-        args.extend([c, workload.m, workload.n, workload.k, int(iterations), ctypes.c_void_p()])
-        elapsed_ms = float(fn(*args))
-        self._check_ck_elapsed(elapsed_ms, workload)
-        return elapsed_ms, int(workload.workspace_nbytes)
+        try:
+            a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
+            b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+            c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+            args: list[Any] = [a, b]
+            if abi != "dinoml_ck_gemm_v1":
+                if workload.bias_shape is None:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires a bias tensor")
+                args.append(self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng)))
+            if abi in {"dinoml_ck_gemm_bias_residual_v1", "dinoml_ck_gemm_bias_residual2_v1"}:
+                if not workload.residual_shapes:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d0")
+                args.append(self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng)))
+            if abi == "dinoml_ck_gemm_bias_residual2_v1":
+                if len(workload.residual_shapes) < 2:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d1")
+                args.append(self._device_array(_random_storage(workload.residual_shapes[1], workload.dtype, rng)))
+            args.extend([c, workload.m, workload.n, workload.k, int(iterations), ctypes.c_void_p()])
+            elapsed_ms = float(fn(*args))
+            self._check_ck_elapsed(elapsed_ms, workload)
+            return elapsed_ms, int(workload.workspace_nbytes)
+        finally:
+            self._release_buffers_since(start_index)
 
     def profile_ck_bmm(
         self,
@@ -3609,6 +3833,7 @@ class _CkRocmProfiler:
         iterations: int,
         rng: np.random.Generator,
     ) -> tuple[float, int]:
+        start_index = len(getattr(self, "_buffers", ()))
         fn = self._profiler_function(workload.profiler_symbol)
         abi = str(workload.candidate.get("launch_abi", ""))
         ptr = ctypes.c_void_p
@@ -3654,52 +3879,55 @@ class _CkRocmProfiler:
             ]
         else:
             raise RuntimeError(f"Unsupported CK BMM profiler ABI {abi!r} for {workload.candidate_id}")
-        a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
-        b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
-        c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-        common = [
-            int(workload.batch_count or 1),
-            workload.m,
-            workload.n,
-            workload.k,
-            int(workload.batch_stride_a or 0),
-            int(workload.batch_stride_b or 0),
-        ]
-        if abi == "dinoml_ck_bmm_add_v1":
-            if not workload.residual_shapes:
-                raise RuntimeError("CK BMM add profiler requires residual tensor d0")
-            d0 = self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng))
-            args = [
-                a,
-                b,
-                d0,
-                c,
-                *common,
-                int(workload.batch_stride_d0 or 0),
-                int(workload.batch_stride_c or 0),
-                int(workload.lda or 0),
-                int(workload.ldb or 0),
-                int(workload.ldd0 or 0),
-                int(workload.ldc or 0),
-                int(iterations),
-                ctypes.c_void_p(),
+        try:
+            a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
+            b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+            c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+            common = [
+                int(workload.batch_count or 1),
+                workload.m,
+                workload.n,
+                workload.k,
+                int(workload.batch_stride_a or 0),
+                int(workload.batch_stride_b or 0),
             ]
-        else:
-            args = [
-                a,
-                b,
-                c,
-                *common,
-                int(workload.batch_stride_c or 0),
-                int(workload.lda or 0),
-                int(workload.ldb or 0),
-                int(workload.ldc or 0),
-                int(iterations),
-                ctypes.c_void_p(),
-            ]
-        elapsed_ms = float(fn(*args))
-        self._check_ck_elapsed(elapsed_ms, workload)
-        return elapsed_ms, int(workload.workspace_nbytes)
+            if abi == "dinoml_ck_bmm_add_v1":
+                if not workload.residual_shapes:
+                    raise RuntimeError("CK BMM add profiler requires residual tensor d0")
+                d0 = self._device_array(_random_storage(workload.residual_shapes[0], workload.dtype, rng))
+                args = [
+                    a,
+                    b,
+                    d0,
+                    c,
+                    *common,
+                    int(workload.batch_stride_d0 or 0),
+                    int(workload.batch_stride_c or 0),
+                    int(workload.lda or 0),
+                    int(workload.ldb or 0),
+                    int(workload.ldd0 or 0),
+                    int(workload.ldc or 0),
+                    int(iterations),
+                    ctypes.c_void_p(),
+                ]
+            else:
+                args = [
+                    a,
+                    b,
+                    c,
+                    *common,
+                    int(workload.batch_stride_c or 0),
+                    int(workload.lda or 0),
+                    int(workload.ldb or 0),
+                    int(workload.ldc or 0),
+                    int(iterations),
+                    ctypes.c_void_p(),
+                ]
+            elapsed_ms = float(fn(*args))
+            self._check_ck_elapsed(elapsed_ms, workload)
+            return elapsed_ms, int(workload.workspace_nbytes)
+        finally:
+            self._release_buffers_since(start_index)
 
     def profile_ck_conv(
         self,
@@ -3708,6 +3936,7 @@ class _CkRocmProfiler:
         iterations: int,
         rng: np.random.Generator,
     ) -> tuple[float, int]:
+        start_index = len(getattr(self, "_buffers", ()))
         fn = self._profiler_function(workload.profiler_symbol)
         ptr = ctypes.c_void_p
         has_residual = workload.residual_shape is not None
@@ -3735,46 +3964,49 @@ class _CkRocmProfiler:
             ctypes.c_int,
             ptr,
         ]
-        x = self._device_array(_random_storage(workload.x_shape, workload.dtype, rng))
-        weight = self._device_array(_random_storage(workload.weight_shape, workload.dtype, rng))
-        bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
-        residual = (
-            self._device_array(_random_storage(workload.residual_shape, workload.dtype, rng))
-            if has_residual
-            else None
-        )
-        output = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-        batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
-        out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
-        out_height, out_width = int(workload.output_shape[2]), int(workload.output_shape[3])
-        stride = list(workload.conv_config.get("stride", (1, 1)))
-        padding = list(workload.conv_config.get("padding", (0, 0)))
-        dilation = list(workload.conv_config.get("dilation", (1, 1)))
-        pointer_args = [x, weight, bias, *([residual] if residual is not None else []), output]
-        elapsed_ms = float(
-            fn(
-                *pointer_args,
-                batch,
-                in_channels,
-                in_height,
-                in_width,
-                out_channels,
-                kernel_h,
-                kernel_w,
-                out_height,
-                out_width,
-                int(stride[0]),
-                int(stride[1]),
-                int(padding[0]),
-                int(padding[1]),
-                int(dilation[0]),
-                int(dilation[1]),
-                int(iterations),
-                ctypes.c_void_p(),
+        try:
+            x = self._device_array(_random_storage(workload.x_shape, workload.dtype, rng))
+            weight = self._device_array(_random_storage(workload.weight_shape, workload.dtype, rng))
+            bias = self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng))
+            residual = (
+                self._device_array(_random_storage(workload.residual_shape, workload.dtype, rng))
+                if has_residual
+                else None
             )
-        )
-        self._check_ck_elapsed(elapsed_ms, workload)
-        return elapsed_ms, int(workload.workspace_nbytes)
+            output = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
+            batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
+            out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+            out_height, out_width = int(workload.output_shape[2]), int(workload.output_shape[3])
+            stride = list(workload.conv_config.get("stride", (1, 1)))
+            padding = list(workload.conv_config.get("padding", (0, 0)))
+            dilation = list(workload.conv_config.get("dilation", (1, 1)))
+            pointer_args = [x, weight, bias, *([residual] if residual is not None else []), output]
+            elapsed_ms = float(
+                fn(
+                    *pointer_args,
+                    batch,
+                    in_channels,
+                    in_height,
+                    in_width,
+                    out_channels,
+                    kernel_h,
+                    kernel_w,
+                    out_height,
+                    out_width,
+                    int(stride[0]),
+                    int(stride[1]),
+                    int(padding[0]),
+                    int(padding[1]),
+                    int(dilation[0]),
+                    int(dilation[1]),
+                    int(iterations),
+                    ctypes.c_void_p(),
+                )
+            )
+            self._check_ck_elapsed(elapsed_ms, workload)
+            return elapsed_ms, int(workload.workspace_nbytes)
+        finally:
+            self._release_buffers_since(start_index)
 
     def _profiler_function(self, symbol: str) -> Any:
         try:
@@ -3970,6 +4202,14 @@ class _CudaProfiler:
             )
         )
         return ptr
+
+    def _release_buffers_since(self, start_index: int) -> None:
+        if not hasattr(self, "_buffers"):
+            return
+        for index in range(len(self._buffers) - 1, start_index - 1, -1):
+            ptr = self._buffers[index]
+            self._check(self._rocm_runtime.dino_device_free(ptr))
+            del self._buffers[index]
 
     def _check(self, code: int) -> None:
         if code == 0:

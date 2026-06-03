@@ -360,7 +360,66 @@ def test_rocm_compile_profile_path_is_admitted_without_cuda_guard(tmp_path, monk
     assert calls[0][1].name == "rocm"
 
 
-def test_rocm_compile_with_profile_profiles_bootstrap_artifact(tmp_path, monkeypatch):
+def test_rocm_compile_with_profile_uses_metadata_bootstrap_when_module_profiler_is_not_required(tmp_path, monkeypatch):
+    spec = elementwise_case().build_spec()
+    target = dml.Target("rocm")
+    artifact_dir = (tmp_path / "profiled_rocm.dinoml").resolve()
+    build_calls = []
+    materialize_calls = []
+    profile_calls = []
+
+    monkeypatch.setattr(dml_compiler, "_lower_for_compile", lambda *args, **kwargs: (spec.ir, []))
+    monkeypatch.setattr(dml_compiler, "build_kernel_manifest", lambda *args, **kwargs: {"required_kernels": []})
+
+    def fake_build_artifact_from_lowered_ir(*args, **kwargs):
+        build_calls.append(
+            {
+                "artifact_dir": Path(kwargs["artifact_dir"]),
+                "generated_src_dir": Path(kwargs["generated_src_dir"]),
+                "execution_plan_payload": kwargs["execution_plan_payload"],
+            }
+        )
+        return dml_compiler.Artifact(Path(kwargs["artifact_dir"]))
+
+    def fake_profile_artifact(path, **kwargs):
+        profile_calls.append((Path(path), kwargs))
+        return {"execution_plan": {"path": str(tmp_path / "execution_plan.json"), "selection_count": 0}}
+
+    def fake_materialize_profile_bootstrap_artifact(*args, **kwargs):
+        materialize_calls.append({"artifact_dir": Path(kwargs["artifact_dir"])})
+
+    monkeypatch.setattr(dml_compiler, "_build_artifact_from_lowered_ir", fake_build_artifact_from_lowered_ir)
+    monkeypatch.setattr(dml_compiler, "_materialize_profile_bootstrap_artifact", fake_materialize_profile_bootstrap_artifact)
+    monkeypatch.setattr(dml_compiler, "profile_artifact", fake_profile_artifact)
+
+    artifact = dml_compiler._compile_with_profile(
+        spec,
+        target,
+        artifact_dir,
+        clean=True,
+        pass_manager=None,
+        iterations=5,
+        repeats=2,
+        input_shapes={"input": [1, 4]},
+        refresh=True,
+        constant_load_policy="eager",
+    )
+
+    assert artifact.path == artifact_dir
+    assert materialize_calls == [{"artifact_dir": artifact_dir}]
+    assert profile_calls == [
+        (
+            artifact_dir,
+            {"input_shapes": {"input": [1, 4]}, "iterations": 5, "repeats": 2, "refresh": True},
+        )
+    ]
+    assert [call["artifact_dir"] for call in build_calls] == [artifact_dir]
+    assert build_calls[0]["generated_src_dir"] == artifact_dir / "debug" / "generated_src"
+    assert build_calls[0]["execution_plan_payload"] is None
+    assert (artifact_dir / "debug" / "bootstrap_profile_report.json").exists()
+
+
+def test_rocm_compile_with_profile_profiles_bootstrap_artifact_for_ck_conv(tmp_path, monkeypatch):
     spec = elementwise_case().build_spec()
     target = dml.Target("rocm")
     artifact_dir = (tmp_path / "profiled_rocm.dinoml").resolve()
@@ -369,6 +428,11 @@ def test_rocm_compile_with_profile_profiles_bootstrap_artifact(tmp_path, monkeyp
     profile_calls = []
 
     monkeypatch.setattr(dml_compiler, "_lower_for_compile", lambda *args, **kwargs: (spec.ir, []))
+    monkeypatch.setattr(
+        dml_compiler,
+        "build_kernel_manifest",
+        lambda *args, **kwargs: {"required_kernels": [{"kernel_library": "ck_conv"}]},
+    )
 
     def fake_build_artifact_from_lowered_ir(*args, **kwargs):
         build_calls.append(
@@ -1299,6 +1363,95 @@ def test_rocm_ck_profile_failure_result_includes_diagnostics():
     assert diagnostics["problem"] == {"m": 128, "n": 128, "k": 96, "split_k": 1}
     assert diagnostics["ck"]["config"]["tile"]["k_per_block"] > 0
     assert result["candidates"][0]["diagnostics"] == diagnostics
+
+
+def test_rocm_ck_gemm_profile_frees_device_buffers_per_workload():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    profiler = object.__new__(_CkRocmProfiler)
+    free_calls = []
+
+    class FakeRocmRuntime:
+        @staticmethod
+        def dino_device_free(ptr):
+            free_calls.append(ptr.value)
+            return 0
+
+    class FakeProfilerFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            return 0.25
+
+    profiler._buffers = []
+    profiler._rocm_runtime = FakeRocmRuntime()
+    profiler._check = lambda code: code
+    profiler._check_ck_elapsed = lambda elapsed_ms, _workload: elapsed_ms
+    profiler._profiler_function = lambda _symbol: FakeProfilerFunction()
+
+    def fake_device_array(array: np.ndarray) -> ctypes.c_void_p:
+        ptr = ctypes.c_void_p(0x1000 + 0x10 * (len(profiler._buffers) + 1))
+        profiler._buffers.append(ptr)
+        return ptr
+
+    profiler._device_array = fake_device_array
+
+    elapsed_ms, workspace_nbytes = profiler.profile_ck_gemm(
+        workload,
+        iterations=17,
+        rng=np.random.default_rng(123),
+    )
+
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert profiler._buffers == []
+    assert free_calls == [0x1030, 0x1020, 0x1010]
+
+
+def test_rocm_ck_gemm_profile_frees_device_buffers_on_failure():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    profiler = object.__new__(_CkRocmProfiler)
+    free_calls = []
+
+    class FakeRocmRuntime:
+        @staticmethod
+        def dino_device_free(ptr):
+            free_calls.append(ptr.value)
+            return 0
+
+    class FakeProfilerFunction:
+        argtypes = None
+        restype = None
+
+        def __call__(self, *args):
+            return 0.25
+
+    profiler._buffers = []
+    profiler._rocm_runtime = FakeRocmRuntime()
+    profiler._check = lambda code: code
+    profiler._check_ck_elapsed = lambda elapsed_ms, _workload: (_ for _ in ()).throw(RuntimeError("boom"))
+    profiler._profiler_function = lambda _symbol: FakeProfilerFunction()
+
+    def fake_device_array(array: np.ndarray) -> ctypes.c_void_p:
+        ptr = ctypes.c_void_p(0x1000 + 0x10 * (len(profiler._buffers) + 1))
+        profiler._buffers.append(ptr)
+        return ptr
+
+    profiler._device_array = fake_device_array
+
+    with pytest.raises(RuntimeError, match="boom"):
+        profiler.profile_ck_gemm(
+            workload,
+            iterations=17,
+            rng=np.random.default_rng(123),
+        )
+
+    assert profiler._buffers == []
+    assert free_calls == [0x1030, 0x1020, 0x1010]
 
 
 def test_rocm_ck_profile_cache_entry_records_launch_metadata():

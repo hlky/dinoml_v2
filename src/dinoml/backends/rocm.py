@@ -475,6 +475,13 @@ def _store_rocm_module_in_cache(cache_entry: Mapping[str, Any], module_lib: Path
     )
 
 
+def _first_existing_glob_sha256(directory: Path, pattern: str, *, exclude_substring: str | None = None) -> str | None:
+    for candidate in sorted(directory.glob(pattern)):
+        if candidate.is_file() and (exclude_substring is None or exclude_substring not in candidate.name):
+            return file_sha256(candidate)
+    return None
+
+
 def _requires_kernel_library(kernel_manifest: Mapping[str, Any] | None, library: str) -> bool:
     if kernel_manifest is None:
         return False
@@ -490,8 +497,10 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
     lib_dir = support_root / "lib"
     modules = _required_ck_gemm_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    profiler_stems = [str(module["profiler_stem"]) for module in modules]
     ops = _cmake_cache_list(module["op"] for module in modules)
     dtypes = _cmake_cache_list(module["dtype"] for module in modules)
+    profiler_targets = _cmake_cache_list(module["target"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     _prepare_ck_cmake_build_dir(
@@ -499,6 +508,8 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
         required_cache={
             "DINOML_CK_GEMM_OPS": ops,
             "DINOML_CK_GEMM_DTYPES": dtypes,
+            "DINOML_ENABLE_CK_GEMM_PROFILER": "ON",
+            "DINOML_CK_GEMM_PROFILER_TARGETS": profiler_targets,
         },
     )
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
@@ -513,8 +524,10 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 "-DDINOML_ENABLE_CUDA=OFF",
                 "-DDINOML_ENABLE_ROCM=ON",
                 "-DDINOML_ENABLE_CK_GEMM=ON",
+                "-DDINOML_ENABLE_CK_GEMM_PROFILER=ON",
                 f"-DDINOML_CK_GEMM_OPS={ops}",
                 f"-DDINOML_CK_GEMM_DTYPES={dtypes}",
+                f"-DDINOML_CK_GEMM_PROFILER_TARGETS={profiler_targets}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -523,6 +536,8 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
             cwd=repo_root,
         )
     targets = [module["target"] for module in modules]
+    profiler_bind_targets = [module["profiler_bind_target"] for module in modules]
+    profiler_executable_targets = [module["profiler_executable_target"] for module in modules]
     _run_cmake(
         [
             "cmake",
@@ -530,13 +545,21 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *profiler_bind_targets,
+            *profiler_executable_targets,
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
     missing = [str(archive) for archive in archives if not archive.exists()]
     if missing:
         raise RuntimeError(f"Expected CMake-built CK GEMM static archives, but these were not produced: {missing}")
+    missing_profiler_modules = [stem for stem in profiler_stems if not any(lib_dir.glob(f"{stem}_bind*"))]
+    if missing_profiler_modules:
+        raise RuntimeError(
+            "Expected CMake-built CK GEMM profiler bindings, but these were not produced: "
+            + ", ".join(missing_profiler_modules)
+        )
     write_json(
         lib_dir / "ck_gemm_manifest.json",
         {
@@ -550,6 +573,15 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 {
                     **module,
                     "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                    "profiler_bind_sha256": _first_existing_glob_sha256(
+                        lib_dir,
+                        f"{module['profiler_stem']}_bind*",
+                    ),
+                    "profiler_executable_sha256": _first_existing_glob_sha256(
+                        lib_dir,
+                        f"{module['profiler_stem']}*",
+                        exclude_substring="_bind",
+                    ),
                 }
                 for module in modules
             ],
@@ -557,7 +589,7 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
             "source_sha256": _ck_gemm_source_sha256(repo_root),
             "compile": {
                 "system": "cmake",
-                "targets": targets,
+                "targets": [*targets, *profiler_bind_targets, *profiler_executable_targets],
                 "build_dir": str(build_dir),
             },
             "cache_key": "cmake-full",
@@ -575,8 +607,10 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
     lib_dir = support_root / "lib"
     modules = _required_ck_bmm_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    profiler_stems = [str(module["profiler_stem"]) for module in modules]
     ops = _cmake_cache_list(module["op"] for module in modules)
     dtypes = _cmake_cache_list(module["dtype"] for module in modules)
+    profiler_targets = _cmake_cache_list(module["target"] for module in modules)
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
     _prepare_ck_cmake_build_dir(
@@ -584,6 +618,8 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
         required_cache={
             "DINOML_CK_BMM_OPS": ops,
             "DINOML_CK_BMM_DTYPES": dtypes,
+            "DINOML_ENABLE_CK_BMM_PROFILER": "ON",
+            "DINOML_CK_BMM_PROFILER_TARGETS": profiler_targets,
         },
     )
     if any(not archive.exists() for archive in archives) or not build_dir.exists():
@@ -599,8 +635,10 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
                 "-DDINOML_ENABLE_ROCM=ON",
                 "-DDINOML_ENABLE_CK_GEMM=OFF",
                 "-DDINOML_ENABLE_CK_BMM=ON",
+                "-DDINOML_ENABLE_CK_BMM_PROFILER=ON",
                 f"-DDINOML_CK_BMM_OPS={ops}",
                 f"-DDINOML_CK_BMM_DTYPES={dtypes}",
+                f"-DDINOML_CK_BMM_PROFILER_TARGETS={profiler_targets}",
                 f"-DCMAKE_HIP_ARCHITECTURES={arch_name}",
                 f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
                 f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
@@ -609,6 +647,8 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
             cwd=repo_root,
         )
     targets = [module["target"] for module in modules]
+    profiler_bind_targets = [module["profiler_bind_target"] for module in modules]
+    profiler_executable_targets = [module["profiler_executable_target"] for module in modules]
     _run_cmake(
         [
             "cmake",
@@ -616,13 +656,21 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *profiler_bind_targets,
+            *profiler_executable_targets,
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
     missing = [str(archive) for archive in archives if not archive.exists()]
     if missing:
         raise RuntimeError(f"Expected CMake-built CK BMM static archives, but these were not produced: {missing}")
+    missing_profiler_modules = [stem for stem in profiler_stems if not any(lib_dir.glob(f"{stem}_bind*"))]
+    if missing_profiler_modules:
+        raise RuntimeError(
+            "Expected CMake-built CK BMM profiler bindings, but these were not produced: "
+            + ", ".join(missing_profiler_modules)
+        )
     write_json(
         lib_dir / "ck_bmm_manifest.json",
         {
@@ -636,6 +684,15 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
                 {
                     **module,
                     "archive_sha256": file_sha256(lib_dir / module["archive"]),
+                    "profiler_bind_sha256": _first_existing_glob_sha256(
+                        lib_dir,
+                        f"{module['profiler_stem']}_bind*",
+                    ),
+                    "profiler_executable_sha256": _first_existing_glob_sha256(
+                        lib_dir,
+                        f"{module['profiler_stem']}*",
+                        exclude_substring="_bind",
+                    ),
                 }
                 for module in modules
             ],
@@ -643,7 +700,7 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
             "source_sha256": _ck_bmm_source_sha256(repo_root),
             "compile": {
                 "system": "cmake",
-                "targets": targets,
+                "targets": [*targets, *profiler_bind_targets, *profiler_executable_targets],
                 "build_dir": str(build_dir),
             },
             "cache_key": "cmake-full",
@@ -857,6 +914,9 @@ def _required_ck_gemm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[
             "dtype": dtype,
             "archive": archive,
             "target": ck_gemm_cmake_target(op_name, dtype),
+            "profiler_bind_target": ck_gemm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_gemm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_gemm_profiler_stem(op_name, dtype),
         }
     return tuple(modules[key] for key in sorted(modules))
 
@@ -874,6 +934,9 @@ def _required_ck_bmm_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[s
             "dtype": dtype,
             "archive": archive,
             "target": ck_bmm_cmake_target(op_name, dtype),
+            "profiler_bind_target": ck_bmm_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_bmm_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_bmm_profiler_stem(op_name, dtype),
         }
     return tuple(modules[key] for key in sorted(modules))
 
@@ -897,7 +960,12 @@ def _required_ck_conv_modules(kernel_manifest: Mapping[str, Any]) -> tuple[dict[
 
 def _ck_gemm_source_sha256(repo_root: Path) -> str:
     source_paths = [
+        repo_root / "CMakeLists.txt",
         repo_root / "kernels" / "rocm" / "src" / "ck_gemm.hip",
+        repo_root / "tools" / "ck_gemm_profiler_core.hpp",
+        repo_root / "tools" / "ck_gemm_profiler_pybind.cpp",
+        repo_root / "tools" / "ck_gemm_profiler_main.cpp",
+        repo_root / "tools" / "generate_ck_gemm_profiler_dispatch.py",
         repo_root / "tools" / "generate_ck_gemm_unit.py",
         repo_root / "src" / "dinoml" / "kernels" / "families" / "gemm.py",
         repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "gemm.py",
@@ -913,10 +981,12 @@ def _ck_gemm_source_sha256(repo_root: Path) -> str:
 
 def _ck_bmm_source_sha256(repo_root: Path) -> str:
     source_paths = [
+        repo_root / "CMakeLists.txt",
         repo_root / "kernels" / "rocm" / "src" / "ck_bmm.hip",
-            "profiler_bind_target": ck_gemm_profiler_bind_target(op_name, dtype),
-            "profiler_executable_target": ck_gemm_profiler_executable_target(op_name, dtype),
-            "profiler_stem": ck_gemm_profiler_stem(op_name, dtype),
+        repo_root / "tools" / "ck_bmm_profiler_core.hpp",
+        repo_root / "tools" / "ck_bmm_profiler_pybind.cpp",
+        repo_root / "tools" / "ck_bmm_profiler_main.cpp",
+        repo_root / "tools" / "generate_ck_bmm_profiler_dispatch.py",
         repo_root / "tools" / "generate_ck_bmm_unit.py",
         repo_root / "src" / "dinoml" / "kernels" / "families" / "bmm.py",
         repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "bmm.py",
@@ -934,9 +1004,6 @@ def _ck_conv_source_sha256(repo_root: Path) -> str:
     source_paths = [
         repo_root / "kernels" / "rocm" / "src" / "ck_conv.hip",
         repo_root / "tools" / "generate_ck_conv_unit.py",
-            "profiler_bind_target": ck_bmm_profiler_bind_target(op_name, dtype),
-            "profiler_executable_target": ck_bmm_profiler_executable_target(op_name, dtype),
-            "profiler_stem": ck_bmm_profiler_stem(op_name, dtype),
         repo_root / "src" / "dinoml" / "kernels" / "providers" / "ck" / "conv.py",
     ]
     digest = hashlib.sha256()
@@ -1099,7 +1166,8 @@ def _prepare_ck_cmake_build_dir(build_dir: Path, *, required_cache: Mapping[str,
     for key, required in required_cache.items():
         cached = _cmake_cache_value(cache_path, key)
         if cached is None:
-            continue
+            shutil.rmtree(build_dir)
+            return
         cached_values = set(_cmake_cache_split(cached))
         required_values = set(_cmake_cache_split(required))
         if not required_values.issubset(cached_values):

@@ -478,28 +478,13 @@ class GlmOcrTextAttention(dml.nn.Module):
         q, k = dml.ops.glm_ocr_text_rope(q, k, cos, sin, self.config.rotary_dim)
         return q, k, v
 
-    def forward(self, hidden_states, cos, sin, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
-        q, k, v = self._project_qkv(hidden_states, cos, sin)
-        return self._attention_output(q, k, v, attention_mask, batch, seq_len)
-
-    def prefill_with_cache(self, hidden_states, cos, sin, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
-        q, k, v = self._project_qkv(hidden_states, cos, sin)
-        present_key = dml.ops.permute0213(k)
-        present_value = dml.ops.permute0213(v)
-        return self._attention_output(q, k, v, attention_mask, batch, seq_len), present_key, present_value
+    def _project_attention_output(self, context, batch: int, seq_len: int):
+        context = dml.ops.reshape(context, [batch, self.config.num_attention_heads, seq_len, self.config.head_dim])
+        context = dml.ops.permute(context, (0, 2, 1, 3))
+        context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+        return self.o_proj(context)
 
     def _attention_output(self, q, k, v, attention_mask, batch: int, seq_len: int):
-        if self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"}:
-            if attention_mask is None:
-                context = dml.ops.flash_attention(q, k, v, causal=True)
-                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-                return self.o_proj(context)
-            if self.config.use_flash_attention_bias:
-                context = dml.ops.flash_attention_bias(q, k, v, attention_mask, causal=True)
-                context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-                return self.o_proj(context)
         q = dml.ops.permute(q, (0, 2, 1, 3))
         k = dml.ops.permute(k, (0, 2, 1, 3))
         v = dml.ops.permute(v, (0, 2, 1, 3))
@@ -515,10 +500,50 @@ class GlmOcrTextAttention(dml.nn.Module):
             scores = dml.ops.add(scores, attention_mask)
         probs = dml.ops.softmax(scores, dim=-1)
         context = dml.ops.bmm_rrr(probs, v)
-        context = dml.ops.reshape(context, [batch, self.config.num_attention_heads, seq_len, self.config.head_dim])
-        context = dml.ops.permute(context, (0, 2, 1, 3))
-        context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-        return self.o_proj(context)
+        return self._project_attention_output(context, batch, seq_len)
+
+    def _cached_attention_output(self, q, attn_key, attn_value, attention_mask, batch: int, seq_len: int, total_len: int):
+        q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
+        attn_key = dml.ops.reshape(attn_key, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
+        attn_value = dml.ops.reshape(attn_value, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
+        scores = dml.ops.mul(dml.ops.bmm_rcr(q, attn_key), 1.0 / math.sqrt(self.config.head_dim))
+        if attention_mask is not None:
+            scores = dml.ops.add(scores, attention_mask)
+        probs = dml.ops.softmax(scores, dim=-1)
+        context = dml.ops.bmm_rrr(probs, attn_value)
+        return self._project_attention_output(context, batch, seq_len)
+
+    def _static_cache_attention_output(
+        self,
+        q,
+        past_key,
+        past_value,
+        new_key,
+        new_value,
+        attention_mask,
+        batch: int,
+        seq_len: int,
+    ):
+        q = dml.ops.permute(q, (0, 2, 1, 3))
+        attn_key, attn_value = append_static_kv_cache(past_key, past_value, new_key, new_value)
+        attn_key = _repeat_kv_heads(attn_key, self.config.num_key_value_groups)
+        attn_value = _repeat_kv_heads(attn_value, self.config.num_key_value_groups)
+        attn_key = _materialize(attn_key)
+        attn_value = _materialize(attn_value)
+        total_len = int(attn_key.shape[2])
+        return self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len)
+
+    def forward(self, hidden_states, cos, sin, attention_mask=None):
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
+        q, k, v = self._project_qkv(hidden_states, cos, sin)
+        return self._attention_output(q, k, v, attention_mask, batch, seq_len)
+
+    def prefill_with_cache(self, hidden_states, cos, sin, attention_mask=None):
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
+        q, k, v = self._project_qkv(hidden_states, cos, sin)
+        present_key = dml.ops.permute0213(k)
+        present_value = dml.ops.permute0213(v)
+        return self._attention_output(q, k, v, attention_mask, batch, seq_len), present_key, present_value
 
     def forward_with_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None):
         batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
@@ -528,25 +553,84 @@ class GlmOcrTextAttention(dml.nn.Module):
         v = dml.ops.permute(v, (0, 2, 1, 3))
         present_key = dml.ops.concatenate([past_key, k], dim=2)
         present_value = dml.ops.concatenate([past_value, v], dim=2)
-        if (
-            self.config.use_flash_attention
-            and q.dtype in {"float16", "bfloat16"}
-            and attention_mask is None
-            and seq_len == 1
-        ):
+        attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
+        attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
+        attn_key = _materialize(attn_key)
+        attn_value = _materialize(attn_value)
+        total_len = int(attn_key.shape[2])
+        return (
+            self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
+            present_key,
+            present_value,
+        )
+
+    def forward_with_static_cache(
+        self,
+        hidden_states,
+        cos,
+        sin,
+        past_key,
+        past_value,
+        attention_mask=None,
+        cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
+    ):
+        del cache_seqlens, advance_cache_seqlens
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        q, k, v = self._project_qkv(hidden_states, cos, sin)
+        new_key = dml.ops.permute(k, (0, 2, 1, 3))
+        new_value = dml.ops.permute(v, (0, 2, 1, 3))
+        return (
+            self._static_cache_attention_output(q, past_key, past_value, new_key, new_value, attention_mask, batch, seq_len),
+            new_key,
+            new_value,
+        )
+
+    def forward_with_session_static_cache(
+        self,
+        hidden_states,
+        cos,
+        sin,
+        past_key,
+        past_value,
+        attention_mask=None,
+        cache_seqlens=None,
+        *,
+        advance_cache_seqlens: bool = False,
+    ):
+        del hidden_states, cos, sin, past_key, past_value, attention_mask, cache_seqlens, advance_cache_seqlens
+        raise ValueError("Session static KV cache decode requires float16/bfloat16 flash attention and cache_seqlens")
+
+
+class GlmOcrTextFlashAttention(GlmOcrTextAttention):
+    def _attention_output(self, q, k, v, attention_mask, batch: int, seq_len: int):
+        if attention_mask is None:
+            context = dml.ops.flash_attention(q, k, v, causal=True)
+            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+            return self.o_proj(context)
+        if self.config.use_flash_attention_bias:
+            context = dml.ops.flash_attention_bias(q, k, v, attention_mask, causal=True)
+            context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
+            return self.o_proj(context)
+        return super()._attention_output(q, k, v, attention_mask, batch, seq_len)
+
+    def forward_with_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None):
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        q, k, v = self._project_qkv(hidden_states, cos, sin)
+        q = dml.ops.permute(q, (0, 2, 1, 3))
+        k = dml.ops.permute(k, (0, 2, 1, 3))
+        v = dml.ops.permute(v, (0, 2, 1, 3))
+        present_key = dml.ops.concatenate([past_key, k], dim=2)
+        present_value = dml.ops.concatenate([past_value, v], dim=2)
+        if attention_mask is None and seq_len == 1:
             attn_key = dml.ops.permute(present_key, (0, 2, 1, 3))
             attn_value = dml.ops.permute(present_value, (0, 2, 1, 3))
             q = dml.ops.permute(q, (0, 2, 1, 3))
             context = dml.ops.flash_attention(q, attn_key, attn_value, causal=False)
             context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
             return self.o_proj(context), present_key, present_value
-        if (
-            self.config.use_flash_attention
-            and self.config.use_flash_attention_bias
-            and q.dtype in {"float16", "bfloat16"}
-            and attention_mask is not None
-            and seq_len == 1
-        ):
+        if self.config.use_flash_attention_bias and attention_mask is not None and seq_len == 1:
             attn_key = dml.ops.permute(present_key, (0, 2, 1, 3))
             attn_value = dml.ops.permute(present_value, (0, 2, 1, 3))
             q = dml.ops.permute(q, (0, 2, 1, 3))
@@ -558,18 +642,11 @@ class GlmOcrTextAttention(dml.nn.Module):
         attn_key = _materialize(attn_key)
         attn_value = _materialize(attn_value)
         total_len = int(attn_key.shape[2])
-        q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
-        attn_key = dml.ops.reshape(attn_key, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
-        attn_value = dml.ops.reshape(attn_value, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
-        scores = dml.ops.mul(dml.ops.bmm_rcr(q, attn_key), 1.0 / math.sqrt(self.config.head_dim))
-        if attention_mask is not None:
-            scores = dml.ops.add(scores, attention_mask)
-        probs = dml.ops.softmax(scores, dim=-1)
-        context = dml.ops.bmm_rrr(probs, attn_value)
-        context = dml.ops.reshape(context, [batch, self.config.num_attention_heads, seq_len, self.config.head_dim])
-        context = dml.ops.permute(context, (0, 2, 1, 3))
-        context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-        return self.o_proj(context), present_key, present_value
+        return (
+            self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
+            present_key,
+            present_value,
+        )
 
     def forward_with_static_cache(
         self,
@@ -587,7 +664,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
-        if self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"} and cache_seqlens is not None:
+        if cache_seqlens is not None:
             if attention_mask is None:
                 context = dml.ops.flash_attention_static_kv_cache(
                     q,
@@ -613,25 +690,11 @@ class GlmOcrTextAttention(dml.nn.Module):
                 )
                 context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
                 return self.o_proj(context), new_key, new_value
-        q = dml.ops.permute(q, (0, 2, 1, 3))
-        attn_key, attn_value = append_static_kv_cache(past_key, past_value, new_key, new_value)
-        attn_key = _repeat_kv_heads(attn_key, self.config.num_key_value_groups)
-        attn_value = _repeat_kv_heads(attn_value, self.config.num_key_value_groups)
-        attn_key = _materialize(attn_key)
-        attn_value = _materialize(attn_value)
-        total_len = int(attn_key.shape[2])
-        q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
-        attn_key = dml.ops.reshape(attn_key, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
-        attn_value = dml.ops.reshape(attn_value, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
-        scores = dml.ops.mul(dml.ops.bmm_rcr(q, attn_key), 1.0 / math.sqrt(self.config.head_dim))
-        if attention_mask is not None:
-            scores = dml.ops.add(scores, attention_mask)
-        probs = dml.ops.softmax(scores, dim=-1)
-        context = dml.ops.bmm_rrr(probs, attn_value)
-        context = dml.ops.reshape(context, [batch, self.config.num_attention_heads, seq_len, self.config.head_dim])
-        context = dml.ops.permute(context, (0, 2, 1, 3))
-        context = dml.ops.reshape(context, [batch, seq_len, self.config.q_proj_size])
-        return self.o_proj(context), new_key, new_value
+        return (
+            self._static_cache_attention_output(q, past_key, past_value, new_key, new_value, attention_mask, batch, seq_len),
+            new_key,
+            new_value,
+        )
 
     def forward_with_session_static_cache(
         self,
@@ -645,12 +708,12 @@ class GlmOcrTextAttention(dml.nn.Module):
         *,
         advance_cache_seqlens: bool = False,
     ):
+        if cache_seqlens is None:
+            raise ValueError("Session static KV cache decode requires cache_seqlens")
         batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
-        if not (self.config.use_flash_attention and q.dtype in {"float16", "bfloat16"} and cache_seqlens is not None):
-            raise ValueError("Session static KV cache decode requires float16/bfloat16 flash attention and cache_seqlens")
         if attention_mask is None:
             context = dml.ops.flash_attention_static_kv_cache(
                 q,
@@ -713,7 +776,12 @@ class GlmOcrTextDecoderLayer(dml.nn.Module):
             eps=config.rms_norm_eps,
             dtype=config.dtype,
         )
-        self.self_attn = GlmOcrTextAttention(config, weights, prefix)
+        attn_cls = (
+            GlmOcrTextFlashAttention
+            if config.use_flash_attention and config.dtype in {"float16", "bfloat16"}
+            else GlmOcrTextAttention
+        )
+        self.self_attn = attn_cls(config, weights, prefix)
         self.post_self_attn_layernorm = _loaded_rms_norm(
             weights,
             parameter_prefix="post_self_attn_layernorm",
@@ -1055,7 +1123,7 @@ class GlmOcrVisionAttention(dml.nn.Module):
             dtype=config.dtype,
         )
 
-    def forward(self, hidden_states, cos, sin):
+    def _project_qkv(self, hidden_states, cos, sin):
         seq_len, _ = _rank2_shape(hidden_states.shape_spec, "GLM-OCR vision hidden_states")
         qkv = self.qkv(hidden_states)
         q, k, v = dml.ops.qkv_split(qkv)
@@ -1065,16 +1133,10 @@ class GlmOcrVisionAttention(dml.nn.Module):
         q = self.q_norm(q)
         k = self.k_norm(k)
         q, k = dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
-        q = _materialize(q)
-        k = _materialize(k)
-        v = _materialize(v)
-        if self.config.use_flash_attention and self.config.dtype in {"float16", "bfloat16"}:
-            q4 = dml.ops.reshape(q, [1, seq_len, self.config.num_heads, self.config.head_dim])
-            k4 = dml.ops.reshape(k, [1, seq_len, self.config.num_heads, self.config.head_dim])
-            v4 = dml.ops.reshape(v, [1, seq_len, self.config.num_heads, self.config.head_dim])
-            out = dml.ops.flash_attention(q4, k4, v4, causal=False)
-            out = dml.ops.reshape(out, [seq_len, self.config.hidden_size])
-            return self.proj(out)
+        return _materialize(q), _materialize(k), _materialize(v), seq_len
+
+    def forward(self, hidden_states, cos, sin):
+        q, k, v, seq_len = self._project_qkv(hidden_states, cos, sin)
         q = dml.ops.permute(q, (1, 0, 2))
         k = dml.ops.permute(k, (1, 0, 2))
         v = dml.ops.permute(v, (1, 0, 2))
@@ -1082,6 +1144,17 @@ class GlmOcrVisionAttention(dml.nn.Module):
         probs = dml.ops.softmax(scores, dim=-1)
         out = dml.ops.bmm_rrr(probs, v)
         out = dml.ops.permute(out, (1, 0, 2))
+        out = dml.ops.reshape(out, [seq_len, self.config.hidden_size])
+        return self.proj(out)
+
+
+class GlmOcrVisionFlashAttention(GlmOcrVisionAttention):
+    def forward(self, hidden_states, cos, sin):
+        q, k, v, seq_len = self._project_qkv(hidden_states, cos, sin)
+        q4 = dml.ops.reshape(q, [1, seq_len, self.config.num_heads, self.config.head_dim])
+        k4 = dml.ops.reshape(k, [1, seq_len, self.config.num_heads, self.config.head_dim])
+        v4 = dml.ops.reshape(v, [1, seq_len, self.config.num_heads, self.config.head_dim])
+        out = dml.ops.flash_attention(q4, k4, v4, causal=False)
         out = dml.ops.reshape(out, [seq_len, self.config.hidden_size])
         return self.proj(out)
 
@@ -1097,7 +1170,12 @@ class GlmOcrVisionBlock(dml.nn.Module):
             eps=config.rms_norm_eps,
             dtype=config.dtype,
         )
-        self.attn = GlmOcrVisionAttention(config, weights, prefix)
+        attn_cls = (
+            GlmOcrVisionFlashAttention
+            if config.use_flash_attention and config.dtype in {"float16", "bfloat16"}
+            else GlmOcrVisionAttention
+        )
+        self.attn = attn_cls(config, weights, prefix)
         self.norm2 = _loaded_rms_norm(
             weights,
             parameter_prefix="norm2",

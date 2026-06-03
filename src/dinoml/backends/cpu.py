@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from dinoml.backends.build_parallelism import cmake_parallel_args
 from dinoml.ir import write_json
 from dinoml.kernels.manifest import build_support_manifest
 from dinoml.lowering.cpu import render_cpu_module, render_template
@@ -84,7 +85,10 @@ def build_cpu_module(
         ],
         cwd=artifact_dir,
     )
-    _run_cmake(["cmake", "--build", str(build_dir), "--config", "Release", "--target", "module", "--parallel"], cwd=artifact_dir)
+    _run_cmake(
+        ["cmake", "--build", str(build_dir), "--config", "Release", "--target", "module", *cmake_parallel_args()],
+        cwd=artifact_dir,
+    )
     return {
         "module": _generated_module_name(),
         "runtime_library": f"lib/{support_libs.runtime_lib.name}",
@@ -130,7 +134,7 @@ def ensure_cpu_support_libs(*, kernel_manifest: Mapping[str, object] | None = No
             "--target",
             "dinoml_runtime",
             "dinoml_cpu_kernels",
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )

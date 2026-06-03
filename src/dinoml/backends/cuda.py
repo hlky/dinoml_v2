@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dinoml.backends.build_parallelism import cmake_parallel_args
 from dinoml.backends.cuda_libraries import require_cuda_library
 from dinoml.ir import canonical_json, read_json, write_json
 from dinoml.kernels.manifest import build_support_manifest
@@ -162,7 +163,7 @@ def build_cuda_module(
         ],
         cwd=artifact_dir,
     )
-    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
+    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", *cmake_parallel_args()], cwd=artifact_dir)
     if not module_lib.exists():
         raise RuntimeError(f"Expected CUDA generated module at {module_lib}, but it was not produced")
     _store_cuda_module_in_cache(cache_entry, module_lib)
@@ -221,7 +222,7 @@ def ensure_cuda_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
             "dinoml_runtime",
             "dinoml_cuda_runtime",
             "dinoml_cuda_kernels",
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -521,7 +522,7 @@ def _ensure_cmake_cutlass_gemm_archives(arch: str, kernel_manifest: Mapping[str,
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -616,7 +617,7 @@ def _ensure_cmake_cutlass_bmm_archives(arch: str, kernel_manifest: Mapping[str, 
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -710,7 +711,7 @@ def _ensure_cmake_cutlass_conv_archives(arch: str, kernel_manifest: Mapping[str,
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -808,8 +809,7 @@ def _ensure_cmake_flash_attn_cuda_archives(arch: str, kernel_manifest: Mapping[s
             "--target",
             target,
             flash_attn_cuda_upstream_cmake_target(),
-            "--parallel",
-            os.environ.get("DINOML_CUDA_FLASH_ATTN_BUILD_PARALLEL", "8"),
+            *cmake_parallel_args(os.environ.get("DINOML_CUDA_FLASH_ATTN_BUILD_PARALLEL")),
         ],
         cwd=repo_root,
     )
@@ -1006,7 +1006,7 @@ def _ensure_cmake_libgguf_cuda_native_archive(
             str(build_dir),
             "--target",
             "libgguf_cuda_native",
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )

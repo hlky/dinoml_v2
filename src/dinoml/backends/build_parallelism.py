@@ -21,6 +21,12 @@ def effective_cpu_count() -> int:
     return max(1, available_count)
 
 
+def cmake_parallel_args(parallel: int | str | None = None) -> list[str]:
+    if parallel is None:
+        parallel = effective_cpu_count()
+    return ["--parallel", str(parallel)]
+
+
 def _logical_cpu_count() -> int:
     try:
         return max(1, len(os.sched_getaffinity(0)))

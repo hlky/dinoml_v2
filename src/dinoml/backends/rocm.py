@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from dinoml.backends.build_parallelism import cmake_parallel_args
 from dinoml.backends.registry import _shared_library_name
 from dinoml.ir import canonical_json, read_json, write_json
 from dinoml.kernels.manifest import build_support_manifest
@@ -170,7 +171,7 @@ def build_rocm_module(
         ],
         cwd=artifact_dir,
     )
-    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", "--parallel"], cwd=artifact_dir)
+    _run_cmake(["cmake", "--build", str(build_dir), "--target", "module", *cmake_parallel_args()], cwd=artifact_dir)
     if not module_lib.exists():
         raise RuntimeError(f"Expected ROCm generated module at {module_lib}, but it was not produced")
     _store_rocm_module_in_cache(cache_entry, module_lib)
@@ -221,7 +222,7 @@ def ensure_rocm_support_libs(arch: str, *, kernel_manifest: Mapping[str, Any] | 
             "dinoml_runtime",
             "dinoml_rocm_runtime",
             "dinoml_rocm_kernels",
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -692,7 +693,7 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
             str(build_dir),
             "--target",
             *targets,
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )
@@ -772,7 +773,7 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
             str(build_dir),
             "--target",
             target,
-            "--parallel",
+            *cmake_parallel_args(),
         ],
         cwd=repo_root,
     )

@@ -117,36 +117,16 @@ def _compile_with_profile(
     )
     _validate_profile_shape_expressions(lowered_ir, target)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
-    rocm_requires_bootstrap_module = target.name == "rocm" and any(
-        item.get("kernel_library") == "ck_conv"
-        for item in kernel_manifest.get("required_kernels", [])
-        if isinstance(item, Mapping)
+    _materialize_profile_bootstrap_artifact(
+        spec,
+        target,
+        artifact_dir=artifact_dir,
+        lowered_ir=lowered_ir,
+        reports=reports,
+        backend=backend,
+        constant_load_policy=constant_load_policy,
+        kernel_manifest=kernel_manifest,
     )
-    if rocm_requires_bootstrap_module:
-        bootstrap_dir = _prepare_artifact_dir(debug_dir / "profile_bootstrap_artifact", clean=True)
-        profile_artifact_dir = bootstrap_dir
-        _build_artifact_from_lowered_ir(
-            spec,
-            target,
-            artifact_dir=bootstrap_dir,
-            generated_src_dir=bootstrap_dir / "debug" / "generated_src",
-            lowered_ir=lowered_ir,
-            reports=reports,
-            backend=backend,
-            execution_plan_payload=None,
-            constant_load_policy=constant_load_policy,
-        )
-    else:
-        _materialize_profile_bootstrap_artifact(
-            spec,
-            target,
-            artifact_dir=artifact_dir,
-            lowered_ir=lowered_ir,
-            reports=reports,
-            backend=backend,
-            constant_load_policy=constant_load_policy,
-            kernel_manifest=kernel_manifest,
-        )
     profile_report = profile_artifact(
         profile_artifact_dir,
         input_shapes=input_shapes,

@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+import dinoml.kernels.profiling as profiling_mod
 from dinoml import compiler as dml_compiler
 from dinoml.backends import get_backend_spec, registered_backend_names
 from dinoml.backends import rocm as rocm_backend
@@ -24,7 +25,9 @@ from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
+    _CkConvProfiler,
     _CkRocmProfiler,
+    _RocmProfiler,
     _adaptive_profile_iterations,
     _blocked_profile_items,
     _cache_entry,
@@ -53,6 +56,9 @@ from dinoml.kernels.providers.ck.conv import (
     CK_CONV_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
+    ck_conv_profiler_bind_target,
+    ck_conv_profiler_executable_target,
+    ck_conv_profiler_stem,
     ck_conv_static_library_name,
     render_ck_conv_source,
 )
@@ -424,12 +430,12 @@ def test_rocm_compile_with_profile_uses_metadata_bootstrap_when_module_profiler_
     assert (artifact_dir / "debug" / "bootstrap_profile_report.json").exists()
 
 
-def test_rocm_compile_with_profile_profiles_bootstrap_artifact_for_ck_conv(tmp_path, monkeypatch):
+def test_rocm_compile_with_profile_profiles_artifact_directly_for_ck_conv(tmp_path, monkeypatch):
     spec = elementwise_case().build_spec()
     target = dml.Target("rocm")
     artifact_dir = (tmp_path / "profiled_rocm.dinoml").resolve()
-    bootstrap_dir = artifact_dir / "debug" / "profile_bootstrap_artifact"
     build_calls = []
+    materialize_calls = []
     profile_calls = []
 
     monkeypatch.setattr(dml_compiler, "_lower_for_compile", lambda *args, **kwargs: (spec.ir, []))
@@ -449,11 +455,15 @@ def test_rocm_compile_with_profile_profiles_bootstrap_artifact_for_ck_conv(tmp_p
         )
         return dml_compiler.Artifact(Path(kwargs["artifact_dir"]))
 
+    def fake_materialize_profile_bootstrap_artifact(*args, **kwargs):
+        materialize_calls.append(Path(kwargs["artifact_dir"]))
+
     def fake_profile_artifact(path, **kwargs):
         profile_calls.append((Path(path), kwargs))
         return {"execution_plan": {"path": str(tmp_path / "execution_plan.json"), "selection_count": 0}}
 
     monkeypatch.setattr(dml_compiler, "_build_artifact_from_lowered_ir", fake_build_artifact_from_lowered_ir)
+    monkeypatch.setattr(dml_compiler, "_materialize_profile_bootstrap_artifact", fake_materialize_profile_bootstrap_artifact)
     monkeypatch.setattr(dml_compiler, "profile_artifact", fake_profile_artifact)
 
     artifact = dml_compiler._compile_with_profile(
@@ -470,17 +480,16 @@ def test_rocm_compile_with_profile_profiles_bootstrap_artifact_for_ck_conv(tmp_p
     )
 
     assert artifact.path == artifact_dir
+    assert materialize_calls == [artifact_dir]
     assert profile_calls == [
         (
-            bootstrap_dir,
+            artifact_dir,
             {"input_shapes": {"input": [1, 4]}, "iterations": 5, "repeats": 2, "refresh": True},
         )
     ]
-    assert [call["artifact_dir"] for call in build_calls] == [bootstrap_dir, artifact_dir]
-    assert build_calls[0]["generated_src_dir"] == bootstrap_dir / "debug" / "generated_src"
+    assert [call["artifact_dir"] for call in build_calls] == [artifact_dir]
+    assert build_calls[0]["generated_src_dir"] == artifact_dir / "debug" / "generated_src"
     assert build_calls[0]["execution_plan_payload"] is None
-    assert build_calls[1]["generated_src_dir"] == artifact_dir / "debug" / "generated_src"
-    assert build_calls[1]["execution_plan_payload"] is None
     assert (artifact_dir / "debug" / "bootstrap_profile_report.json").exists()
 
 
@@ -1012,6 +1021,15 @@ def test_rocm_required_ck_modules_deduplicate_archive_targets(library, op, modul
                 if library == "ck_bmm"
                 else {}
             ),
+            **(
+                {
+                    "profiler_bind_target": ck_conv_profiler_bind_target(op, "float16"),
+                    "profiler_executable_target": ck_conv_profiler_executable_target(op, "float16"),
+                    "profiler_stem": ck_conv_profiler_stem(op, "float16"),
+                }
+                if library == "ck_conv"
+                else {}
+            ),
         },
     )
 
@@ -1039,6 +1057,9 @@ def test_rocm_ck_conv_support_configure_pins_required_ops_and_dtypes(tmp_path, m
         if "--build" in cmd:
             expected_archive.parent.mkdir(parents=True, exist_ok=True)
             expected_archive.write_bytes(b"archive")
+            stem = ck_conv_profiler_stem("conv2d_bias_add_relu", "float16")
+            (expected_archive.parent / f"{stem}_bind.pyd").write_bytes(b"bind")
+            (expected_archive.parent / f"{stem}.exe").write_bytes(b"exe")
 
     monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
     monkeypatch.setattr(rocm_backend, "_repo_root", lambda: Path.cwd())
@@ -1050,7 +1071,10 @@ def test_rocm_ck_conv_support_configure_pins_required_ops_and_dtypes(tmp_path, m
     assert archives == (expected_archive,)
     assert "-DDINOML_CK_CONV_OPS=conv2d_bias_add_relu" in calls[0]
     assert "-DDINOML_CK_CONV_DTYPES=float16" in calls[0]
+    assert "-DDINOML_ENABLE_CK_CONV_PROFILER=ON" in calls[0]
+    assert "-DDINOML_CK_CONV_PROFILER_TARGETS=dinoml_ck_conv_conv2d_bias_add_relu_float16" in calls[0]
     assert "dinoml_ck_conv_conv2d_bias_add_relu_float16" in calls[1]
+    assert ck_conv_profiler_bind_target("conv2d_bias_add_relu", "float16") in calls[1]
 
 
 def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
@@ -2615,6 +2639,9 @@ def test_rocm_conv2d_bias_manifest_selects_ck_custom_xdl_archive(tmp_path):
             "dtype": "float16",
             "archive": f"lib/{ck_conv_static_library_name('conv2d_bias', 'float16')}",
             "target": "dinoml_ck_conv_conv2d_bias_float16",
+            "profiler_bind_target": ck_conv_profiler_bind_target("conv2d_bias", "float16"),
+            "profiler_executable_target": ck_conv_profiler_executable_target("conv2d_bias", "float16"),
+            "profiler_stem": ck_conv_profiler_stem("conv2d_bias", "float16"),
         }
     ]
     _assert_ck_support_plan_unpruned(plan, item)
@@ -2854,13 +2881,73 @@ def test_rocm_ck_conv_profiler_passes_epilogue_pointers(op_name: str, expected_p
         1,
         11,
     )
-    assert isinstance(call[-1], ctypes.c_void_p)
-    assert call[-1].value is None
-    assert fake_fn.argtypes == [
-        *([ctypes.c_void_p] * pointer_count),
-        *([ctypes.c_int] * 16),
-        ctypes.c_void_p,
-    ]
+
+
+def test_rocm_profiler_uses_standalone_ck_conv_support_cache(monkeypatch):
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeConvProfiler:
+        def profile(self, profile_workload, *, iterations: int, repeats: int):
+            calls.append((profile_workload, iterations, repeats))
+            return [{"samples_ms": [0.125], "workspace_nbytes": 0}]
+
+    monkeypatch.setattr(
+        profiling_mod._CkConvProfiler,
+        "from_codegen_plan",
+        classmethod(lambda cls, codegen_plan: FakeConvProfiler()),
+    )
+    monkeypatch.setattr(
+        profiling_mod._CkRocmProfiler,
+        "__init__",
+        lambda self, artifact_dir, manifest: (_ for _ in ()).throw(AssertionError("legacy module profiler should not initialize")),
+    )
+
+    profiler = _RocmProfiler(Path("unused"), manifest, {"external_support_libraries": []})
+    elapsed_ms, workspace_nbytes = profiler.profile(
+        workload,
+        iterations=9,
+        rng=np.random.default_rng(123),
+    )
+
+    assert elapsed_ms == 0.125
+    assert workspace_nbytes == 0
+    assert calls == [(workload, 9, 1)]
+
+
+def test_load_python_extension_skips_dlopen_flags_when_unavailable(monkeypatch):
+    module_name = "dinoml_test_fake_extension"
+    loader_calls = []
+    module = type("FakeModule", (), {})()
+
+    class FakeLoader:
+        def exec_module(self, loaded_module):
+            loader_calls.append(loaded_module)
+            loaded_module.loaded = True
+
+    class FakeSpec:
+        def __init__(self, loader):
+            self.loader = loader
+
+    monkeypatch.delattr(profiling_mod.sys, "getdlopenflags", raising=False)
+    monkeypatch.delattr(profiling_mod.sys, "setdlopenflags", raising=False)
+    monkeypatch.setattr(
+        profiling_mod.importlib.util,
+        "spec_from_file_location",
+        lambda requested_name, requested_path: FakeSpec(FakeLoader()),
+    )
+    monkeypatch.setattr(profiling_mod.importlib.util, "module_from_spec", lambda spec: module)
+    profiling_mod.sys.modules.pop(module_name, None)
+
+    loaded = profiling_mod._load_python_extension(Path("fake_extension.pyd"), module_name)
+
+    assert loaded is module
+    assert loader_calls == [module]
+    assert module.loaded is True
+    assert profiling_mod.sys.modules[module_name] is module
+    profiling_mod.sys.modules.pop(module_name, None)
 
 
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():

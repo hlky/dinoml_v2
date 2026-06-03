@@ -31,6 +31,9 @@ from dinoml.kernels.providers.ck.bmm import (
 )
 from dinoml.kernels.providers.ck.conv import (
     ck_conv_cmake_target,
+    ck_conv_profiler_bind_target,
+    ck_conv_profiler_executable_target,
+    ck_conv_profiler_stem,
     ck_conv_static_library_name,
     ck_conv_used_candidate_plan,
 )
@@ -411,6 +414,9 @@ def _ck_conv_modules(kernel_manifest: Mapping[str, Any]) -> list[dict[str, str]]
             "dtype": dtype,
             "archive": f"lib/{archive}",
             "target": ck_conv_cmake_target(op_name, dtype),
+            "profiler_bind_target": ck_conv_profiler_bind_target(op_name, dtype),
+            "profiler_executable_target": ck_conv_profiler_executable_target(op_name, dtype),
+            "profiler_stem": ck_conv_profiler_stem(op_name, dtype),
         }
     return [modules[key] for key in sorted(modules)]
 

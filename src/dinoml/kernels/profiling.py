@@ -3838,6 +3838,18 @@ def _ck_bmm_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
     )
 
 
+def _ck_conv_profiler_extension(cache_dir: Path, *, op: str, dtype: str) -> Path:
+    stem = f"dinoml_ck_conv_profiler_{op}_{dtype}"
+    return _python_extension_path(
+        cache_dir / "lib",
+        stem=f"{stem}_bind",
+        error_label=(
+            f"CK Conv profiler binding is missing from {cache_dir / 'lib'}. "
+            f"Build the CMake target `{stem}_bind` for this ROCm architecture."
+        ),
+    )
+
+
 def _python_extension_path(out_dir: Path, *, stem: str, error_label: str) -> Path:
     patterns = [f"{stem}{suffix}" for suffix in importlib.machinery.EXTENSION_SUFFIXES]
     patterns.append(f"{stem}*.so")
@@ -3856,16 +3868,21 @@ def _load_python_extension(path: Path, module_name: str) -> Any:
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Could not load Python extension from {path}")
     module = importlib.util.module_from_spec(spec)
-    old_flags = sys.getdlopenflags()
-    flags = old_flags
-    for name in ("RTLD_NOW", "RTLD_GLOBAL", "RTLD_NODELETE"):
-        flags |= int(getattr(os, name, 0))
-    sys.setdlopenflags(flags)
+    getdlopenflags = getattr(sys, "getdlopenflags", None)
+    setdlopenflags = getattr(sys, "setdlopenflags", None)
+    old_flags = None
+    if callable(getdlopenflags) and callable(setdlopenflags):
+        old_flags = getdlopenflags()
+        flags = old_flags
+        for name in ("RTLD_NOW", "RTLD_GLOBAL", "RTLD_NODELETE"):
+            flags |= int(getattr(os, name, 0))
+        setdlopenflags(flags)
     sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)
     finally:
-        sys.setdlopenflags(old_flags)
+        if old_flags is not None:
+            setdlopenflags(old_flags)
     return module
 
 
@@ -3995,20 +4012,91 @@ class _CkBmmProfiler:
         )
 
 
+class _CkConvProfiler:
+    def __init__(self, modules: Mapping[tuple[str, str], Any]):
+        self._modules = dict(modules)
+
+    @classmethod
+    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkConvProfiler | None":
+        item = _external_support_library(codegen_plan, "ck_conv")
+        if item is None:
+            return None
+        cache_dir = Path(str(item["cache_dir"]))
+        modules = item.get("modules")
+        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+            raise RuntimeError("CK Conv profiler support entry has no op/dtype modules")
+        loaded = {}
+        for module in modules:
+            if not isinstance(module, Mapping):
+                raise RuntimeError("CK Conv profiler support entry has malformed op/dtype module metadata")
+            op = str(module.get("op", ""))
+            dtype = str(module.get("dtype", ""))
+            if not op or not dtype:
+                raise RuntimeError("CK Conv profiler support entry is missing op/dtype metadata")
+            module_path = _ck_conv_profiler_extension(cache_dir, op=op, dtype=dtype)
+            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_conv_profiler_{op}_{dtype}_bind")
+        return cls(loaded)
+
+    def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        module = self._modules.get((workload.op, workload.dtype))
+        if module is None:
+            raise RuntimeError(f"CK Conv profiler for {workload.op}/{workload.dtype} is not loaded")
+        stride = list(workload.conv_config.get("stride", (1, 1)))
+        padding = list(workload.conv_config.get("padding", (0, 0)))
+        dilation = list(workload.conv_config.get("dilation", (1, 1)))
+        return list(
+            module.profile_conv(
+                profiler_symbol=str(workload.profiler_symbol),
+                dtype=str(workload.dtype),
+                batch=int(workload.x_shape[0]),
+                in_channels=int(workload.x_shape[1]),
+                in_height=int(workload.x_shape[2]),
+                in_width=int(workload.x_shape[3]),
+                out_channels=int(workload.weight_shape[0]),
+                kernel_h=int(workload.weight_shape[2]),
+                kernel_w=int(workload.weight_shape[3]),
+                out_height=int(workload.output_shape[2]),
+                out_width=int(workload.output_shape[3]),
+                stride_h=int(stride[0]),
+                stride_w=int(stride[1]),
+                pad_h=int(padding[0]),
+                pad_w=int(padding[1]),
+                dilation_h=int(dilation[0]),
+                dilation_w=int(dilation[1]),
+                iterations=int(iterations),
+                repeats=int(repeats),
+                has_residual=workload.residual_shape is not None,
+                x_elements=int(np.prod(workload.x_shape, dtype=np.int64)),
+                weight_elements=int(np.prod(workload.weight_shape, dtype=np.int64)),
+                bias_elements=int(np.prod(workload.bias_shape, dtype=np.int64)),
+                residual_elements=(
+                    int(np.prod(workload.residual_shape, dtype=np.int64))
+                    if workload.residual_shape is not None
+                    else 0
+                ),
+                output_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
+                seed=_stable_u32_seed(
+                    workload.op,
+                    workload.dtype,
+                    workload.shape_case_id,
+                    *(str(dim) for dim in workload.x_shape),
+                    *(str(dim) for dim in workload.weight_shape),
+                    *(str(dim) for dim in workload.output_shape),
+                    str(workload.profiler_symbol),
+                ),
+            )
+        )
+
+
 class _RocmProfiler:
     def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
+        del artifact_dir, manifest
         self._ck_gemm_profiler = _CkGemmProfiler.from_codegen_plan(codegen_plan)
         self._ck_bmm_profiler = _CkBmmProfiler.from_codegen_plan(codegen_plan)
-        required_libraries = {
-            str(item.get("kernel_library", ""))
-            for item in manifest.get("required_kernels", [])
-            if isinstance(item, Mapping)
-        }
-        self._module_profiler = _CkRocmProfiler(artifact_dir, manifest) if "ck_conv" in required_libraries else None
+        self._ck_conv_profiler = _CkConvProfiler.from_codegen_plan(codegen_plan)
 
     def close(self) -> None:
-        if self._module_profiler is not None:
-            self._module_profiler.close()
+        return None
 
     def profile(
         self,
@@ -4029,9 +4117,13 @@ class _RocmProfiler:
             rows = self._ck_bmm_profiler.profile(workload, iterations=iterations, repeats=1)
             first = rows[0]
             return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
-        if self._module_profiler is None:
-            raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
-        return self._module_profiler.profile(workload, iterations=iterations, rng=rng)
+        if workload.kernel_library == "ck_conv" and isinstance(workload, ConvProfileWorkload):
+            if self._ck_conv_profiler is None:
+                raise RuntimeError("CK Conv profiler requested but codegen plan has no ck_conv support entry")
+            rows = self._ck_conv_profiler.profile(workload, iterations=iterations, repeats=1)
+            first = rows[0]
+            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+        raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
 
 
 class _CkRocmProfiler:

@@ -13,8 +13,19 @@ def toml_string(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def split_path(path_value: str) -> list[str]:
-    return [part for part in path_value.split(os.pathsep) if part and "${PATH}" not in part]
+def toml_list(values: list[str]) -> str:
+    return "[" + ", ".join(toml_string(value) for value in values) + "]"
+
+
+def path_separator(os_name: str | None = None) -> str:
+    current_os = os.name if os_name is None else os_name
+    return ";" if current_os == "nt" else ":"
+
+
+def split_path(path_value: str, os_name: str | None = None) -> list[str]:
+    placeholders = ("${PATH}", "$PATH", "%PATH%")
+    separator = path_separator(os_name)
+    return [part for part in path_value.split(separator) if part and not any(token in part for token in placeholders)]
 
 
 def is_base_python_path(path: str) -> bool:
@@ -28,9 +39,6 @@ def is_base_python_path(path: str) -> bool:
 
 
 def current_windows_path() -> list[str]:
-    if os.name != "nt":
-        return split_path(os.environ.get("PATH", ""))
-
     paths: list[str] = []
     try:
         import winreg
@@ -43,15 +51,22 @@ def current_windows_path() -> list[str]:
             try:
                 with winreg.OpenKey(hive, subkey) as key:
                     value, _ = winreg.QueryValueEx(key, "Path")
-                    paths.extend(split_path(value))
+                    paths.extend(split_path(value, "nt"))
             except OSError:
                 pass
     except ImportError:
         pass
 
     if not paths:
-        paths.extend(split_path(os.environ.get("PATH", "")))
+        paths.extend(split_path(os.environ.get("PATH", ""), "nt"))
     return paths
+
+
+def current_system_path(os_name: str | None = None) -> list[str]:
+    current_os = os.name if os_name is None else os_name
+    if current_os == "nt":
+        return current_windows_path()
+    return split_path(os.environ.get("PATH", ""), current_os)
 
 
 def dedupe_path(paths: list[str]) -> list[str]:
@@ -74,24 +89,45 @@ def resolve_venv(path: str) -> Path:
     return Path(path).expanduser().resolve()
 
 
-def venv_bin_dir(venv: Path) -> Path:
+def venv_bin_dir(venv: Path, os_name: str | None = None) -> Path:
+    current_os = os.name if os_name is None else os_name
+    if current_os == "nt":
+        return venv / "Scripts"
     scripts = venv / "Scripts"
-    if scripts.exists() or os.name == "nt":
+    if hasattr(scripts, "exists") and scripts.exists():
         return scripts
     return venv / "bin"
 
 
-def generate_policy(venv: Path) -> str:
-    path_entries = dedupe_path([str(venv_bin_dir(venv)), *filter_base_python_paths(current_windows_path())])
-    path_value = os.pathsep.join(path_entries)
-    return "\n".join(
+def path_policy_key(os_name: str | None = None) -> str:
+    current_os = os.name if os_name is None else os_name
+    return "Path" if current_os == "nt" else "PATH"
+
+
+def path_policy_excludes(os_name: str | None = None) -> list[str]:
+    current_os = os.name if os_name is None else os_name
+    return ["PATH"] if current_os == "nt" else []
+
+
+def generate_policy(venv: Path, os_name: str | None = None) -> str:
+    current_os = os.name if os_name is None else os_name
+    path_key = path_policy_key(current_os)
+    excludes = path_policy_excludes(current_os)
+    path_entries = dedupe_path([str(venv_bin_dir(venv, current_os)), *filter_base_python_paths(current_system_path(current_os))])
+    path_value = path_separator(current_os).join(path_entries)
+    lines = ["[shell_environment_policy]", 'inherit = "all"']
+    if excludes:
+        lines.append(f"exclude = {toml_list(excludes)}")
+    lines.extend(
         [
-            "[shell_environment_policy]",
-            'inherit = "all"',
-            f"set = {{ VIRTUAL_ENV = {toml_string(str(venv))}, PATH = {toml_string(path_value)} }}",
+            "set = {",
+            f"  VIRTUAL_ENV = {toml_string(str(venv))},",
+            f"  {path_key} = {toml_string(path_value)}",
+            "}",
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def write_project_config(policy: str, config_path: Path) -> None:

@@ -155,6 +155,7 @@ def _render_rocm_launch(
         else get_op_def(op_name).backend_kernels["rocm"].resolve(dtype).symbol
     )
     kernel_library = str(item.get("kernel_library", "ck_conv")) if item is not None else "ck_conv"
+    dispatches = _rocm_dispatch_selections(item, str(node.get("id", ""))) if kernel_library == "ck_conv" else []
     x_ident = _c_ident(x_name)
     weight_ident = _c_ident(weight_name)
     bias_ident = _c_ident(bias_name)
@@ -192,18 +193,46 @@ def _render_rocm_launch(
             )
         )
         residual_arg = f"ptr_{residual_ident}, "
-    lines.append(
-        (
-            f"if (int err = {symbol}(ptr_{x_ident}, ptr_{weight_ident}, ptr_{bias_ident}, {residual_arg}ptr_{out_ident}, "
-            f"static_cast<int>(shape_{x_ident}_0), static_cast<int>(shape_{x_ident}_1), "
-            f"static_cast<int>(shape_{x_ident}_2), static_cast<int>(shape_{x_ident}_3), "
-            f"static_cast<int>(shape_{weight_ident}_0), static_cast<int>(shape_{weight_ident}_2), "
-            f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
-            f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
-            f"{dilation_h}, {dilation_w}, session->stream)) "
-            f'return dinoml::module::fail("{op_name} {"ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv"} launcher failed");'
+    default_launch = [
+        *_rocm_launch_lines(
+            op_name=op_name,
+            symbol=symbol,
+            failure_label="ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv",
+            x_ident=x_ident,
+            weight_ident=weight_ident,
+            bias_ident=bias_ident,
+            residual_ident=residual_ident,
+            out_ident=out_ident,
+            stride_h=stride_h,
+            stride_w=stride_w,
+            pad_h=pad_h,
+            pad_w=pad_w,
+            dilation_h=dilation_h,
+            dilation_w=dilation_w,
         )
-    )
+    ]
+    if dispatches:
+        lines.extend(
+            _rocm_dispatch_lines(
+                op_name=op_name,
+                item=item,
+                dispatches=dispatches,
+                default_launch=default_launch,
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_h=stride_h,
+                stride_w=stride_w,
+                pad_h=pad_h,
+                pad_w=pad_w,
+                dilation_h=dilation_h,
+                dilation_w=dilation_w,
+            )
+        )
+    else:
+        lines.extend(default_launch)
     return "\n".join(lines)
 
 
@@ -513,6 +542,137 @@ def _manifest_kernel_item(
             return item
         matches.append(item)
     return matches[0] if matches else None
+
+
+def _rocm_dispatch_selections(item: Mapping[str, Any] | None, node_id: str) -> list[Mapping[str, Any]]:
+    if not isinstance(item, Mapping):
+        return []
+    return [
+        selection
+        for selection in item.get("execution_plan_dispatch", [])
+        if isinstance(selection, Mapping) and str(selection.get("node_id")) == node_id
+    ]
+
+
+def _rocm_dispatch_lines(
+    *,
+    op_name: str,
+    item: Mapping[str, Any] | None,
+    dispatches: list[Mapping[str, Any]],
+    default_launch: list[str],
+    x_ident: str,
+    weight_ident: str,
+    bias_ident: str,
+    residual_ident: str | None,
+    out_ident: str,
+    stride_h: int,
+    stride_w: int,
+    pad_h: int,
+    pad_w: int,
+    dilation_h: int,
+    dilation_w: int,
+) -> list[str]:
+    lines = []
+    for index, dispatch in enumerate(dispatches):
+        candidate = _candidate_by_id(item, str(dispatch.get("selected_candidate_id", "")))
+        branch = "if" if index == 0 else "else if"
+        lines.append(
+            f"{branch} ({_rocm_dispatch_guard(dispatch, x_ident=x_ident, weight_ident=weight_ident, out_ident=out_ident)}) {{"
+        )
+        body = _rocm_launch_lines(
+            op_name=op_name,
+            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            failure_label="CK Conv",
+            x_ident=x_ident,
+            weight_ident=weight_ident,
+            bias_ident=bias_ident,
+            residual_ident=residual_ident,
+            out_ident=out_ident,
+            stride_h=stride_h,
+            stride_w=stride_w,
+            pad_h=pad_h,
+            pad_w=pad_w,
+            dilation_h=dilation_h,
+            dilation_w=dilation_w,
+        )
+        lines.extend(f"  {line}" for line in body)
+        lines.append("}")
+    lines.append("else {")
+    lines.extend(f"  {line}" for line in default_launch)
+    lines.append("}")
+    return lines
+
+
+def _rocm_dispatch_guard(
+    selection: Mapping[str, Any],
+    *,
+    x_ident: str,
+    weight_ident: str,
+    out_ident: str,
+) -> str:
+    shape = selection.get("shape")
+    if not isinstance(shape, Mapping):
+        return "false"
+    required = {
+        "n": f"shape_{x_ident}_0",
+        "c": f"shape_{x_ident}_1",
+        "h": f"shape_{x_ident}_2",
+        "w": f"shape_{x_ident}_3",
+        "out_n": f"shape_{out_ident}_0",
+        "out_c": f"shape_{out_ident}_1",
+        "out_h": f"shape_{out_ident}_2",
+        "out_w": f"shape_{out_ident}_3",
+        "kernel_h": f"shape_{weight_ident}_2",
+        "kernel_w": f"shape_{weight_ident}_3",
+    }
+    conditions = []
+    for field, expr in required.items():
+        value = shape.get(field)
+        if type(value) is not int or value <= 0:
+            return "false"
+        conditions.append(f"({expr}) == {int(value)}")
+    return " && ".join(conditions)
+
+
+def _rocm_launch_lines(
+    *,
+    op_name: str,
+    symbol: str,
+    failure_label: str,
+    x_ident: str,
+    weight_ident: str,
+    bias_ident: str,
+    residual_ident: str | None,
+    out_ident: str,
+    stride_h: int,
+    stride_w: int,
+    pad_h: int,
+    pad_w: int,
+    dilation_h: int,
+    dilation_w: int,
+) -> list[str]:
+    residual_arg = f"ptr_{residual_ident}, " if residual_ident is not None else ""
+    return [
+        (
+            f"if (int err = {symbol}(ptr_{x_ident}, ptr_{weight_ident}, ptr_{bias_ident}, {residual_arg}ptr_{out_ident}, "
+            f"static_cast<int>(shape_{x_ident}_0), static_cast<int>(shape_{x_ident}_1), "
+            f"static_cast<int>(shape_{x_ident}_2), static_cast<int>(shape_{x_ident}_3), "
+            f"static_cast<int>(shape_{weight_ident}_0), static_cast<int>(shape_{weight_ident}_2), "
+            f"static_cast<int>(shape_{weight_ident}_3), static_cast<int>(shape_{out_ident}_2), "
+            f"static_cast<int>(shape_{out_ident}_3), {stride_h}, {stride_w}, {pad_h}, {pad_w}, "
+            f"{dilation_h}, {dilation_w}, session->stream)) "
+            f'return dinoml::module::fail("{op_name} {failure_label} launcher failed");'
+        )
+    ]
+
+
+def _candidate_by_id(item: Mapping[str, Any] | None, candidate_id: str) -> Mapping[str, Any]:
+    if not isinstance(item, Mapping):
+        return {}
+    for candidate in item.get("candidates", []):
+        if isinstance(candidate, Mapping) and str(candidate.get("candidate_id")) == candidate_id:
+            return candidate
+    return {}
 
 
 def _validate_runtime_shape_contract(

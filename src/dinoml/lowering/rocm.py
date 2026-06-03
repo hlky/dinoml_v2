@@ -79,6 +79,17 @@ def _ck_conv_item_declarations(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     declarations = []
     selected = _selected_candidate(item)
     declarations.append(_ck_conv_declaration_context(item, selected, str(item["kernel_symbol"])))
+    for selection in item.get("execution_plan_dispatch", ()):
+        if not isinstance(selection, Mapping):
+            continue
+        candidate = _candidate_by_id(item, str(selection.get("selected_candidate_id", "")))
+        declarations.append(
+            _ck_conv_declaration_context(
+                item,
+                candidate,
+                str(selection.get("kernel_symbol") or candidate.get("kernel_symbol")),
+            )
+        )
     return declarations
 
 

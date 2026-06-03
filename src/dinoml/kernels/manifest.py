@@ -91,7 +91,6 @@ EXECUTION_PLAN_KERNEL_LIBRARIES = {
 }
 EXECUTION_PLAN_STATIC_ONLY_KERNEL_LIBRARIES = {
     "cutlass_conv",
-    "ck_conv",
 }
 EXECUTION_PLAN_ZERO_WORKSPACE_KERNEL_LIBRARIES = {
     "cutlass_bmm",
@@ -1059,6 +1058,8 @@ def _execution_plan_guarded_shape_supported(
         if strict:
             raise ValueError(f"Execution plan guarded selection for {key[0]} {key[1]} is missing shape metadata")
         return False
+    if kernel_library == "ck_conv":
+        return _execution_plan_guarded_ck_conv_shape_supported(key, shape, strict=strict)
     required_fields = (
         ("m", "n", "k", "batch_count")
         if kernel_library in EXECUTION_PLAN_BMM_KERNEL_LIBRARIES
@@ -1066,6 +1067,40 @@ def _execution_plan_guarded_shape_supported(
     )
     for field in required_fields:
         if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
+            return False
+    return True
+
+
+def _execution_plan_guarded_ck_conv_shape_supported(
+    key: tuple[str, str, str],
+    shape: Mapping[str, Any],
+    *,
+    strict: bool,
+) -> bool:
+    required_fields = ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+    for field in required_fields:
+        if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
+            return False
+    conv_config = shape.get("conv_config")
+    if isinstance(conv_config, Mapping):
+        for field in ("stride", "padding", "dilation"):
+            values = conv_config.get(field)
+            if not isinstance(values, Sequence) or isinstance(values, (str, bytes)) or len(values) != 2:
+                if strict:
+                    raise ValueError(
+                        f"Execution plan guarded shape for {key[0]} {key[1]} has malformed conv_config.{field}: {values!r}"
+                    )
+                return False
+            for index, value in enumerate(values):
+                if type(value) is not int or value < (0 if field == "padding" else 1):
+                    if strict:
+                        minimum = 0 if field == "padding" else 1
+                        raise ValueError(
+                            "Execution plan guarded shape for "
+                            f"{key[0]} {key[1]} has invalid conv_config.{field}[{index}]: {value!r} < {minimum}"
+                        )
+                    return False
+        if _execution_plan_int_field(conv_config, "groups", None, minimum=1, key=key, strict=strict, context="guarded shape conv_config") is None:
             return False
     return True
 

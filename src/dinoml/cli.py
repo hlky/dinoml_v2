@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import time
 from typing import Any, Mapping
 
 import numpy as np
@@ -163,16 +164,29 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _compile(args: argparse.Namespace) -> int:
+    print(f"[dml.compile] Loading spec from {args.model}")
     module = _load_python_file(Path(args.model))
     if not hasattr(module, "build_spec"):
         raise RuntimeError(f"{args.model} must define build_spec()")
+    print(f"[dml.compile] Building spec")
+    start = time.time()
     spec = module.build_spec()
+    end = time.time()
+    took = end - start
+    print(f"[dml.compile] Building spec took {took:.3f}s")
     compile_kwargs = {
         "target": dml.Target(args.target, arch=args.arch, no_tf32=args.no_tf32, use_fp16_acc=args.use_fp16_acc),
         "output": args.out,
         "execution_plan": args.execution_plan,
         "constant_load_policy": args.constant_load_policy,
     }
+    print(f"[dml.Target] {compile_kwargs['target']}")
+    print(
+        "[dml.compile] Options: "
+        f"out={args.out}, "
+        f"execution_plan={args.execution_plan or '<none>'}, "
+        f"constant_load_policy={args.constant_load_policy}"
+    )
     if args.profile:
         compile_kwargs.update(
             {
@@ -183,7 +197,19 @@ def _compile(args: argparse.Namespace) -> int:
                 "profile_refresh": args.profile_refresh,
             }
         )
+        print(
+            "[dml.compile] Profiling: "
+            f"iterations={args.profile_iterations}, "
+            f"repeats={args.profile_repeats}, "
+            f"refresh={args.profile_refresh}, "
+            f"shape_overrides={args.profile_shape or '<none>'}"
+        )
+    print(f"[dml.compile] Starting artifact build in {args.out}")
+    start = time.time()
     artifact = dml.compile(spec, **compile_kwargs)
+    end = time.time()
+    took = end - start
+    print(f"[dml.compile] Compiling spec took {took:.3f}s")
     print(f"Wrote {artifact.path}")
     return 0
 

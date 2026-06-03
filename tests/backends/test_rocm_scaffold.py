@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -27,25 +28,29 @@ from dinoml.kernels.profiling import (
     _adaptive_profile_iterations,
     _blocked_profile_items,
     _cache_entry,
+    _format_profile_progress,
     _profile_failure_result,
+    _profile_processed_count,
     _profile_report,
     _profile_result,
     _profile_result_from_cache,
     _profile_workload_samples,
+    profile_artifact,
+    _should_print_profile_progress,
     build_execution_plan,
     build_profile_workloads,
 )
 from dinoml.kernels.providers.ck.bmm import (
     ck_bmm_candidate_set,
     ck_bmm_candidates,
+    ck_bmm_profiler_bind_target,
+    ck_bmm_profiler_executable_target,
+    ck_bmm_profiler_stem,
     ck_bmm_static_library_name,
     render_ck_bmm_source,
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV_OPS,
-    ck_bmm_profiler_bind_target,
-    ck_bmm_profiler_executable_target,
-    ck_bmm_profiler_stem,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_static_library_name,
@@ -54,14 +59,14 @@ from dinoml.kernels.providers.ck.conv import (
 from dinoml.kernels.providers.ck.gemm import (
     ck_gemm_candidate_set,
     ck_gemm_candidates,
+    ck_gemm_profiler_bind_target,
+    ck_gemm_profiler_executable_target,
+    ck_gemm_profiler_stem,
     ck_gemm_static_library_name,
     render_ck_gemm_source,
 )
 from dinoml.kernels.providers.cutlass.conv import CONV_OPS
 from dinoml.lowering.rocm import render_rocm_module
-    ck_gemm_profiler_bind_target,
-    ck_gemm_profiler_executable_target,
-    ck_gemm_profiler_stem,
 from dinoml.lowering.target_specs import lowering_target_spec, storage_type
 from dinoml.ops.definitions import OP_REGISTRY
 from dinoml.ops.elementwise import FusedElementwise
@@ -989,6 +994,24 @@ def test_rocm_required_ck_modules_deduplicate_archive_targets(library, op, modul
             "dtype": "float16",
             "archive": archive,
             "target": target,
+            **(
+                {
+                    "profiler_bind_target": ck_gemm_profiler_bind_target(op, "float16"),
+                    "profiler_executable_target": ck_gemm_profiler_executable_target(op, "float16"),
+                    "profiler_stem": ck_gemm_profiler_stem(op, "float16"),
+                }
+                if library == "ck_gemm"
+                else {}
+            ),
+            **(
+                {
+                    "profiler_bind_target": ck_bmm_profiler_bind_target(op, "float16"),
+                    "profiler_executable_target": ck_bmm_profiler_executable_target(op, "float16"),
+                    "profiler_stem": ck_bmm_profiler_stem(op, "float16"),
+                }
+                if library == "ck_bmm"
+                else {}
+            ),
         },
     )
 
@@ -1061,24 +1084,6 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
     ]
     assert scheduler_pipeline_pairs.count(("default", "v1")) == 10
     assert scheduler_pipeline_pairs.count(("interwave", "v1")) == 10
-            **(
-                {
-                    "profiler_bind_target": ck_gemm_profiler_bind_target(op, "float16"),
-                    "profiler_executable_target": ck_gemm_profiler_executable_target(op, "float16"),
-                    "profiler_stem": ck_gemm_profiler_stem(op, "float16"),
-                }
-                if library == "ck_gemm"
-                else {}
-            ),
-            **(
-                {
-                    "profiler_bind_target": ck_bmm_profiler_bind_target(op, "float16"),
-                    "profiler_executable_target": ck_bmm_profiler_executable_target(op, "float16"),
-                    "profiler_stem": ck_bmm_profiler_stem(op, "float16"),
-                }
-                if library == "ck_bmm"
-                else {}
-            ),
     assert scheduler_pipeline_pairs.count(("default", "v2")) == 10
     assert plan.external_support_libraries[0]["name"] == "ck_gemm"
     assert plan.external_support_libraries[0]["modules"] == [
@@ -1087,6 +1092,9 @@ def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
             "dtype": "float16",
             "archive": f"lib/{ck_gemm_static_library_name('gemm_rcr_bias_add_relu', 'float16')}",
             "target": "dinoml_ck_gemm_gemm_rcr_bias_add_relu_float16",
+            "profiler_bind_target": ck_gemm_profiler_bind_target("gemm_rcr_bias_add_relu", "float16"),
+            "profiler_executable_target": ck_gemm_profiler_executable_target("gemm_rcr_bias_add_relu", "float16"),
+            "profiler_stem": ck_gemm_profiler_stem("gemm_rcr_bias_add_relu", "float16"),
         }
     ]
     _assert_ck_support_plan_unpruned(plan, item)
@@ -1160,9 +1168,6 @@ def test_rocm_gemm_manifest_selects_profiled_clip_candidates(op_name, m, n, k, s
             16,
             4,
             4,
-            "profiler_bind_target": ck_gemm_profiler_bind_target("gemm_rcr_bias_add_relu", "float16"),
-            "profiler_executable_target": ck_gemm_profiler_executable_target("gemm_rcr_bias_add_relu", "float16"),
-            "profiler_stem": ck_gemm_profiler_stem("gemm_rcr_bias_add_relu", "float16"),
         ),
     ],
 )
@@ -1277,6 +1282,64 @@ def test_rocm_gemm_profile_workloads_cover_typical_dynamic_shape_without_buckets
     assert {workload.output_shape for workload in workloads} == {(64, 128), (128, 128)}
 
 
+def test_rocm_gemm_profile_workloads_prefer_metadata_shape_scenarios():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=128, n=128, k=64)
+    m_dim = {"kind": "dim", "name": "m", "min": 32, "max": 128, "divisible_by": 32, "typical": 64}
+    _set_shape_spec(ir, "a", [m_dim, 64])
+    _set_shape_spec(ir, "c", [m_dim, 128])
+    ir["metadata"]["profiling"] = {
+        "version": 1,
+        "shape_scenarios": [
+            {
+                "source": "workflow_equal_interval_buckets",
+                "case_id": "shape_m=32",
+                "dim_values": {"m": 32},
+                "overrides": {"a": [32, 64], "c": [32, 128]},
+            },
+            {
+                "source": "workflow_equal_interval_buckets",
+                "case_id": "shape_m=96",
+                "dim_values": {"m": 96},
+                "overrides": {"a": [96, 64], "c": [96, 128]},
+            },
+        ],
+    }
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert {workload.m for workload in workloads} == {32, 96}
+    assert {workload.shape_source for workload in workloads} == {"workflow_equal_interval_buckets"}
+    assert {workload.dim_sources["m"] for workload in workloads} == {"metadata"}
+    assert {workload.output_shape for workload in workloads} == {(32, 128), (96, 128)}
+    assert {workload.shape_case_id for workload in workloads} == {"shape_m=32", "shape_m=96"}
+
+
+def test_rocm_gemm_profile_workloads_treat_empty_runtime_overrides_as_no_overrides():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=128, n=128, k=64)
+    m_dim = {"kind": "dim", "name": "m", "min": 32, "max": 128, "divisible_by": 32, "typical": 64}
+    _set_shape_spec(ir, "a", [m_dim, 64])
+    _set_shape_spec(ir, "c", [m_dim, 128])
+    ir["metadata"]["profiling"] = {
+        "version": 1,
+        "shape_scenarios": [
+            {
+                "source": "workflow_equal_interval_buckets",
+                "case_id": "shape_m=96",
+                "dim_values": {"m": 96},
+                "overrides": {"a": [96, 64], "c": [96, 128]},
+            }
+        ],
+    }
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    workloads = build_profile_workloads(ir, manifest, input_shapes={})
+
+    assert {workload.m for workload in workloads} == {96}
+    assert {workload.shape_source for workload in workloads} == {"workflow_equal_interval_buckets"}
+    assert {workload.shape_case_id for workload in workloads} == {"shape_m=96"}
+
+
 def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=32, n=32, k=32)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -1289,6 +1352,125 @@ def test_rocm_gemm_profile_workloads_skip_v2_when_k_block_loop_is_odd():
         "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_interwave_v1",
     }
     assert "ck_gemm_rcr_bias_add_relu_float16_xdl_codegen_t08_default_v2" not in candidate_ids
+
+
+def test_profile_progress_helpers_format_summary_with_current_workload():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    summary = {"profiled": 8, "cached": 2, "skipped": 0, "failed": 1, "blocked": 0}
+
+    line = _format_profile_progress(
+        summary,
+        processed=_profile_processed_count(summary),
+        total_workloads=20,
+        elapsed_s=10.0,
+        current_workload=workload,
+    )
+
+    assert "11/20 (55.0%)" in line
+    assert "profiled=8" in line
+    assert "cached=2" in line
+    assert "failed=1" in line
+    assert "elapsed=10.0s" in line
+    assert "eta=8.2s" in line
+    assert f"current={workload.kernel_library}:{workload.op}:{workload.dtype}:{workload.shape_case_id}" in line
+
+
+def test_profile_progress_helpers_throttle_by_count_and_force_completion():
+    assert _should_print_profile_progress(
+        5,
+        1000,
+        last_progress_count=0,
+        elapsed_s=1.0,
+        since_last_s=1.0,
+    ) is False
+    assert _should_print_profile_progress(
+        10,
+        1000,
+        last_progress_count=0,
+        elapsed_s=1.0,
+        since_last_s=1.0,
+    ) is True
+    assert _should_print_profile_progress(
+        15,
+        1000,
+        last_progress_count=10,
+        elapsed_s=5.5,
+        since_last_s=5.5,
+    ) is True
+    assert _should_print_profile_progress(
+        1000,
+        1000,
+        last_progress_count=990,
+        elapsed_s=0.5,
+        since_last_s=0.1,
+    ) is True
+
+
+def test_profile_artifact_deduplicates_duplicate_profile_keys_within_run(tmp_path, monkeypatch):
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    representative = build_profile_workloads(ir, kernel_manifest)[0]
+    duplicate = replace(representative, node_id="n1", shape_case_id="duplicate_shape_case")
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+
+    manifest = {
+        "name": "test_artifact",
+        "target": {"name": "rocm", "arch": "gfx1201"},
+        "files": {
+            "graph": "graph.dinoir.json",
+            "kernel_manifest": "kernel_manifest.json",
+            "kernel_codegen_plan": "kernel_codegen_plan.json",
+            "runtime_library": "dinoml_runtime.so",
+            "rocm_runtime_library": "dinoml_rocm_runtime.so",
+            "module": "module.so",
+        },
+    }
+    (artifact_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (artifact_dir / "graph.dinoir.json").write_text(json.dumps(ir), encoding="utf-8")
+    (artifact_dir / "kernel_manifest.json").write_text(json.dumps(kernel_manifest), encoding="utf-8")
+    (artifact_dir / "kernel_codegen_plan.json").write_text(
+        json.dumps({"cache_key": "codegen-key", "support_cache_dir": str(tmp_path / "support")}),
+        encoding="utf-8",
+    )
+
+    calls = []
+
+    class FakeProfiler:
+        def profile(self, workload, *, iterations, rng):
+            del rng
+            calls.append((workload.node_id, iterations))
+            return 0.25, 0
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr("dinoml.kernels.profiling.build_profile_workloads", lambda *args, **kwargs: [representative, duplicate])
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr("dinoml.kernels.profiling._profiler_for_target", lambda *args, **kwargs: FakeProfiler())
+
+    report = profile_artifact(artifact_dir, iterations=1, repeats=1)
+
+    assert calls
+    assert {node_id for node_id, _iterations in calls} == {"n0"}
+    assert len(calls) < 4
+    assert len(report["problems"]) == 2
+    assert [problem["status"] for problem in report["problems"]] == ["ok", "cached"]
+    assert report["summary"]["profiled"] == 1
+    assert report["summary"]["cached"] == 1
 
 
 @pytest.mark.parametrize(
@@ -1754,6 +1936,39 @@ def test_rocm_ck_gemm_execution_plan_prunes_support_exports(tmp_path):
     assert [candidate["candidate_id"] for candidate in entry["candidates"]] == [target_candidate_id]
 
 
+def test_rocm_ck_gemm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
+    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    alternate_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == "ck_gemm"
+    assert support["pruned_by_execution_plan"] is True
+    assert len(entry["execution_plan_dispatch"]) == 2
+    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
+        default_candidate_id,
+        alternate_candidate_id,
+    }
+    assert set(support["kernel_symbols"]) == {
+        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(support["profiler_symbols"]) == {
+        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
+
+
 @pytest.mark.parametrize(
     ("case", "target_candidate_id", "support_name", "kernel_symbol", "profiler_symbol"),
     [
@@ -1808,6 +2023,39 @@ def test_rocm_ck_bmm_conv_execution_plan_prunes_support_exports(
     assert [candidate["candidate_id"] for candidate in entry["candidates"]] == [target_candidate_id]
 
 
+def test_rocm_ck_bmm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
+    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    alternate_candidate_id = "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    plan = create_codegen_plan(overlaid, tmp_path)
+    support = plan.external_support_libraries[0]
+    entry = support["entries"][0]
+
+    assert support["name"] == "ck_bmm"
+    assert support["pruned_by_execution_plan"] is True
+    assert len(entry["execution_plan_dispatch"]) == 2
+    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
+        default_candidate_id,
+        alternate_candidate_id,
+    }
+    assert set(support["kernel_symbols"]) == {
+        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(support["profiler_symbols"]) == {
+        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
+    }
+    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
+
+
 def test_ck_profile_wrappers_return_launch_status_for_diagnostics():
     for source_path in (
         Path("kernels/rocm/src/ck_gemm.hip"),
@@ -1859,6 +2107,35 @@ def test_rocm_gemm_module_declares_and_calls_ck_symbol():
         "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_custom_v1(ptr_a, ptr_b, ptr_bias, ptr_d0, ptr_c"
         in source
     )
+
+
+def test_rocm_gemm_module_dispatches_ck_execution_plan_by_shape():
+    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
+    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(
+            ir_b,
+            manifest,
+            "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1",
+            0.29,
+            profile_key="profile-alt",
+        ),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
+
+    assert source.count('extern "C" int dinoml_ck_gemm_rcr_bias_add_relu_float16_') >= 2
+    assert "(shape_a_0) == 128" in source
+    assert "(shape_b_0) == 256" in source
+    assert "(shape_b_0) == 128" in source
+    assert "(shape_a_1) == 64" in source
+    assert "else {" in source
+    assert "CK launcher failed" in source
 
 
 def test_ck_gemm_unit_generation_uses_device_op_not_reference_path():
@@ -1920,6 +2197,9 @@ def test_rocm_bmm_manifest_selects_ck_wide_m_archive(tmp_path):
             "dtype": "float16",
             "archive": f"lib/{ck_bmm_static_library_name('bmm_rcr_add', 'float16')}",
             "target": "dinoml_ck_bmm_bmm_rcr_add_float16",
+            "profiler_bind_target": ck_bmm_profiler_bind_target("bmm_rcr_add", "float16"),
+            "profiler_executable_target": ck_bmm_profiler_executable_target("bmm_rcr_add", "float16"),
+            "profiler_stem": ck_bmm_profiler_stem("bmm_rcr_add", "float16"),
         }
     ]
     _assert_ck_support_plan_unpruned(plan, item)
@@ -1993,9 +2273,6 @@ def test_rocm_bmm_selects_baseline_when_tuned_k_loop_is_too_short_for_attention(
             "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
             {"wide_n", "small", "baseline"},
         ),
-            "profiler_bind_target": ck_bmm_profiler_bind_target("bmm_rcr_add", "float16"),
-            "profiler_executable_target": ck_bmm_profiler_executable_target("bmm_rcr_add", "float16"),
-            "profiler_stem": ck_bmm_profiler_stem("bmm_rcr_add", "float16"),
         (
             16,
             128,
@@ -2119,39 +2396,6 @@ def test_rocm_bmm_row_major_b_uses_scalar_b_transfer_metadata():
     candidate = next(candidate for candidate in item["candidates"] if candidate["ck"]["config"]["name"] == "wide_m")
 
     assert item["selected_candidate_id"] == "ck_bmm_rrr_float32_xdl_wide_m_v1"
-def test_rocm_ck_gemm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
-    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
-    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
-    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
-    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
-    alternate_candidate_id = "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1"
-    execution_plan = _ck_execution_plan_from_results(
-        manifest,
-        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
-        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
-    )
-    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
-
-    plan = create_codegen_plan(overlaid, tmp_path)
-    support = plan.external_support_libraries[0]
-    entry = support["entries"][0]
-
-    assert support["name"] == "ck_gemm"
-    assert support["pruned_by_execution_plan"] is True
-    assert len(entry["execution_plan_dispatch"]) == 2
-    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
-        default_candidate_id,
-        alternate_candidate_id,
-    }
-    assert set(support["kernel_symbols"]) == {
-        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
-    }
-    assert set(support["profiler_symbols"]) == {
-        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
-    }
-    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
-
-
     assert candidate["ck"]["config"]["vector_width"] == 1
     assert candidate["ck"]["config"]["operand_vector_widths"] == {"a": 4, "b": 1}
     assert candidate["selection_predicate"]["alignment"]["a_k"] == 4
@@ -2206,39 +2450,6 @@ def test_rocm_ck_bmm_profiler_passes_plain_layout_strides():
         64 * 96,
         128 * 96,
         64 * 128,
-def test_rocm_ck_bmm_execution_plan_guarded_dispatch_exports_all_referenced_symbols(tmp_path):
-    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
-    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
-    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
-    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
-    alternate_candidate_id = "ck_bmm_rcr_add_float16_xdl_wide_n_v1"
-    execution_plan = _ck_execution_plan_from_results(
-        manifest,
-        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
-        _ck_profile_result_for_candidate(ir_b, manifest, alternate_candidate_id, 0.29, profile_key="profile-alt"),
-    )
-    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
-
-    plan = create_codegen_plan(overlaid, tmp_path)
-    support = plan.external_support_libraries[0]
-    entry = support["entries"][0]
-
-    assert support["name"] == "ck_bmm"
-    assert support["pruned_by_execution_plan"] is True
-    assert len(entry["execution_plan_dispatch"]) == 2
-    assert {candidate["candidate_id"] for candidate in entry["candidates"]} == {
-        default_candidate_id,
-        alternate_candidate_id,
-    }
-    assert set(support["kernel_symbols"]) == {
-        str(selection["kernel_symbol"]) for selection in entry["execution_plan_dispatch"]
-    }
-    assert set(support["profiler_symbols"]) == {
-        str(selection["profiler_symbol"]) for selection in entry["execution_plan_dispatch"]
-    }
-    assert set(plan.candidate_profiler_symbols) == set(support["profiler_symbols"])
-
-
         96,
         96,
         128,
@@ -2292,35 +2503,6 @@ def test_rocm_ck_bmm_profiler_passes_add_residual_layout_strides():
         128,
         13,
     )
-def test_rocm_gemm_module_dispatches_ck_execution_plan_by_shape():
-    ir_a = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=256, k=64)
-    ir_b = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=64)
-    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
-    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
-    execution_plan = _ck_execution_plan_from_results(
-        manifest,
-        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
-        _ck_profile_result_for_candidate(
-            ir_b,
-            manifest,
-            "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_n_v1",
-            0.29,
-            profile_key="profile-alt",
-        ),
-    )
-    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
-
-    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
-
-    assert source.count('extern "C" int dinoml_ck_gemm_rcr_bias_add_relu_float16_') >= 2
-    assert "(shape_a_0) == 128" in source
-    assert "(shape_b_0) == 256" in source
-    assert "(shape_b_0) == 128" in source
-    assert "(shape_a_1) == 64" in source
-    assert "else {" in source
-    assert "CK launcher failed" in source
-
-
     assert isinstance(call[-1], ctypes.c_void_p)
     assert call[-1].value is None
     assert fake_fn.argtypes == [
@@ -2342,6 +2524,37 @@ def test_rocm_bmm_module_declares_and_calls_ck_symbol():
     assert "const half* d0" in source
     assert "int64_t batch_stride_d0" in source
     assert "dinoml_ck_bmm_rcr_add_float16_xdl_wide_n_v1(ptr_a, ptr_b, ptr_d0, ptr_c" in source
+    assert "CK BMM launcher failed" in source
+
+
+def test_rocm_bmm_module_dispatches_ck_execution_plan_by_shape():
+    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
+    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
+    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
+    execution_plan = _ck_execution_plan_from_results(
+        manifest,
+        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
+        _ck_profile_result_for_candidate(
+            ir_b,
+            manifest,
+            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
+            0.29,
+            profile_key="profile-alt",
+        ),
+    )
+    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
+
+    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
+
+    assert source.count('extern "C" int dinoml_ck_bmm_rcr_add_float16_') >= 2
+    assert "? shape_b_0 : shape_a_0" in source
+    assert "(shape_a_1) == 128" in source
+    assert "(shape_b_1) == 128" in source
+    assert "(shape_a_1) == 64" in source
+    assert "(shape_b_1) == 256" in source
+    assert "(shape_a_2) == 96" in source
+    assert "else {" in source
     assert "CK BMM launcher failed" in source
 
 
@@ -2710,37 +2923,6 @@ def test_rocm_conv2d_bias_manifest_reports_malformed_ck_profile_attrs():
         "float16",
         batch=2,
         in_channels=8,
-def test_rocm_bmm_module_dispatches_ck_execution_plan_by_shape():
-    ir_a = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=128, n=128, k=96)
-    ir_b = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=256, k=96)
-    manifest = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
-    default_candidate_id = str(manifest["required_kernels"][0]["selected_candidate_id"])
-    execution_plan = _ck_execution_plan_from_results(
-        manifest,
-        _ck_profile_result_for_candidate(ir_a, manifest, default_candidate_id, 0.31, profile_key="profile-default"),
-        _ck_profile_result_for_candidate(
-            ir_b,
-            manifest,
-            "ck_bmm_rcr_add_float16_xdl_wide_n_v1",
-            0.29,
-            profile_key="profile-alt",
-        ),
-    )
-    overlaid = apply_execution_plan(manifest, execution_plan, strict=True)
-
-    source = render_rocm_module(ir_a, kernel_manifest=overlaid)
-
-    assert source.count('extern "C" int dinoml_ck_bmm_rcr_add_float16_') >= 2
-    assert "? shape_b_0 : shape_a_0" in source
-    assert "(shape_a_1) == 128" in source
-    assert "(shape_b_1) == 128" in source
-    assert "(shape_a_1) == 64" in source
-    assert "(shape_b_1) == 256" in source
-    assert "(shape_a_2) == 96" in source
-    assert "else {" in source
-    assert "CK BMM launcher failed" in source
-
-
         out_channels=64,
         height=16,
         width=16,
@@ -3287,6 +3469,19 @@ def _ck_execution_plan_for_candidate(
     )
 
 
+def _ck_execution_plan_from_results(manifest: dict, *results: dict) -> dict:
+    return build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": 7,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": list(results),
+        }
+    )
+
+
 def _ck_profile_result_for_candidate(
     ir: dict,
     manifest: dict,
@@ -3604,16 +3799,3 @@ def _wait_for_path(path: Path, *, timeout_s: float) -> None:
         if path.exists():
             return
         time.sleep(0.1)
-def _ck_execution_plan_from_results(manifest: dict, *results: dict) -> dict:
-    return build_execution_plan(
-        {
-            "schema_version": 1,
-            "profile_cache_schema_version": 7,
-            "target": dict(manifest["target"]),
-            "kernel_manifest_cache_key": manifest.get("cache_key"),
-            "codegen_plan_cache_key": "test-codegen-plan",
-            "problems": list(results),
-        }
-    )
-
-

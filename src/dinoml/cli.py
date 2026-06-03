@@ -230,7 +230,7 @@ def _compile(args: argparse.Namespace) -> int:
                 "profile": True,
                 "profile_iterations": args.profile_iterations,
                 "profile_repeats": args.profile_repeats,
-                "profile_input_shapes": parse_shape_overrides(args.profile_shape),
+                "profile_input_shapes": parse_shape_overrides(args.profile_shape) or None,
                 "profile_refresh": args.profile_refresh,
             }
         )
@@ -403,7 +403,7 @@ def _benchmark_torch_ops(args: argparse.Namespace) -> int:
 def _profile(args: argparse.Namespace) -> int:
     report = profile_artifact(
         args.artifact,
-        input_shapes=parse_shape_overrides(args.shape),
+        input_shapes=parse_shape_overrides(args.shape) or None,
         iterations=args.iterations,
         repeats=args.repeats,
         output=args.out,

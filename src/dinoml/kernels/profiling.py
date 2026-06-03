@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,16 @@ class ProfileShapeScenario:
     dim_values: Mapping[str, int]
     dim_sources: Mapping[str, str]
     overrides: Mapping[str, Sequence[int]]
+
+
+@dataclass(frozen=True)
+class PreparedProfileWorkload:
+    workload: GemmProfileWorkload | ConvProfileWorkload
+    key_payload: Mapping[str, Any]
+    profile_key: str
+    resolution: str
+    representative: bool
+    cache_entry: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -266,6 +277,8 @@ def build_profile_workloads(
     if target_name not in {"cuda", "rocm"}:
         return []
     tensor_map = {str(tensor["name"]): tensor for tensor in graph["tensors"]}
+    has_runtime_overrides = bool(input_shapes)
+    metadata_shape_scenarios = _metadata_profile_shape_scenarios(graph, tensor_map) if not has_runtime_overrides else None
     required_by_op: dict[str, list[Mapping[str, Any]]] = {}
     for item in kernel_manifest.get("required_kernels", []):
         if item.get("profiler_symbol"):
@@ -281,6 +294,7 @@ def build_profile_workloads(
                 tensor_map,
                 required_by_op.get(op_name, ()),
                 overrides,
+                metadata_shape_scenarios,
                 backend=target_name,
             )
             continue
@@ -292,6 +306,7 @@ def build_profile_workloads(
                     tensor_map,
                     required_by_op.get(op_name, ()),
                     overrides,
+                    metadata_shape_scenarios,
                 )
             else:
                 _append_conv_profile_workloads(
@@ -300,6 +315,7 @@ def build_profile_workloads(
                     tensor_map,
                     required_by_op.get(op_name, ()),
                     overrides,
+                    metadata_shape_scenarios,
                 )
             continue
         if op_name not in GEMM_OPS:
@@ -324,7 +340,7 @@ def build_profile_workloads(
         }
         bias_name = epilogue_tensor_names.get("bias")
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
-        for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+        for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
             a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides, scenario.dim_values)
             b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides, scenario.dim_values)
             bias_shape = (
@@ -443,6 +459,7 @@ def _append_conv_profile_workloads(
     tensor_map: Mapping[str, Mapping[str, Any]],
     required_items: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
+    metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None,
 ) -> None:
     op_name = str(node["op"])
     output_name = str(node["outputs"][0])
@@ -469,7 +486,7 @@ def _append_conv_profile_workloads(
             "CUTLASS Conv profile workload construction found no candidate compatible with "
             f"node {node.get('id')!r} shape/layout/dtype contract"
         )
-    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
         weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
@@ -547,6 +564,7 @@ def _append_ck_conv_profile_workloads(
     tensor_map: Mapping[str, Mapping[str, Any]],
     required_items: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
+    metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None,
 ) -> None:
     op_name = str(node["op"])
     if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
@@ -572,7 +590,7 @@ def _append_ck_conv_profile_workloads(
         return
     if int(groups) != 1:
         return
-    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
         weight_shape = _runtime_tensor_shape(weight_name, tensor_map[weight_name], scenario.overrides, scenario.dim_values)
         bias_shape = _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
@@ -661,6 +679,7 @@ def _append_bmm_profile_workloads(
     tensor_map: Mapping[str, Mapping[str, Any]],
     required_items: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
+    metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None,
     *,
     backend: str,
 ) -> None:
@@ -675,7 +694,7 @@ def _append_bmm_profile_workloads(
     spec = bmm_op_spec(op_name)
     a_name, b_name = (str(name) for name in node["inputs"][:2])
     residual_names = tuple(str(node["inputs"][input_offset]) for input_offset, _name in enumerate(spec.inputs, start=2))
-    for scenario in _profile_shape_scenarios(node, tensor_map, overrides):
+    for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
         a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides, scenario.dim_values)
         b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides, scenario.dim_values)
         residual_shapes = tuple(
@@ -1134,6 +1153,57 @@ def _blocked_profile_items(kernel_manifest: Mapping[str, Any]) -> list[dict[str,
     return blocked
 
 
+def _prepare_profile_workloads(
+    workloads: Sequence[GemmProfileWorkload | ConvProfileWorkload],
+    manifest: Mapping[str, Any],
+    kernel_manifest: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+    cache: Mapping[str, Any],
+    *,
+    iterations: int,
+    repeats: int,
+    refresh: bool,
+    context: Mapping[str, Any],
+) -> tuple[list[PreparedProfileWorkload], list[PreparedProfileWorkload]]:
+    prepared: list[PreparedProfileWorkload] = []
+    unique: list[PreparedProfileWorkload] = []
+    seen_keys: set[str] = set()
+    cache_entries = cache.get("entries", {})
+    if not isinstance(cache_entries, Mapping):
+        cache_entries = {}
+    for workload in workloads:
+        key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
+        profile_key = _profile_key(key_payload)
+        representative = profile_key not in seen_keys
+        if representative:
+            seen_keys.add(profile_key)
+            cached = cache_entries.get(profile_key)
+            cache_entry = cached if (
+                not refresh
+                and cached is not None
+                and _cache_entry_satisfies(cached, key_payload=key_payload, iterations=iterations, repeats=repeats)
+            ) else None
+            item = PreparedProfileWorkload(
+                workload=workload,
+                key_payload=key_payload,
+                profile_key=profile_key,
+                resolution="cache" if cache_entry is not None else "profile",
+                representative=True,
+                cache_entry=cache_entry,
+            )
+            unique.append(item)
+        else:
+            item = PreparedProfileWorkload(
+                workload=workload,
+                key_payload=key_payload,
+                profile_key=profile_key,
+                resolution="duplicate",
+                representative=False,
+            )
+        prepared.append(item)
+    return prepared, unique
+
+
 def profile_artifact(
     artifact: str | Path,
     *,
@@ -1162,6 +1232,17 @@ def profile_artifact(
     cache = _read_profile_cache(cache_path, manifest["target"])
     context = _profile_context(artifact_dir, manifest, codegen_plan)
     blocked_profile_items = _blocked_profile_items(kernel_manifest)
+    prepared_workloads, unique_workloads = _prepare_profile_workloads(
+        workloads,
+        manifest,
+        kernel_manifest,
+        codegen_plan,
+        cache,
+        iterations=iterations,
+        repeats=repeats,
+        refresh=refresh,
+        context=context,
+    )
     summary = {
         "profiled": 0,
         "cached": 0,
@@ -1169,6 +1250,27 @@ def profile_artifact(
         "failed": 0,
         "blocked": len(blocked_profile_items),
     }
+    raw_workload_count = len(workloads)
+    total_workloads = len(unique_workloads)
+    timed_workloads = sum(1 for item in unique_workloads if item.resolution == "profile")
+    progress_summary = {
+        "profiled": 0,
+        "cached": total_workloads - timed_workloads,
+        "skipped": 0,
+        "failed": 0,
+    }
+    print(
+        "[dml.profile] Starting profile run: "
+        f"artifact={artifact_dir}, "
+        f"target={target_name}, "
+        f"raw_workloads={raw_workload_count}, "
+        f"unique_profile_tasks={total_workloads}, "
+        f"timed_profile_tasks={timed_workloads}, "
+        f"blocked={summary['blocked']}, "
+        f"iterations={iterations}, "
+        f"repeats={repeats}, "
+        f"refresh={refresh}"
+    )
     if not workloads:
         report = _profile_report(
             artifact_dir,
@@ -1186,40 +1288,54 @@ def profile_artifact(
         execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
         report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
         _write_profile_report(report, artifact_dir, output)
+        print("[dml.profile] No profileable workloads were found")
         return report
 
     rng = np.random.default_rng(seed)
-    results = []
     profiler = None
+    started_at = time.monotonic()
+    last_progress_at = started_at
+    last_progress_count = int(progress_summary["cached"])
+    resolved_results: dict[str, tuple[str, Any, Any]] = {}
+    for item in unique_workloads:
+        if item.resolution == "cache" and item.cache_entry is not None:
+            resolved_results[item.profile_key] = ("cache", item.cache_entry, None)
     try:
+        profile_workloads = [item for item in unique_workloads if item.resolution == "profile"]
         index = 0
-        while index < len(workloads):
-            workload = workloads[index]
+        while index < len(profile_workloads):
+            prepared = profile_workloads[index]
+            workload = prepared.workload
             if workload.kernel_library in {"cutlass_gemm", "cutlass_bmm", "cutlass_conv"}:
-                group = [workload]
+                group = [prepared]
                 index += 1
-                while index < len(workloads) and _same_cutlass_native_profile_problem(workload, workloads[index]):
-                    group.append(workloads[index])
+                while index < len(profile_workloads) and _same_cutlass_native_profile_problem(
+                    workload,
+                    profile_workloads[index].workload,
+                ):
+                    group.append(profile_workloads[index])
                     index += 1
-                missing_workloads = []
-                missing_payloads = {}
-                missing_keys = {}
-                for candidate_workload in group:
-                    key_payload = _profile_key_payload(candidate_workload, manifest, kernel_manifest, codegen_plan, context=context)
-                    profile_key = _profile_key(key_payload)
-                    cached = cache["entries"].get(profile_key)
-                    if (
-                        cached is not None
-                        and not refresh
-                        and _cache_entry_satisfies(cached, key_payload=key_payload, iterations=iterations, repeats=repeats)
+                if not group:
+                    processed = _profile_processed_count(progress_summary)
+                    now = time.monotonic()
+                    if _should_print_profile_progress(
+                        processed,
+                        total_workloads,
+                        last_progress_count=last_progress_count,
+                        elapsed_s=now - started_at,
+                        since_last_s=now - last_progress_at,
                     ):
-                        results.append(_profile_result_from_cache(candidate_workload, cached))
-                        summary["cached"] += 1
-                    else:
-                        missing_workloads.append(candidate_workload)
-                        missing_payloads[candidate_workload.candidate_id] = key_payload
-                        missing_keys[candidate_workload.candidate_id] = profile_key
-                if not missing_workloads:
+                        print(
+                            _format_profile_progress(
+                                progress_summary,
+                                processed=processed,
+                                total_workloads=total_workloads,
+                                elapsed_s=now - started_at,
+                                current_workload=workload,
+                            )
+                        )
+                        last_progress_at = now
+                        last_progress_count = processed
                     continue
                 if profiler is None:
                     profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
@@ -1242,9 +1358,8 @@ def profile_artifact(
                         repeats=repeats,
                     )
                 rows_by_candidate = {str(row["candidate"].get("candidate_id")): row for row in profiled_rows}
-                for candidate_workload in missing_workloads:
-                    key_payload = missing_payloads[candidate_workload.candidate_id]
-                    profile_key = missing_keys[candidate_workload.candidate_id]
+                for candidate_item in group:
+                    candidate_workload = candidate_item.workload
                     row = rows_by_candidate.get(candidate_workload.candidate_id)
                     if row is None:
                         continue
@@ -1255,71 +1370,142 @@ def profile_artifact(
                         candidate_workload,
                         timing["median_ms"],
                         iterations,
-                        profile_key=profile_key,
+                        profile_key=candidate_item.profile_key,
                         status="ok",
                         workspace_nbytes=workspace_nbytes,
                         timing=timing,
                     )
-                    results.append(result)
-                    cache["entries"][profile_key] = _cache_entry(candidate_workload, result, key_payload)
-                    summary["profiled"] += 1
-                continue
-            index += 1
-            key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
-            profile_key = _profile_key(key_payload)
-            cached = cache["entries"].get(profile_key)
-            if (
-                cached is not None
-                and not refresh
-                and _cache_entry_satisfies(cached, key_payload=key_payload, iterations=iterations, repeats=repeats)
-            ):
-                results.append(_profile_result_from_cache(workload, cached))
-                summary["cached"] += 1
-            else:
-                if profiler is None:
-                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
-                try:
-                    samples_ms, workspace_nbytes, effective_iterations = _profile_workload_samples(
-                        profiler,
-                        workload,
-                        iterations=iterations,
-                        repeats=repeats,
-                        rng=rng,
-                    )
-                except RuntimeError as exc:
-                    results.append(
-                        _profile_failure_result(
-                            workload,
-                            iterations,
-                            profile_key=profile_key,
-                            error=str(exc),
+                    cache_entry = _cache_entry(candidate_workload, result, candidate_item.key_payload)
+                    resolved_results[candidate_item.profile_key] = ("result", result, cache_entry)
+                    cache["entries"][candidate_item.profile_key] = cache_entry
+                    progress_summary["profiled"] += 1
+                processed = _profile_processed_count(progress_summary)
+                now = time.monotonic()
+                if _should_print_profile_progress(
+                    processed,
+                    total_workloads,
+                    last_progress_count=last_progress_count,
+                    elapsed_s=now - started_at,
+                    since_last_s=now - last_progress_at,
+                ):
+                    print(
+                        _format_profile_progress(
+                            progress_summary,
+                            processed=processed,
+                            total_workloads=total_workloads,
+                            elapsed_s=now - started_at,
+                            current_workload=workload,
                         )
                     )
-                    summary["failed"] += 1
-                    continue
-                timing = _profile_timing(samples_ms, iterations=effective_iterations)
-                result = _profile_result(
+                    last_progress_at = now
+                    last_progress_count = processed
+                continue
+            index += 1
+            if profiler is None:
+                profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
+            try:
+                samples_ms, workspace_nbytes, effective_iterations = _profile_workload_samples(
+                    profiler,
                     workload,
-                    timing["median_ms"],
-                    effective_iterations,
-                    profile_key=profile_key,
-                    status="ok",
-                    workspace_nbytes=workspace_nbytes,
-                    timing=timing,
+                    iterations=iterations,
+                    repeats=repeats,
+                    rng=rng,
                 )
-                if effective_iterations != iterations:
-                    result["requested_iterations"] = int(iterations)
-                    result["adaptive_iterations"] = _adaptive_profile_iterations_payload(
-                        requested_iterations=iterations,
-                        effective_iterations=effective_iterations,
+            except RuntimeError as exc:
+                resolved_results[prepared.profile_key] = ("failure", str(exc), int(iterations))
+                progress_summary["failed"] += 1
+                processed = _profile_processed_count(progress_summary)
+                now = time.monotonic()
+                if _should_print_profile_progress(
+                    processed,
+                    total_workloads,
+                    last_progress_count=last_progress_count,
+                    elapsed_s=now - started_at,
+                    since_last_s=now - last_progress_at,
+                ):
+                    print(
+                        _format_profile_progress(
+                            progress_summary,
+                            processed=processed,
+                            total_workloads=total_workloads,
+                            elapsed_s=now - started_at,
+                            current_workload=workload,
+                        )
                     )
-                results.append(result)
-                cache["entries"][profile_key] = _cache_entry(workload, result, key_payload)
-                summary["profiled"] += 1
+                    last_progress_at = now
+                    last_progress_count = processed
+                continue
+            timing = _profile_timing(samples_ms, iterations=effective_iterations)
+            result = _profile_result(
+                workload,
+                timing["median_ms"],
+                effective_iterations,
+                profile_key=prepared.profile_key,
+                status="ok",
+                workspace_nbytes=workspace_nbytes,
+                timing=timing,
+            )
+            if effective_iterations != iterations:
+                result["requested_iterations"] = int(iterations)
+                result["adaptive_iterations"] = _adaptive_profile_iterations_payload(
+                    requested_iterations=iterations,
+                    effective_iterations=effective_iterations,
+                )
+            cache_entry = _cache_entry(workload, result, prepared.key_payload)
+            resolved_results[prepared.profile_key] = ("result", result, cache_entry)
+            cache["entries"][prepared.profile_key] = cache_entry
+            progress_summary["profiled"] += 1
+            processed = _profile_processed_count(progress_summary)
+            now = time.monotonic()
+            if _should_print_profile_progress(
+                processed,
+                total_workloads,
+                last_progress_count=last_progress_count,
+                elapsed_s=now - started_at,
+                since_last_s=now - last_progress_at,
+            ):
+                print(
+                    _format_profile_progress(
+                        progress_summary,
+                        processed=processed,
+                        total_workloads=total_workloads,
+                        elapsed_s=now - started_at,
+                        current_workload=workload,
+                    )
+                )
+                last_progress_at = now
+                last_progress_count = processed
     finally:
         if profiler is not None:
             profiler.close()
-    if summary["profiled"]:
+    results = []
+    for item in prepared_workloads:
+        resolved = resolved_results.get(item.profile_key)
+        if resolved is None:
+            raise RuntimeError(f"Missing resolved profile result for key {item.profile_key}")
+        kind = str(resolved[0])
+        if kind == "cache":
+            result = _profile_result_from_cache(item.workload, resolved[1])
+            summary["cached"] += 1
+        elif kind == "result":
+            if item.representative:
+                result = dict(resolved[1])
+                summary["profiled"] += 1
+            else:
+                result = _profile_result_from_cache(item.workload, resolved[2])
+                summary["cached"] += 1
+        elif kind == "failure":
+            result = _profile_failure_result(
+                item.workload,
+                int(resolved[2]),
+                profile_key=item.profile_key,
+                error=str(resolved[1]),
+            )
+            summary["failed"] += 1
+        else:
+            raise RuntimeError(f"Unsupported resolved profile result kind {kind!r}")
+        results.append(result)
+    if progress_summary["profiled"]:
         _write_profile_cache(cache_path, cache)
 
     report = _profile_report(
@@ -1338,6 +1524,16 @@ def profile_artifact(
     execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
     report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
     _write_profile_report(report, artifact_dir, output)
+    print(
+        "[dml.profile] Completed profile run: "
+        f"raw_workloads={raw_workload_count}, "
+        f"unique_profile_tasks={total_workloads}, "
+        f"profiled={summary['profiled']}, "
+        f"cached={summary['cached']}, "
+        f"failed={summary['failed']}, "
+        f"blocked={summary['blocked']}, "
+        f"elapsed={time.monotonic() - started_at:.1f}s"
+    )
     return report
 
 
@@ -1392,6 +1588,56 @@ def _positive_int(value: int, name: str) -> int:
     return parsed
 
 
+def _profile_processed_count(summary: Mapping[str, Any]) -> int:
+    return sum(int(summary.get(name, 0) or 0) for name in ("profiled", "cached", "skipped", "failed"))
+
+
+def _should_print_profile_progress(
+    processed: int,
+    total_workloads: int,
+    *,
+    last_progress_count: int,
+    elapsed_s: float,
+    since_last_s: float,
+) -> bool:
+    if total_workloads <= 0:
+        return False
+    if processed >= total_workloads:
+        return True
+    count_interval = max(1, min(1000, total_workloads // 100))
+    if processed - last_progress_count >= count_interval:
+        return True
+    return elapsed_s >= 5.0 and since_last_s >= 5.0 and processed > last_progress_count
+
+
+def _format_profile_progress(
+    summary: Mapping[str, Any],
+    *,
+    processed: int,
+    total_workloads: int,
+    elapsed_s: float,
+    current_workload: GemmProfileWorkload | ConvProfileWorkload | None,
+) -> str:
+    fraction = processed / total_workloads if total_workloads > 0 else 1.0
+    eta_s = ((elapsed_s / fraction) - elapsed_s) if fraction > 0.0 and processed < total_workloads else 0.0
+    current = ""
+    if current_workload is not None:
+        current = (
+            f", current={current_workload.kernel_library}:{current_workload.op}:{current_workload.dtype}"
+            f":{current_workload.shape_case_id}"
+        )
+    return (
+        "[dml.profile] Progress: "
+        f"{processed}/{total_workloads} ({fraction * 100.0:.1f}%), "
+        f"profiled={int(summary.get('profiled', 0) or 0)}, "
+        f"cached={int(summary.get('cached', 0) or 0)}, "
+        f"failed={int(summary.get('failed', 0) or 0)}, "
+        f"elapsed={elapsed_s:.1f}s, "
+        f"eta={max(0.0, eta_s):.1f}s"
+        f"{current}"
+    )
+
+
 def _runtime_tensor_shape(
     name: str,
     tensor: Mapping[str, Any],
@@ -1411,6 +1657,7 @@ def _profile_shape_scenarios(
     node: Mapping[str, Any],
     tensor_map: Mapping[str, Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
+    metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None = None,
 ) -> list[ProfileShapeScenario]:
     if overrides:
         dim_values, dim_sources = _profile_dim_values_from_overrides(tensor_map, overrides)
@@ -1423,6 +1670,8 @@ def _profile_shape_scenarios(
                 overrides=overrides,
             )
         ]
+    if metadata_shape_scenarios is not None:
+        return list(metadata_shape_scenarios)
     dynamic_values = _profile_dim_values(node, tensor_map)
     if not dynamic_values or not any(info["source"] != "max" or len(info["values"]) > 1 for info in dynamic_values.values()):
         return [
@@ -1455,6 +1704,59 @@ def _profile_shape_scenarios(
             )
         )
     return scenarios
+
+
+def _metadata_profile_shape_scenarios(
+    graph: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> list[ProfileShapeScenario] | None:
+    metadata = graph.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    profiling = metadata.get("profiling")
+    if not isinstance(profiling, Mapping):
+        return None
+    raw_scenarios = profiling.get("shape_scenarios")
+    if not isinstance(raw_scenarios, Sequence) or isinstance(raw_scenarios, (str, bytes, bytearray)):
+        return None
+
+    scenarios: list[ProfileShapeScenario] = []
+    for index, raw_scenario in enumerate(raw_scenarios):
+        if not isinstance(raw_scenario, Mapping):
+            raise ValueError(
+                f"Graph profiling metadata shape_scenarios[{index}] must be a mapping, "
+                f"got {type(raw_scenario).__name__}"
+            )
+        raw_dim_values = raw_scenario.get("dim_values", {})
+        if not isinstance(raw_dim_values, Mapping):
+            raise ValueError(f"Graph profiling metadata shape_scenarios[{index}].dim_values must be a mapping")
+        dim_values = {
+            str(name): _positive_int(value, f"shape_scenarios[{index}].dim_values[{name!r}]")
+            for name, value in raw_dim_values.items()
+        }
+
+        raw_overrides = raw_scenario.get("overrides", {})
+        if not isinstance(raw_overrides, Mapping):
+            raise ValueError(f"Graph profiling metadata shape_scenarios[{index}].overrides must be a mapping")
+        overrides = {
+            str(name): tuple(_positive_int(dim, f"shape_scenarios[{index}].overrides[{name!r}]") for dim in shape)
+            for name, shape in raw_overrides.items()
+        }
+        for name, shape in overrides.items():
+            tensor = tensor_map.get(name)
+            if tensor is None:
+                continue
+            _runtime_tensor_shape(name, tensor, overrides, dim_values)
+        scenarios.append(
+            ProfileShapeScenario(
+                source=str(raw_scenario.get("source", "graph_metadata")),
+                case_id=str(raw_scenario.get("case_id", f"scenario_{index}")),
+                dim_values=dim_values,
+                dim_sources={name: "metadata" for name in dim_values},
+                overrides=overrides,
+            )
+        )
+    return scenarios or None
 
 
 def _profile_dim_values(
@@ -4030,6 +4332,14 @@ class _CkRocmProfiler:
         )
         return ptr
 
+    def _release_buffers_since(self, start_index: int) -> None:
+        if not hasattr(self, "_buffers"):
+            return
+        for index in range(len(self._buffers) - 1, start_index - 1, -1):
+            ptr = self._buffers[index]
+            self._check(self._rocm_runtime.dino_device_free(ptr))
+            del self._buffers[index]
+
     def _check(self, code: int) -> None:
         if code == 0:
             return
@@ -4202,14 +4512,6 @@ class _CudaProfiler:
             )
         )
         return ptr
-
-    def _release_buffers_since(self, start_index: int) -> None:
-        if not hasattr(self, "_buffers"):
-            return
-        for index in range(len(self._buffers) - 1, start_index - 1, -1):
-            ptr = self._buffers[index]
-            self._check(self._rocm_runtime.dino_device_free(ptr))
-            del self._buffers[index]
 
     def _check(self, code: int) -> None:
         if code == 0:

@@ -27,3 +27,9 @@ class Target:
             "no_tf32": bool(self.no_tf32),
             "use_fp16_acc": bool(self.use_fp16_acc),
         }
+
+    def __repr__(self) -> str:
+        return (
+            f"Target(name={self.name!r}, arch={self.arch!r}, "
+            f"no_tf32={self.no_tf32!r}, use_fp16_acc={self.use_fp16_acc!r})"
+        )

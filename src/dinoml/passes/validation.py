@@ -790,7 +790,20 @@ def _validate_collection_node(
         for tensor in [*inputs, output]
         if is_dynamic_shape(tensor.get("shape_spec", tensor["shape"]))
     ]
-    if dynamic_tensors:
+    dynamic_shape_allowed_ops = {
+        "concatenate",
+        "concatenate_fast",
+        "concatenate_tanh",
+        "index_select",
+        "permute",
+        "permute021",
+        "permute0213",
+        "permute102",
+        "permute210",
+        "slice_scatter",
+        "stack",
+    }
+    if dynamic_tensors and op_name not in dynamic_shape_allowed_ops:
         raise ValidationError(f"{op_name} currently supports only static shapes: {dynamic_tensors}")
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))

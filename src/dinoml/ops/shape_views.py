@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from math import prod
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
-from dinoml.shapes import is_dynamic_shape, shape_numel
+from dinoml.shapes import (
+    is_dynamic_shape,
+    normalize_symbolic_int,
+    shape_numel,
+    symbolic_int_expr,
+    symbolic_int_interval,
+)
 
 
 def identity(x: Any) -> Tensor:
@@ -12,12 +18,10 @@ def identity(x: Any) -> Tensor:
     return tensor.builder.emit_view("identity", tensor, tensor.shape, tensor.shape_spec)
 
 
-def reshape(x: Any, shape: Sequence[int]) -> Tensor:
+def reshape(x: Any, shape: Sequence[Any]) -> Tensor:
     tensor = as_tensor(x)
-    if is_dynamic_shape(tensor.shape_spec):
-        raise NotImplementedError("reshape currently supports only static input shapes")
-    out_shape = _resolve_reshape_shape(tensor.shape, shape)
-    return tensor.builder.emit_view("reshape", tensor, out_shape, out_shape)
+    out_shape, out_shape_spec = _resolve_reshape_shape(tensor.shape_spec, shape)
+    return tensor.builder.emit_view("reshape", tensor, out_shape, out_shape_spec)
 
 
 def flatten(x: Any, start_dim: int = 0, end_dim: int = -1) -> Tensor:
@@ -61,27 +65,53 @@ def unsqueeze(x: Any, dim: int) -> Tensor:
     return tensor.builder.emit_view("unsqueeze", tensor, out_shape, out_shape_spec)
 
 
-def _resolve_reshape_shape(input_shape: Sequence[int], requested_shape: Sequence[int]) -> list[int]:
+def _resolve_reshape_shape(
+    input_shape_spec: Sequence[int | Mapping[str, Any]],
+    requested_shape: Sequence[Any],
+) -> tuple[list[int], list[int | dict[str, Any]]]:
     if not requested_shape:
         raise NotImplementedError("scalar shape-view tensors are not supported yet")
-    out_shape = [int(dim) for dim in requested_shape]
-    inferred_axes = [idx for idx, dim in enumerate(out_shape) if dim == -1]
+    output_shape_spec: list[int | dict[str, Any]] = []
+    inferred_axes = []
+    for idx, dim in enumerate(requested_shape):
+        if isinstance(dim, int) and dim == -1:
+            inferred_axes.append(idx)
+            output_shape_spec.append(-1)
+            continue
+        normalized = normalize_symbolic_int(dim, f"reshape dim {idx}")
+        if isinstance(normalized, int) and normalized <= 0:
+            raise ValueError(f"reshape dimensions must be positive or -1, got {dim}")
+        if not isinstance(normalized, int) and symbolic_int_interval(normalized)[0] <= 0:
+            raise ValueError(f"reshape symbolic dimension at axis {idx} must be positive, got {dim!r}")
+        output_shape_spec.append(normalized if isinstance(normalized, int) else dict(normalized))
     if len(inferred_axes) > 1:
         raise ValueError("reshape can infer at most one -1 dimension")
-    for dim in out_shape:
-        if dim == -1:
-            continue
-        if dim <= 0:
-            raise ValueError(f"reshape dimensions must be positive or -1, got {dim}")
-    input_numel = shape_numel(input_shape)
+    input_numel = _symbolic_numel(input_shape_spec)
     if inferred_axes:
-        known_numel = int(prod(dim for dim in out_shape if dim != -1))
-        if input_numel % known_numel != 0:
-            raise ValueError(f"reshape cannot infer dimension for {list(requested_shape)} from input shape {list(input_shape)}")
-        out_shape[inferred_axes[0]] = input_numel // known_numel
-    if shape_numel(out_shape) != input_numel:
-        raise ValueError(f"reshape must preserve element count: {list(input_shape)} -> {out_shape}")
-    return out_shape
+        known_numel = _symbolic_numel([dim for dim in output_shape_spec if dim != -1])
+        inferred = symbolic_int_expr("div", input_numel, known_numel)
+        interval = symbolic_int_interval(inferred)
+        if interval[0] <= 0:
+            raise ValueError(f"reshape inferred a non-positive dimension {interval[0]} for {list(requested_shape)}")
+        output_shape_spec[inferred_axes[0]] = inferred if isinstance(inferred, int) else dict(inferred)
+    input_max_shape = [_symbolic_dim_max(dim) for dim in input_shape_spec]
+    out_shape = [_symbolic_dim_max(dim) for dim in output_shape_spec]
+    if shape_numel(out_shape) != shape_numel(input_max_shape):
+        raise ValueError(f"reshape must preserve element count: {input_max_shape} -> {out_shape}")
+    return out_shape, output_shape_spec
+
+
+def _symbolic_numel(shape_spec: Sequence[int | Mapping[str, Any]]) -> int | dict[str, Any]:
+    numel: int | dict[str, Any] = 1
+    for dim in shape_spec:
+        numel = symbolic_int_expr("mul", numel, normalize_symbolic_int(dim))
+    return numel
+
+
+def _symbolic_dim_max(dim: int | Mapping[str, Any]) -> int:
+    if isinstance(dim, int):
+        return int(dim)
+    return int(symbolic_int_interval(dim)[1])
 
 
 def _squeeze_axes(shape_spec: Sequence[Any], dim: int | Sequence[int] | None) -> set[int]:

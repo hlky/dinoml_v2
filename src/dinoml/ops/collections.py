@@ -968,17 +968,17 @@ class Pad(OpDef):
 def concatenate(inputs: Any, dim: int = 0) -> Tensor:
     tensors = _as_tensor_sequence(inputs, "concatenate")
     dtype = _check_collection_tensors("concatenate", tensors)
-    if any(tensor.dynamic for tensor in tensors):
-        raise ValueError("concatenate currently supports only static input shapes")
     normalized_dim = normalize_concatenate_dim(dim, tensors[0].rank)
     out_shape = infer_concatenate_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
+    out_shape_spec = [_copy_shape_dim(dim_spec) for dim_spec in tensors[0].shape_spec]
+    out_shape_spec[normalized_dim] = sum(int(tensor.shape[normalized_dim]) for tensor in tensors)
     return tensors[0].builder.emit(
         "concatenate",
         tensors,
         out_shape,
         dtype,
         {"dim": normalized_dim},
-        shape_spec=out_shape,
+        shape_spec=out_shape_spec,
     )
 
 
@@ -993,17 +993,17 @@ def concatenate_tanh(inputs: Any, dim: int = 0) -> Tensor:
 def stack(inputs: Any, dim: int = 0) -> Tensor:
     tensors = _as_tensor_sequence(inputs, "stack")
     dtype = _check_collection_tensors("stack", tensors)
-    if any(tensor.dynamic for tensor in tensors):
-        raise ValueError("stack currently supports only static input shapes")
     normalized_dim = normalize_stack_dim(dim, tensors[0].rank)
     out_shape = infer_stack_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
+    out_shape_spec = [*[_copy_shape_dim(dim_spec) for dim_spec in tensors[0].shape_spec]]
+    out_shape_spec.insert(normalized_dim, len(tensors))
     return tensors[0].builder.emit(
         "stack",
         tensors,
         out_shape,
         dtype,
         {"dim": normalized_dim},
-        shape_spec=out_shape,
+        shape_spec=out_shape_spec,
     )
 
 
@@ -1050,8 +1050,6 @@ def permute(x: Any, dims: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
         raise ValueError(f"permute does not support dtype {tensor.dtype}")
-    if tensor.dynamic:
-        raise ValueError("permute currently supports only static input shapes")
     normalized_dims = normalize_permute_dims(dims, tensor.rank)
     out_shape = infer_permute_shape_with_attrs([tensor.shape], {"dims": normalized_dims})
     out_shape_spec = [_copy_shape_dim(tensor.shape_spec[axis]) for axis in normalized_dims]
@@ -1144,20 +1142,20 @@ def index_select(x: Any, dim: Any, indices: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
         raise ValueError(f"index_select does not support dtype {tensor.dtype}")
-    if tensor.dynamic:
-        raise ValueError("index_select currently supports only static input shapes")
     normalized_dim, normalized_indices = normalize_index_select_attrs(dim, indices, tensor.shape)
     out_shape = infer_index_select_shape_with_attrs(
         [tensor.shape],
         {"dim": normalized_dim, "indices": normalized_indices},
     )
+    out_shape_spec = [_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec]
+    out_shape_spec[normalized_dim] = len(normalized_indices)
     return tensor.builder.emit(
         "index_select",
         [tensor],
         out_shape,
         tensor.dtype,
         {"dim": normalized_dim, "indices": normalized_indices},
-        shape_spec=out_shape,
+        shape_spec=out_shape_spec,
     )
 
 
@@ -1214,8 +1212,6 @@ def slice_scatter(x: Any, update: Any, start_indices: Any) -> Tensor:
     tensor = as_tensor(x)
     update_tensor = as_tensor(update, dtype_hint=tensor.dtype)
     dtype = _check_collection_tensors("slice_scatter", [tensor, update_tensor])
-    if tensor.dynamic or update_tensor.dynamic:
-        raise ValueError("slice_scatter currently supports only static input shapes")
     normalized_starts = normalize_slice_scatter_attrs(start_indices, tensor.shape, update_tensor.shape)
     out_shape = infer_slice_scatter_shape_with_attrs(
         [tensor.shape, update_tensor.shape],

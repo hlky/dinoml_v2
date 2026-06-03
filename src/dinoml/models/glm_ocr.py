@@ -475,7 +475,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         q = dml.ops.reshape(q, [batch, seq_len, self.config.num_attention_heads, self.config.head_dim])
         k = dml.ops.reshape(k, [batch, seq_len, self.config.num_key_value_heads, self.config.head_dim])
         v = dml.ops.reshape(v, [batch, seq_len, self.config.num_key_value_heads, self.config.head_dim])
-        q, k = apply_glm_ocr_text_rope(q, k, cos, sin, self.config.rotary_dim)
+        q, k = dml.ops.glm_ocr_text_rope(q, k, cos, sin, self.config.rotary_dim)
         return q, k, v
 
     def forward(self, hidden_states, cos, sin, attention_mask=None):
@@ -1064,7 +1064,7 @@ class GlmOcrVisionAttention(dml.nn.Module):
         v = dml.ops.reshape(v, [seq_len, self.config.num_heads, self.config.head_dim])
         q = self.q_norm(q)
         k = self.k_norm(k)
-        q, k = apply_glm_ocr_vision_rope(q, k, cos, sin)
+        q, k = dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
         q = _materialize(q)
         k = _materialize(k)
         v = _materialize(v)
@@ -1496,51 +1496,6 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
         return {"logits": dml.ops.output(logits, "logits")}
 
 
-def apply_glm_ocr_text_rope(q, k, cos, sin, rotary_dim: int):
-    return dml.ops.glm_ocr_text_rope(q, k, cos, sin, rotary_dim)
-
-
-def _apply_glm_ocr_text_rope_base_ops(q, k, cos, sin, rotary_dim: int):
-    cos = dml.ops.repeat_interleave(_prefix_last_dim(cos, rotary_dim // 2), 2, dim=-1)
-    sin = dml.ops.repeat_interleave(_prefix_last_dim(sin, rotary_dim // 2), 2, dim=-1)
-    cos = dml.ops.unsqueeze(cos, 2)
-    sin = dml.ops.unsqueeze(sin, 2)
-    if rotary_dim < int(q.shape[-1]):
-        q_rot, q_pass = dml.ops.split(q, [rotary_dim, int(q.shape[-1]) - rotary_dim], dim=-1)
-        k_rot, k_pass = dml.ops.split(k, [rotary_dim, int(k.shape[-1]) - rotary_dim], dim=-1)
-    else:
-        q_rot, q_pass = q, None
-        k_rot, k_pass = k, None
-    q_embed = dml.ops.add(dml.ops.mul(q_rot, cos), dml.ops.mul(_rotate_even_odd(q_rot), sin))
-    k_embed = dml.ops.add(dml.ops.mul(k_rot, cos), dml.ops.mul(_rotate_even_odd(k_rot), sin))
-    if q_pass is not None:
-        q_embed = dml.ops.concatenate([q_embed, q_pass], dim=-1)
-        k_embed = dml.ops.concatenate([k_embed, k_pass], dim=-1)
-    return q_embed, k_embed
-
-
-def apply_glm_ocr_vision_rope(q, k, cos, sin):
-    return dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
-
-
-def _apply_glm_ocr_vision_rope_base_ops(q, k, cos, sin):
-    q_dtype = q.dtype
-    k_dtype = k.dtype
-    q_rot = dml.ops.cast(q, "float32") if q_dtype != "float32" else q
-    k_rot = dml.ops.cast(k, "float32") if k_dtype != "float32" else k
-    cos = dml.ops.unsqueeze(cos, 1)
-    sin = dml.ops.unsqueeze(sin, 1)
-    cos = dml.ops.cast(cos, "float32") if cos.dtype != "float32" else cos
-    sin = dml.ops.cast(sin, "float32") if sin.dtype != "float32" else sin
-    q_embed = dml.ops.add(dml.ops.mul(q_rot, cos), dml.ops.mul(_rotate_half(q_rot), sin))
-    k_embed = dml.ops.add(dml.ops.mul(k_rot, cos), dml.ops.mul(_rotate_half(k_rot), sin))
-    if q_dtype != "float32":
-        q_embed = dml.ops.cast(q_embed, q_dtype)
-    if k_dtype != "float32":
-        k_embed = dml.ops.cast(k_embed, k_dtype)
-    return q_embed, k_embed
-
-
 def glm_ocr_weights_from_transformers_state_dict(
     state_dict: Mapping[str, object],
     config: GlmOcrConfig,
@@ -1938,8 +1893,6 @@ __all__ = [
     "GlmOcrVisionConfig",
     "GlmOcrVisionModel",
     "GlmOcrVisionPatchEmbedLinear",
-    "apply_glm_ocr_text_rope",
-    "apply_glm_ocr_vision_rope",
     "glm_ocr_config_from_transformers_config",
     "glm_ocr_config_from_transformers_dict",
     "glm_ocr_patch_embed_linear_weight",

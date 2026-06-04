@@ -33,6 +33,7 @@ struct ConvRequest {
   int iterations = 1;
   int repeats = 1;
   int residual_count = 0;
+  std::string validation_mode = "fast";
 };
 
 struct ConvResult {
@@ -68,6 +69,16 @@ inline std::size_t dtype_size(const std::string& dtype) {
     return sizeof(__nv_bfloat16);
   }
   throw std::runtime_error("Unsupported CUTLASS Conv profiler dtype: " + dtype);
+}
+
+inline std::string normalize_validation_mode(const std::string& validation_mode) {
+  if (validation_mode.empty() || validation_mode == "fast") {
+    return "fast";
+  }
+  if (validation_mode == "strict" || validation_mode == "debug") {
+    return "strict";
+  }
+  throw std::runtime_error("Unsupported CUTLASS Conv profiler validation_mode: " + validation_mode);
 }
 
 inline std::vector<std::uint8_t> random_storage(std::size_t count, const std::string& dtype, std::mt19937& rng) {
@@ -238,6 +249,7 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
       request.iterations <= 0 || request.repeats <= 0) {
     throw std::runtime_error("CUTLASS Conv profiler dimensions, iterations, and repeats must be positive");
   }
+  const bool strict_validation = (normalize_validation_mode(request.validation_mode) == "strict");
   std::mt19937 rng(seed);
   const std::size_t element_size = dtype_size(request.dtype);
   const std::size_t activation_elements =
@@ -271,14 +283,18 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
     result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
     bool failed = false;
     for (int repeat = 0; repeat < request.repeats; ++repeat) {
-      output.fill(0xA5, output_nbytes);
+      if (strict_validation) {
+        output.fill(0xA5, output_nbytes);
+      }
       float elapsed_ms = run_candidate(request, candidate, activation.get(), weight.get(), bias.get(), residual.get(), output.get());
       if (elapsed_ms < 0.0f) {
         failed = true;
         break;
       }
-      check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize candidate");
-      if (repeat == 0) {
+      if (strict_validation) {
+        check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize candidate");
+      }
+      if (strict_validation && repeat == 0) {
         std::vector<std::uint8_t> output_host(output_nbytes);
         output.copy_to(output_host);
         if (std::all_of(output_host.begin(), output_host.end(), [](std::uint8_t value) { return value == 0xA5; })) {

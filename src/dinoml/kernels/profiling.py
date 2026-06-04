@@ -48,7 +48,7 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
 
 
-PROFILE_REPORT_SCHEMA_VERSION = 7
+PROFILE_REPORT_SCHEMA_VERSION = 8
 EXECUTION_PLAN_SCHEMA_VERSION = 1
 PROFILE_STATISTICS_SCHEMA_VERSION = 1
 PROFILE_CONFIDENCE_LEVEL = 0.95
@@ -58,6 +58,8 @@ PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS = 0.002
 PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP = 0.02
 PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS = 0.5
 PROFILE_ADAPTIVE_MAX_ITERATIONS = 1024
+CUTLASS_CONV_VALIDATION_FAST = "fast"
+CUTLASS_CONV_VALIDATION_STRICT = "strict"
 
 
 @dataclass(frozen=True)
@@ -259,6 +261,18 @@ class ConvProfileWorkload:
                 "dim_sources": dict(self.dim_sources),
             },
         }
+
+
+def _normalize_cutlass_conv_validation_mode(validation_mode: str) -> str:
+    normalized = str(validation_mode or CUTLASS_CONV_VALIDATION_FAST).strip().lower()
+    if normalized == CUTLASS_CONV_VALIDATION_FAST:
+        return CUTLASS_CONV_VALIDATION_FAST
+    if normalized in {CUTLASS_CONV_VALIDATION_STRICT, "debug"}:
+        return CUTLASS_CONV_VALIDATION_STRICT
+    raise ValueError(
+        "cutlass_conv_validation_mode must be 'fast' or 'strict', "
+        f"got {validation_mode!r}"
+    )
 
 
 def parse_shape_overrides(items: Sequence[str] | None) -> dict[str, tuple[int, ...]]:
@@ -1169,6 +1183,7 @@ def _prepare_profile_workloads(
     *,
     iterations: int,
     repeats: int,
+    cutlass_conv_validation_mode: str,
     refresh: bool,
     context: Mapping[str, Any],
 ) -> tuple[list[PreparedProfileWorkload], list[PreparedProfileWorkload]]:
@@ -1176,7 +1191,14 @@ def _prepare_profile_workloads(
     unique: list[PreparedProfileWorkload] = []
     representatives: dict[str, ProfileCacheLookup] = {}
     for workload in workloads:
-        cache_lookup = _profile_cache_lookup(workload, manifest, kernel_manifest, codegen_plan, context=context)
+        cache_lookup = _profile_cache_lookup(
+            workload,
+            manifest,
+            kernel_manifest,
+            codegen_plan,
+            context=context,
+            cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+        )
         key_payload = cache_lookup.key_payload
         profile_key = cache_lookup.profile_key
         representative = profile_key not in representatives
@@ -1233,9 +1255,11 @@ def profile_artifact(
     execution_plan_output: str | Path | None = None,
     seed: int = 2027,
     refresh: bool = False,
+    cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
 ) -> dict[str, Any]:
     iterations = _positive_int(iterations, "iterations")
     repeats = _positive_int(repeats, "repeats")
+    cutlass_conv_validation_mode = _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode)
     artifact_dir = Path(artifact)
     manifest = read_json(artifact_dir / "manifest.json")
     target_name = str(manifest.get("target", {}).get("name", ""))
@@ -1258,6 +1282,7 @@ def profile_artifact(
         cache_backend,
         iterations=iterations,
         repeats=repeats,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
         refresh=refresh,
         context=context,
     )
@@ -1287,7 +1312,8 @@ def profile_artifact(
         f"blocked={summary['blocked']}, "
         f"iterations={iterations}, "
         f"repeats={repeats}, "
-        f"refresh={refresh}"
+        f"refresh={refresh}, "
+        f"cutlass_conv_validation={cutlass_conv_validation_mode}"
     )
     if not workloads:
         report = _profile_report(
@@ -1301,6 +1327,7 @@ def profile_artifact(
             summary,
             context=context,
             blocked_profile_items=blocked_profile_items,
+            cutlass_conv_validation_mode=cutlass_conv_validation_mode,
         )
         execution_plan = build_execution_plan(report)
         execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
@@ -1358,7 +1385,12 @@ def profile_artifact(
                         last_progress_count = processed
                     continue
                 if profiler is None:
-                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
+                    profiler = _profiler_for_target(
+                        artifact_dir,
+                        manifest,
+                        codegen_plan,
+                        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+                    )
                 if workload.kernel_library == "cutlass_gemm":
                     profiled_rows = profiler.profile_cutlass_gemm_problem(
                         workload,
@@ -1430,7 +1462,12 @@ def profile_artifact(
                     group.append(profile_workloads[index])
                     index += 1
                 if profiler is None:
-                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
+                    profiler = _profiler_for_target(
+                        artifact_dir,
+                        manifest,
+                        codegen_plan,
+                        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+                    )
                 try:
                     profiled_rows, effective_iterations = _profile_grouped_ck_workloads(
                         profiler,
@@ -1535,7 +1572,12 @@ def profile_artifact(
                 continue
             index += 1
             if profiler is None:
-                profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
+                profiler = _profiler_for_target(
+                    artifact_dir,
+                    manifest,
+                    codegen_plan,
+                    cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+                )
             try:
                 samples_ms, workspace_nbytes, effective_iterations = _profile_workload_samples(
                     profiler,
@@ -1652,6 +1694,7 @@ def profile_artifact(
         summary,
         context=context,
         blocked_profile_items=blocked_profile_items,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
     )
     execution_plan = build_execution_plan(report)
     execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
@@ -2529,6 +2572,7 @@ def _profile_report(
     *,
     context: Mapping[str, Any] | None = None,
     blocked_profile_items: Sequence[Mapping[str, Any]] = (),
+    cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
 ) -> dict[str, Any]:
     problem_payloads = [dict(item) for item in problems]
     profile_context = dict(context or _profile_context(artifact_dir, manifest, codegen_plan))
@@ -2545,6 +2589,9 @@ def _profile_report(
         "hardware_cache_key": profile_context["fingerprint"]["hardware_key"],
         "libraries": profile_context["fingerprint"]["support_libraries"],
         "support_libraries_cache_key": profile_context["fingerprint"]["support_libraries_key"],
+        "validation_policy": {
+            "cutlass_conv": _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode),
+        },
         "problems": problem_payloads,
         "workloads": problem_payloads,
         "blocked_profile_items": [dict(item) for item in blocked_profile_items],
@@ -3147,6 +3194,7 @@ def _profile_cache_lookup(
     codegen_plan: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
+    cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
 ) -> ProfileCacheLookup:
     del kernel_manifest
     _require_supported_profile_workload(workload, context="profile cache key")
@@ -3155,7 +3203,10 @@ def _profile_cache_lookup(
     support_payload = _profile_support_library_fingerprint_payload(workload, profile_context)
     provider_problem_payload = _profile_provider_problem_payload(workload)
     candidate_payload = _profile_candidate_identity_payload(workload)
-    variant_payload = _profile_variant_payload(workload)
+    variant_payload = _profile_variant_payload(
+        workload,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+    )
     key_payload = {
         "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
         "target": target_payload,
@@ -3308,11 +3359,16 @@ def _profile_candidate_identity_payload(workload: GemmProfileWorkload | ConvProf
     }
 
 
-def _profile_variant_payload(workload: GemmProfileWorkload | ConvProfileWorkload) -> dict[str, Any]:
+def _profile_variant_payload(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+) -> dict[str, Any]:
     if isinstance(workload, ConvProfileWorkload):
         return {
             "kind": str(workload.candidate.get("status", "")),
             "profiler_status": str(workload.candidate.get("profiler_status", "")),
+            "validation_mode": _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode),
         }
     return {"split_k": int(workload.split_k)}
 
@@ -4032,15 +4088,27 @@ class _CutlassBmmProfiler:
 
 
 class _CutlassConvProfiler:
-    def __init__(self, modules: Mapping[tuple[str, str], Any], candidates: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]]):
+    def __init__(
+        self,
+        modules: Mapping[tuple[str, str], Any],
+        candidates: Mapping[tuple[str, str], Sequence[Mapping[str, Any]]],
+        *,
+        validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+    ):
         self._modules = dict(modules)
         self._candidates = {
             key: {str(candidate.get("profiler_symbol")): dict(candidate) for candidate in value}
             for key, value in candidates.items()
         }
+        self._validation_mode = _normalize_cutlass_conv_validation_mode(validation_mode)
 
     @classmethod
-    def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassConvProfiler | None":
+    def from_codegen_plan(
+        cls,
+        codegen_plan: Mapping[str, Any],
+        *,
+        validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+    ) -> "_CutlassConvProfiler | None":
         item = _external_support_library(codegen_plan, "cutlass_conv")
         if item is None:
             return None
@@ -4069,7 +4137,7 @@ class _CutlassConvProfiler:
                     candidates = entry.get("candidates", [])
                     if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
                         candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
-        return cls(loaded, candidates_by_key)
+        return cls(loaded, candidates_by_key, validation_mode=validation_mode)
 
     def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
         module = self._modules.get((workload.op, workload.dtype))
@@ -4105,6 +4173,7 @@ class _CutlassConvProfiler:
             iterations=int(iterations),
             repeats=int(repeats),
             residual_count=(1 if workload.residual_shape is not None else 0),
+            validation_mode=self._validation_mode,
             seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_h), str(out_w), str(out_c)),
         )
         candidates = self._candidates.get((workload.op, workload.dtype), {})
@@ -4246,11 +4315,22 @@ def _load_python_extension(path: Path, module_name: str) -> Any:
     return module
 
 
-def _profiler_for_target(artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]) -> Any:
+def _profiler_for_target(
+    artifact_dir: Path,
+    manifest: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+    *,
+    cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+) -> Any:
     target_name = str(manifest.get("target", {}).get("name", ""))
     if target_name == "rocm":
         return _RocmProfiler(artifact_dir, manifest, codegen_plan)
-    return _CudaProfiler(artifact_dir, manifest, codegen_plan)
+    return _CudaProfiler(
+        artifact_dir,
+        manifest,
+        codegen_plan,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+    )
 
 
 def _normalize_grouped_ck_profile_rows(
@@ -4942,7 +5022,14 @@ class _CkRocmProfiler:
 
 
 class _CudaProfiler:
-    def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
+    def __init__(
+        self,
+        artifact_dir: Path,
+        manifest: Mapping[str, Any],
+        codegen_plan: Mapping[str, Any],
+        *,
+        cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+    ):
         files = manifest["files"]
         global_mode = getattr(ctypes, "RTLD_GLOBAL", 0) | getattr(ctypes, "RTLD_NOW", 0)
         needs_ctypes_runtime = False
@@ -4958,7 +5045,10 @@ class _CudaProfiler:
         )
         self._cutlass_gemm_profiler = _CutlassGemmProfiler.from_codegen_plan(codegen_plan)
         self._cutlass_bmm_profiler = _CutlassBmmProfiler.from_codegen_plan(codegen_plan)
-        self._cutlass_conv_profiler = _CutlassConvProfiler.from_codegen_plan(codegen_plan)
+        self._cutlass_conv_profiler = _CutlassConvProfiler.from_codegen_plan(
+            codegen_plan,
+            validation_mode=cutlass_conv_validation_mode,
+        )
         self._buffers: list[ctypes.c_void_p] = []
         if self._runtime is not None and self._cuda_runtime is not None:
             self._runtime.dino_get_last_error.restype = ctypes.c_char_p

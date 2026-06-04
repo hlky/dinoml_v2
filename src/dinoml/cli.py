@@ -68,6 +68,12 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--profile-iterations", type=int, default=20, help="Profiler iterations per candidate")
     compile_parser.add_argument("--profile-repeats", type=int, default=3, help="Profiler timing repeats per candidate")
     compile_parser.add_argument(
+        "--cutlass-conv-validation",
+        choices=("fast", "strict"),
+        default="fast",
+        help="CUTLASS Conv profiler validation policy: fast skips expensive output-write checks, strict enables them",
+    )
+    compile_parser.add_argument(
         "--profile-shape",
         "--shape",
         dest="profile_shape",
@@ -178,6 +184,12 @@ def main(argv: list[str] | None = None) -> int:
     profile_parser.add_argument("--out", help="Write the full profile report JSON, including blocked profile items")
     profile_parser.add_argument("--execution-plan-out", help="Write selected candidates to execution_plan.json")
     profile_parser.add_argument("--refresh", action="store_true", help="Ignore existing profiler cache entries")
+    profile_parser.add_argument(
+        "--cutlass-conv-validation",
+        choices=("fast", "strict"),
+        default="fast",
+        help="CUTLASS Conv profiler validation policy: fast skips expensive output-write checks, strict enables them",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "compile":
@@ -232,6 +244,7 @@ def _compile(args: argparse.Namespace) -> int:
                 "profile_repeats": args.profile_repeats,
                 "profile_input_shapes": parse_shape_overrides(args.profile_shape) or None,
                 "profile_refresh": args.profile_refresh,
+                "cutlass_conv_validation_mode": args.cutlass_conv_validation,
             }
         )
         print(
@@ -239,6 +252,7 @@ def _compile(args: argparse.Namespace) -> int:
             f"iterations={args.profile_iterations}, "
             f"repeats={args.profile_repeats}, "
             f"refresh={args.profile_refresh}, "
+            f"cutlass_conv_validation={args.cutlass_conv_validation}, "
             f"shape_overrides={args.profile_shape or '<none>'}"
         )
     print(f"[dml.compile] Starting artifact build in {args.out}")
@@ -409,6 +423,7 @@ def _profile(args: argparse.Namespace) -> int:
         output=args.out,
         execution_plan_output=args.execution_plan_out,
         refresh=args.refresh,
+        cutlass_conv_validation_mode=args.cutlass_conv_validation,
     )
     print(json.dumps(
         {

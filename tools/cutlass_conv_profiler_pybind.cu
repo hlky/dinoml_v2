@@ -32,6 +32,9 @@ std::vector<py::dict> profile_conv_py(py::kwargs kwargs) {
   request.iterations = kwargs["iterations"].cast<int>();
   request.repeats = kwargs["repeats"].cast<int>();
   request.residual_count = kwargs["residual_count"].cast<int>();
+  if (kwargs.contains("validation_mode")) {
+    request.validation_mode = kwargs["validation_mode"].cast<std::string>();
+  }
   std::uint32_t seed = kwargs["seed"].cast<std::uint32_t>();
   std::vector<py::dict> rows;
   for (const auto& result : dinoml::cutlass_conv_profiler::profile_conv(request, seed)) {

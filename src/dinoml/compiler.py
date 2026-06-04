@@ -59,6 +59,7 @@ def compile(
     profile_repeats: int = 3,
     profile_input_shapes: Mapping[str, Any] | None = None,
     profile_refresh: bool = False,
+    cutlass_conv_validation_mode: str = "fast",
     constant_load_policy: str = "eager",
 ) -> Artifact:
     constant_load_policy = _validate_constant_load_policy(constant_load_policy)
@@ -77,6 +78,7 @@ def compile(
             repeats=profile_repeats,
             input_shapes=profile_input_shapes,
             refresh=profile_refresh,
+            cutlass_conv_validation_mode=cutlass_conv_validation_mode,
             constant_load_policy=constant_load_policy,
         )
     return _compile_once(
@@ -101,7 +103,8 @@ def _compile_with_profile(
     repeats: int,
     input_shapes: Mapping[str, Any] | None,
     refresh: bool,
-    constant_load_policy: str,
+    cutlass_conv_validation_mode: str = "fast",
+    constant_load_policy: str = "eager",
 ) -> Artifact:
     backend = get_backend_spec(target.name)
     artifact_dir = _prepare_artifact_dir(output, clean=clean)
@@ -133,6 +136,7 @@ def _compile_with_profile(
         iterations=iterations,
         repeats=repeats,
         refresh=refresh,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
     )
     execution_plan_summary = profile_report.get("execution_plan", {})
     if not isinstance(execution_plan_summary, Mapping) or not execution_plan_summary.get("path"):

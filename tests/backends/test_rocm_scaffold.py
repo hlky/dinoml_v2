@@ -424,7 +424,13 @@ def test_rocm_compile_with_profile_uses_metadata_bootstrap_when_module_profiler_
     assert profile_calls == [
         (
             artifact_dir,
-            {"input_shapes": {"input": [1, 4]}, "iterations": 5, "repeats": 2, "refresh": True},
+            {
+                "input_shapes": {"input": [1, 4]},
+                "iterations": 5,
+                "repeats": 2,
+                "refresh": True,
+                "cutlass_conv_validation_mode": "fast",
+            },
         )
     ]
     assert [call["artifact_dir"] for call in build_calls] == [artifact_dir]
@@ -487,7 +493,13 @@ def test_rocm_compile_with_profile_profiles_artifact_directly_for_ck_conv(tmp_pa
     assert profile_calls == [
         (
             artifact_dir,
-            {"input_shapes": {"input": [1, 4]}, "iterations": 5, "repeats": 2, "refresh": True},
+            {
+                "input_shapes": {"input": [1, 4]},
+                "iterations": 5,
+                "repeats": 2,
+                "refresh": True,
+                "cutlass_conv_validation_mode": "fast",
+            },
         )
     ]
     assert [call["artifact_dir"] for call in build_calls] == [artifact_dir]

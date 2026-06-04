@@ -17,6 +17,9 @@ namespace {
 dinoml::ck_gemm_profiler::GemmRequest request_from_kwargs(const py::kwargs& kwargs) {
   dinoml::ck_gemm_profiler::GemmRequest request;
   request.profiler_symbol = py::cast<std::string>(kwargs["profiler_symbol"]);
+  if (kwargs.contains("profiler_symbols")) {
+    request.profiler_symbols = py::cast<std::vector<std::string>>(kwargs["profiler_symbols"]);
+  }
   request.dtype = py::cast<std::string>(kwargs["dtype"]);
   request.m = py::cast<int>(kwargs["m"]);
   request.n = py::cast<int>(kwargs["n"]);
@@ -42,6 +45,10 @@ PYBIND11_MODULE(DINOML_CK_GEMM_PROFILER_PY_MODULE, m) {
       item["elapsed_ms"] = result.elapsed_ms;
       item["samples_ms"] = result.samples_ms;
       item["workspace_nbytes"] = result.workspace_nbytes;
+      item["ok"] = result.ok;
+      if (!result.error.empty()) {
+        item["error"] = result.error;
+      }
       out.append(item);
     }
     return out;

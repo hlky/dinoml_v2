@@ -25,7 +25,9 @@ from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
+    _CkBmmProfiler,
     _CkConvProfiler,
+    _CkGemmProfiler,
     _CkRocmProfiler,
     _RocmProfiler,
     _adaptive_profile_iterations,
@@ -3035,6 +3037,308 @@ def test_rocm_profiler_batches_repeats_with_standalone_ck_support_cache(monkeypa
     assert samples_ms == [0.125, 0.15]
     assert workspace_nbytes == 64
     assert calls == [(workload, 9, 2)]
+
+
+def test_ck_gemm_profiler_groups_problem_candidates_and_maps_rows():
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, manifest)[:2]
+    calls = []
+
+    class FakeModule:
+        def profile_gemm(self, **kwargs):
+            calls.append(kwargs)
+            symbols = list(kwargs["profiler_symbols"])
+            return [
+                {"profiler_symbol": symbols[1], "samples_ms": [0.22, 0.21], "workspace_nbytes": 64, "ok": True},
+                {"profiler_symbol": symbols[0], "samples_ms": [0.31, 0.30], "workspace_nbytes": 32, "ok": True},
+            ]
+
+    profiler = _CkGemmProfiler({(workloads[0].op, workloads[0].dtype): FakeModule()})
+    rows = profiler.profile_problem(workloads, iterations=7, repeats=2)
+    rows_by_candidate = {row["candidate"]["candidate_id"]: row for row in rows}
+
+    assert calls == [
+        {
+            "profiler_symbol": workloads[0].profiler_symbol,
+            "profiler_symbols": [workload.profiler_symbol for workload in workloads],
+            "dtype": workloads[0].dtype,
+            "m": workloads[0].m,
+            "n": workloads[0].n,
+            "k": workloads[0].k,
+            "iterations": 7,
+            "repeats": 2,
+            "has_bias": workloads[0].bias_shape is not None,
+            "residual_count": len(workloads[0].residual_shapes),
+            "seed": calls[0]["seed"],
+        }
+    ]
+    assert rows_by_candidate[workloads[0].candidate_id]["samples_ms"] == [0.31, 0.30]
+    assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.22, 0.21]
+
+
+def test_ck_bmm_profiler_groups_problem_candidates_and_maps_rows():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, manifest)[:2]
+    calls = []
+
+    class FakeModule:
+        def profile_bmm(self, **kwargs):
+            calls.append(kwargs)
+            symbols = list(kwargs["profiler_symbols"])
+            return [
+                {"profiler_symbol": symbols[1], "samples_ms": [0.18, 0.17], "workspace_nbytes": 48, "ok": True},
+                {"profiler_symbol": symbols[0], "samples_ms": [0.28, 0.27], "workspace_nbytes": 40, "ok": True},
+            ]
+
+    profiler = _CkBmmProfiler({(workloads[0].op, workloads[0].dtype): FakeModule()})
+    rows = profiler.profile_problem(workloads, iterations=5, repeats=2)
+    rows_by_candidate = {row["candidate"]["candidate_id"]: row for row in rows}
+
+    assert calls[0]["profiler_symbols"] == [workload.profiler_symbol for workload in workloads]
+    assert calls[0]["batch_count"] == workloads[0].batch_count
+    assert rows_by_candidate[workloads[0].candidate_id]["samples_ms"] == [0.28, 0.27]
+    assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.18, 0.17]
+
+
+def test_ck_conv_profiler_groups_problem_candidates_and_maps_rows():
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, manifest)[:2]
+    calls = []
+
+    class FakeModule:
+        def profile_conv(self, **kwargs):
+            calls.append(kwargs)
+            symbols = list(kwargs["profiler_symbols"])
+            return [
+                {"profiler_symbol": symbols[1], "samples_ms": [0.12, 0.11], "workspace_nbytes": 24, "ok": True},
+                {"profiler_symbol": symbols[0], "samples_ms": [0.19, 0.18], "workspace_nbytes": 16, "ok": True},
+            ]
+
+    profiler = _CkConvProfiler({(workloads[0].op, workloads[0].dtype): FakeModule()})
+    rows = profiler.profile_problem(workloads, iterations=9, repeats=2)
+    rows_by_candidate = {row["candidate"]["candidate_id"]: row for row in rows}
+
+    assert calls[0]["profiler_symbols"] == [workload.profiler_symbol for workload in workloads]
+    assert calls[0]["has_residual"] is False
+    assert rows_by_candidate[workloads[0].candidate_id]["samples_ms"] == [0.19, 0.18]
+    assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.12, 0.11]
+
+
+def _write_profile_artifact_fixture(tmp_path: Path, ir: dict[str, object], kernel_manifest: dict[str, object]) -> Path:
+    artifact_dir = tmp_path / "artifact"
+    artifact_dir.mkdir()
+    manifest = {
+        "name": "test_artifact",
+        "target": {"name": "rocm", "arch": "gfx1201"},
+        "files": {
+            "graph": "graph.dinoir.json",
+            "kernel_manifest": "kernel_manifest.json",
+            "kernel_codegen_plan": "kernel_codegen_plan.json",
+            "runtime_library": "dinoml_runtime.so",
+            "rocm_runtime_library": "dinoml_rocm_runtime.so",
+            "module": "module.so",
+        },
+    }
+    (artifact_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (artifact_dir / "graph.dinoir.json").write_text(json.dumps(ir), encoding="utf-8")
+    (artifact_dir / "kernel_manifest.json").write_text(json.dumps(kernel_manifest), encoding="utf-8")
+    (artifact_dir / "kernel_codegen_plan.json").write_text(
+        json.dumps({"cache_key": "codegen-key", "support_cache_dir": str(tmp_path / "support")}),
+        encoding="utf-8",
+    )
+    return artifact_dir
+
+
+def test_profile_artifact_groups_same_ck_gemm_problem_candidates(tmp_path, monkeypatch):
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, kernel_manifest)[:2]
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir, kernel_manifest)
+    calls = []
+
+    class FakeProfiler:
+        def profile_ck_gemm_problem(self, grouped_workloads, *, iterations, repeats):
+            calls.append(([workload.candidate_id for workload in grouped_workloads], iterations, repeats))
+            return [
+                {
+                    "candidate": dict(workload.candidate),
+                    "samples_ms": [0.20] * repeats,
+                    "workspace_nbytes": 0,
+                    "ok": True,
+                }
+                for workload in grouped_workloads
+            ]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr("dinoml.kernels.profiling.build_profile_workloads", lambda *args, **kwargs: workloads)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr("dinoml.kernels.profiling._profiler_for_target", lambda *args, **kwargs: FakeProfiler())
+
+    report = profile_artifact(artifact_dir, iterations=5, repeats=1)
+
+    assert calls == [([workload.candidate_id for workload in workloads], 5, 1)]
+    assert report["summary"]["profiled"] == 2
+    assert {problem["candidate_id"] for problem in report["problems"]} == {workload.candidate_id for workload in workloads}
+
+
+def test_profile_artifact_does_not_group_ck_candidates_when_problem_differs(tmp_path, monkeypatch):
+    ir_a = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    ir_b = _rocm_gemm_ir("gemm_rcr", "float16", m=128, n=128, k=96)
+    manifest_a = build_kernel_manifest(ir_a, {"name": "rocm", "arch": "gfx1201"})
+    workloads = [
+        build_profile_workloads(ir_a, manifest_a)[0],
+        build_profile_workloads(ir_b, build_kernel_manifest(ir_b, {"name": "rocm", "arch": "gfx1201"}))[0],
+    ]
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir_a, manifest_a)
+    calls = []
+
+    class FakeProfiler:
+        def profile_ck_gemm_problem(self, grouped_workloads, *, iterations, repeats):
+            calls.append(([workload.candidate_id for workload in grouped_workloads], iterations, repeats))
+            return [
+                {
+                    "candidate": dict(workload.candidate),
+                    "samples_ms": [0.24] * repeats,
+                    "workspace_nbytes": 0,
+                    "ok": True,
+                }
+                for workload in grouped_workloads
+            ]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr("dinoml.kernels.profiling.build_profile_workloads", lambda *args, **kwargs: workloads)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr("dinoml.kernels.profiling._profiler_for_target", lambda *args, **kwargs: FakeProfiler())
+
+    profile_artifact(artifact_dir, iterations=5, repeats=1)
+
+    assert calls == [([workloads[0].candidate_id], 5, 1), ([workloads[1].candidate_id], 5, 1)]
+
+
+def test_profile_artifact_maps_grouped_ck_row_failures_to_candidate_results(tmp_path, monkeypatch):
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, kernel_manifest)[:2]
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir, kernel_manifest)
+
+    class FakeProfiler:
+        def profile_ck_gemm_problem(self, grouped_workloads, *, iterations, repeats):
+            del grouped_workloads, iterations, repeats
+            return [
+                {
+                    "candidate": dict(workloads[0].candidate),
+                    "samples_ms": [0.20],
+                    "workspace_nbytes": 0,
+                    "ok": True,
+                },
+                {
+                    "candidate": dict(workloads[1].candidate),
+                    "samples_ms": [],
+                    "workspace_nbytes": 0,
+                    "ok": False,
+                    "error": "candidate launch failed",
+                },
+            ]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr("dinoml.kernels.profiling.build_profile_workloads", lambda *args, **kwargs: workloads)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr("dinoml.kernels.profiling._profiler_for_target", lambda *args, **kwargs: FakeProfiler())
+
+    report = profile_artifact(artifact_dir, iterations=5, repeats=1)
+    problems_by_candidate = {problem["candidate_id"]: problem for problem in report["problems"]}
+
+    assert report["summary"]["profiled"] == 1
+    assert report["summary"]["failed"] == 1
+    assert problems_by_candidate[workloads[0].candidate_id]["status"] == "ok"
+    assert problems_by_candidate[workloads[1].candidate_id]["status"] == "failed"
+    assert "candidate launch failed" in problems_by_candidate[workloads[1].candidate_id]["error"]
+
+
+def test_profile_artifact_groups_same_ck_conv_problem_candidates(tmp_path, monkeypatch):
+    ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workloads = build_profile_workloads(ir, kernel_manifest)[:2]
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir, kernel_manifest)
+    calls = []
+
+    class FakeProfiler:
+        def profile_ck_conv_problem(self, grouped_workloads, *, iterations, repeats):
+            calls.append(([workload.candidate_id for workload in grouped_workloads], iterations, repeats))
+            return [
+                {
+                    "candidate": dict(workload.candidate),
+                    "samples_ms": [0.15] * repeats,
+                    "workspace_nbytes": 0,
+                    "ok": True,
+                }
+                for workload in grouped_workloads
+            ]
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr("dinoml.kernels.profiling.build_profile_workloads", lambda *args, **kwargs: workloads)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr("dinoml.kernels.profiling._profiler_for_target", lambda *args, **kwargs: FakeProfiler())
+
+    report = profile_artifact(artifact_dir, iterations=7, repeats=1)
+
+    assert calls == [([workload.candidate_id for workload in workloads], 7, 1)]
+    assert report["summary"]["profiled"] == 2
 
 
 def test_load_python_extension_skips_dlopen_flags_when_unavailable(monkeypatch):

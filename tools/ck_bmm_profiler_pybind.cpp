@@ -17,6 +17,9 @@ namespace {
 dinoml::ck_bmm_profiler::BmmRequest request_from_kwargs(const py::kwargs& kwargs) {
   dinoml::ck_bmm_profiler::BmmRequest request;
   request.profiler_symbol = py::cast<std::string>(kwargs["profiler_symbol"]);
+  if (kwargs.contains("profiler_symbols")) {
+    request.profiler_symbols = py::cast<std::vector<std::string>>(kwargs["profiler_symbols"]);
+  }
   request.dtype = py::cast<std::string>(kwargs["dtype"]);
   request.batch_count = py::cast<int>(kwargs["batch_count"]);
   request.m = py::cast<int>(kwargs["m"]);
@@ -54,6 +57,10 @@ PYBIND11_MODULE(DINOML_CK_BMM_PROFILER_PY_MODULE, m) {
       item["elapsed_ms"] = result.elapsed_ms;
       item["samples_ms"] = result.samples_ms;
       item["workspace_nbytes"] = result.workspace_nbytes;
+      item["ok"] = result.ok;
+      if (!result.error.empty()) {
+        item["error"] = result.error;
+      }
       out.append(item);
     }
     return out;

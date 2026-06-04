@@ -15,6 +15,7 @@ namespace dinoml::ck_gemm_profiler {
 
 struct GemmRequest {
   std::string profiler_symbol;
+  std::vector<std::string> profiler_symbols;
   std::string dtype;
   int m = 0;
   int n = 0;
@@ -30,6 +31,8 @@ struct GemmResult {
   float elapsed_ms = 0.0f;
   std::vector<float> samples_ms;
   std::size_t workspace_nbytes = 0;
+  bool ok = true;
+  std::string error;
 };
 
 inline void check_hip(hipError_t err, const char* what) {
@@ -117,8 +120,19 @@ class DeviceBuffer {
 
 void* resolve_profile_symbol(const std::string& symbol);
 
+inline std::vector<std::string> requested_profiler_symbols(const GemmRequest& request) {
+  if (!request.profiler_symbols.empty()) {
+    return request.profiler_symbols;
+  }
+  if (!request.profiler_symbol.empty()) {
+    return {request.profiler_symbol};
+  }
+  return {};
+}
+
 inline float run_candidate(
     const GemmRequest& request,
+    const std::string& profiler_symbol,
     void* a,
     void* b,
     void* bias,
@@ -126,17 +140,17 @@ inline float run_candidate(
     void* c) {
   if (!request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, void*, int, int, int, int, hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a, b, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a, b, bias, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 1) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, void*, int, int, int, int, hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a, b, bias, residuals[0].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 2) {
@@ -152,7 +166,7 @@ inline float run_candidate(
         int,
         int,
         hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a,
         b,
         bias,
@@ -169,7 +183,8 @@ inline float run_candidate(
 }
 
 inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uint32_t seed) {
-  if (request.profiler_symbol.empty()) {
+  const auto profiler_symbols = requested_profiler_symbols(request);
+  if (profiler_symbols.empty()) {
     throw std::runtime_error("CK GEMM profiler symbol is required");
   }
   if (request.m <= 0 || request.n <= 0 || request.k <= 0 || request.iterations <= 0 || request.repeats <= 0) {
@@ -205,19 +220,36 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
     residuals.back().copy_from(random_storage(c_count, request.dtype, rng));
   }
 
-  GemmResult result;
-  result.profiler_symbol = request.profiler_symbol;
-  result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
-  for (int repeat = 0; repeat < request.repeats; ++repeat) {
-    const float elapsed_ms = run_candidate(request, a.get(), b.get(), bias.get(), residuals, c.get());
-    if (!(elapsed_ms >= 0.0f)) {
-      throw std::runtime_error("CK GEMM profiler candidate failed: " + request.profiler_symbol);
+  std::vector<GemmResult> results;
+  results.reserve(profiler_symbols.size());
+  bool all_ok = true;
+  for (const auto& profiler_symbol : profiler_symbols) {
+    GemmResult result;
+    result.profiler_symbol = profiler_symbol;
+    result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
+    try {
+      for (int repeat = 0; repeat < request.repeats; ++repeat) {
+        const float elapsed_ms = run_candidate(request, profiler_symbol, a.get(), b.get(), bias.get(), residuals, c.get());
+        if (!(elapsed_ms >= 0.0f)) {
+          throw std::runtime_error("CK GEMM profiler candidate failed: " + profiler_symbol);
+        }
+        result.samples_ms.push_back(elapsed_ms);
+      }
+      result.elapsed_ms =
+          result.samples_ms.empty() ? 0.0f : *std::min_element(result.samples_ms.begin(), result.samples_ms.end());
+    } catch (const std::exception& exc) {
+      result.ok = false;
+      result.error = exc.what();
+      result.elapsed_ms = -1.0f;
+      result.samples_ms.clear();
+      all_ok = false;
     }
-    result.samples_ms.push_back(elapsed_ms);
+    results.push_back(std::move(result));
   }
-  result.elapsed_ms = result.samples_ms.empty() ? 0.0f : *std::min_element(result.samples_ms.begin(), result.samples_ms.end());
-  check_hip(hipDeviceSynchronize(), "hipDeviceSynchronize");
-  return {std::move(result)};
+  if (all_ok) {
+    check_hip(hipDeviceSynchronize(), "hipDeviceSynchronize");
+  }
+  return results;
 }
 
 }  // namespace dinoml::ck_gemm_profiler

@@ -15,6 +15,7 @@ namespace dinoml::ck_bmm_profiler {
 
 struct BmmRequest {
   std::string profiler_symbol;
+  std::vector<std::string> profiler_symbols;
   std::string dtype;
   int batch_count = 0;
   int m = 0;
@@ -42,6 +43,8 @@ struct BmmResult {
   float elapsed_ms = 0.0f;
   std::vector<float> samples_ms;
   std::size_t workspace_nbytes = 0;
+  bool ok = true;
+  std::string error;
 };
 
 inline void check_hip(hipError_t err, const char* what) {
@@ -129,8 +132,19 @@ class DeviceBuffer {
 
 void* resolve_profile_symbol(const std::string& symbol);
 
+inline std::vector<std::string> requested_profiler_symbols(const BmmRequest& request) {
+  if (!request.profiler_symbols.empty()) {
+    return request.profiler_symbols;
+  }
+  if (!request.profiler_symbol.empty()) {
+    return {request.profiler_symbol};
+  }
+  return {};
+}
+
 inline float run_candidate(
     const BmmRequest& request,
+    const std::string& profiler_symbol,
     void* a,
     void* b,
     void* d0,
@@ -152,7 +166,7 @@ inline float run_candidate(
         int,
         int,
         hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a,
         b,
         c,
@@ -189,7 +203,7 @@ inline float run_candidate(
         int,
         int,
         hipStream_t);
-    return reinterpret_cast<Fn>(resolve_profile_symbol(request.profiler_symbol))(
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a,
         b,
         d0,
@@ -213,7 +227,8 @@ inline float run_candidate(
 }
 
 inline std::vector<BmmResult> profile_bmm(const BmmRequest& request, std::uint32_t seed) {
-  if (request.profiler_symbol.empty()) {
+  const auto profiler_symbols = requested_profiler_symbols(request);
+  if (profiler_symbols.empty()) {
     throw std::runtime_error("CK BMM profiler symbol is required");
   }
   if (request.batch_count <= 0 || request.m <= 0 || request.n <= 0 || request.k <= 0 || request.iterations <= 0 ||
@@ -238,19 +253,36 @@ inline std::vector<BmmResult> profile_bmm(const BmmRequest& request, std::uint32
     d0.copy_from(random_storage(request.d0_elements, request.dtype, rng));
   }
 
-  BmmResult result;
-  result.profiler_symbol = request.profiler_symbol;
-  result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
-  for (int repeat = 0; repeat < request.repeats; ++repeat) {
-    const float elapsed_ms = run_candidate(request, a.get(), b.get(), d0.get(), c.get());
-    if (!(elapsed_ms >= 0.0f)) {
-      throw std::runtime_error("CK BMM profiler candidate failed: " + request.profiler_symbol);
+  std::vector<BmmResult> results;
+  results.reserve(profiler_symbols.size());
+  bool all_ok = true;
+  for (const auto& profiler_symbol : profiler_symbols) {
+    BmmResult result;
+    result.profiler_symbol = profiler_symbol;
+    result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
+    try {
+      for (int repeat = 0; repeat < request.repeats; ++repeat) {
+        const float elapsed_ms = run_candidate(request, profiler_symbol, a.get(), b.get(), d0.get(), c.get());
+        if (!(elapsed_ms >= 0.0f)) {
+          throw std::runtime_error("CK BMM profiler candidate failed: " + profiler_symbol);
+        }
+        result.samples_ms.push_back(elapsed_ms);
+      }
+      result.elapsed_ms =
+          result.samples_ms.empty() ? 0.0f : *std::min_element(result.samples_ms.begin(), result.samples_ms.end());
+    } catch (const std::exception& exc) {
+      result.ok = false;
+      result.error = exc.what();
+      result.elapsed_ms = -1.0f;
+      result.samples_ms.clear();
+      all_ok = false;
     }
-    result.samples_ms.push_back(elapsed_ms);
+    results.push_back(std::move(result));
   }
-  result.elapsed_ms = result.samples_ms.empty() ? 0.0f : *std::min_element(result.samples_ms.begin(), result.samples_ms.end());
-  check_hip(hipDeviceSynchronize(), "hipDeviceSynchronize");
-  return {std::move(result)};
+  if (all_ok) {
+    check_hip(hipDeviceSynchronize(), "hipDeviceSynchronize");
+  }
+  return results;
 }
 
 }  // namespace dinoml::ck_bmm_profiler

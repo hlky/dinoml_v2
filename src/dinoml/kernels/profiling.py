@@ -1420,6 +1420,119 @@ def profile_artifact(
                     last_progress_at = now
                     last_progress_count = processed
                 continue
+            if workload.kernel_library in {"ck_gemm", "ck_bmm", "ck_conv"}:
+                group = [prepared]
+                index += 1
+                while index < len(profile_workloads) and _same_ck_native_profile_problem(
+                    workload,
+                    profile_workloads[index].workload,
+                ):
+                    group.append(profile_workloads[index])
+                    index += 1
+                if profiler is None:
+                    profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
+                try:
+                    profiled_rows, effective_iterations = _profile_grouped_ck_workloads(
+                        profiler,
+                        group,
+                        iterations=iterations,
+                        repeats=repeats,
+                    )
+                except RuntimeError as exc:
+                    for candidate_item in group:
+                        resolved_results[candidate_item.profile_key] = ("failure", str(exc), int(iterations))
+                        progress_summary["failed"] += 1
+                    processed = _profile_processed_count(progress_summary)
+                    now = time.monotonic()
+                    if _should_print_profile_progress(
+                        processed,
+                        total_workloads,
+                        last_progress_count=last_progress_count,
+                        elapsed_s=now - started_at,
+                        since_last_s=now - last_progress_at,
+                    ):
+                        print(
+                            _format_profile_progress(
+                                progress_summary,
+                                processed=processed,
+                                total_workloads=total_workloads,
+                                elapsed_s=now - started_at,
+                                current_workload=workload,
+                            )
+                        )
+                        last_progress_at = now
+                        last_progress_count = processed
+                    continue
+                rows_by_candidate = {
+                    str(row.get("candidate", {}).get("candidate_id", "")): row
+                    for row in profiled_rows
+                    if isinstance(row.get("candidate"), Mapping)
+                }
+                for candidate_item in group:
+                    candidate_workload = candidate_item.workload
+                    row = rows_by_candidate.get(candidate_workload.candidate_id)
+                    if row is None:
+                        resolved_results[candidate_item.profile_key] = (
+                            "failure",
+                            (
+                                f"Missing grouped CK profile row for {candidate_workload.kernel_library} "
+                                f"candidate {candidate_workload.candidate_id}"
+                            ),
+                            int(effective_iterations),
+                        )
+                        progress_summary["failed"] += 1
+                        continue
+                    if not bool(row.get("ok", True)):
+                        resolved_results[candidate_item.profile_key] = (
+                            "failure",
+                            str(row.get("error") or f"CK profiler candidate failed: {candidate_workload.candidate_id}"),
+                            int(effective_iterations),
+                        )
+                        progress_summary["failed"] += 1
+                        continue
+                    samples_ms = [float(sample) for sample in row.get("samples_ms", ())]
+                    timing = _profile_timing(samples_ms, iterations=effective_iterations)
+                    workspace_nbytes = max(int(candidate_workload.workspace_nbytes), int(row["workspace_nbytes"]))
+                    result = _profile_result(
+                        candidate_workload,
+                        timing["median_ms"],
+                        effective_iterations,
+                        profile_key=candidate_item.profile_key,
+                        status="ok",
+                        workspace_nbytes=workspace_nbytes,
+                        timing=timing,
+                    )
+                    if effective_iterations != iterations:
+                        result["requested_iterations"] = int(iterations)
+                        result["adaptive_iterations"] = _adaptive_profile_iterations_payload(
+                            requested_iterations=iterations,
+                            effective_iterations=effective_iterations,
+                        )
+                    cache_entry = _cache_entry(candidate_workload, result, candidate_item.key_payload)
+                    resolved_results[candidate_item.profile_key] = ("result", result, cache_entry)
+                    cache_writes.append(ProfileCacheWrite(candidate_item.cache_lookup, cache_entry))
+                    progress_summary["profiled"] += 1
+                processed = _profile_processed_count(progress_summary)
+                now = time.monotonic()
+                if _should_print_profile_progress(
+                    processed,
+                    total_workloads,
+                    last_progress_count=last_progress_count,
+                    elapsed_s=now - started_at,
+                    since_last_s=now - last_progress_at,
+                ):
+                    print(
+                        _format_profile_progress(
+                            progress_summary,
+                            processed=processed,
+                            total_workloads=total_workloads,
+                            elapsed_s=now - started_at,
+                            current_workload=workload,
+                        )
+                    )
+                    last_progress_at = now
+                    last_progress_count = processed
+                continue
             index += 1
             if profiler is None:
                 profiler = _profiler_for_target(artifact_dir, manifest, codegen_plan)
@@ -1970,6 +2083,53 @@ def _same_cutlass_gemm_profile_problem(
     return _same_cutlass_native_profile_problem(first, second) and first.kernel_library == "cutlass_gemm"
 
 
+def _same_ck_native_profile_problem(
+    first: GemmProfileWorkload | ConvProfileWorkload,
+    second: GemmProfileWorkload | ConvProfileWorkload,
+) -> bool:
+    if first.kernel_library != second.kernel_library or first.kernel_library not in {"ck_gemm", "ck_bmm", "ck_conv"}:
+        return False
+    if first.kernel_library == "ck_conv":
+        if not isinstance(first, ConvProfileWorkload) or not isinstance(second, ConvProfileWorkload):
+            return False
+        return (
+            first.op == second.op
+            and first.dtype == second.dtype
+            and first.candidate_set_key == second.candidate_set_key
+            and first.x_shape == second.x_shape
+            and first.weight_shape == second.weight_shape
+            and first.bias_shape == second.bias_shape
+            and first.residual_shape == second.residual_shape
+            and first.output_shape == second.output_shape
+            and first.conv_config == second.conv_config
+        )
+    same = (
+        first.op == second.op
+        and first.dtype == second.dtype
+        and first.candidate_set_key == second.candidate_set_key
+        and first.m == second.m
+        and first.n == second.n
+        and first.k == second.k
+        and first.split_k == second.split_k
+        and first.alignment_context == second.alignment_context
+        and first.bias_shape == second.bias_shape
+        and first.residual_shapes == second.residual_shapes
+    )
+    if not same or first.kernel_library != "ck_bmm":
+        return same
+    return (
+        first.batch_count == second.batch_count
+        and first.batch_stride_a == second.batch_stride_a
+        and first.batch_stride_b == second.batch_stride_b
+        and first.batch_stride_d0 == second.batch_stride_d0
+        and first.batch_stride_c == second.batch_stride_c
+        and first.lda == second.lda
+        and first.ldb == second.ldb
+        and first.ldd0 == second.ldd0
+        and first.ldc == second.ldc
+    )
+
+
 def _named_dim_leaves(dim: Any) -> list[Mapping[str, Any]]:
     if not isinstance(dim, Mapping):
         return []
@@ -2496,6 +2656,76 @@ def _profile_workload_sample_batch(
         raise RuntimeError("Profiler does not support batched repeats")
     elapsed_ms, workspace_nbytes = profiler.profile(workload, iterations=int(iterations), rng=rng)
     return [float(elapsed_ms)], int(workspace_nbytes)
+
+
+def _profile_grouped_ck_workloads(
+    profiler: Any,
+    workloads: Sequence[PreparedProfileWorkload],
+    *,
+    iterations: int,
+    repeats: int,
+) -> tuple[list[dict[str, Any]], int]:
+    if not workloads:
+        return [], int(iterations)
+    first = workloads[0].workload
+    profile_problem = None
+    if first.kernel_library == "ck_gemm":
+        profile_problem = getattr(profiler, "profile_ck_gemm_problem", None)
+    elif first.kernel_library == "ck_bmm":
+        profile_problem = getattr(profiler, "profile_ck_bmm_problem", None)
+    elif first.kernel_library == "ck_conv":
+        profile_problem = getattr(profiler, "profile_ck_conv_problem", None)
+    else:
+        raise RuntimeError(f"Unsupported grouped CK profiler library {first.kernel_library!r}")
+    if not callable(profile_problem):
+        rows = []
+        effective_iterations = int(iterations)
+        for item in workloads:
+            samples_ms, workspace_nbytes, candidate_iterations = _profile_workload_samples(
+                profiler,
+                item.workload,
+                iterations=int(iterations),
+                repeats=int(repeats),
+                rng=np.random.default_rng(_grouped_ck_profile_seed(item.workload)),
+            )
+            effective_iterations = max(effective_iterations, int(candidate_iterations))
+            rows.append(
+                {
+                    "candidate": dict(item.workload.candidate),
+                    "samples_ms": [float(sample) for sample in samples_ms],
+                    "workspace_nbytes": int(workspace_nbytes),
+                    "ok": True,
+                }
+            )
+        return rows, effective_iterations
+    workload_batch = [item.workload for item in workloads]
+    pilot_rows = profile_problem(workload_batch, iterations=int(iterations), repeats=1)
+    effective_iterations = int(iterations)
+    for row in pilot_rows:
+        if not bool(row.get("ok", True)):
+            continue
+        candidate = row.get("candidate", {})
+        if not isinstance(candidate, Mapping):
+            continue
+        candidate_id = str(candidate.get("candidate_id", ""))
+        prepared = next((item for item in workloads if item.workload.candidate_id == candidate_id), None)
+        if prepared is None:
+            continue
+        samples_ms = [float(sample) for sample in row.get("samples_ms", ())]
+        if not samples_ms:
+            continue
+        effective_iterations = max(
+            effective_iterations,
+            _adaptive_profile_iterations(
+                prepared.workload,
+                requested_iterations=int(iterations),
+                elapsed_ms=samples_ms[0],
+            ),
+        )
+    if int(repeats) == 1 and effective_iterations == int(iterations):
+        return pilot_rows, effective_iterations
+    final_rows = profile_problem(workload_batch, iterations=effective_iterations, repeats=int(repeats))
+    return final_rows, effective_iterations
 
 
 def _adaptive_profile_iterations(
@@ -4023,6 +4253,60 @@ def _profiler_for_target(artifact_dir: Path, manifest: Mapping[str, Any], codege
     return _CudaProfiler(artifact_dir, manifest, codegen_plan)
 
 
+def _normalize_grouped_ck_profile_rows(
+    workloads: Sequence[GemmProfileWorkload | ConvProfileWorkload],
+    raw_results: Sequence[Mapping[str, Any]],
+    *,
+    context: str,
+) -> list[dict[str, Any]]:
+    if not workloads:
+        return []
+    workloads_by_symbol = {str(workload.profiler_symbol): workload for workload in workloads}
+    rows = []
+    for raw in raw_results:
+        profiler_symbol = str(raw.get("profiler_symbol", ""))
+        workload = workloads_by_symbol.get(profiler_symbol)
+        if workload is None:
+            continue
+        row = {
+            "candidate": dict(workload.candidate),
+            "samples_ms": [float(sample) for sample in raw.get("samples_ms", ())],
+            "workspace_nbytes": int(raw.get("workspace_nbytes", workload.workspace_nbytes) or 0),
+            "ok": bool(raw.get("ok", True)),
+        }
+        if not row["ok"]:
+            row["error"] = str(raw.get("error") or f"{context} failed for profiler_symbol={profiler_symbol!r}")
+        rows.append(row)
+    if not rows:
+        first = workloads[0]
+        raise RuntimeError(f"{context} returned no usable candidate rows for {first.op}/{first.dtype}")
+    return rows
+
+
+def _grouped_ck_profile_seed(workload: GemmProfileWorkload | ConvProfileWorkload) -> int:
+    if isinstance(workload, ConvProfileWorkload):
+        return _stable_u32_seed(
+            workload.op,
+            workload.dtype,
+            workload.shape_case_id,
+            *(str(dim) for dim in workload.x_shape),
+            *(str(dim) for dim in workload.weight_shape),
+            *(str(dim) for dim in workload.output_shape),
+        )
+    parts = [
+        workload.op,
+        workload.dtype,
+        workload.shape_case_id,
+        str(workload.m),
+        str(workload.n),
+        str(workload.k),
+        str(workload.split_k),
+    ]
+    if workload.batch_count is not None:
+        parts.insert(3, str(workload.batch_count))
+    return _stable_u32_seed(*parts)
+
+
 class _CkGemmProfiler:
     def __init__(self, modules: Mapping[tuple[str, str], Any]):
         self._modules = dict(modules)
@@ -4048,32 +4332,40 @@ class _CkGemmProfiler:
             loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_gemm_profiler_{op}_{dtype}_bind")
         return cls(loaded)
 
-    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+    def profile_problem(
+        self,
+        workloads: Sequence[GemmProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if not workloads:
+            return []
+        workload = workloads[0]
         module = self._modules.get((workload.op, workload.dtype))
         if module is None:
             raise RuntimeError(f"CK GEMM profiler for {workload.op}/{workload.dtype} is not loaded")
-        return list(
-            module.profile_gemm(
-                profiler_symbol=str(workload.profiler_symbol),
-                dtype=str(workload.dtype),
-                m=int(workload.m),
-                n=int(workload.n),
-                k=int(workload.k),
-                iterations=int(iterations),
-                repeats=int(repeats),
-                has_bias=workload.bias_shape is not None,
-                residual_count=len(workload.residual_shapes),
-                seed=_stable_u32_seed(
-                    workload.op,
-                    workload.dtype,
-                    workload.shape_case_id,
-                    str(workload.m),
-                    str(workload.n),
-                    str(workload.k),
-                    str(workload.profiler_symbol),
-                ),
-            )
+        raw_results = module.profile_gemm(
+            profiler_symbol=str(workload.profiler_symbol),
+            profiler_symbols=[str(item.profiler_symbol) for item in workloads],
+            dtype=str(workload.dtype),
+            m=int(workload.m),
+            n=int(workload.n),
+            k=int(workload.k),
+            iterations=int(iterations),
+            repeats=int(repeats),
+            has_bias=workload.bias_shape is not None,
+            residual_count=len(workload.residual_shapes),
+            seed=_grouped_ck_profile_seed(workload),
         )
+        return _normalize_grouped_ck_profile_rows(workloads, raw_results, context="CK GEMM profiler")
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        rows = self.profile_problem([workload], iterations=iterations, repeats=repeats)
+        first = rows[0]
+        if not bool(first.get("ok", True)):
+            raise RuntimeError(str(first.get("error") or f"CK GEMM profiler candidate failed: {workload.profiler_symbol}"))
+        return rows
 
 
 class _CkBmmProfiler:
@@ -4101,45 +4393,52 @@ class _CkBmmProfiler:
             loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_bmm_profiler_{op}_{dtype}_bind")
         return cls(loaded)
 
-    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+    def profile_problem(
+        self,
+        workloads: Sequence[GemmProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if not workloads:
+            return []
+        workload = workloads[0]
         module = self._modules.get((workload.op, workload.dtype))
         if module is None:
             raise RuntimeError(f"CK BMM profiler for {workload.op}/{workload.dtype} is not loaded")
-        return list(
-            module.profile_bmm(
-                profiler_symbol=str(workload.profiler_symbol),
-                dtype=str(workload.dtype),
-                batch_count=int(workload.batch_count or 1),
-                m=int(workload.m),
-                n=int(workload.n),
-                k=int(workload.k),
-                batch_stride_a=int(workload.batch_stride_a or 0),
-                batch_stride_b=int(workload.batch_stride_b or 0),
-                batch_stride_d0=int(workload.batch_stride_d0 or 0),
-                batch_stride_c=int(workload.batch_stride_c or 0),
-                lda=int(workload.lda or 0),
-                ldb=int(workload.ldb or 0),
-                ldd0=int(workload.ldd0 or 0),
-                ldc=int(workload.ldc or 0),
-                iterations=int(iterations),
-                repeats=int(repeats),
-                residual_count=len(workload.residual_shapes),
-                a_elements=int(np.prod(workload.a_shape, dtype=np.int64)),
-                b_elements=int(np.prod(workload.b_shape, dtype=np.int64)),
-                d0_elements=(int(np.prod(workload.residual_shapes[0], dtype=np.int64)) if workload.residual_shapes else 0),
-                c_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
-                seed=_stable_u32_seed(
-                    workload.op,
-                    workload.dtype,
-                    workload.shape_case_id,
-                    str(workload.batch_count or 1),
-                    str(workload.m),
-                    str(workload.n),
-                    str(workload.k),
-                    str(workload.profiler_symbol),
-                ),
-            )
+        raw_results = module.profile_bmm(
+            profiler_symbol=str(workload.profiler_symbol),
+            profiler_symbols=[str(item.profiler_symbol) for item in workloads],
+            dtype=str(workload.dtype),
+            batch_count=int(workload.batch_count or 1),
+            m=int(workload.m),
+            n=int(workload.n),
+            k=int(workload.k),
+            batch_stride_a=int(workload.batch_stride_a or 0),
+            batch_stride_b=int(workload.batch_stride_b or 0),
+            batch_stride_d0=int(workload.batch_stride_d0 or 0),
+            batch_stride_c=int(workload.batch_stride_c or 0),
+            lda=int(workload.lda or 0),
+            ldb=int(workload.ldb or 0),
+            ldd0=int(workload.ldd0 or 0),
+            ldc=int(workload.ldc or 0),
+            iterations=int(iterations),
+            repeats=int(repeats),
+            residual_count=len(workload.residual_shapes),
+            a_elements=int(np.prod(workload.a_shape, dtype=np.int64)),
+            b_elements=int(np.prod(workload.b_shape, dtype=np.int64)),
+            d0_elements=(int(np.prod(workload.residual_shapes[0], dtype=np.int64)) if workload.residual_shapes else 0),
+            c_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
+            seed=_grouped_ck_profile_seed(workload),
         )
+        return _normalize_grouped_ck_profile_rows(workloads, raw_results, context="CK BMM profiler")
+
+    def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        rows = self.profile_problem([workload], iterations=iterations, repeats=repeats)
+        first = rows[0]
+        if not bool(first.get("ok", True)):
+            raise RuntimeError(str(first.get("error") or f"CK BMM profiler candidate failed: {workload.profiler_symbol}"))
+        return rows
 
 
 class _CkConvProfiler:
@@ -4167,55 +4466,59 @@ class _CkConvProfiler:
             loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_conv_profiler_{op}_{dtype}_bind")
         return cls(loaded)
 
-    def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+    def profile_problem(
+        self,
+        workloads: Sequence[ConvProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if not workloads:
+            return []
+        workload = workloads[0]
         module = self._modules.get((workload.op, workload.dtype))
         if module is None:
             raise RuntimeError(f"CK Conv profiler for {workload.op}/{workload.dtype} is not loaded")
         stride = list(workload.conv_config.get("stride", (1, 1)))
         padding = list(workload.conv_config.get("padding", (0, 0)))
         dilation = list(workload.conv_config.get("dilation", (1, 1)))
-        return list(
-            module.profile_conv(
-                profiler_symbol=str(workload.profiler_symbol),
-                dtype=str(workload.dtype),
-                batch=int(workload.x_shape[0]),
-                in_channels=int(workload.x_shape[1]),
-                in_height=int(workload.x_shape[2]),
-                in_width=int(workload.x_shape[3]),
-                out_channels=int(workload.weight_shape[0]),
-                kernel_h=int(workload.weight_shape[2]),
-                kernel_w=int(workload.weight_shape[3]),
-                out_height=int(workload.output_shape[2]),
-                out_width=int(workload.output_shape[3]),
-                stride_h=int(stride[0]),
-                stride_w=int(stride[1]),
-                pad_h=int(padding[0]),
-                pad_w=int(padding[1]),
-                dilation_h=int(dilation[0]),
-                dilation_w=int(dilation[1]),
-                iterations=int(iterations),
-                repeats=int(repeats),
-                has_residual=workload.residual_shape is not None,
-                x_elements=int(np.prod(workload.x_shape, dtype=np.int64)),
-                weight_elements=int(np.prod(workload.weight_shape, dtype=np.int64)),
-                bias_elements=int(np.prod(workload.bias_shape, dtype=np.int64)),
-                residual_elements=(
-                    int(np.prod(workload.residual_shape, dtype=np.int64))
-                    if workload.residual_shape is not None
-                    else 0
-                ),
-                output_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
-                seed=_stable_u32_seed(
-                    workload.op,
-                    workload.dtype,
-                    workload.shape_case_id,
-                    *(str(dim) for dim in workload.x_shape),
-                    *(str(dim) for dim in workload.weight_shape),
-                    *(str(dim) for dim in workload.output_shape),
-                    str(workload.profiler_symbol),
-                ),
-            )
+        raw_results = module.profile_conv(
+            profiler_symbol=str(workload.profiler_symbol),
+            profiler_symbols=[str(item.profiler_symbol) for item in workloads],
+            dtype=str(workload.dtype),
+            batch=int(workload.x_shape[0]),
+            in_channels=int(workload.x_shape[1]),
+            in_height=int(workload.x_shape[2]),
+            in_width=int(workload.x_shape[3]),
+            out_channels=int(workload.weight_shape[0]),
+            kernel_h=int(workload.weight_shape[2]),
+            kernel_w=int(workload.weight_shape[3]),
+            out_height=int(workload.output_shape[2]),
+            out_width=int(workload.output_shape[3]),
+            stride_h=int(stride[0]),
+            stride_w=int(stride[1]),
+            pad_h=int(padding[0]),
+            pad_w=int(padding[1]),
+            dilation_h=int(dilation[0]),
+            dilation_w=int(dilation[1]),
+            iterations=int(iterations),
+            repeats=int(repeats),
+            has_residual=workload.residual_shape is not None,
+            x_elements=int(np.prod(workload.x_shape, dtype=np.int64)),
+            weight_elements=int(np.prod(workload.weight_shape, dtype=np.int64)),
+            bias_elements=int(np.prod(workload.bias_shape, dtype=np.int64)),
+            residual_elements=(int(np.prod(workload.residual_shape, dtype=np.int64)) if workload.residual_shape is not None else 0),
+            output_elements=int(np.prod(workload.output_shape, dtype=np.int64)),
+            seed=_grouped_ck_profile_seed(workload),
         )
+        return _normalize_grouped_ck_profile_rows(workloads, raw_results, context="CK Conv profiler")
+
+    def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
+        rows = self.profile_problem([workload], iterations=iterations, repeats=repeats)
+        first = rows[0]
+        if not bool(first.get("ok", True)):
+            raise RuntimeError(str(first.get("error") or f"CK Conv profiler candidate failed: {workload.profiler_symbol}"))
+        return rows
 
 
 class _RocmProfiler:
@@ -4270,6 +4573,39 @@ class _RocmProfiler:
             first = rows[0]
             return [float(sample) for sample in first["samples_ms"]], int(first["workspace_nbytes"])
         raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
+
+    def profile_ck_gemm_problem(
+        self,
+        workloads: Sequence[GemmProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if self._ck_gemm_profiler is None:
+            raise RuntimeError("CK GEMM profiler requested but codegen plan has no ck_gemm support entry")
+        return self._ck_gemm_profiler.profile_problem(workloads, iterations=iterations, repeats=repeats)
+
+    def profile_ck_bmm_problem(
+        self,
+        workloads: Sequence[GemmProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if self._ck_bmm_profiler is None:
+            raise RuntimeError("CK BMM profiler requested but codegen plan has no ck_bmm support entry")
+        return self._ck_bmm_profiler.profile_problem(workloads, iterations=iterations, repeats=repeats)
+
+    def profile_ck_conv_problem(
+        self,
+        workloads: Sequence[ConvProfileWorkload],
+        *,
+        iterations: int,
+        repeats: int,
+    ) -> list[dict[str, Any]]:
+        if self._ck_conv_profiler is None:
+            raise RuntimeError("CK Conv profiler requested but codegen plan has no ck_conv support entry")
+        return self._ck_conv_profiler.profile_problem(workloads, iterations=iterations, repeats=repeats)
 
 
 class _CkRocmProfiler:

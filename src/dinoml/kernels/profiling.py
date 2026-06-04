@@ -3926,40 +3926,22 @@ class _CutlassGemmProfiler:
 
     @classmethod
     def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassGemmProfiler | None":
-        item = _external_support_library(codegen_plan, "cutlass_gemm")
+        return cls.from_support_item(_external_support_library(codegen_plan, "cutlass_gemm"))
+
+    @classmethod
+    def from_support_item(cls, item: Mapping[str, Any] | None) -> "_CutlassGemmProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CUTLASS GEMM profiler support entry has no op/dtype modules")
-        loaded = {}
-        candidates_by_key = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CUTLASS GEMM profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CUTLASS GEMM profiler support entry is missing op/dtype metadata")
-            _cutlass_gemm_profiler_extension(cache_dir, op=op, dtype=dtype)
-            module_path = _cutlass_gemm_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_cutlass_gemm_profiler_{op}_{dtype}_bind")
-        plan_entries = []
-        for support_item in codegen_plan.get("external_support_libraries", []):
-            if isinstance(support_item, Mapping) and support_item.get("name") == "cutlass_gemm":
-                raw_entries = support_item.get("entries", [])
-                if isinstance(raw_entries, Sequence) and not isinstance(raw_entries, (str, bytes)):
-                    plan_entries = list(raw_entries)
-                break
-        if isinstance(plan_entries, Sequence) and not isinstance(plan_entries, (str, bytes)):
-            for entry in plan_entries:
-                if isinstance(entry, Mapping):
-                    op = str(entry.get("op", ""))
-                    dtype = str(entry.get("dtype", ""))
-                    candidates = entry.get("candidates", [])
-                    if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
-                        candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        loaded = _load_support_extension_modules(
+            item,
+            label="CUTLASS GEMM profiler",
+            extension_path=_cutlass_gemm_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_cutlass_gemm_profiler_{op}_{dtype}_bind",
+        )
+        candidates_by_key = _support_entry_candidates_by_key(
+            item,
+            dtype_from_entry=lambda entry: entry.get("dtype"),
+        )
         return cls(loaded, candidates_by_key)
 
     def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
@@ -4011,33 +3993,22 @@ class _CutlassBmmProfiler:
 
     @classmethod
     def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CutlassBmmProfiler | None":
-        item = _external_support_library(codegen_plan, "cutlass_bmm")
+        return cls.from_support_item(_external_support_library(codegen_plan, "cutlass_bmm"))
+
+    @classmethod
+    def from_support_item(cls, item: Mapping[str, Any] | None) -> "_CutlassBmmProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CUTLASS BMM profiler support entry has no op/dtype modules")
-        loaded = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CUTLASS BMM profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CUTLASS BMM profiler support entry is missing op/dtype metadata")
-            module_path = _cutlass_bmm_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_cutlass_bmm_profiler_{op}_{dtype}_bind")
-        candidates_by_key = {}
-        raw_entries = item.get("entries", [])
-        if isinstance(raw_entries, Sequence) and not isinstance(raw_entries, (str, bytes)):
-            for entry in raw_entries:
-                if isinstance(entry, Mapping):
-                    op = str(entry.get("op", ""))
-                    dtype = str(entry.get("dtype", ""))
-                    candidates = entry.get("candidates", [])
-                    if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
-                        candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        loaded = _load_support_extension_modules(
+            item,
+            label="CUTLASS BMM profiler",
+            extension_path=_cutlass_bmm_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_cutlass_bmm_profiler_{op}_{dtype}_bind",
+        )
+        candidates_by_key = _support_entry_candidates_by_key(
+            item,
+            dtype_from_entry=lambda entry: entry.get("dtype"),
+        )
         return cls(loaded, candidates_by_key)
 
     def profile(self, workload: GemmProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
@@ -4109,34 +4080,30 @@ class _CutlassConvProfiler:
         *,
         validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
     ) -> "_CutlassConvProfiler | None":
-        item = _external_support_library(codegen_plan, "cutlass_conv")
+        return cls.from_support_item(
+            _external_support_library(codegen_plan, "cutlass_conv"),
+            validation_mode=validation_mode,
+        )
+
+    @classmethod
+    def from_support_item(
+        cls,
+        item: Mapping[str, Any] | None,
+        *,
+        validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+    ) -> "_CutlassConvProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CUTLASS Conv profiler support entry has no op/dtype modules")
-        loaded = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CUTLASS Conv profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CUTLASS Conv profiler support entry is missing op/dtype metadata")
-            module_path = _cutlass_conv_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_cutlass_conv_profiler_{op}_{dtype}_bind")
-        candidates_by_key = {}
-        raw_entries = item.get("entries", [])
-        if isinstance(raw_entries, Sequence) and not isinstance(raw_entries, (str, bytes)):
-            for entry in raw_entries:
-                if isinstance(entry, Mapping):
-                    op = str(entry.get("op", ""))
-                    candidate_set = entry.get("candidate_set", {})
-                    dtype = str(candidate_set.get("dtype", ""))
-                    candidates = entry.get("candidates", [])
-                    if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
-                        candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+        loaded = _load_support_extension_modules(
+            item,
+            label="CUTLASS Conv profiler",
+            extension_path=_cutlass_conv_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_cutlass_conv_profiler_{op}_{dtype}_bind",
+        )
+        candidates_by_key = _support_entry_candidates_by_key(
+            item,
+            dtype_from_entry=lambda entry: entry.get("candidate_set", {}).get("dtype"),
+        )
         return cls(loaded, candidates_by_key, validation_mode=validation_mode)
 
     def profile(self, workload: ConvProfileWorkload, *, iterations: int, repeats: int) -> list[dict[str, Any]]:
@@ -4196,10 +4163,66 @@ class _CutlassConvProfiler:
 
 
 def _external_support_library(codegen_plan: Mapping[str, Any], name: str) -> Mapping[str, Any] | None:
+    return _external_support_libraries_by_name(codegen_plan).get(name)
+
+
+def _external_support_libraries_by_name(codegen_plan: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    libraries: dict[str, Mapping[str, Any]] = {}
     for item in codegen_plan.get("external_support_libraries", []):
-        if isinstance(item, Mapping) and item.get("name") == name:
-            return item
-    return None
+        if isinstance(item, Mapping) and item.get("name"):
+            libraries[str(item["name"])] = item
+    return libraries
+
+
+def _support_module_keys(item: Mapping[str, Any], *, label: str) -> list[tuple[str, str]]:
+    modules = item.get("modules")
+    if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
+        raise RuntimeError(f"{label} support entry has no op/dtype modules")
+    keys: list[tuple[str, str]] = []
+    for module in modules:
+        if not isinstance(module, Mapping):
+            raise RuntimeError(f"{label} support entry has malformed op/dtype module metadata")
+        op = str(module.get("op", ""))
+        dtype = str(module.get("dtype", ""))
+        if not op or not dtype:
+            raise RuntimeError(f"{label} support entry is missing op/dtype metadata")
+        keys.append((op, dtype))
+    return keys
+
+
+def _load_support_extension_modules(
+    item: Mapping[str, Any],
+    *,
+    label: str,
+    extension_path,
+    module_name,
+) -> dict[tuple[str, str], Any]:
+    cache_dir = Path(str(item["cache_dir"]))
+    loaded: dict[tuple[str, str], Any] = {}
+    for op, dtype in _support_module_keys(item, label=label):
+        module_path = extension_path(cache_dir, op=op, dtype=dtype)
+        loaded[(op, dtype)] = _load_python_extension(module_path, module_name(op, dtype))
+    return loaded
+
+
+def _support_entry_candidates_by_key(
+    item: Mapping[str, Any],
+    *,
+    dtype_from_entry,
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    candidates_by_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    raw_entries = item.get("entries", [])
+    if not isinstance(raw_entries, Sequence) or isinstance(raw_entries, (str, bytes)):
+        return candidates_by_key
+    for entry in raw_entries:
+        if not isinstance(entry, Mapping):
+            continue
+        op = str(entry.get("op", ""))
+        dtype = str(dtype_from_entry(entry) or "")
+        candidates = entry.get("candidates", [])
+        if op and dtype and isinstance(candidates, Sequence) and not isinstance(candidates, (str, bytes)):
+            candidates_by_key[(op, dtype)] = [dict(candidate) for candidate in candidates if isinstance(candidate, Mapping)]
+    return candidates_by_key
 
 
 def _stable_u32_seed(*parts: str) -> int:
@@ -4393,23 +4416,18 @@ class _CkGemmProfiler:
 
     @classmethod
     def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkGemmProfiler | None":
-        item = _external_support_library(codegen_plan, "ck_gemm")
+        return cls.from_support_item(_external_support_library(codegen_plan, "ck_gemm"))
+
+    @classmethod
+    def from_support_item(cls, item: Mapping[str, Any] | None) -> "_CkGemmProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CK GEMM profiler support entry has no op/dtype modules")
-        loaded = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CK GEMM profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CK GEMM profiler support entry is missing op/dtype metadata")
-            module_path = _ck_gemm_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_gemm_profiler_{op}_{dtype}_bind")
+        loaded = _load_support_extension_modules(
+            item,
+            label="CK GEMM profiler",
+            extension_path=_ck_gemm_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_ck_gemm_profiler_{op}_{dtype}_bind",
+        )
         return cls(loaded)
 
     def profile_problem(
@@ -4454,23 +4472,18 @@ class _CkBmmProfiler:
 
     @classmethod
     def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkBmmProfiler | None":
-        item = _external_support_library(codegen_plan, "ck_bmm")
+        return cls.from_support_item(_external_support_library(codegen_plan, "ck_bmm"))
+
+    @classmethod
+    def from_support_item(cls, item: Mapping[str, Any] | None) -> "_CkBmmProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CK BMM profiler support entry has no op/dtype modules")
-        loaded = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CK BMM profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CK BMM profiler support entry is missing op/dtype metadata")
-            module_path = _ck_bmm_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_bmm_profiler_{op}_{dtype}_bind")
+        loaded = _load_support_extension_modules(
+            item,
+            label="CK BMM profiler",
+            extension_path=_ck_bmm_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_ck_bmm_profiler_{op}_{dtype}_bind",
+        )
         return cls(loaded)
 
     def profile_problem(
@@ -4527,23 +4540,18 @@ class _CkConvProfiler:
 
     @classmethod
     def from_codegen_plan(cls, codegen_plan: Mapping[str, Any]) -> "_CkConvProfiler | None":
-        item = _external_support_library(codegen_plan, "ck_conv")
+        return cls.from_support_item(_external_support_library(codegen_plan, "ck_conv"))
+
+    @classmethod
+    def from_support_item(cls, item: Mapping[str, Any] | None) -> "_CkConvProfiler | None":
         if item is None:
             return None
-        cache_dir = Path(str(item["cache_dir"]))
-        modules = item.get("modules")
-        if not isinstance(modules, Sequence) or isinstance(modules, (str, bytes)) or not modules:
-            raise RuntimeError("CK Conv profiler support entry has no op/dtype modules")
-        loaded = {}
-        for module in modules:
-            if not isinstance(module, Mapping):
-                raise RuntimeError("CK Conv profiler support entry has malformed op/dtype module metadata")
-            op = str(module.get("op", ""))
-            dtype = str(module.get("dtype", ""))
-            if not op or not dtype:
-                raise RuntimeError("CK Conv profiler support entry is missing op/dtype metadata")
-            module_path = _ck_conv_profiler_extension(cache_dir, op=op, dtype=dtype)
-            loaded[(op, dtype)] = _load_python_extension(module_path, f"dinoml_ck_conv_profiler_{op}_{dtype}_bind")
+        loaded = _load_support_extension_modules(
+            item,
+            label="CK Conv profiler",
+            extension_path=_ck_conv_profiler_extension,
+            module_name=lambda op, dtype: f"dinoml_ck_conv_profiler_{op}_{dtype}_bind",
+        )
         return cls(loaded)
 
     def profile_problem(
@@ -4604,9 +4612,10 @@ class _CkConvProfiler:
 class _RocmProfiler:
     def __init__(self, artifact_dir: Path, manifest: Mapping[str, Any], codegen_plan: Mapping[str, Any]):
         del artifact_dir, manifest
-        self._ck_gemm_profiler = _CkGemmProfiler.from_codegen_plan(codegen_plan)
-        self._ck_bmm_profiler = _CkBmmProfiler.from_codegen_plan(codegen_plan)
-        self._ck_conv_profiler = _CkConvProfiler.from_codegen_plan(codegen_plan)
+        support_items = _external_support_libraries_by_name(codegen_plan)
+        self._ck_gemm_profiler = _CkGemmProfiler.from_support_item(support_items.get("ck_gemm"))
+        self._ck_bmm_profiler = _CkBmmProfiler.from_support_item(support_items.get("ck_bmm"))
+        self._ck_conv_profiler = _CkConvProfiler.from_support_item(support_items.get("ck_conv"))
 
     def close(self) -> None:
         return None
@@ -5043,10 +5052,11 @@ class _CudaProfiler:
             if needs_ctypes_runtime
             else None
         )
-        self._cutlass_gemm_profiler = _CutlassGemmProfiler.from_codegen_plan(codegen_plan)
-        self._cutlass_bmm_profiler = _CutlassBmmProfiler.from_codegen_plan(codegen_plan)
-        self._cutlass_conv_profiler = _CutlassConvProfiler.from_codegen_plan(
-            codegen_plan,
+        support_items = _external_support_libraries_by_name(codegen_plan)
+        self._cutlass_gemm_profiler = _CutlassGemmProfiler.from_support_item(support_items.get("cutlass_gemm"))
+        self._cutlass_bmm_profiler = _CutlassBmmProfiler.from_support_item(support_items.get("cutlass_bmm"))
+        self._cutlass_conv_profiler = _CutlassConvProfiler.from_support_item(
+            support_items.get("cutlass_conv"),
             validation_mode=cutlass_conv_validation_mode,
         )
         self._buffers: list[ctypes.c_void_p] = []

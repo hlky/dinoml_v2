@@ -514,12 +514,14 @@ def _profiler_executable_artifact_sha256(directory: Path, stem: str) -> str | No
     return file_sha256(candidate) if candidate is not None else None
 
 
-def _missing_profiler_bindings(lib_dir: Path, profiler_stems: Sequence[str]) -> list[str]:
-    return [stem for stem in profiler_stems if _profiler_bind_artifact(lib_dir, stem) is None]
-
-
-def _missing_profiler_executables(lib_dir: Path, profiler_stems: Sequence[str]) -> list[str]:
-    return [stem for stem in profiler_stems if _profiler_executable_artifact(lib_dir, stem) is None]
+def _profiler_artifacts(directory: Path, profiler_stems: Sequence[str]) -> dict[str, tuple[Path | None, Path | None]]:
+    return {
+        stem: (
+            _profiler_bind_artifact(directory, stem),
+            _profiler_executable_artifact(directory, stem),
+        )
+        for stem in profiler_stems
+    }
 
 
 def _requires_kernel_library(kernel_manifest: Mapping[str, Any] | None, library: str) -> bool:
@@ -594,13 +596,16 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
     missing = [str(archive) for archive in archives if not archive.exists()]
     if missing:
         raise RuntimeError(f"Expected CMake-built CK GEMM static archives, but these were not produced: {missing}")
-    missing_profiler_modules = _missing_profiler_bindings(lib_dir, profiler_stems)
+    profiler_artifacts = _profiler_artifacts(lib_dir, profiler_stems)
+    missing_profiler_modules = [stem for stem, (bind_artifact, _exe_artifact) in profiler_artifacts.items() if bind_artifact is None]
     if missing_profiler_modules:
         raise RuntimeError(
             "Expected CMake-built CK GEMM profiler bindings, but these were not produced: "
             + ", ".join(missing_profiler_modules)
         )
-    missing_profiler_executables = _missing_profiler_executables(lib_dir, profiler_stems)
+    missing_profiler_executables = [
+        stem for stem, (_bind_artifact, executable_artifact) in profiler_artifacts.items() if executable_artifact is None
+    ]
     if missing_profiler_executables:
         raise RuntimeError(
             "Expected CMake-built CK GEMM profiler executables, but these were not produced: "
@@ -619,11 +624,8 @@ def _ensure_cmake_ck_gemm_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 {
                     **module,
                     "archive_sha256": file_sha256(lib_dir / module["archive"]),
-                    "profiler_bind_sha256": _profiler_bind_artifact_sha256(lib_dir, str(module["profiler_stem"])),
-                    "profiler_executable_sha256": _profiler_executable_artifact_sha256(
-                        lib_dir,
-                        str(module["profiler_stem"]),
-                    ),
+                    "profiler_bind_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][0]),
+                    "profiler_executable_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][1]),
                 }
                 for module in modules
             ],
@@ -707,13 +709,16 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
     missing = [str(archive) for archive in archives if not archive.exists()]
     if missing:
         raise RuntimeError(f"Expected CMake-built CK BMM static archives, but these were not produced: {missing}")
-    missing_profiler_modules = _missing_profiler_bindings(lib_dir, profiler_stems)
+    profiler_artifacts = _profiler_artifacts(lib_dir, profiler_stems)
+    missing_profiler_modules = [stem for stem, (bind_artifact, _exe_artifact) in profiler_artifacts.items() if bind_artifact is None]
     if missing_profiler_modules:
         raise RuntimeError(
             "Expected CMake-built CK BMM profiler bindings, but these were not produced: "
             + ", ".join(missing_profiler_modules)
         )
-    missing_profiler_executables = _missing_profiler_executables(lib_dir, profiler_stems)
+    missing_profiler_executables = [
+        stem for stem, (_bind_artifact, executable_artifact) in profiler_artifacts.items() if executable_artifact is None
+    ]
     if missing_profiler_executables:
         raise RuntimeError(
             "Expected CMake-built CK BMM profiler executables, but these were not produced: "
@@ -732,11 +737,8 @@ def _ensure_cmake_ck_bmm_archives(arch: str, kernel_manifest: Mapping[str, Any])
                 {
                     **module,
                     "archive_sha256": file_sha256(lib_dir / module["archive"]),
-                    "profiler_bind_sha256": _profiler_bind_artifact_sha256(lib_dir, str(module["profiler_stem"])),
-                    "profiler_executable_sha256": _profiler_executable_artifact_sha256(
-                        lib_dir,
-                        str(module["profiler_stem"]),
-                    ),
+                    "profiler_bind_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][0]),
+                    "profiler_executable_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][1]),
                 }
                 for module in modules
             ],
@@ -821,13 +823,16 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
     missing = [str(archive) for archive in archives if not archive.exists()]
     if missing:
         raise RuntimeError(f"Expected CMake-built CK Conv static archives, but these were not produced: {missing}")
-    missing_profiler_modules = _missing_profiler_bindings(lib_dir, profiler_stems)
+    profiler_artifacts = _profiler_artifacts(lib_dir, profiler_stems)
+    missing_profiler_modules = [stem for stem, (bind_artifact, _exe_artifact) in profiler_artifacts.items() if bind_artifact is None]
     if missing_profiler_modules:
         raise RuntimeError(
             "Expected CMake-built CK Conv profiler bindings, but these were not produced: "
             + ", ".join(missing_profiler_modules)
         )
-    missing_profiler_executables = _missing_profiler_executables(lib_dir, profiler_stems)
+    missing_profiler_executables = [
+        stem for stem, (_bind_artifact, executable_artifact) in profiler_artifacts.items() if executable_artifact is None
+    ]
     if missing_profiler_executables:
         raise RuntimeError(
             "Expected CMake-built CK Conv profiler executables, but these were not produced: "
@@ -846,11 +851,8 @@ def _ensure_cmake_ck_conv_archives(arch: str, kernel_manifest: Mapping[str, Any]
                 {
                     **module,
                     "archive_sha256": file_sha256(lib_dir / module["archive"]),
-                    "profiler_bind_sha256": _profiler_bind_artifact_sha256(lib_dir, str(module["profiler_stem"])),
-                    "profiler_executable_sha256": _profiler_executable_artifact_sha256(
-                        lib_dir,
-                        str(module["profiler_stem"]),
-                    ),
+                    "profiler_bind_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][0]),
+                    "profiler_executable_sha256": file_sha256(profiler_artifacts[str(module["profiler_stem"])][1]),
                 }
                 for module in modules
             ],

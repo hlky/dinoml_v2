@@ -2977,8 +2977,8 @@ def test_rocm_profiler_uses_standalone_ck_conv_support_cache(monkeypatch):
 
     monkeypatch.setattr(
         profiling_mod._CkConvProfiler,
-        "from_codegen_plan",
-        classmethod(lambda cls, codegen_plan: FakeConvProfiler()),
+        "from_support_item",
+        classmethod(lambda cls, item: FakeConvProfiler()),
     )
     monkeypatch.setattr(
         profiling_mod._CkRocmProfiler,
@@ -3019,18 +3019,18 @@ def test_rocm_profiler_batches_repeats_with_standalone_ck_support_cache(monkeypa
 
     monkeypatch.setattr(
         profiling_mod._CkGemmProfiler,
-        "from_codegen_plan",
-        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "gemm" else None),
+        "from_support_item",
+        classmethod(lambda cls, item: FakeProfiler() if case == "gemm" else None),
     )
     monkeypatch.setattr(
         profiling_mod._CkBmmProfiler,
-        "from_codegen_plan",
-        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "bmm" else None),
+        "from_support_item",
+        classmethod(lambda cls, item: FakeProfiler() if case == "bmm" else None),
     )
     monkeypatch.setattr(
         profiling_mod._CkConvProfiler,
-        "from_codegen_plan",
-        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "conv" else None),
+        "from_support_item",
+        classmethod(lambda cls, item: FakeProfiler() if case == "conv" else None),
     )
     monkeypatch.setattr(
         profiling_mod._CkRocmProfiler,
@@ -3384,6 +3384,45 @@ def test_load_python_extension_skips_dlopen_flags_when_unavailable(monkeypatch):
     assert module.loaded is True
     assert profiling_mod.sys.modules[module_name] is module
     profiling_mod.sys.modules.pop(module_name, None)
+
+
+def test_cutlass_gemm_profiler_init_resolves_each_extension_once(monkeypatch):
+    codegen_plan = {
+        "external_support_libraries": [
+            {
+                "name": "cutlass_gemm",
+                "cache_dir": "fake-cache",
+                "modules": [{"op": "gemm_rcr", "dtype": "float16"}],
+                "entries": [
+                    {
+                        "op": "gemm_rcr",
+                        "dtype": "float16",
+                        "candidates": [{"candidate_id": "candidate-0", "profiler_symbol": "profile_symbol_0"}],
+                    }
+                ],
+            }
+        ]
+    }
+    fake_module = object()
+    extension_calls = []
+    load_calls = []
+
+    monkeypatch.setattr(
+        profiling_mod,
+        "_cutlass_gemm_profiler_extension",
+        lambda cache_dir, *, op, dtype: extension_calls.append((cache_dir, op, dtype)) or Path("fake_extension.pyd"),
+    )
+    monkeypatch.setattr(
+        profiling_mod,
+        "_load_python_extension",
+        lambda path, module_name: load_calls.append((path, module_name)) or fake_module,
+    )
+
+    profiler = profiling_mod._CutlassGemmProfiler.from_codegen_plan(codegen_plan)
+
+    assert profiler is not None
+    assert extension_calls == [(Path("fake-cache"), "gemm_rcr", "float16")]
+    assert load_calls == [(Path("fake_extension.pyd"), "dinoml_cutlass_gemm_profiler_gemm_rcr_float16_bind")]
 
 
 def test_rocm_conv2d_bias_profile_workloads_skip_unsupported_groups():

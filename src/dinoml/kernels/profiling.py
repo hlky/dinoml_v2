@@ -2403,9 +2403,59 @@ def _profile_workload_samples(
 ) -> tuple[list[float], int, int]:
     effective_iterations = int(iterations)
     workspace_nbytes = int(workload.workspace_nbytes)
+    profile_samples = getattr(profiler, "profile_samples", None)
+    can_batch_repeats = callable(profile_samples) and int(repeats) > 1
+    if can_batch_repeats:
+        while True:
+            pilot_samples_ms, pilot_workspace_nbytes = _profile_workload_sample_batch(
+                profiler,
+                workload,
+                iterations=effective_iterations,
+                repeats=1,
+                rng=rng,
+            )
+            pilot_elapsed_ms = float(pilot_samples_ms[0])
+            workspace_nbytes = max(workspace_nbytes, int(pilot_workspace_nbytes))
+            adapted_iterations = _adaptive_profile_iterations(
+                workload,
+                requested_iterations=effective_iterations,
+                elapsed_ms=pilot_elapsed_ms,
+            )
+            if adapted_iterations > effective_iterations:
+                effective_iterations = adapted_iterations
+                continue
+            batch_samples_ms, batch_workspace_nbytes = _profile_workload_sample_batch(
+                profiler,
+                workload,
+                iterations=effective_iterations,
+                repeats=repeats,
+                rng=rng,
+            )
+            workspace_nbytes = max(workspace_nbytes, int(batch_workspace_nbytes))
+            restart = False
+            for elapsed_ms in batch_samples_ms:
+                adapted_iterations = _adaptive_profile_iterations(
+                    workload,
+                    requested_iterations=effective_iterations,
+                    elapsed_ms=elapsed_ms,
+                )
+                if adapted_iterations > effective_iterations:
+                    effective_iterations = adapted_iterations
+                    restart = True
+                    break
+            if restart:
+                continue
+            return list(batch_samples_ms), workspace_nbytes, effective_iterations
     samples_ms: list[float] = []
     while len(samples_ms) < int(repeats):
-        elapsed_ms, sample_workspace_nbytes = profiler.profile(workload, iterations=effective_iterations, rng=rng)
+        batch_samples_ms, sample_workspace_nbytes = _profile_workload_sample_batch(
+            profiler,
+            workload,
+            iterations=effective_iterations,
+            repeats=1,
+            rng=rng,
+        )
+        elapsed_ms = float(batch_samples_ms[0])
         workspace_nbytes = max(workspace_nbytes, int(sample_workspace_nbytes))
         adapted_iterations = _adaptive_profile_iterations(
             workload,
@@ -2418,6 +2468,34 @@ def _profile_workload_samples(
             continue
         samples_ms.append(elapsed_ms)
     return samples_ms, workspace_nbytes, effective_iterations
+
+
+def _profile_workload_sample_batch(
+    profiler: Any,
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    iterations: int,
+    repeats: int,
+    rng: np.random.Generator,
+) -> tuple[list[float], int]:
+    batch_samples = getattr(profiler, "profile_samples", None)
+    if callable(batch_samples):
+        samples_ms, workspace_nbytes = batch_samples(
+            workload,
+            iterations=int(iterations),
+            repeats=int(repeats),
+            rng=rng,
+        )
+        normalized = [float(sample) for sample in samples_ms]
+        if len(normalized) != int(repeats):
+            raise RuntimeError(
+                f"Profiler returned {len(normalized)} samples for requested repeats={int(repeats)}"
+            )
+        return normalized, int(workspace_nbytes)
+    if int(repeats) != 1:
+        raise RuntimeError("Profiler does not support batched repeats")
+    elapsed_ms, workspace_nbytes = profiler.profile(workload, iterations=int(iterations), rng=rng)
+    return [float(elapsed_ms)], int(workspace_nbytes)
 
 
 def _adaptive_profile_iterations(
@@ -4157,24 +4235,40 @@ class _RocmProfiler:
         iterations: int,
         rng: np.random.Generator,
     ) -> tuple[float, int]:
+        samples_ms, workspace_nbytes = self.profile_samples(
+            workload,
+            iterations=iterations,
+            repeats=1,
+            rng=rng,
+        )
+        return float(samples_ms[0]), int(workspace_nbytes)
+
+    def profile_samples(
+        self,
+        workload: GemmProfileWorkload | ConvProfileWorkload,
+        *,
+        iterations: int,
+        repeats: int,
+        rng: np.random.Generator,
+    ) -> tuple[list[float], int]:
         if workload.kernel_library == "ck_gemm":
             if self._ck_gemm_profiler is None:
                 raise RuntimeError("CK GEMM profiler requested but codegen plan has no ck_gemm support entry")
-            rows = self._ck_gemm_profiler.profile(workload, iterations=iterations, repeats=1)
+            rows = self._ck_gemm_profiler.profile(workload, iterations=iterations, repeats=repeats)
             first = rows[0]
-            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+            return [float(sample) for sample in first["samples_ms"]], int(first["workspace_nbytes"])
         if workload.kernel_library == "ck_bmm":
             if self._ck_bmm_profiler is None:
                 raise RuntimeError("CK BMM profiler requested but codegen plan has no ck_bmm support entry")
-            rows = self._ck_bmm_profiler.profile(workload, iterations=iterations, repeats=1)
+            rows = self._ck_bmm_profiler.profile(workload, iterations=iterations, repeats=repeats)
             first = rows[0]
-            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+            return [float(sample) for sample in first["samples_ms"]], int(first["workspace_nbytes"])
         if workload.kernel_library == "ck_conv" and isinstance(workload, ConvProfileWorkload):
             if self._ck_conv_profiler is None:
                 raise RuntimeError("CK Conv profiler requested but codegen plan has no ck_conv support entry")
-            rows = self._ck_conv_profiler.profile(workload, iterations=iterations, repeats=1)
+            rows = self._ck_conv_profiler.profile(workload, iterations=iterations, repeats=repeats)
             first = rows[0]
-            return float(first["samples_ms"][0]), int(first["workspace_nbytes"])
+            return [float(sample) for sample in first["samples_ms"]], int(first["workspace_nbytes"])
         raise RuntimeError(f"Unsupported ROCm profiler library {workload.kernel_library!r}")
 
 

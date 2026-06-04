@@ -37,6 +37,7 @@ from dinoml.kernels.profiling import (
     _profile_report,
     _profile_result,
     _profile_result_from_cache,
+    _profile_timing,
     _profile_workload_samples,
     profile_artifact,
     _should_print_profile_progress,
@@ -1737,6 +1738,72 @@ def test_rocm_ck_profile_samples_restart_when_late_sample_needs_more_iterations(
     assert effective_iterations == 500
 
 
+def test_rocm_ck_profile_samples_batch_repeats_after_adaptive_pilot():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeBatchProfiler:
+        def profile_samples(self, workload, *, iterations, repeats, rng):
+            del workload, rng
+            calls.append((iterations, repeats))
+            if calls == [(5, 1)]:
+                return [0.001], 8
+            if calls == [(5, 1), (500, 1)]:
+                return [0.02], 16
+            return [0.02] * repeats, 32
+
+    samples, workspace_nbytes, effective_iterations = _profile_workload_samples(
+        FakeBatchProfiler(),
+        workload,
+        iterations=5,
+        repeats=3,
+        rng=np.random.default_rng(0),
+    )
+    timing = _profile_timing(samples, iterations=effective_iterations)
+
+    assert calls == [(5, 1), (500, 1), (500, 3)]
+    assert samples == [0.02, 0.02, 0.02]
+    assert workspace_nbytes == 32
+    assert effective_iterations == 500
+    assert timing["samples_ms"] == [0.02, 0.02, 0.02]
+    assert timing["sample_count"] == 3
+    assert timing["repeats"] == 3
+
+
+def test_rocm_ck_profile_samples_restart_batched_repeats_when_late_sample_needs_more_iterations():
+    ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeBatchProfiler:
+        def profile_samples(self, workload, *, iterations, repeats, rng):
+            del workload, rng
+            calls.append((iterations, repeats))
+            if calls == [(5, 1)]:
+                return [0.2], 4
+            if calls == [(5, 1), (5, 3)]:
+                return [0.2, 0.001, 0.001], 12
+            if calls == [(5, 1), (5, 3), (500, 1)]:
+                return [0.02], 16
+            return [0.02] * repeats, 24
+
+    samples, workspace_nbytes, effective_iterations = _profile_workload_samples(
+        FakeBatchProfiler(),
+        workload,
+        iterations=5,
+        repeats=3,
+        rng=np.random.default_rng(0),
+    )
+
+    assert calls == [(5, 1), (5, 3), (500, 1), (500, 3)]
+    assert samples == [0.02, 0.02, 0.02]
+    assert workspace_nbytes == 24
+    assert effective_iterations == 500
+
+
 def test_rocm_ck_profile_iterations_stay_requested_for_stable_measurements():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -2915,6 +2982,59 @@ def test_rocm_profiler_uses_standalone_ck_conv_support_cache(monkeypatch):
     assert elapsed_ms == 0.125
     assert workspace_nbytes == 0
     assert calls == [(workload, 9, 1)]
+
+
+@pytest.mark.parametrize("case", ["gemm", "bmm", "conv"])
+def test_rocm_profiler_batches_repeats_with_standalone_ck_support_cache(monkeypatch, case: str):
+    if case == "gemm":
+        ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    elif case == "bmm":
+        ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
+    elif case == "conv":
+        ir = _rocm_conv2d_bias_ir("float16", batch=2, in_channels=8, out_channels=64, height=16, width=16)
+    else:
+        raise AssertionError(f"unsupported CK profiler case: {case}")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeProfiler:
+        def profile(self, profile_workload, *, iterations: int, repeats: int):
+            calls.append((profile_workload, iterations, repeats))
+            return [{"samples_ms": [0.125, 0.15], "workspace_nbytes": 64}]
+
+    monkeypatch.setattr(
+        profiling_mod._CkGemmProfiler,
+        "from_codegen_plan",
+        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "gemm" else None),
+    )
+    monkeypatch.setattr(
+        profiling_mod._CkBmmProfiler,
+        "from_codegen_plan",
+        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "bmm" else None),
+    )
+    monkeypatch.setattr(
+        profiling_mod._CkConvProfiler,
+        "from_codegen_plan",
+        classmethod(lambda cls, codegen_plan: FakeProfiler() if case == "conv" else None),
+    )
+    monkeypatch.setattr(
+        profiling_mod._CkRocmProfiler,
+        "__init__",
+        lambda self, artifact_dir, manifest: (_ for _ in ()).throw(AssertionError("legacy module profiler should not initialize")),
+    )
+
+    profiler = _RocmProfiler(Path("unused"), manifest, {"external_support_libraries": []})
+    samples_ms, workspace_nbytes = profiler.profile_samples(
+        workload,
+        iterations=9,
+        repeats=2,
+        rng=np.random.default_rng(123),
+    )
+
+    assert samples_ms == [0.125, 0.15]
+    assert workspace_nbytes == 64
+    assert calls == [(workload, 9, 2)]
 
 
 def test_load_python_extension_skips_dlopen_flags_when_unavailable(monkeypatch):

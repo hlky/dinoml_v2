@@ -34,7 +34,7 @@ from dinoml.constant_sources import (
 )
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.profiling import profile_artifact
+from dinoml.kernels.profiling import compact_profile_report, profile_artifact
 from dinoml.lowering.ops.conv import render_conv_wrapper_source
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
@@ -158,7 +158,10 @@ def _compile_with_profile(
         execution_plan_payload=execution_plan_payload,
         constant_load_policy=constant_load_policy,
     )
-    write_json(final_artifact.path / "debug" / "bootstrap_profile_report.json", dict(profile_report))
+    write_json(
+        final_artifact.path / "debug" / "bootstrap_profile_report.json",
+        compact_profile_report(profile_report),
+    )
     return final_artifact
 
 

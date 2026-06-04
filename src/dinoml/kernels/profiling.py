@@ -58,6 +58,7 @@ PROFILE_CONFIDENCE_MIN_ABSOLUTE_MARGIN_MS = 0.002
 PROFILE_CONFIDENCE_MIN_RELATIVE_SPEEDUP = 0.02
 PROFILE_ADAPTIVE_MIN_TOTAL_SAMPLE_MS = 0.5
 PROFILE_ADAPTIVE_MAX_ITERATIONS = 1024
+PROFILE_REPORT_NODE_SAMPLE_LIMIT = 8
 CUTLASS_CONV_VALIDATION_FAST = "fast"
 CUTLASS_CONV_VALIDATION_STRICT = "strict"
 
@@ -2600,6 +2601,103 @@ def _profile_report(
     }
 
 
+def compact_profile_report(report: Mapping[str, Any]) -> dict[str, Any]:
+    compact = {str(key): value for key, value in dict(report).items() if key != "workloads"}
+    problems = report.get("problems", ())
+    if isinstance(problems, Sequence) and not isinstance(problems, (str, bytes, bytearray)):
+        compact["problems"] = _compact_profile_problems(problems)
+        compact["problem_compaction"] = {
+            "policy": "aggregate_equivalent_problem_summaries_v1",
+            "input_problem_count": len(problems),
+            "output_problem_count": len(compact["problems"]),
+            "node_id_sample_limit": PROFILE_REPORT_NODE_SAMPLE_LIMIT,
+        }
+    else:
+        compact["problems"] = []
+    return compact
+
+
+def _compact_profile_problems(problems: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    by_key: dict[str, dict[str, Any]] = {}
+    ordered_keys: list[str] = []
+    for raw in problems:
+        if not isinstance(raw, Mapping):
+            continue
+        summary = _compact_profile_problem_summary(raw)
+        key_payload = {key: value for key, value in summary.items() if key != "node_id"}
+        key = canonical_json(key_payload)
+        entry = by_key.get(key)
+        if entry is None:
+            entry = dict(summary)
+            entry["problem_count"] = 0
+            entry["node_count"] = 0
+            entry["node_ids"] = []
+            by_key[key] = entry
+            ordered_keys.append(key)
+        entry["problem_count"] = int(entry.get("problem_count", 0) or 0) + 1
+        node_id = summary.get("node_id")
+        if node_id is not None:
+            entry["node_count"] = int(entry.get("node_count", 0) or 0) + 1
+            node_ids = entry.setdefault("node_ids", [])
+            if isinstance(node_ids, list) and len(node_ids) < PROFILE_REPORT_NODE_SAMPLE_LIMIT and node_id not in node_ids:
+                node_ids.append(node_id)
+    return [by_key[key] for key in ordered_keys]
+
+
+def _compact_profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    selected = item.get("selected", {})
+    candidate_id = item.get("candidate_id")
+    if candidate_id is None and isinstance(selected, Mapping):
+        candidate_id = selected.get("candidate_id")
+    payload = {
+        "node_id": item.get("node_id"),
+        "op": item.get("op"),
+        "dtype": item.get("dtype"),
+        "kernel_library": item.get("kernel_library"),
+        "candidate_id": candidate_id,
+        "candidate_set_id": item.get("candidate_set_id"),
+        "candidate_set_key": item.get("candidate_set_key"),
+        "candidate_config_key": item.get("candidate_config_key"),
+        "kernel_symbol": item.get("kernel_symbol"),
+        "profiler_symbol": item.get("profiler_symbol"),
+        "elapsed_ms": item.get("elapsed_ms"),
+        "tflops": item.get("tflops"),
+        "gflops": item.get("gflops"),
+        "iterations": item.get("iterations"),
+        "requested_iterations": item.get("requested_iterations"),
+        "status": item.get("status"),
+    }
+    if item.get("split_k") is not None:
+        payload["split_k"] = item.get("split_k")
+    if item.get("workspace_nbytes") is not None:
+        payload["workspace_nbytes"] = item.get("workspace_nbytes")
+    if item.get("source_op") is not None:
+        payload["source_op"] = item.get("source_op")
+    if item.get("bias_mode") is not None:
+        payload["bias_mode"] = item.get("bias_mode")
+    timing = item.get("timing")
+    if isinstance(timing, Mapping):
+        payload["timing"] = {
+            "sample_count": timing.get("sample_count"),
+            "iterations_per_sample": timing.get("iterations_per_sample"),
+            "median_ms": timing.get("median_ms"),
+            "mean_ms": timing.get("mean_ms"),
+            "relative_stddev": timing.get("relative_stddev"),
+            "min_ms": timing.get("min_ms"),
+            "max_ms": timing.get("max_ms"),
+        }
+    adaptive = item.get("adaptive_iterations")
+    if isinstance(adaptive, Mapping):
+        payload["adaptive_iterations"] = dict(adaptive)
+    shape = item.get("shape")
+    if isinstance(shape, Mapping):
+        payload["shape"] = dict(shape)
+    conv_config = item.get("conv")
+    if isinstance(conv_config, Mapping):
+        payload["conv"] = dict(conv_config)
+    return payload
+
+
 def _profile_workload_samples(
     profiler: Any,
     workload: GemmProfileWorkload | ConvProfileWorkload,
@@ -2811,7 +2909,7 @@ def _adaptive_profile_iterations_payload(
 def _write_profile_report(report: Mapping[str, Any], artifact_dir: Path, output: str | Path | None) -> None:
     report_path = Path(output) if output is not None else artifact_dir / "debug" / "profile_report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    write_json(report_path, dict(report))
+    write_json(report_path, compact_profile_report(report))
 
 
 def _profile_libraries(

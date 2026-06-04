@@ -41,6 +41,7 @@ from dinoml.kernels.profiling import (
     _profile_result_from_cache,
     _profile_timing,
     _profile_workload_samples,
+    compact_profile_report,
     profile_artifact,
     _should_print_profile_progress,
     build_execution_plan,
@@ -1510,6 +1511,108 @@ def test_profile_artifact_deduplicates_duplicate_profile_keys_within_run(tmp_pat
     assert [problem["status"] for problem in report["problems"]] == ["ok", "cached"]
     assert report["summary"]["profiled"] == 1
     assert report["summary"]["cached"] == 1
+    persisted = read_json(artifact_dir / "debug" / "profile_report.json")
+    assert "workloads" not in persisted
+    assert persisted["problem_compaction"]["input_problem_count"] == 2
+    assert persisted["problem_compaction"]["output_problem_count"] == 2
+
+
+def test_compact_profile_report_aggregates_equivalent_problem_summaries():
+    problem = {
+        "node_id": "n0",
+        "op": "gemm_rcr",
+        "dtype": "float16",
+        "kernel_library": "ck_gemm",
+        "candidate_id": "candidate0",
+        "candidate_set_id": "set0",
+        "candidate_set_key": "set-key",
+        "candidate_config_key": "cfg0",
+        "kernel_symbol": "kernel0",
+        "profiler_symbol": "profiler0",
+        "elapsed_ms": 1.25,
+        "tflops": 2.5,
+        "gflops": 2500.0,
+        "iterations": 20,
+        "requested_iterations": 5,
+        "status": "cached",
+        "split_k": 1,
+        "workspace_nbytes": 0,
+        "shape": {"m": 64, "n": 128, "k": 96, "case_id": "shape0", "source": "graph_metadata"},
+        "timing": {
+            "sample_count": 3,
+            "iterations_per_sample": 20,
+            "median_ms": 1.25,
+            "mean_ms": 1.26,
+            "relative_stddev": 0.01,
+            "min_ms": 1.24,
+            "max_ms": 1.28,
+        },
+    }
+    report = {
+        "schema_version": 8,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "artifact": "artifact",
+        "target": {"name": "rocm", "arch": "gfx1201"},
+        "kernel_manifest_cache_key": "manifest-key",
+        "codegen_plan_cache_key": "codegen-key",
+        "iterations": 20,
+        "fingerprint": {"hardware": {"name": "fake"}},
+        "hardware": {"name": "fake"},
+        "hardware_cache_key": "hw",
+        "libraries": [],
+        "support_libraries_cache_key": "libs",
+        "validation_policy": {"cutlass_conv": "fast"},
+        "problems": [problem, {**problem, "node_id": "n1"}],
+        "workloads": [problem, {**problem, "node_id": "n1"}],
+        "blocked_profile_items": [],
+        "repeats": 3,
+        "summary": {"profiled": 0, "cached": 2, "failed": 0, "blocked": 0, "skipped": 0},
+    }
+
+    compact = compact_profile_report(report)
+
+    assert "workloads" not in compact
+    assert compact["problem_compaction"] == {
+        "policy": "aggregate_equivalent_problem_summaries_v1",
+        "input_problem_count": 2,
+        "output_problem_count": 1,
+        "node_id_sample_limit": 8,
+    }
+    assert compact["problems"] == [
+        {
+            "node_id": "n0",
+            "op": "gemm_rcr",
+            "dtype": "float16",
+            "kernel_library": "ck_gemm",
+            "candidate_id": "candidate0",
+            "candidate_set_id": "set0",
+            "candidate_set_key": "set-key",
+            "candidate_config_key": "cfg0",
+            "kernel_symbol": "kernel0",
+            "profiler_symbol": "profiler0",
+            "elapsed_ms": 1.25,
+            "tflops": 2.5,
+            "gflops": 2500.0,
+            "iterations": 20,
+            "requested_iterations": 5,
+            "status": "cached",
+            "split_k": 1,
+            "workspace_nbytes": 0,
+            "timing": {
+                "sample_count": 3,
+                "iterations_per_sample": 20,
+                "median_ms": 1.25,
+                "mean_ms": 1.26,
+                "relative_stddev": 0.01,
+                "min_ms": 1.24,
+                "max_ms": 1.28,
+            },
+            "shape": {"m": 64, "n": 128, "k": 96, "case_id": "shape0", "source": "graph_metadata"},
+            "problem_count": 2,
+            "node_count": 2,
+            "node_ids": ["n0", "n1"],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

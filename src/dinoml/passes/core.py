@@ -13,8 +13,9 @@ from dinoml.ops.positional import (
     infer_get_1d_rotary_pos_embed_component_shape_spec,
 )
 from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
+from dinoml.passes.memory_planning import plan_temporary_memory
 from dinoml.passes.utils import tensor_map
-from dinoml.passes.validation import ValidationError, validate_view_metadata
+from dinoml.passes.validation import ValidationError
 
 ELEMENTWISE_SHAPE_SPEC_OPS = frozenset((*FUSABLE_ELEMENTWISE_OPS, "fused_elementwise"))
 
@@ -315,25 +316,7 @@ def _include_view_sources(required_tensors: Set[str], view_sources: Dict[str, st
 
 
 def memory_plan(ir: Dict[str, Any]) -> Dict[str, Any]:
-    output_tensors = {output["tensor"] for output in ir["outputs"]}
-    input_tensors = {input_info["tensor"] for input_info in ir["inputs"]}
-    state_tensors = {state["tensor"] for state in ir.get("states", [])}
-    constant_tensors = {constant["tensor"] for constant in ir["constants"]}
-    tensors = tensor_map(ir)
-    views = validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
-    view_tensors = {view["tensor"] for view in views}
-    temporaries = []
-    for tensor in ir["tensors"]:
-        name = tensor["name"]
-        if name in output_tensors or name in input_tensors or name in state_tensors or name in constant_tensors or name in view_tensors:
-            continue
-        temporaries.append({"tensor": name, "nbytes": tensor["nbytes"]})
-    ir.setdefault("metadata", {})["memory_plan"] = {
-        "allocation": "per_session_static_temporaries",
-        "temporaries": temporaries,
-        "views": {"version": VIEW_METADATA_VERSION, "views": views},
-        "workspace_nbytes": sum(item["nbytes"] for item in temporaries),
-    }
+    ir.setdefault("metadata", {})["memory_plan"] = plan_temporary_memory(ir)
     return ir
 
 

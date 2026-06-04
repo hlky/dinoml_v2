@@ -67,9 +67,14 @@ struct DinoSession {
   void* flash_attention_static_kv_cache_scratch = nullptr;
   size_t flash_attention_static_kv_cache_scratch_nbytes = {{ flash_attention_static_kv_cache_scratch.nbytes }};
 {% endif %}
+{% if temp_arena %}
+  void* temp_arena = nullptr;
+  size_t temp_arena_nbytes = {{ temp_arena.nbytes }};
+{% else %}
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
 {% endfor %}
+{% endif %}
 {% for temp in cutlass_conv_temporaries %}
   void* cutlass_conv_tmp_{{ temp.ident }} = nullptr;
   size_t cutlass_conv_tmp_{{ temp.ident }}_nbytes = {{ temp.nbytes }};
@@ -358,9 +363,13 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
 {% if flash_attention_static_kv_cache_scratch %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->flash_attention_static_kv_cache_scratch, {{ flash_attention_static_kv_cache_scratch.nbytes }}));
 {% endif %}
+{% if temp_arena %}
+  DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->temp_arena, {{ temp_arena.nbytes }}));
+{% else %}
 {% for temp in temporaries %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
+{% endif %}
 {% for temp in cutlass_conv_temporaries %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->cutlass_conv_tmp_{{ temp.ident }}, {{ temp.nbytes }}));
 {% endfor %}
@@ -396,11 +405,17 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
     {{ device_free }}(session->state_{{ state.ident }});
   }
 {% endfor %}
+{% if temp_arena %}
+  if (session->temp_arena) {
+    {{ device_free }}(session->temp_arena);
+  }
+{% else %}
 {% for temp in temporaries %}
   if (session->tmp_{{ temp.ident }}) {
     {{ device_free }}(session->tmp_{{ temp.ident }});
   }
 {% endfor %}
+{% endif %}
 {% for temp in cutlass_conv_temporaries %}
   if (session->cutlass_conv_tmp_{{ temp.ident }}) {
     {{ device_free }}(session->cutlass_conv_tmp_{{ temp.ident }});

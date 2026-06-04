@@ -42,12 +42,14 @@ def render_gpu_module(
     if not spec.is_gpu or not spec.generated_module_admitted:
         raise ValueError(f"Unsupported GPU module target: {target_name}")
     config = _gpu_target_config(target_name, spec)
+    memory_plan = ir.get("metadata", {}).get("memory_plan", {})
     tensor_map = {tensor["name"]: tensor for tensor in ir["tensors"]}
     input_map = {item["tensor"]: idx for idx, item in enumerate(ir["inputs"])}
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
     state_tensors = {item["tensor"]: item for item in ir.get("states", [])}
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
-    temporaries = ir.get("metadata", {}).get("memory_plan", {}).get("temporaries", [])
+    temporaries = memory_plan.get("temporaries", [])
+    temp_arena = _temporary_arena_context(memory_plan, temporaries)
     views = _view_contexts(ir, output_map=output_map, tensor_map=tensor_map, target_name=target_name)
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
     validate_symbolic_int_sources(items=ir["inputs"], dynamic_dims=dynamic_dims, context="input")
@@ -87,6 +89,7 @@ def render_gpu_module(
             "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
             "states": [_state_context(item) for item in ir.get("states", [])],
             "temporaries": [_temporary_context(item) for item in temporaries],
+            "temp_arena": temp_arena,
             "shape_buffers": [
                 shape_buffer_context(item)
                 for item in ir["tensors"]
@@ -106,6 +109,7 @@ def render_gpu_module(
                     output_map=output_map,
                     state_tensors=state_tensors,
                     constant_tensors=constant_tensors,
+                    temp_arena=temp_arena,
                     temporaries=temporaries,
                     views=views,
                     tensor_map=tensor_map,
@@ -353,6 +357,7 @@ def _temporary_context(item: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "ident": _c_ident(item["tensor"]),
         "nbytes": int(item["nbytes"]),
+        "offset": None if item.get("offset") is None else int(item["offset"]),
     }
 
 
@@ -371,6 +376,7 @@ def _pointer_decls(
     output_map: Mapping[str, int],
     state_tensors: Mapping[str, Mapping[str, Any]],
     constant_tensors: Mapping[str, Mapping[str, Any]],
+    temp_arena: Mapping[str, Any] | None,
     temporaries: Iterable[Mapping[str, Any]],
     views: Iterable[Mapping[str, Any]],
     tensor_map: Mapping[str, Mapping[str, Any]],
@@ -378,6 +384,7 @@ def _pointer_decls(
     shape_buffer_run_update_idents: set[str],
 ) -> Iterable[str]:
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    temporaries = list(temporaries)
     view_by_tensor = {str(view["tensor"]): view for view in views}
     config = _gpu_target_config(target_name, lowering_target_spec(target_name))
     check_macro = config["check_macro"]
@@ -425,6 +432,8 @@ def _pointer_decls(
             f"const {cpp_type}* ptr_{ident} = "
             f"static_cast<const {cpp_type}*>(module->const_{ident});"
         )
+    if temp_arena is not None and temporaries:
+        yield "uint8_t* temp_arena_base = static_cast<uint8_t*>(session->temp_arena);"
     for item in temporaries:
         tensor_name = item["tensor"]
         ident = _c_ident(tensor_name)
@@ -438,7 +447,13 @@ def _pointer_decls(
         if ident in shape_buffer_idents:
             yield f"const int64_t* shape_{ident} = session->shape_{ident};"
         yield f"const int64_t runtime_numel_{ident} = {numel_expr(ident, len(tensor_map[tensor_name]['shape']))};"
-        yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(session->tmp_{ident});"
+        if temp_arena is None:
+            yield f"{cpp_type}* ptr_{ident} = static_cast<{cpp_type}*>(session->tmp_{ident});"
+        else:
+            yield (
+                f"{cpp_type}* ptr_{ident} = "
+                f"reinterpret_cast<{cpp_type}*>(temp_arena_base + {int(item.get('offset', 0) or 0)});"
+            )
     for tensor_name, idx in output_map.items():
         if tensor_name in view_by_tensor:
             continue
@@ -503,6 +518,21 @@ def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> 
     if max_scratch <= 0:
         return None
     return {"nbytes": max_scratch}
+
+
+def _temporary_arena_context(
+    memory_plan: Mapping[str, Any],
+    temporaries: Iterable[Mapping[str, Any]],
+) -> dict[str, int] | None:
+    items = [item for item in temporaries if isinstance(item, Mapping)]
+    if not items:
+        return None
+    if any(item.get("offset") is None for item in items):
+        return None
+    arena_nbytes = int(memory_plan.get("arena_nbytes", 0) or 0)
+    if arena_nbytes <= 0:
+        return None
+    return {"nbytes": arena_nbytes}
 
 
 def _topk_scratch_context(

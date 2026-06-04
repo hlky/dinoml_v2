@@ -23,7 +23,7 @@ from dinoml.ir import read_json
 from dinoml.kernels.bmm import BMM_OPS
 from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
-from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
+from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.profiling import (
     _CkConvProfiler,
     _CkRocmProfiler,
@@ -1760,7 +1760,7 @@ def test_rocm_ck_profile_cache_round_trip_preserves_candidate_metadata():
     execution_plan = build_execution_plan(
         {
             "schema_version": 1,
-            "profile_cache_schema_version": 7,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
             "target": dict(manifest["target"]),
             "kernel_manifest_cache_key": manifest.get("cache_key"),
             "codegen_plan_cache_key": "test-codegen-plan",
@@ -1863,7 +1863,7 @@ def test_rocm_ck_gemm_execution_plan_conflict_applies_guarded_dispatch():
     execution_plan = build_execution_plan(
         {
             "schema_version": 1,
-            "profile_cache_schema_version": 7,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
             "target": dict(manifest["target"]),
             "kernel_manifest_cache_key": manifest.get("cache_key"),
             "codegen_plan_cache_key": "test-codegen-plan",
@@ -3547,7 +3547,7 @@ def _ck_execution_plan_for_candidate(
     return build_execution_plan(
         {
             "schema_version": 1,
-            "profile_cache_schema_version": 7,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
             "target": dict(manifest["target"]),
             "kernel_manifest_cache_key": manifest.get("cache_key"),
             "codegen_plan_cache_key": "test-codegen-plan",
@@ -3560,7 +3560,7 @@ def _ck_execution_plan_from_results(manifest: dict, *results: dict) -> dict:
     return build_execution_plan(
         {
             "schema_version": 1,
-            "profile_cache_schema_version": 7,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
             "target": dict(manifest["target"]),
             "kernel_manifest_cache_key": manifest.get("cache_key"),
             "codegen_plan_cache_key": "test-codegen-plan",

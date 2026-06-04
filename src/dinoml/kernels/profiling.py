@@ -24,6 +24,12 @@ from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json,
 from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec, bmm_problem
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
+from dinoml.kernels.profile_cache import (
+    ProfileCacheLookup,
+    ProfileCacheWrite,
+    default_profile_cache_path,
+    open_profile_cache_backend,
+)
 from dinoml.kernels.providers.cutlass.alignment import (
     alignment_context_candidate_filter,
     cutlass_bmm_profile_alignment_context,
@@ -66,6 +72,7 @@ class ProfileShapeScenario:
 @dataclass(frozen=True)
 class PreparedProfileWorkload:
     workload: GemmProfileWorkload | ConvProfileWorkload
+    cache_lookup: ProfileCacheLookup
     key_payload: Mapping[str, Any]
     profile_key: str
     resolution: str
@@ -1158,7 +1165,7 @@ def _prepare_profile_workloads(
     manifest: Mapping[str, Any],
     kernel_manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
-    cache: Mapping[str, Any],
+    cache_backend: Any,
     *,
     iterations: int,
     repeats: int,
@@ -1167,40 +1174,52 @@ def _prepare_profile_workloads(
 ) -> tuple[list[PreparedProfileWorkload], list[PreparedProfileWorkload]]:
     prepared: list[PreparedProfileWorkload] = []
     unique: list[PreparedProfileWorkload] = []
-    seen_keys: set[str] = set()
-    cache_entries = cache.get("entries", {})
-    if not isinstance(cache_entries, Mapping):
-        cache_entries = {}
+    representatives: dict[str, ProfileCacheLookup] = {}
     for workload in workloads:
-        key_payload = _profile_key_payload(workload, manifest, kernel_manifest, codegen_plan, context=context)
-        profile_key = _profile_key(key_payload)
-        representative = profile_key not in seen_keys
+        cache_lookup = _profile_cache_lookup(workload, manifest, kernel_manifest, codegen_plan, context=context)
+        key_payload = cache_lookup.key_payload
+        profile_key = cache_lookup.profile_key
+        representative = profile_key not in representatives
         if representative:
-            seen_keys.add(profile_key)
-            cached = cache_entries.get(profile_key)
-            cache_entry = cached if (
-                not refresh
-                and cached is not None
-                and _cache_entry_satisfies(cached, key_payload=key_payload, iterations=iterations, repeats=repeats)
-            ) else None
+            representatives[profile_key] = cache_lookup
             item = PreparedProfileWorkload(
                 workload=workload,
+                cache_lookup=cache_lookup,
                 key_payload=key_payload,
                 profile_key=profile_key,
-                resolution="cache" if cache_entry is not None else "profile",
+                resolution="profile",
                 representative=True,
-                cache_entry=cache_entry,
             )
             unique.append(item)
         else:
             item = PreparedProfileWorkload(
                 workload=workload,
+                cache_lookup=cache_lookup,
                 key_payload=key_payload,
                 profile_key=profile_key,
                 resolution="duplicate",
                 representative=False,
             )
         prepared.append(item)
+    cache_entries = cache_backend.lookup_many([item.cache_lookup for item in unique]) if unique and not refresh else {}
+    for index, item in enumerate(unique):
+        cached = cache_entries.get(item.profile_key)
+        cache_entry = cached if (
+            not refresh
+            and cached is not None
+            and _cache_entry_satisfies(cached, key_payload=item.key_payload, iterations=iterations, repeats=repeats)
+        ) else None
+        if cache_entry is None:
+            continue
+        unique[index] = PreparedProfileWorkload(
+            workload=item.workload,
+            cache_lookup=item.cache_lookup,
+            key_payload=item.key_payload,
+            profile_key=item.profile_key,
+            resolution="cache",
+            representative=True,
+            cache_entry=cache_entry,
+        )
     return prepared, unique
 
 
@@ -1228,8 +1247,7 @@ def profile_artifact(
     codegen_plan = read_json(artifact_dir / manifest["files"]["kernel_codegen_plan"])
     workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
     _reject_unsupported_profile_workloads(workloads, context="profile execution")
-    cache_path = profile_cache_path(codegen_plan)
-    cache = _read_profile_cache(cache_path, manifest["target"])
+    cache_backend = open_profile_cache_backend(codegen_plan)
     context = _profile_context(artifact_dir, manifest, codegen_plan)
     blocked_profile_items = _blocked_profile_items(kernel_manifest)
     prepared_workloads, unique_workloads = _prepare_profile_workloads(
@@ -1237,7 +1255,7 @@ def profile_artifact(
         manifest,
         kernel_manifest,
         codegen_plan,
-        cache,
+        cache_backend,
         iterations=iterations,
         repeats=repeats,
         refresh=refresh,
@@ -1289,6 +1307,7 @@ def profile_artifact(
         report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
         _write_profile_report(report, artifact_dir, output)
         print("[dml.profile] No profileable workloads were found")
+        cache_backend.close()
         return report
 
     rng = np.random.default_rng(seed)
@@ -1297,6 +1316,7 @@ def profile_artifact(
     last_progress_at = started_at
     last_progress_count = int(progress_summary["cached"])
     resolved_results: dict[str, tuple[str, Any, Any]] = {}
+    cache_writes: list[ProfileCacheWrite] = []
     for item in unique_workloads:
         if item.resolution == "cache" and item.cache_entry is not None:
             resolved_results[item.profile_key] = ("cache", item.cache_entry, None)
@@ -1377,7 +1397,7 @@ def profile_artifact(
                     )
                     cache_entry = _cache_entry(candidate_workload, result, candidate_item.key_payload)
                     resolved_results[candidate_item.profile_key] = ("result", result, cache_entry)
-                    cache["entries"][candidate_item.profile_key] = cache_entry
+                    cache_writes.append(ProfileCacheWrite(candidate_item.cache_lookup, cache_entry))
                     progress_summary["profiled"] += 1
                 processed = _profile_processed_count(progress_summary)
                 now = time.monotonic()
@@ -1453,7 +1473,7 @@ def profile_artifact(
                 )
             cache_entry = _cache_entry(workload, result, prepared.key_payload)
             resolved_results[prepared.profile_key] = ("result", result, cache_entry)
-            cache["entries"][prepared.profile_key] = cache_entry
+            cache_writes.append(ProfileCacheWrite(prepared.cache_lookup, cache_entry))
             progress_summary["profiled"] += 1
             processed = _profile_processed_count(progress_summary)
             now = time.monotonic()
@@ -1506,7 +1526,7 @@ def profile_artifact(
             raise RuntimeError(f"Unsupported resolved profile result kind {kind!r}")
         results.append(result)
     if progress_summary["profiled"]:
-        _write_profile_cache(cache_path, cache)
+        cache_backend.upsert_many(cache_writes)
 
     report = _profile_report(
         artifact_dir,
@@ -1524,6 +1544,7 @@ def profile_artifact(
     execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
     report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
     _write_profile_report(report, artifact_dir, output)
+    cache_backend.close()
     print(
         "[dml.profile] Completed profile run: "
         f"raw_workloads={raw_workload_count}, "
@@ -1538,7 +1559,7 @@ def profile_artifact(
 
 
 def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
-    return Path(str(codegen_plan["support_cache_dir"])) / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.json"
+    return default_profile_cache_path(codegen_plan)
 
 
 def _validate_symbolic_int_expr_profile_graph(graph: Mapping[str, Any]) -> None:
@@ -2501,6 +2522,7 @@ def _profile_context(
         },
         "hardware_cache_payload": hardware_cache_payload,
         "support_libraries_cache_payload": support_libraries_cache_payload,
+        "support_libraries_by_name": {str(item.get("name", "")): dict(item) for item in libraries if item.get("name")},
     }
 
 
@@ -2810,155 +2832,185 @@ def _fingerprint_key(payload: Mapping[str, Any] | Sequence[Mapping[str, Any]]) -
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def _profile_key_payload(
+def _profile_cache_lookup(
     workload: GemmProfileWorkload | ConvProfileWorkload,
     manifest: Mapping[str, Any],
     kernel_manifest: Mapping[str, Any],
     codegen_plan: Mapping[str, Any],
     *,
     context: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> ProfileCacheLookup:
+    del kernel_manifest
     _require_supported_profile_workload(workload, context="profile cache key")
     profile_context = context or _profile_context(Path("."), manifest, codegen_plan)
+    target_payload = dict(manifest["target"])
+    support_payload = _profile_support_library_fingerprint_payload(workload, profile_context)
+    provider_problem_payload = _profile_provider_problem_payload(workload)
+    candidate_payload = _profile_candidate_identity_payload(workload)
+    variant_payload = _profile_variant_payload(workload)
+    key_payload = {
+        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target": target_payload,
+        "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
+        "support_library": support_payload,
+        "provider_problem": provider_problem_payload,
+        "candidate": candidate_payload,
+        "profile_variant": variant_payload,
+    }
+    profile_key = _profile_key(key_payload)
+    provider_problem_key = _fingerprint_key(provider_problem_payload)
+    problem_key = _fingerprint_key(provider_problem_payload["problem"])
+    semantics_key = _fingerprint_key(provider_problem_payload["semantics"])
+    variant_key = _fingerprint_key(variant_payload)
+    metadata = {
+        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "target_name": str(target_payload.get("name", "")),
+        "target_arch": str(target_payload.get("arch", "")),
+        "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
+        "support_library_name": str(support_payload.get("name", workload.kernel_library)),
+        "support_fingerprint_key": _fingerprint_key(support_payload),
+        "kernel_library": workload.kernel_library,
+        "op_family": _profile_op_family(workload),
+        "op": workload.op,
+        "dtype": workload.dtype,
+        "candidate_set_key": workload.candidate_set_key,
+        "candidate_id": workload.candidate_id,
+        "candidate_config_key": workload.candidate_config_key,
+        "provider_problem_key": provider_problem_key,
+        "problem_key": problem_key,
+        "semantics_key": semantics_key,
+        "variant_key": variant_key,
+    }
+    return ProfileCacheLookup(profile_key=profile_key, key_payload=key_payload, metadata=metadata)
+
+
+def _profile_op_family(workload: GemmProfileWorkload | ConvProfileWorkload) -> str:
     if isinstance(workload, ConvProfileWorkload):
+        return "conv"
+    if workload.batch_count is not None:
+        return "bmm"
+    return "gemm"
+
+
+def _profile_support_library_fingerprint_payload(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    profile_context: Mapping[str, Any],
+) -> dict[str, Any]:
+    libraries_by_name = profile_context.get("support_libraries_by_name", {})
+    if not isinstance(libraries_by_name, Mapping):
+        libraries_by_name = {}
+    library = libraries_by_name.get(workload.kernel_library)
+    if not isinstance(library, Mapping):
         return {
-            "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
-            "target": manifest["target"],
-            "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
+            "name": workload.kernel_library,
             "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
-            "support_cache_key": kernel_manifest.get("support_cache_key"),
-            "codegen_plan_cache_key": codegen_plan["cache_key"],
-            "kernel_library": workload.kernel_library,
-            "op": workload.op,
-            "dtype": workload.dtype,
+        }
+    payload: dict[str, Any] = {
+        "name": library.get("name"),
+        "build_mode": library.get("build_mode"),
+        "source_sha256": library.get("source_sha256"),
+        "library_sha256": library.get("library_sha256"),
+        "source_manifest": library.get("source_manifest"),
+        "provenance_key": library.get("provenance_key"),
+        "build_fingerprint": library.get("build_fingerprint"),
+        "family_cache_key": library.get("family_cache_key"),
+        "external_kernel_plan_cache_key": library.get("external_kernel_plan_cache_key"),
+        "manifest_cache_key": library.get("manifest_cache_key"),
+        "manifest_target": library.get("manifest_target"),
+        "compile": dict(library.get("compile", {})) if isinstance(library.get("compile"), Mapping) else {},
+        "provenance": dict(library.get("provenance", {})) if isinstance(library.get("provenance"), Mapping) else {},
+    }
+    return {key: value for key, value in payload.items() if value not in (None, "", [], {})}
+
+
+def _profile_provider_problem_payload(workload: GemmProfileWorkload | ConvProfileWorkload) -> dict[str, Any]:
+    if isinstance(workload, ConvProfileWorkload):
+        semantics: dict[str, Any] = {
             "layouts": dict(workload.candidate.get("layouts", {})),
             "semantic_layout": dict(workload.semantic_layout),
             "provider_layout": dict(workload.provider_layout),
             "layout_translation": dict(workload.layout_translation),
             "weight_transform": dict(workload.weight_transform),
             "conv_config": dict(workload.conv_config),
-            **(
-                {"source_op": workload.source_op, "bias_mode": workload.bias_mode}
-                if workload.source_op is not None
-                else {}
-            ),
-            "shape": {
+        }
+        if workload.source_op is not None:
+            semantics["source_op"] = workload.source_op
+        if workload.bias_mode is not None:
+            semantics["bias_mode"] = workload.bias_mode
+        return {
+            "provider": {
+                "kernel_library": workload.kernel_library,
+                "op_family": "conv",
+                "op": workload.op,
+                "dtype": workload.dtype,
+            },
+            "semantics": semantics,
+            "problem": {
                 "input": list(workload.x_shape),
                 "weight": list(workload.weight_shape),
                 "bias": list(workload.bias_shape),
                 "output": list(workload.output_shape),
-                "source": workload.shape_source,
-                "case_id": workload.shape_case_id,
-                "dims": dict(workload.dim_values),
             },
-            "profile_variant": {
-                "kind": str(workload.candidate.get("status", "")),
-                "profiler_status": str(workload.candidate.get("profiler_status", "")),
-            },
-            "kernel_symbol": workload.kernel_symbol,
-            "profiler_symbol": workload.profiler_symbol,
-            "candidate_set_id": workload.candidate_set_id,
-            "candidate_set_key": workload.candidate_set_key,
-            "candidate_id": workload.candidate_id,
-            "candidate_config_key": workload.candidate_config_key,
         }
-    shape = {"m": workload.m, "n": workload.n, "k": workload.k}
-    if workload.batch_count is not None:
-        shape["batch_count"] = int(workload.batch_count)
-    return {
-        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
-        "target": manifest["target"],
-        "hardware_fingerprint_key": profile_context["fingerprint"]["hardware_key"],
-        "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
-        "support_cache_key": kernel_manifest.get("support_cache_key"),
-        "codegen_plan_cache_key": codegen_plan["cache_key"],
-        "kernel_library": workload.kernel_library,
-        "op": workload.op,
-        "dtype": workload.dtype,
+    semantics = {
         "layouts": dict(workload.candidate.get("layouts", {})),
         "epilogue": workload.candidate.get("epilogue"),
         "epilogue_config": workload.candidate.get("epilogue_config"),
         "alignment_context": dict(workload.alignment_context),
-        "shape": shape,
-        "profile_variant": {"split_k": workload.split_k},
-        "split_k": workload.split_k,
-        "kernel_symbol": workload.kernel_symbol,
-        "profiler_symbol": workload.profiler_symbol,
-        "candidate_set_id": workload.candidate_set_id,
+    }
+    problem: dict[str, Any] = {
+        "m": int(workload.m),
+        "n": int(workload.n),
+        "k": int(workload.k),
+    }
+    if workload.batch_count is not None:
+        problem["batch_count"] = int(workload.batch_count)
+    if workload.lda is not None or workload.ldb is not None or workload.ldc is not None:
+        problem["leading_dimensions"] = {
+            "a": int(workload.lda or 0),
+            "b": int(workload.ldb or 0),
+            "c": int(workload.ldc or 0),
+        }
+    if workload.batch_count is not None:
+        problem["batch_strides"] = {
+            "a": int(workload.batch_stride_a or 0),
+            "b": int(workload.batch_stride_b or 0),
+            "c": int(workload.batch_stride_c or 0),
+        }
+        if workload.residual_tensors:
+            problem["leading_dimensions"]["d0"] = int(workload.ldd0 or 0)
+            problem["batch_strides"]["d0"] = int(workload.batch_stride_d0 or 0)
+    return {
+        "provider": {
+            "kernel_library": workload.kernel_library,
+            "op_family": _profile_op_family(workload),
+            "op": workload.op,
+            "dtype": workload.dtype,
+        },
+        "semantics": semantics,
+        "problem": problem,
+    }
+
+
+def _profile_candidate_identity_payload(workload: GemmProfileWorkload | ConvProfileWorkload) -> dict[str, Any]:
+    return {
         "candidate_set_key": workload.candidate_set_key,
         "candidate_id": workload.candidate_id,
         "candidate_config_key": workload.candidate_config_key,
     }
 
 
+def _profile_variant_payload(workload: GemmProfileWorkload | ConvProfileWorkload) -> dict[str, Any]:
+    if isinstance(workload, ConvProfileWorkload):
+        return {
+            "kind": str(workload.candidate.get("status", "")),
+            "profiler_status": str(workload.candidate.get("profiler_status", "")),
+        }
+    return {"split_k": int(workload.split_k)}
+
+
 def _profile_key(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
-
-
-def _read_profile_cache(path: Path, target: Mapping[str, Any]) -> dict[str, Any]:
-    if not path.exists():
-        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    if payload.get("schema_version") != PROFILE_CACHE_SCHEMA_VERSION:
-        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    if payload.get("target") != dict(target):
-        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    entries = payload.get("entries", {})
-    if not isinstance(entries, Mapping):
-        return {"schema_version": PROFILE_CACHE_SCHEMA_VERSION, "target": dict(target), "entries": {}}
-    payload["entries"] = _valid_profile_cache_entries(entries, target=target)
-    return payload
-
-
-def _write_profile_cache(path: Path, cache: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    target = cache.get("target")
-    payload = {
-        "schema_version": PROFILE_CACHE_SCHEMA_VERSION,
-        "target": dict(target) if isinstance(target, Mapping) else {},
-        "entries": {},
-    }
-    merged_entries: dict[str, Any] = {}
-    if isinstance(target, Mapping):
-        existing = _read_profile_cache(path, target)
-        merged_entries.update(existing.get("entries", {}))
-    entries = cache.get("entries", {})
-    if isinstance(entries, Mapping):
-        merged_entries.update(_valid_profile_cache_entries(entries, target=target))
-    payload["entries"] = merged_entries
-    write_json(path, payload)
-
-
-def _valid_profile_cache_entries(
-    entries: Mapping[str, Any],
-    *,
-    target: Mapping[str, Any] | None = None,
-) -> dict[str, dict[str, Any]]:
-    valid: dict[str, dict[str, Any]] = {}
-    expected_target = dict(target) if isinstance(target, Mapping) else None
-    for key, value in entries.items():
-        if not isinstance(value, Mapping):
-            continue
-        entry = dict(value)
-        entry_key = entry.get("profile_key")
-        normalized_key = str(key)
-        if not isinstance(entry_key, str) or entry_key != normalized_key:
-            continue
-        key_payload = entry.get("key")
-        if key_payload is not None:
-            if not isinstance(key_payload, Mapping):
-                continue
-            if key_payload.get("schema_version") != PROFILE_CACHE_SCHEMA_VERSION:
-                continue
-            if expected_target is not None and key_payload.get("target") != expected_target:
-                continue
-            if _profile_key(key_payload) != normalized_key:
-                continue
-        valid[normalized_key] = entry
-    return valid
 
 
 def _cache_entry_satisfies(

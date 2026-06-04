@@ -105,7 +105,7 @@ Profiling-enabled compile:
 python -m dinoml.cli compile examples/cuda_linear.py --target cuda --profile --out build/cuda_linear_profiled.dinoml
 ```
 
-The profiling path emits a bootstrap artifact, benchmarks supported candidate kernels, writes an execution plan, then rebuilds the final artifact using the selected candidates.
+The profiling path materializes the profiling inputs and metadata, benchmarks supported candidate kernels, reuses a target-scoped provider-problem cache when safe, writes an execution plan, then rebuilds the final artifact using the selected candidates.
 
 ## Frontend Example
 

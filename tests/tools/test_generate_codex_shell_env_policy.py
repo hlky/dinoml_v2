@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 
 
 def load_module():
-    module_path = Path(__file__).resolve().parents[1] / "tools" / "generate_codex_shell_env_policy.py"
+    module_path = Path(__file__).resolve().parents[2] / "tools" / "generate_codex_shell_env_policy.py"
     spec = importlib.util.spec_from_file_location("generate_codex_shell_env_policy", module_path)
     assert spec is not None
     assert spec.loader is not None

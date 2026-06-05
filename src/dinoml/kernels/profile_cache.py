@@ -75,18 +75,10 @@ class SQLiteProfileCacheBackend:
         ).fetchall()
         entries: dict[str, dict[str, Any]] = {}
         for row in rows:
-            entry = _decode_json_mapping(row["entry_json"])
-            if not entry:
-                continue
-            key_payload = _decode_json_mapping(row["key_payload_json"])
-            if not key_payload:
-                continue
             profile_key = str(row["profile_key"])
-            if str(entry.get("profile_key", "")) != profile_key:
-                continue
-            if not isinstance(entry.get("key"), Mapping):
-                entry["key"] = key_payload
-            entries[profile_key] = entry
+            entry = _decode_cache_entry_row(row)
+            if entry is not None:
+                entries[profile_key] = entry
         return entries
 
     def upsert_many(self, writes: Sequence[ProfileCacheWrite]) -> None:
@@ -246,3 +238,18 @@ def _optional_text(value: Any) -> str | None:
         return None
     text = str(value)
     return text if text else None
+
+
+def _decode_cache_entry_row(row: sqlite3.Row) -> dict[str, Any] | None:
+    entry = _decode_json_mapping(row["entry_json"])
+    if not entry:
+        return None
+    key_payload = _decode_json_mapping(row["key_payload_json"])
+    if not key_payload:
+        return None
+    profile_key = str(row["profile_key"])
+    if str(entry.get("profile_key", "")) != profile_key:
+        return None
+    if not isinstance(entry.get("key"), Mapping):
+        entry["key"] = key_payload
+    return entry

@@ -7,6 +7,8 @@ from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_m
 from dinoml.kernels.profile_cache import ProfileCacheWrite, SQLiteProfileCacheBackend, default_profile_cache_path
 from dinoml.kernels.profiling import (
     _cache_entry,
+    _hardware_cache_payload,
+    _parse_hipinfo_devices,
     _prepare_profile_workloads,
     _profile_cache_lookup,
     _profile_result,
@@ -51,6 +53,7 @@ def test_prepare_profile_workloads_uses_backend_lookup_and_dedupes():
         backend,
         iterations=5,
         repeats=1,
+        cutlass_conv_validation_mode="fast",
         refresh=False,
         context=context,
     )
@@ -156,6 +159,84 @@ def test_profile_key_differs_when_support_fingerprint_changes():
     assert first.profile_key != second.profile_key
 
 
+def test_parse_hipinfo_devices_extracts_stable_identity_fields():
+    devices = _parse_hipinfo_devices(
+        """
+--------------------------------------------------------------------------------
+device#                           0
+Name:                             AMD Radeon RX 9070 XT
+pciBusID:                         4
+pciDeviceID:                      0
+pciDomainID:                      0
+multiProcessorCount:              32
+totalGlobalMem:                   15.92 GB
+major:                            12
+minor:                            0
+asicRevision:                     0
+gcnArchName:                      gfx1201
+"""
+    )
+
+    assert devices == [
+        {
+            "index": 0,
+            "name": "AMD Radeon RX 9070 XT",
+            "pci_bus_id": 4,
+            "pci_device_id": 0,
+            "pci_domain_id": 0,
+            "multi_processor_count": 32,
+            "total_global_mem_bytes": 17093969838,
+            "major": 12,
+            "minor": 0,
+            "asic_revision": 0,
+            "gcn_arch_name": "gfx1201",
+        }
+    ]
+
+
+def test_rocm_hardware_cache_payload_uses_device_identity_not_tool_versions():
+    base = {
+        "backend": "rocm",
+        "target_arch": "gfx1201",
+        "hip_visible_devices": "",
+        "rocr_visible_devices": "",
+        "gpu_device_ordinal": "",
+        "devices": [
+            {
+                "name": "AMD Radeon RX 9070 XT",
+                "gcn_arch_name": "gfx1201",
+                "major": 12,
+                "minor": 0,
+                "multi_processor_count": 32,
+                "total_global_mem_bytes": 17093969838,
+                "pci_bus_id": 4,
+                "pci_device_id": 0,
+                "pci_domain_id": 0,
+                "asic_revision": 0,
+            }
+        ],
+    }
+
+    first = _hardware_cache_payload(
+        {
+            **base,
+            "hipconfig": {"available": "false"},
+            "rocminfo": {"available": "false"},
+            "hipinfo": {"available": "true"},
+        }
+    )
+    second = _hardware_cache_payload(
+        {
+            **base,
+            "hipconfig": {"available": "true", "version": "7.2.53211-158bd99533"},
+            "rocminfo": {"available": "true", "version": "rocminfo 7.2"},
+            "hipinfo": {"available": "true"},
+        }
+    )
+
+    assert first == second
+
+
 def test_profile_key_differs_when_target_changes():
     ir = _bmm_ir("bmm_rcr_add", "float16")
     rocm_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -234,11 +315,16 @@ def test_conv_profile_key_differs_when_conv_semantics_change():
     assert first.profile_key != second.profile_key
 
 
-def _fake_profile_context(kernel_library: str, *, support_fields: dict | None = None) -> dict:
+def _fake_profile_context(
+    kernel_library: str,
+    *,
+    hardware_key: str = "hardware-a",
+    support_fields: dict | None = None,
+) -> dict:
     library = {"name": kernel_library, **(support_fields or {})}
     return {
         "fingerprint": {
-            "hardware_key": "hardware-a",
+            "hardware_key": hardware_key,
             "support_libraries_key": "support-all-a",
             "hardware": {},
             "support_libraries": [library],

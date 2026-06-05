@@ -3109,13 +3109,17 @@ def _cuda_hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _rocm_hardware_fingerprint(target: Mapping[str, Any]) -> dict[str, Any]:
+    rocm_smi_devices = _query_rocm_smi_devices()
+    hipinfo_devices = _query_hipinfo_devices()
     return {
         "backend": "rocm",
         "target_arch": str(target.get("arch", "")),
         "hip_visible_devices": os.environ.get("HIP_VISIBLE_DEVICES", ""),
         "rocr_visible_devices": os.environ.get("ROCR_VISIBLE_DEVICES", ""),
         "gpu_device_ordinal": os.environ.get("GPU_DEVICE_ORDINAL", ""),
-        "devices": _query_rocm_smi_devices(),
+        "devices": hipinfo_devices if hipinfo_devices else rocm_smi_devices,
+        "rocm_smi": {"available": "true" if rocm_smi_devices else "false"},
+        "hipinfo": {"available": "true" if hipinfo_devices else "false"},
         "hipconfig": _query_tool_version("hipconfig", "--version"),
         "rocminfo": _query_tool_version("rocminfo", "--version"),
     }
@@ -3140,6 +3144,70 @@ def _query_rocm_smi_devices() -> list[dict[str, Any]]:
     if current:
         devices.append(current)
     return devices
+
+
+def _query_hipinfo_devices() -> list[dict[str, Any]]:
+    executable = shutil.which("hipInfo") or shutil.which("hipInfo.exe")
+    if executable is None:
+        return []
+    proc = _run_capture([executable], timeout=2.0)
+    if proc is None or proc.returncode != 0:
+        return []
+    return _parse_hipinfo_devices(proc.stdout)
+
+
+def _parse_hipinfo_devices(stdout: str) -> list[dict[str, Any]]:
+    devices: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for raw_line in stdout.splitlines():
+        line = raw_line.strip()
+        if not line or set(line) == {"-"}:
+            continue
+        if line.startswith("device#"):
+            if current:
+                devices.append(current)
+            current = {"index": _parse_int(line.removeprefix("device#").strip())}
+            continue
+        if current is None or ":" not in line:
+            continue
+        key, value = (part.strip() for part in line.split(":", 1))
+        _assign_hipinfo_field(current, key, value)
+    if current:
+        devices.append(current)
+    return devices
+
+
+def _assign_hipinfo_field(device: dict[str, Any], key: str, value: str) -> None:
+    if key == "Name":
+        device["name"] = value
+        return
+    if key == "gcnArchName":
+        device["gcn_arch_name"] = value
+        return
+    if key == "major":
+        device["major"] = _parse_int(value)
+        return
+    if key == "minor":
+        device["minor"] = _parse_int(value)
+        return
+    if key == "multiProcessorCount":
+        device["multi_processor_count"] = _parse_int(value)
+        return
+    if key == "totalGlobalMem":
+        device["total_global_mem_bytes"] = _parse_size_bytes(value)
+        return
+    if key == "pciBusID":
+        device["pci_bus_id"] = _parse_int(value)
+        return
+    if key == "pciDeviceID":
+        device["pci_device_id"] = _parse_int(value)
+        return
+    if key == "pciDomainID":
+        device["pci_domain_id"] = _parse_int(value)
+        return
+    if key == "asicRevision":
+        device["asic_revision"] = _parse_int(value)
+        return
 
 
 def _query_tool_version(tool: str, *args: str) -> dict[str, str]:
@@ -3215,6 +3283,25 @@ def _parse_int(value: str) -> int | None:
         return None
 
 
+def _parse_size_bytes(value: str) -> int | None:
+    match = re.match(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGTP]?B)\s*$", value, re.IGNORECASE)
+    if match is None:
+        return _parse_int(value)
+    magnitude = float(match.group(1))
+    unit = match.group(2).upper()
+    scale = {
+        "B": 1,
+        "KB": 1024,
+        "MB": 1024**2,
+        "GB": 1024**3,
+        "TB": 1024**4,
+        "PB": 1024**5,
+    }.get(unit)
+    if scale is None:
+        return None
+    return int(magnitude * scale)
+
+
 def _hardware_cache_payload(hardware: Mapping[str, Any]) -> dict[str, Any]:
     devices = []
     for item in hardware.get("devices", []):
@@ -3226,6 +3313,15 @@ def _hardware_cache_payload(hardware: Mapping[str, Any]) -> dict[str, Any]:
                 "compute_capability": item.get("compute_capability"),
                 "driver_version": item.get("driver_version"),
                 "memory_total_mib": item.get("memory_total_mib"),
+                "gcn_arch_name": item.get("gcn_arch_name"),
+                "major": item.get("major"),
+                "minor": item.get("minor"),
+                "multi_processor_count": item.get("multi_processor_count"),
+                "total_global_mem_bytes": item.get("total_global_mem_bytes"),
+                "pci_bus_id": item.get("pci_bus_id"),
+                "pci_device_id": item.get("pci_device_id"),
+                "pci_domain_id": item.get("pci_domain_id"),
+                "asic_revision": item.get("asic_revision"),
                 "raw": item.get("raw"),
             }
         )
@@ -3240,8 +3336,6 @@ def _hardware_cache_payload(hardware: Mapping[str, Any]) -> dict[str, Any]:
                 "hip_visible_devices": hardware.get("hip_visible_devices", ""),
                 "rocr_visible_devices": hardware.get("rocr_visible_devices", ""),
                 "gpu_device_ordinal": hardware.get("gpu_device_ordinal", ""),
-                "hipconfig": dict(hardware.get("hipconfig", {})) if isinstance(hardware.get("hipconfig"), Mapping) else {},
-                "rocminfo": dict(hardware.get("rocminfo", {})) if isinstance(hardware.get("rocminfo"), Mapping) else {},
             }
         )
     else:

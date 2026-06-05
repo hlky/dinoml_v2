@@ -80,7 +80,7 @@ from dinoml.ops.definitions import get_op_def
 
 KERNEL_MANIFEST_SCHEMA_VERSION = 4
 KERNEL_ABI_VERSION = 1
-PROFILE_CACHE_SCHEMA_VERSION = 8
+PROFILE_CACHE_SCHEMA_VERSION = 9
 EXECUTION_PLAN_KERNEL_LIBRARIES = {
     "cutlass_gemm",
     "cutlass_bmm",

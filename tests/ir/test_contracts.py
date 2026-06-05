@@ -101,6 +101,56 @@ def test_contiguous_dynamic_slice_followed_by_reshape_becomes_offset_view():
     assert outputs["output"].tolist() == [[4.0, 5.0, 6.0, 7.0]]
 
 
+def test_nested_reshape_views_flatten_before_lowering():
+    class NestedReshapeCandidate(dml.Module):
+        def forward(self, x):
+            reshaped = dml.ops.reshape(x, [2, 6])
+            return dml.ops.output(dml.ops.reshape(reshaped, [3, 4]), "output")
+
+    spec = dml.trace(
+        NestedReshapeCandidate(),
+        inputs={"x": dml.TensorSpec([1, 2, 6], "float32")},
+        name="nested_reshape_view_contract",
+    )
+
+    lowered, _ = PassManager().run(spec.ir)
+
+    views = lowered["metadata"]["memory_plan"]["views"]["views"]
+    output_tensor = lowered["outputs"][0]["tensor"]
+    output_view = next(view for view in views if view["tensor"] == output_tensor)
+    assert output_view["source"] == "x"
+    assert output_view["offset_elements"] == 0
+
+    outputs = reference_numpy(spec, {"x": np.arange(12, dtype=np.float32).reshape(1, 2, 6)})
+    assert outputs["output"].tolist() == [[0.0, 1.0, 2.0, 3.0], [4.0, 5.0, 6.0, 7.0], [8.0, 9.0, 10.0, 11.0]]
+
+
+def test_dynamic_slice_nested_views_flatten_to_original_source():
+    class SliceNestedReshapeCandidate(dml.Module):
+        def forward(self, x):
+            sliced = dml.ops.dynamic_slice(x, [0, 1, 0], [1, 1, 4])
+            reshaped = dml.ops.reshape(sliced, [1, 4])
+            return dml.ops.output(dml.ops.reshape(reshaped, [2, 2]), "output")
+
+    spec = dml.trace(
+        SliceNestedReshapeCandidate(),
+        inputs={"x": dml.TensorSpec([1, 3, 4], "float32")},
+        name="dynamic_slice_nested_view_contract",
+    )
+
+    lowered, _ = PassManager().run(spec.ir)
+
+    assert "dynamic_slice" not in [node["op"] for node in lowered["nodes"]]
+    views = lowered["metadata"]["memory_plan"]["views"]["views"]
+    output_tensor = lowered["outputs"][0]["tensor"]
+    output_view = next(view for view in views if view["tensor"] == output_tensor)
+    assert output_view["source"] == "x"
+    assert output_view["offset_elements"] == 4
+
+    outputs = reference_numpy(spec, {"x": np.arange(12, dtype=np.float32).reshape(1, 3, 4)})
+    assert outputs["output"].tolist() == [[4.0, 5.0], [6.0, 7.0]]
+
+
 def test_sliced_add_followed_by_layer_norm_fuses_without_full_sequence_add():
     class SlicedAddLayerNormCandidate(dml.Module):
         def forward(self, x, residual, weight, bias):

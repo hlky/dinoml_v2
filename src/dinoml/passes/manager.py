@@ -13,6 +13,7 @@ from dinoml.passes.core import (
     constant_bind,
     dead_code_eliminate,
     dynamic_slice_view_eliminate,
+    flatten_views,
     memory_plan,
     shape_type_infer,
 )
@@ -43,6 +44,7 @@ class PassManager:
         "add_layer_norm_fusion",
         "dynamic_slice_view_eliminate",
         "sliced_add_layer_norm_fusion",
+        "flatten_views",
         "memory_plan",
         "backend_lower",
     )
@@ -58,6 +60,7 @@ class PassManager:
             "add_layer_norm_fusion": add_layer_norm_fusion,
             "dynamic_slice_view_eliminate": dynamic_slice_view_eliminate,
             "sliced_add_layer_norm_fusion": sliced_add_layer_norm_fusion,
+            "flatten_views": flatten_views,
             "memory_plan": memory_plan,
             "backend_lower": backend_lower,
         }

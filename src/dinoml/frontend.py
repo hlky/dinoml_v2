@@ -316,8 +316,6 @@ class GraphBuilder:
         shape: Sequence[int],
         shape_spec: Sequence[int | Mapping[str, Any]],
     ) -> Tensor:
-        if source.name in {view["tensor"] for view in self.views}:
-            raise NotImplementedError("View-of-view aliases are not supported by the current runtime lowering")
         output_name = self._new_tensor_name()
         tensor = Tensor(output_name, shape=shape, dtype=source.dtype, builder=self, shape_spec=shape_spec)
         self.tensors[output_name] = _tensor_info(tensor)

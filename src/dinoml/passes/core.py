@@ -269,6 +269,41 @@ def dynamic_slice_view_eliminate(ir: Dict[str, Any]) -> Dict[str, Any]:
     return ir
 
 
+def flatten_views(ir: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = ir.setdefault("metadata", {})
+    view_metadata = metadata.get("views")
+    if not view_metadata:
+        return ir
+    views = [dict(view) for view in view_metadata.get("views", [])]
+    if not views:
+        return ir
+
+    view_by_tensor = {str(view["tensor"]): view for view in views}
+    flattened = [_flatten_view(view, view_by_tensor) for view in views]
+    if flattened == views:
+        return ir
+    metadata["views"] = {"version": VIEW_METADATA_VERSION, "views": flattened}
+    metadata.pop("memory_plan", None)
+    return ir
+
+
+def _flatten_view(view: Mapping[str, Any], view_by_tensor: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    flattened = dict(view)
+    offset = int(flattened.get("offset_elements", 0))
+    source = str(flattened["source"])
+    seen = {str(flattened["tensor"])}
+    while source in view_by_tensor:
+        if source in seen:
+            raise ValidationError(f"View metadata contains a cycle involving {source}")
+        seen.add(source)
+        parent = view_by_tensor[source]
+        offset += int(parent.get("offset_elements", 0))
+        source = str(parent["source"])
+    flattened["source"] = source
+    flattened["offset_elements"] = offset
+    return flattened
+
+
 def _dynamic_slice_static_contiguous_view(
     node: Mapping[str, Any],
     input_tensor: Mapping[str, Any],

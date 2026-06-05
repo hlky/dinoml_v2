@@ -490,8 +490,6 @@ class GlmOcrTextAttention(dml.nn.Module):
         v = dml.ops.permute(v, (0, 2, 1, 3))
         k = _repeat_kv_heads(k, self.config.num_key_value_groups)
         v = _repeat_kv_heads(v, self.config.num_key_value_groups)
-        k = _materialize(k)
-        v = _materialize(v)
         q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
         k = dml.ops.reshape(k, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
         v = dml.ops.reshape(v, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
@@ -528,8 +526,6 @@ class GlmOcrTextAttention(dml.nn.Module):
         attn_key, attn_value = append_static_kv_cache(past_key, past_value, new_key, new_value)
         attn_key = _repeat_kv_heads(attn_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(attn_value, self.config.num_key_value_groups)
-        attn_key = _materialize(attn_key)
-        attn_value = _materialize(attn_value)
         total_len = int(attn_key.shape[2])
         return self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len)
 
@@ -555,8 +551,6 @@ class GlmOcrTextAttention(dml.nn.Module):
         present_value = dml.ops.concatenate([past_value, v], dim=2)
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
-        attn_key = _materialize(attn_key)
-        attn_value = _materialize(attn_value)
         total_len = int(attn_key.shape[2])
         return (
             self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
@@ -639,8 +633,6 @@ class GlmOcrTextFlashAttention(GlmOcrTextAttention):
             return self.o_proj(context), present_key, present_value
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
-        attn_key = _materialize(attn_key)
-        attn_value = _materialize(attn_value)
         total_len = int(attn_key.shape[2])
         return (
             self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
@@ -1133,7 +1125,7 @@ class GlmOcrVisionAttention(dml.nn.Module):
         q = self.q_norm(q)
         k = self.k_norm(k)
         q, k = dml.ops.glm_ocr_vision_rope(q, k, cos, sin)
-        return _materialize(q), _materialize(k), _materialize(v), seq_len
+        return q, k, v, seq_len
 
     def forward(self, hidden_states, cos, sin):
         q, k, v, seq_len = self._project_qkv(hidden_states, cos, sin)
@@ -1296,7 +1288,6 @@ class GlmOcrVisionModel(dml.nn.Module):
             [-1, self.config.spatial_merge_size, self.config.spatial_merge_size, self.config.hidden_size],
         )
         hidden_states = dml.ops.permute(hidden_states, (0, 3, 1, 2))
-        hidden_states = _materialize(hidden_states)
         hidden_states = dml.ops.reshape(
             hidden_states,
             [-1, self.config.hidden_size * self.config.spatial_merge_size * self.config.spatial_merge_size],
@@ -1715,10 +1706,6 @@ def _rotate_half(x):
     x1 = dml.ops.index_select(x, -1, range(0, half))
     x2 = dml.ops.index_select(x, -1, range(half, last_dim))
     return dml.ops.concatenate([dml.ops.mul(x2, -1.0), x1], dim=-1)
-
-
-def _materialize(x):
-    return dml.ops.permute(x, tuple(range(len(x.shape))))
 
 
 def _repeat_kv_heads(values, n_rep: int):

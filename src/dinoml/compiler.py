@@ -34,7 +34,7 @@ from dinoml.constant_sources import (
 )
 from dinoml.kernels.manifest import apply_execution_plan, build_kernel_manifest
 from dinoml.kernels.codegen import create_codegen_plan
-from dinoml.kernels.profiling import compact_profile_report, profile_artifact
+from dinoml.kernels.profiling import profile_artifact
 from dinoml.lowering.ops.conv import render_conv_wrapper_source
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
 from dinoml.ops.definitions import get_op_def
@@ -158,10 +158,7 @@ def _compile_with_profile(
         execution_plan_payload=execution_plan_payload,
         constant_load_policy=constant_load_policy,
     )
-    write_json(
-        final_artifact.path / "debug" / "bootstrap_profile_report.json",
-        compact_profile_report(profile_report),
-    )
+    _materialize_bootstrap_profile_report(final_artifact.path)
     return final_artifact
 
 
@@ -303,6 +300,19 @@ def _reset_generated_sources(generated_src_dir: Path) -> None:
     if generated_src_dir.exists():
         shutil.rmtree(generated_src_dir)
     generated_src_dir.mkdir(parents=True, exist_ok=True)
+
+
+def _materialize_bootstrap_profile_report(artifact_dir: Path) -> None:
+    debug_dir = artifact_dir / "debug"
+    source = debug_dir / "profile_report.json"
+    target = debug_dir / "bootstrap_profile_report.json"
+    if not source.exists():
+        raise FileNotFoundError(f"Expected profiler report at {source}")
+    target.unlink(missing_ok=True)
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
 
 
 def _lower_for_compile(

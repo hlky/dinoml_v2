@@ -10,6 +10,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -51,6 +52,7 @@ from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
 PROFILE_REPORT_SCHEMA_VERSION = 8
 EXECUTION_PLAN_SCHEMA_VERSION = 1
 PROFILE_STATISTICS_SCHEMA_VERSION = 1
+PROFILE_RUN_CACHE_SCHEMA_VERSION = 1
 PROFILE_CONFIDENCE_LEVEL = 0.95
 PROFILE_CONFIDENCE_Z_SCORE = 1.96
 PROFILE_CONFIDENCE_MIN_REPEATS = 3
@@ -307,6 +309,71 @@ def build_profile_workloads(
             required_by_op.setdefault(str(item["op"]), []).append(item)
     overrides = {name: tuple(int(dim) for dim in shape) for name, shape in (input_shapes or {}).items()}
     workloads = []
+    split_k_values_cache: dict[tuple[Any, ...], tuple[int, ...]] = {}
+    workspace_nbytes_cache: dict[tuple[Any, ...], int] = {}
+    ck_profile_candidates_cache: dict[tuple[int, Any], list[dict[str, Any]]] = {}
+
+    def cached_split_k_values(
+        candidate: Mapping[str, Any],
+        *,
+        op_name: str,
+        dtype: str,
+        m: int,
+        n: int,
+        k: int,
+    ) -> tuple[int, ...]:
+        cache_key = (
+            op_name,
+            dtype,
+            str(candidate.get("candidate_id", "")),
+            str(candidate.get("candidate_config_key", "")),
+            str(candidate.get("kernel_symbol", "")),
+            int(m),
+            int(n),
+            int(k),
+        )
+        values = split_k_values_cache.get(cache_key)
+        if values is None:
+            values = _candidate_profile_split_k_values(candidate, m=m, n=n, k=k)
+            split_k_values_cache[cache_key] = values
+        return values
+
+    def cached_workspace_nbytes(
+        candidate: Mapping[str, Any],
+        *,
+        op_name: str,
+        dtype: str,
+        m: int,
+        n: int,
+        split_k: int,
+    ) -> int:
+        cache_key = (
+            op_name,
+            dtype,
+            str(candidate.get("candidate_id", "")),
+            str(candidate.get("candidate_config_key", "")),
+            str(candidate.get("kernel_symbol", "")),
+            int(m),
+            int(n),
+            int(split_k),
+        )
+        workspace_nbytes = workspace_nbytes_cache.get(cache_key)
+        if workspace_nbytes is None:
+            workspace_nbytes = _candidate_profile_workspace_nbytes(candidate, m=m, n=n, split_k=split_k)
+            workspace_nbytes_cache[cache_key] = workspace_nbytes
+        return workspace_nbytes
+
+    def cached_ck_profile_candidates(
+        required_item: Mapping[str, Any],
+        problem: Mapping[str, int | str],
+    ) -> list[dict[str, Any]]:
+        cache_key = (id(required_item), _freeze_profile_key_value(problem))
+        candidates = ck_profile_candidates_cache.get(cache_key)
+        if candidates is None:
+            candidates = _ck_profile_candidates(required_item, problem)
+            ck_profile_candidates_cache[cache_key] = candidates
+        return candidates
+
     for node in graph["nodes"]:
         op_name = str(node["op"])
         if op_name in BMM_OPS:
@@ -318,6 +385,7 @@ def build_profile_workloads(
                 overrides,
                 metadata_shape_scenarios,
                 backend=target_name,
+                ck_profile_candidates_cache=ck_profile_candidates_cache if target_name == "rocm" else None,
             )
             continue
         if op_name in CONV_OPS:
@@ -329,6 +397,7 @@ def build_profile_workloads(
                     required_by_op.get(op_name, ()),
                     overrides,
                     metadata_shape_scenarios,
+                    ck_profile_candidates_cache=ck_profile_candidates_cache,
                 )
             else:
                 _append_conv_profile_workloads(
@@ -382,7 +451,7 @@ def build_profile_workloads(
                     kind="ck_gemm_profile_alignment_context",
                     problem=spec_problem,
                 )
-                profile_candidates = _ck_profile_candidates(required_item, spec_problem)
+                profile_candidates = cached_ck_profile_candidates(required_item, spec_problem)
             else:
                 alignment_context = cutlass_gemm_profile_alignment_context(
                     op_name,
@@ -397,7 +466,7 @@ def build_profile_workloads(
                 )
                 profile_candidates = _profile_candidates(required_item, alignment_context=alignment_context)
             for candidate in profile_candidates:
-                for split_k in _candidate_profile_split_k_values(candidate, m=m, n=n, k=k):
+                for split_k in cached_split_k_values(candidate, op_name=op_name, dtype=dtype, m=m, n=n, k=k):
                     workloads.append(
                         GemmProfileWorkload(
                             node_id=str(node["id"]),
@@ -434,7 +503,14 @@ def build_profile_workloads(
                             n=n,
                             k=k,
                             split_k=split_k,
-                            workspace_nbytes=_candidate_profile_workspace_nbytes(candidate, m=m, n=n, split_k=split_k),
+                            workspace_nbytes=cached_workspace_nbytes(
+                                candidate,
+                                op_name=op_name,
+                                dtype=dtype,
+                                m=m,
+                                n=n,
+                                split_k=split_k,
+                            ),
                             shape_source=scenario.source,
                             shape_case_id=scenario.case_id,
                             dim_values=scenario.dim_values,
@@ -587,6 +663,8 @@ def _append_ck_conv_profile_workloads(
     required_items: Sequence[Mapping[str, Any]],
     overrides: Mapping[str, Sequence[int]],
     metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None,
+    *,
+    ck_profile_candidates_cache: dict[tuple[int, Any], list[dict[str, Any]]] | None = None,
 ) -> None:
     op_name = str(node["op"])
     if op_name not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
@@ -642,7 +720,14 @@ def _append_ck_conv_profile_workloads(
             "gemm_n": out_channels,
             "gemm_k": in_channels * kernel_h * kernel_w,
         }
-        profile_candidates = _ck_profile_candidates(required_item, problem)
+        if ck_profile_candidates_cache is None:
+            profile_candidates = _ck_profile_candidates(required_item, problem)
+        else:
+            cache_key = (id(required_item), _freeze_profile_key_value(problem))
+            profile_candidates = ck_profile_candidates_cache.get(cache_key)
+            if profile_candidates is None:
+                profile_candidates = _ck_profile_candidates(required_item, problem)
+                ck_profile_candidates_cache[cache_key] = profile_candidates
         conv_config = {"stride": list(stride), "padding": list(padding), "dilation": list(dilation), "groups": int(groups)}
         for candidate in profile_candidates:
             workloads.append(
@@ -704,6 +789,7 @@ def _append_bmm_profile_workloads(
     metadata_shape_scenarios: Sequence[ProfileShapeScenario] | None,
     *,
     backend: str,
+    ck_profile_candidates_cache: dict[tuple[int, Any], list[dict[str, Any]]] | None = None,
 ) -> None:
     op_name = str(node["op"])
     output_name = str(node["outputs"][0])
@@ -730,7 +816,14 @@ def _append_bmm_profile_workloads(
                 kind="ck_bmm_profile_alignment_context",
                 problem=problem,
             )
-            profile_candidates = _ck_profile_candidates(required_item, problem)
+            if ck_profile_candidates_cache is None:
+                profile_candidates = _ck_profile_candidates(required_item, problem)
+            else:
+                cache_key = (id(required_item), _freeze_profile_key_value(problem))
+                profile_candidates = ck_profile_candidates_cache.get(cache_key)
+                if profile_candidates is None:
+                    profile_candidates = _ck_profile_candidates(required_item, problem)
+                    ck_profile_candidates_cache[cache_key] = profile_candidates
         else:
             alignment_context = cutlass_bmm_profile_alignment_context(
                 op_name,
@@ -1190,21 +1283,35 @@ def _prepare_profile_workloads(
 ) -> tuple[list[PreparedProfileWorkload], list[PreparedProfileWorkload]]:
     prepared: list[PreparedProfileWorkload] = []
     unique: list[PreparedProfileWorkload] = []
-    representatives: dict[str, ProfileCacheLookup] = {}
+    target_key = _freeze_profile_key_value(dict(manifest["target"]))
+    hardware_key = str(context["fingerprint"]["hardware_key"])
+    support_libraries_key = str(context["fingerprint"]["support_libraries_key"])
+    support_keys_by_name = _profile_support_library_pre_dedupe_keys(context)
+    representatives: dict[tuple[Any, ...], ProfileCacheLookup] = {}
     for workload in workloads:
-        cache_lookup = _profile_cache_lookup(
+        representative_key = _profile_workload_pre_dedupe_key(
             workload,
-            manifest,
-            kernel_manifest,
-            codegen_plan,
-            context=context,
+            target_key=target_key,
+            hardware_key=hardware_key,
+            support_libraries_key=support_libraries_key,
+            support_keys_by_name=support_keys_by_name,
             cutlass_conv_validation_mode=cutlass_conv_validation_mode,
         )
+        cache_lookup = representatives.get(representative_key)
+        representative = cache_lookup is None
+        if representative:
+            cache_lookup = _profile_cache_lookup(
+                workload,
+                manifest,
+                kernel_manifest,
+                codegen_plan,
+                context=context,
+                cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+            )
+            representatives[representative_key] = cache_lookup
         key_payload = cache_lookup.key_payload
         profile_key = cache_lookup.profile_key
-        representative = profile_key not in representatives
         if representative:
-            representatives[profile_key] = cache_lookup
             item = PreparedProfileWorkload(
                 workload=workload,
                 cache_lookup=cache_lookup,
@@ -1246,6 +1353,126 @@ def _prepare_profile_workloads(
     return prepared, unique
 
 
+def _profile_workload_pre_dedupe_key(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    target_key: tuple[Any, ...],
+    hardware_key: str,
+    support_libraries_key: str,
+    support_keys_by_name: Mapping[str, tuple[Any, ...]],
+    cutlass_conv_validation_mode: str,
+) -> tuple[Any, ...]:
+    support_key = support_keys_by_name.get(workload.kernel_library)
+    if support_key is None:
+        support_key = (workload.kernel_library, support_libraries_key)
+    return (
+        PROFILE_CACHE_SCHEMA_VERSION,
+        target_key,
+        hardware_key,
+        support_key,
+        _profile_workload_identity_key(
+            workload,
+            cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+        ),
+    )
+
+
+def _profile_support_library_pre_dedupe_keys(
+    profile_context: Mapping[str, Any],
+) -> dict[str, tuple[Any, ...]]:
+    libraries_by_name = profile_context.get("support_libraries_by_name", {})
+    if not isinstance(libraries_by_name, Mapping):
+        return {}
+    support_libraries_key = str(profile_context["fingerprint"]["support_libraries_key"])
+    result: dict[str, tuple[Any, ...]] = {}
+    for name, library in libraries_by_name.items():
+        library_name = str(name)
+        if not library_name:
+            continue
+        payload = _profile_support_library_fingerprint_payload_from_library(
+            library_name,
+            library if isinstance(library, Mapping) else None,
+            support_libraries_fingerprint_key=support_libraries_key,
+        )
+        result[library_name] = _freeze_profile_key_value(payload)
+    return result
+
+
+def _profile_workload_identity_key(
+    workload: GemmProfileWorkload | ConvProfileWorkload,
+    *,
+    cutlass_conv_validation_mode: str,
+) -> tuple[Any, ...]:
+    if isinstance(workload, ConvProfileWorkload):
+        return (
+            "conv",
+            workload.kernel_library,
+            workload.op,
+            workload.dtype,
+            _freeze_profile_key_value(workload.candidate.get("layouts", {})),
+            _freeze_profile_key_value(workload.semantic_layout),
+            _freeze_profile_key_value(workload.provider_layout),
+            _freeze_profile_key_value(workload.layout_translation),
+            _freeze_profile_key_value(workload.weight_transform),
+            _freeze_profile_key_value(workload.conv_config),
+            workload.source_op,
+            workload.bias_mode,
+            workload.x_shape,
+            workload.weight_shape,
+            workload.bias_shape,
+            workload.residual_shape,
+            workload.output_shape,
+            workload.candidate_set_key,
+            workload.candidate_id,
+            workload.candidate_config_key,
+            str(workload.candidate.get("status", "")),
+            str(workload.candidate.get("profiler_status", "")),
+            _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode),
+        )
+    problem_key: tuple[Any, ...] = (
+        _profile_op_family(workload),
+        workload.kernel_library,
+        workload.op,
+        workload.dtype,
+        _freeze_profile_key_value(workload.candidate.get("layouts", {})),
+        workload.candidate.get("epilogue"),
+        _freeze_profile_key_value(workload.candidate.get("epilogue_config", {})),
+        _freeze_profile_key_value(workload.alignment_context),
+        int(workload.m),
+        int(workload.n),
+        int(workload.k),
+        workload.candidate_set_key,
+        workload.candidate_id,
+        workload.candidate_config_key,
+        int(workload.split_k),
+    )
+    if workload.batch_count is None:
+        return problem_key
+    return (
+        *problem_key,
+        int(workload.batch_count),
+        int(workload.lda or 0),
+        int(workload.ldb or 0),
+        int(workload.ldc or 0),
+        int(workload.batch_stride_a or 0),
+        int(workload.batch_stride_b or 0),
+        int(workload.batch_stride_c or 0),
+        int(workload.ldd0 or 0),
+        int(workload.batch_stride_d0 or 0),
+    )
+
+
+def _freeze_profile_key_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return tuple(
+            (str(key), _freeze_profile_key_value(nested))
+            for key, nested in sorted(value.items(), key=lambda item: str(item[0]))
+        )
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return tuple(_freeze_profile_key_value(item) for item in value)
+    return value
+
+
 def profile_artifact(
     artifact: str | Path,
     *,
@@ -1262,6 +1489,7 @@ def profile_artifact(
     repeats = _positive_int(repeats, "repeats")
     cutlass_conv_validation_mode = _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode)
     artifact_dir = Path(artifact)
+    started_at = time.monotonic()
     manifest = read_json(artifact_dir / "manifest.json")
     target_name = str(manifest.get("target", {}).get("name", ""))
     if target_name not in {"cuda", "rocm"}:
@@ -1270,11 +1498,46 @@ def profile_artifact(
     _validate_symbolic_int_expr_profile_graph(graph)
     kernel_manifest = read_json(artifact_dir / manifest["files"]["kernel_manifest"])
     codegen_plan = read_json(artifact_dir / manifest["files"]["kernel_codegen_plan"])
-    workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
-    _reject_unsupported_profile_workloads(workloads, context="profile execution")
-    cache_backend = open_profile_cache_backend(codegen_plan)
     context = _profile_context(artifact_dir, manifest, codegen_plan)
     blocked_profile_items = _blocked_profile_items(kernel_manifest)
+    cache_backend = open_profile_cache_backend(codegen_plan)
+    run_cache_key_payload = _profile_run_cache_key_payload(
+        manifest,
+        kernel_manifest,
+        codegen_plan,
+        context,
+        input_shapes=input_shapes,
+        iterations=iterations,
+        repeats=repeats,
+        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+    )
+    if not refresh:
+        cached_profile_run = _load_cached_profile_run(
+            artifact_dir,
+            codegen_plan,
+            run_cache_key_payload,
+            output=output,
+            execution_plan_output=execution_plan_output,
+        )
+        if cached_profile_run is not None:
+            metadata = cached_profile_run["metadata"]
+            cache_backend.close()
+            print(
+                "[dml.profile] Reused cached profile run: "
+                f"artifact={artifact_dir}, "
+                f"target={target_name}, "
+                f"raw_workloads={int(metadata.get('raw_workload_count', 0) or 0)}, "
+                f"unique_profile_tasks={int(metadata.get('unique_profile_tasks', 0) or 0)}, "
+                f"timed_profile_tasks={int(metadata.get('timed_profile_tasks', 0) or 0)}, "
+                f"blocked={len(blocked_profile_items)}, "
+                f"iterations={iterations}, "
+                f"repeats={repeats}, "
+                f"cutlass_conv_validation={cutlass_conv_validation_mode}, "
+                f"elapsed={time.monotonic() - started_at:.1f}s"
+            )
+            return dict(cached_profile_run["report"])
+    workloads = build_profile_workloads(graph, kernel_manifest, input_shapes=input_shapes)
+    _reject_unsupported_profile_workloads(workloads, context="profile execution")
     prepared_workloads, unique_workloads = _prepare_profile_workloads(
         workloads,
         manifest,
@@ -1334,13 +1597,21 @@ def profile_artifact(
         execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
         report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
         _write_profile_report(report, artifact_dir, output)
+        _store_profile_run_cache(
+            report,
+            execution_plan,
+            codegen_plan,
+            run_cache_key_payload,
+            raw_workload_count=0,
+            unique_profile_tasks=0,
+            timed_profile_tasks=0,
+        )
         print("[dml.profile] No profileable workloads were found")
         cache_backend.close()
         return report
 
     rng = np.random.default_rng(seed)
     profiler = None
-    started_at = time.monotonic()
     last_progress_at = started_at
     last_progress_count = int(progress_summary["cached"])
     resolved_results: dict[str, tuple[str, Any, Any]] = {}
@@ -1655,6 +1926,7 @@ def profile_artifact(
         if profiler is not None:
             profiler.close()
     results = []
+    compact_problem_summaries: list[dict[str, Any]] = []
     for item in prepared_workloads:
         resolved = resolved_results.get(item.profile_key)
         if resolved is None:
@@ -1681,8 +1953,10 @@ def profile_artifact(
         else:
             raise RuntimeError(f"Unsupported resolved profile result kind {kind!r}")
         results.append(result)
+        compact_problem_summaries.append(_compact_profile_problem_summary(result))
     if progress_summary["profiled"]:
         cache_backend.upsert_many(cache_writes)
+    compact_problems, problem_compaction = _build_compact_profile_problems(compact_problem_summaries)
 
     report = _profile_report(
         artifact_dir,
@@ -1696,11 +1970,22 @@ def profile_artifact(
         context=context,
         blocked_profile_items=blocked_profile_items,
         cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+        compact_problems=compact_problems,
+        problem_compaction=problem_compaction,
     )
     execution_plan = build_execution_plan(report)
     execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
     report["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
     _write_profile_report(report, artifact_dir, output)
+    _store_profile_run_cache(
+        report,
+        execution_plan,
+        codegen_plan,
+        run_cache_key_payload,
+        raw_workload_count=raw_workload_count,
+        unique_profile_tasks=total_workloads,
+        timed_profile_tasks=timed_workloads,
+    )
     cache_backend.close()
     print(
         "[dml.profile] Completed profile run: "
@@ -1717,6 +2002,148 @@ def profile_artifact(
 
 def profile_cache_path(codegen_plan: Mapping[str, Any]) -> Path:
     return default_profile_cache_path(codegen_plan)
+
+
+def _profile_run_cache_root(codegen_plan: Mapping[str, Any]) -> Path:
+    support_cache_dir = Path(str(codegen_plan["support_cache_dir"]))
+    return support_cache_dir.parent / f"profile_runs.v{PROFILE_RUN_CACHE_SCHEMA_VERSION}"
+
+
+def _profile_run_cache_db_state(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"path": str(path), "exists": False, "entry_count": 0, "max_updated_at": None}
+    try:
+        conn = sqlite3.connect(str(path))
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) AS entry_count, MAX(updated_at) AS max_updated_at FROM profile_cache_entries"
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError:
+        return {"path": str(path), "exists": True, "entry_count": -1, "max_updated_at": None}
+    entry_count = int(row[0] or 0) if row is not None else 0
+    max_updated_at = None if row is None or row[1] is None else str(row[1])
+    return {
+        "path": str(path),
+        "exists": True,
+        "entry_count": entry_count,
+        "max_updated_at": max_updated_at,
+    }
+
+
+def _normalized_profile_input_shapes(
+    input_shapes: Mapping[str, Sequence[int]] | None,
+) -> dict[str, list[int]]:
+    if not input_shapes:
+        return {}
+    return {
+        str(name): [int(dim) for dim in shape]
+        for name, shape in sorted(input_shapes.items(), key=lambda item: str(item[0]))
+    }
+
+
+def _profile_run_cache_key_payload(
+    manifest: Mapping[str, Any],
+    kernel_manifest: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+    context: Mapping[str, Any],
+    *,
+    input_shapes: Mapping[str, Sequence[int]] | None,
+    iterations: int,
+    repeats: int,
+    cutlass_conv_validation_mode: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": PROFILE_RUN_CACHE_SCHEMA_VERSION,
+        "profile_report_schema_version": PROFILE_REPORT_SCHEMA_VERSION,
+        "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+        "execution_plan_schema_version": EXECUTION_PLAN_SCHEMA_VERSION,
+        "target": dict(manifest.get("target", {})),
+        "graph_hash": manifest.get("graph_hash"),
+        "kernel_manifest_cache_key": kernel_manifest.get("cache_key"),
+        "codegen_plan_cache_key": codegen_plan.get("cache_key"),
+        "hardware_cache_key": context["fingerprint"]["hardware_key"],
+        "support_libraries_cache_key": context["fingerprint"]["support_libraries_key"],
+        "input_shapes": _normalized_profile_input_shapes(input_shapes),
+        "iterations": int(iterations),
+        "repeats": int(repeats),
+        "validation_policy": {
+            "cutlass_conv": _normalize_cutlass_conv_validation_mode(cutlass_conv_validation_mode),
+        },
+        "profile_cache_state": _profile_run_cache_db_state(profile_cache_path(codegen_plan)),
+    }
+
+
+def _profile_run_cache_entry(
+    key_payload: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+) -> tuple[str, Path]:
+    cache_key = hashlib.sha256(canonical_json(key_payload).encode("utf-8")).hexdigest()
+    cache_dir = _profile_run_cache_root(codegen_plan) / cache_key[:16]
+    return cache_key, cache_dir / "profile_run_cache.json"
+
+
+def _load_cached_profile_run(
+    artifact_dir: Path,
+    codegen_plan: Mapping[str, Any],
+    key_payload: Mapping[str, Any],
+    *,
+    output: str | Path | None,
+    execution_plan_output: str | Path | None,
+) -> dict[str, Any] | None:
+    cache_key, cache_path = _profile_run_cache_entry(key_payload, codegen_plan)
+    cached = _read_optional_json(cache_path)
+    if not cached or str(cached.get("cache_key", "")) != cache_key:
+        return None
+    if dict(cached.get("key_payload", {})) != dict(key_payload):
+        return None
+    compact_report = cached.get("report")
+    execution_plan = cached.get("execution_plan")
+    metadata = cached.get("metadata")
+    if not isinstance(compact_report, Mapping) or not isinstance(execution_plan, Mapping) or not isinstance(metadata, Mapping):
+        return None
+    execution_plan_path = _write_execution_plan(execution_plan, artifact_dir, execution_plan_output)
+    compact_payload = dict(compact_report)
+    compact_payload["artifact"] = str(artifact_dir.resolve())
+    compact_payload["execution_plan"] = _execution_plan_summary(execution_plan, execution_plan_path)
+    report_path = Path(output) if output is not None else artifact_dir / "debug" / "profile_report.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(report_path, compact_payload)
+    return {
+        "report": compact_payload,
+        "metadata": dict(metadata),
+    }
+
+
+def _store_profile_run_cache(
+    report: Mapping[str, Any],
+    execution_plan: Mapping[str, Any],
+    codegen_plan: Mapping[str, Any],
+    key_payload: Mapping[str, Any],
+    *,
+    raw_workload_count: int,
+    unique_profile_tasks: int,
+    timed_profile_tasks: int,
+) -> None:
+    cache_key, cache_path = _profile_run_cache_entry(key_payload, codegen_plan)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    write_json(
+        cache_path,
+        {
+            "schema_version": PROFILE_RUN_CACHE_SCHEMA_VERSION,
+            "cache_key": cache_key,
+            "key_payload": dict(key_payload),
+            "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "metadata": {
+                "raw_workload_count": int(raw_workload_count),
+                "unique_profile_tasks": int(unique_profile_tasks),
+                "timed_profile_tasks": int(timed_profile_tasks),
+            },
+            "report": compact_profile_report(report),
+            "execution_plan": dict(execution_plan),
+        },
+    )
 
 
 def _validate_symbolic_int_expr_profile_graph(graph: Mapping[str, Any]) -> None:
@@ -2574,10 +3001,12 @@ def _profile_report(
     context: Mapping[str, Any] | None = None,
     blocked_profile_items: Sequence[Mapping[str, Any]] = (),
     cutlass_conv_validation_mode: str = CUTLASS_CONV_VALIDATION_FAST,
+    compact_problems: Sequence[Mapping[str, Any]] | None = None,
+    problem_compaction: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    problem_payloads = [dict(item) for item in problems]
+    problem_payloads = [item if isinstance(item, dict) else dict(item) for item in problems]
     profile_context = dict(context or _profile_context(artifact_dir, manifest, codegen_plan))
-    return {
+    report = {
         "schema_version": PROFILE_REPORT_SCHEMA_VERSION,
         "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
         "artifact": str(artifact_dir.resolve()),
@@ -2599,12 +3028,37 @@ def _profile_report(
         "repeats": int(repeats),
         "summary": dict(summary),
     }
+    if compact_problems is not None:
+        report["_compact_problems"] = [
+            item if isinstance(item, dict) else dict(item)
+            for item in compact_problems
+        ]
+    if problem_compaction is not None:
+        report["_problem_compaction"] = dict(problem_compaction)
+    return report
 
 
 def compact_profile_report(report: Mapping[str, Any]) -> dict[str, Any]:
-    compact = {str(key): value for key, value in dict(report).items() if key != "workloads"}
+    compact = {
+        str(key): value
+        for key, value in dict(report).items()
+        if key not in {"workloads", "_compact_problems", "_problem_compaction"}
+    }
     problems = report.get("problems", ())
-    if isinstance(problems, Sequence) and not isinstance(problems, (str, bytes, bytearray)):
+    precomputed_problems = report.get("_compact_problems")
+    precomputed_compaction = report.get("_problem_compaction")
+    if (
+        isinstance(precomputed_problems, Sequence)
+        and not isinstance(precomputed_problems, (str, bytes, bytearray))
+        and isinstance(precomputed_compaction, Mapping)
+    ):
+        compact["problems"] = [
+            item if isinstance(item, dict) else dict(item)
+            for item in precomputed_problems
+            if isinstance(item, Mapping)
+        ]
+        compact["problem_compaction"] = dict(precomputed_compaction)
+    elif isinstance(problems, Sequence) and not isinstance(problems, (str, bytes, bytearray)):
         compact["problems"] = _compact_profile_problems(problems)
         compact["problem_compaction"] = {
             "policy": "aggregate_equivalent_problem_summaries_v1",
@@ -2618,14 +3072,21 @@ def compact_profile_report(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _compact_profile_problems(problems: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    by_key: dict[str, dict[str, Any]] = {}
-    ordered_keys: list[str] = []
+    compact_problems, _ = _build_compact_profile_problems(problems)
+    return compact_problems
+
+
+def _build_compact_profile_problems(
+    problems: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    by_key: dict[Any, dict[str, Any]] = {}
+    ordered_keys: list[Any] = []
     for raw in problems:
         if not isinstance(raw, Mapping):
             continue
         summary = _compact_profile_problem_summary(raw)
         key_payload = {key: value for key, value in summary.items() if key != "node_id"}
-        key = canonical_json(key_payload)
+        key = _freeze_profile_key_value(key_payload)
         entry = by_key.get(key)
         if entry is None:
             entry = dict(summary)
@@ -2641,7 +3102,13 @@ def _compact_profile_problems(problems: Sequence[Mapping[str, Any]]) -> list[dic
             node_ids = entry.setdefault("node_ids", [])
             if isinstance(node_ids, list) and len(node_ids) < PROFILE_REPORT_NODE_SAMPLE_LIMIT and node_id not in node_ids:
                 node_ids.append(node_id)
-    return [by_key[key] for key in ordered_keys]
+    compact_problems = [by_key[key] for key in ordered_keys]
+    return compact_problems, {
+        "policy": "aggregate_equivalent_problem_summaries_v1",
+        "input_problem_count": len(problems),
+        "output_problem_count": len(compact_problems),
+        "node_id_sample_limit": PROFILE_REPORT_NODE_SAMPLE_LIMIT,
+    }
 
 
 def _compact_profile_problem_summary(item: Mapping[str, Any]) -> dict[str, Any]:
@@ -3451,10 +3918,23 @@ def _profile_support_library_fingerprint_payload(
     if not isinstance(libraries_by_name, Mapping):
         libraries_by_name = {}
     library = libraries_by_name.get(workload.kernel_library)
+    return _profile_support_library_fingerprint_payload_from_library(
+        workload.kernel_library,
+        library if isinstance(library, Mapping) else None,
+        support_libraries_fingerprint_key=str(profile_context["fingerprint"]["support_libraries_key"]),
+    )
+
+
+def _profile_support_library_fingerprint_payload_from_library(
+    library_name: str,
+    library: Mapping[str, Any] | None,
+    *,
+    support_libraries_fingerprint_key: str,
+) -> dict[str, Any]:
     if not isinstance(library, Mapping):
         return {
-            "name": workload.kernel_library,
-            "support_libraries_fingerprint_key": profile_context["fingerprint"]["support_libraries_key"],
+            "name": library_name,
+            "support_libraries_fingerprint_key": support_libraries_fingerprint_key,
         }
     payload: dict[str, Any] = {
         "name": library.get("name"),
@@ -3710,7 +4190,7 @@ def _profile_timing(samples_ms: Sequence[float], *, iterations: int) -> dict[str
 
 
 def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
-    groups: dict[tuple[str, str, str, str, str], list[Mapping[str, Any]]] = {}
+    groups: dict[tuple[str, str, str, str, Any], list[Mapping[str, Any]]] = {}
     for problem in report.get("problems", []):
         if not isinstance(problem, Mapping) or problem.get("status") not in {"ok", "cached"}:
             continue
@@ -3725,7 +4205,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
             str(problem.get("op", "")),
             str(problem.get("dtype", "")),
             str(candidate_set_key),
-            canonical_json(shape_payload),
+            _freeze_profile_key_value(shape_payload),
         )
         if key[0] and key[1] and key[2] and key[3]:
             groups.setdefault(key, []).append(problem)
@@ -3775,7 +4255,7 @@ def build_execution_plan(report: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _selection_from_group(
-    key: tuple[str, str, str, str, str],
+    key: tuple[str, str, str, str, Any],
     entries: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     ranked = sorted(

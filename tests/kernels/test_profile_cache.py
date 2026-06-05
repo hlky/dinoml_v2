@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import dinoml.kernels.profiling as profiling_mod
 from dinoml.kernels.gemm import gemm_op_spec
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION, build_kernel_manifest
 from dinoml.kernels.profile_cache import ProfileCacheWrite, SQLiteProfileCacheBackend, default_profile_cache_path
@@ -64,6 +65,57 @@ def test_prepare_profile_workloads_uses_backend_lookup_and_dedupes():
     assert unique[0].resolution == "cache"
     assert prepared[0].representative is True
     assert prepared[1].representative is False
+    assert prepared[0].profile_key == prepared[1].profile_key
+
+
+def test_prepare_profile_workloads_pre_dedupes_before_profile_cache_lookup(monkeypatch):
+    target = {"name": "rocm", "arch": "gfx1201"}
+    manifest = build_kernel_manifest(_bmm_ir("bmm_rcr_add", "float16"), target)
+    workload = build_profile_workloads(_bmm_ir("bmm_rcr_add", "float16"), manifest)[0]
+    duplicate = replace(
+        workload,
+        shape_source="workflow_bucket",
+        shape_case_id="shape_m=64",
+        dim_values={"m": workload.m},
+        dim_sources={"m": "metadata"},
+    )
+    context = _fake_profile_context(workload.kernel_library)
+    lookup = _profile_cache_lookup(workload, {"target": target}, manifest, {"cache_key": "plan-a"}, context=context)
+    entry = _cache_entry(
+        workload,
+        _profile_result(workload, 0.21, 5, profile_key=lookup.profile_key, status="ok"),
+        lookup.key_payload,
+    )
+    calls = 0
+    original = profiling_mod._profile_cache_lookup
+
+    def counting_lookup(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(profiling_mod, "_profile_cache_lookup", counting_lookup)
+
+    class FakeBackend:
+        def lookup_many(self, lookups):
+            return {lookup.profile_key: dict(entry) for lookup in lookups}
+
+    prepared, unique = _prepare_profile_workloads(
+        [workload, duplicate],
+        {"target": target},
+        manifest,
+        {"cache_key": "plan-b"},
+        FakeBackend(),
+        iterations=5,
+        repeats=1,
+        cutlass_conv_validation_mode="fast",
+        refresh=False,
+        context=context,
+    )
+
+    assert calls == 1
+    assert len(unique) == 1
+    assert unique[0].resolution == "cache"
     assert prepared[0].profile_key == prepared[1].profile_key
 
 

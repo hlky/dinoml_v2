@@ -4,6 +4,7 @@ import ctypes
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -574,6 +575,74 @@ def test_rocm_module_cache_round_trip(tmp_path, monkeypatch):
     assert not rocm_backend._restore_rocm_module_from_cache(changed_entry, tmp_path / "changed.so")
 
 
+def test_rocm_module_fast_cache_skips_source_generation(tmp_path, monkeypatch):
+    cache_root = tmp_path / "cache"
+    support_dir = tmp_path / "support"
+    support_dir.mkdir()
+    runtime = support_dir / "dinoml_runtime.dll"
+    rocm_runtime = support_dir / "dinoml_rocm_runtime.dll"
+    kernels = support_dir / "dinoml_rocm_kernels.dll"
+    for path in (runtime, rocm_runtime, kernels):
+        path.write_bytes(path.name.encode("utf-8"))
+    built_module = tmp_path / "cached-module.so"
+    built_module.write_bytes(b"compiled module")
+    support_libs = rocm_backend.RocmSupportLibs(
+        runtime_lib=runtime,
+        rocm_runtime_lib=rocm_runtime,
+        kernels_lib=kernels,
+        ck_gemm_archives=(),
+        ck_bmm_archives=(),
+        ck_conv_archives=(),
+        flash_attn_ck_archives=(),
+        runtime_include=tmp_path / "runtime_include",
+        common_include=tmp_path / "common_include",
+        kernels_include=tmp_path / "kernels_include",
+    )
+    ir = {
+        "name": "fast_cache_module",
+        "inputs": [],
+        "outputs": [],
+        "constants": [],
+        "tensors": [],
+        "nodes": [],
+    }
+    kernel_manifest = {"cache_key": "manifest-key"}
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
+    fast_entry = rocm_backend._rocm_module_fast_cache_entry(
+        arch="gfx1201",
+        ir=ir,
+        kernel_manifest=kernel_manifest,
+        support_libs=support_libs,
+    )
+    rocm_backend._store_rocm_module_in_cache(fast_entry, built_module)
+    monkeypatch.setattr(rocm_backend, "ensure_rocm_support_libs", lambda *_args, **_kwargs: support_libs)
+    monkeypatch.setattr(
+        rocm_backend,
+        "collect_generated_sources",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("generated sources should not be materialized")),
+    )
+
+    class FakeTarget:
+        arch = "gfx1201"
+
+    artifact_dir = tmp_path / "artifact"
+    generated_src_dir = artifact_dir / "debug" / "generated_src"
+    generated_src_dir.mkdir(parents=True, exist_ok=True)
+
+    assert rocm_backend.build_rocm_module(
+        ir,
+        target=FakeTarget(),
+        artifact_dir=artifact_dir,
+        generated_src_dir=generated_src_dir,
+        kernel_manifest=kernel_manifest,
+    ) is None
+    assert (artifact_dir / "module.so").read_bytes() == b"compiled module"
+    assert (artifact_dir / "lib" / runtime.name).exists()
+    assert (artifact_dir / "lib" / rocm_runtime.name).exists()
+    assert (artifact_dir / "lib" / kernels.name).exists()
+
+
 def test_rocm_split_generated_sources_emit_chunks_and_declarations(tmp_path, monkeypatch):
     ops_dir = tmp_path / "ops" / "fused_elementwise"
     ops_dir.mkdir(parents=True)
@@ -1091,6 +1160,33 @@ def test_rocm_ck_conv_support_configure_pins_required_ops_and_dtypes(tmp_path, m
     assert "-DDINOML_CK_CONV_PROFILER_TARGETS=dinoml_ck_conv_conv2d_bias_add_relu_float16" in calls[0]
     assert "dinoml_ck_conv_conv2d_bias_add_relu_float16" in calls[1]
     assert ck_conv_profiler_bind_target("conv2d_bias_add_relu", "float16") in calls[1]
+
+
+def test_rocm_support_libraries_reuse_cached_runtime_build(tmp_path, monkeypatch):
+    cache_root = tmp_path / "cache"
+    calls = []
+
+    def fake_run_cmake(cmd, *, cwd):
+        del cwd
+        calls.append(cmd)
+        if "--build" in cmd:
+            lib_dir = cache_root / "support" / "rocm-gfx1201" / "full" / "lib"
+            lib_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("dinoml_runtime", "dinoml_rocm_runtime", "dinoml_rocm_kernels"):
+                (lib_dir / rocm_backend._shared_library_name(name)).write_bytes(name.encode("utf-8"))
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(rocm_backend, "_prepare_cmake_build_dir", lambda _build_dir: None)
+    monkeypatch.setattr(rocm_backend, "_run_cmake", fake_run_cmake)
+
+    first = rocm_backend.ensure_rocm_support_libs("gfx1201")
+    assert first.runtime_lib.exists()
+    assert len(calls) == 2
+
+    calls.clear()
+    second = rocm_backend.ensure_rocm_support_libs("gfx1201")
+    assert second.runtime_lib.exists()
+    assert calls == []
 
 
 def test_rocm_gemm_manifest_selects_ck_custom_xdl_archive(tmp_path):
@@ -3310,6 +3406,134 @@ def test_profile_artifact_groups_same_ck_gemm_problem_candidates(tmp_path, monke
     assert calls == [([workload.candidate_id for workload in workloads], 5, 1)]
     assert report["summary"]["profiled"] == 2
     assert {problem["candidate_id"] for problem in report["problems"]} == {workload.candidate_id for workload in workloads}
+
+
+def test_profile_artifact_reuses_cached_profile_run_before_workload_build(tmp_path, monkeypatch):
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir, kernel_manifest)
+    copied_artifact_dir = tmp_path / "artifact_copy"
+    shutil.copytree(artifact_dir, copied_artifact_dir)
+    build_calls: list[str] = []
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling.build_profile_workloads",
+        lambda *args, **kwargs: build_calls.append("first") or [],
+    )
+
+    first_report = profile_artifact(artifact_dir, iterations=5, repeats=1)
+
+    assert build_calls == ["first"]
+    assert first_report["problems"] == []
+
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling.build_profile_workloads",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("workloads should be reused from profile-run cache")),
+    )
+
+    reused_report = profile_artifact(copied_artifact_dir, iterations=5, repeats=1)
+
+    assert reused_report["artifact"] == str(copied_artifact_dir.resolve())
+    assert reused_report["execution_plan"]["path"] == str((copied_artifact_dir / "debug" / "execution_plan.json").resolve())
+    assert (copied_artifact_dir / "debug" / "profile_report.json").exists()
+    assert (copied_artifact_dir / "debug" / "execution_plan.json").exists()
+
+
+def test_profile_artifact_profile_run_cache_invalidates_when_profile_cache_state_changes(tmp_path, monkeypatch):
+    ir = _rocm_gemm_ir("gemm_rcr", "float16", m=64, n=128, k=96)
+    kernel_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    artifact_dir = _write_profile_artifact_fixture(tmp_path, ir, kernel_manifest)
+    copied_artifact_dir = tmp_path / "artifact_copy"
+    shutil.copytree(artifact_dir, copied_artifact_dir)
+    build_calls: list[str] = []
+
+    monkeypatch.setattr("dinoml.kernels.profiling._validate_symbolic_int_expr_profile_graph", lambda graph: None)
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling._profile_context",
+        lambda *args, **kwargs: {
+            "fingerprint": {
+                "hardware": {"name": "fake"},
+                "hardware_key": "hw",
+                "support_libraries": [],
+                "support_libraries_key": "libs",
+            }
+        },
+    )
+    monkeypatch.setattr(
+        "dinoml.kernels.profiling.build_profile_workloads",
+        lambda *args, **kwargs: build_calls.append("run") or [],
+    )
+
+    profile_artifact(artifact_dir, iterations=5, repeats=1)
+
+    cache_db = tmp_path / f"profile_cache.v{PROFILE_CACHE_SCHEMA_VERSION}.sqlite3"
+    with sqlite3.connect(str(cache_db)) as conn:
+        conn.execute(
+            """
+            INSERT INTO profile_cache_entries (
+                profile_key,
+                schema_version,
+                target_name,
+                target_arch,
+                hardware_fingerprint_key,
+                support_library_name,
+                support_fingerprint_key,
+                kernel_library,
+                op_family,
+                op,
+                dtype,
+                candidate_set_key,
+                candidate_id,
+                candidate_config_key,
+                provider_problem_key,
+                problem_key,
+                semantics_key,
+                variant_key,
+                key_payload_json,
+                entry_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "cache-state-change",
+                PROFILE_CACHE_SCHEMA_VERSION,
+                "rocm",
+                "gfx1201",
+                "hw",
+                "ck_gemm",
+                "libs",
+                "ck_gemm",
+                "gemm",
+                "gemm_rcr",
+                "float16",
+                None,
+                "candidate0",
+                None,
+                "provider-problem",
+                "problem",
+                "semantics",
+                "variant",
+                json.dumps({"profile_key": "cache-state-change"}),
+                json.dumps({"profile_key": "cache-state-change", "key": {"profile_key": "cache-state-change"}}),
+                "2099-01-01T00:00:00Z",
+            ),
+        )
+
+    profile_artifact(copied_artifact_dir, iterations=5, repeats=1)
+
+    assert build_calls == ["run", "run"]
 
 
 def test_profile_artifact_does_not_group_ck_candidates_when_problem_differs(tmp_path, monkeypatch):

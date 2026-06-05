@@ -48,10 +48,10 @@ def render_gpu_module(
     output_map = {item["tensor"]: idx for idx, item in enumerate(ir["outputs"])}
     state_tensors = {item["tensor"]: item for item in ir.get("states", [])}
     constant_tensors = {item["tensor"]: item for item in ir["constants"]}
-    temporaries = memory_plan.get("temporaries", [])
-    temp_arena = _temporary_arena_context(memory_plan, temporaries)
+    temporaries = list(memory_plan.get("temporaries", []))
     views = _view_contexts(ir, output_map=output_map, tensor_map=tensor_map, target_name=target_name)
     dynamic_dims = dynamic_dim_sources(input_map=input_map, output_map=output_map, tensor_map=tensor_map)
+    temp_arena = _temporary_arena_context(memory_plan, temporaries, dynamic_dims)
     validate_symbolic_int_sources(items=ir["inputs"], dynamic_dims=dynamic_dims, context="input")
     validate_symbolic_int_sources(items=ir["outputs"], dynamic_dims=dynamic_dims, context="output")
     validate_symbolic_int_sources(items=ir["constants"], dynamic_dims=dynamic_dims, context="constant")
@@ -88,7 +88,7 @@ def render_gpu_module(
             ],
             "constants": [_constant_context(item, lowered_runtime_dequant_constants) for item in ir["constants"]],
             "states": [_state_context(item) for item in ir.get("states", [])],
-            "temporaries": [_temporary_context(item) for item in temporaries],
+            "temporaries": [_temporary_context(index, item) for index, item in enumerate(temporaries)],
             "temp_arena": temp_arena,
             "shape_buffers": [
                 shape_buffer_context(item)
@@ -353,8 +353,9 @@ def _lowered_gguf_runtime_dequant_constant_names(kernel_manifest: Mapping[str, A
     }
 
 
-def _temporary_context(item: Mapping[str, Any]) -> dict[str, Any]:
+def _temporary_context(index: int, item: Mapping[str, Any]) -> dict[str, Any]:
     return {
+        "index": int(index),
         "ident": _c_ident(item["tensor"]),
         "nbytes": int(item["nbytes"]),
         "offset": None if item.get("offset") is None else int(item["offset"]),
@@ -434,7 +435,7 @@ def _pointer_decls(
         )
     if temp_arena is not None and temporaries:
         yield "uint8_t* temp_arena_base = static_cast<uint8_t*>(session->temp_arena);"
-    for item in temporaries:
+    for temporary_index, item in enumerate(temporaries):
         tensor_name = item["tensor"]
         ident = _c_ident(tensor_name)
         cpp_type = storage_type(str(tensor_map[tensor_name]["dtype"]), target_name)
@@ -452,7 +453,8 @@ def _pointer_decls(
         else:
             yield (
                 f"{cpp_type}* ptr_{ident} = "
-                f"reinterpret_cast<{cpp_type}*>(temp_arena_base + {int(item.get('offset', 0) or 0)});"
+                f"reinterpret_cast<{cpp_type}*>(temp_arena_base + "
+                f"kDinoTempPlanOffsets[selected_temp_plan_index][{temporary_index}]);"
             )
     for tensor_name, idx in output_map.items():
         if tensor_name in view_by_tensor:
@@ -523,16 +525,104 @@ def _gguf_dequant_scratch_context(kernel_manifest: Mapping[str, Any] | None) -> 
 def _temporary_arena_context(
     memory_plan: Mapping[str, Any],
     temporaries: Iterable[Mapping[str, Any]],
-) -> dict[str, int] | None:
+    dynamic_dims: Mapping[str, str],
+) -> dict[str, Any] | None:
     items = [item for item in temporaries if isinstance(item, Mapping)]
     if not items:
         return None
+    bucket_plans = memory_plan.get("bucket_plans")
+    if isinstance(bucket_plans, list) and bucket_plans:
+        bucket_dimensions = memory_plan.get("bucket_dimensions", [])
+        plans = [
+            {
+                "index": index,
+                "id": str(plan.get("bucket_id", f"bucket_{index}")),
+                "arena_nbytes": int(plan.get("arena_nbytes", 0) or 0),
+                "offsets": _temporary_plan_offsets(plan, items),
+                "condition": _bucket_plan_condition(bucket_dimensions, plan, dynamic_dims),
+            }
+            for index, plan in enumerate(bucket_plans)
+        ]
+        max_nbytes = max((plan["arena_nbytes"] for plan in plans), default=0)
+        if max_nbytes <= 0:
+            return None
+        return {
+            "nbytes": max_nbytes,
+            "max_nbytes": max_nbytes,
+            "bucketed": True,
+            "default_policy": "eager_max",
+            "plans": plans,
+        }
     if any(item.get("offset") is None for item in items):
         return None
     arena_nbytes = int(memory_plan.get("arena_nbytes", 0) or 0)
     if arena_nbytes <= 0:
         return None
-    return {"nbytes": arena_nbytes}
+    return {
+        "nbytes": arena_nbytes,
+        "max_nbytes": arena_nbytes,
+        "bucketed": False,
+        "default_policy": "eager_max",
+        "plans": [
+            {
+                "index": 0,
+                "id": "default",
+                "arena_nbytes": arena_nbytes,
+                "offsets": [int(item.get("offset", 0) or 0) for item in items],
+                "condition": "true",
+            }
+        ],
+    }
+
+
+def _temporary_plan_offsets(
+    plan: Mapping[str, Any],
+    temporaries: Iterable[Mapping[str, Any]],
+) -> list[int]:
+    plan_temporaries = {
+        str(item["tensor"]): item
+        for item in plan.get("temporaries", [])
+        if isinstance(item, Mapping) and "tensor" in item
+    }
+    offsets = []
+    for item in temporaries:
+        tensor_name = str(item["tensor"])
+        plan_item = plan_temporaries.get(tensor_name)
+        if plan_item is None:
+            raise ValueError(f"Bucket temporary plan is missing tensor {tensor_name!r}")
+        offsets.append(int(plan_item.get("offset", 0) or 0))
+    return offsets
+
+
+def _bucket_plan_condition(
+    bucket_dimensions: Iterable[Mapping[str, Any]],
+    plan: Mapping[str, Any],
+    dynamic_dims: Mapping[str, str],
+) -> str:
+    dimensions = [item for item in bucket_dimensions if isinstance(item, Mapping)]
+    bucket_indices = [int(index) for index in plan.get("bucket_indices", [])]
+    if not dimensions:
+        return "true"
+    if len(bucket_indices) != len(dimensions):
+        raise ValueError("Bucket temporary plan index metadata does not match declared bucket dimensions")
+    conditions = []
+    for dimension, bucket_index in zip(dimensions, bucket_indices, strict=True):
+        dim_name = str(dimension["name"])
+        source_expr = dynamic_dims.get(dim_name)
+        if source_expr is None:
+            raise NotImplementedError(
+                f"Bucketed temporary planning requires a direct runtime source for dynamic dimension {dim_name!r}"
+            )
+        bucket_values = [int(value) for value in dimension.get("buckets", [])]
+        if bucket_index < 0 or bucket_index >= len(bucket_values):
+            raise ValueError(f"Bucket index {bucket_index} is outside dimension {dim_name!r} bucket bounds")
+        hi = bucket_values[bucket_index]
+        if bucket_index == 0:
+            conditions.append(f"{source_expr} <= {hi}")
+            continue
+        lo = bucket_values[bucket_index - 1]
+        conditions.append(f"{source_expr} > {lo} && {source_expr} <= {hi}")
+    return " && ".join(conditions) if conditions else "true"
 
 
 def _topk_scratch_context(

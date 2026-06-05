@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 from typing import Any, Mapping, Sequence
 
-from dinoml.ir import VIEW_METADATA_VERSION
+from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import validate_view_metadata
+from dinoml.shapes import shape_numel
 
 TEMPORARY_ARENA_ALIGNMENT = 64
 
@@ -57,27 +59,67 @@ def plan_temporary_memory(ir: Mapping[str, Any]) -> dict[str, Any]:
         view_sources=view_sources,
     )
     planned = _allocate_temporary_offsets(lifetimes)
-
-    return {
+    result = {
         "allocation": "lifetime_planned_temporaries",
         "planner": "greedy_by_size",
         "alignment": TEMPORARY_ARENA_ALIGNMENT,
-        "temporaries": [
-            {
-                "tensor": item.tensor,
-                "nbytes": item.nbytes,
-                "aligned_nbytes": item.aligned_nbytes,
-                "offset": item.offset,
-                "first_use_node": item.first_use_node,
-                "last_use_node": item.last_use_node,
-            }
-            for item in planned
-        ],
+        "planning_mode": "single",
+        "temporaries": _planned_temporary_payload(planned),
         "views": {"version": VIEW_METADATA_VERSION, "views": views},
         "arena_nbytes": _arena_nbytes(planned),
         "workspace_nbytes": _arena_nbytes(planned),
         "total_temporary_nbytes": sum(item.nbytes for item in planned),
     }
+    bucket_dimensions = _bucket_dimensions(ir)
+    if not bucket_dimensions or not temporary_names:
+        return result
+
+    bucket_plans = []
+    max_bucket_arena_nbytes = 0
+    min_bucket_arena_nbytes: int | None = None
+    tensors_by_name = tensor_map(ir)
+    for bucket_indices, dim_values in _bucket_assignments(bucket_dimensions):
+        bucket_sizes = {
+            name: _tensor_nbytes_for_dim_values(tensors_by_name[name], dim_values)
+            for name in temporary_names
+        }
+        bucket_lifetimes = _temporary_lifetimes(
+            temporary_names=temporary_names,
+            temporary_sizes=bucket_sizes,
+            nodes=ir.get("nodes", []),
+            output_tensors=output_tensors,
+            view_sources=view_sources,
+        )
+        bucket_planned = _allocate_temporary_offsets(bucket_lifetimes)
+        bucket_arena_nbytes = _arena_nbytes(bucket_planned)
+        max_bucket_arena_nbytes = max(max_bucket_arena_nbytes, bucket_arena_nbytes)
+        min_bucket_arena_nbytes = (
+            bucket_arena_nbytes
+            if min_bucket_arena_nbytes is None
+            else min(min_bucket_arena_nbytes, bucket_arena_nbytes)
+        )
+        bucket_plans.append(
+            {
+                "bucket_id": _bucket_id(bucket_dimensions, dim_values),
+                "bucket_indices": list(bucket_indices),
+                "dim_values": {item["name"]: int(dim_values[item["name"]]) for item in bucket_dimensions},
+                "temporaries": _planned_temporary_payload(bucket_planned),
+                "arena_nbytes": bucket_arena_nbytes,
+                "workspace_nbytes": bucket_arena_nbytes,
+                "total_temporary_nbytes": sum(item.nbytes for item in bucket_planned),
+            }
+        )
+
+    result.update(
+        {
+            "planning_mode": "bucketed",
+            "bucket_dimensions": bucket_dimensions,
+            "bucket_plans": bucket_plans,
+            "max_bucket_arena_nbytes": max_bucket_arena_nbytes,
+            "min_bucket_arena_nbytes": 0 if min_bucket_arena_nbytes is None else min_bucket_arena_nbytes,
+        }
+    )
+    return result
 
 
 def _temporary_lifetimes(
@@ -197,3 +239,113 @@ def _align_nbytes(nbytes: int) -> int:
 
 def _arena_nbytes(planned: Sequence[PlannedTemporary]) -> int:
     return max((item.offset + item.aligned_nbytes for item in planned), default=0)
+
+
+def _planned_temporary_payload(planned: Sequence[PlannedTemporary]) -> list[dict[str, int | str]]:
+    return [
+        {
+            "tensor": item.tensor,
+            "nbytes": item.nbytes,
+            "aligned_nbytes": item.aligned_nbytes,
+            "offset": item.offset,
+            "first_use_node": item.first_use_node,
+            "last_use_node": item.last_use_node,
+        }
+        for item in planned
+    ]
+
+
+def _bucket_dimensions(ir: Mapping[str, Any]) -> list[dict[str, Any]]:
+    by_name: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for section in ("inputs", "outputs"):
+        for item in ir.get(section, []):
+            shape_spec = item.get("shape_spec", item.get("shape", []))
+            for axis, dim in enumerate(shape_spec):
+                if not isinstance(dim, Mapping) or dim.get("kind") != "dim" or not dim.get("buckets"):
+                    continue
+                name = str(dim["name"])
+                signature = {
+                    "name": name,
+                    "min": int(dim["min"]),
+                    "max": int(dim["max"]),
+                    "divisible_by": int(dim.get("divisible_by", 1)),
+                    "buckets": [int(bucket) for bucket in dim.get("buckets", ())],
+                    "sources": [],
+                }
+                source = {
+                    "section": str(section),
+                    "name": str(item.get("name", item.get("tensor", name))),
+                    "tensor": str(item.get("tensor", item.get("name", name))),
+                    "axis": int(axis),
+                }
+                existing = by_name.get(name)
+                if existing is None:
+                    signature["sources"].append(source)
+                    by_name[name] = signature
+                    order.append(name)
+                    continue
+                if (
+                    existing["min"] != signature["min"]
+                    or existing["max"] != signature["max"]
+                    or existing["divisible_by"] != signature["divisible_by"]
+                    or list(existing["buckets"]) != list(signature["buckets"])
+                ):
+                    raise ValueError(f"Inconsistent bucket metadata for dynamic dimension {name!r}")
+                if source not in existing["sources"]:
+                    existing["sources"].append(source)
+    return [by_name[name] for name in order]
+
+
+def _bucket_assignments(
+    bucket_dimensions: Sequence[Mapping[str, Any]],
+) -> list[tuple[tuple[int, ...], dict[str, int]]]:
+    if not bucket_dimensions:
+        return []
+    assignments = []
+    for bucket_indices in product(*(range(len(dim["buckets"])) for dim in bucket_dimensions)):
+        dim_values = {
+            str(dim["name"]): int(dim["buckets"][bucket_index])
+            for dim, bucket_index in zip(bucket_dimensions, bucket_indices, strict=True)
+        }
+        assignments.append((tuple(int(index) for index in bucket_indices), dim_values))
+    return assignments
+
+
+def _bucket_id(bucket_dimensions: Sequence[Mapping[str, Any]], dim_values: Mapping[str, int]) -> str:
+    return ",".join(
+        f"{str(dim['name'])}={int(dim_values[str(dim['name'])])}"
+        for dim in bucket_dimensions
+    )
+
+
+def _tensor_nbytes_for_dim_values(tensor: Mapping[str, Any], dim_values: Mapping[str, int]) -> int:
+    concrete_shape = [
+        _shape_spec_dim_value(dim, dim_values)
+        for dim in tensor.get("shape_spec", tensor["shape"])
+    ]
+    return int(shape_numel(concrete_shape) * dtype_nbytes(str(tensor["dtype"])))
+
+
+def _shape_spec_dim_value(dim: Any, dim_values: Mapping[str, int]) -> int:
+    if isinstance(dim, int):
+        return int(dim)
+    kind = dim.get("kind")
+    if kind == "dim":
+        return int(dim_values.get(str(dim["name"]), int(dim["max"])))
+    if kind == "int_expr":
+        lhs = _shape_spec_dim_value(dim["lhs"], dim_values)
+        rhs = _shape_spec_dim_value(dim["rhs"], dim_values)
+        op = str(dim["op"])
+        if op == "add":
+            return lhs + rhs
+        if op == "sub":
+            return lhs - rhs
+        if op == "mul":
+            return lhs * rhs
+        if op == "div":
+            if rhs == 0:
+                raise ZeroDivisionError("symbolic integer div by zero")
+            return lhs // rhs
+        raise ValueError(f"Unsupported symbolic integer op: {op!r}")
+    raise ValueError(f"Unsupported shape dimension kind: {kind!r}")

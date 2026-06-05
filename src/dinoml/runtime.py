@@ -78,6 +78,11 @@ CUDA_GGUF_DEQUANT_QTYPES = frozenset(
         "BF16",
     }
 )
+TEMP_ARENA_POLICIES = {
+    "eager_max": 0,
+    "lazy_exact_bucket": 1,
+    "lazy_grow": 2,
+}
 
 
 def _target_device_type(target_name: str) -> int:
@@ -86,6 +91,16 @@ def _target_device_type(target_name: str) -> int:
     if target_name == "rocm":
         return DINO_DEVICE_ROCM
     return DINO_DEVICE_CPU
+
+
+def _temp_arena_policy_value(policy: str) -> int:
+    key = str(policy)
+    if key not in TEMP_ARENA_POLICIES:
+        raise ValueError(
+            "Unsupported temp arena policy "
+            f"{policy!r}; expected one of {sorted(TEMP_ARENA_POLICIES)}"
+        )
+    return TEMP_ARENA_POLICIES[key]
 
 
 def load(path: str | Path, *, load_constants: bool | None = None) -> "RuntimeModule":
@@ -191,9 +206,9 @@ class RuntimeModule:
         except Exception:
             pass
 
-    def create_session(self) -> "Session":
+    def create_session(self, *, temp_arena_policy: str | None = None) -> "Session":
         self._require_open()
-        return Session(self)
+        return Session(self, temp_arena_policy=temp_arena_policy)
 
     def load_constants_from_file(self, path: str | Path | None = None) -> None:
         self._require_open()
@@ -754,6 +769,20 @@ class RuntimeModule:
                 ctypes.POINTER(ctypes.c_void_p),
             ]
             self._session_get_state_pointer.restype = ctypes.c_int
+        try:
+            self._session_set_temp_arena_policy = self._dll.dino_session_set_temp_arena_policy
+        except AttributeError:
+            self._session_set_temp_arena_policy = None
+        else:
+            self._session_set_temp_arena_policy.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            self._session_set_temp_arena_policy.restype = ctypes.c_int
+        try:
+            self._session_release_temp_arena = self._dll.dino_session_release_temp_arena
+        except AttributeError:
+            self._session_release_temp_arena = None
+        else:
+            self._session_release_temp_arena.argtypes = [ctypes.c_void_p]
+            self._session_release_temp_arena.restype = ctypes.c_int
         self._dll.dino_session_run.argtypes = [
             ctypes.c_void_p,
             ctypes.POINTER(_DinoTensor),
@@ -835,7 +864,7 @@ class RuntimeModule:
 
 
 class Session:
-    def __init__(self, module: RuntimeModule):
+    def __init__(self, module: RuntimeModule, *, temp_arena_policy: str | None = None):
         self.module = module
         self._handle = ctypes.c_void_p()
         self._cuda_buffers: Dict[str, tuple[ctypes.c_void_p, int]] = {}
@@ -847,6 +876,8 @@ class Session:
             sessions = getattr(self.module, "_sessions", None)
             if sessions is not None:
                 sessions.add(self)
+            if temp_arena_policy is not None:
+                self.set_temp_arena_policy(temp_arena_policy)
         except Exception as exc:
             try:
                 self._destroy_partially_created_session()
@@ -928,6 +959,25 @@ class Session:
         stream_ptr = _as_c_void_p(stream)
         self.module._check(self.module._dll.dino_session_set_stream(self._handle, stream_ptr))
         self._external_stream = bool(stream_ptr.value)
+
+    def set_temp_arena_policy(self, policy: str) -> None:
+        self._require_open()
+        setter = getattr(self.module, "_session_set_temp_arena_policy", None)
+        if setter is None:
+            raise RuntimeError(
+                "Artifact does not expose dino_session_set_temp_arena_policy; recompile it to use temp arena policies"
+            )
+        policy_value = _temp_arena_policy_value(policy)
+        self.module._check(setter(self._handle, ctypes.c_int(policy_value)))
+
+    def release_temp_arena(self) -> None:
+        self._require_open()
+        releaser = getattr(self.module, "_session_release_temp_arena", None)
+        if releaser is None:
+            raise RuntimeError(
+                "Artifact does not expose dino_session_release_temp_arena; recompile it to manage temp arena state"
+            )
+        self.module._check(releaser(self._handle))
 
     def get_output_shape(self, index_or_name: int | str) -> tuple[int, ...]:
         self._require_open()

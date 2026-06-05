@@ -7,6 +7,7 @@ from dinoml.layout import dense_layout
 from dinoml.lowering.gpu import render_gpu_module
 from dinoml.passes import PassManager
 from dinoml.passes.core import memory_plan
+from dinoml.shapes import Dim
 
 
 def _tensor(name: str, shape: list[int], dtype: str, kind: str = "temporary") -> dict[str, object]:
@@ -127,6 +128,13 @@ class TwoLayerNormModule(dml.Module):
         return dml.ops.output(dml.ops.layer_norm(hidden, weight, bias), "output")
 
 
+class ThreeLayerNormModule(dml.Module):
+    def forward(self, x, weight, bias):
+        h0 = dml.ops.layer_norm(x, weight, bias)
+        h1 = dml.ops.layer_norm(h0, weight, bias)
+        return dml.ops.output(dml.ops.layer_norm(h1, weight, bias), "output")
+
+
 @pytest.mark.parametrize(
     ("target", "malloc_name"),
     [("rocm", "hipMalloc"), ("cuda", "cudaMalloc")],
@@ -146,6 +154,74 @@ def test_render_gpu_module_uses_shared_temp_arena(target: str, malloc_name: str)
     source = render_gpu_module(target, lowered)
 
     assert "void* temp_arena = nullptr;" in source
-    assert f"DINO_SESSION_CREATE_GPU_CHECK({malloc_name}(&session->temp_arena," in source
+    assert f"{malloc_name}(&next_temp_arena, target_nbytes)" in source
+    assert "dino_session_prepare_temp_arena(session, 0, 0)" in source
     assert "temp_arena_base + " in source
+    assert "session->tmp_" not in source
+
+
+def test_memory_plan_emits_bucket_specific_temp_plans():
+    batch = Dim("batch", min=2, max=8, buckets=(2, 4, 8))
+    spec = dml.trace(
+        TwoLayerNormModule(),
+        inputs={
+            "x": dml.TensorSpec([batch, 4], "float32"),
+            "weight": dml.TensorSpec([4], "float32"),
+            "bias": dml.TensorSpec([4], "float32"),
+        },
+        name="bucketed_temp_plan_metadata",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+
+    planned = lowered["metadata"]["memory_plan"]
+    bucket_arenas = [int(plan["arena_nbytes"]) for plan in planned["bucket_plans"]]
+
+    assert planned["planning_mode"] == "bucketed"
+    assert planned["bucket_dimensions"][0]["name"] == "batch"
+    assert planned["bucket_dimensions"][0]["min"] == 2
+    assert planned["bucket_dimensions"][0]["max"] == 8
+    assert planned["bucket_dimensions"][0]["buckets"] == [2, 4, 8]
+    assert planned["bucket_dimensions"][0]["sources"][0] == {
+        "section": "inputs",
+        "name": "x",
+        "tensor": "x",
+        "axis": 0,
+    }
+    assert any(source["section"] == "outputs" and source["name"] == "output" for source in planned["bucket_dimensions"][0]["sources"])
+    assert len(planned["bucket_plans"]) == 3
+    assert min(bucket_arenas) < max(bucket_arenas)
+    assert planned["max_bucket_arena_nbytes"] == max(bucket_arenas)
+    assert planned["min_bucket_arena_nbytes"] == min(bucket_arenas)
+    assert planned["arena_nbytes"] >= planned["max_bucket_arena_nbytes"]
+
+
+@pytest.mark.parametrize(
+    ("target", "malloc_name"),
+    [("rocm", "hipMalloc"), ("cuda", "cudaMalloc")],
+)
+def test_render_gpu_module_switches_bucket_specific_temp_plans(target: str, malloc_name: str):
+    batch = Dim("batch", min=2, max=8, buckets=(2, 4, 8))
+    spec = dml.trace(
+        ThreeLayerNormModule(),
+        inputs={
+            "x": dml.TensorSpec([batch, 4], "float32"),
+            "weight": dml.TensorSpec([4], "float32"),
+            "bias": dml.TensorSpec([4], "float32"),
+        },
+        name="bucketed_temp_plan_codegen",
+    )
+    lowered, _ = PassManager().run(spec.ir)
+
+    source = render_gpu_module(target, lowered)
+
+    assert "kDinoTempPlanCount = 3" in source
+    assert "inputs[0].shape[0] <= 2" in source
+    assert "inputs[0].shape[0] > 2 && inputs[0].shape[0] <= 4" in source
+    assert "inputs[0].shape[0] > 4 && inputs[0].shape[0] <= 8" in source
+    assert "dino_session_set_temp_arena_policy" in source
+    assert "dino_session_release_temp_arena" in source
+    assert f"{malloc_name}(&next_temp_arena, target_nbytes)" in source
+    assert "if (required_nbytes == 0)" in source
+    assert "kDinoTempPlanOffsets[selected_temp_plan_index][0]" in source
+    assert "kDinoTempPlanOffsets[selected_temp_plan_index][1]" in source
     assert "session->tmp_" not in source

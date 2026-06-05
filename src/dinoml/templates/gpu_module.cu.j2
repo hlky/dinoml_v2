@@ -30,6 +30,28 @@ extern "C" int libgguf_cuda_dequantize_rows_on_stream(
     void* stream);
 {% endif %}
 
+{% if temp_arena %}
+enum DinoTempArenaAllocationPolicy {
+  DINO_TEMP_ARENA_EAGER_MAX = 0,
+  DINO_TEMP_ARENA_LAZY_EXACT_BUCKET = 1,
+  DINO_TEMP_ARENA_LAZY_GROW = 2,
+};
+
+static constexpr size_t kDinoTempPlanCount = {{ temp_arena.plans|length }};
+static constexpr size_t kDinoTempPlanTemporaryCount = {{ temporaries|length }};
+static constexpr size_t kDinoTempPlanMaxArenaNbytes = {{ temp_arena.max_nbytes }};
+static constexpr size_t kDinoTempPlanArenaNbytes[kDinoTempPlanCount] = {
+{% for plan in temp_arena.plans %}
+  {{ plan.arena_nbytes }}{{ "," if not loop.last else "" }}
+{% endfor %}
+};
+static constexpr size_t kDinoTempPlanOffsets[kDinoTempPlanCount][kDinoTempPlanTemporaryCount] = {
+{% for plan in temp_arena.plans %}
+  { {% for offset in plan.offsets %}{{ offset }}{{ ", " if not loop.last else "" }}{% endfor %} }{{ "," if not loop.last else "" }}
+{% endfor %}
+};
+{% endif %}
+
 struct DinoModule {
   std::string artifact_dir;
   std::string metadata_json;
@@ -69,7 +91,10 @@ struct DinoSession {
 {% endif %}
 {% if temp_arena %}
   void* temp_arena = nullptr;
-  size_t temp_arena_nbytes = {{ temp_arena.nbytes }};
+  size_t temp_arena_capacity_nbytes = 0;
+  size_t temp_arena_required_nbytes = 0;
+  size_t temp_arena_plan_index = 0;
+  int temp_arena_policy = DINO_TEMP_ARENA_EAGER_MAX;
 {% else %}
 {% for temp in temporaries %}
   void* tmp_{{ temp.ident }} = nullptr;
@@ -119,6 +144,91 @@ struct DinoGpuBenchmarkGraph {
     }
   }
 };
+
+{% if temp_arena %}
+static int dino_session_resize_temp_arena(DinoSession* session, size_t target_nbytes) {
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_resize_temp_arena received null session");
+  }
+  if (target_nbytes == session->temp_arena_capacity_nbytes
+      && (target_nbytes == 0 || session->temp_arena != nullptr)) {
+    return 0;
+  }
+  void* next_temp_arena = nullptr;
+  if (target_nbytes > 0) {
+    int alloc_err = {{ runtime_check_function }}(
+        {{ device_malloc }}(&next_temp_arena, target_nbytes),
+        "{{ device_malloc }}(&next_temp_arena, target_nbytes)",
+        __FILE__,
+        __LINE__);
+    if (alloc_err) {
+      return alloc_err;
+    }
+  }
+  if (session->temp_arena != nullptr) {
+    int free_err = {{ runtime_check_function }}(
+        {{ device_free }}(session->temp_arena),
+        "{{ device_free }}(session->temp_arena)",
+        __FILE__,
+        __LINE__);
+    if (free_err) {
+      if (next_temp_arena != nullptr) {
+        {{ device_free }}(next_temp_arena);
+      }
+      return free_err;
+    }
+  }
+  session->temp_arena = next_temp_arena;
+  session->temp_arena_capacity_nbytes = target_nbytes;
+  if (session->temp_arena_required_nbytes > target_nbytes) {
+    session->temp_arena_required_nbytes = target_nbytes;
+  }
+  return 0;
+}
+
+static int dino_session_prepare_temp_arena(
+    DinoSession* session,
+    size_t plan_index,
+    size_t required_nbytes) {
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_prepare_temp_arena received null session");
+  }
+  size_t target_nbytes = 0;
+  switch (session->temp_arena_policy) {
+    case DINO_TEMP_ARENA_EAGER_MAX:
+      target_nbytes = kDinoTempPlanMaxArenaNbytes;
+      break;
+    case DINO_TEMP_ARENA_LAZY_EXACT_BUCKET:
+      target_nbytes = required_nbytes;
+      break;
+    case DINO_TEMP_ARENA_LAZY_GROW:
+      if (required_nbytes == 0) {
+        target_nbytes = 0;
+      } else {
+        target_nbytes = session->temp_arena_capacity_nbytes;
+        if (target_nbytes < required_nbytes) {
+          target_nbytes = required_nbytes;
+        }
+      }
+      break;
+    default:
+      return dinoml::module::fail("Unsupported temp arena allocation policy");
+  }
+  if (target_nbytes < required_nbytes) {
+    return dinoml::module::fail("Temp arena allocation policy produced insufficient capacity");
+  }
+  if (target_nbytes != session->temp_arena_capacity_nbytes
+      || (target_nbytes > 0 && session->temp_arena == nullptr)) {
+    int resize_err = dino_session_resize_temp_arena(session, target_nbytes);
+    if (resize_err) {
+      return resize_err;
+    }
+  }
+  session->temp_arena_required_nbytes = required_nbytes;
+  session->temp_arena_plan_index = plan_index;
+  return 0;
+}
+{% endif %}
 
 {% if states %}
 struct DinoGpuBenchmarkStateSnapshots {
@@ -364,7 +474,10 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->flash_attention_static_kv_cache_scratch, {{ flash_attention_static_kv_cache_scratch.nbytes }}));
 {% endif %}
 {% if temp_arena %}
-  DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->temp_arena, {{ temp_arena.nbytes }}));
+  if (int err = dino_session_prepare_temp_arena(session, 0, 0)) {
+    dino_session_destroy(session);
+    return err;
+  }
 {% else %}
 {% for temp in temporaries %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->tmp_{{ temp.ident }}, {{ temp.nbytes }}));
@@ -447,6 +560,36 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
   delete session;
   return 0;
 }
+
+{% if temp_arena %}
+DINO_EXPORT int dino_session_set_temp_arena_policy(DinoSession* session, int policy) {
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_set_temp_arena_policy received null session");
+  }
+  if (policy != DINO_TEMP_ARENA_EAGER_MAX
+      && policy != DINO_TEMP_ARENA_LAZY_EXACT_BUCKET
+      && policy != DINO_TEMP_ARENA_LAZY_GROW) {
+    return dinoml::module::fail("Unsupported temp arena allocation policy");
+  }
+  session->temp_arena_policy = policy;
+  return dino_session_prepare_temp_arena(
+      session,
+      session->temp_arena_plan_index,
+      session->temp_arena_required_nbytes);
+}
+
+DINO_EXPORT int dino_session_release_temp_arena(DinoSession* session) {
+  if (session == nullptr) {
+    return dinoml::module::fail("dino_session_release_temp_arena received null session");
+  }
+  int release_err = dino_session_resize_temp_arena(session, 0);
+  if (release_err) {
+    return release_err;
+  }
+  session->temp_arena_required_nbytes = 0;
+  return 0;
+}
+{% endif %}
 
 DINO_EXPORT int dino_session_set_stream(DinoSession* session, void* stream) {
   if (session == nullptr) {
@@ -589,6 +732,28 @@ static int dino_session_run_impl(
     return dinoml::module::fail("Constant {{ constant.name }} has not been loaded");
   }
 {% endfor %}
+{% if temp_arena %}
+{% if temp_arena.bucketed %}
+  size_t selected_temp_plan_index = kDinoTempPlanCount;
+{% for plan in temp_arena.plans %}
+  {% if loop.first %}if{% else %}else if{% endif %} ({{ plan.condition }}) {
+    selected_temp_plan_index = {{ plan.index }};
+  }
+{% endfor %}
+  else {
+    return dinoml::module::fail("No matching bucket-specific GPU temp plan for runtime shapes");
+  }
+{% else %}
+  const size_t selected_temp_plan_index = 0;
+{% endif %}
+  const size_t selected_temp_arena_nbytes = kDinoTempPlanArenaNbytes[selected_temp_plan_index];
+  if (int err = dino_session_prepare_temp_arena(
+          session,
+          selected_temp_plan_index,
+          selected_temp_arena_nbytes)) {
+    return err;
+  }
+{% endif %}
   DinoModule* module = session->module;
 {% for pointer in pointer_decls %}
   {{ pointer }}

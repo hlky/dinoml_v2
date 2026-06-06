@@ -17,6 +17,7 @@ from dinoml.models.glm_ocr import (
 from dinoml.shapes import Dim, symbolic_int_expr
 from dinoml.models.glm_ocr.workflow_common import (
     attach_profiling_metadata,
+    enable_flash_attention_bias_for_target,
     equal_interval_buckets as _equal_interval_buckets,
     float_input as _float_input,
     load_glm_ocr_config,
@@ -67,21 +68,27 @@ def build_config(
     cache_variant: str = "none",
     batch_bucket_count: int = 3,
     past_bucket_count: int = 3,
-    use_attention_mask: bool = True,
+    use_attention_mask: bool = False,
+    target: str | None = None,
 ):
     del batch, min_batch, max_batch, past_len, min_past_len, max_past_len
-    del max_cache_len, cache_variant, batch_bucket_count, past_bucket_count, use_attention_mask
+    del max_cache_len, cache_variant, batch_bucket_count, past_bucket_count
     settings = _resolve_settings(
         snapshot=snapshot,
         config_path=config_path,
         checkpoint_path=checkpoint_path,
         dtype=dtype,
     )
-    return load_glm_ocr_config(
+    config = load_glm_ocr_config(
         snapshot=settings.snapshot,
         config_path=settings.config_path,
         checkpoint_path=settings.checkpoint_path,
         dtype=settings.dtype,
+    )
+    return enable_flash_attention_bias_for_target(
+        config,
+        target=target,
+        needs_attention_mask=use_attention_mask,
     )
 
 
@@ -100,8 +107,9 @@ def build_weights(**kwargs):
         "use_attention_mask",
     ):
         kwargs.pop(key, None)
+    target = kwargs.pop("target", None)
     settings = _resolve_settings(**kwargs)
-    config = build_config(**kwargs)
+    config = build_config(**kwargs, target=target)
     return load_glm_ocr_weights(
         config=config,
         snapshot=settings.snapshot,
@@ -127,7 +135,8 @@ def build_spec(
     cache_variant: str = "none",
     batch_bucket_count: int = 3,
     past_bucket_count: int = 3,
-    use_attention_mask: bool = True,
+    use_attention_mask: bool = False,
+    target: str | None = None,
 ) -> ModelSpec:
     settings = _resolve_settings(
         snapshot=snapshot,
@@ -145,7 +154,12 @@ def build_spec(
         past_bucket_count=past_bucket_count,
     )
     variant = _normalize_cache_variant(cache_variant)
-    config = build_config(**settings._asdict())
+    config = build_config(
+        **settings._asdict(),
+        cache_variant=cache_variant,
+        use_attention_mask=use_attention_mask,
+        target=target,
+    )
     weights = build_weights(**settings._asdict())
     batch_dim = Dim(
         "batch",
@@ -185,7 +199,7 @@ def build_spec(
     else:
         inputs["cos"] = dml.TensorSpec([batch_dim, 1, config.text_config.head_dim], config.text_config.dtype)
         inputs["sin"] = dml.TensorSpec([batch_dim, 1, config.text_config.head_dim], config.text_config.dtype)
-        if variant == "none" or use_attention_mask:
+        if use_attention_mask:
             inputs["attention_mask"] = dml.TensorSpec(
                 [batch_heads_dim, 1, total_len_dim],
                 config.text_config.dtype,
@@ -239,7 +253,8 @@ def build_validation_inputs(
     cache_variant: str = "none",
     batch_bucket_count: int = 3,
     past_bucket_count: int = 3,
-    use_attention_mask: bool = True,
+    use_attention_mask: bool = False,
+    target: str | None = None,
 ) -> dict[str, np.ndarray]:
     settings = _resolve_settings(
         snapshot=snapshot,
@@ -257,7 +272,12 @@ def build_validation_inputs(
         past_bucket_count=past_bucket_count,
     )
     variant = _normalize_cache_variant(cache_variant)
-    config = build_config(**settings._asdict())
+    config = build_config(
+        **settings._asdict(),
+        cache_variant=cache_variant,
+        use_attention_mask=use_attention_mask,
+        target=target,
+    )
     rng = np.random.default_rng(20260530)
     batch_size = settings.batch
     total_len = settings.past_len + 1
@@ -272,7 +292,7 @@ def build_validation_inputs(
             config.text_config.dtype,
         ),
     }
-    if variant == "none" or use_attention_mask:
+    if use_attention_mask:
         mask_len = settings.max_cache_len if variant == "session" else total_len
         inputs["attention_mask"] = _float_input(
             np.zeros((batch_size * config.text_config.num_attention_heads, 1, mask_len), dtype=np.float32),
@@ -347,7 +367,7 @@ def _profiling_shape_scenarios(
                 "cos": [int(batch_size), 1, int(config.text_config.head_dim)],
                 "sin": [int(batch_size), 1, int(config.text_config.head_dim)],
             }
-            if cache_variant == "none" or use_attention_mask:
+            if use_attention_mask:
                 overrides["attention_mask"] = [
                     int(batch_size) * int(config.text_config.num_attention_heads),
                     1,

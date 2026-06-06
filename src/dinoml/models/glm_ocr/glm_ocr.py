@@ -11,6 +11,7 @@ import numpy as np
 import dinoml as dml
 from dinoml.ir import array_to_storage, dtype_numpy, normalize_dtype
 from dinoml.models.kv_cache import append_static_kv_cache
+from dinoml.shapes import symbolic_int_expr
 
 
 _GLM_OCR_FLOAT_DTYPES = frozenset({"float16", "float32", "bfloat16"})
@@ -490,9 +491,10 @@ class GlmOcrTextAttention(dml.nn.Module):
         v = dml.ops.permute(v, (0, 2, 1, 3))
         k = _repeat_kv_heads(k, self.config.num_key_value_groups)
         v = _repeat_kv_heads(v, self.config.num_key_value_groups)
-        q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
-        k = dml.ops.reshape(k, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
-        v = dml.ops.reshape(v, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
+        batch_heads = _shape_mul(batch, self.config.num_attention_heads)
+        q = dml.ops.reshape(q, [batch_heads, seq_len, self.config.head_dim])
+        k = dml.ops.reshape(k, [batch_heads, seq_len, self.config.head_dim])
+        v = dml.ops.reshape(v, [batch_heads, seq_len, self.config.head_dim])
         scores = dml.ops.mul(dml.ops.bmm_rcr(q, k), 1.0 / math.sqrt(self.config.head_dim))
         if attention_mask is not None:
             scores = dml.ops.add(scores, attention_mask)
@@ -500,10 +502,11 @@ class GlmOcrTextAttention(dml.nn.Module):
         context = dml.ops.bmm_rrr(probs, v)
         return self._project_attention_output(context, batch, seq_len)
 
-    def _cached_attention_output(self, q, attn_key, attn_value, attention_mask, batch: int, seq_len: int, total_len: int):
-        q = dml.ops.reshape(q, [batch * self.config.num_attention_heads, seq_len, self.config.head_dim])
-        attn_key = dml.ops.reshape(attn_key, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
-        attn_value = dml.ops.reshape(attn_value, [batch * self.config.num_attention_heads, total_len, self.config.head_dim])
+    def _cached_attention_output(self, q, attn_key, attn_value, attention_mask, batch: Any, seq_len: Any, total_len: Any):
+        batch_heads = _shape_mul(batch, self.config.num_attention_heads)
+        q = dml.ops.reshape(q, [batch_heads, seq_len, self.config.head_dim])
+        attn_key = dml.ops.reshape(attn_key, [batch_heads, total_len, self.config.head_dim])
+        attn_value = dml.ops.reshape(attn_value, [batch_heads, total_len, self.config.head_dim])
         scores = dml.ops.mul(dml.ops.bmm_rcr(q, attn_key), 1.0 / math.sqrt(self.config.head_dim))
         if attention_mask is not None:
             scores = dml.ops.add(scores, attention_mask)
@@ -526,7 +529,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         attn_key, attn_value = append_static_kv_cache(past_key, past_value, new_key, new_value)
         attn_key = _repeat_kv_heads(attn_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(attn_value, self.config.num_key_value_groups)
-        total_len = int(attn_key.shape[2])
+        _, _, total_len, _ = _rank4_shape(attn_key.shape_spec, "GLM-OCR cached attention key")
         return self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len)
 
     def forward(self, hidden_states, cos, sin, attention_mask=None):
@@ -537,12 +540,12 @@ class GlmOcrTextAttention(dml.nn.Module):
     def prefill_with_cache(self, hidden_states, cos, sin, attention_mask=None):
         batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
-        present_key = dml.ops.permute0213(k)
-        present_value = dml.ops.permute0213(v)
+        present_key = dml.ops.permute(k, (0, 2, 1, 3))
+        present_value = dml.ops.permute(v, (0, 2, 1, 3))
         return self._attention_output(q, k, v, attention_mask, batch, seq_len), present_key, present_value
 
     def forward_with_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         q = dml.ops.permute(q, (0, 2, 1, 3))
         k = dml.ops.permute(k, (0, 2, 1, 3))
@@ -551,7 +554,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         present_value = dml.ops.concatenate([past_value, v], dim=2)
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
-        total_len = int(attn_key.shape[2])
+        _, _, total_len, _ = _rank4_shape(attn_key.shape_spec, "GLM-OCR cached attention key")
         return (
             self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
             present_key,
@@ -571,7 +574,7 @@ class GlmOcrTextAttention(dml.nn.Module):
         advance_cache_seqlens: bool = False,
     ):
         del cache_seqlens, advance_cache_seqlens
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
@@ -610,7 +613,7 @@ class GlmOcrTextFlashAttention(GlmOcrTextAttention):
         return super()._attention_output(q, k, v, attention_mask, batch, seq_len)
 
     def forward_with_cache(self, hidden_states, cos, sin, past_key, past_value, attention_mask=None):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         q = dml.ops.permute(q, (0, 2, 1, 3))
         k = dml.ops.permute(k, (0, 2, 1, 3))
@@ -633,7 +636,7 @@ class GlmOcrTextFlashAttention(GlmOcrTextAttention):
             return self.o_proj(context), present_key, present_value
         attn_key = _repeat_kv_heads(present_key, self.config.num_key_value_groups)
         attn_value = _repeat_kv_heads(present_value, self.config.num_key_value_groups)
-        total_len = int(attn_key.shape[2])
+        _, _, total_len, _ = _rank4_shape(attn_key.shape_spec, "GLM-OCR cached attention key")
         return (
             self._cached_attention_output(q, attn_key, attn_value, attention_mask, batch, seq_len, total_len),
             present_key,
@@ -652,7 +655,7 @@ class GlmOcrTextFlashAttention(GlmOcrTextAttention):
         *,
         advance_cache_seqlens: bool = False,
     ):
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
@@ -702,7 +705,7 @@ class GlmOcrTextFlashAttention(GlmOcrTextAttention):
     ):
         if cache_seqlens is None:
             raise ValueError("Session static KV cache decode requires cache_seqlens")
-        batch, seq_len, _ = _rank3_shape(hidden_states.shape, "GLM-OCR text hidden_states")
+        batch, seq_len, _ = _rank3_shape(hidden_states.shape_spec, "GLM-OCR text hidden_states")
         q, k, v = self._project_qkv(hidden_states, cos, sin)
         new_key = dml.ops.permute(k, (0, 2, 1, 3))
         new_value = dml.ops.permute(v, (0, 2, 1, 3))
@@ -1010,7 +1013,7 @@ class GlmOcrTextModel(dml.nn.Module):
         max_cache_len: int,
         cache_seqlens=None,
     ):
-        batch, _ = _rank2_shape(input_ids.shape, "GLM-OCR decode input_ids")
+        batch, _ = _rank2_shape(input_ids.shape_spec, "GLM-OCR decode input_ids")
         if cache_seqlens is None:
             cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([batch], "int32"))
         hidden_states = self.embed_tokens(input_ids)
@@ -1319,63 +1322,12 @@ class GlmOcrForConditionalGeneration(dml.nn.Module):
     def forward(self, input_ids, cos, sin, attention_mask=None):
         hidden_states = self.language_model.encode(input_ids, cos, sin, attention_mask)
         if self.logits_to_keep == 1:
-            batch, seq_len, hidden = _rank3_shape(hidden_states.shape, "GLM-OCR hidden_states")
-            hidden_states = dml.ops.dynamic_slice(hidden_states, (0, seq_len - 1, 0), (batch, 1, hidden))
-        logits = self.lm_head(hidden_states)
-        return dml.ops.output(logits, "logits")
-
-
-class GlmOcrForConditionalGenerationImagePrefill(dml.nn.Module):
-    """Single-image multimodal prefill with a fixed contiguous placeholder span."""
-
-    def __init__(
-        self,
-        config: GlmOcrConfig,
-        weights: Mapping[str, np.ndarray],
-        *,
-        image_token_start: int,
-        logits_to_keep: int = 0,
-        vision_cos: object | None = None,
-        vision_sin: object | None = None,
-        text_cos: object | None = None,
-        text_sin: object | None = None,
-        vision_rope_dtype: str = "float32",
-    ):
-        self.config = config
-        self.image_token_start = int(image_token_start)
-        self.logits_to_keep = int(logits_to_keep)
-        if self.image_token_start < 0:
-            raise ValueError("image_token_start must be non-negative")
-        if self.logits_to_keep not in {0, 1}:
-            raise ValueError("GlmOcrForConditionalGenerationImagePrefill currently supports logits_to_keep=0 or 1")
-        self._vision_cos = _optional_constant_parameter("vision_cos", vision_cos, vision_rope_dtype)
-        self._vision_sin = _optional_constant_parameter("vision_sin", vision_sin, vision_rope_dtype)
-        self._text_cos = _optional_constant_parameter("text_cos", text_cos, config.text_config.dtype)
-        self._text_sin = _optional_constant_parameter("text_sin", text_sin, config.text_config.dtype)
-        self.visual = GlmOcrVisionModel(config.vision_config, weights)
-        self.language_model = GlmOcrTextModel(config.text_config, weights)
-        self.lm_head = _loaded_linear(
-            weights,
-            parameter_prefix="lm_head",
-            weight_key="lm_head.weight",
-            in_features=config.text_config.hidden_size,
-            out_features=config.text_config.vocab_size,
-            dtype=config.text_config.dtype,
-        )
-
-    def forward(self, input_ids, pixel_values, vision_cos=None, vision_sin=None, text_cos=None, text_sin=None, attention_mask=None):
-        vision_cos = _prefill_rope_input("vision_cos", vision_cos, self._vision_cos)
-        vision_sin = _prefill_rope_input("vision_sin", vision_sin, self._vision_sin)
-        text_cos = _prefill_rope_input("text_cos", text_cos, self._text_cos)
-        text_sin = _prefill_rope_input("text_sin", text_sin, self._text_sin)
-        _, image_features = self.visual.encode(pixel_values, vision_cos, vision_sin)
-        image_features = dml.ops.unsqueeze(image_features, 0)
-        inputs_embeds = self.language_model.embed_tokens(input_ids)
-        inputs_embeds = dml.ops.slice_scatter(inputs_embeds, image_features, [0, self.image_token_start, 0])
-        hidden_states = self.language_model.encode_inputs_embeds(inputs_embeds, text_cos, text_sin, attention_mask)
-        if self.logits_to_keep == 1:
-            batch, seq_len, hidden = _rank3_shape(hidden_states.shape, "GLM-OCR hidden_states")
-            hidden_states = dml.ops.dynamic_slice(hidden_states, (0, seq_len - 1, 0), (batch, 1, hidden))
+            batch, seq_len, hidden = _rank3_shape(hidden_states.shape_spec, "GLM-OCR hidden_states")
+            hidden_states = dml.ops.dynamic_slice(
+                hidden_states,
+                (0, dml.ops.int_sub(seq_len, 1), 0),
+                (batch, 1, hidden),
+            )
         logits = self.lm_head(hidden_states)
         return dml.ops.output(logits, "logits")
 
@@ -1388,7 +1340,6 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
         config: GlmOcrConfig,
         weights: Mapping[str, np.ndarray],
         *,
-        image_token_start: int,
         logits_to_keep: int = 1,
         vision_cos: object | None = None,
         vision_sin: object | None = None,
@@ -1397,10 +1348,7 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
         vision_rope_dtype: str = "float32",
     ):
         self.config = config
-        self.image_token_start = int(image_token_start)
         self.logits_to_keep = int(logits_to_keep)
-        if self.image_token_start < 0:
-            raise ValueError("image_token_start must be non-negative")
         if self.logits_to_keep not in {0, 1}:
             raise ValueError("GlmOcrForConditionalGenerationImagePrefillWithCache currently supports logits_to_keep=0 or 1")
         self._vision_cos = _optional_constant_parameter("vision_cos", vision_cos, vision_rope_dtype)
@@ -1424,9 +1372,13 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
         text_cos = _prefill_rope_input("text_cos", text_cos, self._text_cos)
         text_sin = _prefill_rope_input("text_sin", text_sin, self._text_sin)
         _, image_features = self.visual.encode(pixel_values, vision_cos, vision_sin)
-        image_features = dml.ops.unsqueeze(image_features, 0)
         inputs_embeds = self.language_model.embed_tokens(input_ids)
-        inputs_embeds = dml.ops.slice_scatter(inputs_embeds, image_features, [0, self.image_token_start, 0])
+        inputs_embeds = dml.ops.glm_ocr_stitch_image_features(
+            input_ids,
+            inputs_embeds,
+            image_features,
+            image_token_id=self.config.image_token_id,
+        )
         hidden_states, present = self.language_model.encode_inputs_embeds_with_cache(
             inputs_embeds,
             text_cos,
@@ -1434,8 +1386,12 @@ class GlmOcrForConditionalGenerationImagePrefillWithCache(dml.nn.Module):
             attention_mask,
         )
         if self.logits_to_keep == 1:
-            batch, seq_len, hidden = _rank3_shape(hidden_states.shape, "GLM-OCR hidden_states")
-            hidden_states = dml.ops.dynamic_slice(hidden_states, (0, seq_len - 1, 0), (batch, 1, hidden))
+            batch, seq_len, hidden = _rank3_shape(hidden_states.shape_spec, "GLM-OCR hidden_states")
+            hidden_states = dml.ops.dynamic_slice(
+                hidden_states,
+                (0, dml.ops.int_sub(seq_len, 1), 0),
+                (batch, 1, hidden),
+            )
         logits = self.lm_head(hidden_states)
         outputs: dict[str, Any] = {"logits": dml.ops.output(logits, "logits")}
         for layer_idx, (present_key, present_value) in enumerate(present):
@@ -1457,7 +1413,7 @@ class GlmOcrForConditionalGenerationDecode(dml.nn.Module):
             dtype=config.text_config.dtype,
         )
 
-    def forward(self, input_ids, cos, sin, attention_mask, **past_key_values):
+    def forward(self, input_ids, cos, sin, attention_mask=None, **past_key_values):
         past = {}
         for layer_idx in range(self.config.text_config.num_hidden_layers):
             past[layer_idx] = (
@@ -1549,7 +1505,7 @@ class GlmOcrForConditionalGenerationDecodeSessionStaticCache(dml.nn.Module):
     def forward(self, input_ids, cos=None, sin=None, attention_mask=None):
         cache_seqlens = None
         if cos is None or sin is None:
-            batch, _ = _rank2_shape(input_ids.shape, "GLM-OCR decode input_ids")
+            batch, _ = _rank2_shape(input_ids.shape_spec, "GLM-OCR decode input_ids")
             cache_seqlens = dml.state("cache_seqlens", dml.TensorSpec([batch], "int32"))
             cos = _decode_rope_input("text_cos", cos, self._text_cos, cache_seqlens)
             sin = _decode_rope_input("text_sin", sin, self._text_sin, cache_seqlens)
@@ -1925,6 +1881,18 @@ def _rank3_shape(shape: Sequence[Any], name: str) -> tuple[Any, Any, Any]:
     return shape[0], shape[1], shape[2]
 
 
+def _rank4_shape(shape: Sequence[Any], name: str) -> tuple[Any, Any, Any, Any]:
+    if len(shape) != 4:
+        raise ValueError(f"{name} must be rank 4")
+    return shape[0], shape[1], shape[2], shape[3]
+
+
+def _shape_mul(value: Any, factor: int) -> Any:
+    if isinstance(value, int):
+        return value * factor
+    return symbolic_int_expr("mul", value, factor)
+
+
 def _require_positive(value: int, name: str, *, allow_zero: bool = False) -> None:
     if not isinstance(value, int) or isinstance(value, bool):
         raise TypeError(f"{name} must be an integer")
@@ -1951,7 +1919,6 @@ __all__ = [
     "GlmOcrForConditionalGenerationDecode",
     "GlmOcrForConditionalGenerationDecodeSessionStaticCache",
     "GlmOcrForConditionalGenerationDecodeStaticCache",
-    "GlmOcrForConditionalGenerationImagePrefill",
     "GlmOcrForConditionalGenerationImagePrefillWithCache",
     "GlmOcrTextConfig",
     "GlmOcrTextModel",

@@ -109,6 +109,7 @@ from dinoml.ops.elementwise import (
     tanh,
 )
 from dinoml.ops.embedding import embedding
+from dinoml.ops.glm_ocr import glm_ocr_stitch_image_features
 from dinoml.ops.gating import swiglu
 from dinoml.ops.gemm import (
     gemm_rcr,
@@ -338,6 +339,7 @@ __all__ = [
     "gemm_rrr_bias_tanh",
     "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
+    "glm_ocr_stitch_image_features",
     "glm_ocr_text_rope",
     "glm_ocr_vision_rope",
     "getitem",

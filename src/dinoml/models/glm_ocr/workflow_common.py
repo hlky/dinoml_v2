@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
@@ -107,3 +108,12 @@ def attach_profiling_metadata(spec: ModelSpec, shape_scenarios: list[dict[str, o
         "shape_scenarios": shape_scenarios,
     }
     return spec
+
+
+def enable_flash_attention_bias_for_target(config, *, target: str | None, needs_attention_mask: bool):
+    if not needs_attention_mask or str(target).lower() != "rocm":
+        return config
+    text_config = getattr(config, "text_config", None)
+    if text_config is None or bool(getattr(text_config, "use_flash_attention_bias", False)):
+        return config
+    return replace(config, text_config=replace(text_config, use_flash_attention_bias=True))

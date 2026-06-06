@@ -33,6 +33,7 @@ from dinoml.lowering.ops.flash_attention import (
 from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gather import GATHER_LOWERING
+from dinoml.lowering.ops.glm_ocr_stitch_image_features import GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING
 from dinoml.lowering.ops.glm_ocr_rope import GLM_OCR_TEXT_ROPE_LOWERING, GLM_OCR_VISION_ROPE_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_LOWERINGS
@@ -81,6 +82,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     GATHER_LOWERING.op_name: GATHER_LOWERING,
+    GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING.op_name: GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING,
     GLM_OCR_TEXT_ROPE_LOWERING.op_name: GLM_OCR_TEXT_ROPE_LOWERING,
     GLM_OCR_VISION_ROPE_LOWERING.op_name: GLM_OCR_VISION_ROPE_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,

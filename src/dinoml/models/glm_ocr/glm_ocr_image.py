@@ -9,7 +9,6 @@ import numpy as np
 import dinoml as dml
 from dinoml.ir import ModelSpec
 from dinoml.models.glm_ocr import (
-    GlmOcrForConditionalGenerationImagePrefill,
     GlmOcrForConditionalGenerationImagePrefillWithCache,
     glm_ocr_rope_index,
     glm_ocr_text_rope_embeddings,
@@ -19,6 +18,7 @@ from dinoml.models.glm_ocr import (
 from dinoml.shapes import Dim
 from dinoml.models.glm_ocr.workflow_common import (
     attach_profiling_metadata,
+    enable_flash_attention_bias_for_target,
     equal_interval_buckets as _equal_interval_buckets,
     float_input as _float_input,
     load_glm_ocr_config,
@@ -70,9 +70,9 @@ def build_config(
     dtype: str = "bfloat16",
     grid_bucket_count: int = 3,
     prompt_bucket_count: int = 3,
-    compile_cache: bool = False,
+    target: str | None = None,
 ):
-    del grid_bucket_count, prompt_bucket_count, compile_cache
+    del grid_bucket_count, prompt_bucket_count
     settings = _resolve_settings(
         snapshot=snapshot,
         config_path=config_path,
@@ -85,20 +85,25 @@ def build_config(
         max_prompt_len=max_prompt_len,
         dtype=dtype,
     )
-    return load_glm_ocr_config(
+    config = load_glm_ocr_config(
         snapshot=settings.snapshot,
         config_path=settings.config_path,
         checkpoint_path=settings.checkpoint_path,
         dtype=settings.dtype,
+    )
+    return enable_flash_attention_bias_for_target(
+        config,
+        target=target,
+        needs_attention_mask=True,
     )
 
 
 def build_weights(**kwargs):
     kwargs.pop("grid_bucket_count", None)
     kwargs.pop("prompt_bucket_count", None)
-    kwargs.pop("compile_cache", None)
+    target = kwargs.pop("target", None)
     settings = _resolve_settings(**kwargs)
-    config = build_config(**kwargs)
+    config = build_config(**kwargs, target=target)
     return load_glm_ocr_weights(
         config=config,
         snapshot=settings.snapshot,
@@ -121,7 +126,7 @@ def build_spec(
     dtype: str = "bfloat16",
     grid_bucket_count: int = 3,
     prompt_bucket_count: int = 3,
-    compile_cache: bool = False,
+    target: str | None = None,
 ) -> ModelSpec:
     settings = _resolve_settings(
         snapshot=snapshot,
@@ -137,7 +142,7 @@ def build_spec(
         grid_bucket_count=grid_bucket_count,
         prompt_bucket_count=prompt_bucket_count,
     )
-    config = build_config(**settings._asdict())
+    config = build_config(**settings._asdict(), target=target)
     merge = config.vision_config.spatial_merge_size
     _validate_dynamic_bounds(settings, merge)
     patch_count, seq_len = _dynamic_shape_dims(settings, merge)
@@ -145,35 +150,28 @@ def build_spec(
     inputs = {
         "input_ids": dml.TensorSpec([1, seq_len], "int64"),
         "pixel_values": dml.TensorSpec([patch_count, config.vision_config.patch_dim], config.vision_config.dtype),
-        "vision_cos": dml.TensorSpec([patch_count, config.vision_config.head_dim], config.vision_config.dtype),
-        "vision_sin": dml.TensorSpec([patch_count, config.vision_config.head_dim], config.vision_config.dtype),
+        "vision_cos": dml.TensorSpec([patch_count, config.vision_config.head_dim], "float32"),
+        "vision_sin": dml.TensorSpec([patch_count, config.vision_config.head_dim], "float32"),
         "text_cos": dml.TensorSpec([1, seq_len, config.text_config.head_dim], config.text_config.dtype),
         "text_sin": dml.TensorSpec([1, seq_len, config.text_config.head_dim], config.text_config.dtype),
     }
-    model_cls = GlmOcrForConditionalGenerationImagePrefill
-    spec_name = "glm_ocr_official_image_prefill_dynamic_shape"
-    logits_to_keep = 0
-    if compile_cache:
-        inputs["attention_mask"] = dml.TensorSpec(
-            [config.text_config.num_attention_heads, seq_len, seq_len],
-            config.text_config.dtype,
-        )
-        model_cls = GlmOcrForConditionalGenerationImagePrefillWithCache
-        spec_name = f"{spec_name}_with_cache"
-        logits_to_keep = 1
+    inputs["attention_mask"] = dml.TensorSpec(
+        [config.text_config.num_attention_heads, seq_len, seq_len],
+        config.text_config.dtype,
+    )
+    spec_name = "glm_ocr_official_image_prefill_dynamic_shape_with_cache"
     spec = dml.trace(
-        model_cls(
+        GlmOcrForConditionalGenerationImagePrefillWithCache(
             config,
             build_weights(**settings._asdict()),
-            image_token_start=1,
-            logits_to_keep=logits_to_keep,
+            logits_to_keep=1,
         ),
         inputs=inputs,
         name=f"{spec_name}_grid{settings.max_grid_thw[0]}x{settings.max_grid_thw[1]}x{settings.max_grid_thw[2]}_s{max_seq_len}",
     )
     return attach_profiling_metadata(
         spec,
-        _profiling_shape_scenarios(settings, config, compile_cache=compile_cache),
+        _profiling_shape_scenarios(settings, config),
     )
 
 
@@ -191,7 +189,7 @@ def build_validation_inputs(
     dtype: str = "bfloat16",
     grid_bucket_count: int = 3,
     prompt_bucket_count: int = 3,
-    compile_cache: bool = False,
+    target: str | None = None,
 ) -> dict[str, np.ndarray]:
     del grid_bucket_count, prompt_bucket_count
     settings = _resolve_settings(
@@ -206,7 +204,7 @@ def build_validation_inputs(
         max_prompt_len=max_prompt_len,
         dtype=dtype,
     )
-    config = build_config(**settings._asdict())
+    config = build_config(**settings._asdict(), target=target)
     image_grid_thw = np.asarray([settings.grid_thw], dtype=np.int64)
     image_feature_count = _image_feature_count(settings.grid_thw, config.vision_config.spatial_merge_size)
     patch_count = int(np.prod(settings.grid_thw))
@@ -243,17 +241,15 @@ def build_validation_inputs(
     inputs = {
         "input_ids": input_ids,
         "pixel_values": _float_input(pixel_values, config.vision_config.dtype),
-        "vision_cos": _float_input(vision_cos, config.vision_config.dtype),
-        "vision_sin": _float_input(vision_sin, config.vision_config.dtype),
+        "vision_cos": _float_input(vision_cos, "float32"),
+        "vision_sin": _float_input(vision_sin, "float32"),
         "text_cos": _float_input(text_cos, config.text_config.dtype),
         "text_sin": _float_input(text_sin, config.text_config.dtype),
     }
-    if compile_cache:
-        attention_mask = np.triu(
-            np.full((config.text_config.num_attention_heads, seq_len, seq_len), -1.0e4, dtype=np.float32),
-            k=1,
-        )
-        inputs["attention_mask"] = _float_input(attention_mask, config.text_config.dtype)
+    # Prefill uses flash_attention_bias(..., causal=True), so this bias tensor only
+    # needs to represent extra masking beyond the causal structure.
+    attention_mask = np.zeros((config.text_config.num_attention_heads, seq_len, seq_len), dtype=np.float32)
+    inputs["attention_mask"] = _float_input(attention_mask, config.text_config.dtype)
     return inputs
 
 
@@ -285,8 +281,6 @@ def _dynamic_shape_dims(settings: WorkflowSettings, merge: int):
 def _profiling_shape_scenarios(
     settings: WorkflowSettings,
     config,
-    *,
-    compile_cache: bool,
 ) -> list[dict[str, object]]:
     merge = int(config.vision_config.spatial_merge_size)
     min_grid_thw = _effective_min_grid_thw(settings, merge)
@@ -342,17 +336,11 @@ def _profiling_shape_scenarios(
                             "vision_sin": [patch_count, int(config.vision_config.head_dim)],
                             "text_cos": [1, seq_len, int(config.text_config.head_dim)],
                             "text_sin": [1, seq_len, int(config.text_config.head_dim)],
-                            **(
-                                {
-                                    "attention_mask": [
-                                        int(config.text_config.num_attention_heads),
-                                        seq_len,
-                                        seq_len,
-                                    ]
-                                }
-                                if compile_cache
-                                else {}
-                            ),
+                            "attention_mask": [
+                                int(config.text_config.num_attention_heads),
+                                seq_len,
+                                seq_len,
+                            ],
                         },
                     }
                 )

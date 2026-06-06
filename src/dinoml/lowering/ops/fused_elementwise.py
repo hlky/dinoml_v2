@@ -405,13 +405,8 @@ def _kernel_arg_names(
 
 
 def _runtime_total_expr(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    for name in node["outputs"]:
-        if tensor_map[name].get("kind") in {"output", "temporary"}:
-            return f"runtime_numel_{_c_ident(name)}"
-    for name in node["inputs"]:
-        if tensor_map[name].get("kind") == "input":
-            return f"runtime_numel_{_c_ident(name)}"
-    return str(_numel(tensor_map[node["outputs"][0]]["shape"]))
+    output_name = str(node["outputs"][0])
+    return f"runtime_numel_{_c_ident(output_name)}"
 
 
 def _null_check(inputs: Sequence[Mapping[str, Any]], outputs: Sequence[Mapping[str, Any]]) -> str:

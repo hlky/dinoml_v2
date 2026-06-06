@@ -139,6 +139,56 @@ def test_session_benchmark_native_records_required_graph_metadata(monkeypatch):
     assert summary["external_stream"] is False
 
 
+def test_session_benchmark_numpy_resolves_dynamic_dims_across_inputs():
+    module = _FakeModule()
+    module.metadata = {
+        "inputs": [
+            {
+                "name": "input_ids",
+                "shape": [1, 1],
+                "shape_spec": [{"kind": "dim", "name": "batch", "min": 1, "max": 2}, 1],
+                "dtype": "int64",
+            },
+            {
+                "name": "attention_mask",
+                "shape": [32, 1, 9],
+                "shape_spec": [
+                    {"kind": "int_expr", "op": "mul", "lhs": {"kind": "dim", "name": "batch", "min": 1, "max": 2}, "rhs": 16},
+                    1,
+                    {"kind": "int_expr", "op": "add", "lhs": {"kind": "dim", "name": "past_len", "min": 1, "max": 8}, "rhs": 1},
+                ],
+                "dtype": "float32",
+            },
+            {
+                "name": "past_key_0",
+                "shape": [2, 8, 8, 4],
+                "shape_spec": [
+                    {"kind": "dim", "name": "batch", "min": 1, "max": 2},
+                    8,
+                    {"kind": "dim", "name": "past_len", "min": 1, "max": 8},
+                    4,
+                ],
+                "dtype": "float32",
+            },
+        ],
+        "outputs": [{"name": "y", "shape": [1], "dtype": "float32"}],
+    }
+    session = _fake_session(module)
+
+    summary = session.benchmark_numpy(
+        {
+            "input_ids": np.zeros((2, 1), dtype=np.int64),
+            "attention_mask": np.zeros((32, 1, 5), dtype=np.float32),
+            "past_key_0": np.zeros((2, 8, 4, 4), dtype=np.float32),
+        },
+        warmup=1,
+        iterations=2,
+    )
+
+    assert summary["count"] == 2
+    assert module.calls[0]["num_inputs"] == 3
+
+
 def test_session_benchmark_rejects_non_positive_iteration_count():
     session = _fake_session()
     input_tensors = (_DinoTensor * 0)()

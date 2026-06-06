@@ -1,11 +1,19 @@
 static int {{ func }}(
     const {{ cpu_storage_type }}* DINO_RESTRICT x,
     {{ cpu_storage_type }}* DINO_RESTRICT y,
-    int64_t runtime_total) {
+    int64_t runtime_total,
+    int64_t runtime_cols) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
+{% if dynamic_cols %}
+  const int64_t cols = runtime_cols;
+{% else %}
   constexpr int64_t cols = {{ cols }};
+{% endif %}
+  if (cols <= 0) {
+    return dino_runtime_fail("{{ func }} received non-positive softmax extent");
+  }
   if (runtime_total % cols != 0) {
     return dino_runtime_fail("{{ func }} received non-row-aligned element count");
   }

@@ -37,6 +37,11 @@ def render_launch(
         f"ptr_{_c_ident(q_out_name)}, ptr_{_c_ident(k_out_name)}, "
         f"runtime_numel_{_c_ident(q_out_name)}, runtime_numel_{_c_ident(k_out_name)}"
     )
+    if op_name == "glm_ocr_text_rope":
+        args = (
+            f"{args}, "
+            f"shape_{_c_ident(q_name)}_1, shape_{_c_ident(k_name)}_1"
+        )
     if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
     return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
@@ -76,7 +81,6 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     if op_name == "glm_ocr_text_rope":
         context.update(
             {
-                "seq_len": int(q_shape[1]),
                 "q_heads": int(q_shape[2]),
                 "k_heads": int(k_shape[2]),
                 "trig_dim": int(cos_shape[-1]),

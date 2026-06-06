@@ -341,7 +341,7 @@ def _build_artifact_from_lowered_ir(
     constant_load_policy: str,
 ) -> Artifact:
     debug_dir = artifact_dir / "debug"
-    lowered_ir = dict(lowered_ir)
+    lowered_ir = _strip_compile_only_metadata(lowered_ir)
 
     execution_plan_config = (
         _execution_plan_compile_config(execution_plan_payload)
@@ -433,6 +433,17 @@ def _build_artifact_from_lowered_ir(
         write_json(artifact_dir / "manifest.json", manifest)
 
     return Artifact(artifact_dir)
+
+
+def _strip_compile_only_metadata(ir: Mapping[str, Any]) -> dict[str, Any]:
+    runtime_ir = dict(ir)
+    metadata = runtime_ir.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return runtime_ir
+    runtime_metadata = dict(metadata)
+    runtime_metadata.pop("profiling", None)
+    runtime_ir["metadata"] = runtime_metadata
+    return runtime_ir
 
 
 def _load_execution_plan(execution_plan: str | Path | Mapping[str, Any] | None) -> dict[str, Any] | None:
@@ -828,6 +839,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") in {"gather", "batch_gather", "embedding"} and len(node.get("inputs", [])) == 2
     }
+    index_tensors.update(
+        node["inputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "glm_ocr_stitch_image_features" and len(node.get("inputs", [])) == 3
+    )
     argmax_input_tensors = {
         node["inputs"][0]
         for node in ir["nodes"]
@@ -924,6 +940,31 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             if output_dtype != table_dtype:
                 raise NotImplementedError(
                     f"Op embedding output dtype {output_dtype} must match table dtype {table_dtype}"
+                )
+            continue
+        if node.get("op") == "glm_ocr_stitch_image_features":
+            index_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            data_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            image_features_dtype = str(tensor_map[node["inputs"][2]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if data_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[data_dtype]}"
+                )
+            if index_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op glm_ocr_stitch_image_features input_ids support dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[index_dtype]}"
+                )
+            if image_features_dtype != data_dtype:
+                raise NotImplementedError(
+                    "Op glm_ocr_stitch_image_features image_features dtype must match "
+                    f"inputs_embeds dtype {data_dtype}, got {image_features_dtype}"
+                )
+            if output_dtype != data_dtype:
+                raise NotImplementedError(
+                    f"Op glm_ocr_stitch_image_features output dtype {output_dtype} must match input dtype {data_dtype}"
                 )
             continue
         if node.get("op") in {"topk_values", "topk_indices"}:

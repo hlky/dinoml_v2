@@ -47,6 +47,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         expected_dtype = inputs[0]["dtype"] if inputs else str(node.get("attrs", {}).get("dtype", tensors[node["outputs"][0]]["dtype"]))
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
+        elif node["op"] == "glm_ocr_stitch_image_features":
+            expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] == "argmax":
             expected_dtype = "int64"
         elif node["op"] == "topk_indices":
@@ -310,8 +312,12 @@ def _dynamic_slice_static_contiguous_view(
     output_tensor: Mapping[str, Any],
 ) -> tuple[str, int] | None:
     attrs = node.get("attrs", {})
-    starts = [int(value) for value in attrs.get("start_indices", [])]
-    sizes = [int(value) for value in attrs.get("slice_sizes", [])]
+    raw_starts = list(attrs.get("start_indices", []))
+    raw_sizes = list(attrs.get("slice_sizes", []))
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in [*raw_starts, *raw_sizes]):
+        return None
+    starts = [int(value) for value in raw_starts]
+    sizes = [int(value) for value in raw_sizes]
     input_shape = [int(dim) for dim in input_tensor["shape"]]
     output_shape = [int(dim) for dim in output_tensor["shape"]]
     if len(starts) != len(input_shape) or len(sizes) != len(input_shape) or sizes != output_shape:

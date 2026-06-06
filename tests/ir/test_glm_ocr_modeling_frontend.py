@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 import dinoml as dml
+from dinoml.shapes import Dim, symbolic_int_expr
 from dinoml.passes.core import shape_type_infer
 from dinoml.passes.validation import validate_ir
 from dinoml.reference import reference_numpy
@@ -19,7 +20,6 @@ from dinoml.models.glm_ocr import (
     GlmOcrForConditionalGenerationDecode,
     GlmOcrForConditionalGenerationDecodeSessionStaticCache,
     GlmOcrForConditionalGenerationDecodeStaticCache,
-    GlmOcrForConditionalGenerationImagePrefill,
     GlmOcrForConditionalGenerationImagePrefillWithCache,
     GlmOcrTextConfig,
     GlmOcrVisionConfig,
@@ -460,6 +460,44 @@ def test_glm_ocr_tiny_decode_trace_appends_kv_cache_and_keeps_one_token_logits()
     assert counts["bmm_rrr"] == 1
 
 
+def test_glm_ocr_tiny_decode_trace_uses_flash_attention_bias_for_dynamic_past_len():
+    base_config = _tiny_config()
+    config = replace(
+        base_config,
+        text_config=replace(base_config.text_config, dtype="bfloat16", use_flash_attention_bias=True),
+    )
+    weights = _tiny_weights(config)
+    model = GlmOcrForConditionalGenerationDecode(config, weights)
+    past_len_dim = Dim("past_len", min=2, max=5, typical=2, buckets=(2, 5))
+    total_len_dim = symbolic_int_expr("add", past_len_dim.to_json(), 1)
+
+    inputs = {
+        "input_ids": dml.TensorSpec([1, 1], "int64"),
+        "cos": dml.TensorSpec([1, 1, config.text_config.head_dim], "bfloat16"),
+        "sin": dml.TensorSpec([1, 1, config.text_config.head_dim], "bfloat16"),
+        "attention_mask": dml.TensorSpec(
+            [config.text_config.num_attention_heads, 1, total_len_dim],
+            "bfloat16",
+        ),
+    }
+    for layer_idx in range(config.text_config.num_hidden_layers):
+        inputs[f"past_key_{layer_idx}"] = dml.TensorSpec(
+            [1, config.text_config.num_key_value_heads, past_len_dim, config.text_config.head_dim],
+            "bfloat16",
+        )
+        inputs[f"past_value_{layer_idx}"] = dml.TensorSpec(
+            [1, config.text_config.num_key_value_heads, past_len_dim, config.text_config.head_dim],
+            "bfloat16",
+        )
+
+    spec = dml.trace(model, inputs=inputs, name="glm_ocr_tiny_decode_dynamic")
+    counts = Counter(node["op"] for node in spec.ir["nodes"])
+
+    assert counts["flash_attention_bias"] == 1
+    assert counts["bmm_rcr"] == 0
+    assert counts["bmm_rrr"] == 0
+
+
 def test_static_kv_cache_helpers_seed_and_update_standard_names():
     spec = StaticKvCacheSpec(
         num_layers=1,
@@ -853,7 +891,7 @@ def test_glm_ocr_tiny_image_prefill_logits_match_transformers():
         k=1,
     )
     spec = dml.trace(
-        GlmOcrForConditionalGenerationImagePrefill(config, weights, image_token_start=1),
+        GlmOcrForConditionalGenerationImagePrefillWithCache(config, weights, logits_to_keep=0),
         inputs={
             "input_ids": dml.TensorSpec([1, seq_len], "int64"),
             "pixel_values": dml.TensorSpec([16, config.vision_config.patch_dim], "float32"),
@@ -913,7 +951,7 @@ def test_glm_ocr_tiny_image_prefill_with_cache_outputs_decode_cache_shapes():
         k=1,
     )
     spec = dml.trace(
-        GlmOcrForConditionalGenerationImagePrefillWithCache(config, weights, image_token_start=1),
+        GlmOcrForConditionalGenerationImagePrefillWithCache(config, weights),
         inputs={
             "input_ids": dml.TensorSpec([1, seq_len], "int64"),
             "pixel_values": dml.TensorSpec([16, config.vision_config.patch_dim], "float32"),
@@ -962,7 +1000,6 @@ def test_glm_ocr_tiny_image_prefill_with_cache_can_bake_rope_constants():
     model = GlmOcrForConditionalGenerationImagePrefillWithCache(
         config,
         weights,
-        image_token_start=1,
         vision_cos=vision_cos,
         vision_sin=vision_sin,
         text_cos=text_cos,

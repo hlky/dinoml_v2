@@ -1,7 +1,10 @@
 static int {{ func }}(
     const {{ storage_type }}* DINO_RESTRICT x,
     {{ storage_type }}* DINO_RESTRICT y,
-    int64_t runtime_numel) {
+    int64_t runtime_numel{% for axis in range(rank) %},
+    int64_t start_{{ axis }},
+    int64_t size_{{ axis }},
+    int64_t stride_{{ axis }}{% endfor %}) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }

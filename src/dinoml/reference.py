@@ -10,6 +10,7 @@ from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims
+from dinoml.shapes import evaluate_symbolic_int
 from dinoml.ops.positional import normalize_get_1d_rotary_pos_embed_attrs
 
 
@@ -119,6 +120,18 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             )
             values[q_name] = _store_reference(q_out, _tensor_dtype(ir, q_name))
             values[k_name] = _store_reference(k_out, _tensor_dtype(ir, k_name))
+        elif node["op"] == "glm_ocr_stitch_image_features":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_glm_ocr_stitch_image_features(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -229,12 +242,17 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
             attrs = node.get("attrs", {})
+            input_name = node["inputs"][0]
+            dim_values = _shape_dim_values(ir, input_name, values[input_name].shape)
             slices = tuple(
-                slice(int(start), int(start) + int(size))
+                slice(
+                    evaluate_symbolic_int(start, dim_values),
+                    evaluate_symbolic_int(start, dim_values) + evaluate_symbolic_int(size, dim_values),
+                )
                 for start, size in zip(attrs.get("start_indices", ()), attrs.get("slice_sizes", ()))
             )
             values[output_name] = _store_reference(
-                values[node["inputs"][0]][slices].copy(),
+                values[input_name][slices].copy(),
                 output_dtype,
             )
         elif node["op"] == "index_select":
@@ -820,6 +838,38 @@ def _execute_glm_ocr_vision_rope(
         return source * cos_value + rotated * sin_value
 
     return apply(q), apply(k)
+
+
+def _execute_glm_ocr_stitch_image_features(
+    input_ids: np.ndarray,
+    inputs_embeds: np.ndarray,
+    image_features: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    image_token_id = int(attrs["image_token_id"])
+    ids = np.asarray(input_ids)
+    embeds = np.asarray(inputs_embeds).copy()
+    features = np.asarray(image_features, dtype=embeds.dtype)
+    if ids.ndim != 2 or embeds.ndim != 3 or features.ndim != 2:
+        raise ValueError("CPU reference glm_ocr_stitch_image_features expects [1, seq], [1, seq, hidden], [image_seq, hidden]")
+    if ids.shape[0] != 1 or embeds.shape[0] != 1:
+        raise ValueError("CPU reference glm_ocr_stitch_image_features currently supports only batch=1")
+    if ids.shape[1] != embeds.shape[1]:
+        raise ValueError("CPU reference glm_ocr_stitch_image_features input_ids and inputs_embeds sequence lengths must match")
+    if features.shape[1] != embeds.shape[2]:
+        raise ValueError("CPU reference glm_ocr_stitch_image_features image_features hidden size must match inputs_embeds")
+    positions = np.flatnonzero(ids[0] == image_token_id)
+    if positions.size != features.shape[0]:
+        raise ValueError(
+            "CPU reference glm_ocr_stitch_image_features token count does not match image_features rows: "
+            f"tokens={positions.size}, features={features.shape[0]}"
+        )
+    if positions.size:
+        expected = np.arange(int(positions[0]), int(positions[0]) + positions.size, dtype=positions.dtype)
+        if not np.array_equal(positions, expected):
+            raise ValueError("CPU reference glm_ocr_stitch_image_features expects a contiguous image token block")
+        embeds[0, positions[0] : positions[0] + positions.size, :] = features
+    return embeds
 
 
 def _execute_swiglu(value: np.ndarray) -> np.ndarray:
@@ -1418,4 +1468,18 @@ def _tensor_shape(ir: Mapping[str, object], tensor_name: str) -> list[int]:
     for tensor in ir["tensors"]:
         if tensor["name"] == tensor_name:
             return [int(dim) for dim in tensor["shape"]]
+    raise KeyError(tensor_name)
+
+
+def _shape_dim_values(ir: Mapping[str, object], tensor_name: str, runtime_shape: Sequence[int]) -> dict[str, int]:
+    for tensor in ir["tensors"]:
+        if tensor["name"] != tensor_name:
+            continue
+        shape_spec = tensor.get("shape_spec", tensor["shape"])
+        dim_values: dict[str, int] = {}
+        for actual, dim_spec in zip(runtime_shape, shape_spec):
+            if not isinstance(dim_spec, Mapping) or dim_spec.get("kind") != "dim":
+                continue
+            dim_values.setdefault(str(dim_spec["name"]), int(actual))
+        return dim_values
     raise KeyError(tensor_name)

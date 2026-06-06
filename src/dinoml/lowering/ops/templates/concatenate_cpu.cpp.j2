@@ -3,7 +3,8 @@ static int {{ func }}(
     const {{ input.storage_type }}* DINO_RESTRICT x{{ loop.index0 }},
 {% endfor %}
     {{ storage_type }}* DINO_RESTRICT y,
-    int64_t runtime_numel) {
+    int64_t runtime_numel{% for param in extra_params %},
+    {{ param }}{% endfor %}) {
   if ({{ null_checks }}) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }

@@ -4,8 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from dinoml.models.glm_ocr.glm_ocr import GlmOcrConfig
 import dinoml.models.glm_ocr.glm_ocr_decode as decode_workflow
 import dinoml.models.glm_ocr.glm_ocr_image as image_workflow
+from dinoml.models.glm_ocr.workflow_common import enable_flash_attention_bias_for_target
 
 
 def test_glm_ocr_equal_interval_buckets_use_even_steps():
@@ -31,7 +33,7 @@ def test_glm_ocr_build_spec_emits_bucketed_grid_and_prompt_profile_scenarios(mon
 
     monkeypatch.setattr(image_workflow, "build_config", lambda **_kwargs: fake_config)
     monkeypatch.setattr(image_workflow, "build_weights", lambda **_kwargs: {})
-    monkeypatch.setattr(image_workflow, "GlmOcrForConditionalGenerationImagePrefill", lambda *args, **kwargs: object())
+    monkeypatch.setattr(image_workflow, "GlmOcrForConditionalGenerationImagePrefillWithCache", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         image_workflow.dml,
         "trace",
@@ -79,6 +81,7 @@ def test_glm_ocr_build_spec_emits_bucketed_grid_and_prompt_profile_scenarios(mon
         "vision_sin": [1024, 64],
         "text_cos": [1, 290, 128],
         "text_sin": [1, 290, 128],
+        "attention_mask": [16, 290, 290],
     }
 
 
@@ -100,7 +103,7 @@ def test_glm_ocr_square_profile_scenarios_require_matching_spatial_bounds(monkey
 
     monkeypatch.setattr(image_workflow, "build_config", lambda **_kwargs: fake_config)
     monkeypatch.setattr(image_workflow, "build_weights", lambda **_kwargs: {})
-    monkeypatch.setattr(image_workflow, "GlmOcrForConditionalGenerationImagePrefill", lambda *args, **kwargs: object())
+    monkeypatch.setattr(image_workflow, "GlmOcrForConditionalGenerationImagePrefillWithCache", lambda *args, **kwargs: object())
     monkeypatch.setattr(
         image_workflow.dml,
         "trace",
@@ -116,7 +119,7 @@ def test_glm_ocr_square_profile_scenarios_require_matching_spatial_bounds(monkey
         )
 
 
-def test_glm_ocr_image_build_spec_can_select_cache_variant(monkeypatch):
+def test_glm_ocr_image_build_spec_always_emits_cache_outputs(monkeypatch):
     fake_config = SimpleNamespace(
         image_token_id=59280,
         vision_config=SimpleNamespace(
@@ -147,7 +150,6 @@ def test_glm_ocr_image_build_spec_can_select_cache_variant(monkeypatch):
         max_grid_thw="1,32,32",
         prompt_len=17,
         max_prompt_len=33,
-        compile_cache=True,
     )
 
     assert "attention_mask" in spec.inputs
@@ -271,3 +273,54 @@ def test_glm_ocr_decode_build_spec_can_select_session_cache_variant(monkeypatch)
     assert "cache_seqlens" not in spec.inputs
     assert "past_key_0" not in spec.inputs
     assert spec.ir["metadata"]["profiling"]["shape_scenarios"][-1]["overrides"]["attention_mask"] == [24, 1, 12]
+
+
+def test_glm_ocr_rocm_masked_workflows_enable_flash_attention_bias():
+    config = GlmOcrConfig()
+
+    image_config = enable_flash_attention_bias_for_target(
+        config,
+        target="rocm",
+        needs_attention_mask=True,
+    )
+    decode_config = enable_flash_attention_bias_for_target(
+        config,
+        target="rocm",
+        needs_attention_mask=True,
+    )
+    cuda_config = enable_flash_attention_bias_for_target(
+        config,
+        target="cuda",
+        needs_attention_mask=True,
+    )
+
+    assert image_config.text_config.use_flash_attention_bias
+    assert decode_config.text_config.use_flash_attention_bias
+    assert not cuda_config.text_config.use_flash_attention_bias
+
+
+@pytest.mark.parametrize(
+    ("workflow", "kwargs"),
+    (
+        (image_workflow, {}),
+        (decode_workflow, {"use_attention_mask": True}),
+    ),
+)
+def test_glm_ocr_workflow_build_config_applies_rocm_flash_attention_bias(monkeypatch, workflow, kwargs):
+    config = GlmOcrConfig()
+
+    monkeypatch.setattr(
+        workflow,
+        "_resolve_settings",
+        lambda **_kwargs: SimpleNamespace(
+            snapshot="unused",
+            config_path="unused",
+            checkpoint_path="unused",
+            dtype="bfloat16",
+        ),
+    )
+    monkeypatch.setattr(workflow, "load_glm_ocr_config", lambda **_kwargs: config)
+
+    resolved = workflow.build_config(snapshot="unused", target="rocm", **kwargs)
+
+    assert resolved.text_config.use_flash_attention_bias

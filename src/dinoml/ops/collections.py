@@ -7,6 +7,7 @@ from dinoml.frontend import Parameter, Tensor, as_tensor
 from dinoml.ops.elementwise import tanh
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 from dinoml.ops.shape_views import reshape
+from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, symbolic_int_expr, symbolic_int_interval
 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
@@ -297,19 +298,23 @@ def normalize_transpose_dims(dim0: Any, dim1: Any, rank: int) -> tuple[int, int]
 def normalize_dynamic_slice_attrs(
     start_indices: Any,
     slice_sizes: Any,
-    input_shape: Sequence[int],
-) -> tuple[list[int], list[int]]:
+    input_shape: Sequence[Any],
+) -> tuple[list[Any], list[Any]]:
     rank = len(input_shape)
-    starts = _normalize_dynamic_slice_int_sequence(start_indices, rank, "start_indices")
-    sizes = _normalize_dynamic_slice_int_sequence(slice_sizes, rank, "slice_sizes")
+    starts = _normalize_dynamic_slice_value_sequence(start_indices, rank, "start_indices")
+    sizes = _normalize_dynamic_slice_value_sequence(slice_sizes, rank, "slice_sizes")
     for axis, (start, size, extent) in enumerate(zip(starts, sizes, input_shape)):
-        if start < 0:
-            raise ValueError(f"dynamic_slice start_indices[{axis}] must be non-negative, got {start}")
-        if size <= 0:
-            raise ValueError(f"dynamic_slice slice_sizes[{axis}] must be positive, got {size}")
-        if start + size > int(extent):
+        start_min, _ = symbolic_int_interval(start)
+        size_min, _ = symbolic_int_interval(size)
+        _, extent_max = symbolic_int_interval(normalize_symbolic_int(extent, f"input_shape[{axis}]"))
+        if start_min < 0:
+            raise ValueError(f"dynamic_slice start_indices[{axis}] must be non-negative, got {start!r}")
+        if size_min <= 0:
+            raise ValueError(f"dynamic_slice slice_sizes[{axis}] must be positive, got {size!r}")
+        _, end_max = symbolic_int_interval(symbolic_int_expr("add", start, size))
+        if end_max > extent_max:
             raise ValueError(
-                f"dynamic_slice axis {axis} start {start} plus size {size} exceeds input dim {int(extent)}"
+                f"dynamic_slice axis {axis} start {start!r} plus size {size!r} exceeds input dim {extent!r}"
             )
     return starts, sizes
 
@@ -498,14 +503,12 @@ def chunk_sections(dim_extent: int, chunks: Any) -> list[int]:
     return normalize_split_sections(chunk_size, extent)
 
 
-def _normalize_dynamic_slice_int_sequence(values: Any, rank: int, name: str) -> list[int]:
+def _normalize_dynamic_slice_value_sequence(values: Any, rank: int, name: str) -> list[Any]:
     if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
-        raise ValueError(f"dynamic_slice {name} must be a sequence of integers, got {values!r}")
-    normalized: list[int] = []
+        raise ValueError(f"dynamic_slice {name} must be a sequence of integers or symbolic dimensions, got {values!r}")
+    normalized: list[Any] = []
     for value in values:
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise ValueError(f"dynamic_slice {name} must contain only integers, got {values!r}")
-        normalized.append(int(value))
+        normalized.append(normalize_symbolic_int(value, f"dynamic_slice {name}"))
     if len(normalized) != rank:
         raise ValueError(f"dynamic_slice {name} length {len(normalized)} must match rank {rank}")
     return normalized
@@ -584,7 +587,7 @@ def resolve_permute_shape(input_shape: Sequence[int], dims: Any) -> list[int]:
 
 def resolve_dynamic_slice_shape(input_shape: Sequence[int], start_indices: Any, slice_sizes: Any) -> list[int]:
     _, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, input_shape)
-    return normalized_sizes
+    return max_shape(normalized_sizes)
 
 
 def resolve_index_select_shape(input_shape: Sequence[int], dim: Any, indices: Any) -> list[int]:
@@ -971,7 +974,7 @@ def concatenate(inputs: Any, dim: int = 0) -> Tensor:
     normalized_dim = normalize_concatenate_dim(dim, tensors[0].rank)
     out_shape = infer_concatenate_shape_with_attrs([tensor.shape for tensor in tensors], {"dim": normalized_dim})
     out_shape_spec = [_copy_shape_dim(dim_spec) for dim_spec in tensors[0].shape_spec]
-    out_shape_spec[normalized_dim] = sum(int(tensor.shape[normalized_dim]) for tensor in tensors)
+    out_shape_spec[normalized_dim] = _sum_shape_dims(tensor.shape_spec[normalized_dim] for tensor in tensors)
     return tensors[0].builder.emit(
         "concatenate",
         tensors,
@@ -1121,20 +1124,19 @@ def dynamic_slice(x: Any, start_indices: Any, slice_sizes: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
         raise ValueError(f"dynamic_slice does not support dtype {tensor.dtype}")
-    if tensor.dynamic:
-        raise ValueError("dynamic_slice currently supports only static input shapes")
-    normalized_starts, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, tensor.shape)
+    normalized_starts, normalized_sizes = normalize_dynamic_slice_attrs(start_indices, slice_sizes, tensor.shape_spec)
     out_shape = infer_dynamic_slice_shape_with_attrs(
         [tensor.shape],
         {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
     )
+    out_shape_spec = normalize_shape(normalized_sizes)
     return tensor.builder.emit(
         "dynamic_slice",
         [tensor],
         out_shape,
         tensor.dtype,
         {"start_indices": normalized_starts, "slice_sizes": normalized_sizes},
-        shape_spec=out_shape,
+        shape_spec=out_shape_spec,
     )
 
 
@@ -1394,6 +1396,16 @@ def _slice_sections(tensor: Tensor, sections: Sequence[int], dim: int) -> tuple[
 
 def _copy_shape_dim(dim: Any) -> Any:
     return dict(dim) if isinstance(dim, Mapping) else dim
+
+
+def _sum_shape_dims(dims: Sequence[Any]) -> Any:
+    items = tuple(_copy_shape_dim(dim) for dim in dims)
+    if all(isinstance(dim, int) for dim in items):
+        return sum(int(dim) for dim in items)
+    total = items[0]
+    for dim in items[1:]:
+        total = symbolic_int_expr("add", total, dim)
+    return total
 
 
 __all__ = [

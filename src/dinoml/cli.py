@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import importlib.util
 import json
 from pathlib import Path
@@ -215,6 +216,7 @@ def _compile(args: argparse.Namespace) -> int:
     if not hasattr(module, "build_spec"):
         raise RuntimeError(f"{args.model} must define build_spec()")
     build_spec_kwargs = parse_build_spec_kwargs(args.build_spec_kwargs)
+    build_spec_kwargs = _with_compile_context_kwargs(module.build_spec, args, build_spec_kwargs)
     print(f"[dml.compile] Building spec")
     start = time.time()
     spec = module.build_spec(**build_spec_kwargs)
@@ -374,6 +376,20 @@ def _benchmark(args: argparse.Namespace) -> int:
         out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
+
+
+def _with_compile_context_kwargs(build_spec_fn, args: argparse.Namespace, kwargs: dict[str, object]) -> dict[str, object]:
+    accepted = inspect.signature(build_spec_fn).parameters
+    enriched = dict(kwargs)
+    if "target" in accepted and "target" not in enriched:
+        enriched["target"] = args.target
+    if "arch" in accepted and "arch" not in enriched and args.arch is not None:
+        enriched["arch"] = args.arch
+    if "no_tf32" in accepted and "no_tf32" not in enriched:
+        enriched["no_tf32"] = args.no_tf32
+    if "use_fp16_acc" in accepted and "use_fp16_acc" not in enriched:
+        enriched["use_fp16_acc"] = args.use_fp16_acc
+    return enriched
 
 
 def _benchmark_ops(args: argparse.Namespace) -> int:

@@ -27,6 +27,7 @@ from dinoml.ops.positional import (
     normalize_get_1d_rotary_pos_embed_attrs,
     rotary_output_cols,
 )
+from dinoml.ops.glm_ocr import GLM_OCR_STITCH_IMAGE_FEATURES_DTYPES
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import is_dynamic_shape, validate_shape_spec
 
@@ -221,6 +222,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
         _validate_glm_ocr_rope_node(node, inputs, tensors)
+        return
+    if node["op"] == "glm_ocr_stitch_image_features":
+        _validate_glm_ocr_stitch_image_features_node(node, inputs, tensors)
         return
     if node["op"] in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         _validate_flash_attention_static_kv_cache_node(node, inputs, tensors)
@@ -730,6 +734,52 @@ def _validate_glm_ocr_rope_node(
         raise ValidationError(f"{op_name} output dtype must match q/k dtype")
 
 
+def _validate_glm_ocr_stitch_image_features_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError("glm_ocr_stitch_image_features expects exactly one output")
+    if len(inputs) != 3:
+        raise ValidationError("glm_ocr_stitch_image_features expects exactly three inputs")
+    input_ids_tensor, inputs_embeds_tensor, image_features_tensor = inputs
+    output_name = node["outputs"][0]
+    output_tensor = tensors[output_name]
+    if len(input_ids_tensor["shape"]) != 2:
+        raise ValidationError("glm_ocr_stitch_image_features expects input_ids with shape [batch, seq]")
+    if len(inputs_embeds_tensor["shape"]) != 3:
+        raise ValidationError("glm_ocr_stitch_image_features expects inputs_embeds with shape [batch, seq, hidden]")
+    if len(image_features_tensor["shape"]) != 2:
+        raise ValidationError("glm_ocr_stitch_image_features expects image_features with shape [image_seq, hidden]")
+    if int(input_ids_tensor["shape"][0]) != 1 or int(inputs_embeds_tensor["shape"][0]) != 1:
+        raise ValidationError("glm_ocr_stitch_image_features currently supports only batch=1")
+    if int(input_ids_tensor["shape"][1]) != int(inputs_embeds_tensor["shape"][1]):
+        raise ValidationError(
+            "glm_ocr_stitch_image_features input_ids and inputs_embeds sequence lengths must match"
+        )
+    if int(inputs_embeds_tensor["shape"][2]) != int(image_features_tensor["shape"][1]):
+        raise ValidationError(
+            "glm_ocr_stitch_image_features image_features hidden size must match inputs_embeds"
+        )
+    if str(input_ids_tensor["dtype"]) not in {"int64", "int32"}:
+        raise ValidationError(
+            f"glm_ocr_stitch_image_features input_ids must have dtype int64 or int32, got {input_ids_tensor['dtype']}"
+        )
+    data_dtype = str(inputs_embeds_tensor["dtype"])
+    if data_dtype not in GLM_OCR_STITCH_IMAGE_FEATURES_DTYPES:
+        raise ValidationError(f"glm_ocr_stitch_image_features does not support dtype {data_dtype}")
+    if str(image_features_tensor["dtype"]) != data_dtype:
+        raise ValidationError("glm_ocr_stitch_image_features image_features dtype must match inputs_embeds")
+    if str(output_tensor["dtype"]) != data_dtype:
+        raise ValidationError("glm_ocr_stitch_image_features output dtype must match inputs_embeds")
+    if list(output_tensor["shape"]) != list(inputs_embeds_tensor["shape"]):
+        raise ValidationError("glm_ocr_stitch_image_features output shape must match inputs_embeds")
+    image_token_id = node.get("attrs", {}).get("image_token_id")
+    if not isinstance(image_token_id, int) or isinstance(image_token_id, bool):
+        raise ValidationError("glm_ocr_stitch_image_features requires integer image_token_id attr")
+
+
 def _validate_flash_attention_static_kv_cache_node(
     node: Mapping[str, Any],
     inputs: Sequence[Mapping[str, Any]],
@@ -794,6 +844,7 @@ def _validate_collection_node(
         "concatenate",
         "concatenate_fast",
         "concatenate_tanh",
+        "dynamic_slice",
         "index_select",
         "permute",
         "permute021",
@@ -801,6 +852,7 @@ def _validate_collection_node(
         "permute102",
         "permute210",
         "slice_scatter",
+        "softmax",
         "stack",
     }
     if dynamic_tensors and op_name not in dynamic_shape_allowed_ops:

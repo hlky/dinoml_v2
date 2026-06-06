@@ -4,8 +4,8 @@ __device__ void {{ func }}_apply_text_rope(
     const {{ trig_storage_type }}* DINO_RESTRICT sin,
     {{ storage_type }}* DINO_RESTRICT output,
     int64_t elem,
+    int64_t seq_len,
     int64_t heads) {
-  constexpr int64_t seq_len = {{ seq_len }};
   constexpr int64_t head_dim = {{ head_dim }};
   constexpr int64_t trig_dim = {{ trig_dim }};
   constexpr int64_t rotary_dim = {{ rotary_dim }};
@@ -34,13 +34,15 @@ __global__ void {{ kernel }}(
     {{ storage_type }}* DINO_RESTRICT q_out,
     {{ storage_type }}* DINO_RESTRICT k_out,
     int64_t q_total,
-    int64_t k_total) {
+    int64_t k_total,
+    int64_t q_seq_len,
+    int64_t k_seq_len) {
   const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
   if (idx < q_total) {
-    {{ func }}_apply_text_rope(q, cos, sin, q_out, idx, {{ q_heads }});
+    {{ func }}_apply_text_rope(q, cos, sin, q_out, idx, q_seq_len, {{ q_heads }});
   }
   if (idx < k_total) {
-    {{ func }}_apply_text_rope(k, cos, sin, k_out, idx, {{ k_heads }});
+    {{ func }}_apply_text_rope(k, cos, sin, k_out, idx, k_seq_len, {{ k_heads }});
   }
 }
 
@@ -53,6 +55,8 @@ static int {{ func }}(
     {{ storage_type }}* DINO_RESTRICT k_out,
     int64_t q_total,
     int64_t k_total,
+    int64_t q_seq_len,
+    int64_t k_seq_len,
     {{ gpu_stream_type }} stream) {
   if (q == nullptr || k == nullptr || cos == nullptr || sin == nullptr || q_out == nullptr || k_out == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
@@ -60,7 +64,7 @@ static int {{ func }}(
   const int threads = 256;
   const int64_t total = q_total > k_total ? q_total : k_total;
   const int blocks = static_cast<int>((total + threads - 1) / threads);
-  {{ kernel }}<<<blocks, threads, 0, stream>>>(q, k, cos, sin, q_out, k_out, q_total, k_total);
+  {{ kernel }}<<<blocks, threads, 0, stream>>>(q, k, cos, sin, q_out, k_out, q_total, k_total, q_seq_len, k_seq_len);
   {{ gpu_check_macro }}({{ gpu_last_error_call }});
   return 0;
 }

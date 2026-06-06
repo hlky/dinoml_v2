@@ -153,8 +153,13 @@ __global__ void {{ warp_kernel }}(
 __global__ void {{ kernel }}(
     const {{ storage_type }}* DINO_RESTRICT x,
     {{ storage_type }}* DINO_RESTRICT y,
-    int64_t rows) {
+    int64_t rows,
+    int64_t runtime_cols) {
+{% if dynamic_cols %}
+  const int64_t cols = runtime_cols;
+{% else %}
   constexpr int64_t cols = {{ cols }};
+{% endif %}
   extern __shared__ float shared[];
   const int row = static_cast<int>(blockIdx.x);
   if (row >= rows) {
@@ -204,11 +209,19 @@ static int {{ func }}(
     const {{ storage_type }}* DINO_RESTRICT x,
     {{ storage_type }}* DINO_RESTRICT y,
     int64_t runtime_total,
+    int64_t runtime_cols,
     {{ gpu_stream_type }} stream) {
   if (x == nullptr || y == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
+{% if dynamic_cols %}
+  const int64_t cols = runtime_cols;
+{% else %}
   constexpr int64_t cols = {{ cols }};
+{% endif %}
+  if (cols <= 0) {
+    return dino_runtime_fail("{{ func }} received non-positive softmax extent");
+  }
   if (runtime_total % cols != 0) {
     return dino_runtime_fail("{{ func }} received non-row-aligned element count");
   }
@@ -223,7 +236,7 @@ static int {{ func }}(
   {{ warp_kernel }}<<<grid, block, 0, stream>>>(x, y, rows);
 {% else %}
   const int block = {{ block_size }};
-  {{ kernel }}<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>(x, y, rows);
+  {{ kernel }}<<<static_cast<unsigned int>(rows), block, block * sizeof(float), stream>>>(x, y, rows, cols);
 {% endif %}
   {{ gpu_check_macro }}({{ gpu_last_error_call }});
   return 0;

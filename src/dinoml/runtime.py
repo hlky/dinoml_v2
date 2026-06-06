@@ -27,7 +27,7 @@ from dinoml.constant_sources import (
     gguf_constant_policy_status,
     materialize_gguf_encoded_constant,
 )
-from dinoml.shapes import infer_output_shape, validate_runtime_shape
+from dinoml.shapes import infer_output_shape, validate_runtime_input_shapes, validate_runtime_shape
 
 
 class _DinoTensor(ctypes.Structure):
@@ -1223,12 +1223,16 @@ class Session:
         resolved_input_shapes: dict[str, tuple[int, ...]] = {}
         resolved_output_shapes: dict[str, tuple[int, ...]] = {}
         input_tensors = (_DinoTensor * len(input_specs))()
+        provided_input_shapes = {
+            str(spec["name"]): tuple(int(dim) for dim in (input_shapes or {}).get(str(spec["name"]), spec["shape"]))
+            for spec in input_specs
+        }
+        validate_runtime_input_shapes(input_specs, provided_input_shapes)
         for idx, spec in enumerate(input_specs):
             name = str(spec["name"])
             if name not in inputs:
                 raise ValueError(f"Missing input pointer: {name}")
-            actual_shape = tuple(int(dim) for dim in (input_shapes or {}).get(name, spec["shape"]))
-            validate_runtime_shape(name, actual_shape, spec)
+            actual_shape = provided_input_shapes[name]
             resolved_input_shapes[name] = actual_shape
             tensor, keepalive = _make_dino_tensor(
                 ctypes.c_void_p(int(inputs[name])),
@@ -1244,11 +1248,15 @@ class Session:
             name = str(spec["name"])
             if name not in outputs:
                 raise ValueError(f"Missing output pointer: {name}")
+            expected_shape = infer_output_shape(spec, input_specs, resolved_input_shapes)
             if output_shapes is not None and name in output_shapes:
                 actual_shape = tuple(int(dim) for dim in output_shapes[name])
+                if actual_shape != expected_shape:
+                    raise ValueError(
+                        f"{name} has shape {actual_shape}, expected inferred output shape {expected_shape}"
+                    )
             else:
-                actual_shape = infer_output_shape(spec, input_specs, resolved_input_shapes)
-            validate_runtime_shape(name, actual_shape, spec)
+                actual_shape = expected_shape
             resolved_output_shapes[name] = actual_shape
             tensor, keepalive = _make_dino_tensor(
                 ctypes.c_void_p(int(outputs[name])),
@@ -1410,8 +1418,7 @@ class Session:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
-        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
-        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        input_arrays, input_shapes = _prepare_inputs(input_specs, inputs)
         output_arrays = [
             np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
@@ -1458,8 +1465,7 @@ class Session:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
-        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
-        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        input_arrays, input_shapes = _prepare_inputs(input_specs, inputs)
         output_arrays = [
             np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
@@ -1517,8 +1523,7 @@ class Session:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
-        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
-        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        input_arrays, input_shapes = _prepare_inputs(input_specs, inputs)
         output_arrays = [
             np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
@@ -1570,8 +1575,7 @@ class Session:
         input_specs = self.module.metadata["inputs"]
         output_specs = self.module.metadata["outputs"]
         _reject_unexpected_keys(inputs, [str(spec["name"]) for spec in input_specs], "input")
-        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
-        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        input_arrays, input_shapes = _prepare_inputs(input_specs, inputs)
         output_arrays = [
             np.empty(infer_output_shape(spec, input_specs, input_shapes), dtype=dtype_numpy(str(spec["dtype"])))
             for spec in output_specs
@@ -1642,8 +1646,7 @@ class Session:
         _reject_unknown_names(device_outputs, output_names, "device output")
         host_output_names = set(host_outputs)
         device_output_names = set(device_outputs)
-        input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
-        input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+        input_arrays, input_shapes = _prepare_inputs(input_specs, inputs)
         output_shapes = {
             str(spec["name"]): infer_output_shape(spec, input_specs, input_shapes)
             for spec in output_specs
@@ -1844,9 +1847,17 @@ def _prepare_input(spec: Mapping[str, object], inputs: Mapping[str, np.ndarray])
     name = str(spec["name"])
     if name not in inputs:
         raise ValueError(f"Missing input: {name}")
-    array = array_to_storage(inputs[name], str(spec["dtype"]))
-    validate_runtime_shape(name, array.shape, spec)
-    return array
+    return array_to_storage(inputs[name], str(spec["dtype"]))
+
+
+def _prepare_inputs(
+    input_specs: Sequence[Mapping[str, object]],
+    inputs: Mapping[str, np.ndarray],
+) -> tuple[list[np.ndarray], dict[str, tuple[int, ...]]]:
+    input_arrays = [_prepare_input(spec, inputs) for spec in input_specs]
+    input_shapes = {str(spec["name"]): array.shape for spec, array in zip(input_specs, input_arrays)}
+    validate_runtime_input_shapes(input_specs, input_shapes)
+    return input_arrays, input_shapes
 
 
 def _require_mapping(mapping: object, label: str) -> None:

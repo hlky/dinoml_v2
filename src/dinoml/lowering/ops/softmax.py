@@ -36,7 +36,8 @@ def render_launch(
     func = _function_name(node, tensor_map)
     inp = _c_ident(node["inputs"][0])
     out = _c_ident(node["outputs"][0])
-    args = f"ptr_{inp}, ptr_{out}, runtime_numel_{out}"
+    rank = len(tensor_map[node["inputs"][0]]["shape"])
+    args = f"ptr_{inp}, ptr_{out}, runtime_numel_{out}, shape_{inp}_{rank - 1}"
     if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
     return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
@@ -59,10 +60,11 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[output_name]
     _validate_node_contract(node, input_tensor, output_tensor)
     cols = int(input_tensor["shape"][-1])
+    dynamic_cols = not isinstance(input_tensor.get("shape_spec", input_tensor["shape"])[-1], int)
     dtype = str(input_tensor["dtype"])
-    pack_width = _cuda_pack_width(cols) if dtype == "float32" else 1
+    pack_width = _cuda_pack_width(cols) if dtype == "float32" and not dynamic_cols else 1
     use_packed_kernel = pack_width > 1
-    use_warp_kernel = not use_packed_kernel and cols <= 2048
+    use_warp_kernel = not dynamic_cols and not use_packed_kernel and cols <= 2048
     return {
         "func": _function_name(node, tensor_map),
         "kernel": f"{_function_name(node, tensor_map)}_kernel",
@@ -71,6 +73,7 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "cpu_storage_type": target_storage_type(dtype, "cpu"),
         "storage_type": target_storage_type(dtype, target),
         "cols": cols,
+        "dynamic_cols": dynamic_cols,
         "num_packs": cols // pack_width,
         "pack_type": "float4" if pack_width == 4 else "float2",
         "pack_width": pack_width,
@@ -106,8 +109,8 @@ def _validate_node_contract(
         raise NotImplementedError("softmax lowering currently supports only the last dimension")
     shape_spec = input_tensor.get("shape_spec", input_tensor["shape"])
     cols = input_tensor["shape"][-1]
-    if not isinstance(shape_spec[-1], int) or not isinstance(cols, int) or int(cols) <= 0:
-        raise ValueError("softmax lowering requires a positive static last dimension")
+    if not isinstance(cols, int) or int(cols) <= 0:
+        raise ValueError("softmax lowering requires a positive last-dimension max shape")
 
 
 def _cuda_block_size(cols: int) -> int:
@@ -139,6 +142,7 @@ def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str
     signature = {
         "op": "softmax",
         "shape": list(input_tensor["shape"]),
+        "shape_spec": list(input_tensor.get("shape_spec", input_tensor["shape"])),
         "dtype": str(input_tensor["dtype"]),
         "dim": dim,
     }

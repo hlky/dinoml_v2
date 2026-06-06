@@ -4,8 +4,8 @@ static void {{ func }}_apply(
     const {{ cpu_trig_storage_type }}* DINO_RESTRICT sin,
     {{ cpu_storage_type }}* DINO_RESTRICT output,
     int64_t total,
+    int64_t seq_len,
     int64_t heads) {
-  constexpr int64_t seq_len = {{ seq_len }};
   constexpr int64_t head_dim = {{ head_dim }};
   constexpr int64_t trig_dim = {{ trig_dim }};
   constexpr int64_t rotary_dim = {{ rotary_dim }};
@@ -36,11 +36,13 @@ static int {{ func }}(
     {{ cpu_storage_type }}* DINO_RESTRICT q_out,
     {{ cpu_storage_type }}* DINO_RESTRICT k_out,
     int64_t q_total,
-    int64_t k_total) {
+    int64_t k_total,
+    int64_t q_seq_len,
+    int64_t k_seq_len) {
   if (q == nullptr || k == nullptr || cos == nullptr || sin == nullptr || q_out == nullptr || k_out == nullptr) {
     return dino_runtime_fail("{{ func }} received null pointer");
   }
-  {{ func }}_apply(q, cos, sin, q_out, q_total, {{ q_heads }});
-  {{ func }}_apply(k, cos, sin, k_out, k_total, {{ k_heads }});
+  {{ func }}_apply(q, cos, sin, q_out, q_total, q_seq_len, {{ q_heads }});
+  {{ func }}_apply(k, cos, sin, k_out, k_total, k_seq_len, {{ k_heads }});
   return 0;
 }

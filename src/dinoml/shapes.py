@@ -367,17 +367,64 @@ def validate_runtime_shape(name: str, shape: Iterable[int], spec: Mapping[str, A
     return actual_shape
 
 
+def validate_runtime_input_shapes(
+    input_specs: Sequence[Mapping[str, Any]],
+    input_shapes: Mapping[str, Iterable[int]],
+) -> dict[str, tuple[int, ...]]:
+    actual_shapes: dict[str, tuple[int, ...]] = {}
+    dim_values: dict[str, int] = {}
+    pending_exprs: list[tuple[str, int, int, Mapping[str, Any]]] = []
+    for spec in input_specs:
+        input_name = str(spec["name"])
+        if input_name not in input_shapes:
+            raise ValueError(f"Missing runtime shape for input {input_name}")
+        actual_shape = runtime_shape_tuple(input_shapes[input_name])
+        shape_spec = spec.get("shape_spec", spec["shape"])
+        if len(actual_shape) != len(shape_spec):
+            raise ValueError(f"{input_name} rank mismatch: got {len(actual_shape)}, expected {len(shape_spec)}")
+        actual_shapes[input_name] = actual_shape
+        for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
+            if isinstance(dim_spec, int):
+                if actual != int(dim_spec):
+                    raise ValueError(f"{input_name} axis {axis} has dim {actual}, expected static dim {dim_spec}")
+                continue
+            if dim_spec.get("kind") == _INT_EXPR_KIND:
+                pending_exprs.append((input_name, axis, int(actual), dim_spec))
+                continue
+            dim_name = str(dim_spec["name"])
+            min_dim = int(dim_spec["min"])
+            max_dim = int(dim_spec["max"])
+            divisible_by = int(dim_spec.get("divisible_by", 1))
+            if actual < min_dim or actual > max_dim:
+                raise ValueError(f"{input_name} axis {axis} ({dim_name}) has dim {actual}, expected [{min_dim}, {max_dim}]")
+            if actual % divisible_by != 0:
+                raise ValueError(f"{input_name} axis {axis} ({dim_name}) has dim {actual}, expected divisible by {divisible_by}")
+            existing = dim_values.get(dim_name)
+            if existing is not None and existing != int(actual):
+                raise ValueError(
+                    f"Dynamic dimension {dim_name} has inconsistent values {existing} and {actual} "
+                    f"while reading input {input_name} axis {axis}"
+                )
+            dim_values[dim_name] = int(actual)
+    for input_name, axis, actual, dim_spec in pending_exprs:
+        expected = evaluate_symbolic_int(dim_spec, dim_values)
+        if expected <= 0:
+            raise ValueError(f"{input_name} axis {axis} symbolic expression evaluated to non-positive dim {expected}")
+        if actual != expected:
+            raise ValueError(f"{input_name} axis {axis} has dim {actual}, expected symbolic dim {expected}")
+    return actual_shapes
+
+
 def infer_output_shape(
     output_spec: Mapping[str, Any],
     input_specs: Sequence[Mapping[str, Any]],
     input_shapes: Mapping[str, Iterable[int]],
 ) -> tuple[int, ...]:
     dim_values: dict[str, int] = {}
+    actual_shapes = validate_runtime_input_shapes(input_specs, input_shapes)
     for spec in input_specs:
         input_name = str(spec["name"])
-        if input_name not in input_shapes:
-            raise ValueError(f"Missing runtime shape for input {input_name}")
-        actual_shape = validate_runtime_shape(input_name, input_shapes[input_name], spec)
+        actual_shape = actual_shapes[input_name]
         shape_spec = spec.get("shape_spec", spec["shape"])
         for axis, (actual, dim_spec) in enumerate(zip(actual_shape, shape_spec)):
             if isinstance(dim_spec, int):

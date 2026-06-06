@@ -34,7 +34,10 @@ def render_launch(
     func = _function_name(node, tensor_map)
     inputs = ", ".join(f"ptr_{_c_ident(name)}" for name in node["inputs"])
     out = _c_ident(node["outputs"][0])
+    extra_args = _launch_args(node, tensor_map)
     args = f"{inputs}, ptr_{out}, runtime_numel_{out}"
+    if extra_args:
+        args = f"{args}, {', '.join(extra_args)}"
     if not spec.is_gpu:
         return f"if (int err = {func}({args})) return err;"
     return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
@@ -63,7 +66,8 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
         "input_params": _input_params(node, storage_type),
         "input_args": _input_args(node),
         "null_checks": _null_checks(node),
-        "copy_body": _copy_body(input_tensors, output_tensor, dim),
+        "extra_params": _extra_params(node),
+        "copy_body": _copy_body(input_tensors, dim),
         "block_size": 256,
     }
 
@@ -104,30 +108,43 @@ def _null_checks(node: Mapping[str, Any]) -> str:
     return " || ".join(f"{name} == nullptr" for name in names)
 
 
-def _copy_body(input_tensors: list[Mapping[str, Any]], output_tensor: Mapping[str, Any], dim: int) -> str:
-    output_shape = [int(axis) for axis in output_tensor["shape"]]
-    inner = 1
-    for axis in output_shape[dim + 1 :]:
-        inner *= int(axis)
-    concat_extent = int(output_shape[dim])
+def _copy_body(input_tensors: list[Mapping[str, Any]], dim: int) -> str:
     lines = [
-        f"  const int64_t inner = {inner};",
-        f"  const int64_t concat_extent = {concat_extent};",
         "  const int64_t inner_idx = idx % inner;",
         "  const int64_t concat_idx = (idx / inner) % concat_extent;",
         "  const int64_t outer_idx = idx / (inner * concat_extent);",
     ]
-    offset = 0
-    for index, tensor in enumerate(input_tensors):
-        axis_extent = int(tensor["shape"][dim])
+    offset_expr = "0"
+    for index, _tensor in enumerate(input_tensors):
+        axis_extent = f"extent_{index}"
         prefix = "if" if index == 0 else "else if"
-        lines.append(f"  {prefix} (concat_idx < {offset + axis_extent}) {{")
+        lines.append(f"  {prefix} (concat_idx < ({offset_expr} + {axis_extent})) {{")
         lines.append(
-            f"    y[idx] = x{index}[(outer_idx * {axis_extent} + (concat_idx - {offset})) * inner + inner_idx];"
+            f"    y[idx] = x{index}[(outer_idx * {axis_extent} + (concat_idx - ({offset_expr}))) * inner + inner_idx];"
         )
         lines.append("  }")
-        offset += axis_extent
+        offset_expr = f"({offset_expr} + {axis_extent})"
     return "\n".join(lines)
+
+
+def _extra_params(node: Mapping[str, Any]) -> list[str]:
+    params = ["int64_t concat_extent", "int64_t inner"]
+    params.extend(f"int64_t extent_{idx}" for idx, _ in enumerate(node["inputs"]))
+    return params
+
+
+def _launch_args(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> list[str]:
+    input_tensors = [tensor_map[name] for name in node["inputs"]]
+    output_tensor = tensor_map[node["outputs"][0]]
+    dim = _validate_node_contract(node, input_tensors, output_tensor)
+    output_ident = _c_ident(str(node["outputs"][0]))
+    args = [f"shape_{output_ident}_{dim}"]
+    inner_terms = [f"shape_{output_ident}_{axis}" for axis in range(dim + 1, len(output_tensor["shape"]))]
+    args.append(" * ".join(inner_terms) if inner_terms else "1")
+    for name in node["inputs"]:
+        input_ident = _c_ident(str(name))
+        args.append(f"shape_{input_ident}_{dim}")
+    return args
 
 
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:

@@ -28,8 +28,7 @@ class Softmax(OpDef):
     allowed_dtypes = ("float16", "float32", "bfloat16")
     description = (
         "Dense float16, float32, and bfloat16 softmax over the last dimension. "
-        "Initial v2 port requires a static last-axis reduction extent and uses "
-        "fp32 computation for reduced-precision storage."
+        "Uses fp32 computation for reduced-precision storage."
     )
 
     @classmethod
@@ -43,8 +42,6 @@ class Softmax(OpDef):
         axis = _normalize_axis(dim, rank)
         if axis != rank - 1:
             raise NotImplementedError("softmax currently supports only the last dimension")
-        if not isinstance(tensor.shape_spec[axis], int):
-            raise ValueError("softmax currently requires a static last dimension")
         if int(tensor.shape[axis]) <= 0:
             raise ValueError("softmax last dimension must be positive")
         return tensor.builder.emit("softmax", [tensor], tensor.shape, tensor.dtype, {"dim": axis}, shape_spec=tensor.shape_spec)

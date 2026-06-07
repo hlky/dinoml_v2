@@ -175,6 +175,7 @@ inline float run_candidate(
         int,
         int,
         int,
+        int,
         hipStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         x,
@@ -205,6 +206,7 @@ inline float run_candidate(
       const void*,
       const void*,
       void*,
+      int,
       int,
       int,
       int,

@@ -72,6 +72,25 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def load_stop_token_ids(snapshot: Path, processor) -> tuple[int, ...]:
+    from transformers import GenerationConfig
+
+    stop_ids: list[int] = []
+    try:
+        generation_config = GenerationConfig.from_pretrained(snapshot)
+        raw_eos = generation_config.eos_token_id
+        if isinstance(raw_eos, int):
+            stop_ids.append(int(raw_eos))
+        elif raw_eos is not None:
+            stop_ids.extend(int(value) for value in raw_eos)
+    except OSError:
+        pass
+    tokenizer_eos = getattr(processor.tokenizer, "eos_token_id", None)
+    if tokenizer_eos is not None:
+        stop_ids.append(int(tokenizer_eos))
+    return tuple(dict.fromkeys(stop_ids))
+
+
 def load_processor_and_inputs(
     snapshot: Path,
     image_path: Path,
@@ -340,7 +359,7 @@ def run_pipeline_once(
     prefill_len: int,
     max_cache_len: int,
     max_new_tokens: int,
-    eos_token_id: int,
+    stop_token_ids: tuple[int, ...],
 ) -> tuple[list[int], dict[str, Any], list[float]]:
     prefill_outputs = prefill_session.run_numpy(prefill_inputs)
     next_id = int(np.argmax(prefill_outputs["logits"][0, 0, :]))
@@ -355,7 +374,7 @@ def run_pipeline_once(
 
     for step in range(max_new_tokens):
         generated_ids.append(next_id)
-        if next_id == eos_token_id or step == max_new_tokens - 1:
+        if next_id in stop_token_ids or step == max_new_tokens - 1:
             break
         position = prefill_len + step
         step_inputs = decode_step_inputs(
@@ -564,7 +583,7 @@ def run_pipeline_once_device(
     prefill_len: int,
     max_cache_len: int,
     max_new_tokens: int,
-    eos_token_id: int,
+    stop_token_ids: tuple[int, ...],
 ) -> tuple[list[int], dict[str, Any], list[float]]:
     import torch
 
@@ -609,7 +628,7 @@ def run_pipeline_once_device(
         generated_ids: list[int] = []
         for step in range(max_new_tokens):
             generated_ids.append(next_id)
-            if next_id == eos_token_id or step == max_new_tokens - 1:
+            if next_id in stop_token_ids or step == max_new_tokens - 1:
                 break
             position = prefill_len + step
             total_len = position + 1
@@ -825,7 +844,7 @@ def main() -> None:
                     )
             except ImportError:
                 pass
-        eos_token_id = int(processor.tokenizer.eos_token_id)
+        stop_token_ids = load_stop_token_ids(args.snapshot, processor)
 
         pipeline_times_ms: list[float] = []
         decode_step_runs_ms: list[list[float]] = []
@@ -842,7 +861,7 @@ def main() -> None:
                     prefill_len=prefill_len,
                     max_cache_len=max_cache_len,
                     max_new_tokens=args.max_new_tokens,
-                    eos_token_id=eos_token_id,
+                    stop_token_ids=stop_token_ids,
                 )
             else:
                 run_pipeline_once(
@@ -856,7 +875,7 @@ def main() -> None:
                     prefill_len=prefill_len,
                     max_cache_len=max_cache_len,
                     max_new_tokens=args.max_new_tokens,
-                    eos_token_id=eos_token_id,
+                    stop_token_ids=stop_token_ids,
                 )
         for _ in range(args.iterations):
             started = time.perf_counter()
@@ -870,7 +889,7 @@ def main() -> None:
                     prefill_len=prefill_len,
                     max_cache_len=max_cache_len,
                     max_new_tokens=args.max_new_tokens,
-                    eos_token_id=eos_token_id,
+                    stop_token_ids=stop_token_ids,
                 )
             else:
                 generated_ids, prefill_outputs, decode_times = run_pipeline_once(
@@ -884,7 +903,7 @@ def main() -> None:
                     prefill_len=prefill_len,
                     max_cache_len=max_cache_len,
                     max_new_tokens=args.max_new_tokens,
-                    eos_token_id=eos_token_id,
+                    stop_token_ids=stop_token_ids,
                 )
             pipeline_times_ms.append((time.perf_counter() - started) * 1000.0)
             decode_step_runs_ms.append(decode_times)

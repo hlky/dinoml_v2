@@ -9,7 +9,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 import dinoml as dml
-from dinoml.ir import array_to_storage, dtype_numpy, normalize_dtype
+from dinoml.ir import array_from_storage, array_to_storage, dtype_numpy, normalize_dtype
 from dinoml.models.kv_cache import append_static_kv_cache
 from dinoml.shapes import symbolic_int_expr
 
@@ -1842,9 +1842,12 @@ def _state_value_to_numpy(value: object, *, dtype: str) -> np.ndarray:
         value = value.cpu()
     if hasattr(value, "numpy"):
         value = value.numpy()
+    array = np.asarray(value)
     if dtype == "bfloat16":
-        return array_to_storage(value, dtype)
-    return np.asarray(value, dtype=_numpy_glm_ocr_dtype(dtype))
+        return array_to_storage(array, dtype)
+    if array.dtype == np.uint16:
+        array = array_from_storage(array, "bfloat16")
+    return np.asarray(array, dtype=_numpy_glm_ocr_dtype(dtype))
 
 
 def _check_shape(value: np.ndarray, shape: tuple[int, ...], name: str) -> None:

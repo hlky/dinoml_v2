@@ -12,6 +12,11 @@ def elementwise_fusion(ir: Dict[str, Any]) -> Dict[str, Any]:
     tensors = tensor_map(ir)
     producer = {output: node for node in ir["nodes"] for output in node["outputs"]}
     consumers = consumer_map(ir["nodes"])
+    view_sources = {
+        str(view["source"])
+        for view in ir.get("metadata", {}).get("views", {}).get("views", [])
+        if "source" in view
+    }
     node_order = {node["id"]: idx for idx, node in enumerate(ir["nodes"])}
     fusable = {node["id"]: node for node in ir["nodes"] if node["op"] in FUSABLE_ELEMENTWISE_OPS}
     visited: Set[str] = set()
@@ -26,7 +31,7 @@ def elementwise_fusion(ir: Dict[str, Any]) -> Dict[str, Any]:
         component_ids = _collect_fusable_component(node, fusable, producer, consumers, tensors)
         visited.update(component_ids)
         component = sorted((fusable[node_id] for node_id in component_ids), key=lambda item: node_order[item["id"]])
-        external_outputs = _fused_external_outputs(component, component_ids, consumers, tensors)
+        external_outputs = _fused_external_outputs(component, component_ids, consumers, tensors, view_sources)
         if not external_outputs:
             continue
         output_shapes = {tuple(tensors[name]["shape"]) for name in external_outputs}
@@ -325,12 +330,17 @@ def _fused_external_outputs(
     component_ids: Set[str],
     consumers: Mapping[str, list[Mapping[str, Any]]],
     tensors: Mapping[str, Mapping[str, Any]],
+    view_sources: Set[str],
 ) -> list[str]:
     outputs = []
     for node in component:
         for output in node["outputs"]:
             output_consumers = consumers.get(output, [])
-            if tensors[output]["kind"] == "output" or any(consumer["id"] not in component_ids for consumer in output_consumers):
+            if (
+                tensors[output]["kind"] == "output"
+                or output in view_sources
+                or any(consumer["id"] not in component_ids for consumer in output_consumers)
+            ):
                 outputs.append(output)
     return list(dict.fromkeys(outputs))
 

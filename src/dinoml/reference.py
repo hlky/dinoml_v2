@@ -689,9 +689,11 @@ def _execute_t5_layer_norm(value: np.ndarray, weight: np.ndarray, attrs: Mapping
         )
     eps = float(attrs.get("eps", 1e-6))
     source = np.asarray(value, dtype=np.float32)
-    scale = np.asarray(weight, dtype=np.float32)
     mean_square = np.mean(source * source, axis=-1, keepdims=True)
-    return np.asarray(source * (1.0 / np.sqrt(mean_square + eps)) * scale, dtype=np.float32)
+    normalized = source * (1.0 / np.sqrt(mean_square + eps))
+    normalized = np.asarray(normalized, dtype=value.dtype)
+    result = np.asarray(normalized, dtype=np.float32) * np.asarray(weight, dtype=np.float32)
+    return np.asarray(result, dtype=np.float32)
 
 
 def _execute_layer_norm(

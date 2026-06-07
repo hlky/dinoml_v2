@@ -36,8 +36,9 @@ __global__ void {{ warp_kernel }}(
     const int col = i * 32 + lane;
     if (col < cols) {
       const float value = dinoml::math::cast<float>(x[base + col]);
-      const float scale = dinoml::math::cast<float>(weight[col]);
-      y[base + col] = dinoml::math::cast<{{ storage_type }}>(value * inv_rms * scale);
+      const {{ storage_type }} normalized = dinoml::math::cast<{{ storage_type }}>(value * inv_rms);
+      y[base + col] = dinoml::math::cast<{{ storage_type }}>(
+          dinoml::math::cast<float>(normalized) * dinoml::math::cast<float>(weight[col]));
     }
   }
 }
@@ -76,8 +77,9 @@ __global__ void {{ kernel }}(
 
   for (int64_t col = tid; col < cols; col += blockDim.x) {
     const float value = dinoml::math::cast<float>(x[base + col]);
-    const float scale = dinoml::math::cast<float>(weight[col]);
-    y[base + col] = dinoml::math::cast<{{ storage_type }}>(value * inv_rms * scale);
+    const {{ storage_type }} normalized = dinoml::math::cast<{{ storage_type }}>(value * inv_rms);
+    y[base + col] = dinoml::math::cast<{{ storage_type }}>(
+        dinoml::math::cast<float>(normalized) * dinoml::math::cast<float>(weight[col]));
   }
 }
 

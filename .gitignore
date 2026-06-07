@@ -49,3 +49,5 @@ profile_cache.json
 
 # Codex
 .codex/
+.work/*
+!.work/.gitkeep

@@ -20,6 +20,7 @@ CK_BMM_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
 CK_BMM_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_BMM_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_BMM_DEFAULT_WORKSPACE_NBYTES = 0
+CK_BMM_CURATED_CANDIDATE_VERSION = 5
 
 
 CK_BMM_CONFIGS = (
@@ -105,9 +106,10 @@ def ck_bmm_candidates(
     dtype: str,
     target: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], ...]:
-    del target
+    spec = bmm_op_spec(op_name)
     normalized_dtype = normalize_bmm_dtype(dtype)
-    return tuple(_ck_bmm_candidate(op_name, normalized_dtype, config) for config in CK_BMM_CONFIGS)
+    configs = tuple(_ck_bmm_supported_configs(spec, normalized_dtype, target=target))
+    return tuple(_ck_bmm_candidate(op_name, normalized_dtype, config) for config in configs)
 
 
 def ck_bmm_candidate_set(
@@ -115,10 +117,9 @@ def ck_bmm_candidate_set(
     dtype: str,
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    del target
     spec = bmm_op_spec(op_name)
     normalized_dtype = normalize_bmm_dtype(dtype)
-    candidates = ck_bmm_candidates(op_name, normalized_dtype)
+    candidates = ck_bmm_candidates(op_name, normalized_dtype, target=target)
     epilogue_config = _ck_bmm_epilogue_config(spec.epilogue)
     config = {
         "schema_version": CK_BMM_CANDIDATE_SET_SCHEMA_VERSION,
@@ -137,7 +138,7 @@ def ck_bmm_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_BMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_bmm_xdl_curated_candidates_v4",
+        "generator": f"static_ck_bmm_xdl_curated_candidates_v{CK_BMM_CURATED_CANDIDATE_VERSION}",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -150,7 +151,34 @@ def ck_bmm_candidate_set(
 def ck_bmm_candidate_set_id(op_name: str, dtype: str) -> str:
     spec = bmm_op_spec(op_name)
     epilogue = "linear_combination" if spec.epilogue == "none" else spec.epilogue
-    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v4"
+    return f"ck_{op_name}_{normalize_bmm_dtype(dtype)}_{epilogue}_v{CK_BMM_CURATED_CANDIDATE_VERSION}"
+
+
+def _ck_bmm_supported_configs(
+    spec: Any,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> tuple[Mapping[str, Any], ...]:
+    if not _ck_bmm_requires_gfx1201_column_major_a_prune(spec, dtype, target=target):
+        return CK_BMM_CONFIGS
+    disallowed = {"wide_m", "wide_n", "small"}
+    return tuple(config for config in CK_BMM_CONFIGS if str(config["name"]) not in disallowed)
+
+
+def _ck_bmm_requires_gfx1201_column_major_a_prune(
+    spec: Any,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> bool:
+    if dtype not in {"float16", "bfloat16"}:
+        return False
+    if spec.a_layout != "c":
+        return False
+    if not isinstance(target, Mapping):
+        return False
+    if str(target.get("name", "")).lower() != "rocm":
+        return False
+    return str(target.get("arch", "")).lower() == "gfx1201"
 
 
 def ck_bmm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:

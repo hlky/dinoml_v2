@@ -47,7 +47,7 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         expected_dtype = inputs[0]["dtype"] if inputs else str(node.get("attrs", {}).get("dtype", tensors[node["outputs"][0]]["dtype"]))
         if node["op"] == "where" and len(inputs) == 3:
             expected_dtype = str(inputs[1]["dtype"])
-        elif node["op"] == "glm_ocr_stitch_image_features":
+        elif node["op"] in {"glm_ocr_stitch_image_features", "qwen2_5_vl_stitch_image_features"}:
             expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] == "argmax":
             expected_dtype = "int64"

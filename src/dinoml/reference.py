@@ -132,6 +132,18 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "qwen2_5_vl_stitch_image_features":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_qwen2_5_vl_stitch_image_features(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in {"reduce_sum", "reduce_max", "reduce_min", "reduce_mean", "var", "vector_norm"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -263,6 +275,18 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 np.take(
                     values[node["inputs"][0]],
                     [int(index) for index in attrs.get("indices", ())],
+                    axis=int(attrs.get("dim", 0)),
+                ).copy(),
+                output_dtype,
+            )
+        elif node["op"] == "runtime_index_select":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                np.take(
+                    values[node["inputs"][0]],
+                    np.asarray(values[node["inputs"][1]], dtype=np.int64),
                     axis=int(attrs.get("dim", 0)),
                 ).copy(),
                 output_dtype,
@@ -404,6 +428,19 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             qkv = np.asarray(values[node["inputs"][0]])
             values[output_name] = _store_reference(
                 _execute_flash_attention(qkv[:, :, 0, :, :], qkv[:, :, 1, :, :], qkv[:, :, 2, :, :], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "flash_attention_varlen":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_flash_attention_varlen(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    node.get("attrs", {}),
+                ),
                 output_dtype,
             )
         elif node["op"] == "flash_attention_static_kv_cache":
@@ -874,6 +911,39 @@ def _execute_glm_ocr_stitch_image_features(
     return embeds
 
 
+def _execute_qwen2_5_vl_stitch_image_features(
+    input_ids: np.ndarray,
+    inputs_embeds: np.ndarray,
+    image_features: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    image_token_id = int(attrs["image_token_id"])
+    ids = np.asarray(input_ids)
+    embeds = np.asarray(inputs_embeds).copy()
+    features = np.asarray(image_features, dtype=embeds.dtype)
+    if ids.ndim != 2 or embeds.ndim != 3 or features.ndim != 2:
+        raise ValueError(
+            "CPU reference qwen2_5_vl_stitch_image_features expects [batch, seq], [batch, seq, hidden], [image_seq, hidden]"
+        )
+    if ids.shape != embeds.shape[:2]:
+        raise ValueError(
+            "CPU reference qwen2_5_vl_stitch_image_features input_ids shape must match inputs_embeds leading dimensions"
+        )
+    if features.shape[1] != embeds.shape[2]:
+        raise ValueError(
+            "CPU reference qwen2_5_vl_stitch_image_features image_features hidden size must match inputs_embeds"
+        )
+    positions = np.argwhere(ids == image_token_id)
+    if positions.shape[0] != features.shape[0]:
+        raise ValueError(
+            "CPU reference qwen2_5_vl_stitch_image_features token count does not match image_features rows: "
+            f"tokens={positions.shape[0]}, features={features.shape[0]}"
+        )
+    for feature_idx, (batch_idx, seq_idx) in enumerate(positions):
+        embeds[int(batch_idx), int(seq_idx), :] = features[feature_idx]
+    return embeds
+
+
 def _execute_swiglu(value: np.ndarray) -> np.ndarray:
     source = np.asarray(value, dtype=np.float32)
     hidden = source.shape[-1] // 2
@@ -1067,6 +1137,43 @@ def _execute_flash_attention_bias(
     probs = np.exp(shifted)
     probs = probs / np.sum(probs, axis=-1, keepdims=True)
     return np.einsum("bhqk,bkhd->bqhd", probs, v_value).astype(np.float32, copy=False)
+
+
+def _execute_flash_attention_varlen(
+    q: np.ndarray,
+    k: np.ndarray,
+    v: np.ndarray,
+    cu_seqlens: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    q_value = np.asarray(q, dtype=np.float32)
+    k_value = np.asarray(k, dtype=np.float32)
+    v_value = np.asarray(v, dtype=np.float32)
+    starts = np.asarray(cu_seqlens, dtype=np.int64).reshape(-1)
+    if q_value.ndim != 3 or k_value.ndim != 3 or v_value.ndim != 3:
+        raise ValueError("CPU reference flash_attention_varlen expects rank-3 q, k, and v")
+    if starts.ndim != 1 or starts.shape[0] < 2:
+        raise ValueError("CPU reference flash_attention_varlen expects rank-1 cu_seqlens length >= 2")
+    if k_value.shape != v_value.shape:
+        raise ValueError("CPU reference flash_attention_varlen key/value shape mismatch")
+    if q_value.shape[0] != k_value.shape[0] or q_value.shape[2] != k_value.shape[2]:
+        raise ValueError("CPU reference flash_attention_varlen shape mismatch")
+    output = np.empty_like(q_value, dtype=np.float32)
+    for start, end in zip(starts[:-1], starts[1:], strict=True):
+        start_i = int(start)
+        end_i = int(end)
+        if start_i < 0 or end_i < start_i or end_i > q_value.shape[0]:
+            raise ValueError("CPU reference flash_attention_varlen cu_seqlens out of bounds")
+        if end_i == start_i:
+            continue
+        chunk = _execute_flash_attention(
+            q_value[None, start_i:end_i],
+            k_value[None, start_i:end_i],
+            v_value[None, start_i:end_i],
+            attrs,
+        )
+        output[start_i:end_i] = chunk[0]
+    return output
 
 
 def _broadcast_flash_attention_bias(

@@ -1,0 +1,59 @@
+__global__ void {{ kernel }}(
+    const {{ index_storage_type }}* DINO_RESTRICT input_ids,
+    const {{ storage_type }}* DINO_RESTRICT inputs_embeds,
+    const {{ storage_type }}* DINO_RESTRICT image_features,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t flat_token_count,
+    int64_t image_rows) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < flat_token_count; row += stride) {
+    int64_t image_index = -1;
+    if (static_cast<int64_t>(input_ids[row]) == static_cast<int64_t>({{ image_token_id }})) {
+      image_index = 0;
+      for (int64_t flat_idx = 0; flat_idx < row; ++flat_idx) {
+        if (static_cast<int64_t>(input_ids[flat_idx]) == static_cast<int64_t>({{ image_token_id }})) {
+          ++image_index;
+        }
+      }
+    }
+    const bool use_image = image_index >= 0 && image_index < image_rows;
+    const {{ storage_type }}* src =
+        use_image
+            ? image_features + image_index * {{ hidden_size }}
+            : inputs_embeds + row * {{ hidden_size }};
+    {{ storage_type }}* dst = y + row * {{ hidden_size }};
+    for (int64_t hidden = 0; hidden < {{ hidden_size }}; ++hidden) {
+      dst[hidden] = src[hidden];
+    }
+  }
+}
+
+static int {{ func }}(
+    const {{ index_storage_type }}* DINO_RESTRICT input_ids,
+    const {{ storage_type }}* DINO_RESTRICT inputs_embeds,
+    const {{ storage_type }}* DINO_RESTRICT image_features,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel_input_ids,
+    int64_t runtime_numel_image_features,
+    int64_t runtime_numel_out,
+    {{ gpu_stream_type }} stream) {
+  if (input_ids == nullptr || inputs_embeds == nullptr || image_features == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel_out != runtime_numel_input_ids * {{ hidden_size }}) {
+    return dino_runtime_fail("qwen2_5_vl_stitch_image_features runtime output size mismatch");
+  }
+  if (runtime_numel_image_features % {{ hidden_size }} != 0) {
+    return dino_runtime_fail("qwen2_5_vl_stitch_image_features runtime image_features size mismatch");
+  }
+  const int64_t flat_token_count = runtime_numel_input_ids;
+  const int64_t image_rows = runtime_numel_image_features / {{ hidden_size }};
+  const int block = {{ block_size }};
+  const int64_t grid64 = (flat_token_count + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(input_ids, inputs_embeds, image_features, y, flat_token_count, image_rows);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+}

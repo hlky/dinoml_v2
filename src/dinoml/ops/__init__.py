@@ -30,6 +30,7 @@ from dinoml.ops.attention import (
     flash_attention_qkv,
     flash_attention_static_kv_cache,
     flash_attention_static_kv_cache_bias,
+    flash_attention_varlen,
     qkv_split,
 )
 from dinoml.ops.broadcasting import expand, expand_static_shape, meshgrid
@@ -54,6 +55,7 @@ from dinoml.ops.collections import (
     pixel_shuffle,
     pixel_unshuffle,
     repeat_interleave,
+    runtime_index_select,
     slice_reshape_scatter,
     slice_scatter,
     split,
@@ -171,6 +173,7 @@ from dinoml.ops.reductions import (
     var,
     vector_norm,
 )
+from dinoml.ops.qwen2_5_vl import qwen2_5_vl_stitch_image_features
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
 from dinoml.ops.where import where
@@ -292,6 +295,7 @@ __all__ = [
     "flash_attention_qkv",
     "flash_attention_static_kv_cache",
     "flash_attention_static_kv_cache_bias",
+    "flash_attention_varlen",
     "qkv_split",
     "full",
     "gather",
@@ -376,6 +380,7 @@ __all__ = [
     "pixel_shuffle",
     "pixel_unshuffle",
     "pow",
+    "qwen2_5_vl_stitch_image_features",
     "randn",
     "reduce_max",
     "reduce_mean",
@@ -383,6 +388,7 @@ __all__ = [
     "reduce_sum",
     "relu",
     "repeat_interleave",
+    "runtime_index_select",
     "reshape",
     "rms_norm",
     "sigmoid",

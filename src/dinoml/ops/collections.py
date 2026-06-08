@@ -58,6 +58,12 @@ def infer_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]
     return infer_index_select_shape_with_attrs(input_shapes, {"dim": 0, "indices": (0,)})
 
 
+def infer_runtime_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("runtime_index_select expects two tensor inputs")
+    return infer_runtime_index_select_shape_with_attrs(input_shapes, {"dim": 0})
+
+
 def infer_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(input_shapes) != 2:
         raise ValueError("gather expects two tensor inputs")
@@ -147,6 +153,12 @@ def infer_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], a
     if len(input_shapes) != 1:
         raise ValueError("index_select expects one tensor input")
     return resolve_index_select_shape(input_shapes[0], attrs.get("dim", 0), attrs.get("indices"))
+
+
+def infer_runtime_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("runtime_index_select expects two tensor inputs")
+    return resolve_runtime_index_select_shape(input_shapes[0], input_shapes[1], attrs.get("dim", 0))
 
 
 def infer_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -597,6 +609,15 @@ def resolve_index_select_shape(input_shape: Sequence[int], dim: Any, indices: An
     return output_shape
 
 
+def resolve_runtime_index_select_shape(input_shape: Sequence[int], index_shape: Sequence[int], dim: Any) -> list[int]:
+    normalized_dim = normalize_index_select_dim(dim, len(input_shape))
+    if normalized_dim != 0:
+        raise ValueError("runtime_index_select currently supports dim=0 only")
+    if len(index_shape) != 1:
+        raise ValueError("runtime_index_select expects rank-1 indices")
+    return [int(index_shape[0]), *[int(axis) for axis in input_shape[1:]]]
+
+
 def resolve_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int], dim: Any) -> list[int]:
     normalize_gather_attrs(dim, input_shape, index_shape)
     return [int(axis) for axis in index_shape]
@@ -874,6 +895,29 @@ class IndexSelect(OpDef):
     @classmethod
     def forward(cls, x: Any, dim: Any, indices: Any) -> Tensor:
         return index_select(x, dim, indices)
+
+
+@op_def
+class RuntimeIndexSelect(OpDef):
+    name = "runtime_index_select"
+    schema = OpSchema(
+        inputs=("x", "indices"),
+        attrs=(AttrDef("dim", "int", required=True),),
+    )
+    infer_shape = infer_runtime_index_select_shape
+    infer_shape_with_attrs = infer_runtime_index_select_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_runtime_index_select", library="model", source_template="runtime_index_select_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_runtime_index_select", library="model", source_template="runtime_index_select_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_runtime_index_select", library="model", source_template="runtime_index_select_gpu.j2"),
+    }
+    frontend = FrontendBinding("runtime_index_select")
+    description = "Materialize a dense select copy along dim 0 using a runtime rank-1 integer index tensor."
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, indices: Any) -> Tensor:
+        return runtime_index_select(x, dim, indices)
 
 
 @op_def
@@ -1161,6 +1205,35 @@ def index_select(x: Any, dim: Any, indices: Any) -> Tensor:
     )
 
 
+def runtime_index_select(x: Any, dim: Any, indices: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(indices)
+    if tensor.builder is not index_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"runtime_index_select does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"runtime_index_select indices must have dtype int64 or int32, got {index_tensor.dtype}")
+    normalized_dim = normalize_index_select_dim(dim, tensor.rank)
+    if normalized_dim != 0:
+        raise ValueError("runtime_index_select currently supports dim=0 only")
+    if index_tensor.rank != 1:
+        raise ValueError("runtime_index_select expects rank-1 indices")
+    out_shape = infer_runtime_index_select_shape_with_attrs(
+        [tensor.shape, index_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    out_shape_spec = [_copy_shape_dim(index_tensor.shape_spec[0]), *[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec[1:]]]
+    return tensor.builder.emit(
+        "runtime_index_select",
+        [tensor, index_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=out_shape_spec,
+    )
+
+
 def gather(x: Any, dim: Any, index: Any) -> Tensor:
     tensor = as_tensor(x)
     index_tensor = as_tensor(index)
@@ -1424,6 +1497,7 @@ __all__ = [
     "Permute102",
     "Permute210",
     "RepeatInterleave",
+    "RuntimeIndexSelect",
     "SPECIALIZED_PERMUTE_DIMS",
     "SliceScatter",
     "Stack",
@@ -1452,6 +1526,8 @@ __all__ = [
     "infer_pad_shape_with_attrs",
     "infer_repeat_interleave_shape",
     "infer_repeat_interleave_shape_with_attrs",
+    "infer_runtime_index_select_shape",
+    "infer_runtime_index_select_shape_with_attrs",
     "infer_slice_scatter_shape",
     "infer_slice_scatter_shape_with_attrs",
     "infer_permute_shape",
@@ -1469,6 +1545,7 @@ __all__ = [
     "pixel_shuffle",
     "pixel_unshuffle",
     "repeat_interleave",
+    "runtime_index_select",
     "slice_reshape_scatter",
     "slice_scatter",
     "split",
@@ -1502,6 +1579,7 @@ __all__ = [
     "resolve_index_select_shape",
     "resolve_pad_shape",
     "resolve_repeat_interleave_shape",
+    "resolve_runtime_index_select_shape",
     "resolve_slice_scatter_shape",
     "resolve_permute_shape",
     "resolve_stack_shape",

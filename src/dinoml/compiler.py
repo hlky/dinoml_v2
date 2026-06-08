@@ -837,12 +837,14 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     index_tensors = {
         node["inputs"][1]
         for node in ir["nodes"]
-        if node.get("op") in {"gather", "batch_gather", "embedding"} and len(node.get("inputs", [])) == 2
+        if node.get("op") in {"gather", "batch_gather", "embedding", "runtime_index_select"}
+        and len(node.get("inputs", [])) == 2
     }
     index_tensors.update(
         node["inputs"][0]
         for node in ir["nodes"]
-        if node.get("op") == "glm_ocr_stitch_image_features" and len(node.get("inputs", [])) == 3
+        if node.get("op") in {"glm_ocr_stitch_image_features", "qwen2_5_vl_stitch_image_features"}
+        and len(node.get("inputs", [])) == 3
     )
     argmax_input_tensors = {
         node["inputs"][0]
@@ -864,6 +866,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}
         and len(node.get("inputs", [])) >= 6
+    }
+    flash_attention_varlen_cu_seqlens_tensors = {
+        node["inputs"][3]
+        for node in ir["nodes"]
+        if node.get("op") == "flash_attention_varlen" and len(node.get("inputs", [])) == 4
     }
     fused_integer_eq_tensors = {
         tensor_name
@@ -887,7 +894,8 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             if output_dtype != "int64":
                 raise NotImplementedError(f"Op argmax output dtype {output_dtype} must be int64")
             continue
-        if node.get("op") == "gather":
+        if node.get("op") in {"gather", "runtime_index_select"}:
+            op_name = str(node["op"])
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
             index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
             output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
@@ -898,11 +906,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                 )
             if index_dtype not in {"int64", "int32"}:
                 raise NotImplementedError(
-                    "Op gather index supports dtypes ['int64', 'int32']; "
+                    f"Op {op_name} index supports dtypes ['int64', 'int32']; "
                     f"unsupported compiled dtypes: {[index_dtype]}"
                 )
             if output_dtype != data_dtype:
-                raise NotImplementedError(f"Op gather output dtype {output_dtype} must match input dtype {data_dtype}")
+                raise NotImplementedError(f"Op {op_name} output dtype {output_dtype} must match input dtype {data_dtype}")
             continue
         if node.get("op") == "batch_gather":
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
@@ -967,6 +975,31 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"Op glm_ocr_stitch_image_features output dtype {output_dtype} must match input dtype {data_dtype}"
                 )
             continue
+        if node.get("op") == "qwen2_5_vl_stitch_image_features":
+            index_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            data_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            image_features_dtype = str(tensor_map[node["inputs"][2]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if data_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[data_dtype]}"
+                )
+            if index_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op qwen2_5_vl_stitch_image_features input_ids support dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[index_dtype]}"
+                )
+            if image_features_dtype != data_dtype:
+                raise NotImplementedError(
+                    "Op qwen2_5_vl_stitch_image_features image_features dtype must match "
+                    f"inputs_embeds dtype {data_dtype}, got {image_features_dtype}"
+                )
+            if output_dtype != data_dtype:
+                raise NotImplementedError(
+                    f"Op qwen2_5_vl_stitch_image_features output dtype {output_dtype} must match input dtype {data_dtype}"
+                )
+            continue
         if node.get("op") in {"topk_values", "topk_indices"}:
             input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
             output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
@@ -1013,6 +1046,22 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"unsupported compiled dtypes: {[cache_seqlens_dtype]}"
                 )
             continue
+        if node.get("op") == "flash_attention_varlen":
+            data_input_names = list(node["inputs"][:3])
+            data_dtypes = sorted({str(tensor_map[name]["dtype"]) for name in [*data_input_names, *node["outputs"]]})
+            unsupported_data_dtypes = [dtype for dtype in data_dtypes if dtype not in op_def.allowed_dtypes]
+            if unsupported_data_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports data dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {unsupported_data_dtypes}"
+                )
+            cu_seqlens_dtype = str(tensor_map[node["inputs"][3]]["dtype"])
+            if cu_seqlens_dtype != "int32":
+                raise NotImplementedError(
+                    "Op flash_attention_varlen cu_seqlens supports dtype ['int32']; "
+                    f"unsupported compiled dtypes: {[cu_seqlens_dtype]}"
+                )
+            continue
         node_tensor_names = [*node.get("inputs", []), *node.get("outputs", [])]
         node_dtypes = sorted({tensor_map[name]["dtype"] for name in node_tensor_names if name in tensor_map})
         unsupported_node_dtypes = [dtype for dtype in node_dtypes if dtype not in op_def.allowed_dtypes]
@@ -1032,6 +1081,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
             and str(tensor["name"]) not in flash_attention_static_kv_cache_seqlens_tensors
+            and str(tensor["name"]) not in flash_attention_varlen_cu_seqlens_tensors
             and str(tensor["name"]) not in fused_integer_eq_tensors
         }
     )

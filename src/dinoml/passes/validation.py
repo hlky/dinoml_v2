@@ -28,6 +28,7 @@ from dinoml.ops.positional import (
     rotary_output_cols,
 )
 from dinoml.ops.glm_ocr import GLM_OCR_STITCH_IMAGE_FEATURES_DTYPES
+from dinoml.ops.qwen2_5_vl import QWEN2_5_VL_STITCH_IMAGE_FEATURES_DTYPES
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import is_dynamic_shape, validate_shape_spec
 
@@ -226,8 +227,14 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "glm_ocr_stitch_image_features":
         _validate_glm_ocr_stitch_image_features_node(node, inputs, tensors)
         return
+    if node["op"] == "qwen2_5_vl_stitch_image_features":
+        _validate_qwen2_5_vl_stitch_image_features_node(node, inputs, tensors)
+        return
     if node["op"] in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
         _validate_flash_attention_static_kv_cache_node(node, inputs, tensors)
+        return
+    if node["op"] == "flash_attention_varlen":
+        _validate_flash_attention_varlen_node(node, inputs, tensors)
         return
     if node["op"] == "embedding":
         _validate_embedding_node(node, inputs, tensors)
@@ -251,6 +258,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "permute210",
         "dynamic_slice",
         "index_select",
+        "runtime_index_select",
         "gather",
         "batch_gather",
         "slice_scatter",
@@ -780,6 +788,85 @@ def _validate_glm_ocr_stitch_image_features_node(
         raise ValidationError("glm_ocr_stitch_image_features requires integer image_token_id attr")
 
 
+def _validate_qwen2_5_vl_stitch_image_features_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError("qwen2_5_vl_stitch_image_features expects exactly one output")
+    if len(inputs) != 3:
+        raise ValidationError("qwen2_5_vl_stitch_image_features expects exactly three inputs")
+    input_ids_tensor, inputs_embeds_tensor, image_features_tensor = inputs
+    output_name = node["outputs"][0]
+    output_tensor = tensors[output_name]
+    if len(input_ids_tensor["shape"]) != 2:
+        raise ValidationError("qwen2_5_vl_stitch_image_features expects input_ids with shape [batch, seq]")
+    if len(inputs_embeds_tensor["shape"]) != 3:
+        raise ValidationError("qwen2_5_vl_stitch_image_features expects inputs_embeds with shape [batch, seq, hidden]")
+    if len(image_features_tensor["shape"]) != 2:
+        raise ValidationError("qwen2_5_vl_stitch_image_features expects image_features with shape [image_seq, hidden]")
+    if input_ids_tensor["shape"][0] != inputs_embeds_tensor["shape"][0]:
+        raise ValidationError("qwen2_5_vl_stitch_image_features input_ids and inputs_embeds batch sizes must match")
+    if input_ids_tensor["shape"][1] != inputs_embeds_tensor["shape"][1]:
+        raise ValidationError(
+            "qwen2_5_vl_stitch_image_features input_ids and inputs_embeds sequence lengths must match"
+        )
+    if inputs_embeds_tensor["shape"][2] != image_features_tensor["shape"][1]:
+        raise ValidationError(
+            "qwen2_5_vl_stitch_image_features image_features hidden size must match inputs_embeds"
+        )
+    if str(input_ids_tensor["dtype"]) not in {"int64", "int32"}:
+        raise ValidationError(
+            "qwen2_5_vl_stitch_image_features input_ids must have dtype int64 or int32, "
+            f"got {input_ids_tensor['dtype']}"
+        )
+    data_dtype = str(inputs_embeds_tensor["dtype"])
+    if data_dtype not in QWEN2_5_VL_STITCH_IMAGE_FEATURES_DTYPES:
+        raise ValidationError(f"qwen2_5_vl_stitch_image_features does not support dtype {data_dtype}")
+    if str(image_features_tensor["dtype"]) != data_dtype:
+        raise ValidationError("qwen2_5_vl_stitch_image_features image_features dtype must match inputs_embeds")
+    if str(output_tensor["dtype"]) != data_dtype:
+        raise ValidationError("qwen2_5_vl_stitch_image_features output dtype must match inputs_embeds")
+    if list(output_tensor["shape"]) != list(inputs_embeds_tensor["shape"]):
+        raise ValidationError("qwen2_5_vl_stitch_image_features output shape must match inputs_embeds")
+    image_token_id = node.get("attrs", {}).get("image_token_id")
+    if not isinstance(image_token_id, int) or isinstance(image_token_id, bool):
+        raise ValidationError("qwen2_5_vl_stitch_image_features requires integer image_token_id attr")
+
+
+def _validate_flash_attention_varlen_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("flash_attention_varlen")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 4:
+        raise ValidationError("flash_attention_varlen expects exactly four inputs")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError, TypeError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, expected {expected_shape}"
+        )
+    data_dtype = str(inputs[0]["dtype"])
+    if data_dtype not in op_def.allowed_dtypes:
+        raise ValidationError(f"flash_attention_varlen does not support dtype {data_dtype}")
+    for tensor in [*inputs[:3], output]:
+        if str(tensor["dtype"]) != data_dtype:
+            raise ValidationError(
+                f"flash_attention_varlen data tensors must share dtype {data_dtype}, got {tensor['dtype']}"
+            )
+    if str(inputs[3]["dtype"]) != "int32":
+        raise ValidationError(f"flash_attention_varlen cu_seqlens must be int32, got {inputs[3]['dtype']}")
+
+
 def _validate_flash_attention_static_kv_cache_node(
     node: Mapping[str, Any],
     inputs: Sequence[Mapping[str, Any]],
@@ -846,6 +933,7 @@ def _validate_collection_node(
         "concatenate_tanh",
         "dynamic_slice",
         "index_select",
+        "runtime_index_select",
         "permute",
         "permute021",
         "permute0213",
@@ -878,11 +966,11 @@ def _validate_collection_node(
             raise ValidationError(f"pad value must be a constant numeric scalar, got {value!r}")
         if isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(float(value)):
             raise ValidationError("pad value must be finite")
-    if op_name == "gather":
+    if op_name in {"gather", "runtime_index_select"}:
         if str(inputs[0]["dtype"]) not in op_def.allowed_dtypes:
-            raise ValidationError(f"gather does not support dtype {inputs[0]['dtype']}")
+            raise ValidationError(f"{op_name} does not support dtype {inputs[0]['dtype']}")
         if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
-            raise ValidationError(f"gather index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+            raise ValidationError(f"{op_name} index must have dtype int64 or int32, got {inputs[1]['dtype']}")
         if str(output["dtype"]) != str(inputs[0]["dtype"]):
             raise ValidationError(
                 f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "

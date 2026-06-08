@@ -29,6 +29,7 @@ from dinoml.lowering.ops.flash_attention import (
     FLASH_ATTENTION_QKV_LOWERING,
     FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING,
     FLASH_ATTENTION_STATIC_KV_CACHE_BIAS_LOWERING,
+    FLASH_ATTENTION_VARLEN_LOWERING,
 )
 from dinoml.lowering.ops.flip import FLIP_LOWERING
 from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
@@ -45,9 +46,11 @@ from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
 from dinoml.lowering.ops.qkv_split import QKV_SPLIT_LOWERING
+from dinoml.lowering.ops.qwen2_5_vl_stitch_image_features import QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
+from dinoml.lowering.ops.runtime_index_select import RUNTIME_INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.shape_buffer_count_true import SHAPE_BUFFER_COUNT_TRUE_LOWERING
 from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
@@ -79,6 +82,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FLASH_ATTENTION_QKV_LOWERING.op_name: FLASH_ATTENTION_QKV_LOWERING,
     FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING.op_name: FLASH_ATTENTION_STATIC_KV_CACHE_LOWERING,
     FLASH_ATTENTION_STATIC_KV_CACHE_BIAS_LOWERING.op_name: FLASH_ATTENTION_STATIC_KV_CACHE_BIAS_LOWERING,
+    FLASH_ATTENTION_VARLEN_LOWERING.op_name: FLASH_ATTENTION_VARLEN_LOWERING,
     FLIP_LOWERING.op_name: FLIP_LOWERING,
     FUSED_ELEMENTWISE_LOWERING.op_name: FUSED_ELEMENTWISE_LOWERING,
     GATHER_LOWERING.op_name: GATHER_LOWERING,
@@ -92,8 +96,10 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
     QKV_SPLIT_LOWERING.op_name: QKV_SPLIT_LOWERING,
+    QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING.op_name: QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
+    RUNTIME_INDEX_SELECT_LOWERING.op_name: RUNTIME_INDEX_SELECT_LOWERING,
     SHAPE_BUFFER_COUNT_TRUE_LOWERING.op_name: SHAPE_BUFFER_COUNT_TRUE_LOWERING,
     SLICE_SCATTER_LOWERING.op_name: SLICE_SCATTER_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,

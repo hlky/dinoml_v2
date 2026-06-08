@@ -836,13 +836,14 @@ if(DINOML_ENABLE_ROCM)
       @ONLY
     )
     set(_dinoml_flash_attn_ck_generator_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/composable_kernel/example/ck_tile/01_fmha")
+    set(_dinoml_flash_attn_ck_fwd_generator "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_ck_flash_attn_fwd.py")
     set(_dinoml_flash_attn_ck_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/fa_ck")
     set(_dinoml_flash_attn_ck_blob_list "${_dinoml_flash_attn_ck_generated_dir}/fwd_blob_list.txt")
     set(_dinoml_flash_attn_ck_splitkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/splitkv_blob_list.txt")
     set(_dinoml_flash_attn_ck_appendkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/appendkv_blob_list.txt")
     set(DINOML_FLASH_ATTN_CK_FILTER
-        "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
-        CACHE STRING "CK FlashAttention generator filter")
+        ""
+        CACHE STRING "Optional extra DinoML CK FlashAttention forward generator filter")
     set(DINOML_FLASH_ATTN_CK_SPLITKV_FILTER
         "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
         CACHE STRING "CK FlashAttention split-KV generator filter")
@@ -850,7 +851,7 @@ if(DINOML_ENABLE_ROCM)
         "*vr_psskddv"
         CACHE STRING "CK FlashAttention append-KV generator filter")
     set(DINOML_FLASH_ATTN_CK_OPTDIMS
-        "64,128"
+        "32,64,128,192,256"
         CACHE STRING "Comma-separated CK FlashAttention head dimensions to generate")
     set(DINOML_FLASH_ATTN_CK_TARGETS "" CACHE STRING "Comma-separated CK FlashAttention generator targets. Defaults to CMAKE_HIP_ARCHITECTURES.")
     if(DINOML_FLASH_ATTN_CK_TARGETS)
@@ -860,17 +861,21 @@ if(DINOML_ENABLE_ROCM)
     else()
       set(_dinoml_flash_attn_ck_targets "gfx12")
     endif()
+    set(_dinoml_flash_attn_ck_fwd_extra_filter "${DINOML_FLASH_ATTN_CK_FILTER}")
+    if(_dinoml_flash_attn_ck_fwd_extra_filter STREQUAL "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*")
+      set(_dinoml_flash_attn_ck_fwd_extra_filter "")
+    endif()
     file(MAKE_DIRECTORY "${_dinoml_flash_attn_ck_generated_dir}")
     execute_process(
       COMMAND
         ${Python3_EXECUTABLE}
-        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        "${_dinoml_flash_attn_ck_fwd_generator}"
+        --generator_dir "${_dinoml_flash_attn_ck_generator_dir}"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd
         --receipt 600
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --list_blobs "${_dinoml_flash_attn_ck_blob_list}"
+        --filter "${_dinoml_flash_attn_ck_fwd_extra_filter}"
       WORKING_DIRECTORY "${_dinoml_flash_attn_ck_generator_dir}"
         COMMAND_ERROR_IS_FATAL ANY
     )
@@ -918,17 +923,20 @@ if(DINOML_ENABLE_ROCM)
       "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
       "${_dinoml_flash_attn_ck_generator_dir}/codegen/*.py"
     )
+    list(APPEND _DINOML_FLASH_ATTN_CK_GENERATOR_DEPENDS
+      "${_dinoml_flash_attn_ck_fwd_generator}"
+    )
     add_custom_command(
       OUTPUT ${DINOML_FLASH_ATTN_CK_GENERATED_SOURCES}
       COMMAND
         ${Python3_EXECUTABLE}
-        "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
+        "${_dinoml_flash_attn_ck_fwd_generator}"
+        --generator_dir "${_dinoml_flash_attn_ck_generator_dir}"
         --targets "${_dinoml_flash_attn_ck_targets}"
-        --api fwd
         --receipt 600
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
-        --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --output_dir "${_dinoml_flash_attn_ck_generated_dir}"
+        --filter "${_dinoml_flash_attn_ck_fwd_extra_filter}"
       COMMAND
         ${Python3_EXECUTABLE}
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"

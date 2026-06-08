@@ -39,6 +39,23 @@ class _FlashAttentionQKVModule(dml.nn.Module):
         return dml.ops.output(dml.ops.flash_attention_qkv(qkv, causal=self.causal), "out")
 
 
+class _FlashAttentionVarlenModule(dml.nn.Module):
+    def __init__(self, *, max_seqlen: int, causal: bool = False):
+        self.max_seqlen = int(max_seqlen)
+        self.causal = bool(causal)
+
+    def forward(self, q, k, v, cu_seqlens):
+        return dml.ops.output(
+            dml.ops.flash_attention_varlen(q, k, v, cu_seqlens, max_seqlen=self.max_seqlen, causal=self.causal),
+            "out",
+        )
+
+
+class _RuntimeIndexSelectModule(dml.nn.Module):
+    def forward(self, x, indices):
+        return dml.ops.output(dml.ops.runtime_index_select(x, 0, indices), "out")
+
+
 class _FlashAttentionStaticKvCacheModule(dml.nn.Module):
     def forward(self, q, past_key, past_value, new_key, new_value, cache_seqlens):
         return dml.ops.output(
@@ -246,6 +263,37 @@ def test_flash_attention_static_kv_cache_bias_reference_matches_naive_attention(
     np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
 
 
+def test_flash_attention_varlen_reference_matches_chunked_attention():
+    spec = dml.trace(
+        _FlashAttentionVarlenModule(max_seqlen=3),
+        inputs={
+            "q": dml.TensorSpec([5, 2, 32], "float16"),
+            "k": dml.TensorSpec([5, 1, 32], "float16"),
+            "v": dml.TensorSpec([5, 1, 32], "float16"),
+            "cu_seqlens": dml.TensorSpec([3], "int32"),
+        },
+        name="flash_attention_varlen_reference",
+    )
+    rng = np.random.default_rng(123)
+    inputs = {
+        "q": rng.normal(size=(5, 2, 32)).astype(np.float16),
+        "k": rng.normal(size=(5, 1, 32)).astype(np.float16),
+        "v": rng.normal(size=(5, 1, 32)).astype(np.float16),
+        "cu_seqlens": np.asarray([0, 3, 5], dtype=np.int32),
+    }
+
+    actual = reference_numpy(spec, inputs)["out"].astype(np.float32)
+    expected = np.concatenate(
+        [
+            _naive_flash_attention(inputs["q"][None, :3], inputs["k"][None, :3], inputs["v"][None, :3], causal=False)[0],
+            _naive_flash_attention(inputs["q"][None, 3:], inputs["k"][None, 3:], inputs["v"][None, 3:], causal=False)[0],
+        ],
+        axis=0,
+    )
+
+    np.testing.assert_allclose(actual, expected.astype(np.float16).astype(np.float32), atol=2.0e-3, rtol=2.0e-3)
+
+
 def test_flash_attention_rocm_manifest_requests_ck_archive():
     spec = dml.trace(
         _FlashAttentionModule(causal=False),
@@ -336,6 +384,56 @@ def test_flash_attention_qkv_rocm_manifest_requests_ck_bfloat16_head_dim128_arch
     assert required[0]["op"] == "flash_attention_qkv"
     assert required[0]["kernel_library"] == "flash_attn_ck"
     assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1"
+
+
+def test_flash_attention_varlen_rocm_manifest_requests_ck_bfloat16_archive():
+    total_seq = dml.Dim("total_seq", min=1, max=8, typical=5, buckets=(5, 8))
+    cu_count = dml.Dim("cu_count", min=2, max=4, typical=3, buckets=(3, 4))
+    spec = dml.trace(
+        _FlashAttentionVarlenModule(max_seqlen=4),
+        inputs={
+            "q": dml.TensorSpec([total_seq, 4, 128], "bfloat16"),
+            "k": dml.TensorSpec([total_seq, 2, 128], "bfloat16"),
+            "v": dml.TensorSpec([total_seq, 2, 128], "bfloat16"),
+            "cu_seqlens": dml.TensorSpec([cu_count], "int32"),
+        },
+        name="flash_attention_varlen_rocm_manifest",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    required = manifest["required_kernels"]
+    tensors = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    node = next(node for node in spec.ir["nodes"] if node["op"] == "flash_attention_varlen")
+    launch = render_launch("rocm", node, tensors, kernel_manifest=manifest)
+
+    assert len(required) == 1
+    assert required[0]["op"] == "flash_attention_varlen"
+    assert required[0]["kernel_library"] == "flash_attn_ck"
+    assert required[0]["kernel_symbol"] == "dinoml_flash_attn_ck_varlen_fwd_bfloat16_v1"
+    assert "dinoml_flash_attn_ck_varlen_fwd_bfloat16_v1" in launch
+    assert "ptr_cu_seqlens" in launch
+    assert "shape_cu_seqlens_0 - 1" in launch
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
+
+
+def test_runtime_index_select_rocm_contract_accepts_dynamic_int32_indices():
+    rows = dml.Dim("rows", min=1, max=8, typical=5, buckets=(5, 8))
+    selected = dml.Dim("selected_rows", min=1, max=8, typical=5, buckets=(5, 8))
+    spec = dml.trace(
+        _RuntimeIndexSelectModule(),
+        inputs={
+            "x": dml.TensorSpec([rows, 16], "bfloat16"),
+            "indices": dml.TensorSpec([selected], "int32"),
+        },
+        name="runtime_index_select_rocm",
+    )
+
+    manifest = build_kernel_manifest(spec.ir, dml.Target("rocm").to_json())
+    source = render_rocm_module(spec.ir, kernel_manifest=manifest)
+
+    assert "runtime_index_select_" in source
+    assert "const int32_t* DINO_RESTRICT indices" in source
+    _validate_mvp_runtime_contract(spec.ir, dml.Target("rocm"))
 
 
 def test_flash_attention_static_kv_cache_rocm_manifest_requests_ck_bfloat16_head_dim128_archive():

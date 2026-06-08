@@ -9,6 +9,7 @@ from dinoml.kernels.providers.ck.flash_attention import (
     flash_attn_ck_static_kv_cache_bias_symbol,
     flash_attn_ck_static_kv_cache_symbol,
     flash_attn_ck_symbol,
+    flash_attn_ck_varlen_symbol,
 )
 from dinoml.kernels.providers.cuda_flash_attention import (
     flash_attn_cuda_qkv_symbol,
@@ -88,6 +89,44 @@ def flash_attention_qkv(qkv: object, *, causal: bool = False) -> Tensor:
         qkv_tensor.dtype,
         {"causal": bool(causal)},
         shape_spec=[qkv_tensor.shape_spec[0], qkv_tensor.shape_spec[1], qkv_tensor.shape_spec[3], qkv_tensor.shape_spec[4]],
+    )
+
+
+def flash_attention_varlen(
+    q: object,
+    k: object,
+    v: object,
+    cu_seqlens: object,
+    *,
+    max_seqlen: int,
+    causal: bool = False,
+) -> Tensor:
+    if not isinstance(max_seqlen, int) or isinstance(max_seqlen, bool) or int(max_seqlen) <= 0:
+        raise ValueError(f"flash_attention_varlen max_seqlen must be a positive integer, got {max_seqlen!r}")
+    q_tensor = as_tensor(q, dtype_hint=k.dtype if isinstance(k, Tensor) else "float32")
+    k_tensor = as_tensor(k, dtype_hint=q_tensor.dtype)
+    v_tensor = as_tensor(v, dtype_hint=q_tensor.dtype)
+    cu_tensor = as_tensor(cu_seqlens, dtype_hint="int32")
+    tensors = (q_tensor, k_tensor, v_tensor, cu_tensor)
+    for tensor in tensors[1:]:
+        if q_tensor.builder is not tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+    for tensor in tensors[1:3]:
+        if q_tensor.dtype != tensor.dtype:
+            raise ValueError(f"flash_attention_varlen dtype mismatch: {q_tensor.dtype} vs {tensor.dtype}")
+    if cu_tensor.dtype != "int32":
+        raise ValueError(f"flash_attention_varlen cu_seqlens must be int32, got {cu_tensor.dtype}")
+    if q_tensor.dtype not in FLASH_ATTENTION_DTYPES:
+        supported = ", ".join(FLASH_ATTENTION_DTYPES)
+        raise ValueError(f"flash_attention_varlen supports {supported}, got {q_tensor.dtype}")
+    _validate_flash_attention_varlen_shapes([tensor.shape for tensor in tensors])
+    return q_tensor.builder.emit(
+        "flash_attention_varlen",
+        tensors,
+        q_tensor.shape,
+        q_tensor.dtype,
+        {"causal": bool(causal), "max_seqlen": int(max_seqlen)},
+        shape_spec=q_tensor.shape_spec,
     )
 
 
@@ -216,6 +255,11 @@ def _infer_flash_attention_qkv_shape(shapes: Sequence[Sequence[int]]) -> list[in
     return [qkv_shape[0], qkv_shape[1], qkv_shape[3], qkv_shape[4]]
 
 
+def _infer_flash_attention_varlen_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    _validate_flash_attention_varlen_shapes(shapes)
+    return list(shapes[0])
+
+
 def _infer_flash_attention_static_kv_cache_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
     _validate_flash_attention_static_kv_cache_shapes(shapes)
     return list(shapes[0])
@@ -240,6 +284,26 @@ def _validate_flash_attention_shapes(shapes: Sequence[Sequence[int]]) -> None:
         raise ValueError("flash_attention head_dim mismatch")
     if q_shape[2] % k_shape[2] != 0:
         raise ValueError("flash_attention num_heads_q must be divisible by num_heads_k")
+
+
+def _validate_flash_attention_varlen_shapes(shapes: Sequence[Sequence[int]]) -> None:
+    if len(shapes) != 4:
+        raise ValueError(f"flash_attention_varlen expects 4 inputs, got {len(shapes)}")
+    q_shape, k_shape, v_shape, cu_shape = [list(shape) for shape in shapes]
+    if any(len(shape) != 3 for shape in (q_shape, k_shape, v_shape)):
+        raise ValueError("flash_attention_varlen expects q, k, and v with shape [total_seq, heads, head_dim]")
+    if len(cu_shape) != 1:
+        raise ValueError("flash_attention_varlen expects cu_seqlens with shape [group_count + 1]")
+    if cu_shape[0] < 2:
+        raise ValueError("flash_attention_varlen cu_seqlens length must be at least 2")
+    if q_shape[0] != k_shape[0] or q_shape[0] != v_shape[0]:
+        raise ValueError("flash_attention_varlen total sequence dimension mismatch")
+    if k_shape != v_shape:
+        raise ValueError("flash_attention_varlen key/value shape mismatch")
+    if q_shape[2] != k_shape[2]:
+        raise ValueError("flash_attention_varlen head_dim mismatch")
+    if q_shape[1] % k_shape[1] != 0:
+        raise ValueError("flash_attention_varlen num_heads_q must be divisible by num_heads_k")
 
 
 def _validate_flash_attention_bias_shape(
@@ -369,6 +433,19 @@ def _infer_flash_attention_qkv_shape_with_attrs(
     return _infer_flash_attention_qkv_shape(shapes)
 
 
+def _infer_flash_attention_varlen_shape_with_attrs(
+    shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    causal = attrs.get("causal", False)
+    if not isinstance(causal, bool):
+        raise TypeError("flash_attention_varlen causal attr must be a bool")
+    max_seqlen = attrs.get("max_seqlen")
+    if not isinstance(max_seqlen, int) or isinstance(max_seqlen, bool) or int(max_seqlen) <= 0:
+        raise TypeError("flash_attention_varlen max_seqlen attr must be a positive integer")
+    return _infer_flash_attention_varlen_shape(shapes)
+
+
 @op_def
 class FlashAttention(OpDef):
     name = "flash_attention"
@@ -455,6 +532,30 @@ class FlashAttentionQKV(OpDef):
     }
     frontend = FrontendBinding("flash_attention_qkv")
     description = "CK FlashAttention forward op for packed [batch, seq, 3, heads, head_dim] QKV tensors."
+
+
+@op_def
+class FlashAttentionVarlen(OpDef):
+    name = "flash_attention_varlen"
+    schema = OpSchema(
+        inputs=("q", "k", "v", "cu_seqlens"),
+        attrs=(AttrDef("causal", "bool", default=False), AttrDef("max_seqlen", "int", required=True)),
+    )
+    infer_shape = _infer_flash_attention_varlen_shape
+    infer_shape_with_attrs = _infer_flash_attention_varlen_shape_with_attrs
+    allowed_dtypes = FLASH_ATTENTION_DTYPES
+    backend_kernels = {
+        "rocm": KernelBinding(
+            flash_attn_ck_varlen_symbol("float16"),
+            "flash_attn_ck",
+            dtype_variants={
+                "float16": KernelVariant(flash_attn_ck_varlen_symbol("float16")),
+                "bfloat16": KernelVariant(flash_attn_ck_varlen_symbol("bfloat16")),
+            },
+        ),
+    }
+    frontend = FrontendBinding("flash_attention_varlen")
+    description = "ROCm CK group-mode FlashAttention forward op for packed variable-length [total_seq, heads, head_dim] tensors."
 
 
 @op_def

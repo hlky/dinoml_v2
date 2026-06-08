@@ -92,8 +92,30 @@ set_target_properties(dinoml_flash_attn_ck_{{ loop.index0 }} PROPERTIES
 )
 {% endfor %}
 
+{% if module_source_language | default("") %}
+set_source_files_properties({{ module_source_file | default("module.hip") }} PROPERTIES LANGUAGE {{ module_source_language }})
+add_library(module_dispatch OBJECT
+  {{ module_source_file | default("module.hip") }}
+)
+target_include_directories(module_dispatch PRIVATE
+  "{{ runtime_include }}"
+  "{{ common_include }}"
+  "{{ kernels_include }}"
+)
+target_compile_definitions(module_dispatch PRIVATE DINOML_HIP=1)
+target_compile_options(module_dispatch PRIVATE
+  $<$<COMPILE_LANGUAGE:CXX>:-O0>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-result>
+  $<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>
+)
+target_link_libraries(module_dispatch PRIVATE hip::host)
+{% endif %}
 add_library(module SHARED
-  module.hip
+{% if module_source_language | default("") %}
+  $<TARGET_OBJECTS:module_dispatch>
+{% else %}
+  {{ module_source_file | default("module.hip") }}
+{% endif %}
 {% for generated_source_file in generated_source_files | default([]) %}
   "{{ generated_source_file }}"
 {% endfor %}

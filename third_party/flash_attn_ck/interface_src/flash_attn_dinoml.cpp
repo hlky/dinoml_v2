@@ -132,12 +132,13 @@ fmha_fwd_traits get_ck_fmha_fwd_traits(
     std::string dtype,
     int head_size,
     bool has_dropout,
-    bool has_lse) {
+    bool has_lse,
+    bool is_group_mode = false) {
   return fmha_fwd_traits{
       head_size,
       head_size,
       dtype,
-      false, // is_group_mode
+      is_group_mode,
       true, // is_v_rowmajor
       false, // has_logits_soft_cap
       mask.type,
@@ -331,6 +332,97 @@ float FlashAttentionLauncher(
       output,
       1.0f / std::sqrt(static_cast<float>(head_dim)));
 
+  return run_mha_fwd(traits, args, stream_config);
+}
+
+float FlashAttentionVarlenLauncher(
+    void* output,
+    int64_t output_row_stride,
+    int64_t output_head_stride,
+    void* q,
+    int64_t q_row_stride,
+    int64_t q_head_stride,
+    void* k,
+    int64_t k_row_stride,
+    int64_t k_head_stride,
+    void* v,
+    int64_t v_row_stride,
+    int64_t v_head_stride,
+    const int32_t* cu_seqlens,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    MaskType mask_type,
+    DataType dtype,
+    int window_size_left,
+    int window_size_right,
+    hipStream_t stream) {
+  if (cu_seqlens == nullptr) {
+    return -1.0f;
+  }
+  if (total_seq <= 0 || group_count <= 0 || max_seqlen <= 0) {
+    return -1.0f;
+  }
+  (void)total_seq;
+  (void)window_size_left;
+  (void)window_size_right;
+  ck_tile::stream_config stream_config{stream};
+
+  std::string mask_type_str;
+  if (mask_type == MaskType::kNone) {
+    mask_type_str = "0";
+  } else if (mask_type == MaskType::kCausalFromTopLeft) {
+    mask_type_str = "1";
+  } else if (mask_type == MaskType::kCausalFromBottomRight) {
+    mask_type_str = "2";
+  }
+  const std::string dtype_str = dtype_string(dtype);
+  if (dtype_str.empty()) {
+    return -1.0f;
+  }
+  auto mask = mask_info::decode(mask_type_str, max_seqlen, max_seqlen);
+  auto bias = bias_info::decode("0");
+  auto traits = get_ck_fmha_fwd_traits(mask, bias, dtype_str, head_dim, false, false, true);
+
+  auto args = get_ck_fmha_fwd_args(
+      mask,
+      group_count,
+      max_seqlen,
+      max_seqlen,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      q_row_stride,
+      k_row_stride,
+      v_row_stride,
+      output_row_stride,
+      q_head_stride,
+      k_head_stride,
+      v_head_stride,
+      output_head_stride,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      q,
+      k,
+      v,
+      nullptr,
+      output,
+      1.0f / std::sqrt(static_cast<float>(head_dim)));
+  args.seqstart_q_ptr = cu_seqlens;
+  args.seqstart_k_ptr = cu_seqlens;
+  args.seqlen_q_ptr = nullptr;
+  args.seqlen_k_ptr = nullptr;
+  args.cu_seqlen_q_ptr = nullptr;
+  args.cu_seqlen_k_ptr = nullptr;
+  args.max_seqlen_q = max_seqlen;
   return run_mha_fwd(traits, args, stream_config);
 }
 

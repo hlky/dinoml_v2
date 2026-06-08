@@ -40,6 +40,7 @@ from dinoml.kernels.providers.ck.flash_attention import (
     flash_attn_ck_qkv_symbol,
     flash_attn_ck_static_library_name,
     flash_attn_ck_symbol,
+    flash_attn_ck_varlen_symbol,
 )
 from dinoml.kernels.providers.ck.gemm import (
     CK_GEMM_CANDIDATE_SET_SCHEMA_VERSION,
@@ -96,6 +97,7 @@ __all__ = [
     "flash_attn_ck_qkv_symbol",
     "flash_attn_ck_static_library_name",
     "flash_attn_ck_symbol",
+    "flash_attn_ck_varlen_symbol",
     "ck_gemm_candidate_set",
     "ck_gemm_candidate_set_id",
     "ck_gemm_candidates",

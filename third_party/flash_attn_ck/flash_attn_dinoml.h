@@ -69,6 +69,32 @@ float FlashAttentionBiasLauncher(
     int window_size_right,
     hipStream_t stream);
 
+float FlashAttentionVarlenLauncher(
+    void* output,
+    int64_t output_row_stride,
+    int64_t output_head_stride,
+    void* q,
+    int64_t q_row_stride,
+    int64_t q_head_stride,
+    void* k,
+    int64_t k_row_stride,
+    int64_t k_head_stride,
+    void* v,
+    int64_t v_row_stride,
+    int64_t v_head_stride,
+    const int32_t* cu_seqlens,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    MaskType mask_type,
+    DataType dtype,
+    int window_size_left,
+    int window_size_right,
+    hipStream_t stream);
+
 float FlashAttentionStaticKvCacheLauncher(
     void* output,
     int64_t output_batch_stride,

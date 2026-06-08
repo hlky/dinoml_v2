@@ -325,6 +325,11 @@ def test_generated_module_templates_export_native_session_benchmark():
     assert "DinoGpuBenchmarkStateSnapshots" in gpu_text
     assert "restore_benchmark_state" in gpu_text
     assert "{{ memcpy_device_to_device }}" in gpu_text
+    assert "const bool can_attempt_graph_replay =" in gpu_text
+    assert "{% if shape_buffers %}\n      && false\n{% endif %}" in gpu_text
+    assert "(void){{ get_last_error }}();" in gpu_text
+    assert 'if (std::getenv("DINOML_REQUIRE_BENCHMARK_GRAPH") != nullptr) {\n          return capture_run_err;' in gpu_text
+    assert "return capture_run_err;\n      }\n      auto end_capture_err" not in gpu_text
     assert "std::chrono" not in gpu_text
 
 

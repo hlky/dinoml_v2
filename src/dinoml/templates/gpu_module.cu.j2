@@ -19,6 +19,18 @@
 #define DINO_RESTRICT __restrict__
 #endif
 
+#if !defined(DINO_COMPILE_CUDA) && !defined(DINO_COMPILE_HIP)
+namespace dinoml {
+#if defined(__HIP_PLATFORM_AMD__)
+using float16 = half;
+using bfloat16 = __hip_bfloat16;
+#else
+using float16 = math::float16;
+using bfloat16 = math::bfloat16;
+#endif
+}  // namespace dinoml
+#endif
+
 {% if gguf_dequant_scratch %}
 extern "C" int libgguf_cuda_dequantize_rows_on_stream(
     const void* device_input,
@@ -1046,7 +1058,14 @@ DINO_EXPORT int dino_session_benchmark(
   bool use_graph_replay = false;
   {{ device_error_type }} graph_capture_status = {{ success_constant }};
   {{ device_error_type }} graph_instantiate_status = {{ success_constant }};
-  if (!session->external_stream && std::getenv("DINOML_PROFILE_RUN") == nullptr) {
+  const bool can_attempt_graph_replay =
+      !session->external_stream &&
+      std::getenv("DINOML_PROFILE_RUN") == nullptr
+{% if shape_buffers %}
+      && false
+{% endif %}
+      ;
+  if (can_attempt_graph_replay) {
 {% if states %}
     if (int err = restore_benchmark_state()) {
       return err;
@@ -1069,16 +1088,20 @@ DINO_EXPORT int dino_session_benchmark(
         if (discarded_graph != nullptr) {
           {{ graph_destroy }}(discarded_graph);
         }
+        (void){{ get_last_error }}();
         (void)discard_err;
-        return capture_run_err;
-      }
-      auto end_capture_err = {{ stream_end_capture }}(session->stream, &graph.graph);
-      graph_capture_status = end_capture_err;
-      if (end_capture_err == {{ success_constant }}) {
-        auto instantiate_err = {{ graph_instantiate }}(&graph.executable, graph.graph, nullptr, nullptr, 0);
-        graph_instantiate_status = instantiate_err;
-        if (instantiate_err == {{ success_constant }} && graph.executable != nullptr) {
-          use_graph_replay = true;
+        if (std::getenv("DINOML_REQUIRE_BENCHMARK_GRAPH") != nullptr) {
+          return capture_run_err;
+        }
+      } else {
+        auto end_capture_err = {{ stream_end_capture }}(session->stream, &graph.graph);
+        graph_capture_status = end_capture_err;
+        if (end_capture_err == {{ success_constant }}) {
+          auto instantiate_err = {{ graph_instantiate }}(&graph.executable, graph.graph, nullptr, nullptr, 0);
+          graph_instantiate_status = instantiate_err;
+          if (instantiate_err == {{ success_constant }} && graph.executable != nullptr) {
+            use_graph_replay = true;
+          }
         }
       }
 {% if states %}

@@ -153,7 +153,9 @@ def _dim_is_not_one(dim: Any) -> bool:
     if isinstance(dim, int):
         return int(dim) != 1
     if isinstance(dim, Mapping):
-        return int(dim["max"]) != 1
+        if "max" in dim:
+            return int(dim["max"]) != 1
+        return True
     return True
 
 

@@ -974,6 +974,8 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
             "ck_bmm_archives": ["H:/cache/lib/dinoml_ck_bmm.a"],
             "ck_conv_archives": ["H:/cache/lib/dinoml_ck_conv.a"],
             "flash_attn_ck_archives": ["H:/cache/lib/dinoml_flash_attn_ck.a"],
+            "module_source_file": "module.cpp",
+            "module_source_language": "CXX",
             "runtime_implib": "",
             "rocm_runtime_implib": "",
             "kernels_implib": "",
@@ -998,6 +1000,13 @@ def test_rocm_module_cmake_imports_and_links_ck_archives():
     assert "dinoml_ck_bmm_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_ck_conv_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
     assert "dinoml_flash_attn_ck_0" in cmake[cmake.index("target_link_libraries(module PRIVATE") :]
+    assert "  module.cpp\n" in cmake
+    assert "  module.hip\n" not in cmake
+    assert "set_source_files_properties(module.cpp PROPERTIES LANGUAGE CXX)" in cmake
+    assert "target_compile_definitions(module_dispatch PRIVATE DINOML_HIP=1)" in cmake
+    assert "$<$<COMPILE_LANGUAGE:CXX>:-O0>" in cmake
+    assert "$<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-result>" in cmake
+    assert "$<$<COMPILE_LANGUAGE:CXX>:-Wno-deprecated-declarations>" in cmake
     assert 'SUFFIX ".so"' in cmake
     assert 'BUILD_RPATH "$ORIGIN/lib"' in cmake
     assert 'INSTALL_RPATH "$ORIGIN/lib"' in cmake
@@ -1244,6 +1253,26 @@ def test_rocm_gemm_manifest_selects_tuned_ck_candidate_for_aligned_static_shape(
 
     assert item["selected_candidate_id"] == "ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
     assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_add_relu_float16_xdl_wide_m_v1"
+
+
+def test_rocm_gemm_manifest_uses_baseline_ck_candidate_for_dynamic_shape_spec():
+    ir = _rocm_gemm_ir("gemm_rcr_bias", "bfloat16", m=7680, n=3840, k=1280)
+    patch_count = {
+        "kind": "dim",
+        "name": "patch_count",
+        "min": 5120,
+        "typical": 6624,
+        "max": 7680,
+        "buckets": [5120, 6624, 7680],
+    }
+    _set_shape_spec(ir, "a", [patch_count, 1280])
+    _set_shape_spec(ir, "c", [patch_count, 3840])
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1250"})
+    item = manifest["required_kernels"][0]
+
+    assert item["selected_candidate_id"] == "ck_gemm_rcr_bias_bfloat16_xdl_custom_v1"
+    assert item["kernel_symbol"] == "dinoml_ck_gemm_rcr_bias_bfloat16_xdl_custom_v1"
 
 
 @pytest.mark.parametrize(

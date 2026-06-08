@@ -409,6 +409,135 @@ extern "C" int dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1(
       stream);
 }
 
+int launch_flash_attention_varlen(
+    const void* q,
+    const void* k,
+    const void* v,
+    const int32_t* cu_seqlens,
+    void* output,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    DataType dtype,
+    hipStream_t stream) {
+  if (q == nullptr || k == nullptr || v == nullptr || cu_seqlens == nullptr || output == nullptr) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if (total_seq <= 0 || group_count <= 0 || max_seqlen <= 0 || num_heads_q <= 0 ||
+      num_heads_k <= 0 || head_dim <= 0) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  if ((num_heads_q % num_heads_k) != 0) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+
+  const int64_t q_row_stride = num_heads_q * head_dim;
+  const int64_t k_row_stride = num_heads_k * head_dim;
+  const int64_t v_row_stride = num_heads_k * head_dim;
+  const int64_t output_row_stride = num_heads_q * head_dim;
+  const int64_t q_head_stride = head_dim;
+  const int64_t k_head_stride = head_dim;
+  const int64_t v_head_stride = head_dim;
+  const int64_t output_head_stride = head_dim;
+  const MaskType mask_type = causal != 0 ? MaskType::kCausalFromTopLeft : MaskType::kNone;
+
+  const float elapsed_ms = FlashAttentionVarlenLauncher(
+      output,
+      output_row_stride,
+      output_head_stride,
+      const_cast<void*>(q),
+      q_row_stride,
+      q_head_stride,
+      const_cast<void*>(k),
+      k_row_stride,
+      k_head_stride,
+      const_cast<void*>(v),
+      v_row_stride,
+      v_head_stride,
+      cu_seqlens,
+      total_seq,
+      group_count,
+      max_seqlen,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      mask_type,
+      dtype,
+      -1,
+      -1,
+      stream);
+  if (elapsed_ms < 0.0f) {
+    return static_cast<int>(hipErrorInvalidValue);
+  }
+  return 0;
+}
+
+extern "C" int dinoml_flash_attn_ck_varlen_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const int32_t* cu_seqlens,
+    void* output,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_varlen(
+      q,
+      k,
+      v,
+      cu_seqlens,
+      output,
+      total_seq,
+      group_count,
+      max_seqlen,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      causal,
+      DataType::kFloat16,
+      stream);
+}
+
+extern "C" int dinoml_flash_attn_ck_varlen_fwd_bfloat16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const int32_t* cu_seqlens,
+    void* output,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream) {
+  return launch_flash_attention_varlen(
+      q,
+      k,
+      v,
+      cu_seqlens,
+      output,
+      total_seq,
+      group_count,
+      max_seqlen,
+      num_heads_q,
+      num_heads_k,
+      head_dim,
+      causal,
+      DataType::kBFloat16,
+      stream);
+}
+
 int launch_flash_attention_static_kv_cache(
     const void* q,
     const void* k_cache,

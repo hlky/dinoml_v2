@@ -45,10 +45,19 @@ from dinoml.lowering.ops import collect_generated_sources
 
 
 _CMAKE_ENV: dict[str, str] | None = None
-_ROCM_MODULE_CACHE_SCHEMA_VERSION = 1
-_ROCM_MODULE_FAST_CACHE_SCHEMA_VERSION = 1
+_ROCM_MODULE_CACHE_SCHEMA_VERSION = 3
+_ROCM_MODULE_FAST_CACHE_SCHEMA_VERSION = 3
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
-_FLASH_ATTN_CK_FILTER = "*batch*nlogits*bias*mask*nlse*ndropout*"
+_FLASH_ATTN_CK_FILTER = (
+    "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*"
+    "|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*"
+    "|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*"
+    "|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*"
+    "|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*"
+    "|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*"
+    "|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
+    "|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
+)
 _FLASH_ATTN_CK_SPLITKV_FILTER = (
     "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
 )
@@ -164,7 +173,10 @@ def build_rocm_module(
         generated_src_dir=generated_src_dir,
     )
     split_generated_sources = _split_rocm_generated_sources(generated_sources["manifest"], generated_src_dir)
-    (generated_src_dir / "module.hip").write_text(
+    module_source_file = "module.cpp" if split_generated_sources["source_files"] else "module.hip"
+    module_source_language = "CXX" if module_source_file == "module.cpp" else ""
+    module_source_path = generated_src_dir / module_source_file
+    module_source_path.write_text(
         render_rocm_module(
             ir,
             generated_kernels=[] if split_generated_sources["source_files"] else generated_sources["kernels"],
@@ -186,6 +198,8 @@ def build_rocm_module(
                 "ck_bmm_archives": [_cmake_path(path) for path in copied_support_libs["ck_bmm_archives"]],
                 "ck_conv_archives": [_cmake_path(path) for path in copied_support_libs["ck_conv_archives"]],
                 "flash_attn_ck_archives": [_cmake_path(path) for path in copied_support_libs["flash_attn_ck_archives"]],
+                "module_source_file": module_source_file,
+                "module_source_language": module_source_language,
                 "generated_source_files": [
                     _cmake_path(generated_src_dir / source_file)
                     for source_file in split_generated_sources["source_files"]
@@ -204,7 +218,7 @@ def build_rocm_module(
     build_dir = generated_src_dir / "build"
     cache_entry = _rocm_module_cache_entry(
         arch=target.arch,
-        module_source=generated_src_dir / "module.hip",
+        module_source=module_source_path,
         generated_sources=[generated_src_dir / source_file for source_file in split_generated_sources["source_files"]],
         support_libs=support_libs,
     )
@@ -473,11 +487,13 @@ def _rocm_module_cache_entry(
     cache_inputs = {
         "schema_version": _ROCM_MODULE_CACHE_SCHEMA_VERSION,
         "target": {"name": "rocm", "arch": arch_name},
+        "module_source_name": module_source.name,
         "module_source_sha256": file_sha256(module_source),
         "generated_source_sha256": [
             {"name": path.name, "sha256": file_sha256(path)}
             for path in generated_sources
         ],
+        "templates": _rocm_module_template_cache_inputs(),
         "support_libraries": [
             {"name": path.name, "sha256": file_sha256(path)}
             for path in support_paths
@@ -509,6 +525,7 @@ def _rocm_module_fast_cache_entry(
         "graph_hash": graph_hash(ir),
         "kernel_manifest_cache_key": str(kernel_manifest.get("cache_key", "")),
         "generated_source_chunk_bytes": _rocm_generated_source_chunk_bytes(),
+        "templates": _rocm_module_template_cache_inputs(),
         "support_libraries": [
             {"name": path.name, "sha256": file_sha256(path)}
             for path in _rocm_module_support_paths(support_libs)
@@ -524,6 +541,14 @@ def _rocm_module_fast_cache_entry(
         "module": cache_dir / "module.so",
         "manifest": cache_dir / "module_cache_manifest.json",
     }
+
+
+def _rocm_module_template_cache_inputs() -> list[dict[str, str]]:
+    template_dir = _repo_root() / "src" / "dinoml" / "templates"
+    return [
+        {"name": name, "sha256": file_sha256(template_dir / name)}
+        for name in ("gpu_module.cu.j2", "rocm_module_cmake.txt.j2")
+    ]
 
 
 def _restore_rocm_module_from_cache(cache_entry: Mapping[str, Any], module_lib: Path) -> bool:

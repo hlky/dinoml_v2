@@ -372,6 +372,10 @@ def _select_ck_gemm_manifest_candidate(
     input_names = [str(name) for name in node.get("inputs", ())]
     if len(input_names) < 2:
         return candidates[0]
+    output_names = [str(name) for name in node.get("outputs", ())]
+    selected_tensors = [tensor_map.get(name, {}) for name in (*input_names, *output_names)]
+    if any(_tensor_has_symbolic_shape_spec(tensor) for tensor in selected_tensors):
+        return candidates[0]
     shapes = [_static_tensor_shape(tensor_map.get(name, {})) for name in input_names]
     if any(shape is None for shape in shapes):
         return candidates[0]
@@ -584,6 +588,13 @@ def _static_tensor_shape(tensor: Mapping[str, Any]) -> list[int] | None:
             return None
         result.append(int(dim))
     return result
+
+
+def _tensor_has_symbolic_shape_spec(tensor: Mapping[str, Any]) -> bool:
+    shape_spec = tensor.get("shape_spec")
+    if not isinstance(shape_spec, Sequence) or isinstance(shape_spec, (str, bytes)):
+        return False
+    return any(not isinstance(dim, int) for dim in shape_spec)
 
 
 def _gguf_runtime_dequant_gemm_rhs_plan(

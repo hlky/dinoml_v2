@@ -841,7 +841,7 @@ if(DINOML_ENABLE_ROCM)
     set(_dinoml_flash_attn_ck_splitkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/splitkv_blob_list.txt")
     set(_dinoml_flash_attn_ck_appendkv_blob_list "${_dinoml_flash_attn_ck_generated_dir}/appendkv_blob_list.txt")
     set(DINOML_FLASH_ATTN_CK_FILTER
-        "*batch*nlogits*bias*mask*nlse*ndropout*"
+        "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
         CACHE STRING "CK FlashAttention generator filter")
     set(DINOML_FLASH_ATTN_CK_SPLITKV_FILTER
         "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
@@ -867,7 +867,7 @@ if(DINOML_ENABLE_ROCM)
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
         --api fwd
-        --receipt 4
+        --receipt 600
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
         --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --list_blobs "${_dinoml_flash_attn_ck_blob_list}"
@@ -925,7 +925,7 @@ if(DINOML_ENABLE_ROCM)
         "${_dinoml_flash_attn_ck_generator_dir}/generate.py"
         --targets "${_dinoml_flash_attn_ck_targets}"
         --api fwd
-        --receipt 4
+        --receipt 600
         --optdim "${DINOML_FLASH_ATTN_CK_OPTDIMS}"
         --filter "${DINOML_FLASH_ATTN_CK_FILTER}"
         --output_dir "${_dinoml_flash_attn_ck_generated_dir}"

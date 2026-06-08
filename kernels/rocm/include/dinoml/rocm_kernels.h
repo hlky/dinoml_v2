@@ -211,6 +211,36 @@ int dinoml_flash_attn_ck_qkv_fwd_bfloat16_v1(
     int causal,
     hipStream_t stream);
 
+int dinoml_flash_attn_ck_varlen_fwd_float16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const int32_t* cu_seqlens,
+    void* output,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream);
+
+int dinoml_flash_attn_ck_varlen_fwd_bfloat16_v1(
+    const void* q,
+    const void* k,
+    const void* v,
+    const int32_t* cu_seqlens,
+    void* output,
+    int64_t total_seq,
+    int64_t group_count,
+    int64_t max_seqlen,
+    int64_t num_heads_q,
+    int64_t num_heads_k,
+    int64_t head_dim,
+    int causal,
+    hipStream_t stream);
+
 int dinoml_flash_attn_ck_static_kv_cache_fwd_float16_v1(
     const void* q,
     const void* k_cache,

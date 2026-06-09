@@ -108,17 +108,26 @@ def _cutlass_conv_declarations(
             ]
         elif stage_kind == "provider_launcher":
             inputs = stage.get("inputs")
-            if not isinstance(inputs, (list, tuple)) or len(inputs) < 3:
+            if not isinstance(inputs, (list, tuple)) or len(inputs) < 2:
                 continue
-            args = [
-                "    const void* activation_nhwc,",
-                "    const void* weight_ohwi,",
-                "    const void* bias,",
-                *(["    const void* residual_nhwc,"] if len(inputs) > 3 else []),
-                "    void* output_nhwc,",
-                *["    int," for _ in _shape_args(stage)],
-                "    cudaStream_t stream);",
-            ]
+            if len(inputs) == 2:
+                args = [
+                    "    const void* activation_nhwc,",
+                    "    const void* weight_provider,",
+                    "    void* output_nhwc,",
+                    *["    int," for _ in _shape_args(stage)],
+                    "    cudaStream_t stream);",
+                ]
+            else:
+                args = [
+                    "    const void* activation_nhwc,",
+                    "    const void* weight_ohwi,",
+                    "    const void* bias,",
+                    *(["    const void* residual_nhwc,"] if len(inputs) > 3 else []),
+                    "    void* output_nhwc,",
+                    *["    int," for _ in _shape_args(stage)],
+                    "    cudaStream_t stream);",
+                ]
         else:
             continue
         declarations.append(

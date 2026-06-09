@@ -4,6 +4,7 @@
 #include "cutlass/half.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop.h"
 #include "cutlass/conv/kernel/default_conv2d_fprop_with_broadcast.h"
+#include "cutlass/conv/kernel/default_conv2d_dgrad.h"
 #include "cutlass/conv/device/implicit_gemm_convolution.h"
 #include "cutlass/epilogue/thread/activation.h"
 #include "cutlass/epilogue/thread/linear_combination.h"
@@ -84,6 +85,29 @@ __global__ void dinoml_cutlass_conv_oihw_to_ohwi_kernel(
 }
 
 template <typename T>
+__global__ void dinoml_cutlass_conv_iohw_to_ihwo_kernel(
+    const T* src,
+    T* dst,
+    int in_c,
+    int out_c,
+    int kernel_h,
+    int kernel_w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = in_c * out_c * kernel_h * kernel_w;
+  if (linear >= total) {
+    return;
+  }
+  int kw = linear % kernel_w;
+  int tmp = linear / kernel_w;
+  int kh = tmp % kernel_h;
+  tmp /= kernel_h;
+  int out_channel = tmp % out_c;
+  int in_channel = tmp / out_c;
+  int dst_index = ((in_channel * kernel_h + kh) * kernel_w + kw) * out_c + out_channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename T>
 int dinoml_cutlass_conv_launch_nchw_to_nhwc(
     const void* src,
     void* dst,
@@ -153,6 +177,31 @@ int dinoml_cutlass_conv_launch_oihw_to_ohwi(
       static_cast<T*>(dst),
       out_c,
       in_c,
+      kernel_h,
+      kernel_w);
+  return static_cast<int>(cudaGetLastError());
+}
+
+template <typename T>
+int dinoml_cutlass_conv_launch_iohw_to_ihwo(
+    const void* src,
+    void* dst,
+    int in_c,
+    int out_c,
+    int kernel_h,
+    int kernel_w,
+    cudaStream_t stream) {
+  if (src == nullptr || dst == nullptr || in_c <= 0 || out_c <= 0 || kernel_h <= 0 || kernel_w <= 0) {
+    return static_cast<int>(cudaErrorInvalidValue);
+  }
+  int total = in_c * out_c * kernel_h * kernel_w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  dinoml_cutlass_conv_iohw_to_ihwo_kernel<<<blocks, threads, 0, stream>>>(
+      static_cast<const T*>(src),
+      static_cast<T*>(dst),
+      in_c,
+      out_c,
       kernel_h,
       kernel_w);
   return static_cast<int>(cudaGetLastError());
@@ -804,6 +853,68 @@ DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH(bf16, Bf16, bias_add_relu)
 #undef DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_LAUNCH
 #undef DINOML_CUTLASS_CONV_DEFINE_TYPED_BIAS_ADD_LAUNCH
 
+#define DINOML_CUTLASS_TRANSPOSED_CONV_DEFINE_TYPED_LAUNCH(LAUNCH_PREFIX, DTYPE_PREFIX) \
+template <typename ImplicitGemm> \
+int dinoml_cutlass_conv_launch_##LAUNCH_PREFIX##_kernel_transposed_conv2d( \
+    const void* input_nhwc, const void* weight_ihwo, void* output_nhwc, \
+    int n, int h, int w, int c, int out_h, int out_w, int out_c, int kernel_h, int kernel_w, \
+    int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w, cudaStream_t stream) { \
+  cutlass::Tensor4DCoord output_extent(n, out_h, out_w, out_c); \
+  cutlass::Tensor4DCoord filter_extent(c, kernel_h, kernel_w, out_c); \
+  cutlass::Tensor4DCoord input_extent(n, h, w, c); \
+  cutlass::Tensor4DCoord padding(pad_h, pad_h, pad_w, pad_w); \
+  cutlass::conv::Conv2dProblemSize problem_size( \
+      output_extent, filter_extent, padding, cutlass::MatrixCoord(stride_h, stride_w), \
+      cutlass::MatrixCoord(dilation_h, dilation_w), input_extent, cutlass::conv::Mode::kCrossCorrelation); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout input_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(input_extent); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout weight_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(filter_extent); \
+  DinomlCutlassConv##DTYPE_PREFIX##Layout output_layout = \
+      DinomlCutlassConv##DTYPE_PREFIX##Layout::packed(output_extent); \
+  typename ImplicitGemm::Arguments arguments{ \
+      problem_size, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(input_nhwc)), input_layout}, \
+      {const_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>( \
+           static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element const*>(weight_ihwo)), weight_layout}, \
+      {static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>(output_nhwc), output_layout}, \
+      {static_cast<DinomlCutlassConv##DTYPE_PREFIX##Element*>(output_nhwc), output_layout}, \
+      {DinomlCutlassConv##DTYPE_PREFIX##Compute(1), DinomlCutlassConv##DTYPE_PREFIX##Compute(0)}}; \
+  ImplicitGemm implicit_gemm; \
+  std::size_t workspace_nbytes = implicit_gemm.get_workspace_size(arguments); \
+  void* workspace = nullptr; \
+  if (workspace_nbytes != 0) { \
+    cudaError_t alloc_status = cudaMalloc(&workspace, workspace_nbytes); \
+    if (alloc_status != cudaSuccess) { \
+      return static_cast<int>(alloc_status); \
+    } \
+  } \
+  cutlass::Status status = implicit_gemm.can_implement(arguments); \
+  if (status != cutlass::Status::kSuccess) { \
+    if (workspace != nullptr) { cudaFree(workspace); } \
+    return 1000 + static_cast<int>(status); \
+  } \
+  status = implicit_gemm.initialize(arguments, workspace, stream); \
+  if (status != cutlass::Status::kSuccess) { \
+    if (workspace != nullptr) { cudaFree(workspace); } \
+    return 1100 + static_cast<int>(status); \
+  } \
+  status = implicit_gemm.run(stream); \
+  cudaError_t cuda_status = cudaGetLastError(); \
+  if (workspace != nullptr) { cudaFree(workspace); } \
+  if (status != cutlass::Status::kSuccess) { \
+    return 1200 + static_cast<int>(status); \
+  } \
+  return static_cast<int>(cuda_status); \
+}
+
+DINOML_CUTLASS_TRANSPOSED_CONV_DEFINE_TYPED_LAUNCH(fp16, Fp16)
+DINOML_CUTLASS_TRANSPOSED_CONV_DEFINE_TYPED_LAUNCH(fp32, Fp32)
+DINOML_CUTLASS_TRANSPOSED_CONV_DEFINE_TYPED_LAUNCH(bf16, Bf16)
+
+#undef DINOML_CUTLASS_TRANSPOSED_CONV_DEFINE_TYPED_LAUNCH
+
 }  // namespace
 
 #define DINOML_CUTLASS_CONV_NCHW_TO_NHWC_EXPORT(SYMBOL, DTYPE_PREFIX) \
@@ -815,6 +926,12 @@ extern "C" int SYMBOL(const void* src, void* dst, int n, int c, int h, int w, cu
 extern "C" int SYMBOL(const void* src, void* dst, int out_c, int in_c, int kernel_h, int kernel_w, cudaStream_t stream) { \
   return dinoml_cutlass_conv_launch_oihw_to_ohwi<DinomlCutlassConv##DTYPE_PREFIX##Element>( \
       src, dst, out_c, in_c, kernel_h, kernel_w, stream); \
+}
+
+#define DINOML_CUTLASS_CONV_IOHW_TO_IHWO_EXPORT(SYMBOL, DTYPE_PREFIX) \
+extern "C" int SYMBOL(const void* src, void* dst, int in_c, int out_c, int kernel_h, int kernel_w, cudaStream_t stream) { \
+  return dinoml_cutlass_conv_launch_iohw_to_ihwo<DinomlCutlassConv##DTYPE_PREFIX##Element>( \
+      src, dst, in_c, out_c, kernel_h, kernel_w, stream); \
 }
 
 #define DINOML_CUTLASS_CONV_NHWC_TO_NCHW_EXPORT(SYMBOL, DTYPE_PREFIX) \
@@ -931,6 +1048,58 @@ extern "C" float PROFILER_SYMBOL(const void* activation_nhwc, const void* weight
   return event_status == cudaSuccess ? elapsed_ms : -1.0f; \
 }
 
+#define DINOML_CUTLASS_TRANSPOSED_CONV2D_KERNEL(SYMBOL, DTYPE_PREFIX, OPCLASS, TB_M, TB_N, TB_K, WARP_M, WARP_N, WARP_K, INST_M, INST_N, INST_K, STAGES, MATH_OP, ITERATOR, ALIGN_A, ALIGN_B, ELEMENTS_PER_ACCESS) \
+namespace { \
+using SYMBOL##_Epilogue = cutlass::epilogue::thread::LinearCombination< \
+    DinomlCutlassConv##DTYPE_PREFIX##Element, \
+    ELEMENTS_PER_ACCESS, \
+    DinomlCutlassConv##DTYPE_PREFIX##Accumulator, \
+    DinomlCutlassConv##DTYPE_PREFIX##Compute>; \
+using SYMBOL##_Kernel = typename cutlass::conv::kernel::DefaultConv2dDgrad< \
+    DinomlCutlassConv##DTYPE_PREFIX##Element, DinomlCutlassConv##DTYPE_PREFIX##Layout, \
+    DinomlCutlassConv##DTYPE_PREFIX##Element, DinomlCutlassConv##DTYPE_PREFIX##Layout, \
+    DinomlCutlassConv##DTYPE_PREFIX##Element, DinomlCutlassConv##DTYPE_PREFIX##Layout, \
+    DinomlCutlassConv##DTYPE_PREFIX##Accumulator, \
+    OPCLASS, \
+    cutlass::arch::Sm80, \
+    cutlass::gemm::GemmShape<TB_M, TB_N, TB_K>, \
+    cutlass::gemm::GemmShape<WARP_M, WARP_N, WARP_K>, \
+    cutlass::gemm::GemmShape<INST_M, INST_N, INST_K>, \
+    SYMBOL##_Epilogue, \
+    cutlass::conv::threadblock::StridedDgradIdentityThreadblockSwizzle<1>, \
+    STAGES, \
+    MATH_OP, \
+    ITERATOR, \
+    cutlass::conv::StrideSupport::kStrided, \
+    ALIGN_A, \
+    ALIGN_B>::Kernel; \
+using SYMBOL##_ImplicitGemm = cutlass::conv::device::ImplicitGemmConvolution<SYMBOL##_Kernel>; \
+}
+
+#define DINOML_CUTLASS_TRANSPOSED_CONV2D_PROFILE(PROFILER_SYMBOL, LAUNCH_SYMBOL) \
+extern "C" float PROFILER_SYMBOL(const void* input_nhwc, const void* weight_ihwo, void* output_nhwc, \
+    int n, int h, int w, int c, int out_h, int out_w, int out_c, int kernel_h, int kernel_w, \
+    int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w, int iterations, cudaStream_t stream) { \
+  if (iterations <= 0) { return -1.0f; } \
+  cudaEvent_t start; cudaEvent_t stop; \
+  cudaError_t event_status = cudaEventCreate(&start); \
+  if (event_status != cudaSuccess) { return -1.0f; } \
+  event_status = cudaEventCreate(&stop); \
+  if (event_status != cudaSuccess) { cudaEventDestroy(start); return -1.0f; } \
+  cudaEventRecord(start, stream); \
+  for (int iter = 0; iter < iterations; ++iter) { \
+    int status = LAUNCH_SYMBOL(input_nhwc, weight_ihwo, output_nhwc, n, h, w, c, out_h, out_w, out_c, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+    if (status != 0) { cudaEventDestroy(start); cudaEventDestroy(stop); return -1.0f; } \
+  } \
+  cudaEventRecord(stop, stream); \
+  event_status = cudaEventSynchronize(stop); \
+  if (event_status != cudaSuccess) { cudaEventDestroy(start); cudaEventDestroy(stop); return -1.0f; } \
+  float elapsed_ms = 0.0f; \
+  event_status = cudaEventElapsedTime(&elapsed_ms, start, stop); \
+  cudaEventDestroy(start); cudaEventDestroy(stop); \
+  return event_status == cudaSuccess ? elapsed_ms : -1.0f; \
+}
+
 #define DINOML_CUTLASS_CONV_BIAS_EXPORT(SYMBOL, PROFILER_SYMBOL, DTYPE_PREFIX, LAUNCH_PREFIX, OPCLASS, TB_M, TB_N, TB_K, WARP_M, WARP_N, WARP_K, INST_M, INST_N, INST_K, STAGES, MATH_OP, ITERATOR, ALIGN_A, ALIGN_B, ELEMENTS_PER_ACCESS) \
 DINOML_CUTLASS_CONV_KERNEL(SYMBOL, DTYPE_PREFIX, cutlass::conv::kernel::DefaultConv2dFprop, DinomlCutlassConvBiasTag, OPCLASS, TB_M, TB_N, TB_K, WARP_M, WARP_N, WARP_K, INST_M, INST_N, INST_K, STAGES, MATH_OP, ITERATOR, ALIGN_A, ALIGN_B, ELEMENTS_PER_ACCESS) \
 extern "C" int SYMBOL(const void* activation_nhwc, const void* weight_ohwi, const void* bias, void* output_nhwc, \
@@ -966,5 +1135,14 @@ extern "C" int SYMBOL(const void* activation_nhwc, const void* weight_ohwi, cons
   return dinoml_cutlass_conv_launch_##LAUNCH_PREFIX##_kernel_bias_add_relu<SYMBOL##_ImplicitGemm>(activation_nhwc, weight_ohwi, bias, residual_nhwc, output_nhwc, n, h, w, c, out_h, out_w, out_c, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
 } \
 DINOML_CUTLASS_CONV_PROFILE_BIAS_ADD(PROFILER_SYMBOL, SYMBOL)
+
+#define DINOML_CUTLASS_TRANSPOSED_CONV2D_EXPORT(SYMBOL, PROFILER_SYMBOL, DTYPE_PREFIX, LAUNCH_PREFIX, OPCLASS, TB_M, TB_N, TB_K, WARP_M, WARP_N, WARP_K, INST_M, INST_N, INST_K, STAGES, MATH_OP, ITERATOR, ALIGN_A, ALIGN_B, ELEMENTS_PER_ACCESS) \
+DINOML_CUTLASS_TRANSPOSED_CONV2D_KERNEL(SYMBOL, DTYPE_PREFIX, OPCLASS, TB_M, TB_N, TB_K, WARP_M, WARP_N, WARP_K, INST_M, INST_N, INST_K, STAGES, MATH_OP, ITERATOR, ALIGN_A, ALIGN_B, ELEMENTS_PER_ACCESS) \
+extern "C" int SYMBOL(const void* input_nhwc, const void* weight_ihwo, void* output_nhwc, \
+    int n, int h, int w, int c, int out_h, int out_w, int out_c, int kernel_h, int kernel_w, \
+    int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w, cudaStream_t stream) { \
+  return dinoml_cutlass_conv_launch_##LAUNCH_PREFIX##_kernel_transposed_conv2d<SYMBOL##_ImplicitGemm>(input_nhwc, weight_ihwo, output_nhwc, n, h, w, c, out_h, out_w, out_c, kernel_h, kernel_w, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+} \
+DINOML_CUTLASS_TRANSPOSED_CONV2D_PROFILE(PROFILER_SYMBOL, SYMBOL)
 
 // DINOML_CUTLASS_CONV_EXPORTS

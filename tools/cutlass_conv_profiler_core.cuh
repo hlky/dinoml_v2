@@ -32,6 +32,7 @@ struct ConvRequest {
   int dilation_w = 1;
   int iterations = 1;
   int repeats = 1;
+  bool has_bias = true;
   int residual_count = 0;
   std::string validation_mode = "fast";
 };
@@ -181,6 +182,34 @@ inline float run_candidate(
     void* bias,
     void* residual,
     void* output) {
+  if (!request.has_bias && request.residual_count == 0) {
+    using Fn = float (*)(
+        const void*, const void*, void*,
+        int, int, int, int, int, int, int, int,
+        int, int, int, int, int, int, int, int,
+        cudaStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(candidate.profiler_symbol))(
+        activation,
+        weight,
+        output,
+        request.n,
+        request.h,
+        request.w,
+        request.c,
+        request.out_h,
+        request.out_w,
+        request.out_c,
+        request.kernel_h,
+        request.kernel_w,
+        request.stride_h,
+        request.stride_w,
+        request.pad_h,
+        request.pad_w,
+        request.dilation_h,
+        request.dilation_w,
+        request.iterations,
+        nullptr);
+  }
   if (request.residual_count == 0) {
     using Fn = float (*)(
         const void*, const void*, const void*, void*,
@@ -260,12 +289,15 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
       static_cast<std::size_t>(request.n) * request.out_h * request.out_w * request.out_c;
   DeviceBuffer activation(activation_elements * element_size);
   DeviceBuffer weight(weight_elements * element_size);
-  DeviceBuffer bias(static_cast<std::size_t>(request.out_c) * element_size);
+  DeviceBuffer bias;
   const std::size_t output_nbytes = output_elements * element_size;
   DeviceBuffer output(output_nbytes);
   activation.copy_from(random_storage(activation_elements, request.dtype, rng));
   weight.copy_from(random_storage(weight_elements, request.dtype, rng));
-  bias.copy_from(random_storage(static_cast<std::size_t>(request.out_c), request.dtype, rng));
+  if (request.has_bias) {
+    bias = DeviceBuffer(static_cast<std::size_t>(request.out_c) * element_size);
+    bias.copy_from(random_storage(static_cast<std::size_t>(request.out_c), request.dtype, rng));
+  }
 
   DeviceBuffer residual;
   if (request.residual_count == 1) {

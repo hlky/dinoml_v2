@@ -31,6 +31,7 @@ std::vector<py::dict> profile_conv_py(py::kwargs kwargs) {
   request.dilation_w = kwargs["dilation_w"].cast<int>();
   request.iterations = kwargs["iterations"].cast<int>();
   request.repeats = kwargs["repeats"].cast<int>();
+  request.has_bias = kwargs.contains("has_bias") ? kwargs["has_bias"].cast<bool>() : true;
   request.residual_count = kwargs["residual_count"].cast<int>();
   if (kwargs.contains("validation_mode")) {
     request.validation_mode = kwargs["validation_mode"].cast<std::string>();

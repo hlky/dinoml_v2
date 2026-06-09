@@ -3,7 +3,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from dinoml.kernels.providers.cutlass.conv import CONV_OPS, CONV_SUPPORTED_DTYPES, cutlass_conv_candidates
+from dinoml.kernels.providers.cutlass.conv import (
+    CONV_OPS,
+    CONV_SUPPORTED_DTYPES,
+    CUTLASS_TRANSPOSED_CONV_OPS,
+    cutlass_conv_candidates,
+    cutlass_transposed_conv_candidates,
+)
 
 
 def _candidate_row(candidate: dict) -> str:
@@ -24,11 +30,14 @@ def _candidate_row(candidate: dict) -> str:
 
 
 def render_dispatch(op: str, dtype: str) -> str:
-    if op not in CONV_OPS:
+    if op not in {*CONV_OPS, *CUTLASS_TRANSPOSED_CONV_OPS}:
         raise ValueError(f"Unsupported CUTLASS Conv op {op!r}")
     if dtype not in CONV_SUPPORTED_DTYPES:
         raise ValueError(f"Unsupported CUTLASS Conv dtype {dtype!r}")
-    candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
+    if op in CUTLASS_TRANSPOSED_CONV_OPS:
+        candidates = cutlass_transposed_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
+    else:
+        candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
     rows = "\n".join(_candidate_row(candidate) for candidate in candidates)
     return f"""#include \"cutlass_conv_profiler_core.cuh\"
 

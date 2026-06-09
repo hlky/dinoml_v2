@@ -14,10 +14,10 @@ int arg_int(char** argv, int index) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 20 && argc != 21) {
+  if (argc != 21 && argc != 22) {
     std::cerr
         << "usage: " << argv[0]
-        << " dtype n h w c out_h out_w out_c kernel_h kernel_w stride_h stride_w pad_h pad_w dilation_h dilation_w iterations repeats residual_count [validation_mode]\n";
+        << " dtype n h w c out_h out_w out_c kernel_h kernel_w stride_h stride_w pad_h pad_w dilation_h dilation_w iterations repeats has_bias residual_count [validation_mode]\n";
     return 2;
   }
   try {
@@ -40,9 +40,10 @@ int main(int argc, char** argv) {
     request.dilation_w = arg_int(argv, 16);
     request.iterations = arg_int(argv, 17);
     request.repeats = arg_int(argv, 18);
-    request.residual_count = arg_int(argv, 19);
-    if (argc == 21) {
-      request.validation_mode = argv[20];
+    request.has_bias = arg_int(argv, 19) != 0;
+    request.residual_count = arg_int(argv, 20);
+    if (argc == 22) {
+      request.validation_mode = argv[21];
     }
     auto results = dinoml::cutlass_conv_profiler::profile_conv(request, 0xC011A55u);
     std::cout << "[";

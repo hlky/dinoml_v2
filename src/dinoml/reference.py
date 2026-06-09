@@ -383,6 +383,30 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] in {
+            "transposed_conv2d",
+            "transposed_conv2d_bias",
+            "transposed_conv2d_bias_relu",
+            "transposed_conv2d_bias_add",
+            "transposed_conv2d_bias_add_relu",
+        }:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_transposed_conv2d_family(
+                    node["op"],
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    None if node["op"] == "transposed_conv2d" else values[node["inputs"][2]],
+                    (
+                        None
+                        if node["op"] not in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}
+                        else values[node["inputs"][3]]
+                    ),
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in GEMM_OPS:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -1531,6 +1555,81 @@ def _execute_conv2d_bias_family(
                     if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}:
                         total += float(residual_values[n, oc, oh, ow])
                     if op_name in {"conv2d_bias_relu", "conv2d_bias_add_relu"}:
+                        total = max(total, 0.0)
+                    result[n, oc, oh, ow] = total
+    return result
+
+
+def _execute_transposed_conv2d_family(
+    op_name: str,
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray | None,
+    residual: np.ndarray | None,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1))]
+    pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0))]
+    output_pad_h, output_pad_w = [int(item) for item in attrs.get("output_padding", (0, 0))]
+    dilation_h, dilation_w = [int(item) for item in attrs.get("dilation", (1, 1))]
+    groups = int(attrs.get("groups", 1))
+    if groups != 1:
+        raise NotImplementedError(f"{op_name} CPU reference currently supports groups=1 only, got {groups}")
+    batch, in_channels, in_height, in_width = [int(dim) for dim in x.shape]
+    weight_in_channels, out_channels, kernel_h, kernel_w = [int(dim) for dim in weight.shape]
+    if weight_in_channels != in_channels:
+        raise ValueError(
+            f"{op_name} CPU reference weight input channels must match activation channels for groups=1: "
+            f"got activation C={in_channels}, weight I={weight_in_channels}"
+        )
+    if output_pad_h >= stride_h or output_pad_w >= stride_w:
+        raise ValueError(
+            f"{op_name} CPU reference output_padding must be smaller than stride, "
+            f"got output_padding=({output_pad_h}, {output_pad_w}) and stride=({stride_h}, {stride_w})"
+        )
+    if bias is not None and bias.shape != (out_channels,):
+        raise ValueError(
+            f"{op_name} CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
+        )
+    out_height = (in_height - 1) * stride_h - 2 * pad_h + dilation_h * (kernel_h - 1) + output_pad_h + 1
+    out_width = (in_width - 1) * stride_w - 2 * pad_w + dilation_w * (kernel_w - 1) + output_pad_w + 1
+    if op_name in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}:
+        if residual is None:
+            raise ValueError(f"{op_name} CPU reference requires a residual tensor")
+        if tuple(int(dim) for dim in residual.shape) != (batch, out_channels, out_height, out_width):
+            raise ValueError(
+                f"{op_name} CPU reference residual shape must match the output shape "
+                f"({batch}, {out_channels}, {out_height}, {out_width}), got {tuple(int(dim) for dim in residual.shape)}"
+            )
+    result = np.empty((batch, out_channels, out_height, out_width), dtype=np.float32)
+    source = np.asarray(x, dtype=np.float32)
+    filters = np.asarray(weight, dtype=np.float32)
+    bias_values = None if bias is None else np.asarray(bias, dtype=np.float32)
+    residual_values = None if residual is None else np.asarray(residual, dtype=np.float32)
+    for n in range(batch):
+        for oc in range(out_channels):
+            for oh in range(out_height):
+                for ow in range(out_width):
+                    total = 0.0 if bias_values is None else float(bias_values[oc])
+                    for ic in range(in_channels):
+                        for kh in range(kernel_h):
+                            h_numerator = oh + pad_h - kh * dilation_h
+                            if h_numerator < 0 or h_numerator % stride_h != 0:
+                                continue
+                            ih = h_numerator // stride_h
+                            if ih < 0 or ih >= in_height:
+                                continue
+                            for kw in range(kernel_w):
+                                w_numerator = ow + pad_w - kw * dilation_w
+                                if w_numerator < 0 or w_numerator % stride_w != 0:
+                                    continue
+                                iw = w_numerator // stride_w
+                                if iw < 0 or iw >= in_width:
+                                    continue
+                                total += float(source[n, ic, ih, iw] * filters[ic, oc, kh, kw])
+                    if op_name in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}:
+                        total += float(residual_values[n, oc, oh, ow])
+                    if op_name in {"transposed_conv2d_bias_relu", "transposed_conv2d_bias_add_relu"}:
                         total = max(total, 0.0)
                     result[n, oc, oh, ow] = total
     return result

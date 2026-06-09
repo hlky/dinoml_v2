@@ -35,6 +35,7 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_conv_candidate_compatible_with_plan,
     cutlass_conv_candidates,
     cutlass_conv_layout_plan,
+    cutlass_conv_static_library_name,
     validate_cutlass_conv_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import (
@@ -74,7 +75,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
 )
 from dinoml.kernels.gemm import gemm_op_spec, gemm_problem
 from dinoml.lowering.ops import generated_source_provenance
-from dinoml.ops.conv import normalize_conv2d_bias_attrs
+from dinoml.ops.conv import TRANSPOSED_CONV2D_FAMILY_OPS, normalize_conv2d_bias_attrs, normalize_transposed_conv2d_attrs
 from dinoml.ops.definitions import get_op_def
 
 
@@ -112,7 +113,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
     cutlass_bmm_alignment_contexts = _cutlass_bmm_alignment_contexts(ir, target_name, tensor_map)
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
-        binding = op_def.backend_kernels[target_name]
+        binding = _backend_kernel_binding_or_raise(op_def, target_name)
         output_name = str(node["outputs"][0])
         dtype = str(tensor_map[output_name]["dtype"])
         resolved = binding.resolve(dtype)
@@ -259,6 +260,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["support_archive"] = ck_bmm_static_library_name(str(node["op"]), dtype)
         if kernel_library == "ck_conv":
             item["support_archive"] = ck_conv_static_library_name(str(node["op"]), dtype)
+        if kernel_library == "cutlass_conv":
+            item["support_archive"] = cutlass_conv_static_library_name(str(node["op"]), dtype)
         if kernel_library == FLASH_ATTN_CK_LIBRARY:
             item["support_archive"] = flash_attn_ck_static_library_name(dtype)
         if kernel_library == FLASH_ATTN_CUDA_LIBRARY:
@@ -345,12 +348,21 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
             "profile_blocked_details": {"groups": int(raw_groups), "supported_groups": [1]},
         }
     try:
-        _stride, _padding, _dilation, groups = normalize_conv2d_bias_attrs(
-            attrs.get("stride", (1, 1)),
-            attrs.get("padding", (0, 0)),
-            attrs.get("dilation", (1, 1)),
-            raw_groups,
-        )
+        if str(node.get("op")) in TRANSPOSED_CONV2D_FAMILY_OPS:
+            _stride, _padding, _output_padding, _dilation, groups = normalize_transposed_conv2d_attrs(
+                attrs.get("stride", (1, 1)),
+                attrs.get("padding", (0, 0)),
+                attrs.get("output_padding", (0, 0)),
+                attrs.get("dilation", (1, 1)),
+                raw_groups,
+            )
+        else:
+            _stride, _padding, _dilation, groups = normalize_conv2d_bias_attrs(
+                attrs.get("stride", (1, 1)),
+                attrs.get("padding", (0, 0)),
+                attrs.get("dilation", (1, 1)),
+                raw_groups,
+            )
     except (NotImplementedError, ValueError) as exc:
         return {
             "profile_blocked_reason": "ck_conv_attrs_unsupported_for_profile",
@@ -451,7 +463,10 @@ def _select_ck_conv_manifest_candidate(
     if len(x_shape) != 4 or len(weight_shape) != 4 or len(out_shape) != 4:
         return candidates[0]
     batch, in_channels, _, _ = x_shape
-    out_channels, _, kernel_h, kernel_w = weight_shape
+    if str(node.get("op")) in TRANSPOSED_CONV2D_FAMILY_OPS:
+        _weight_in_channels, out_channels, kernel_h, kernel_w = weight_shape
+    else:
+        out_channels, _weight_in_channels, kernel_h, kernel_w = weight_shape
     out_h, out_w = out_shape[2], out_shape[3]
     attrs = dict(node.get("attrs", {}))
     raw_groups = attrs.get("groups", 1)
@@ -737,7 +752,9 @@ def _cutlass_gemm_alignment_contexts(
     contexts: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for node in ir["nodes"]:
         op_def = get_op_def(node["op"])
-        binding = op_def.backend_kernels[target_name]
+        binding = op_def.backend_kernels.get(target_name)
+        if binding is None:
+            continue
         output_name = str(node["outputs"][0])
         dtype = str(tensor_map[output_name]["dtype"])
         resolved = binding.resolve(dtype)
@@ -762,6 +779,17 @@ def _cutlass_gemm_alignment_contexts(
         key = (str(node["op"]), dtype)
         contexts.setdefault(key, []).append(context)
     return {key: merge_cutlass_alignment_contexts(values) for key, values in contexts.items()}
+
+
+def _backend_kernel_binding_or_raise(op_def: Any, target_name: str):
+    binding = op_def.backend_kernels.get(target_name)
+    if binding is not None:
+        return binding
+    if target_name == "cuda" and op_def.name in TRANSPOSED_CONV2D_FAMILY_OPS:
+        raise NotImplementedError(
+            f"{op_def.name} CUDA backend is unsupported; only transposed_conv2d has native CUTLASS support"
+        )
+    raise NotImplementedError(f"{op_def.name} has no backend kernel binding for target {target_name!r}")
 
 
 def _cutlass_bmm_alignment_contexts(

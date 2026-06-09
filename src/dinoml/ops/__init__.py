@@ -68,6 +68,11 @@ from dinoml.ops.conv import (
     conv2d_bias_add,
     conv2d_bias_add_relu,
     conv2d_bias_relu,
+    transposed_conv2d,
+    transposed_conv2d_bias,
+    transposed_conv2d_bias_add,
+    transposed_conv2d_bias_add_relu,
+    transposed_conv2d_bias_relu,
 )
 from dinoml.ops.creation import arange, full, randn
 from dinoml.ops.elementwise import (
@@ -411,6 +416,11 @@ __all__ = [
     "tanh",
     "topk",
     "transpose",
+    "transposed_conv2d",
+    "transposed_conv2d_bias",
+    "transposed_conv2d_bias_add",
+    "transposed_conv2d_bias_add_relu",
+    "transposed_conv2d_bias_relu",
     "tuple_construct",
     "unsqueeze",
     "var",

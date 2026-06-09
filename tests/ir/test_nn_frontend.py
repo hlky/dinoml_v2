@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import dinoml as dml
 from dinoml.reference import reference_numpy
@@ -118,3 +119,65 @@ def test_dml_nn_conv2d_embedding_and_sequential_exports():
         "embedded": [2, 2, 3],
         "projected": [2, 2],
     }
+
+
+def test_dml_nn_transposed_conv2d_trace_and_validation():
+    class TinyTranspose(dml.nn.Module):
+        def forward(self, x, weight, bias, residual):
+            fused = dml.ops.transposed_conv2d_bias_add_relu(
+                x,
+                weight,
+                bias,
+                residual,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            )
+            base = dml.ops.transposed_conv2d(x, weight, stride=2, padding=1, output_padding=1)
+            return {
+                "fused": dml.ops.output(fused, "fused"),
+                "base": dml.ops.output(base, "base"),
+            }
+
+    spec = dml.trace(
+        TinyTranspose(),
+        inputs={
+            "x": dml.TensorSpec([1, 2, 3, 4], "float32"),
+            "weight": dml.TensorSpec([2, 5, 3, 3], "float32"),
+            "bias": dml.TensorSpec([5], "float32"),
+            "residual": dml.TensorSpec([1, 5, 6, 8], "float32"),
+        },
+        name="nn_transposed_conv2d",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == ["transposed_conv2d_bias_add_relu", "transposed_conv2d"]
+    output_shapes = {output["name"]: output["shape"] for output in spec.ir["outputs"]}
+    assert output_shapes == {"fused": [1, 5, 6, 8], "base": [1, 5, 6, 8]}
+
+    class BadOutputPadding(dml.nn.Module):
+        def forward(self, x, weight):
+            return dml.ops.output(dml.ops.transposed_conv2d(x, weight, stride=2, output_padding=2), "y")
+
+    with pytest.raises(ValueError, match="output_padding must be smaller than stride"):
+        dml.trace(
+            BadOutputPadding(),
+            inputs={
+                "x": dml.TensorSpec([1, 2, 3, 4], "float32"),
+                "weight": dml.TensorSpec([2, 5, 3, 3], "float32"),
+            },
+            name="nn_transposed_conv2d_bad_output_padding",
+        )
+
+    class BadGroups(dml.nn.Module):
+        def forward(self, x, weight):
+            return dml.ops.output(dml.ops.transposed_conv2d(x, weight, groups=2), "y")
+
+    with pytest.raises(NotImplementedError, match="groups=1 only"):
+        dml.trace(
+            BadGroups(),
+            inputs={
+                "x": dml.TensorSpec([1, 2, 3, 4], "float32"),
+                "weight": dml.TensorSpec([2, 5, 3, 3], "float32"),
+            },
+            name="nn_transposed_conv2d_bad_groups",
+        )

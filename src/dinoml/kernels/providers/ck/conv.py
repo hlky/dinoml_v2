@@ -18,6 +18,13 @@ CK_CONV_SKINNY_M_SYMBOL_ID = "xdl_skinny_m_v1"
 CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
+CK_TRANSPOSED_CONV_OPS = (
+    "transposed_conv2d",
+    "transposed_conv2d_bias",
+    "transposed_conv2d_bias_relu",
+    "transposed_conv2d_bias_add",
+    "transposed_conv2d_bias_add_relu",
+)
 CK_CONV_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 CK_CONV_DEFAULT_WORKSPACE_NBYTES = 0
 _CK_CONV_EPILOGUE_BY_OP = {
@@ -26,12 +33,27 @@ _CK_CONV_EPILOGUE_BY_OP = {
     "conv2d_bias_add": "bias_add",
     "conv2d_bias_add_relu": "bias_add_relu",
 }
+_CK_TRANSPOSED_CONV_EPILOGUE_BY_OP = {
+    "transposed_conv2d": "identity",
+    "transposed_conv2d_bias": "bias",
+    "transposed_conv2d_bias_relu": "bias_relu",
+    "transposed_conv2d_bias_add": "bias_add",
+    "transposed_conv2d_bias_add_relu": "bias_add_relu",
+}
 _CK_CONV_LAUNCH_ABI_BY_OP = {
     "conv2d_bias": "dinoml_ck_conv2d_bias_v1",
     "conv2d_bias_relu": "dinoml_ck_conv2d_bias_relu_v1",
     "conv2d_bias_add": "dinoml_ck_conv2d_bias_add_v1",
     "conv2d_bias_add_relu": "dinoml_ck_conv2d_bias_add_relu_v1",
 }
+_CK_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP = {
+    "transposed_conv2d": "dinoml_ck_transposed_conv2d_v1",
+    "transposed_conv2d_bias": "dinoml_ck_transposed_conv2d_bias_v1",
+    "transposed_conv2d_bias_relu": "dinoml_ck_transposed_conv2d_bias_relu_v1",
+    "transposed_conv2d_bias_add": "dinoml_ck_transposed_conv2d_bias_add_v1",
+    "transposed_conv2d_bias_add_relu": "dinoml_ck_transposed_conv2d_bias_add_relu_v1",
+}
+_CK_TRANSPOSED_CONV_SYMBOL_ID = "grouped_bwd_data_v1"
 
 
 CK_CONV_CONFIGS = (
@@ -84,6 +106,71 @@ def ck_conv_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = No
     return f"dinoml_profile_ck_{op_name}_{normalized_dtype}_{candidate_suffix}"
 
 
+def ck_transposed_conv_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
+    _validate_ck_transposed_conv_op(op_name)
+    normalized_dtype = _normalize_ck_conv_dtype(dtype)
+    candidate_suffix = symbol_id or _CK_TRANSPOSED_CONV_SYMBOL_ID
+    return f"dinoml_ck_{op_name}_{normalized_dtype}_{candidate_suffix}"
+
+
+def ck_transposed_conv_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
+    _validate_ck_transposed_conv_op(op_name)
+    normalized_dtype = _normalize_ck_conv_dtype(dtype)
+    candidate_suffix = symbol_id or _CK_TRANSPOSED_CONV_SYMBOL_ID
+    return f"dinoml_profile_ck_{op_name}_{normalized_dtype}_{candidate_suffix}"
+
+
+def ck_transposed_conv_candidates(
+    op_name: str,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    _validate_ck_transposed_conv_op(op_name)
+    del target
+    normalized_dtype = _normalize_ck_conv_dtype(dtype)
+    return (_ck_transposed_conv_candidate(op_name, normalized_dtype),)
+
+
+def ck_transposed_conv_candidate_set(
+    op_name: str,
+    dtype: str,
+    target: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    _validate_ck_transposed_conv_op(op_name)
+    del target
+    normalized_dtype = _normalize_ck_conv_dtype(dtype)
+    candidates = ck_transposed_conv_candidates(op_name, normalized_dtype)
+    epilogue_config = _ck_transposed_conv_epilogue_config(op_name)
+    config = {
+        "schema_version": CK_CONV_CANDIDATE_SET_SCHEMA_VERSION,
+        "candidate_set_id": ck_transposed_conv_candidate_set_id(op_name, normalized_dtype),
+        "provider": "ck",
+        "family": "conv2d_bwd_data",
+        "op": op_name,
+        "dtype": normalized_dtype,
+        "accumulator_dtype": "float32",
+        "epilogue": epilogue_config["name"],
+        "epilogue_config": epilogue_config,
+        "semantic_layout": _ck_transposed_conv_semantic_layout(op_name),
+        "provider_layout": _ck_transposed_conv_provider_layout(op_name),
+        "supported_groups": [1],
+        "supported_dtypes": list(CK_CONV_SUPPORTED_DTYPES),
+        "target_policy": {"rocm": True},
+        "launch_abi": epilogue_config["launch_abi"],
+        "split_k_values": [1],
+        "split_k_default": 1,
+        "supports_split_k": False,
+        "workspace_nbytes": CK_CONV_DEFAULT_WORKSPACE_NBYTES,
+        "generator": "static_ck_transposed_conv2d_grouped_conv_bwd_data_candidates_v1",
+        "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
+    }
+    return {
+        **config,
+        "candidate_count": len(candidates),
+        "candidate_set_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
 def ck_conv_default_candidate(
     op_name: str,
     dtype: str,
@@ -97,6 +184,8 @@ def ck_conv_candidates(
     dtype: str,
     target: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], ...]:
+    if op_name in CK_TRANSPOSED_CONV_OPS:
+        return ck_transposed_conv_candidates(op_name, dtype, target=target)
     del target
     normalized_dtype = _normalize_ck_conv_dtype(dtype)
     return tuple(_ck_conv_candidate(op_name, normalized_dtype, config) for config in CK_CONV_CONFIGS)
@@ -107,6 +196,8 @@ def ck_conv_candidate_set(
     dtype: str,
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if op_name in CK_TRANSPOSED_CONV_OPS:
+        return ck_transposed_conv_candidate_set(op_name, dtype, target=target)
     del target
     _validate_ck_conv_op(op_name)
     normalized_dtype = _normalize_ck_conv_dtype(dtype)
@@ -143,6 +234,8 @@ def ck_conv_candidate_set(
 
 
 def ck_conv_candidate_set_id(op_name: str, dtype: str) -> str:
+    if op_name in CK_TRANSPOSED_CONV_OPS:
+        return ck_transposed_conv_candidate_set_id(op_name, dtype)
     _validate_ck_conv_op(op_name)
     return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_{_ck_conv_epilogue(op_name)}_v3"
 
@@ -276,20 +369,20 @@ def render_ck_conv_source(source: str, used_candidate_plan: Mapping[str, Any]) -
 
 
 def ck_conv_static_library_name(op_name: str, dtype: str) -> str:
-    _validate_ck_conv_op(op_name)
+    _validate_ck_conv_any_op(op_name)
     normalized = _normalize_ck_conv_dtype(dtype)
     stem = f"dinoml_ck_{op_name}_{normalized}"
     return f"{stem}.lib" if os.name == "nt" else f"lib{stem}.a"
 
 
 def ck_conv_cmake_target(op_name: str, dtype: str) -> str:
-    _validate_ck_conv_op(op_name)
+    _validate_ck_conv_any_op(op_name)
     normalized = _normalize_ck_conv_dtype(dtype)
     return f"dinoml_ck_conv_{op_name}_{normalized}"
 
 
 def ck_conv_profiler_stem(op_name: str, dtype: str) -> str:
-    _validate_ck_conv_op(op_name)
+    _validate_ck_conv_any_op(op_name)
     normalized = _normalize_ck_conv_dtype(dtype)
     return f"dinoml_ck_conv_profiler_{op_name}_{normalized}"
 
@@ -391,6 +484,78 @@ def _ck_conv_epilogue_config(op_name: str) -> dict[str, Any]:
     raise ValueError(f"Unsupported CK Conv epilogue {epilogue!r}")
 
 
+def ck_transposed_conv_candidate_set_id(op_name: str, dtype: str) -> str:
+    _validate_ck_transposed_conv_op(op_name)
+    return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_{_ck_transposed_conv_epilogue(op_name)}_v1"
+
+
+def _ck_transposed_conv_candidate(op_name: str, dtype: str) -> dict[str, Any]:
+    _validate_ck_transposed_conv_op(op_name)
+    epilogue_config = _ck_transposed_conv_epilogue_config(op_name)
+    selection_predicate = {"priority": 0, "exact": {"groups": 1}}
+    ck_config = {
+        "api": "device_grouped_conv_bwd_data_multiple_d_instance_factory",
+        "symbol_id": _CK_TRANSPOSED_CONV_SYMBOL_ID,
+        "source": "kernels/rocm/src/ck_conv.hip",
+        "mode": "grouped_conv_bwd_data_multiple_d_instance_factory",
+        "config": {"name": "default", "instance_family": "grouped_conv_bwd_data_multiple_d"},
+    }
+    config = {
+        "candidate_id": f"ck_{op_name}_{dtype}_{_CK_TRANSPOSED_CONV_SYMBOL_ID}",
+        "symbol_id": _CK_TRANSPOSED_CONV_SYMBOL_ID,
+        "provider": "ck",
+        "family": "conv2d_bwd_data",
+        "op": op_name,
+        "dtype": dtype,
+        "accumulator_dtype": "float32",
+        "epilogue": epilogue_config["name"],
+        "epilogue_config": epilogue_config,
+        "semantic_layout": _ck_transposed_conv_semantic_layout(op_name),
+        "provider_layout": _ck_transposed_conv_provider_layout(op_name),
+        "supported_groups": [1],
+        "optional": False,
+        "launch_abi": epilogue_config["launch_abi"],
+        "split_k_values": [1],
+        "split_k_default": 1,
+        "supports_split_k": False,
+        "workspace_nbytes": CK_CONV_DEFAULT_WORKSPACE_NBYTES,
+        "selection_predicate": selection_predicate,
+        "ck": ck_config,
+    }
+    return {
+        **config,
+        "kernel_symbol": ck_transposed_conv_symbol(op_name, dtype),
+        "profiler_symbol": ck_transposed_conv_profiler_symbol(op_name, dtype),
+        "candidate_config_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
+def _ck_transposed_conv_epilogue_config(op_name: str) -> dict[str, Any]:
+    _validate_ck_transposed_conv_op(op_name)
+    epilogue = _ck_transposed_conv_epilogue(op_name)
+    if epilogue == "identity":
+        return {"name": "identity", "inputs": [], "launch_abi": _ck_transposed_conv_launch_abi(op_name)}
+    if epilogue == "bias":
+        return {"name": "bias", "inputs": ["bias"], "launch_abi": _ck_transposed_conv_launch_abi(op_name)}
+    if epilogue == "bias_relu":
+        return {
+            "name": "bias_relu",
+            "inputs": ["bias"],
+            "activation": "relu",
+            "launch_abi": _ck_transposed_conv_launch_abi(op_name),
+        }
+    if epilogue == "bias_add":
+        return {"name": "bias_add", "inputs": ["bias", "d0"], "launch_abi": _ck_transposed_conv_launch_abi(op_name)}
+    if epilogue == "bias_add_relu":
+        return {
+            "name": "bias_add_relu",
+            "inputs": ["bias", "d0"],
+            "activation": "relu",
+            "launch_abi": _ck_transposed_conv_launch_abi(op_name),
+        }
+    raise ValueError(f"Unsupported CK transposed conv epilogue {epilogue!r}")
+
+
 def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     op_name = str(candidate["op"])
     dtype = str(candidate["dtype"])
@@ -398,6 +563,16 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     symbol_id = str(candidate["symbol_id"])
     launch_abi = str(candidate["launch_abi"])
     config_enum = str(candidate.get("ck", {}).get("config", {}).get("config_enum", "kBaseline"))
+    if launch_abi == "dinoml_ck_transposed_conv2d_v1":
+        return f"DINOML_CK_TRANSPOSED_CONV2D_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id})"
+    if launch_abi == "dinoml_ck_transposed_conv2d_bias_v1":
+        return f"DINOML_CK_TRANSPOSED_CONV2D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id})"
+    if launch_abi == "dinoml_ck_transposed_conv2d_bias_relu_v1":
+        return f"DINOML_CK_TRANSPOSED_CONV2D_BIAS_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id})"
+    if launch_abi == "dinoml_ck_transposed_conv2d_bias_add_v1":
+        return f"DINOML_CK_TRANSPOSED_CONV2D_BIAS_ADD_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id})"
+    if launch_abi == "dinoml_ck_transposed_conv2d_bias_add_relu_v1":
+        return f"DINOML_CK_TRANSPOSED_CONV2D_BIAS_ADD_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id})"
     if launch_abi == "dinoml_ck_conv2d_bias_v1":
         return f"DINOML_CK_CONV2D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     if launch_abi == "dinoml_ck_conv2d_bias_relu_v1":
@@ -411,7 +586,11 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
 
 def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
-    match = re.match(r"DINOML_CK_CONV2D_BIAS(?:_ADD_RELU|_ADD|_RELU)?_EXPORT\((.*)\)\s*$", stripped)
+    match = re.match(
+        r"(?:DINOML_CK_CONV2D_BIAS(?:_ADD_RELU|_ADD|_RELU)?_EXPORT|"
+        r"DINOML_CK_TRANSPOSED_CONV2D(?:_BIAS(?:_ADD_RELU|_ADD|_RELU)?)?_EXPORT)\((.*)\)\s*$",
+        stripped,
+    )
     if match is None:
         return frozenset()
     args = [arg.strip() for arg in match.group(1).split(",")]
@@ -479,9 +658,19 @@ def _ck_conv_epilogue(op_name: str) -> str:
     return _CK_CONV_EPILOGUE_BY_OP[op_name]
 
 
+def _ck_transposed_conv_epilogue(op_name: str) -> str:
+    _validate_ck_transposed_conv_op(op_name)
+    return _CK_TRANSPOSED_CONV_EPILOGUE_BY_OP[op_name]
+
+
 def _ck_conv_launch_abi(op_name: str) -> str:
     _validate_ck_conv_op(op_name)
     return _CK_CONV_LAUNCH_ABI_BY_OP[op_name]
+
+
+def _ck_transposed_conv_launch_abi(op_name: str) -> str:
+    _validate_ck_transposed_conv_op(op_name)
+    return _CK_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP[op_name]
 
 
 def _ck_conv_semantic_layout(op_name: str) -> dict[str, str]:
@@ -510,14 +699,60 @@ def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
     return layout
 
 
+def _ck_transposed_conv_semantic_layout(op_name: str) -> dict[str, str]:
+    _validate_ck_transposed_conv_op(op_name)
+    layout = {
+        "activation": "nchw",
+        "weight": "iohw",
+        "output": "nchw",
+    }
+    if op_name != "transposed_conv2d":
+        layout["bias"] = "o"
+    if _ck_transposed_conv_op_has_residual(op_name):
+        layout["residual"] = "nchw"
+    return layout
+
+
+def _ck_transposed_conv_provider_layout(op_name: str) -> dict[str, str]:
+    _validate_ck_transposed_conv_op(op_name)
+    layout = {
+        "activation": "g_nhw_k_strided",
+        "weight": "g_k_c_yx_strided",
+        "output": "g_nhw_c_strided",
+    }
+    if op_name != "transposed_conv2d":
+        layout["bias"] = "g_c"
+    if _ck_transposed_conv_op_has_residual(op_name):
+        layout["residual"] = "g_nhw_c_strided"
+    return layout
+
+
 def _ck_conv_op_has_residual(op_name: str) -> bool:
     _validate_ck_conv_op(op_name)
     return op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"}
 
 
+def _ck_transposed_conv_op_has_residual(op_name: str) -> bool:
+    _validate_ck_transposed_conv_op(op_name)
+    return op_name in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}
+
+
 def _validate_ck_conv_op(op_name: str) -> None:
     if op_name not in CK_CONV_OPS:
         raise ValueError(f"Unsupported CK Conv op {op_name!r}")
+
+
+def _validate_ck_transposed_conv_op(op_name: str) -> None:
+    if op_name not in CK_TRANSPOSED_CONV_OPS:
+        supported = ", ".join(CK_TRANSPOSED_CONV_OPS) or "<none>"
+        raise ValueError(f"Unsupported CK transposed conv op {op_name!r}; supported ops: {supported}")
+
+
+def _validate_ck_conv_any_op(op_name: str) -> None:
+    if op_name in CK_CONV_OPS or op_name in CK_TRANSPOSED_CONV_OPS:
+        return
+    supported = ", ".join([*CK_CONV_OPS, *CK_TRANSPOSED_CONV_OPS])
+    raise ValueError(f"Unsupported CK Conv op {op_name!r}; supported ops: {supported}")
 
 
 def _selected_candidate(item: Mapping[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:
@@ -546,6 +781,7 @@ __all__ = [
     "CK_CONV_OPS",
     "CK_CONV_SUPPORTED_DTYPES",
     "CK_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION",
+    "CK_TRANSPOSED_CONV_OPS",
     "ck_conv_candidate_set",
     "ck_conv_candidate_set_id",
     "ck_conv_candidates",
@@ -558,5 +794,10 @@ __all__ = [
     "ck_conv_static_library_name",
     "ck_conv_symbol",
     "ck_conv_used_candidate_plan",
+    "ck_transposed_conv_candidate_set",
+    "ck_transposed_conv_candidate_set_id",
+    "ck_transposed_conv_candidates",
+    "ck_transposed_conv_profiler_symbol",
+    "ck_transposed_conv_symbol",
     "render_ck_conv_source",
 ]

@@ -638,6 +638,11 @@ if(DINOML_ENABLE_ROCM)
       conv2d_bias_relu
       conv2d_bias_add
       conv2d_bias_add_relu
+      transposed_conv2d
+      transposed_conv2d_bias
+      transposed_conv2d_bias_relu
+      transposed_conv2d_bias_add
+      transposed_conv2d_bias_add_relu
       CACHE STRING "CK Conv ops to expose as op/dtype static archives"
     )
     set(DINOML_CK_CONV_DTYPES
@@ -1426,6 +1431,7 @@ if(DINOML_ENABLE_CUDA)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(DINOML_CUTLASS_CONV_OPS
       conv2d_bias conv2d_bias_relu conv2d_bias_add conv2d_bias_add_relu
+      transposed_conv2d
     )
     set(DINOML_CUTLASS_CONV_DTYPES float32 float16 bfloat16)
     set(DINOML_CUTLASS_CONV_TARGETS)

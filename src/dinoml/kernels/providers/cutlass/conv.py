@@ -13,12 +13,48 @@ from dinoml.kernels.providers.cutlass.gemm import (
 CUTLASS_CONV_CANDIDATE_SET_SCHEMA_VERSION = 1
 CUTLASS_CONV_USED_CANDIDATE_PLAN_SCHEMA_VERSION = 1
 CONV_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
+CUTLASS_CONV_OPS = CONV_OPS
+CUTLASS_TRANSPOSED_CONV_OPS = ("transposed_conv2d",)
 CONV_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "conv_analytic_simt_sm80_f32_128x64x8_s2_w32x64x8_f32_align1"
 _CUTLASS_CONV_PLAN_KIND = "cutlass_conv2d_bias_plan"
 _CUTLASS_CONV_STATUS = "runtime"
 _CUTLASS_CONV_PROFILER_STATUS = "runtime_profiler"
+_CUTLASS_TRANSPOSED_CONV_PLAN_KIND = "cutlass_transposed_conv2d_plan"
 _CUTLASS_CONV_TRANSFORM_ABI = "dinoml_cutlass_layout_transform_v1"
+_CUTLASS_TRANSPOSED_CONV_DEFAULT_SYMBOL_IDS = {
+    "float16": "transposed_conv_optimized_tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align8_a8b8",
+    "bfloat16": "transposed_conv_optimized_tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align8_a8b8",
+    "float32": "transposed_conv_optimized_tensorop_sm80_tf32_128x128x16_s4_w2x2x1_f32_align1_a1b1",
+}
+_CUTLASS_TRANSPOSED_CONV_BASE_GEMM_SYMBOL_IDS = {
+    "float16": {
+        "float32": (
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align8",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align4",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align2",
+        ),
+        "float16": (
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f16_align8",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f16_align4",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f16_align2",
+        ),
+    },
+    "bfloat16": {
+        "float32": (
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align8",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align4",
+            "tensorop_sm80_16816_128x128x32_s3_w2x2x1_f32_align2",
+        ),
+    },
+    "float32": {
+        "float32": (
+            "tensorop_sm80_tf32_128x128x16_s4_w2x2x1_f32_align4",
+            "tensorop_sm80_tf32_128x128x16_s4_w2x2x1_f32_align2",
+            "tensorop_sm80_tf32_128x128x16_s4_w2x2x1_f32_align1",
+        ),
+    },
+}
 _CUTLASS_CONV_BASE_SEMANTIC_LAYOUT = {
     "activation": "nchw",
     "weight": "oihw",
@@ -29,6 +65,16 @@ _CUTLASS_CONV_BASE_PROVIDER_LAYOUT = {
     "activation": "nhwc",
     "weight": "ohwi",
     "bias": "o",
+    "output": "nhwc",
+}
+_CUTLASS_TRANSPOSED_CONV_BASE_SEMANTIC_LAYOUT = {
+    "activation": "nchw",
+    "weight": "iohw",
+    "output": "nchw",
+}
+_CUTLASS_TRANSPOSED_CONV_BASE_PROVIDER_LAYOUT = {
+    "activation": "nhwc",
+    "weight": "ihwo",
     "output": "nhwc",
 }
 _CUTLASS_CONV_EPILOGUE_BY_OP = {
@@ -49,6 +95,12 @@ _CUTLASS_CONV_LAUNCH_ABI_BY_OP = {
     "conv2d_bias_add": "dinoml_cutlass_conv2d_bias_add_v1",
     "conv2d_bias_add_relu": "dinoml_cutlass_conv2d_bias_add_relu_v1",
 }
+_CUTLASS_TRANSPOSED_CONV_RUNTIME_LAUNCHER_BY_OP = {
+    "transposed_conv2d": "cutlass_implicit_gemm_conv2d_dgrad",
+}
+_CUTLASS_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP = {
+    "transposed_conv2d": "dinoml_cutlass_transposed_conv2d_v1",
+}
 
 
 def cutlass_conv_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
@@ -63,14 +115,104 @@ def cutlass_conv_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None
     return f"dinoml_profile_cutlass_{op_name}_{normalized_dtype}_{symbol_suffix}"
 
 
+def cutlass_transposed_conv_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    symbol_suffix = symbol_id or _cutlass_transposed_conv_default_symbol_id(normalized_dtype)
+    return f"dinoml_cutlass_{op_name}_{normalized_dtype}_{symbol_suffix}"
+
+
+def cutlass_transposed_conv_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    symbol_suffix = symbol_id or _cutlass_transposed_conv_default_symbol_id(normalized_dtype)
+    return f"dinoml_profile_cutlass_{op_name}_{normalized_dtype}_{symbol_suffix}"
+
+
+def cutlass_transposed_conv_candidates(
+    op_name: str,
+    dtype: str,
+    *,
+    target: Mapping[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    _validate_transposed_conv_op_name(op_name)
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    normalized_target = _normalize_target_policy(target)
+    configs = _cutlass_transposed_conv_candidate_configs_for_target(normalized_dtype, target)
+    candidates: list[dict[str, Any]] = []
+    for config in configs:
+        cutlass_config = dict(config["cutlass"])
+        align = int(cutlass_config["align"])
+        candidates.append(
+            _cutlass_transposed_conv_candidate_from_gemm_config(
+                op_name,
+                normalized_dtype,
+                config,
+                iterator_algorithm="optimized",
+                align_a=align,
+                align_b=align,
+                target_policy=normalized_target,
+                selection_predicate={
+                    "kind": "natural_alignment",
+                    "dtype": normalized_dtype,
+                    "groups": 1,
+                    "min_input_channels": align,
+                    "input_channels_multiple": align,
+                    "output_channels_multiple": align,
+                    "requires_layout_translation": "nchw_iohw_to_nhwc_ihwo",
+                    "padding_policy": "none",
+                },
+                optional=False,
+            )
+        )
+    return candidates
+
+
+def cutlass_transposed_conv_candidate_set(
+    op_name: str,
+    dtype: str,
+    *,
+    target: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    _validate_transposed_conv_op_name(op_name)
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    candidates = cutlass_transposed_conv_candidates(op_name, normalized_dtype, target=target)
+    normalized_target = _normalize_target_policy(target)
+    config = {
+        "schema_version": CUTLASS_CONV_CANDIDATE_SET_SCHEMA_VERSION,
+        "provider": "cutlass",
+        "family": "conv2d_dgrad",
+        "op": op_name,
+        "dtype": normalized_dtype,
+        "accumulator_dtype": "float32",
+        "epilogue": _transposed_conv_epilogue(op_name),
+        "epilogue_config": _transposed_conv_epilogue_config(op_name),
+        "launch_abi": _cutlass_transposed_conv_launch_abi(op_name),
+        "semantic_layout": _cutlass_transposed_conv_semantic_layout(op_name),
+        "provider_layout": _cutlass_transposed_conv_provider_layout(op_name),
+        "supported_groups": [1],
+        "supported_dtypes": list(CONV_SUPPORTED_DTYPES),
+        "candidate_count": len(candidates),
+        "candidate_config_keys": [str(candidate["candidate_config_key"]) for candidate in candidates],
+        "target_policy": normalized_target,
+        "status": _CUTLASS_CONV_STATUS,
+        "profiler_status": _CUTLASS_CONV_PROFILER_STATUS,
+    }
+    return {
+        **config,
+        "candidate_set_id": cutlass_transposed_conv_candidate_set_id(op_name, normalized_dtype),
+        "candidate_set_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
 def cutlass_conv_static_library_name(op_name: str, dtype: str) -> str:
-    _validate_conv_op_name(op_name)
+    _validate_supported_cutlass_conv_op_name(op_name)
     normalized_dtype = _normalize_conv_dtype(dtype)
     return f"libdinoml_cutlass_{op_name}_{normalized_dtype}.a"
 
 
 def cutlass_conv_cmake_target(op_name: str, dtype: str) -> str:
-    _validate_conv_op_name(op_name)
+    _validate_supported_cutlass_conv_op_name(op_name)
     normalized_dtype = _normalize_conv_dtype(dtype)
     return f"dinoml_cutlass_conv_{op_name}_{normalized_dtype}"
 
@@ -85,14 +227,27 @@ def cutlass_conv_weight_pack_symbol(dtype: str) -> str:
     return f"dinoml_cutlass_conv_weight_pack_oihw_to_ohwi_{normalized_dtype}_v1"
 
 
+def cutlass_transposed_conv_weight_pack_symbol(dtype: str) -> str:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    return f"dinoml_cutlass_conv_weight_pack_iohw_to_ihwo_{normalized_dtype}_v1"
+
+
 def cutlass_conv_output_unpack_symbol(dtype: str) -> str:
     normalized_dtype = _normalize_conv_dtype(dtype)
     return f"dinoml_cutlass_conv_output_unpack_nhwc_to_nchw_{normalized_dtype}_v1"
 
 
 def cutlass_conv_candidate_set_id(op_name: str, dtype: str) -> str:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return cutlass_transposed_conv_candidate_set_id(op_name, dtype)
     normalized_dtype = _normalize_conv_dtype(dtype)
     return f"cutlass_conv_{op_name}_{normalized_dtype}_nhwc_ohwi_{_conv_epilogue(op_name)}_v1"
+
+
+def cutlass_transposed_conv_candidate_set_id(op_name: str, dtype: str) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    return f"cutlass_conv_{op_name}_{normalized_dtype}_nhwc_ihwo_{_transposed_conv_epilogue(op_name)}_v1"
 
 
 def cutlass_conv_candidates(
@@ -101,6 +256,8 @@ def cutlass_conv_candidates(
     *,
     target: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return cutlass_transposed_conv_candidates(op_name, dtype, target=target)
     _validate_conv_op_name(op_name)
     normalized_dtype = _normalize_conv_dtype(dtype)
     normalized_target = _normalize_target_policy(target)
@@ -217,6 +374,36 @@ def _cutlass_conv_candidate_configs_for_target(
     return configs
 
 
+def _cutlass_transposed_conv_default_symbol_id(dtype: str) -> str:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    try:
+        return _CUTLASS_TRANSPOSED_CONV_DEFAULT_SYMBOL_IDS[normalized_dtype]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported CUTLASS transposed conv dtype {dtype!r}") from exc
+
+
+def _cutlass_transposed_conv_candidate_configs_for_target(
+    dtype: str,
+    target: Mapping[str, Any] | None,
+) -> tuple[Mapping[str, Any], ...]:
+    normalized_dtype = _normalize_conv_dtype(dtype)
+    configs = tuple(
+        config
+        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype]
+        if str(config.get("cutlass", {}).get("opclass", "")) == "tensorop"
+        and str(config.get("cutlass", {}).get("math_operator", "multiply_add")) == "multiply_add"
+    )
+    policy = cutlass_gemm_target_policy(target)
+    if normalized_dtype == "float32" and policy["no_tf32"]:
+        return ()
+    if normalized_dtype == "float16":
+        accumulator_dtype = "float16" if policy["use_fp16_acc"] else "float32"
+        configs = tuple(config for config in configs if config["accumulator_dtype"] == accumulator_dtype)
+    accumulator_dtype = "float16" if normalized_dtype == "float16" and policy["use_fp16_acc"] else "float32"
+    supported_symbol_ids = set(_CUTLASS_TRANSPOSED_CONV_BASE_GEMM_SYMBOL_IDS[normalized_dtype][accumulator_dtype])
+    return tuple(config for config in configs if str(config["symbol_id"]) in supported_symbol_ids)
+
+
 def _cutlass_conv_candidate_from_gemm_config(
     op_name: str,
     dtype: str,
@@ -256,10 +443,52 @@ def _cutlass_conv_candidate_from_gemm_config(
     )
 
 
+def _cutlass_transposed_conv_candidate_from_gemm_config(
+    op_name: str,
+    dtype: str,
+    candidate_config: Mapping[str, Any],
+    *,
+    iterator_algorithm: str,
+    align_a: int,
+    align_b: int,
+    target_policy: Mapping[str, Any],
+    selection_predicate: Mapping[str, Any],
+    optional: bool,
+) -> dict[str, Any]:
+    base_cutlass = dict(candidate_config["cutlass"])
+    cutlass_config = {
+        **base_cutlass,
+        "api": "device_implicit_gemm_convolution",
+        "iterator_algorithm": iterator_algorithm,
+        "instruction_shape": list(base_cutlass.get("instruction", base_cutlass.get("instruction_shape", []))),
+        "align_a": int(align_a),
+        "align_b": int(align_b),
+        "kind": "implicit_gemm_runtime_launcher",
+        "policy_source": "cutlass_gemm_candidate_config",
+        "base_gemm_symbol_id": str(candidate_config["symbol_id"]),
+    }
+    symbol_id = (
+        f"transposed_conv_{iterator_algorithm}_{candidate_config['symbol_id']}_a{int(align_a)}b{int(align_b)}"
+    )
+    return _cutlass_transposed_conv_candidate(
+        op_name,
+        dtype,
+        symbol_id=symbol_id,
+        target_policy=target_policy,
+        accumulator_dtype=str(candidate_config["accumulator_dtype"]),
+        cutlass=cutlass_config,
+        selection_predicate=selection_predicate,
+        optional=optional,
+    )
+
+
 def cutlass_conv_candidate_compatible_with_plan(
     candidate: Mapping[str, Any],
     cutlass_conv_plan: Mapping[str, Any],
 ) -> bool:
+    plan_kind = str(cutlass_conv_plan.get("kind", ""))
+    if plan_kind == _CUTLASS_TRANSPOSED_CONV_PLAN_KIND:
+        return _cutlass_transposed_conv_candidate_compatible_with_plan(candidate, cutlass_conv_plan)
     op_family = str(cutlass_conv_plan.get("op_family", ""))
     if op_family:
         try:
@@ -301,6 +530,82 @@ def cutlass_conv_candidate_compatible_with_plan(
     if str(predicate.get("dtype", dtype)) != dtype or int(predicate.get("groups", groups)) != groups:
         return False
     if predicate.get("requires_layout_translation") not in (None, "nchw_oihw_to_nhwc_ohwi"):
+        return False
+    if str(predicate.get("padding_policy", "none")) == "none":
+        weight_transform = dict(cutlass_conv_plan.get("weight_transform", {}))
+        if int(weight_transform.get("channel_pad_multiple", -1) or -1) != 1:
+            return False
+        if int(weight_transform.get("padded_input_channels", -1) or -1) != input_channels:
+            return False
+        if int(weight_transform.get("padded_output_channels", -1) or -1) != output_channels:
+            return False
+    exact_runtime_slice = predicate.get("exact_runtime_slice")
+    if exact_runtime_slice is not None and not _cutlass_conv_exact_runtime_slice_compatible(
+        exact_runtime_slice,
+        input_shape=input_shape,
+        weight_shape=weight_shape,
+        output_shape=cutlass_conv_plan.get("output_shape", ()),
+        conv_config=conv_config,
+    ):
+        return False
+    kind = str(predicate.get("kind", ""))
+    if kind == "fallback":
+        return True
+    if kind == "semantic_input_channels":
+        return int(predicate.get("input_channels", -1) or -1) == input_channels
+    if kind == "natural_alignment":
+        min_input_channels = int(predicate.get("min_input_channels", 1) or 1)
+        input_multiple = int(predicate.get("input_channels_multiple", 1) or 1)
+        output_multiple = int(predicate.get("output_channels_multiple", 1) or 1)
+        return (
+            input_channels >= min_input_channels
+            and input_multiple > 0
+            and output_multiple > 0
+            and input_channels % input_multiple == 0
+            and output_channels % output_multiple == 0
+        )
+    return False
+
+
+def _cutlass_transposed_conv_candidate_compatible_with_plan(
+    candidate: Mapping[str, Any],
+    cutlass_conv_plan: Mapping[str, Any],
+) -> bool:
+    op_family = str(cutlass_conv_plan.get("op_family", ""))
+    if op_family:
+        if str(candidate.get("epilogue", "")) != _transposed_conv_epilogue(op_family):
+            return False
+        if dict(candidate.get("epilogue_config", {})) != _transposed_conv_epilogue_config(op_family):
+            return False
+        if str(candidate.get("launch_abi", "")) != _cutlass_transposed_conv_launch_abi(op_family):
+            return False
+    dtype = str(cutlass_conv_plan.get("dtype", ""))
+    if str(candidate.get("dtype", "")) != dtype:
+        return False
+    candidate_layouts = dict(candidate.get("layouts", {}))
+    expected_layouts = _cutlass_transposed_conv_candidate_layouts(op_family or str(candidate.get("op", "transposed_conv2d")))
+    if candidate_layouts != expected_layouts:
+        return False
+    conv_config = dict(cutlass_conv_plan.get("conv_config", {}))
+    groups = int(conv_config.get("groups", -1) or -1)
+    if groups != 1:
+        return False
+    weight_shape = cutlass_conv_plan.get("weight_shape", ())
+    input_shape = cutlass_conv_plan.get("input_shape", ())
+    if not isinstance(weight_shape, (list, tuple)) or len(weight_shape) != 4:
+        return False
+    if not isinstance(input_shape, (list, tuple)) or len(input_shape) != 4:
+        return False
+    input_channels = int(weight_shape[0])
+    output_channels = int(weight_shape[1])
+    if int(input_shape[1]) != input_channels:
+        return False
+    predicate = candidate.get("selection_predicate", {})
+    if not isinstance(predicate, Mapping):
+        return False
+    if str(predicate.get("dtype", dtype)) != dtype or int(predicate.get("groups", groups)) != groups:
+        return False
+    if predicate.get("requires_layout_translation") not in (None, "nchw_iohw_to_nhwc_ihwo"):
         return False
     if str(predicate.get("padding_policy", "none")) == "none":
         weight_transform = dict(cutlass_conv_plan.get("weight_transform", {}))
@@ -381,12 +686,56 @@ def _cutlass_conv_candidate(
     }
 
 
+def _cutlass_transposed_conv_candidate(
+    op_name: str,
+    dtype: str,
+    *,
+    symbol_id: str,
+    target_policy: Mapping[str, Any],
+    accumulator_dtype: str,
+    cutlass: Mapping[str, Any],
+    selection_predicate: Mapping[str, Any],
+    optional: bool,
+) -> dict[str, Any]:
+    config_payload = {
+        "op": op_name,
+        "dtype": dtype,
+        "symbol_id": symbol_id,
+        "target_policy": dict(target_policy),
+        "cutlass": dict(cutlass),
+        "selection_predicate": dict(selection_predicate),
+    }
+    return {
+        "candidate_id": f"cutlass_{symbol_id}",
+        "candidate_config_key": hashlib.sha256(canonical_json(config_payload).encode("utf-8")).hexdigest(),
+        "symbol_id": symbol_id,
+        "kernel_symbol": cutlass_transposed_conv_symbol(op_name, dtype, symbol_id),
+        "profiler_symbol": cutlass_transposed_conv_profiler_symbol(op_name, dtype, symbol_id),
+        "provider": "cutlass",
+        "family": "conv2d_dgrad",
+        "dtype": dtype,
+        "accumulator_dtype": accumulator_dtype,
+        "epilogue": _transposed_conv_epilogue(op_name),
+        "epilogue_config": _transposed_conv_epilogue_config(op_name),
+        "launch_abi": _cutlass_transposed_conv_launch_abi(op_name),
+        "layouts": _cutlass_transposed_conv_candidate_layouts(op_name),
+        "cutlass": dict(cutlass),
+        "selection_predicate": dict(selection_predicate),
+        "optional": bool(optional),
+        "target_policy": dict(target_policy),
+        "status": _CUTLASS_CONV_STATUS,
+        "profiler_status": _CUTLASS_CONV_PROFILER_STATUS,
+    }
+
+
 def cutlass_conv_candidate_set(
     op_name: str,
     dtype: str,
     *,
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return cutlass_transposed_conv_candidate_set(op_name, dtype, target=target)
     _validate_conv_op_name(op_name)
     normalized_dtype = _normalize_conv_dtype(dtype)
     candidates = cutlass_conv_candidates(op_name, normalized_dtype, target=target)
@@ -556,6 +905,8 @@ def cutlass_conv_layout_plan(
     tensor_map: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     op_name = str(node.get("op", ""))
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_layout_plan(node, tensor_map=tensor_map)
     _validate_conv_op_name(op_name)
     if op_name not in CONV_OPS:
         raise ValueError(f"Unsupported CUTLASS conv plan op {node.get('op')!r}")
@@ -674,6 +1025,92 @@ def cutlass_conv_layout_plan(
     )
 
 
+def _cutlass_transposed_conv_layout_plan(
+    node: Mapping[str, Any],
+    *,
+    tensor_map: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    op_name = str(node.get("op", ""))
+    _validate_transposed_conv_op_name(op_name)
+    attrs = dict(node.get("attrs", {}))
+    x_name, weight_name = [str(name) for name in node.get("inputs", ())[:2]]
+    output_name = str(node.get("outputs", ("",))[0])
+    x_shape = [int(dim) for dim in tensor_map[x_name]["shape"]]
+    weight_shape = [int(dim) for dim in tensor_map[weight_name]["shape"]]
+    output_shape = [int(dim) for dim in tensor_map[output_name]["shape"]]
+    dtype = str(tensor_map[output_name]["dtype"])
+    dtype_size = dtype_nbytes(dtype)
+    weight_is_constant = str(tensor_map[weight_name].get("kind", "")) == "constant"
+    stride = [int(item) for item in attrs.get("stride", (1, 1))]
+    padding = [int(item) for item in attrs.get("padding", (0, 0))]
+    output_padding = [int(item) for item in attrs.get("output_padding", (0, 0))]
+    dilation = [int(item) for item in attrs.get("dilation", (1, 1))]
+    groups = int(attrs.get("groups", 1))
+    temporary_buffers = [
+        {"name": "activation_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(x_shape, dtype_size)},
+        *(
+            []
+            if weight_is_constant
+            else [{"name": "weight_ihwo", "kind": "layout_pack", "layout": "ihwo", "nbytes": _nbytes(weight_shape, dtype_size)}]
+        ),
+        {"name": "output_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(output_shape, dtype_size)},
+    ]
+    conv_config = {
+        "stride": stride,
+        "padding": padding,
+        "output_padding": output_padding,
+        "dilation": dilation,
+        "groups": groups,
+    }
+    return _validate_cutlass_transposed_conv_plan(
+        {
+            "schema_version": 1,
+            "kind": _CUTLASS_TRANSPOSED_CONV_PLAN_KIND,
+            "status": _CUTLASS_CONV_STATUS,
+            "runtime": {
+                "status": _CUTLASS_CONV_STATUS,
+                "launcher": _cutlass_transposed_conv_runtime_launcher_name(op_name),
+            },
+            "profiler_status": _CUTLASS_CONV_PROFILER_STATUS,
+            "node_id": str(node.get("id", "")),
+            "op_family": op_name,
+            "dtype": dtype,
+            "epilogue": _transposed_conv_epilogue(op_name),
+            "epilogue_config": _transposed_conv_epilogue_config(op_name),
+            "semantic_layout": _cutlass_transposed_conv_semantic_layout(op_name),
+            "provider_layout": _cutlass_transposed_conv_provider_layout(op_name),
+            "layout_translation": {
+                "input_pack": "nchw_to_nhwc_temporary",
+                "output_unpack": "nhwc_to_nchw_temporary",
+                "input_pack_nbytes": _nbytes(x_shape, dtype_size),
+                "output_unpack_nbytes": _nbytes(output_shape, dtype_size),
+                "input_pack_symbol": cutlass_conv_input_pack_symbol(dtype),
+                "output_unpack_symbol": cutlass_conv_output_unpack_symbol(dtype),
+            },
+            "weight_transform": {
+                "from": "iohw",
+                "to": "ihwo",
+                "pack": "constants_bin_prepacked" if weight_is_constant else "iohw_to_ihwo_temporary",
+                "temporary_nbytes": _nbytes(weight_shape, dtype_size),
+                **({} if weight_is_constant else {"pack_symbol": cutlass_transposed_conv_weight_pack_symbol(dtype)}),
+                "runtime_persistent": bool(weight_is_constant),
+                "channel_pad_multiple": 1,
+                "padded_input_channels": int(weight_shape[0]),
+                "padded_output_channels": int(weight_shape[1]),
+                "padding_fill_value": 0.0,
+            },
+            "conv_config": conv_config,
+            "input_shape": x_shape,
+            "weight_shape": weight_shape,
+            "output_shape": output_shape,
+            "workspace_nbytes": 0,
+            "temporary_buffers": temporary_buffers,
+            "temporary_nbytes": sum(int(buffer["nbytes"]) for buffer in temporary_buffers),
+        },
+        node_id=_optional_str(node.get("id")),
+    )
+
+
 def validate_cutlass_conv_plan(
     plan: Mapping[str, Any] | None,
     *,
@@ -683,6 +1120,8 @@ def validate_cutlass_conv_plan(
     if not isinstance(plan, Mapping):
         raise ValueError("CUTLASS Conv requires cutlass_conv_plan transform metadata")
     payload = dict(plan)
+    if str(payload.get("kind")) == _CUTLASS_TRANSPOSED_CONV_PLAN_KIND:
+        return _validate_cutlass_transposed_conv_plan(plan, candidate=candidate, node_id=node_id)
     if str(payload.get("kind")) != _CUTLASS_CONV_PLAN_KIND:
         raise ValueError(f"Unsupported CUTLASS Conv kind {payload.get('kind')!r}")
     status = str(payload.get("status"))
@@ -993,13 +1432,266 @@ def validate_cutlass_conv_plan(
     return payload
 
 
+def _validate_cutlass_transposed_conv_plan(
+    plan: Mapping[str, Any] | None,
+    *,
+    candidate: Mapping[str, Any] | None = None,
+    node_id: str | None = None,
+) -> dict[str, Any]:
+    if not isinstance(plan, Mapping):
+        raise ValueError("CUTLASS Conv requires cutlass_conv_plan transform metadata")
+    payload = dict(plan)
+    if str(payload.get("kind")) != _CUTLASS_TRANSPOSED_CONV_PLAN_KIND:
+        raise ValueError(f"Unsupported CUTLASS Conv kind {payload.get('kind')!r}")
+    status = str(payload.get("status"))
+    if status != _CUTLASS_CONV_STATUS:
+        raise ValueError(f"Unsupported CUTLASS Conv status {payload.get('status')!r}")
+    op_family = str(payload.get("op_family"))
+    _validate_transposed_conv_op_name(op_family)
+    if node_id is not None and str(payload.get("node_id", "")) != node_id:
+        raise ValueError(
+            f"CUTLASS Conv node_id mismatch: expected {node_id!r}, got {payload.get('node_id')!r}"
+        )
+    dtype = _normalize_conv_dtype(str(payload.get("dtype")))
+    epilogue = str(payload.get("epilogue", ""))
+    expected_epilogue = _transposed_conv_epilogue(op_family)
+    if epilogue != expected_epilogue:
+        raise ValueError(
+            f"CUTLASS Conv epilogue mismatch for {op_family!r}: expected {expected_epilogue!r}, got {epilogue!r}"
+        )
+    epilogue_config = dict(payload.get("epilogue_config", {}))
+    expected_epilogue_config = _transposed_conv_epilogue_config(op_family)
+    if epilogue_config != expected_epilogue_config:
+        raise ValueError(
+            "CUTLASS Conv epilogue_config mismatch: "
+            f"expected {expected_epilogue_config!r}, got {epilogue_config!r}"
+        )
+    semantic_layout = dict(payload.get("semantic_layout", {}))
+    provider_layout = dict(payload.get("provider_layout", {}))
+    expected_semantic_layout = _cutlass_transposed_conv_semantic_layout(op_family)
+    expected_provider_layout = _cutlass_transposed_conv_provider_layout(op_family)
+    if semantic_layout != expected_semantic_layout:
+        raise ValueError(
+            f"CUTLASS Conv semantic_layout must be {expected_semantic_layout}, got {semantic_layout!r}"
+        )
+    if provider_layout != expected_provider_layout:
+        raise ValueError(
+            f"CUTLASS Conv provider_layout must be {expected_provider_layout}, got {provider_layout!r}"
+        )
+    x_shape = _validate_positive_shape(payload.get("input_shape"), rank=4, name="input_shape")
+    weight_shape = _validate_positive_shape(payload.get("weight_shape"), rank=4, name="weight_shape")
+    output_shape = _validate_positive_shape(payload.get("output_shape"), rank=4, name="output_shape")
+    dtype_size = dtype_nbytes(dtype)
+    conv_config = dict(payload.get("conv_config", {}))
+    stride = _validate_positive_shape(conv_config.get("stride"), rank=2, name="conv_config.stride")
+    padding = _validate_non_negative_shape(conv_config.get("padding"), rank=2, name="conv_config.padding")
+    output_padding = _validate_non_negative_shape(
+        conv_config.get("output_padding"), rank=2, name="conv_config.output_padding"
+    )
+    dilation = _validate_positive_shape(conv_config.get("dilation"), rank=2, name="conv_config.dilation")
+    groups = conv_config.get("groups")
+    if not isinstance(groups, int) or isinstance(groups, bool) or groups != 1:
+        raise ValueError(f"CUTLASS Conv currently requires conv_config.groups == 1, got {groups!r}")
+    runtime = payload.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise ValueError("CUTLASS Conv runtime plan requires runtime metadata")
+    if str(runtime.get("status")) != _CUTLASS_CONV_STATUS:
+        raise ValueError("CUTLASS Conv runtime metadata has an unexpected status")
+    if str(runtime.get("launcher")) != _cutlass_transposed_conv_runtime_launcher_name(op_family):
+        raise ValueError(
+            "CUTLASS Conv runtime metadata has an unexpected launcher: "
+            f"expected {_cutlass_transposed_conv_runtime_launcher_name(op_family)!r}, got {runtime.get('launcher')!r}"
+        )
+    if str(payload.get("profiler_status")) != _CUTLASS_CONV_PROFILER_STATUS:
+        raise ValueError(
+            "CUTLASS Conv runtime plan must record "
+            f"profiler_status={_CUTLASS_CONV_PROFILER_STATUS!r}"
+        )
+    if weight_shape[0] != x_shape[1]:
+        raise ValueError(
+            "CUTLASS Conv transposed weight/input channel mismatch for groups=1: "
+            f"weight I={weight_shape[0]} vs input C={x_shape[1]}"
+        )
+    if output_shape[1] != weight_shape[1]:
+        raise ValueError(
+            "CUTLASS Conv transposed output channels must match weight O: "
+            f"output C={output_shape[1]}, weight O={weight_shape[1]}"
+        )
+    expected_out_h = (x_shape[2] - 1) * stride[0] - 2 * padding[0] + dilation[0] * (weight_shape[2] - 1) + output_padding[0] + 1
+    expected_out_w = (x_shape[3] - 1) * stride[1] - 2 * padding[1] + dilation[1] * (weight_shape[3] - 1) + output_padding[1] + 1
+    if output_shape[2] != expected_out_h or output_shape[3] != expected_out_w:
+        raise ValueError(
+            "CUTLASS Conv transposed output shape mismatch: "
+            f"expected {[x_shape[0], weight_shape[1], expected_out_h, expected_out_w]!r}, got {output_shape!r}"
+        )
+    layout_translation = dict(payload.get("layout_translation", {}))
+    expected_input_nbytes = _nbytes(x_shape, dtype_size)
+    expected_output_nbytes = _nbytes(output_shape, dtype_size)
+    if layout_translation.get("input_pack") != "nchw_to_nhwc_temporary":
+        raise ValueError("CUTLASS Conv layout_translation.input_pack must be 'nchw_to_nhwc_temporary'")
+    if layout_translation.get("output_unpack") != "nhwc_to_nchw_temporary":
+        raise ValueError("CUTLASS Conv layout_translation.output_unpack must be 'nhwc_to_nchw_temporary'")
+    if int(layout_translation.get("input_pack_nbytes", -1)) != expected_input_nbytes:
+        raise ValueError(
+            "CUTLASS Conv input_pack_nbytes mismatch: "
+            f"expected {expected_input_nbytes}, got {layout_translation.get('input_pack_nbytes')!r}"
+        )
+    if str(layout_translation.get("input_pack_symbol")) != cutlass_conv_input_pack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv layout_translation.input_pack_symbol mismatch: "
+            f"expected {cutlass_conv_input_pack_symbol(dtype)!r}, got {layout_translation.get('input_pack_symbol')!r}"
+        )
+    if int(layout_translation.get("output_unpack_nbytes", -1)) != expected_output_nbytes:
+        raise ValueError(
+            "CUTLASS Conv output_unpack_nbytes mismatch: "
+            f"expected {expected_output_nbytes}, got {layout_translation.get('output_unpack_nbytes')!r}"
+        )
+    if str(layout_translation.get("output_unpack_symbol")) != cutlass_conv_output_unpack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv layout_translation.output_unpack_symbol mismatch: "
+            f"expected {cutlass_conv_output_unpack_symbol(dtype)!r}, got {layout_translation.get('output_unpack_symbol')!r}"
+        )
+    weight_transform = dict(payload.get("weight_transform", {}))
+    expected_weight_nbytes = _nbytes(weight_shape, dtype_size)
+    if weight_transform.get("from") != "iohw":
+        raise ValueError("CUTLASS Conv weight_transform.from must be 'iohw'")
+    if weight_transform.get("to") != "ihwo":
+        raise ValueError("CUTLASS Conv weight_transform.to must be 'ihwo'")
+    weight_prepacked = str(weight_transform.get("pack")) == "constants_bin_prepacked"
+    if str(weight_transform.get("pack")) not in {"iohw_to_ihwo_temporary", "constants_bin_prepacked"}:
+        raise ValueError("CUTLASS Conv weight_transform.pack must be an admitted IOHW->IHWO packing mode")
+    if weight_prepacked:
+        if not bool(weight_transform.get("runtime_persistent")):
+            raise ValueError("CUTLASS Conv prepacked weight constants must be runtime_persistent")
+        weight_transform.pop("pack_symbol", None)
+    elif str(weight_transform.get("pack_symbol")) != cutlass_transposed_conv_weight_pack_symbol(dtype):
+        raise ValueError(
+            "CUTLASS Conv weight_transform.pack_symbol mismatch: "
+            f"expected {cutlass_transposed_conv_weight_pack_symbol(dtype)!r}, got {weight_transform.get('pack_symbol')!r}"
+        )
+    if int(weight_transform.get("temporary_nbytes", -1)) != expected_weight_nbytes:
+        raise ValueError(
+            "CUTLASS Conv weight temporary_nbytes mismatch: "
+            f"expected {expected_weight_nbytes}, got {weight_transform.get('temporary_nbytes')!r}"
+        )
+    if bool(weight_transform.get("runtime_persistent")) != weight_prepacked:
+        raise ValueError("CUTLASS Conv weight_transform.runtime_persistent must match the packing mode")
+    if int(weight_transform.get("channel_pad_multiple", -1)) != 1:
+        raise ValueError("CUTLASS Conv weight_transform.channel_pad_multiple must be 1")
+    if int(weight_transform.get("padded_input_channels", -1)) != int(weight_shape[0]):
+        raise ValueError("CUTLASS Conv padded_input_channels mismatch for transposed conv")
+    if int(weight_transform.get("padded_output_channels", -1)) != int(weight_shape[1]):
+        raise ValueError("CUTLASS Conv padded_output_channels mismatch for transposed conv")
+    if float(weight_transform.get("padding_fill_value", 0.0)) != 0.0:
+        raise ValueError("CUTLASS Conv padding_fill_value must be 0.0")
+    temporary_buffers = payload.get("temporary_buffers", ())
+    if not isinstance(temporary_buffers, (list, tuple)):
+        raise ValueError("CUTLASS Conv temporary_buffers must be a list")
+    expected_buffers = [
+        ("activation_nhwc", "layout_pack", "nhwc", expected_input_nbytes),
+        *([] if weight_prepacked else [("weight_ihwo", "layout_pack", "ihwo", expected_weight_nbytes)]),
+        ("output_nhwc", "layout_pack", "nhwc", expected_output_nbytes),
+    ]
+    if len(temporary_buffers) != len(expected_buffers):
+        raise ValueError(
+            f"CUTLASS Conv temporary_buffers must contain {len(expected_buffers)} entries, got {len(temporary_buffers)}"
+        )
+    normalized_buffers = []
+    for buffer, (expected_name, expected_kind, expected_layout, expected_nbytes) in zip(
+        temporary_buffers, expected_buffers, strict=True
+    ):
+        if not isinstance(buffer, Mapping):
+            raise ValueError("CUTLASS Conv temporary_buffers entries must be objects")
+        buffer_payload = dict(buffer)
+        if str(buffer_payload.get("name")) != expected_name:
+            raise ValueError(
+                f"CUTLASS Conv temporary buffer name mismatch: expected {expected_name!r}, got {buffer_payload.get('name')!r}"
+            )
+        if str(buffer_payload.get("kind")) != expected_kind:
+            raise ValueError(
+                f"CUTLASS Conv temporary buffer kind mismatch for {expected_name!r}: "
+                f"expected {expected_kind!r}, got {buffer_payload.get('kind')!r}"
+            )
+        if str(buffer_payload.get("layout")) != expected_layout:
+            raise ValueError(
+                f"CUTLASS Conv temporary buffer layout mismatch for {expected_name!r}: "
+                f"expected {expected_layout!r}, got {buffer_payload.get('layout')!r}"
+            )
+        if int(buffer_payload.get("nbytes", -1)) != expected_nbytes:
+            raise ValueError(
+                f"CUTLASS Conv temporary buffer nbytes mismatch for {expected_name!r}: "
+                f"expected {expected_nbytes}, got {buffer_payload.get('nbytes')!r}"
+            )
+        normalized_buffers.append(buffer_payload)
+    if int(payload.get("workspace_nbytes", -1)) != 0:
+        raise ValueError("CUTLASS Conv workspace_nbytes must be 0 for the current plan")
+    expected_temporary_nbytes = sum(int(buffer["nbytes"]) for buffer in normalized_buffers)
+    if int(payload.get("temporary_nbytes", -1)) != expected_temporary_nbytes:
+        raise ValueError(
+            "CUTLASS Conv temporary_nbytes mismatch: "
+            f"expected {expected_temporary_nbytes}, got {payload.get('temporary_nbytes')!r}"
+        )
+    if candidate is not None:
+        candidate_layouts = dict(candidate.get("layouts", {}))
+        expected_candidate_layouts = _cutlass_transposed_conv_candidate_layouts(op_family)
+        if candidate_layouts != expected_candidate_layouts:
+            raise ValueError(
+                "CUTLASS Conv candidate layouts do not match transform plan: "
+                f"expected {expected_candidate_layouts}, got {candidate_layouts!r}"
+            )
+        if str(candidate.get("dtype")) != dtype:
+            raise ValueError(f"CUTLASS Conv candidate dtype mismatch: expected {dtype!r}, got {candidate.get('dtype')!r}")
+        if str(candidate.get("epilogue")) != epilogue:
+            raise ValueError(
+                f"CUTLASS Conv candidate epilogue mismatch: expected {epilogue!r}, got {candidate.get('epilogue')!r}"
+            )
+        if dict(candidate.get("epilogue_config", {})) != epilogue_config:
+            raise ValueError(
+                "CUTLASS Conv candidate epilogue_config mismatch: "
+                f"expected {epilogue_config!r}, got {candidate.get('epilogue_config')!r}"
+            )
+        if str(candidate.get("launch_abi")) != _cutlass_transposed_conv_launch_abi(op_family):
+            raise ValueError(
+                "CUTLASS Conv candidate launch_abi mismatch: "
+                f"expected {_cutlass_transposed_conv_launch_abi(op_family)!r}, got {candidate.get('launch_abi')!r}"
+            )
+    payload["dtype"] = dtype
+    payload["op_family"] = op_family
+    payload["epilogue"] = epilogue
+    payload["epilogue_config"] = epilogue_config
+    payload["semantic_layout"] = semantic_layout
+    payload["provider_layout"] = provider_layout
+    payload["layout_translation"] = layout_translation
+    payload["weight_transform"] = weight_transform
+    payload["conv_config"] = {
+        "stride": stride,
+        "padding": padding,
+        "output_padding": output_padding,
+        "dilation": dilation,
+        "groups": 1,
+    }
+    payload["input_shape"] = x_shape
+    payload["weight_shape"] = weight_shape
+    payload["output_shape"] = output_shape
+    payload["temporary_buffers"] = normalized_buffers
+    payload["workspace_nbytes"] = 0
+    payload["temporary_nbytes"] = expected_temporary_nbytes
+    payload["status"] = status
+    if status == _CUTLASS_CONV_STATUS:
+        payload["runtime"] = dict(payload["runtime"])
+        payload["profiler_status"] = _CUTLASS_CONV_PROFILER_STATUS
+        payload.pop("profiler_blocked_reason", None)
+        payload.pop("blocked_reason", None)
+    return payload
+
+
 
 def _normalize_cutlass_conv_used_candidate_entry(entry: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(entry, Mapping):
         raise ValueError("CUTLASS Conv used candidate plan entries must be objects")
     payload = dict(entry)
     op_name = str(payload.get("op", ""))
-    _validate_conv_op_name(op_name)
+    _validate_supported_cutlass_conv_op_name(op_name)
     selected_candidate_id = str(payload.get("selected_candidate_id", ""))
     if not selected_candidate_id:
         raise ValueError("CUTLASS Conv used candidate plan entry is missing selected_candidate_id")
@@ -1169,6 +1861,8 @@ def _validate_cutlass_conv_selected_candidate(op_name: str, candidate: Mapping[s
 
 def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str, Any]]:
     op_name = str(item.get("op", ""))
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_item_wrapper_stages(item)
     _validate_conv_op_name(op_name)
     selected_candidate = _selected_cutlass_conv_candidate(item)
     node_id = _optional_str(item.get("node_id"))
@@ -1331,6 +2025,141 @@ def _cutlass_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str,
     return stages
 
 
+def _cutlass_transposed_conv_item_wrapper_stages(item: Mapping[str, Any]) -> list[dict[str, Any]]:
+    op_name = str(item.get("op", ""))
+    _validate_transposed_conv_op_name(op_name)
+    selected_candidate = _selected_cutlass_conv_candidate(item)
+    node_id = _optional_str(item.get("node_id"))
+    if node_id is None and isinstance(item.get("cutlass_conv_plan"), Mapping):
+        node_id = _optional_str(item["cutlass_conv_plan"].get("node_id"))
+    conv_plan = validate_cutlass_conv_plan(
+        item.get("cutlass_conv_plan"),
+        candidate=selected_candidate,
+        node_id=node_id,
+    )
+    layout_translation = dict(conv_plan["layout_translation"])
+    weight_transform = dict(conv_plan["weight_transform"])
+    temporary_buffers = {
+        str(buffer["name"]): dict(buffer)
+        for buffer in conv_plan.get("temporary_buffers", ())
+        if isinstance(buffer, Mapping)
+    }
+    activation_shape = list(conv_plan["input_shape"])
+    weight_shape = list(conv_plan["weight_shape"])
+    output_shape = list(conv_plan["output_shape"])
+    conv_config = dict(conv_plan["conv_config"])
+    stage_common = {
+        "schema_version": 1,
+        "op": op_name,
+        "node_id": node_id,
+        "kernel_library": "cutlass_conv",
+        "dtype": str(conv_plan["dtype"]),
+        "status": str(conv_plan["status"]),
+    }
+    stages = [
+        {
+            **stage_common,
+            "stage_index": 0,
+            "stage_name": "activation_pack",
+            "stage_kind": "transform_helper",
+            "symbol": str(layout_translation["input_pack_symbol"]),
+            "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+            "tensor_role": "activation",
+            "layout_from": "nchw",
+            "layout_to": "nhwc",
+            "source": {"kind": "semantic_tensor", "role": "activation", "layout": "nchw"},
+            "destination": _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
+            "shape_args": [
+                {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
+                {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
+                {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
+                {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
+            ],
+        },
+    ]
+    if not bool(weight_transform.get("runtime_persistent")):
+        stages.append(
+            {
+                **stage_common,
+                "stage_index": 1,
+                "stage_name": "weight_pack",
+                "stage_kind": "transform_helper",
+                "symbol": str(weight_transform["pack_symbol"]),
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+                "tensor_role": "weight",
+                "layout_from": "iohw",
+                "layout_to": "ihwo",
+                "source": {"kind": "semantic_tensor", "role": "weight", "layout": "iohw"},
+                "destination": _temporary_buffer_descriptor(temporary_buffers["weight_ihwo"]),
+                "shape_args": [
+                    {"name": "in_c", "placeholder": "weight_0", "value": int(weight_shape[0])},
+                    {"name": "out_c", "placeholder": "weight_1", "value": int(weight_shape[1])},
+                    {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
+                    {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
+                ],
+            }
+        )
+    provider_inputs = [
+        _temporary_buffer_descriptor(temporary_buffers["activation_nhwc"]),
+        (
+            {"kind": "semantic_tensor", "role": "weight", "layout": "ihwo"}
+            if bool(weight_transform.get("runtime_persistent"))
+            else _temporary_buffer_descriptor(temporary_buffers["weight_ihwo"])
+        ),
+    ]
+    stages.extend(
+        [
+            {
+                **stage_common,
+                "stage_index": len(stages),
+                "stage_name": "provider_launch",
+                "stage_kind": "provider_launcher",
+                "symbol": str(selected_candidate["kernel_symbol"]),
+                "launch_abi": str(selected_candidate["launch_abi"]),
+                "inputs": provider_inputs,
+                "output": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+                "shape_args": [
+                    {"name": "n", "placeholder": "activation_n", "value": int(activation_shape[0])},
+                    {"name": "h", "placeholder": "activation_h", "value": int(activation_shape[2])},
+                    {"name": "w", "placeholder": "activation_w", "value": int(activation_shape[3])},
+                    {"name": "c", "placeholder": "activation_c", "value": int(activation_shape[1])},
+                    {"name": "out_h", "placeholder": "output_h", "value": int(output_shape[2])},
+                    {"name": "out_w", "placeholder": "output_w", "value": int(output_shape[3])},
+                    {"name": "out_c", "placeholder": "output_c", "value": int(output_shape[1])},
+                    {"name": "kernel_h", "placeholder": "kernel_h", "value": int(weight_shape[2])},
+                    {"name": "kernel_w", "placeholder": "kernel_w", "value": int(weight_shape[3])},
+                    {"name": "stride_h", "placeholder": "stride_h", "value": int(conv_config["stride"][0])},
+                    {"name": "stride_w", "placeholder": "stride_w", "value": int(conv_config["stride"][1])},
+                    {"name": "pad_h", "placeholder": "pad_h", "value": int(conv_config["padding"][0])},
+                    {"name": "pad_w", "placeholder": "pad_w", "value": int(conv_config["padding"][1])},
+                    {"name": "dilation_h", "placeholder": "dilation_h", "value": int(conv_config["dilation"][0])},
+                    {"name": "dilation_w", "placeholder": "dilation_w", "value": int(conv_config["dilation"][1])},
+                ],
+            },
+            {
+                **stage_common,
+                "stage_index": len(stages) + 1,
+                "stage_name": "output_unpack",
+                "stage_kind": "transform_helper",
+                "symbol": str(layout_translation["output_unpack_symbol"]),
+                "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
+                "tensor_role": "output",
+                "layout_from": "nhwc",
+                "layout_to": "nchw",
+                "source": _temporary_buffer_descriptor(temporary_buffers["output_nhwc"]),
+                "destination": {"kind": "semantic_tensor", "role": "output", "layout": "nchw"},
+                "shape_args": [
+                    {"name": "n", "placeholder": "output_n", "value": int(output_shape[0])},
+                    {"name": "c", "placeholder": "output_c", "value": int(output_shape[1])},
+                    {"name": "h", "placeholder": "output_h", "value": int(output_shape[2])},
+                    {"name": "w", "placeholder": "output_w", "value": int(output_shape[3])},
+                ],
+            },
+        ]
+    )
+    return stages
+
+
 def _nbytes(shape: list[int], dtype_size: int) -> int:
     count = 1
     for dim in shape:
@@ -1381,6 +2210,8 @@ def _normalize_target_policy(target: Mapping[str, Any] | None) -> dict[str, Any]
 
 
 def _cutlass_conv_semantic_layout(op_name: str) -> dict[str, str]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_semantic_layout(op_name)
     _validate_conv_op_name(op_name)
     layout = dict(_CUTLASS_CONV_BASE_SEMANTIC_LAYOUT)
     if _cutlass_conv_op_has_residual(op_name):
@@ -1389,6 +2220,8 @@ def _cutlass_conv_semantic_layout(op_name: str) -> dict[str, str]:
 
 
 def _cutlass_conv_provider_layout(op_name: str) -> dict[str, str]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_provider_layout(op_name)
     _validate_conv_op_name(op_name)
     layout = dict(_CUTLASS_CONV_BASE_PROVIDER_LAYOUT)
     if _cutlass_conv_op_has_residual(op_name):
@@ -1397,6 +2230,8 @@ def _cutlass_conv_provider_layout(op_name: str) -> dict[str, str]:
 
 
 def _cutlass_conv_candidate_layouts(op_name: str) -> dict[str, str]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_candidate_layouts(op_name)
     semantic_layout = _cutlass_conv_semantic_layout(op_name)
     provider_layout = _cutlass_conv_provider_layout(op_name)
     layouts = {
@@ -1411,6 +2246,29 @@ def _cutlass_conv_candidate_layouts(op_name: str) -> dict[str, str]:
         layouts["residual_semantic"] = semantic_layout["residual"]
         layouts["residual_provider"] = provider_layout["residual"]
     return layouts
+
+
+def _cutlass_transposed_conv_semantic_layout(op_name: str) -> dict[str, str]:
+    _validate_transposed_conv_op_name(op_name)
+    return dict(_CUTLASS_TRANSPOSED_CONV_BASE_SEMANTIC_LAYOUT)
+
+
+def _cutlass_transposed_conv_provider_layout(op_name: str) -> dict[str, str]:
+    _validate_transposed_conv_op_name(op_name)
+    return dict(_CUTLASS_TRANSPOSED_CONV_BASE_PROVIDER_LAYOUT)
+
+
+def _cutlass_transposed_conv_candidate_layouts(op_name: str) -> dict[str, str]:
+    semantic_layout = _cutlass_transposed_conv_semantic_layout(op_name)
+    provider_layout = _cutlass_transposed_conv_provider_layout(op_name)
+    return {
+        "activation_semantic": semantic_layout["activation"],
+        "weight_semantic": semantic_layout["weight"],
+        "output_semantic": semantic_layout["output"],
+        "activation_provider": provider_layout["activation"],
+        "weight_provider": provider_layout["weight"],
+        "output_provider": provider_layout["output"],
+    }
 
 
 def _selected_cutlass_conv_candidate(item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -1470,9 +2328,13 @@ def _cutlass_conv_transform_helpers(entries) -> list[dict[str, Any]]:
                     "dtype": dtype,
                     "tensor_role": "weight",
                     "transform": str(weight_transform["pack"]),
-                    "layout_from": "oihw",
-                    "layout_to": "ohwi",
-                    "shape_order": ["o", "i", "h", "w"],
+                    "layout_from": str(weight_transform["from"]),
+                    "layout_to": str(weight_transform["to"]),
+                    "shape_order": (
+                        ["o", "i", "h", "w"]
+                        if str(weight_transform.get("from")) == "oihw"
+                        else ["i", "o", "h", "w"]
+                    ),
                     "helper_abi": _CUTLASS_CONV_TRANSFORM_ABI,
                 }
             )
@@ -1521,6 +2383,7 @@ def _cutlass_conv_transform_export(helper: Mapping[str, Any]) -> str:
     macro_by_transform = {
         "nchw_to_nhwc_temporary": "DINOML_CUTLASS_CONV_NCHW_TO_NHWC_EXPORT",
         "oihw_to_ohwi_temporary": "DINOML_CUTLASS_CONV_OIHW_TO_OHWI_EXPORT",
+        "iohw_to_ihwo_temporary": "DINOML_CUTLASS_CONV_IOHW_TO_IHWO_EXPORT",
         "nhwc_to_nchw_temporary": "DINOML_CUTLASS_CONV_NHWC_TO_NCHW_EXPORT",
     }
     macro = macro_by_transform.get(transform)
@@ -1543,6 +2406,7 @@ def _cutlass_conv_launcher_export(candidate: Mapping[str, Any]) -> str:
         "bias_relu": "DINOML_CUTLASS_CONV_BIAS_RELU_EXPORT",
         "bias_add": "DINOML_CUTLASS_CONV_BIAS_ADD_EXPORT",
         "bias_add_relu": "DINOML_CUTLASS_CONV_BIAS_ADD_RELU_EXPORT",
+        "identity": "DINOML_CUTLASS_TRANSPOSED_CONV2D_EXPORT",
     }.get(epilogue)
     if macro is None:
         raise ValueError(f"Unsupported CUTLASS Conv epilogue {epilogue!r}")
@@ -1606,11 +2470,15 @@ def _cutlass_conv_epilogue_has_residual(epilogue: str) -> bool:
 
 
 def _cutlass_conv_runtime_launcher_name(op_name: str) -> str:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_runtime_launcher_name(op_name)
     _validate_conv_op_name(op_name)
     return _CUTLASS_CONV_RUNTIME_LAUNCHER_BY_OP[op_name]
 
 
 def _cutlass_conv_launch_abi(op_name: str) -> str:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _cutlass_transposed_conv_launch_abi(op_name)
     _validate_conv_op_name(op_name)
     return _CUTLASS_CONV_LAUNCH_ABI_BY_OP[op_name]
 
@@ -1621,11 +2489,15 @@ def _conv_candidate_status(dtype: str) -> str:
 
 
 def _conv_epilogue(op_name: str) -> str:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _transposed_conv_epilogue(op_name)
     _validate_conv_op_name(op_name)
     return _CUTLASS_CONV_EPILOGUE_BY_OP[op_name]
 
 
 def _conv_epilogue_config(op_name: str) -> dict[str, Any]:
+    if op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return _transposed_conv_epilogue_config(op_name)
     epilogue = _conv_epilogue(op_name)
     if epilogue == "bias":
         return {"inputs": ["bias"]}
@@ -1642,6 +2514,39 @@ def _validate_conv_op_name(op_name: str) -> None:
     if op_name not in CONV_OPS:
         supported = ", ".join(CONV_OPS)
         raise ValueError(f"Unsupported CUTLASS Conv op {op_name!r}; supported ops: {supported}")
+
+
+def _validate_transposed_conv_op_name(op_name: str) -> None:
+    if op_name not in CUTLASS_TRANSPOSED_CONV_OPS:
+        supported = ", ".join(CUTLASS_TRANSPOSED_CONV_OPS) or "<none>"
+        raise ValueError(f"Unsupported CUTLASS transposed conv op {op_name!r}; supported ops: {supported}")
+
+
+def _validate_supported_cutlass_conv_op_name(op_name: str) -> None:
+    if op_name in CONV_OPS or op_name in CUTLASS_TRANSPOSED_CONV_OPS:
+        return
+    supported = ", ".join([*CONV_OPS, *CUTLASS_TRANSPOSED_CONV_OPS])
+    raise ValueError(f"Unsupported CUTLASS Conv op {op_name!r}; supported ops: {supported}")
+
+
+def _transposed_conv_epilogue(op_name: str) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    return "identity"
+
+
+def _transposed_conv_epilogue_config(op_name: str) -> dict[str, Any]:
+    _validate_transposed_conv_op_name(op_name)
+    return {}
+
+
+def _cutlass_transposed_conv_runtime_launcher_name(op_name: str) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    return _CUTLASS_TRANSPOSED_CONV_RUNTIME_LAUNCHER_BY_OP[op_name]
+
+
+def _cutlass_transposed_conv_launch_abi(op_name: str) -> str:
+    _validate_transposed_conv_op_name(op_name)
+    return _CUTLASS_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP[op_name]
 
 
 def _conv_plan_status(
@@ -1755,6 +2660,8 @@ def _optional_str(value: Any) -> str | None:
 
 
 __all__ = [
+    "CUTLASS_CONV_OPS",
+    "CUTLASS_TRANSPOSED_CONV_OPS",
     "CONV_OPS",
     "CONV_SUPPORTED_DTYPES",
     "CUTLASS_CONV_CANDIDATE_SET_SCHEMA_VERSION",
@@ -1773,6 +2680,12 @@ __all__ = [
     "cutlass_conv_used_candidate_plan",
     "cutlass_conv_wrapper_stages",
     "cutlass_conv_weight_pack_symbol",
+    "cutlass_transposed_conv_candidate_set",
+    "cutlass_transposed_conv_candidate_set_id",
+    "cutlass_transposed_conv_candidates",
+    "cutlass_transposed_conv_profiler_symbol",
+    "cutlass_transposed_conv_symbol",
+    "cutlass_transposed_conv_weight_pack_symbol",
     "normalize_cutlass_conv_used_candidate_plan",
-        "validate_cutlass_conv_plan",
-    ]
+    "validate_cutlass_conv_plan",
+]

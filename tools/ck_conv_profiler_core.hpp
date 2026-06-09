@@ -30,10 +30,14 @@ struct ConvRequest {
   int stride_w = 1;
   int pad_h = 0;
   int pad_w = 0;
+  int output_pad_h = 0;
+  int output_pad_w = 0;
   int dilation_h = 1;
   int dilation_w = 1;
   int iterations = 1;
   int repeats = 1;
+  bool transposed = false;
+  bool has_bias = true;
   bool has_residual = false;
   std::size_t x_elements = 0;
   std::size_t weight_elements = 0;
@@ -154,6 +158,156 @@ inline float run_candidate(
     void* bias,
     void* residual,
     void* output) {
+  if (request.transposed) {
+    if (!request.has_bias) {
+      using Fn = float (*)(
+          const void*,
+          const void*,
+          void*,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          hipStream_t);
+      return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+          x,
+          weight,
+          output,
+          request.batch,
+          request.in_channels,
+          request.in_height,
+          request.in_width,
+          request.out_channels,
+          request.kernel_h,
+          request.kernel_w,
+          request.out_height,
+          request.out_width,
+          request.stride_h,
+          request.stride_w,
+          request.pad_h,
+          request.pad_w,
+          request.output_pad_h,
+          request.output_pad_w,
+          request.dilation_h,
+          request.dilation_w,
+          request.iterations,
+          nullptr);
+    }
+    if (!request.has_residual) {
+      using Fn = float (*)(
+          const void*,
+          const void*,
+          const void*,
+          void*,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          int,
+          hipStream_t);
+      return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+          x,
+          weight,
+          bias,
+          output,
+          request.batch,
+          request.in_channels,
+          request.in_height,
+          request.in_width,
+          request.out_channels,
+          request.kernel_h,
+          request.kernel_w,
+          request.out_height,
+          request.out_width,
+          request.stride_h,
+          request.stride_w,
+          request.pad_h,
+          request.pad_w,
+          request.output_pad_h,
+          request.output_pad_w,
+          request.dilation_h,
+          request.dilation_w,
+          request.iterations,
+          nullptr);
+    }
+    using Fn = float (*)(
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        void*,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        hipStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+        x,
+        weight,
+        bias,
+        residual,
+        output,
+        request.batch,
+        request.in_channels,
+        request.in_height,
+        request.in_width,
+        request.out_channels,
+        request.kernel_h,
+        request.kernel_w,
+        request.out_height,
+        request.out_width,
+        request.stride_h,
+        request.stride_w,
+        request.pad_h,
+        request.pad_w,
+        request.output_pad_h,
+        request.output_pad_w,
+        request.dilation_h,
+        request.dilation_w,
+        request.iterations,
+        nullptr);
+  }
   if (!request.has_residual) {
     using Fn = float (*)(
         const void*,
@@ -262,11 +416,14 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
   std::mt19937 rng(seed);
   DeviceBuffer x(request.x_elements * dtype_size(request.dtype));
   DeviceBuffer weight(request.weight_elements * dtype_size(request.dtype));
-  DeviceBuffer bias(request.bias_elements * dtype_size(request.dtype));
+  DeviceBuffer bias;
   DeviceBuffer output(request.output_elements * dtype_size(request.dtype));
   x.copy_from(random_storage(request.x_elements, request.dtype, rng));
   weight.copy_from(random_storage(request.weight_elements, request.dtype, rng));
-  bias.copy_from(random_storage(request.bias_elements, request.dtype, rng));
+  if (request.has_bias) {
+    bias = DeviceBuffer(request.bias_elements * dtype_size(request.dtype));
+    bias.copy_from(random_storage(request.bias_elements, request.dtype, rng));
+  }
   check_hip(hipMemset(output.get(), 0, request.output_elements * dtype_size(request.dtype)), "hipMemset output");
 
   DeviceBuffer residual;

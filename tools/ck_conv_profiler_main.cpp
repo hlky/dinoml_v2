@@ -55,10 +55,14 @@ int main(int argc, char** argv) {
     request.stride_w = int_arg(begin, end, "--stride_w");
     request.pad_h = int_arg(begin, end, "--pad_h");
     request.pad_w = int_arg(begin, end, "--pad_w");
+    request.output_pad_h = int_arg(begin, end, "--output_pad_h");
+    request.output_pad_w = int_arg(begin, end, "--output_pad_w");
     request.dilation_h = int_arg(begin, end, "--dilation_h");
     request.dilation_w = int_arg(begin, end, "--dilation_w");
     request.iterations = int_arg(begin, end, "--iterations");
     request.repeats = int_arg(begin, end, "--repeats");
+    request.transposed = bool_arg(begin, end, "--transposed");
+    request.has_bias = bool_arg(begin, end, "--has_bias");
     request.has_residual = bool_arg(begin, end, "--has_residual");
     request.x_elements = size_arg(begin, end, "--x_elements");
     request.weight_elements = size_arg(begin, end, "--weight_elements");

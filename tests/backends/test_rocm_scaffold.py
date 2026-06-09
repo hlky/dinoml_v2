@@ -59,6 +59,7 @@ from dinoml.kernels.providers.ck.bmm import (
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV_OPS,
+    CK_TRANSPOSED_CONV_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_profiler_bind_target,
@@ -192,6 +193,14 @@ def test_rocm_ck_conv_cmake_targets_cover_provider_ops():
     cmake = Path("CMakeLists.txt").read_text(encoding="utf-8")
     ck_conv_ops_block = cmake.split("set(DINOML_CK_CONV_OPS", 1)[1].split("CACHE STRING", 1)[0]
     missing_ops = sorted(op_name for op_name in CK_CONV_OPS if op_name not in ck_conv_ops_block)
+
+    assert missing_ops == []
+
+
+def test_rocm_ck_transposed_conv_cmake_targets_cover_provider_ops():
+    cmake = Path("CMakeLists.txt").read_text(encoding="utf-8")
+    ck_conv_ops_block = cmake.split("set(DINOML_CK_CONV_OPS", 1)[1].split("CACHE STRING", 1)[0]
+    missing_ops = sorted(op_name for op_name in CK_TRANSPOSED_CONV_OPS if op_name not in ck_conv_ops_block)
 
     assert missing_ops == []
 
@@ -399,6 +408,9 @@ def test_rocm_compile_with_profile_uses_metadata_bootstrap_when_module_profiler_
 
     def fake_profile_artifact(path, **kwargs):
         profile_calls.append((Path(path), kwargs))
+        debug_dir = Path(path) / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / "profile_report.json").write_text("{}", encoding="utf-8")
         return {"execution_plan": {"path": str(tmp_path / "execution_plan.json"), "selection_count": 0}}
 
     def fake_materialize_profile_bootstrap_artifact(*args, **kwargs):
@@ -471,6 +483,9 @@ def test_rocm_compile_with_profile_profiles_artifact_directly_for_ck_conv(tmp_pa
 
     def fake_profile_artifact(path, **kwargs):
         profile_calls.append((Path(path), kwargs))
+        debug_dir = Path(path) / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / "profile_report.json").write_text("{}", encoding="utf-8")
         return {"execution_plan": {"path": str(tmp_path / "execution_plan.json"), "selection_count": 0}}
 
     monkeypatch.setattr(dml_compiler, "_build_artifact_from_lowered_ir", fake_build_artifact_from_lowered_ir)
@@ -3114,27 +3129,123 @@ def test_rocm_conv2d_bias_add_relu_uses_ck_manifest_and_profile_workloads():
 
 
 @pytest.mark.parametrize(
-    ("op_name", "expected_pointer_shapes"),
+    ("op_name", "expected_epilogue", "expected_inputs", "expected_launch_abi"),
     [
+        ("transposed_conv2d", "identity", [], "dinoml_ck_transposed_conv2d_v1"),
+        ("transposed_conv2d_bias", "bias", ["bias"], "dinoml_ck_transposed_conv2d_bias_v1"),
+        ("transposed_conv2d_bias_relu", "bias_relu", ["bias"], "dinoml_ck_transposed_conv2d_bias_relu_v1"),
+        ("transposed_conv2d_bias_add", "bias_add", ["bias", "d0"], "dinoml_ck_transposed_conv2d_bias_add_v1"),
         (
-            "conv2d_bias",
-            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16)],
-        ),
-        (
-            "conv2d_bias_add_relu",
-            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16), (2, 64, 16, 16)],
+            "transposed_conv2d_bias_add_relu",
+            "bias_add_relu",
+            ["bias", "d0"],
+            "dinoml_ck_transposed_conv2d_bias_add_relu_v1",
         ),
     ],
 )
-def test_rocm_ck_conv_profiler_passes_epilogue_pointers(op_name: str, expected_pointer_shapes: list[tuple[int, ...]]):
-    ir = _rocm_conv2d_bias_ir(
+def test_rocm_transposed_conv2d_uses_ck_manifest_and_profile_workloads(
+    op_name: str,
+    expected_epilogue: str,
+    expected_inputs: list[str],
+    expected_launch_abi: str,
+):
+    ir = _rocm_transposed_conv2d_ir(
         "float16",
         op_name=op_name,
         batch=2,
         in_channels=8,
-        out_channels=64,
-        height=16,
-        width=16,
+        out_channels=16,
+        height=9,
+        width=11,
+        stride=(2, 2),
+        padding=(1, 1),
+        output_padding=(1, 0),
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["kernel_library"] == "ck_conv"
+    assert item["candidate_set_id"] == f"ck_{op_name}_float16_{expected_epilogue}_v1"
+    assert item["kernel_symbol"] == f"dinoml_ck_{op_name}_float16_grouped_bwd_data_v1"
+    assert item["support_archive"] == ck_conv_static_library_name(op_name, "float16")
+    assert item["candidate_set"]["epilogue"] == expected_epilogue
+    assert item["candidate_set"]["epilogue_config"]["inputs"] == expected_inputs
+    assert item["candidate_set"]["epilogue_config"]["launch_abi"] == expected_launch_abi
+    assert item["candidate_set"]["semantic_layout"]["activation"] == "nchw"
+    assert item["candidate_set"]["semantic_layout"]["weight"] == "iohw"
+    assert item["candidate_set"]["semantic_layout"]["output"] == "nchw"
+    assert item["candidate_set"]["provider_layout"]["activation"] == "g_nhw_k_strided"
+    assert item["candidate_set"]["provider_layout"]["weight"] == "g_k_c_yx_strided"
+    assert item["candidate_set"]["provider_layout"]["output"] == "g_nhw_c_strided"
+    assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
+    assert {workload.op for workload in workloads} == {op_name}
+    assert {workload.candidate_id for workload in workloads} == {f"ck_{op_name}_float16_grouped_bwd_data_v1"}
+    assert all(workload.conv_config["output_padding"] == [1, 0] for workload in workloads)
+    assert all(workload.weight_shape == (8, 16, 3, 3) for workload in workloads)
+    if op_name == "transposed_conv2d":
+        assert all(workload.bias_tensor is None for workload in workloads)
+        assert all(workload.bias_shape is None for workload in workloads)
+    else:
+        assert all(workload.bias_shape == (16,) for workload in workloads)
+    if op_name in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}:
+        assert all(workload.residual_shape == workload.output_shape for workload in workloads)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "expected_pointer_shapes", "expected_args"),
+    [
+        (
+            "conv2d_bias",
+            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16)],
+            (2, 8, 16, 16, 64, 3, 3, 16, 16, 1, 1, 1, 1, 1, 1, 11),
+        ),
+        (
+            "conv2d_bias_add_relu",
+            [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16), (2, 64, 16, 16)],
+            (2, 8, 16, 16, 64, 3, 3, 16, 16, 1, 1, 1, 1, 1, 1, 11),
+        ),
+        (
+            "transposed_conv2d",
+            [(2, 8, 16, 16), (8, 64, 3, 3), (2, 64, 32, 32)],
+            (2, 8, 16, 16, 64, 3, 3, 32, 32, 2, 2, 1, 1, 1, 1, 1, 1, 11),
+        ),
+        (
+            "transposed_conv2d_bias_add_relu",
+            [(2, 8, 16, 16), (8, 64, 3, 3), (64,), (2, 64, 32, 32), (2, 64, 32, 32)],
+            (2, 8, 16, 16, 64, 3, 3, 32, 32, 2, 2, 1, 1, 1, 1, 1, 1, 11),
+        ),
+    ],
+)
+def test_rocm_ck_conv_profiler_passes_epilogue_pointers(
+    op_name: str,
+    expected_pointer_shapes: list[tuple[int, ...]],
+    expected_args: tuple[int, ...],
+):
+    ir = (
+        _rocm_transposed_conv2d_ir(
+            "float16",
+            op_name=op_name,
+            batch=2,
+            in_channels=8,
+            out_channels=64,
+            height=16,
+            width=16,
+            stride=(2, 2),
+            padding=(1, 1),
+            output_padding=(1, 1),
+        )
+        if op_name.startswith("transposed_conv2d")
+        else _rocm_conv2d_bias_ir(
+            "float16",
+            op_name=op_name,
+            batch=2,
+            in_channels=8,
+            out_channels=64,
+            height=16,
+            width=16,
+        )
     )
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
     workload = build_profile_workloads(ir, manifest)[0]
@@ -3172,24 +3283,7 @@ def test_rocm_ck_conv_profiler_passes_epilogue_pointers(op_name: str, expected_p
     assert workspace_nbytes == 0
     assert device_shapes == expected_pointer_shapes
     assert [arg.value for arg in call[:pointer_count]] == [0x1000 + 0x10 * idx for idx in range(1, pointer_count + 1)]
-    assert call[pointer_count : pointer_count + 16] == (
-        2,
-        8,
-        16,
-        16,
-        64,
-        3,
-        3,
-        16,
-        16,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        11,
-    )
+    assert call[pointer_count : pointer_count + len(expected_args)] == expected_args
 
 
 def test_rocm_profiler_uses_standalone_ck_conv_support_cache(monkeypatch):
@@ -3852,7 +3946,7 @@ def test_rocm_conv2d_bias_manifest_reports_malformed_ck_profile_attrs():
     workloads = build_profile_workloads(ir, manifest)
 
     assert item["profile_blocked_reason"] == "ck_conv_attrs_unsupported_for_profile"
-    assert "conv2d_bias dilation must contain positive integers" in item["profile_blocked_details"]["error"]
+    assert "conv2d dilation must contain positive integers, got [1, 0]" in item["profile_blocked_details"]["error"]
     assert workloads == []
     assert _blocked_profile_items(manifest)[0]["reason"] == "ck_conv_attrs_unsupported_for_profile"
 
@@ -4012,6 +4106,51 @@ def test_rocm_conv2d_bias_add_relu_module_declares_and_calls_ck_symbol():
     assert "conv2d_bias_add_relu CK Conv launcher failed" in source
 
 
+def test_rocm_transposed_conv2d_module_declares_and_calls_ck_symbol():
+    ir = _rocm_transposed_conv2d_ir(
+        "float16",
+        stride=(2, 2),
+        padding=(1, 1),
+        output_padding=(1, 0),
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_transposed_conv2d_float16_grouped_bwd_data_v1' in source
+    assert "const half* weight" in source
+    assert (
+        "dinoml_ck_transposed_conv2d_float16_grouped_bwd_data_v1("
+        "ptr_x, ptr_weight, ptr_y, static_cast<int>(shape_x_0)"
+        in source
+    )
+    assert "shape_y_1 != shape_weight_1" in source
+    assert "transposed_conv2d CK Conv launcher failed" in source
+
+
+def test_rocm_transposed_conv2d_bias_add_relu_module_declares_and_calls_ck_symbol():
+    ir = _rocm_transposed_conv2d_ir(
+        "float16",
+        op_name="transposed_conv2d_bias_add_relu",
+        stride=(2, 2),
+        padding=(1, 1),
+        output_padding=(1, 0),
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_transposed_conv2d_bias_add_relu_float16_grouped_bwd_data_v1' in source
+    assert "const half* residual" in source
+    assert (
+        "dinoml_ck_transposed_conv2d_bias_add_relu_float16_grouped_bwd_data_v1("
+        "ptr_x, ptr_weight, ptr_bias, ptr_residual, ptr_y"
+        in source
+    )
+    assert "transposed_conv2d_bias_add_relu residual shape mismatch" in source
+    assert "transposed_conv2d_bias_add_relu CK Conv launcher failed" in source
+
+
 def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
     candidate = {
@@ -4036,6 +4175,56 @@ def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     assert "DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle" in rendered
     assert "DinoConvBiasEpilogue" in rendered
     assert "DINOML_CK_CONV2D_BIAS_EXPORT(conv2d_bias, float16, half, xdl_custom_v1, kBaseline)" in rendered
+
+
+def test_ck_conv_unit_generation_supports_transposed_conv2d_base_op():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "transposed_conv2d",
+        "dtype": "float16",
+        "symbol_id": "grouped_bwd_data_v1",
+        "epilogue": "identity",
+        "launch_abi": "dinoml_ck_transposed_conv2d_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_transposed_conv2d_float16_grouped_bwd_data_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_transposed_conv2d_float16_grouped_bwd_data_v1"],
+        },
+    )
+
+    assert "DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1" in rendered
+    assert "DINOML_CK_TRANSPOSED_CONV2D_EXPORT(transposed_conv2d, float16, half, grouped_bwd_data_v1)" in rendered
+
+
+def test_ck_conv_unit_generation_supports_transposed_conv2d_bias_add_relu_epilogue():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "transposed_conv2d_bias_add_relu",
+        "dtype": "float16",
+        "symbol_id": "grouped_bwd_data_v1",
+        "epilogue": "bias_add_relu",
+        "launch_abi": "dinoml_ck_transposed_conv2d_bias_add_relu_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_transposed_conv2d_bias_add_relu_float16_grouped_bwd_data_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_transposed_conv2d_bias_add_relu_float16_grouped_bwd_data_v1"],
+        },
+    )
+
+    assert "DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1" in rendered
+    assert (
+        "DINOML_CK_TRANSPOSED_CONV2D_BIAS_ADD_RELU_EXPORT("
+        "transposed_conv2d_bias_add_relu, float16, half, grouped_bwd_data_v1)"
+        in rendered
+    )
 
 
 def test_ck_conv_unit_generation_supports_bias_relu_epilogue():
@@ -4648,6 +4837,84 @@ def _rocm_conv2d_bias_ir(
                 "inputs": node_inputs,
                 "outputs": ["y"],
                 "attrs": {"stride": stride, "padding": padding, "dilation": dilation, "groups": groups},
+            }
+        ],
+        "tensors": tensors,
+        "metadata": {},
+    }
+
+
+def _rocm_transposed_conv2d_ir(
+    dtype: str,
+    *,
+    op_name: str = "transposed_conv2d",
+    batch: int = 2,
+    in_channels: int = 4,
+    out_channels: int = 6,
+    height: int = 8,
+    width: int = 8,
+    kernel_h: int = 3,
+    kernel_w: int = 3,
+    stride: list[int] | tuple[int, int] | None = None,
+    padding: list[int] | tuple[int, int] | None = None,
+    output_padding: list[int] | tuple[int, int] | None = None,
+    dilation: list[int] | tuple[int, int] | None = None,
+    groups: int = 1,
+) -> dict:
+    stride = [1, 1] if stride is None else [int(stride[0]), int(stride[1])]
+    padding = [1, 1] if padding is None else [int(padding[0]), int(padding[1])]
+    output_padding = [0, 0] if output_padding is None else [int(output_padding[0]), int(output_padding[1])]
+    dilation = [1, 1] if dilation is None else [int(dilation[0]), int(dilation[1])]
+    output_h = (height - 1) * stride[0] - 2 * padding[0] + dilation[0] * (kernel_h - 1) + output_padding[0] + 1
+    output_w = (width - 1) * stride[1] - 2 * padding[1] + dilation[1] * (kernel_w - 1) + output_padding[1] + 1
+    has_bias = op_name != "transposed_conv2d"
+    has_residual = op_name in {"transposed_conv2d_bias_add", "transposed_conv2d_bias_add_relu"}
+    tensors = [
+        _tensor("x", [batch, in_channels, height, width], dtype, "input"),
+        _tensor("weight", [in_channels, out_channels, kernel_h, kernel_w], dtype, "input"),
+        *([_tensor("bias", [out_channels], dtype, "input")] if has_bias else []),
+        *(
+            [_tensor("residual", [batch, out_channels, output_h, output_w], dtype, "input")]
+            if has_residual
+            else []
+        ),
+        _tensor("y", [batch, out_channels, output_h, output_w], dtype, "output"),
+    ]
+    inputs = [
+        _io("x", [batch, in_channels, height, width], dtype),
+        _io("weight", [in_channels, out_channels, kernel_h, kernel_w], dtype),
+        *([_io("bias", [out_channels], dtype)] if has_bias else []),
+        *(
+            [_io("residual", [batch, out_channels, output_h, output_w], dtype)]
+            if has_residual
+            else []
+        ),
+    ]
+    node_inputs = [
+        "x",
+        "weight",
+        *(["bias"] if has_bias else []),
+        *(["residual"] if has_residual else []),
+    ]
+    return {
+        "schema_version": 1,
+        "name": f"rocm_{op_name}_smoke",
+        "inputs": inputs,
+        "constants": [],
+        "outputs": [_io("y", [batch, out_channels, output_h, output_w], dtype)],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": op_name,
+                "inputs": node_inputs,
+                "outputs": ["y"],
+                "attrs": {
+                    "stride": stride,
+                    "padding": padding,
+                    "output_padding": output_padding,
+                    "dilation": dilation,
+                    "groups": groups,
+                },
             }
         ],
         "tensors": tensors,

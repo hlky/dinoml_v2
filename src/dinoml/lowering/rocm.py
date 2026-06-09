@@ -224,17 +224,34 @@ def _ck_bmm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
 
 
 def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
-    extra_args = ""
-    if launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
-        extra_args = f"    const {cpp_type}* residual,\n"
-    elif launch_abi not in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
+    bias_arg = ""
+    residual_arg = ""
+    extra_shape_args = ""
+    if launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
+        bias_arg = f"    const {cpp_type}* bias,\n"
+    elif launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
+        bias_arg = f"    const {cpp_type}* bias,\n"
+        residual_arg = f"    const {cpp_type}* residual,\n"
+    elif launch_abi in {
+        "dinoml_ck_transposed_conv2d_v1",
+        "dinoml_ck_transposed_conv2d_bias_v1",
+        "dinoml_ck_transposed_conv2d_bias_relu_v1",
+        "dinoml_ck_transposed_conv2d_bias_add_v1",
+        "dinoml_ck_transposed_conv2d_bias_add_relu_v1",
+    }:
+        if launch_abi != "dinoml_ck_transposed_conv2d_v1":
+            bias_arg = f"    const {cpp_type}* bias,\n"
+        if launch_abi in {"dinoml_ck_transposed_conv2d_bias_add_v1", "dinoml_ck_transposed_conv2d_bias_add_relu_v1"}:
+            residual_arg = f"    const {cpp_type}* residual,\n"
+        extra_shape_args = "    int output_pad_h,\n    int output_pad_w,\n"
+    else:
         raise ValueError(f"Unsupported CK Conv launch ABI: {launch_abi!r}")
     return (
         f'extern "C" int {symbol}(\n'
         f"    const {cpp_type}* x,\n"
         f"    const {cpp_type}* weight,\n"
-        f"    const {cpp_type}* bias,\n"
-        f"{extra_args}"
+        f"{bias_arg}"
+        f"{residual_arg}"
         f"    {cpp_type}* output,\n"
         "    int batch,\n"
         "    int in_channels,\n"
@@ -249,6 +266,7 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         "    int stride_w,\n"
         "    int pad_h,\n"
         "    int pad_w,\n"
+        f"{extra_shape_args}"
         "    int dilation_h,\n"
         "    int dilation_w,\n"
         "    hipStream_t stream);"

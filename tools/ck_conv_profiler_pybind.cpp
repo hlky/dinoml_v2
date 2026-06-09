@@ -34,10 +34,14 @@ dinoml::ck_conv_profiler::ConvRequest request_from_kwargs(const py::kwargs& kwar
   request.stride_w = py::cast<int>(kwargs["stride_w"]);
   request.pad_h = py::cast<int>(kwargs["pad_h"]);
   request.pad_w = py::cast<int>(kwargs["pad_w"]);
+  request.output_pad_h = py::cast<int>(kwargs["output_pad_h"]);
+  request.output_pad_w = py::cast<int>(kwargs["output_pad_w"]);
   request.dilation_h = py::cast<int>(kwargs["dilation_h"]);
   request.dilation_w = py::cast<int>(kwargs["dilation_w"]);
   request.iterations = py::cast<int>(kwargs["iterations"]);
   request.repeats = py::cast<int>(kwargs["repeats"]);
+  request.transposed = py::cast<bool>(kwargs["transposed"]);
+  request.has_bias = py::cast<bool>(kwargs["has_bias"]);
   request.has_residual = py::cast<bool>(kwargs["has_residual"]);
   request.x_elements = py::cast<std::size_t>(kwargs["x_elements"]);
   request.weight_elements = py::cast<std::size_t>(kwargs["weight_elements"]);

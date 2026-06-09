@@ -4,8 +4,10 @@
 #include <hip/hip_runtime.h>
 
 #include <ck/ck.hpp>
+#include <ck/tensor_operation/gpu/device/convolution_backward_data_specialization.hpp>
 #include <ck/tensor_operation/gpu/device/convolution_forward_specialization.hpp>
 #include <ck/tensor_operation/gpu/device/gemm_specialization.hpp>
+#include <ck/tensor_operation/gpu/device/impl/device_grouped_conv_bwd_data_multiple_d_xdl_cshuffle_v1.hpp>
 #include <ck/tensor_operation/gpu/device/impl/device_grouped_conv_fwd_multiple_abd_xdl_cshuffle.hpp>
 #include <ck/tensor_operation/gpu/device/tensor_layout.hpp>
 #include <ck/tensor_operation/gpu/element/element_wise_operation.hpp>
@@ -250,6 +252,59 @@ Element* ck_ptr(Storage* ptr) {
 template <typename T>
 __host__ __device__ float to_float(const T& value) {
   return ck::type_convert<float>(value);
+}
+
+template <typename T>
+__global__ void dinoml_ck_conv_nchw_to_nhwc_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int c,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * c * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int channel = tmp % c;
+  int batch = tmp / c;
+  int dst_index = ((batch * h + y) * w + x) * c + channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename Storage>
+int launch_ck_conv_nchw_to_nhwc(
+    Storage const* src,
+    Storage* dst,
+    int n,
+    int c,
+    int h,
+    int w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || c <= 0 || h <= 0 || w <= 0) {
+    return 1;
+  }
+  int total = n * c * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_nchw_to_nhwc_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      n,
+      c,
+      h,
+      w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
 }
 
 struct DinoConvBiasEpilogue {
@@ -1142,6 +1197,926 @@ float profile_ck_conv2d_bias_relu(
   return ms / static_cast<float>(iterations);
 }
 
+using TransposedInputLayout = conv_layout::NGKHW;
+using TransposedWeightLayout = conv_layout::GKCYX;
+using TransposedOutputLayout = conv_layout::NGCHW;
+using TransposedBiasLayout = conv_layout::G_C;
+using TransposedResidualLayout = conv_layout::G_NHW_C;
+
+template <typename Element, typename DLayouts, typename DDataTypes, typename CDEElementOp>
+using DeviceTransposedConv2dXdl =
+    ck::tensor_operation::device::DeviceGroupedConvBwdDataMultipleD_Xdl_CShuffle_v1<
+        NDimSpatial,
+        TransposedInputLayout,
+        TransposedWeightLayout,
+        DLayouts,
+        TransposedOutputLayout,
+        Element,
+        Element,
+        float,
+        Element,
+        DDataTypes,
+        Element,
+        PassThrough,
+        PassThrough,
+        CDEElementOp,
+        ck::tensor_operation::device::ConvolutionBackwardDataSpecialization::Default,
+        true,
+        true,
+        1,
+        256,
+        128,
+        256,
+        32,
+        8,
+        2,
+        16,
+        16,
+        4,
+        8,
+        S<4, 64, 1>,
+        S<1, 0, 2>,
+        S<1, 0, 2>,
+        2,
+        8,
+        8,
+        1,
+        S<4, 64, 1>,
+        S<0, 2, 1>,
+        S<0, 2, 1>,
+        1,
+        4,
+        2,
+        0,
+        1,
+        1,
+        S<1, 32, 1, 8>,
+        4>;
+
+template <typename Element>
+using DeviceTransposedConv2dIdentityXdl =
+    DeviceTransposedConv2dXdl<Element, ck::Tuple<>, ck::Tuple<>, PassThrough>;
+
+template <typename Element>
+using DeviceTransposedConv2dBiasXdl =
+    DeviceTransposedConv2dXdl<Element, ck::Tuple<TransposedBiasLayout>, ck::Tuple<Element>, DinoConvBiasEpilogue>;
+
+template <typename Element>
+using DeviceTransposedConv2dBiasReluXdl =
+    DeviceTransposedConv2dXdl<Element, ck::Tuple<TransposedBiasLayout>, ck::Tuple<Element>, DinoConvBiasReluEpilogue>;
+
+template <typename Element>
+using DeviceTransposedConv2dBiasAddXdl = DeviceTransposedConv2dXdl<
+    Element,
+    ck::Tuple<TransposedBiasLayout, TransposedResidualLayout>,
+    ck::Tuple<Element, Element>,
+    DinoConvBiasAddEpilogue>;
+
+template <typename Element>
+using DeviceTransposedConv2dBiasAddReluXdl = DeviceTransposedConv2dXdl<
+    Element,
+    ck::Tuple<TransposedBiasLayout, TransposedResidualLayout>,
+    ck::Tuple<Element, Element>,
+    DinoConvBiasAddReluEpilogue>;
+
+template <typename Storage, typename DeviceOp, std::size_t NumDTensor, typename CDEElementOp>
+int launch_ck_transposed_conv2d_impl(
+    Storage const* x,
+    Storage const* weight,
+    const std::array<const void*, NumDTensor>& ds_ptrs,
+    Storage* output,
+    const std::array<std::array<ck::index_t, NDimSpatial + 3>, NumDTensor>& ds_lengths,
+    const std::array<std::array<ck::index_t, NDimSpatial + 3>, NumDTensor>& ds_strides,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    const CDEElementOp& cde_element_op,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || output == nullptr) {
+    return 1;
+  }
+  for (const void* ptr : ds_ptrs) {
+    if (ptr == nullptr) {
+      return 1;
+    }
+  }
+  if (batch <= 0 || in_channels <= 0 || in_height <= 0 || in_width <= 0 || out_channels <= 0 ||
+      kernel_h <= 0 || kernel_w <= 0 || out_height <= 0 || out_width <= 0 || stride_h <= 0 ||
+      stride_w <= 0 || pad_h < 0 || pad_w < 0 || output_pad_h < 0 || output_pad_w < 0 ||
+      dilation_h <= 0 || dilation_w <= 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto k = static_cast<ck::index_t>(in_channels);
+  const auto ho = static_cast<ck::index_t>(in_height);
+  const auto wo = static_cast<ck::index_t>(in_width);
+  const auto c = static_cast<ck::index_t>(out_channels);
+  const auto y = static_cast<ck::index_t>(kernel_h);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto hi = static_cast<ck::index_t>(out_height);
+  const auto wi = static_cast<ck::index_t>(out_width);
+
+  const std::array<ck::index_t, NDimSpatial + 3> a_lengths{g, n, k, ho, wo};
+  const std::array<ck::index_t, NDimSpatial + 3> a_strides{
+      n * k * ho * wo,
+      k * ho * wo,
+      ho * wo,
+      wo,
+      ck::index_t{1}};
+  const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
+  const std::array<ck::index_t, NDimSpatial + 3> b_strides{
+      k * c * y * x_filter,
+      c * y * x_filter,
+      y * x_filter,
+      x_filter,
+      ck::index_t{1}};
+  const std::array<ck::index_t, NDimSpatial + 3> e_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> e_strides{
+      n * c * hi * wi,
+      c * hi * wi,
+      hi * wi,
+      wi,
+      ck::index_t{1}};
+  const std::array<ck::index_t, NDimSpatial> conv_strides{
+      static_cast<ck::index_t>(stride_h),
+      static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial> conv_dilations{
+      static_cast<ck::index_t>(dilation_h),
+      static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial> left_pads{
+      static_cast<ck::index_t>(pad_h),
+      static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial> right_pads{
+      static_cast<ck::index_t>(pad_h - output_pad_h),
+      static_cast<ck::index_t>(pad_w - output_pad_w)};
+
+  DeviceOp op{};
+  auto argument = op.MakeArgumentPointer(
+      ck_ptr<Storage, Element>(x),
+      ck_ptr<Storage, Element>(weight),
+      ds_ptrs,
+      ck_ptr<Storage, Element>(output),
+      a_lengths,
+      a_strides,
+      b_lengths,
+      b_strides,
+      ds_lengths,
+      ds_strides,
+      e_lengths,
+      e_strides,
+      conv_strides,
+      conv_dilations,
+      left_pads,
+      right_pads,
+      PassThrough{},
+      PassThrough{},
+      cde_element_op);
+  void* workspace = nullptr;
+  const std::size_t workspace_nbytes = op.GetWorkSpaceSize(argument.get());
+  if (workspace_nbytes != 0) {
+    if (hipMalloc(&workspace, workspace_nbytes) != hipSuccess) {
+      return 5;
+    }
+    op.SetWorkSpacePointer(argument.get(), workspace, StreamConfig{stream, false});
+  }
+  const bool supported = op.IsSupportedArgument(argument.get());
+  if (!supported) {
+    if (workspace != nullptr) {
+      (void)hipFree(workspace);
+    }
+    return 4;
+  }
+  auto invoker = op.MakeInvokerPointer();
+  (void)invoker->Run(argument.get(), StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  if (workspace != nullptr) {
+    (void)hipFree(workspace);
+  }
+  return err == hipSuccess ? 0 : 3;
+}
+
+template <typename LaunchFn>
+float profile_ck_transposed_conv2d_impl(LaunchFn&& launch, int iterations, hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch(stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage>
+int launch_ck_transposed_conv2d(
+    Storage const* x,
+    Storage const* weight,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    hipStream_t stream) {
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceTransposedConv2dIdentityXdl<Element>;
+  const std::array<const void*, 0> ds_ptrs{};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 0> ds_lengths{};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 0> ds_strides{};
+  return launch_ck_transposed_conv2d_impl<Storage, DeviceOp>(
+      x,
+      weight,
+      ds_ptrs,
+      output,
+      ds_lengths,
+      ds_strides,
+      batch,
+      in_channels,
+      in_height,
+      in_width,
+      out_channels,
+      kernel_h,
+      kernel_w,
+      out_height,
+      out_width,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      output_pad_h,
+      output_pad_w,
+      dilation_h,
+      dilation_w,
+      PassThrough{},
+      stream);
+}
+
+template <typename Storage>
+int launch_ck_transposed_conv2d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    hipStream_t stream) {
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceTransposedConv2dBiasXdl<Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(out_channels);
+  const auto hi = static_cast<ck::index_t>(out_height);
+  const auto wi = static_cast<ck::index_t>(out_width);
+  const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
+      c,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0},
+      ck::index_t{0}};
+  const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_lengths{{bias_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_strides{{bias_strides}};
+  return launch_ck_transposed_conv2d_impl<Storage, DeviceOp>(
+      x,
+      weight,
+      ds_ptrs,
+      output,
+      ds_lengths,
+      ds_strides,
+      batch,
+      in_channels,
+      in_height,
+      in_width,
+      out_channels,
+      kernel_h,
+      kernel_w,
+      out_height,
+      out_width,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      output_pad_h,
+      output_pad_w,
+      dilation_h,
+      dilation_w,
+      DinoConvBiasEpilogue{},
+      stream);
+}
+
+template <typename Storage>
+int launch_ck_transposed_conv2d_bias_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    hipStream_t stream) {
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceTransposedConv2dBiasReluXdl<Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(out_channels);
+  const auto hi = static_cast<ck::index_t>(out_height);
+  const auto wi = static_cast<ck::index_t>(out_width);
+  const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
+      c,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0},
+      ck::index_t{0}};
+  const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_lengths{{bias_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_strides{{bias_strides}};
+  return launch_ck_transposed_conv2d_impl<Storage, DeviceOp>(
+      x,
+      weight,
+      ds_ptrs,
+      output,
+      ds_lengths,
+      ds_strides,
+      batch,
+      in_channels,
+      in_height,
+      in_width,
+      out_channels,
+      kernel_h,
+      kernel_w,
+      out_height,
+      out_width,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      output_pad_h,
+      output_pad_w,
+      dilation_h,
+      dilation_w,
+      DinoConvBiasReluEpilogue{},
+      stream);
+}
+
+template <typename Storage>
+int launch_ck_transposed_conv2d_bias_add(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    hipStream_t stream) {
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceTransposedConv2dBiasAddXdl<Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(out_channels);
+  const auto hi = static_cast<ck::index_t>(out_height);
+  const auto wi = static_cast<ck::index_t>(out_width);
+  const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
+      c,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial + 3> residual_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> residual_strides{
+      n * c * hi * wi,
+      hi * wi * c,
+      ck::index_t{1},
+      wi * c,
+      c};
+  void* residual_packed = nullptr;
+  const std::size_t residual_nbytes =
+      static_cast<std::size_t>(n) * static_cast<std::size_t>(c) * static_cast<std::size_t>(hi) * static_cast<std::size_t>(wi) *
+      sizeof(Storage);
+  if (hipMalloc(&residual_packed, residual_nbytes) != hipSuccess) {
+    return 5;
+  }
+  const int pack_status = launch_ck_conv_nchw_to_nhwc(
+      residual,
+      static_cast<Storage*>(residual_packed),
+      batch,
+      out_channels,
+      out_height,
+      out_width,
+      stream);
+  if (pack_status != 0) {
+    (void)hipFree(residual_packed);
+    return pack_status;
+  }
+  const std::array<const void*, 2> ds_ptrs{
+      ck_ptr<Storage, Element>(bias),
+      ck_ptr<Storage, Element>(static_cast<Storage*>(residual_packed))};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 2> ds_lengths{{bias_lengths, residual_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 2> ds_strides{{bias_strides, residual_strides}};
+  const int status = launch_ck_transposed_conv2d_impl<Storage, DeviceOp>(
+      x,
+      weight,
+      ds_ptrs,
+      output,
+      ds_lengths,
+      ds_strides,
+      batch,
+      in_channels,
+      in_height,
+      in_width,
+      out_channels,
+      kernel_h,
+      kernel_w,
+      out_height,
+      out_width,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      output_pad_h,
+      output_pad_w,
+      dilation_h,
+      dilation_w,
+      DinoConvBiasAddEpilogue{},
+      stream);
+  (void)hipFree(residual_packed);
+  return status;
+}
+
+template <typename Storage>
+int launch_ck_transposed_conv2d_bias_add_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    hipStream_t stream) {
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceTransposedConv2dBiasAddReluXdl<Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(out_channels);
+  const auto hi = static_cast<ck::index_t>(out_height);
+  const auto wi = static_cast<ck::index_t>(out_width);
+  const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
+      c,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial + 3> residual_lengths{g, n, c, hi, wi};
+  const std::array<ck::index_t, NDimSpatial + 3> residual_strides{
+      n * c * hi * wi,
+      hi * wi * c,
+      ck::index_t{1},
+      wi * c,
+      c};
+  void* residual_packed = nullptr;
+  const std::size_t residual_nbytes =
+      static_cast<std::size_t>(n) * static_cast<std::size_t>(c) * static_cast<std::size_t>(hi) * static_cast<std::size_t>(wi) *
+      sizeof(Storage);
+  if (hipMalloc(&residual_packed, residual_nbytes) != hipSuccess) {
+    return 5;
+  }
+  const int pack_status = launch_ck_conv_nchw_to_nhwc(
+      residual,
+      static_cast<Storage*>(residual_packed),
+      batch,
+      out_channels,
+      out_height,
+      out_width,
+      stream);
+  if (pack_status != 0) {
+    (void)hipFree(residual_packed);
+    return pack_status;
+  }
+  const std::array<const void*, 2> ds_ptrs{
+      ck_ptr<Storage, Element>(bias),
+      ck_ptr<Storage, Element>(static_cast<Storage*>(residual_packed))};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 2> ds_lengths{{bias_lengths, residual_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial + 3>, 2> ds_strides{{bias_strides, residual_strides}};
+  const int status = launch_ck_transposed_conv2d_impl<Storage, DeviceOp>(
+      x,
+      weight,
+      ds_ptrs,
+      output,
+      ds_lengths,
+      ds_strides,
+      batch,
+      in_channels,
+      in_height,
+      in_width,
+      out_channels,
+      kernel_h,
+      kernel_w,
+      out_height,
+      out_width,
+      stride_h,
+      stride_w,
+      pad_h,
+      pad_w,
+      output_pad_h,
+      output_pad_w,
+      dilation_h,
+      dilation_w,
+      DinoConvBiasAddReluEpilogue{},
+      stream);
+  (void)hipFree(residual_packed);
+  return status;
+}
+
+template <typename Storage>
+float profile_ck_transposed_conv2d(
+    Storage const* x,
+    Storage const* weight,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    hipStream_t stream) {
+  return profile_ck_transposed_conv2d_impl(
+      [&](hipStream_t profile_stream) {
+        return launch_ck_transposed_conv2d<Storage>(
+            x,
+            weight,
+            output,
+            batch,
+            in_channels,
+            in_height,
+            in_width,
+            out_channels,
+            kernel_h,
+            kernel_w,
+            out_height,
+            out_width,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+            output_pad_h,
+            output_pad_w,
+            dilation_h,
+            dilation_w,
+            profile_stream);
+      },
+      iterations,
+      stream);
+}
+
+template <typename Storage>
+float profile_ck_transposed_conv2d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    hipStream_t stream) {
+  return profile_ck_transposed_conv2d_impl(
+      [&](hipStream_t profile_stream) {
+        return launch_ck_transposed_conv2d_bias<Storage>(
+            x,
+            weight,
+            bias,
+            output,
+            batch,
+            in_channels,
+            in_height,
+            in_width,
+            out_channels,
+            kernel_h,
+            kernel_w,
+            out_height,
+            out_width,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+            output_pad_h,
+            output_pad_w,
+            dilation_h,
+            dilation_w,
+            profile_stream);
+      },
+      iterations,
+      stream);
+}
+
+template <typename Storage>
+float profile_ck_transposed_conv2d_bias_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    hipStream_t stream) {
+  return profile_ck_transposed_conv2d_impl(
+      [&](hipStream_t profile_stream) {
+        return launch_ck_transposed_conv2d_bias_relu<Storage>(
+            x,
+            weight,
+            bias,
+            output,
+            batch,
+            in_channels,
+            in_height,
+            in_width,
+            out_channels,
+            kernel_h,
+            kernel_w,
+            out_height,
+            out_width,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+            output_pad_h,
+            output_pad_w,
+            dilation_h,
+            dilation_w,
+            profile_stream);
+      },
+      iterations,
+      stream);
+}
+
+template <typename Storage>
+float profile_ck_transposed_conv2d_bias_add(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    hipStream_t stream) {
+  return profile_ck_transposed_conv2d_impl(
+      [&](hipStream_t profile_stream) {
+        return launch_ck_transposed_conv2d_bias_add<Storage>(
+            x,
+            weight,
+            bias,
+            residual,
+            output,
+            batch,
+            in_channels,
+            in_height,
+            in_width,
+            out_channels,
+            kernel_h,
+            kernel_w,
+            out_height,
+            out_width,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+            output_pad_h,
+            output_pad_w,
+            dilation_h,
+            dilation_w,
+            profile_stream);
+      },
+      iterations,
+      stream);
+}
+
+template <typename Storage>
+float profile_ck_transposed_conv2d_bias_add_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_h,
+    int kernel_w,
+    int out_height,
+    int out_width,
+    int stride_h,
+    int stride_w,
+    int pad_h,
+    int pad_w,
+    int output_pad_h,
+    int output_pad_w,
+    int dilation_h,
+    int dilation_w,
+    int iterations,
+    hipStream_t stream) {
+  return profile_ck_transposed_conv2d_impl(
+      [&](hipStream_t profile_stream) {
+        return launch_ck_transposed_conv2d_bias_add_relu<Storage>(
+            x,
+            weight,
+            bias,
+            residual,
+            output,
+            batch,
+            in_channels,
+            in_height,
+            in_width,
+            out_channels,
+            kernel_h,
+            kernel_w,
+            out_height,
+            out_width,
+            stride_h,
+            stride_w,
+            pad_h,
+            pad_w,
+            output_pad_h,
+            output_pad_w,
+            dilation_h,
+            dilation_w,
+            profile_stream);
+      },
+      iterations,
+      stream);
+}
+
 }  // namespace
 
 #define DINOML_CK_CONV2D_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
@@ -1358,6 +2333,302 @@ extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID
   return profile_ck_conv2d_bias_add_relu<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
       out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, iterations, stream); \
+}
+
+#define DINOML_CK_TRANSPOSED_CONV2D_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    hipStream_t stream) { \
+  return launch_ck_transposed_conv2d<CTYPE>( \
+      x, weight, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, out_height, \
+      out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_transposed_conv2d<CTYPE>( \
+      x, weight, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, out_height, \
+      out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, iterations, \
+      stream); \
+}
+
+#define DINOML_CK_TRANSPOSED_CONV2D_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    hipStream_t stream) { \
+  return launch_ck_transposed_conv2d_bias<CTYPE>( \
+      x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_transposed_conv2d_bias<CTYPE>( \
+      x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      iterations, stream); \
+}
+
+#define DINOML_CK_TRANSPOSED_CONV2D_BIAS_RELU_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    hipStream_t stream) { \
+  return launch_ck_transposed_conv2d_bias_relu<CTYPE>( \
+      x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_transposed_conv2d_bias_relu<CTYPE>( \
+      x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      iterations, stream); \
+}
+
+#define DINOML_CK_TRANSPOSED_CONV2D_BIAS_ADD_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    hipStream_t stream) { \
+  return launch_ck_transposed_conv2d_bias_add<CTYPE>( \
+      x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_transposed_conv2d_bias_add<CTYPE>( \
+      x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      iterations, stream); \
+}
+
+#define DINOML_CK_TRANSPOSED_CONV2D_BIAS_ADD_RELU_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    hipStream_t stream) { \
+  return launch_ck_transposed_conv2d_bias_add_relu<CTYPE>( \
+      x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_height, \
+    int out_width, \
+    int stride_h, \
+    int stride_w, \
+    int pad_h, \
+    int pad_w, \
+    int output_pad_h, \
+    int output_pad_w, \
+    int dilation_h, \
+    int dilation_w, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_transposed_conv2d_bias_add_relu<CTYPE>( \
+      x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, output_pad_h, output_pad_w, dilation_h, dilation_w, \
+      iterations, stream); \
 }
 
 // DINOML_CK_CONV_GENERATED_EXPORTS

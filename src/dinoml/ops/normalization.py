@@ -12,6 +12,7 @@ NORMALIZATION_DTYPES = ("float16", "float32", "bfloat16")
 T5_LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
 LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
 ADD_LAYER_NORM_DTYPES = NORMALIZATION_DTYPES
+GROUP_NORM_DTYPES = NORMALIZATION_DTYPES
 
 
 def infer_t5_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -29,6 +30,12 @@ def infer_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
 def infer_add_layer_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(shapes) != 4:
         raise ValueError("add_layer_norm expects exactly four inputs")
+    return list(shapes[0])
+
+
+def infer_group_norm(shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(shapes) != 3:
+        raise ValueError("group_norm expects exactly three inputs")
     return list(shapes[0])
 
 
@@ -149,6 +156,96 @@ class AddLayerNorm(OpDef):
         return summed, normalized
 
 
+@op_def
+class GroupNorm(OpDef):
+    name = "group_norm"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias"),
+        attrs=(AttrDef("num_groups", "int", required=True), AttrDef("eps", "float", 1e-5)),
+    )
+    infer_shape = infer_group_norm
+    backend_kernels = {
+        "cpu": KernelBinding("generated_group_norm", "model", source_template="group_norm_cpu.cpp.j2"),
+    }
+    frontend = FrontendBinding("group_norm")
+    allowed_dtypes = GROUP_NORM_DTYPES
+    description = (
+        "Affine GroupNorm over the last channel dimension with NHWC-style channel-last layout and fp32 accumulation. "
+        "Currently lowered on CPU only; CUDA and ROCm compilation are rejected explicitly."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: object,
+        num_groups: int,
+        weight: object | None = None,
+        bias: object | None = None,
+        eps: float = 1e-5,
+    ) -> Tensor:
+        x_tensor, weight_tensor, bias_tensor, validated_groups = _validate_group_norm_inputs(
+            "group_norm",
+            x,
+            num_groups,
+            weight,
+            bias,
+            allowed_dtypes=GROUP_NORM_DTYPES,
+        )
+        return x_tensor.builder.emit(
+            "group_norm",
+            [x_tensor, weight_tensor, bias_tensor],
+            x_tensor.shape,
+            x_tensor.dtype,
+            {"num_groups": validated_groups, "eps": float(eps)},
+            shape_spec=x_tensor.shape_spec,
+        )
+
+
+@op_def
+class GroupNormSwish(OpDef):
+    name = "group_norm_swish"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias"),
+        attrs=(AttrDef("num_groups", "int", required=True), AttrDef("eps", "float", 1e-5)),
+    )
+    infer_shape = infer_group_norm
+    backend_kernels = {
+        "cpu": KernelBinding("generated_group_norm_swish", "model", source_template="group_norm_cpu.cpp.j2"),
+    }
+    frontend = FrontendBinding("group_norm_swish")
+    allowed_dtypes = GROUP_NORM_DTYPES
+    description = (
+        "Fused GroupNorm followed by swish/silu over the normalized output. "
+        "Currently lowered on CPU only; CUDA and ROCm compilation are rejected explicitly."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        x: object,
+        num_groups: int,
+        weight: object | None = None,
+        bias: object | None = None,
+        eps: float = 1e-5,
+    ) -> Tensor:
+        x_tensor, weight_tensor, bias_tensor, validated_groups = _validate_group_norm_inputs(
+            "group_norm_swish",
+            x,
+            num_groups,
+            weight,
+            bias,
+            allowed_dtypes=GROUP_NORM_DTYPES,
+        )
+        return x_tensor.builder.emit(
+            "group_norm_swish",
+            [x_tensor, weight_tensor, bias_tensor],
+            x_tensor.shape,
+            x_tensor.dtype,
+            {"num_groups": validated_groups, "eps": float(eps)},
+            shape_spec=x_tensor.shape_spec,
+        )
+
+
 def _validate_affine_norm_inputs(
     op_name: str,
     x: object,
@@ -199,6 +296,44 @@ def _validate_affine_norm_inputs(
     return x_tensor, weight_tensor, extra_tensor
 
 
+def _validate_group_norm_inputs(
+    op_name: str,
+    x: object,
+    num_groups: int,
+    weight: object | None,
+    bias: object | None,
+    *,
+    allowed_dtypes: Sequence[str],
+) -> tuple[Tensor, Tensor, Tensor, int]:
+    if not isinstance(num_groups, int) or isinstance(num_groups, bool):
+        raise TypeError(f"{op_name} num_groups must be an integer, got {type(num_groups).__name__}")
+    validated_groups = int(num_groups)
+    if validated_groups <= 0:
+        raise ValueError(f"{op_name} num_groups must be positive")
+
+    x_tensor = as_tensor(x, dtype_hint="float32")
+    if x_tensor.dtype not in allowed_dtypes:
+        raise ValueError(f"{op_name} does not support dtype {x_tensor.dtype}")
+    if x_tensor.rank < 2:
+        raise ValueError(f"{op_name} requires rank >= 2 input")
+    if not isinstance(x_tensor.shape_spec[-1], int):
+        raise ValueError(f"{op_name} currently requires a static last dimension")
+    channels = int(x_tensor.shape[-1])
+    if channels <= 0:
+        raise ValueError(f"{op_name} last dimension must be positive")
+    if channels % validated_groups != 0:
+        raise ValueError(f"{op_name} channel dimension {channels} must be divisible by num_groups {validated_groups}")
+
+    if weight is None:
+        weight = Parameter([channels], dtype=x_tensor.dtype, value=np.ones((channels,), dtype=np.float32))
+    if bias is None:
+        bias = Parameter([channels], dtype=x_tensor.dtype, value=np.zeros((channels,), dtype=np.float32))
+    validated = _validate_affine_norm_inputs(op_name, x_tensor, weight, bias, allowed_dtypes=allowed_dtypes)
+    x_validated, weight_validated, bias_validated = validated
+    assert bias_validated is not None
+    return x_validated, weight_validated, bias_validated, validated_groups
+
+
 def t5_layer_norm(x: object, weight: object, eps: float = 1e-6) -> Tensor:
     return T5LayerNorm.forward(x, weight, eps)
 
@@ -209,6 +344,26 @@ def layer_norm(x: object, weight: object, bias: object, eps: float = 1e-5) -> Te
 
 def add_layer_norm(x: object, residual: object, weight: object, bias: object, eps: float = 1e-5) -> tuple[Tensor, Tensor]:
     return AddLayerNorm.forward(x, residual, weight, bias, eps)
+
+
+def group_norm(
+    x: object,
+    num_groups: int,
+    weight: object | None = None,
+    bias: object | None = None,
+    eps: float = 1e-5,
+) -> Tensor:
+    return GroupNorm.forward(x, num_groups, weight, bias, eps)
+
+
+def group_norm_swish(
+    x: object,
+    num_groups: int,
+    weight: object | None = None,
+    bias: object | None = None,
+    eps: float = 1e-5,
+) -> Tensor:
+    return GroupNormSwish.forward(x, num_groups, weight, bias, eps)
 
 
 def rms_norm(x: object, weight: object | None = None, eps: float = 1e-6) -> Tensor:
@@ -230,12 +385,18 @@ def rms_norm(x: object, weight: object | None = None, eps: float = 1e-6) -> Tens
 __all__ = [
     "ADD_LAYER_NORM_DTYPES",
     "AddLayerNorm",
+    "GROUP_NORM_DTYPES",
+    "GroupNorm",
+    "GroupNormSwish",
     "LAYER_NORM_DTYPES",
     "LayerNorm",
     "NORMALIZATION_DTYPES",
     "T5_LAYER_NORM_DTYPES",
     "T5LayerNorm",
     "add_layer_norm",
+    "group_norm",
+    "group_norm_swish",
+    "infer_group_norm",
     "infer_add_layer_norm",
     "infer_layer_norm",
     "infer_t5_layer_norm",

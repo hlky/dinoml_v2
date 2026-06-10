@@ -81,6 +81,19 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 normalized_dtype,
             )
+        elif node["op"] in {"group_norm", "group_norm_swish"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_group_norm(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                    apply_swish=node["op"] == "group_norm_swish",
+                ),
+                output_dtype,
+            )
         elif node["op"] == "get_timestep_embedding":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -804,6 +817,56 @@ def _execute_layer_norm(
     variance = np.maximum(np.mean(source * source, axis=-1, keepdims=True) - mean * mean, 0.0)
     normalized = (source - mean) * (1.0 / np.sqrt(variance + eps))
     return np.asarray(normalized * scale + shift, dtype=np.float32)
+
+
+def _execute_group_norm(
+    value: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+    *,
+    apply_swish: bool,
+) -> np.ndarray:
+    if value.ndim < 2:
+        raise ValueError("CPU reference group_norm requires rank >= 2 input")
+    if weight.ndim != 1:
+        raise ValueError("CPU reference group_norm requires rank-1 weight")
+    if bias.ndim != 1:
+        raise ValueError("CPU reference group_norm requires rank-1 bias")
+    channels = int(value.shape[-1])
+    if channels <= 0:
+        raise ValueError("CPU reference group_norm requires a positive last dimension")
+    if int(weight.shape[0]) != channels:
+        raise ValueError(
+            "CPU reference group_norm weight length must match input channels: "
+            f"got channels={channels}, weight={weight.shape[0]}"
+        )
+    if int(bias.shape[0]) != channels:
+        raise ValueError(
+            "CPU reference group_norm bias length must match input channels: "
+            f"got channels={channels}, bias={bias.shape[0]}"
+        )
+    num_groups = int(attrs["num_groups"])
+    if num_groups <= 0:
+        raise ValueError("CPU reference group_norm num_groups must be positive")
+    if channels % num_groups != 0:
+        raise ValueError(f"CPU reference group_norm requires channels divisible by num_groups, got {channels} and {num_groups}")
+    eps = float(attrs.get("eps", 1e-5))
+    source = np.asarray(value, dtype=np.float32)
+    scale = np.asarray(weight, dtype=np.float32)
+    shift = np.asarray(bias, dtype=np.float32)
+    spatial_shape = source.shape[1:-1]
+    channel_first = np.moveaxis(source, -1, 1)
+    reshaped = channel_first.reshape(source.shape[0], num_groups, channels // num_groups, *spatial_shape)
+    mean = np.mean(reshaped, axis=tuple(range(2, reshaped.ndim)), keepdims=True)
+    variance = np.maximum(np.mean(reshaped * reshaped, axis=tuple(range(2, reshaped.ndim)), keepdims=True) - mean * mean, 0.0)
+    normalized = (reshaped - mean) * (1.0 / np.sqrt(variance + eps))
+    normalized = normalized.reshape(channel_first.shape)
+    normalized = np.moveaxis(normalized, 1, -1)
+    result = normalized * scale + shift
+    if apply_swish:
+        result = result / (1.0 + np.exp(-result))
+    return np.asarray(result, dtype=np.float32)
 
 
 def _execute_get_timestep_embedding(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

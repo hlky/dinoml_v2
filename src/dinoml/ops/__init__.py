@@ -165,7 +165,7 @@ from dinoml.ops.gemm import (
     gemm_rrr_bias_tanh,
 )
 from dinoml.ops.internal import ShapeBufferCountTrue
-from dinoml.ops.normalization import add_layer_norm, layer_norm, rms_norm, t5_layer_norm
+from dinoml.ops.normalization import add_layer_norm, group_norm, group_norm_swish, layer_norm, rms_norm, t5_layer_norm
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
 from dinoml.ops.positional import (
     get_1d_rotary_pos_embed,
@@ -362,6 +362,8 @@ __all__ = [
     "glm_ocr_text_rope",
     "glm_ocr_vision_rope",
     "getitem",
+    "group_norm",
+    "group_norm_swish",
     "gt",
     "hardtanh",
     "identity",

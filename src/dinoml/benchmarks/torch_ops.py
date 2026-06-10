@@ -199,6 +199,15 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         "layer_norm": lambda torch, x, weight, bias, **_: torch.nn.functional.layer_norm(x, (x.shape[-1],), weight, bias, eps=1e-5),
         "t5_layer_norm": lambda torch, x, weight, **_: _t5_layer_norm(torch, x, weight, eps=1e-6),
         "rms_norm": lambda torch, x, weight, **_: _t5_layer_norm(torch, x, weight, eps=1e-6),
+        "group_norm": lambda torch, x, weight, bias, **_: _group_norm_nhwc(torch, x, weight, bias, num_groups=32, eps=1e-5),
+        "group_norm_swish": lambda torch, x, weight, bias, **_: _group_norm_swish_nhwc(
+            torch,
+            x,
+            weight,
+            bias,
+            num_groups=32,
+            eps=1e-5,
+        ),
         "get_timestep_embedding": lambda torch, timesteps, **_: _get_timestep_embedding(torch, timesteps, embedding_dim=128),
         "get_1d_rotary_pos_embed": lambda torch, positions, **_: _get_1d_rotary_pos_embed(torch, 128, positions),
         "embedding": lambda torch, table, indices, **_: torch.nn.functional.embedding(indices, table),
@@ -318,6 +327,8 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
             "max_pool2d",
             "argmax",
             "topk",
+            "group_norm",
+            "group_norm_swish",
             "layer_norm",
             "t5_layer_norm",
             "rms_norm",
@@ -656,3 +667,19 @@ def _slice_scatter(x: Any, update: Any, start_indices: list[int]) -> Any:
     slices = tuple(slice(start, start + extent) for start, extent in zip(start_indices, update.shape, strict=True))
     out[slices] = update
     return out
+
+
+def _group_norm_nhwc(torch: Any, x: Any, weight: Any, bias: Any, *, num_groups: int, eps: float) -> Any:
+    dims = [0, x.ndim - 1, *range(1, x.ndim - 1)] if x.ndim > 2 else list(range(x.ndim))
+    channel_first = x.permute(*dims).contiguous() if x.ndim > 2 else x
+    normalized = torch.nn.functional.group_norm(channel_first, num_groups, weight, bias, eps=eps)
+    if x.ndim <= 2:
+        return normalized
+    inverse = [0] * x.ndim
+    for idx, dim in enumerate(dims):
+        inverse[dim] = idx
+    return normalized.permute(*inverse).contiguous()
+
+
+def _group_norm_swish_nhwc(torch: Any, x: Any, weight: Any, bias: Any, *, num_groups: int, eps: float) -> Any:
+    return torch.nn.functional.silu(_group_norm_nhwc(torch, x, weight, bias, num_groups=num_groups, eps=eps))

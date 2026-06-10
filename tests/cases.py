@@ -889,6 +889,101 @@ def dtype_normalization_case() -> GraphCase:
     )
 
 
+class GroupNormModule(dml.Module):
+    def forward(self, x, weight, bias):
+        return {
+            "group_norm": dml.ops.output(dml.ops.group_norm(x, 4, weight, bias, eps=1e-5), "group_norm"),
+            "group_norm_swish": dml.ops.output(dml.ops.group_norm_swish(x, 4, weight, bias, eps=1e-5), "group_norm_swish"),
+        }
+
+
+def group_norm_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            GroupNormModule(),
+            inputs={
+                "x": dml.TensorSpec([2, 4, 3, 8], "float32"),
+                "weight": dml.TensorSpec([8], "float32"),
+                "bias": dml.TensorSpec([8], "float32"),
+            },
+            name="fresh_group_norm",
+        )
+
+    def inputs():
+        return {
+            "x": np.linspace(-1.5, 1.5, num=2 * 4 * 3 * 8, dtype=np.float32).reshape(2, 4, 3, 8),
+            "weight": np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25], dtype=np.float32),
+            "bias": np.array([-0.5, -0.25, 0.0, 0.25, 0.5, -0.125, 0.125, 0.375], dtype=np.float32),
+        }
+
+    return GraphCase(
+        "group_norm",
+        build_spec,
+        inputs,
+        frozenset({"group_norm", "group_norm_swish"}),
+        cuda=False,
+        rocm=False,
+        atol=1e-4,
+        rtol=1e-4,
+    )
+
+
+class DtypeGroupNormModule(dml.Module):
+    def forward(self, x16, weight16, bias16, xbf, weightbf, biasbf):
+        return {
+            "group_norm_float16": dml.ops.output(dml.ops.group_norm(x16, 4, weight16, bias16, eps=1e-5), "group_norm_float16"),
+            "group_norm_swish_float16": dml.ops.output(
+                dml.ops.group_norm_swish(x16, 4, weight16, bias16, eps=1e-5),
+                "group_norm_swish_float16",
+            ),
+            "group_norm_bfloat16": dml.ops.output(dml.ops.group_norm(xbf, 4, weightbf, biasbf, eps=1e-5), "group_norm_bfloat16"),
+            "group_norm_swish_bfloat16": dml.ops.output(
+                dml.ops.group_norm_swish(xbf, 4, weightbf, biasbf, eps=1e-5),
+                "group_norm_swish_bfloat16",
+            ),
+        }
+
+
+def dtype_group_norm_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            DtypeGroupNormModule(),
+            inputs={
+                "x16": dml.TensorSpec([2, 4, 3, 8], "float16"),
+                "weight16": dml.TensorSpec([8], "float16"),
+                "bias16": dml.TensorSpec([8], "float16"),
+                "xbf": dml.TensorSpec([2, 4, 3, 8], "bfloat16"),
+                "weightbf": dml.TensorSpec([8], "bfloat16"),
+                "biasbf": dml.TensorSpec([8], "bfloat16"),
+            },
+            name="fresh_dtype_group_norm",
+        )
+
+    def inputs():
+        x = np.linspace(-1.5, 1.5, num=2 * 4 * 3 * 8, dtype=np.float32).reshape(2, 4, 3, 8)
+        weight = np.array([0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25], dtype=np.float32)
+        bias = np.array([-0.5, -0.25, 0.0, 0.25, 0.5, -0.125, 0.125, 0.375], dtype=np.float32)
+        return {
+            "x16": _roundtrip(x, "float16"),
+            "weight16": _roundtrip(weight, "float16"),
+            "bias16": _roundtrip(bias, "float16"),
+            "xbf": _roundtrip(x, "bfloat16"),
+            "weightbf": _roundtrip(weight, "bfloat16"),
+            "biasbf": _roundtrip(bias, "bfloat16"),
+        }
+
+    return GraphCase(
+        "dtype_group_norm",
+        build_spec,
+        inputs,
+        frozenset({"group_norm", "group_norm_swish"}),
+        cuda=False,
+        rocm=False,
+        atol=3e-2,
+        rtol=3e-2,
+    )
+
+
 class PositionalModule(dml.Module):
     def forward(self, timesteps, positions):
         cos, sin = dml.ops.get_1d_rotary_pos_embed(6, positions)
@@ -1252,6 +1347,8 @@ def standard_cases() -> list[GraphCase]:
         dtype_selection_case(),
         normalization_case(),
         dtype_normalization_case(),
+        group_norm_case(),
+        dtype_group_norm_case(),
         positional_case(),
         dtype_positional_case(),
         vision_layout_case(),

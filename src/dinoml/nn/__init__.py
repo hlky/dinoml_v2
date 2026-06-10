@@ -150,6 +150,29 @@ class Embedding(Module):
         return ops.embedding(self.weight, input)
 
 
+class GroupNorm(Module):
+    def __init__(
+        self,
+        num_groups: int,
+        num_channels: int,
+        eps: float = 1e-5,
+        affine: bool = True,
+        dtype: str = "float32",
+    ):
+        self.num_groups = _positive_int(num_groups, "GroupNorm num_groups")
+        self.num_channels = _positive_int(num_channels, "GroupNorm num_channels")
+        if self.num_channels % self.num_groups != 0:
+            raise ValueError("GroupNorm num_channels must be divisible by num_groups")
+        self.eps = float(eps)
+        self.affine = bool(affine)
+        self.dtype = normalize_dtype(dtype)
+        self.weight = Parameter([self.num_channels], dtype=self.dtype) if self.affine else None
+        self.bias = Parameter([self.num_channels], dtype=self.dtype) if self.affine else None
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.group_norm(x, self.num_groups, self.weight, self.bias, eps=self.eps)
+
+
 class LayerNorm(Module):
     def __init__(
         self,
@@ -447,6 +470,7 @@ __all__ = [
     "Embedding",
     "Flatten",
     "GELU",
+    "GroupNorm",
     "Identity",
     "LayerNorm",
     "Linear",

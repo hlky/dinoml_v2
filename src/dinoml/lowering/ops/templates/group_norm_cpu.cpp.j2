@@ -1,0 +1,58 @@
+static int {{ func }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    const {{ cpu_storage_type }}* DINO_RESTRICT weight,
+    const {{ cpu_storage_type }}* DINO_RESTRICT bias,
+    {{ cpu_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t sample_size = {{ sample_size }};
+  constexpr int64_t spatial_size = {{ spatial_size }};
+  constexpr int64_t channels = {{ channels }};
+  constexpr int64_t num_groups = {{ num_groups }};
+  constexpr int64_t group_channels = {{ group_channels }};
+  constexpr float eps = {{ eps_literal }};
+  constexpr float inv_group_size = {{ inv_group_size_literal }};
+  if (runtime_total % sample_size != 0) {
+    return dino_runtime_fail("{{ func }} received non-sample-aligned element count");
+  }
+  const int64_t batch = runtime_total / sample_size;
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t job = 0; job < batch * num_groups; ++job) {
+    const int64_t batch_idx = job / num_groups;
+    const int64_t group_idx = job % num_groups;
+    const int64_t sample_base = batch_idx * sample_size;
+    const int64_t channel_base = group_idx * group_channels;
+    float sum = 0.0f;
+    float sum_sq = 0.0f;
+    for (int64_t spatial_idx = 0; spatial_idx < spatial_size; ++spatial_idx) {
+      const int64_t base = sample_base + spatial_idx * channels + channel_base;
+      for (int64_t channel_idx = 0; channel_idx < group_channels; ++channel_idx) {
+        const float value = dinoml::math::cast<float>(x[base + channel_idx]);
+        sum += value;
+        sum_sq += value * value;
+      }
+    }
+    const float mean = sum * inv_group_size;
+    const float variance = fmaxf(sum_sq * inv_group_size - mean * mean, 0.0f);
+    const float inv_std = 1.0f / sqrtf(variance + eps);
+    for (int64_t spatial_idx = 0; spatial_idx < spatial_size; ++spatial_idx) {
+      const int64_t base = sample_base + spatial_idx * channels + channel_base;
+      for (int64_t channel_idx = 0; channel_idx < group_channels; ++channel_idx) {
+        const int64_t full_channel = channel_base + channel_idx;
+        const float value = dinoml::math::cast<float>(x[base + channel_idx]);
+        const float scale = dinoml::math::cast<float>(weight[full_channel]);
+        const float shift = dinoml::math::cast<float>(bias[full_channel]);
+        float output = (value - mean) * inv_std * scale + shift;
+{% if apply_swish %}
+        output = output / (1.0f + expf(-output));
+{% endif %}
+        y[base + channel_idx] = dinoml::math::cast<{{ cpu_storage_type }}>(output);
+      }
+    }
+  }
+  return 0;
+}

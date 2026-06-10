@@ -409,6 +409,65 @@ def benchmark_cases() -> list[BenchmarkCase]:
             template="t5_layer_norm_gpu.j2",
         )
 
+    def group_norm_inputs() -> dict[str, np.ndarray]:
+        return {
+            "x": _float_array((4, 16, 16, 320), -1.0, 0.0001),
+            "weight": np.linspace(0.5, 1.5, num=320, dtype=np.float32),
+            "bias": np.linspace(-0.25, 0.25, num=320, dtype=np.float32),
+        }
+
+    group_norm_specs = {
+        "x": dml.TensorSpec([4, 16, 16, 320], "float32"),
+        "weight": dml.TensorSpec([320], "float32"),
+        "bias": dml.TensorSpec([320], "float32"),
+    }
+    add(
+        "group_norm",
+        group_norm_specs,
+        group_norm_inputs,
+        lambda x, weight, bias: dml.ops.group_norm(x, 32, weight, bias, eps=1e-5),
+        template="group_norm_cpu.cpp.j2",
+        targets=("cpu",),
+    )
+    add(
+        "group_norm_swish",
+        group_norm_specs,
+        group_norm_inputs,
+        lambda x, weight, bias: dml.ops.group_norm_swish(x, 32, weight, bias, eps=1e-5),
+        template="group_norm_cpu.cpp.j2",
+        targets=("cpu",),
+    )
+    for dtype in ("float16", "bfloat16"):
+        typed_group_norm_specs = {
+            "x": dml.TensorSpec([4, 16, 16, 320], dtype),
+            "weight": dml.TensorSpec([320], dtype),
+            "bias": dml.TensorSpec([320], dtype),
+        }
+
+        def typed_group_norm_inputs(dtype: str = dtype) -> dict[str, np.ndarray]:
+            return {
+                "x": _typed_float_array((4, 16, 16, 320), dtype, -1.0, 0.0001),
+                "weight": _typed_float_array((320,), dtype, 0.5, 1.0 / 319.0),
+                "bias": _typed_float_array((320,), dtype, -0.25, 0.5 / 319.0),
+            }
+
+        add(
+            f"group_norm_{dtype}",
+            typed_group_norm_specs,
+            typed_group_norm_inputs,
+            lambda x, weight, bias: dml.ops.group_norm(x, 32, weight, bias, eps=1e-5),
+            template="group_norm_cpu.cpp.j2",
+            targets=("cpu",),
+        )
+        add(
+            f"group_norm_swish_{dtype}",
+            typed_group_norm_specs,
+            typed_group_norm_inputs,
+            lambda x, weight, bias: dml.ops.group_norm_swish(x, 32, weight, bias, eps=1e-5),
+            template="group_norm_cpu.cpp.j2",
+            targets=("cpu",),
+        )
+
     add("get_timestep_embedding", {"timesteps": dml.TensorSpec([4096], "float32")}, {"timesteps": np.arange(4096, dtype=np.float32)}, lambda timesteps: dml.ops.get_timestep_embedding(timesteps, embedding_dim=128), template="get_timestep_embedding_gpu.j2")
     add("get_1d_rotary_pos_embed", {"positions": dml.TensorSpec([4096], "float32")}, {"positions": np.arange(4096, dtype=np.float32)}, lambda positions: dml.ops.get_1d_rotary_pos_embed(128, positions), template="get_1d_rotary_pos_embed_gpu.j2")
     for dtype in ("float16", "bfloat16"):

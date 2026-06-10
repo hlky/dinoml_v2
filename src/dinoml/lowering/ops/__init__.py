@@ -45,6 +45,7 @@ from dinoml.lowering.ops.fused_elementwise import FUSED_ELEMENTWISE_LOWERING
 from dinoml.lowering.ops.gather import GATHER_LOWERING
 from dinoml.lowering.ops.glm_ocr_stitch_image_features import GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING
 from dinoml.lowering.ops.glm_ocr_rope import GLM_OCR_TEXT_ROPE_LOWERING, GLM_OCR_VISION_ROPE_LOWERING
+from dinoml.lowering.ops.group_norm import GROUP_NORM_LOWERING, GROUP_NORM_SWISH_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_LOWERINGS
 from dinoml.lowering.ops.get_timestep_embedding import GET_TIMESTEP_EMBEDDING_LOWERING
@@ -107,6 +108,8 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING.op_name: GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING,
     GLM_OCR_TEXT_ROPE_LOWERING.op_name: GLM_OCR_TEXT_ROPE_LOWERING,
     GLM_OCR_VISION_ROPE_LOWERING.op_name: GLM_OCR_VISION_ROPE_LOWERING,
+    GROUP_NORM_LOWERING.op_name: GROUP_NORM_LOWERING,
+    GROUP_NORM_SWISH_LOWERING.op_name: GROUP_NORM_SWISH_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
     GET_TIMESTEP_EMBEDDING_LOWERING.op_name: GET_TIMESTEP_EMBEDDING_LOWERING,
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,

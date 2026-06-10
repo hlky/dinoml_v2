@@ -56,6 +56,70 @@ def test_dml_nn_linear_layernorm_activation_trace_and_reference():
     np.testing.assert_allclose(actual, expected.astype(np.float32), atol=1e-5, rtol=1e-5)
 
 
+def test_dml_nn_group_norm_and_group_norm_swish_trace_and_reference():
+    torch = pytest.importorskip("torch")
+
+    class Tiny(dml.nn.Module):
+        def __init__(self):
+            self.norm = dml.nn.GroupNorm(2, 4, eps=1e-5)
+
+        def forward(self, x):
+            return {
+                "norm": dml.ops.output(self.norm(x), "norm"),
+                "fused": dml.ops.output(
+                    dml.ops.group_norm_swish(x, self.norm.num_groups, self.norm.weight, self.norm.bias, eps=self.norm.eps),
+                    "fused",
+                ),
+            }
+
+    constants = {
+        "norm_weight": np.array([1.0, 0.75, 1.25, 1.5], dtype=np.float32),
+        "norm_bias": np.array([-0.25, 0.0, 0.25, 0.5], dtype=np.float32),
+    }
+    spec = dml.trace(
+        Tiny(),
+        inputs={"x": dml.TensorSpec([2, 3, 2, 4], "float32")},
+        constants=constants,
+        name="nn_group_norm",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == ["group_norm", "group_norm_swish"]
+    assert [constant["name"] for constant in spec.ir["constants"]] == ["norm_weight", "norm_bias"]
+
+    inputs = {"x": np.linspace(-1.0, 1.0, num=2 * 3 * 2 * 4, dtype=np.float32).reshape(2, 3, 2, 4)}
+    actual = reference_numpy(spec, inputs)
+    x_nchw = torch.from_numpy(inputs["x"]).permute(0, 3, 1, 2).contiguous()
+    weight = torch.from_numpy(constants["norm_weight"])
+    bias = torch.from_numpy(constants["norm_bias"])
+    expected_norm = torch.nn.functional.group_norm(x_nchw, 2, weight, bias, eps=1e-5).permute(0, 2, 3, 1).contiguous()
+    expected_fused = torch.nn.functional.silu(expected_norm)
+
+    np.testing.assert_allclose(actual["norm"], expected_norm.numpy(), atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(actual["fused"], expected_fused.numpy(), atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.parametrize("backend", ("cuda", "rocm"))
+@pytest.mark.parametrize("op_name", ("group_norm", "group_norm_swish"))
+def test_group_norm_family_gpu_backends_are_rejected_explicitly(backend: str, op_name: str, tmp_path):
+    class Tiny(dml.nn.Module):
+        def forward(self, x, weight, bias):
+            op = getattr(dml.ops, op_name)
+            return dml.ops.output(op(x, 2, weight, bias, eps=1e-5), "y")
+
+    spec = dml.trace(
+        Tiny(),
+        inputs={
+            "x": dml.TensorSpec([1, 2, 2, 4], "float32"),
+            "weight": dml.TensorSpec([4], "float32"),
+            "bias": dml.TensorSpec([4], "float32"),
+        },
+        name=f"{op_name}_{backend}_unsupported",
+    )
+
+    with pytest.raises(NotImplementedError, match=fr"{backend} backend does not support op {op_name}"):
+        dml.compile(spec, dml.Target(backend), tmp_path / f"{op_name}_{backend}.dinoml")
+
+
 def test_dml_nn_conv2d_embedding_and_sequential_exports():
     class TinyVision(dml.nn.Module):
         def __init__(self):

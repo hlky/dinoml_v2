@@ -121,6 +121,42 @@ def test_dml_nn_conv2d_embedding_and_sequential_exports():
     }
 
 
+def test_dml_conv1d_bias_family_trace_and_validation():
+    class TinyConv1d(dml.nn.Module):
+        def forward(self, x, weight, bias, residual):
+            y = dml.ops.conv1d_bias_add_relu(x, weight, bias, residual, stride=2, padding=1, dilation=1)
+            return dml.ops.output(y, "y")
+
+    spec = dml.trace(
+        TinyConv1d(),
+        inputs={
+            "x": dml.TensorSpec([1, 2, 7], "float32"),
+            "weight": dml.TensorSpec([5, 2, 3], "float32"),
+            "bias": dml.TensorSpec([5], "float32"),
+            "residual": dml.TensorSpec([1, 5, 4], "float32"),
+        },
+        name="nn_conv1d_bias_family",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == ["conv1d_bias_add_relu"]
+    assert spec.ir["outputs"][0]["shape"] == [1, 5, 4]
+
+    class BadGroups(dml.nn.Module):
+        def forward(self, x, weight, bias):
+            return dml.ops.output(dml.ops.conv1d_bias(x, weight, bias, groups=2), "y")
+
+    with pytest.raises(NotImplementedError, match="groups=1 only"):
+        dml.trace(
+            BadGroups(),
+            inputs={
+                "x": dml.TensorSpec([1, 2, 7], "float32"),
+                "weight": dml.TensorSpec([5, 2, 3], "float32"),
+                "bias": dml.TensorSpec([5], "float32"),
+            },
+            name="nn_conv1d_bad_groups",
+        )
+
+
 def test_dml_nn_transposed_conv2d_trace_and_validation():
     class TinyTranspose(dml.nn.Module):
         def forward(self, x, weight, bias, residual):

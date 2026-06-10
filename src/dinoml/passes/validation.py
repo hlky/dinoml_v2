@@ -242,6 +242,10 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] in {
         "avg_pool1d",
         "avg_pool2d",
+        "conv1d_bias",
+        "conv1d_bias_relu",
+        "conv1d_bias_add",
+        "conv1d_bias_add_relu",
         "conv2d_bias",
         "conv2d_bias_relu",
         "conv2d_bias_add",

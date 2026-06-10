@@ -369,6 +369,20 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
                 output_dtype,
             )
+        elif node["op"] in {"conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_conv1d_bias_family(
+                    node["op"],
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    None if node["op"] not in {"conv1d_bias_add", "conv1d_bias_add_relu"} else values[node["inputs"][3]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -1454,6 +1468,64 @@ def _execute_max_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.nd
                                 continue
                             max_value = max(max_value, float(source[n, c, ih, iw]))
                     result[n, c, oh, ow] = max_value
+    return result
+
+
+def _execute_conv1d_bias_family(
+    op_name: str,
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    residual: np.ndarray | None,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    stride = int(list(attrs.get("stride", (1,)))[0])
+    padding = int(list(attrs.get("padding", (0,)))[0])
+    dilation = int(list(attrs.get("dilation", (1,)))[0])
+    groups = int(attrs.get("groups", 1))
+    if groups != 1:
+        raise NotImplementedError(f"{op_name} CPU reference currently supports groups=1 only, got {groups}")
+    batch, in_channels, in_width = [int(dim) for dim in x.shape]
+    out_channels, weight_in_channels, kernel_w = [int(dim) for dim in weight.shape]
+    if weight_in_channels != in_channels:
+        raise ValueError(
+            f"{op_name} CPU reference weight input channels must match activation channels for groups=1: "
+            f"got activation C={in_channels}, weight I={weight_in_channels}"
+        )
+    if bias.shape != (out_channels,):
+        raise ValueError(
+            f"{op_name} CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
+        )
+    out_width = (in_width + 2 * padding - dilation * (kernel_w - 1) - 1) // stride + 1
+    if op_name in {"conv1d_bias_add", "conv1d_bias_add_relu"}:
+        if residual is None:
+            raise ValueError(f"{op_name} CPU reference requires a residual tensor")
+        if tuple(int(dim) for dim in residual.shape) != (batch, out_channels, out_width):
+            raise ValueError(
+                f"{op_name} CPU reference residual shape must match the output shape "
+                f"({batch}, {out_channels}, {out_width}), got {tuple(int(dim) for dim in residual.shape)}"
+            )
+    result = np.empty((batch, out_channels, out_width), dtype=np.float32)
+    source = np.asarray(x, dtype=np.float32)
+    filters = np.asarray(weight, dtype=np.float32)
+    bias_values = np.asarray(bias, dtype=np.float32)
+    residual_values = None if residual is None else np.asarray(residual, dtype=np.float32)
+    for n in range(batch):
+        for oc in range(out_channels):
+            for ow in range(out_width):
+                w_start = ow * stride - padding
+                total = float(bias_values[oc])
+                for ic in range(in_channels):
+                    for kw in range(kernel_w):
+                        iw = w_start + kw * dilation
+                        if iw < 0 or iw >= in_width:
+                            continue
+                        total += float(source[n, ic, iw] * filters[oc, ic, kw])
+                if op_name in {"conv1d_bias_add", "conv1d_bias_add_relu"}:
+                    total += float(residual_values[n, oc, ow])
+                if op_name in {"conv1d_bias_relu", "conv1d_bias_add_relu"}:
+                    total = max(total, 0.0)
+                result[n, oc, ow] = total
     return result
 
 

@@ -14,9 +14,15 @@ from dinoml.lowering.shape_buffers import c_ident as _c_ident
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.conv import (
     CONV2D_BIAS_DTYPES,
+    CONV1D_BIAS_FAMILY_OPS,
     CONV2D_BIAS_FAMILY_OPS,
     TRANSPOSED_CONV2D_FAMILY_OPS,
+    normalize_conv1d_bias_attrs,
     normalize_conv2d_bias_attrs,
+    resolve_conv1d_bias_add_relu_shape,
+    resolve_conv1d_bias_add_shape,
+    resolve_conv1d_bias_shape,
+    resolve_conv1d_bias_relu_shape,
     normalize_transposed_conv2d_attrs,
     resolve_conv2d_bias_add_relu_shape,
     resolve_conv2d_bias_add_shape,
@@ -32,7 +38,8 @@ from dinoml.ops.conv import (
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
     if target == "cpu":
-        return _render_cpu_template("conv_cpu.cpp.j2", _cpu_context(node, tensor_map))
+        template_name = "conv1d_cpu.cpp.j2" if str(node["op"]) in CONV1D_BIAS_FAMILY_OPS else "conv_cpu.cpp.j2"
+        return _render_cpu_template(template_name, _cpu_context(node, tensor_map))
     if target in {"cuda", "rocm"}:
         return None
     raise ValueError(f"Unsupported Conv lowering target: {target}")
@@ -75,7 +82,7 @@ def render_launch(
         raise NotImplementedError(
             f"{op_name} CUDA Conv lowering is unsupported; only transposed_conv2d has native CUTLASS support"
         )
-    if op_name not in {*CONV2D_BIAS_FAMILY_OPS, *CUTLASS_TRANSPOSED_CONV_OPS}:
+    if op_name not in {*CONV1D_BIAS_FAMILY_OPS, *CONV2D_BIAS_FAMILY_OPS, *CUTLASS_TRANSPOSED_CONV_OPS}:
         raise NotImplementedError(f"{op_name} CUDA Conv lowering is not implemented")
     item = _manifest_kernel_item(kernel_manifest, op_name, node_id=str(node.get("id", "")))
     if item is None:
@@ -85,14 +92,14 @@ def render_launch(
     expected_stage_names = ["activation_pack"]
     if "weight_pack" in stage_names:
         expected_stage_names.append("weight_pack")
-    if _conv2d_bias_family_has_residual(op_name):
+    if _conv_family_has_residual(op_name):
         expected_stage_names.append("residual_pack")
     expected_stage_names.extend(["provider_launch", "output_unpack"])
     if stage_names != expected_stage_names:
         raise ValueError(f"{op_name} CUTLASS Conv wrapper stages are malformed")
 
     input_names = [str(name) for name in node.get("inputs", ())]
-    expected_inputs = 2 if op_name in CUTLASS_TRANSPOSED_CONV_OPS else (4 if _conv2d_bias_family_has_residual(op_name) else 3)
+    expected_inputs = 2 if op_name in CUTLASS_TRANSPOSED_CONV_OPS else (4 if _conv_family_has_residual(op_name) else 3)
     if len(input_names) != expected_inputs:
         raise ValueError(f"{op_name} CUDA lowering expects {expected_inputs} inputs")
     output_names = [str(name) for name in node.get("outputs", ())]
@@ -105,7 +112,7 @@ def render_launch(
     }
     if op_name not in CUTLASS_TRANSPOSED_CONV_OPS:
         roles["bias"] = _c_ident(input_names[2])
-    if _conv2d_bias_family_has_residual(op_name):
+    if _conv_family_has_residual(op_name):
         roles["residual"] = _c_ident(input_names[3])
     _validate_runtime_shape_contract(op_name, tensor_map, input_names, output_names[0], item)
 
@@ -181,6 +188,82 @@ def _render_rocm_launch(
     bias_ident = None if bias_name is None else _c_ident(bias_name)
     residual_ident = None if residual_name is None else _c_ident(residual_name)
     out_ident = _c_ident(output_name)
+    if op_name in CONV1D_BIAS_FAMILY_OPS:
+        stride_w = attrs["stride"][0]
+        pad_w = attrs["padding"][0]
+        dilation_w = attrs["dilation"][0]
+        runtime_plan = dict(item.get("ck_conv_runtime_plan", {})) if isinstance(item, Mapping) else {}
+        weight_is_prepacked = str(runtime_plan.get("weight_pack_mode", "")) == "constants_bin_prepacked_kxc"
+        expected_out_w = (
+            f"((shape_{x_ident}_2 + {2 * pad_w} - {dilation_w} * (shape_{weight_ident}_2 - 1) - 1) / {stride_w} + 1)"
+        )
+        lines = [
+            f'if (shape_{weight_ident}_1 != shape_{x_ident}_1) return dinoml::module::fail("{op_name} input channel mismatch");',
+        ]
+        if bias_ident is not None:
+            lines.append(
+                f'if (shape_{bias_ident}_0 != shape_{weight_ident}_0) return dinoml::module::fail("{op_name} bias shape mismatch");'
+            )
+        lines.append(
+            (
+                f"if (shape_{out_ident}_0 != shape_{x_ident}_0 || "
+                f"shape_{out_ident}_1 != shape_{weight_ident}_0 || "
+                f"shape_{out_ident}_2 != {expected_out_w}) "
+                f'return dinoml::module::fail("{op_name} output shape mismatch");'
+            )
+        )
+        if residual_ident is not None:
+            lines.append(
+                (
+                    f"if (shape_{residual_ident}_0 != shape_{out_ident}_0 || "
+                    f"shape_{residual_ident}_1 != shape_{out_ident}_1 || "
+                    f"shape_{residual_ident}_2 != shape_{out_ident}_2) "
+                    f'return dinoml::module::fail("{op_name} residual shape mismatch");'
+                )
+            )
+        default_launch = [
+            *_rocm_launch_lines_1d(
+                op_name=op_name,
+                symbol=symbol,
+                failure_label="ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv",
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_w=stride_w,
+                pad_w=pad_w,
+                dilation_w=dilation_w,
+                weight_is_prepacked=weight_is_prepacked,
+            )
+        ]
+        if dispatches:
+            lines.extend(
+                _rocm_dispatch_lines(
+                    op_name=op_name,
+                    item=item,
+                    dispatches=dispatches,
+                    default_launch=default_launch,
+                    x_ident=x_ident,
+                    weight_ident=weight_ident,
+                    bias_ident=bias_ident,
+                    residual_ident=residual_ident,
+                    out_ident=out_ident,
+                    stride_h=1,
+                    stride_w=stride_w,
+                    pad_h=0,
+                    pad_w=pad_w,
+                    output_pad_h=0,
+                    output_pad_w=0,
+                    dilation_h=1,
+                    dilation_w=dilation_w,
+                    transposed=False,
+                    weight_is_prepacked=weight_is_prepacked,
+                )
+            )
+        else:
+            lines.extend(default_launch)
+        return "\n".join(lines)
     stride_h, stride_w = attrs["stride"]
     pad_h, pad_w = attrs["padding"]
     output_pad_h = 0 if attrs["output_padding"] is None else attrs["output_padding"][0]
@@ -306,6 +389,31 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
         residual = tensor_map[str(node["inputs"][residual_index])]
     output = tensor_map[out_name]
     attrs = _validate_cpu_contract(node, x, weight, bias, output, residual)
+    if attrs["rank"] == 3:
+        batch, in_channels, in_width = [int(dim) for dim in x["shape"]]
+        out_channels, weight_in_channels, kernel_w = [int(dim) for dim in weight["shape"]]
+        out_batch, out_channels_out, out_width = [int(dim) for dim in output["shape"]]
+        return {
+            "func": _cpu_function_name(node, tensor_map),
+            "storage_type": cpu_storage_type(str(output["dtype"])),
+            "input_numel": batch * in_channels * in_width,
+            "weight_numel": weight_in_channels * out_channels * kernel_w,
+            "bias_numel": None if bias is None else out_channels,
+            "residual_numel": None if residual is None else out_batch * out_channels_out * out_width,
+            "output_numel": out_batch * out_channels_out * out_width,
+            "batch": batch,
+            "in_channels": in_channels,
+            "in_width": in_width,
+            "out_channels": out_channels,
+            "kernel_w": kernel_w,
+            "out_width": out_width,
+            "stride_w": attrs["stride"][0],
+            "pad_w": attrs["padding"][0],
+            "dilation_w": attrs["dilation"][0],
+            "has_bias": attrs["has_bias"],
+            "apply_residual": attrs["apply_residual"],
+            "apply_relu": attrs["apply_relu"],
+        }
     batch, in_channels, in_height, in_width = [int(dim) for dim in x["shape"]]
     weight_dims = [int(dim) for dim in weight["shape"]]
     if attrs["transposed"]:
@@ -384,7 +492,7 @@ def _validate_cpu_contract(
     residual: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     op_name = str(node["op"])
-    if op_name not in {*CONV2D_BIAS_FAMILY_OPS, *TRANSPOSED_CONV2D_FAMILY_OPS}:
+    if op_name not in {*CONV1D_BIAS_FAMILY_OPS, *CONV2D_BIAS_FAMILY_OPS, *TRANSPOSED_CONV2D_FAMILY_OPS}:
         raise ValueError(f"Unsupported Conv op for CPU lowering: {node['op']}")
     dtype = str(output["dtype"])
     if dtype not in CONV2D_BIAS_DTYPES:
@@ -395,7 +503,51 @@ def _validate_cpu_contract(
         if str(tensor["dtype"]) != dtype:
             raise ValueError(f"{op_name} CPU lowering requires matching tensor dtypes")
     attrs = node.get("attrs", {})
-    if op_name in CONV2D_BIAS_FAMILY_OPS:
+    if op_name in CONV1D_BIAS_FAMILY_OPS:
+        stride, padding, dilation, groups = normalize_conv1d_bias_attrs(
+            attrs.get("stride", (1,)),
+            attrs.get("padding", (0,)),
+            attrs.get("dilation", (1,)),
+            attrs.get("groups", 1),
+        )
+        output_padding = None
+        if bias is None:
+            raise ValueError(f"{op_name} CPU lowering requires a bias tensor")
+        if op_name == "conv1d_bias":
+            expected_shape = resolve_conv1d_bias_shape(
+                x["shape"], weight["shape"], bias["shape"], stride=stride, padding=padding, dilation=dilation, groups=groups
+            )
+        elif op_name == "conv1d_bias_relu":
+            expected_shape = resolve_conv1d_bias_relu_shape(
+                x["shape"], weight["shape"], bias["shape"], stride=stride, padding=padding, dilation=dilation, groups=groups
+            )
+        elif op_name == "conv1d_bias_add":
+            if residual is None:
+                raise ValueError("conv1d_bias_add CPU lowering requires a residual tensor")
+            expected_shape = resolve_conv1d_bias_add_shape(
+                x["shape"],
+                weight["shape"],
+                bias["shape"],
+                residual["shape"],
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+        else:
+            if residual is None:
+                raise ValueError("conv1d_bias_add_relu CPU lowering requires a residual tensor")
+            expected_shape = resolve_conv1d_bias_add_relu_shape(
+                x["shape"],
+                weight["shape"],
+                bias["shape"],
+                residual["shape"],
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+            )
+    elif op_name in CONV2D_BIAS_FAMILY_OPS:
         stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
             attrs.get("stride", (1, 1)),
             attrs.get("padding", (0, 0)),
@@ -519,10 +671,18 @@ def _validate_cpu_contract(
         "output_padding": output_padding,
         "dilation": dilation,
         "groups": groups,
+        "rank": 3 if op_name in CONV1D_BIAS_FAMILY_OPS else 4,
         "transposed": op_name in TRANSPOSED_CONV2D_FAMILY_OPS,
         "has_bias": _cpu_op_has_bias(op_name),
         "apply_residual": _conv_family_has_residual(op_name),
-        "apply_relu": op_name in {"conv2d_bias_relu", "conv2d_bias_add_relu", "transposed_conv2d_bias_relu", "transposed_conv2d_bias_add_relu"},
+        "apply_relu": op_name in {
+            "conv1d_bias_relu",
+            "conv1d_bias_add_relu",
+            "conv2d_bias_relu",
+            "conv2d_bias_add_relu",
+            "transposed_conv2d_bias_relu",
+            "transposed_conv2d_bias_add_relu",
+        },
     }
 
 
@@ -624,6 +784,7 @@ def _runtime_descriptor_expr(descriptor: Any, *, roles: Mapping[str, str], node_
 
 
 def _runtime_shape_args(stage: Mapping[str, Any], *, roles: Mapping[str, str]) -> list[str]:
+    public_rank = int(stage.get("public_rank", 4) or 4)
     args = []
     for item in _shape_arg_items(stage):
         name = str(item.get("name", ""))
@@ -633,17 +794,21 @@ def _runtime_shape_args(stage: Mapping[str, Any], *, roles: Mapping[str, str]) -
         elif placeholder == "activation_c":
             args.append(f"static_cast<int>(shape_{roles['activation']}_1)")
         elif placeholder == "activation_h":
-            args.append(f"static_cast<int>(shape_{roles['activation']}_2)")
+            args.append("1" if public_rank == 3 else f"static_cast<int>(shape_{roles['activation']}_2)")
         elif placeholder == "activation_w":
-            args.append(f"static_cast<int>(shape_{roles['activation']}_3)")
+            args.append(
+                f"static_cast<int>(shape_{roles['activation']}_{2 if public_rank == 3 else 3})"
+            )
         elif placeholder == "output_n":
             args.append(f"static_cast<int>(shape_{roles['output']}_0)")
         elif placeholder == "output_c":
             args.append(f"static_cast<int>(shape_{roles['output']}_1)")
         elif placeholder == "output_h":
-            args.append(f"static_cast<int>(shape_{roles['output']}_2)")
+            args.append("1" if public_rank == 3 else f"static_cast<int>(shape_{roles['output']}_2)")
         elif placeholder == "output_w":
-            args.append(f"static_cast<int>(shape_{roles['output']}_3)")
+            args.append(
+                f"static_cast<int>(shape_{roles['output']}_{2 if public_rank == 3 else 3})"
+            )
         elif placeholder == "weight_o":
             args.append(f"static_cast<int>(shape_{roles['weight']}_0)")
         elif placeholder == "weight_i":
@@ -653,9 +818,11 @@ def _runtime_shape_args(stage: Mapping[str, Any], *, roles: Mapping[str, str]) -
         elif placeholder == "weight_1":
             args.append(f"static_cast<int>(shape_{roles['weight']}_1)")
         elif placeholder == "kernel_h":
-            args.append(f"static_cast<int>(shape_{roles['weight']}_2)")
+            args.append("1" if public_rank == 3 else f"static_cast<int>(shape_{roles['weight']}_2)")
         elif placeholder == "kernel_w":
-            args.append(f"static_cast<int>(shape_{roles['weight']}_3)")
+            args.append(
+                f"static_cast<int>(shape_{roles['weight']}_{2 if public_rank == 3 else 3})"
+            )
         elif name in {"stride_h", "stride_w", "pad_h", "pad_w", "dilation_h", "dilation_w"}:
             args.append(str(int(item["value"])))
         else:
@@ -689,6 +856,12 @@ def _manifest_kernel_item(
         if not isinstance(item, Mapping):
             continue
         if item.get("op") != op_name or item.get("kernel_library") != kernel_library:
+            continue
+        if kernel_library == "ck_conv":
+            runtime_plan = item.get("ck_conv_runtime_plan")
+            if isinstance(runtime_plan, Mapping) and str(runtime_plan.get("node_id", "")) == node_id:
+                return item
+            matches.append(item)
             continue
         if kernel_library != "cutlass_conv":
             matches.append(item)
@@ -730,6 +903,7 @@ def _rocm_dispatch_lines(
     dilation_h: int,
     dilation_w: int,
     transposed: bool,
+    weight_is_prepacked: bool = False,
 ) -> list[str]:
     lines = []
     for index, dispatch in enumerate(dispatches):
@@ -738,25 +912,41 @@ def _rocm_dispatch_lines(
         lines.append(
             f"{branch} ({_rocm_dispatch_guard(dispatch, x_ident=x_ident, weight_ident=weight_ident, out_ident=out_ident)}) {{"
         )
-        body = _rocm_launch_lines(
-            op_name=op_name,
-            symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
-            failure_label="CK Conv",
-            x_ident=x_ident,
-            weight_ident=weight_ident,
-            bias_ident=bias_ident,
-            residual_ident=residual_ident,
-            out_ident=out_ident,
-            stride_h=stride_h,
-            stride_w=stride_w,
-            pad_h=pad_h,
-            pad_w=pad_w,
-            output_pad_h=output_pad_h,
-            output_pad_w=output_pad_w,
-            dilation_h=dilation_h,
-            dilation_w=dilation_w,
-            transposed=transposed,
-        )
+        if op_name in CONV1D_BIAS_FAMILY_OPS:
+            body = _rocm_launch_lines_1d(
+                op_name=op_name,
+                symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                failure_label="CK Conv",
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_w=stride_w,
+                pad_w=pad_w,
+                dilation_w=dilation_w,
+                weight_is_prepacked=weight_is_prepacked,
+            )
+        else:
+            body = _rocm_launch_lines(
+                op_name=op_name,
+                symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                failure_label="CK Conv",
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_h=stride_h,
+                stride_w=stride_w,
+                pad_h=pad_h,
+                pad_w=pad_w,
+                output_pad_h=output_pad_h,
+                output_pad_w=output_pad_w,
+                dilation_h=dilation_h,
+                dilation_w=dilation_w,
+                transposed=transposed,
+            )
         lines.extend(f"  {line}" for line in body)
         lines.append("}")
     lines.append("else {")
@@ -775,18 +965,31 @@ def _rocm_dispatch_guard(
     shape = selection.get("shape")
     if not isinstance(shape, Mapping):
         return "false"
-    required = {
-        "n": f"shape_{x_ident}_0",
-        "c": f"shape_{x_ident}_1",
-        "h": f"shape_{x_ident}_2",
-        "w": f"shape_{x_ident}_3",
-        "out_n": f"shape_{out_ident}_0",
-        "out_c": f"shape_{out_ident}_1",
-        "out_h": f"shape_{out_ident}_2",
-        "out_w": f"shape_{out_ident}_3",
-        "kernel_h": f"shape_{weight_ident}_2",
-        "kernel_w": f"shape_{weight_ident}_3",
-    }
+    is_conv1d = "h" not in shape and "out_h" not in shape and "kernel_h" not in shape
+    required = (
+        {
+            "n": f"shape_{x_ident}_0",
+            "c": f"shape_{x_ident}_1",
+            "w": f"shape_{x_ident}_2",
+            "out_n": f"shape_{out_ident}_0",
+            "out_c": f"shape_{out_ident}_1",
+            "out_w": f"shape_{out_ident}_2",
+            "kernel_w": f"shape_{weight_ident}_2",
+        }
+        if is_conv1d
+        else {
+            "n": f"shape_{x_ident}_0",
+            "c": f"shape_{x_ident}_1",
+            "h": f"shape_{x_ident}_2",
+            "w": f"shape_{x_ident}_3",
+            "out_n": f"shape_{out_ident}_0",
+            "out_c": f"shape_{out_ident}_1",
+            "out_h": f"shape_{out_ident}_2",
+            "out_w": f"shape_{out_ident}_3",
+            "kernel_h": f"shape_{weight_ident}_2",
+            "kernel_w": f"shape_{weight_ident}_3",
+        }
+    )
     conditions = []
     for field, expr in required.items():
         value = shape.get(field)
@@ -854,6 +1057,50 @@ def _rocm_launch_lines(
     ]
 
 
+def _rocm_launch_lines_1d(
+    *,
+    op_name: str,
+    symbol: str,
+    failure_label: str,
+    x_ident: str,
+    weight_ident: str,
+    bias_ident: str | None,
+    residual_ident: str | None,
+    out_ident: str,
+    stride_w: int,
+    pad_w: int,
+    dilation_w: int,
+    weight_is_prepacked: bool,
+) -> list[str]:
+    call_args = [f"ptr_{x_ident}", f"ptr_{weight_ident}"]
+    if bias_ident is not None:
+        call_args.append(f"ptr_{bias_ident}")
+    if residual_ident is not None:
+        call_args.append(f"ptr_{residual_ident}")
+    call_args.extend(
+        [
+            f"ptr_{out_ident}",
+            f"static_cast<int>(shape_{x_ident}_0)",
+            f"static_cast<int>(shape_{x_ident}_1)",
+            f"static_cast<int>(shape_{x_ident}_2)",
+            f"static_cast<int>(shape_{weight_ident}_0)",
+            f"static_cast<int>(shape_{weight_ident}_2)",
+            f"static_cast<int>(shape_{out_ident}_2)",
+            str(stride_w),
+            str(pad_w),
+            str(dilation_w),
+            "1" if weight_is_prepacked else "0",
+            "session->stream",
+        ]
+    )
+    return [
+        (
+            f"if (int err = {symbol}({', '.join(call_args)})) "
+            f'return dinoml::module::fail("{op_name} {failure_label} launcher failed");'
+        )
+    ]
+
+
 def _candidate_by_id(item: Mapping[str, Any] | None, candidate_id: str) -> Mapping[str, Any]:
     if not isinstance(item, Mapping):
         return {}
@@ -885,7 +1132,7 @@ def _validate_runtime_shape_contract(
     if op_name not in CUTLASS_TRANSPOSED_CONV_OPS:
         bias_name = input_names[2]
         expected["bias_shape"] = tensor_map[bias_name]["shape"]
-        residual = None if not _conv2d_bias_family_has_residual(op_name) else tensor_map[input_names[3]]
+        residual = None if not _conv_family_has_residual(op_name) else tensor_map[input_names[3]]
         if residual is not None:
             expected["residual_shape"] = residual["shape"]
     for field, shape in expected.items():
@@ -960,6 +1207,42 @@ def _shape_placeholders(stage: Mapping[str, Any]) -> list[str]:
             raise ValueError(f"Malformed CUTLASS Conv shape arg descriptor: {item!r}")
         placeholders.append(str(item["placeholder"]))
     return placeholders
+
+
+CONV1D_BIAS_LOWERING = OpLowering(
+    op_name="conv1d_bias",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
+
+
+CONV1D_BIAS_RELU_LOWERING = OpLowering(
+    op_name="conv1d_bias_relu",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
+
+
+CONV1D_BIAS_ADD_LOWERING = OpLowering(
+    op_name="conv1d_bias_add",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
+
+
+CONV1D_BIAS_ADD_RELU_LOWERING = OpLowering(
+    op_name="conv1d_bias_add_relu",
+    render_generated_kernel=render_generated_kernel,
+    render_launch=render_launch,
+    source_key=source_key,
+    generated_function_name=generated_function_name,
+)
 
 
 CONV2D_BIAS_LOWERING = OpLowering(
@@ -1044,6 +1327,10 @@ TRANSPOSED_CONV2D_BIAS_ADD_RELU_LOWERING = OpLowering(
 
 
 __all__ = [
+    "CONV1D_BIAS_ADD_LOWERING",
+    "CONV1D_BIAS_ADD_RELU_LOWERING",
+    "CONV1D_BIAS_LOWERING",
+    "CONV1D_BIAS_RELU_LOWERING",
     "CONV2D_BIAS_ADD_LOWERING",
     "CONV2D_BIAS_ADD_RELU_LOWERING",
     "CONV2D_BIAS_LOWERING",
@@ -1069,6 +1356,8 @@ def _cpu_op_has_bias(op_name: str) -> bool:
 
 def _conv_family_has_residual(op_name: str) -> bool:
     return op_name in {
+        "conv1d_bias_add",
+        "conv1d_bias_add_relu",
         "conv2d_bias_add",
         "conv2d_bias_add_relu",
         "transposed_conv2d_bias_add",

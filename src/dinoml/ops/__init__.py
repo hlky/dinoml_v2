@@ -63,6 +63,10 @@ from dinoml.ops.collections import (
     transpose,
 )
 from dinoml.ops.conv import (
+    conv1d_bias,
+    conv1d_bias_add,
+    conv1d_bias_add_relu,
+    conv1d_bias_relu,
     conv2d,
     conv2d_bias,
     conv2d_bias_add,
@@ -276,6 +280,10 @@ __all__ = [
     "concatenate",
     "concatenate_fast",
     "concatenate_tanh",
+    "conv1d_bias",
+    "conv1d_bias_add",
+    "conv1d_bias_add_relu",
+    "conv1d_bias_relu",
     "conv2d",
     "conv2d_bias",
     "conv2d_bias_add",

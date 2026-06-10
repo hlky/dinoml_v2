@@ -38,7 +38,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.providers.ck.conv import CK_TRANSPOSED_CONV_OPS
+from dinoml.kernels.providers.ck.conv import CK_CONV1D_OPS, CK_TRANSPOSED_CONV_OPS
 from dinoml.kernels.providers.cutlass.conv import (
     CONV_OPS,
     CUTLASS_TRANSPOSED_CONV_OPS,
@@ -46,7 +46,11 @@ from dinoml.kernels.providers.cutlass.conv import (
     validate_cutlass_conv_plan,
 )
 from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
-from dinoml.ops.conv import normalize_conv2d_bias_attrs, normalize_transposed_conv2d_attrs
+from dinoml.ops.conv import (
+    normalize_conv1d_bias_attrs,
+    normalize_conv2d_bias_attrs,
+    normalize_transposed_conv2d_attrs,
+)
 from dinoml.ops.definitions import get_op_def
 from dinoml.shapes import evaluate_symbolic_int, validate_runtime_shape
 
@@ -390,7 +394,12 @@ def build_profile_workloads(
                 ck_profile_candidates_cache=ck_profile_candidates_cache if target_name == "rocm" else None,
             )
             continue
-        if op_name in CONV_OPS or (target_name == "cuda" and op_name in CUTLASS_TRANSPOSED_CONV_OPS) or (target_name == "rocm" and op_name in CK_TRANSPOSED_CONV_OPS):
+        if (
+            op_name in CONV_OPS
+            or (target_name == "rocm" and op_name in CK_CONV1D_OPS)
+            or (target_name == "cuda" and op_name in CUTLASS_TRANSPOSED_CONV_OPS)
+            or (target_name == "rocm" and op_name in CK_TRANSPOSED_CONV_OPS)
+        ):
             if target_name == "rocm":
                 _append_ck_conv_profile_workloads(
                     workloads,
@@ -575,7 +584,7 @@ def _append_conv_profile_workloads(
     weight_name = str(node["inputs"][1])
     bias_name = None if is_transposed else str(node["inputs"][2])
     residual_name = (
-        str(node["inputs"][3]) if op_name in {"conv2d_bias_add", "conv2d_bias_add_relu"} else None
+        str(node["inputs"][3]) if op_name in {"conv1d_bias_add", "conv1d_bias_add_relu", "conv2d_bias_add", "conv2d_bias_add_relu"} else None
     )
     normalized_conv_plan = validate_cutlass_conv_plan(
         conv_plan,
@@ -679,6 +688,7 @@ def _append_ck_conv_profile_workloads(
 ) -> None:
     op_name = str(node["op"])
     if op_name not in {
+        *CK_CONV1D_OPS,
         "conv2d_bias",
         "conv2d_bias_relu",
         "conv2d_bias_add",
@@ -694,8 +704,11 @@ def _append_ck_conv_profile_workloads(
     if required_item is None:
         return
     is_transposed = op_name in CK_TRANSPOSED_CONV_OPS
+    is_conv1d = op_name in CK_CONV1D_OPS
     has_bias = op_name != "transposed_conv2d"
     has_residual = op_name in {
+        "conv1d_bias_add",
+        "conv1d_bias_add_relu",
         "conv2d_bias_add",
         "conv2d_bias_add_relu",
         "transposed_conv2d_bias_add",
@@ -719,6 +732,14 @@ def _append_ck_conv_profile_workloads(
                 attrs.get("dilation", (1, 1)),
                 attrs.get("groups", 1),
             )
+        elif is_conv1d:
+            stride, padding, dilation, groups = normalize_conv1d_bias_attrs(
+                attrs.get("stride", (1,)),
+                attrs.get("padding", (0,)),
+                attrs.get("dilation", (1,)),
+                attrs.get("groups", 1),
+            )
+            output_padding = None
         else:
             stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
                 attrs.get("stride", (1, 1)),
@@ -745,29 +766,46 @@ def _append_ck_conv_profile_workloads(
             else None
         )
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
-        if len(x_shape) != 4 or len(weight_shape) != 4 or len(output_shape) != 4:
+        expected_rank = 3 if is_conv1d else 4
+        if len(x_shape) != expected_rank or len(weight_shape) != expected_rank or len(output_shape) != expected_rank:
             continue
         if residual_shape is not None and tuple(int(dim) for dim in residual_shape) != tuple(int(dim) for dim in output_shape):
             continue
-        batch, in_channels, _in_h, _in_w = (int(dim) for dim in x_shape)
-        if is_transposed:
-            _weight_k, out_channels, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
+        if is_conv1d:
+            batch, in_channels, _in_w = (int(dim) for dim in x_shape)
+            out_channels, _weight_c, kernel_w = (int(dim) for dim in weight_shape)
+            out_w = int(output_shape[2])
+            problem = {
+                "batch": batch,
+                "in_channels": in_channels,
+                "out_channels": out_channels,
+                "kernel_w": kernel_w,
+                "out_w": out_w,
+                "groups": int(groups),
+                "gemm_m": batch * out_w,
+                "gemm_n": out_channels,
+                "gemm_k": in_channels * kernel_w,
+            }
         else:
-            out_channels, _weight_c, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
-        out_h, out_w = int(output_shape[2]), int(output_shape[3])
-        problem = {
-            "batch": batch,
-            "in_channels": in_channels,
-            "out_channels": out_channels,
-            "kernel_h": kernel_h,
-            "kernel_w": kernel_w,
-            "out_h": out_h,
-            "out_w": out_w,
-            "groups": int(groups),
-            "gemm_m": batch * out_h * out_w,
-            "gemm_n": out_channels,
-            "gemm_k": in_channels * kernel_h * kernel_w,
-        }
+            batch, in_channels, _in_h, _in_w = (int(dim) for dim in x_shape)
+            if is_transposed:
+                _weight_k, out_channels, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
+            else:
+                out_channels, _weight_c, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
+            out_h, out_w = int(output_shape[2]), int(output_shape[3])
+            problem = {
+                "batch": batch,
+                "in_channels": in_channels,
+                "out_channels": out_channels,
+                "kernel_h": kernel_h,
+                "kernel_w": kernel_w,
+                "out_h": out_h,
+                "out_w": out_w,
+                "groups": int(groups),
+                "gemm_m": batch * out_h * out_w,
+                "gemm_n": out_channels,
+                "gemm_k": in_channels * kernel_h * kernel_w,
+            }
         if ck_profile_candidates_cache is None:
             profile_candidates = _ck_profile_candidates(required_item, problem)
         else:
@@ -1740,6 +1778,15 @@ def profile_artifact(
                     candidate_workload = candidate_item.workload
                     row = rows_by_candidate.get(candidate_workload.candidate_id)
                     if row is None:
+                        resolved_results[candidate_item.profile_key] = (
+                            "failure",
+                            (
+                                f"Missing grouped CUTLASS profile row for {candidate_workload.kernel_library} "
+                                f"candidate {candidate_workload.candidate_id}"
+                            ),
+                            int(iterations),
+                        )
+                        progress_summary["failed"] += 1
                         continue
                     samples_ms = list(row["samples_ms"])
                     timing = _profile_timing(samples_ms, iterations=iterations)
@@ -2800,11 +2847,20 @@ def _conv_profile_result(
 ) -> dict[str, Any]:
     actual_workspace_nbytes = int(workspace_nbytes if workspace_nbytes is not None else workload.workspace_nbytes)
     timing_payload = _profile_timing([elapsed_ms], iterations=iterations) if timing is None else dict(timing)
-    n, c, h, w = (int(dim) for dim in workload.x_shape)
-    out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
-    weight_o, _weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+    is_conv1d = len(workload.x_shape) == 3
+    if is_conv1d:
+        n, c, w = (int(dim) for dim in workload.x_shape)
+        out_n, out_c, out_w = (int(dim) for dim in workload.output_shape)
+        weight_o, _weight_i, kernel_w = (int(dim) for dim in workload.weight_shape)
+        flops = 2 * out_n * out_w * out_c * kernel_w * (c // int(workload.conv_config.get("groups", 1) or 1))
+    else:
+        n, c, h, w = (int(dim) for dim in workload.x_shape)
+        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+        weight_o, _weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+        flops = 2 * out_n * out_h * out_w * out_c * kernel_h * kernel_w * (
+            c // int(workload.conv_config.get("groups", 1) or 1)
+        )
     groups = int(workload.conv_config.get("groups", 1) or 1)
-    flops = 2 * out_n * out_h * out_w * out_c * kernel_h * kernel_w * (c // groups)
     bytes_moved = dtype_nbytes(workload.dtype) * (
         int(np.prod(workload.x_shape, dtype=np.int64))
         + int(np.prod(workload.weight_shape, dtype=np.int64))
@@ -2842,16 +2898,17 @@ def _conv_profile_result(
         "dim_sources": dict(workload.dim_sources),
         "n": n,
         "c": c,
-        "h": h,
         "w": w,
         "out_n": out_n,
         "out_c": out_c,
-        "out_h": out_h,
         "out_w": out_w,
         "weight_o": weight_o,
-        "kernel_h": kernel_h,
         "kernel_w": kernel_w,
     }
+    if not is_conv1d:
+        shape_payload["h"] = h
+        shape_payload["out_h"] = out_h
+        shape_payload["kernel_h"] = kernel_h
     payload.update(
         {
             "profile_key": profile_key,
@@ -2934,27 +2991,47 @@ def _profile_failure_diagnostics(
     if isinstance(ck_config, Mapping):
         diagnostics["ck"] = dict(ck_config)
     if isinstance(workload, ConvProfileWorkload):
-        n, c, h, w = (int(dim) for dim in workload.x_shape)
-        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
-        weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
-        diagnostics["problem"] = {
-            "n": n,
-            "c": c,
-            "h": h,
-            "w": w,
-            "out_n": out_n,
-            "out_c": out_c,
-            "out_h": out_h,
-            "out_w": out_w,
-            "weight_o": weight_o,
-            "weight_i": weight_i,
-            "kernel_h": kernel_h,
-            "kernel_w": kernel_w,
-            "groups": int(workload.conv_config.get("groups", 1) or 1),
-            "gemm_m": out_n * out_h * out_w,
-            "gemm_n": out_c,
-            "gemm_k": c * kernel_h * kernel_w,
-        }
+        if len(workload.x_shape) == 3:
+            n, c, w = (int(dim) for dim in workload.x_shape)
+            out_n, out_c, out_w = (int(dim) for dim in workload.output_shape)
+            weight_o, weight_i, kernel_w = (int(dim) for dim in workload.weight_shape)
+            diagnostics["problem"] = {
+                "n": n,
+                "c": c,
+                "w": w,
+                "out_n": out_n,
+                "out_c": out_c,
+                "out_w": out_w,
+                "weight_o": weight_o,
+                "weight_i": weight_i,
+                "kernel_w": kernel_w,
+                "groups": int(workload.conv_config.get("groups", 1) or 1),
+                "gemm_m": out_n * out_w,
+                "gemm_n": out_c,
+                "gemm_k": c * kernel_w,
+            }
+        else:
+            n, c, h, w = (int(dim) for dim in workload.x_shape)
+            out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+            weight_o, weight_i, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+            diagnostics["problem"] = {
+                "n": n,
+                "c": c,
+                "h": h,
+                "w": w,
+                "out_n": out_n,
+                "out_c": out_c,
+                "out_h": out_h,
+                "out_w": out_w,
+                "weight_o": weight_o,
+                "weight_i": weight_i,
+                "kernel_h": kernel_h,
+                "kernel_w": kernel_w,
+                "groups": int(workload.conv_config.get("groups", 1) or 1),
+                "gemm_m": out_n * out_h * out_w,
+                "gemm_n": out_c,
+                "gemm_k": c * kernel_h * kernel_w,
+            }
         diagnostics["conv_config"] = dict(workload.conv_config)
     else:
         problem = {
@@ -4378,7 +4455,12 @@ def _execution_plan_problem_shape(problem: Mapping[str, Any]) -> dict[str, Any] 
         shape = problem.get("shape")
         if not isinstance(shape, Mapping):
             return None
-        required = ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+        is_conv1d = "h" not in shape and "out_h" not in shape and "kernel_h" not in shape
+        required = (
+            ("n", "c", "w", "out_n", "out_c", "out_w", "kernel_w")
+            if is_conv1d
+            else ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+        )
         payload = {}
         for field in required:
             value = shape.get(field)
@@ -4837,42 +4919,77 @@ class _CutlassConvProfiler:
         if module is None:
             raise RuntimeError(f"CUTLASS Conv profiler for {workload.op}/{workload.dtype} is not loaded")
         is_transposed = workload.op in CUTLASS_TRANSPOSED_CONV_OPS
-        n, c, h, w = (int(dim) for dim in workload.x_shape)
-        out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
-        weight_0, weight_1, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
-        expected_weight_in = weight_0 if is_transposed else weight_1
-        expected_weight_out = weight_1 if is_transposed else weight_0
-        if out_n != n or expected_weight_in != c or expected_weight_out != out_c:
-            raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
-        stride = [int(value) for value in workload.conv_config.get("stride", ())]
-        padding = [int(value) for value in workload.conv_config.get("padding", ())]
-        dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
-        if len(stride) != 2 or len(padding) != 2 or len(dilation) != 2:
-            raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
-        raw_results = module.profile_conv(
-            dtype=str(workload.dtype),
-            n=n,
-            h=h,
-            w=w,
-            c=c,
-            out_h=out_h,
-            out_w=out_w,
-            out_c=out_c,
-            kernel_h=kernel_h,
-            kernel_w=kernel_w,
-            stride_h=stride[0],
-            stride_w=stride[1],
-            pad_h=padding[0],
-            pad_w=padding[1],
-            dilation_h=dilation[0],
-            dilation_w=dilation[1],
-            iterations=int(iterations),
-            repeats=int(repeats),
-            has_bias=(workload.bias_shape is not None),
-            residual_count=(1 if workload.residual_shape is not None else 0),
-            validation_mode=self._validation_mode,
-            seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_h), str(out_w), str(out_c)),
-        )
+        is_conv1d = len(workload.x_shape) == 3
+        if is_conv1d:
+            n, c, w = (int(dim) for dim in workload.x_shape)
+            out_n, out_c, out_w = (int(dim) for dim in workload.output_shape)
+            weight_0, weight_1, kernel_w = (int(dim) for dim in workload.weight_shape)
+            expected_weight_in = weight_1
+            expected_weight_out = weight_0
+            if out_n != n or expected_weight_in != c or expected_weight_out != out_c:
+                raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
+            stride = [int(value) for value in workload.conv_config.get("stride", ())]
+            padding = [int(value) for value in workload.conv_config.get("padding", ())]
+            dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
+            if len(stride) != 1 or len(padding) != 1 or len(dilation) != 1:
+                raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
+            raw_results = module.profile_conv(
+                dtype=str(workload.dtype),
+                spatial_rank=1,
+                n=n,
+                w=w,
+                c=c,
+                out_w=out_w,
+                out_c=out_c,
+                kernel_w=kernel_w,
+                stride_w=stride[0],
+                pad_w=padding[0],
+                dilation_w=dilation[0],
+                iterations=int(iterations),
+                repeats=int(repeats),
+                has_bias=(workload.bias_shape is not None),
+                residual_count=(1 if workload.residual_shape is not None else 0),
+                validation_mode=self._validation_mode,
+                seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_w), str(out_c)),
+            )
+        else:
+            n, c, h, w = (int(dim) for dim in workload.x_shape)
+            out_n, out_c, out_h, out_w = (int(dim) for dim in workload.output_shape)
+            weight_0, weight_1, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+            expected_weight_in = weight_0 if is_transposed else weight_1
+            expected_weight_out = weight_1 if is_transposed else weight_0
+            if out_n != n or expected_weight_in != c or expected_weight_out != out_c:
+                raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
+            stride = [int(value) for value in workload.conv_config.get("stride", ())]
+            padding = [int(value) for value in workload.conv_config.get("padding", ())]
+            dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
+            if len(stride) != 2 or len(padding) != 2 or len(dilation) != 2:
+                raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
+            raw_results = module.profile_conv(
+                dtype=str(workload.dtype),
+                spatial_rank=2,
+                n=n,
+                h=h,
+                w=w,
+                c=c,
+                out_h=out_h,
+                out_w=out_w,
+                out_c=out_c,
+                kernel_h=kernel_h,
+                kernel_w=kernel_w,
+                stride_h=stride[0],
+                stride_w=stride[1],
+                pad_h=padding[0],
+                pad_w=padding[1],
+                dilation_h=dilation[0],
+                dilation_w=dilation[1],
+                iterations=int(iterations),
+                repeats=int(repeats),
+                has_bias=(workload.bias_shape is not None),
+                residual_count=(1 if workload.residual_shape is not None else 0),
+                validation_mode=self._validation_mode,
+                seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_h), str(out_w), str(out_c)),
+            )
         candidates = self._candidates.get((workload.op, workload.dtype), {})
         results = []
         for raw in raw_results:
@@ -5297,32 +5414,35 @@ class _CkConvProfiler:
         module = self._modules.get((workload.op, workload.dtype))
         if module is None:
             raise RuntimeError(f"CK Conv profiler for {workload.op}/{workload.dtype} is not loaded")
-        stride = list(workload.conv_config.get("stride", (1, 1)))
-        padding = list(workload.conv_config.get("padding", (0, 0)))
-        dilation = list(workload.conv_config.get("dilation", (1, 1)))
+        is_conv1d = len(workload.x_shape) == 3
+        stride = list(workload.conv_config.get("stride", (1,) if is_conv1d else (1, 1)))
+        padding = list(workload.conv_config.get("padding", (0,) if is_conv1d else (0, 0)))
+        dilation = list(workload.conv_config.get("dilation", (1,) if is_conv1d else (1, 1)))
         raw_results = module.profile_conv(
             profiler_symbol=str(workload.profiler_symbol),
             profiler_symbols=[str(item.profiler_symbol) for item in workloads],
             dtype=str(workload.dtype),
+            spatial_rank=1 if is_conv1d else 2,
             batch=int(workload.x_shape[0]),
             in_channels=int(workload.x_shape[1]),
-            in_height=int(workload.x_shape[2]),
-            in_width=int(workload.x_shape[3]),
+            in_height=1 if is_conv1d else int(workload.x_shape[2]),
+            in_width=int(workload.x_shape[2] if is_conv1d else workload.x_shape[3]),
             out_channels=int(workload.weight_shape[1] if workload.op in CK_TRANSPOSED_CONV_OPS else workload.weight_shape[0]),
-            kernel_h=int(workload.weight_shape[2]),
-            kernel_w=int(workload.weight_shape[3]),
-            out_height=int(workload.output_shape[2]),
-            out_width=int(workload.output_shape[3]),
-            stride_h=int(stride[0]),
-            stride_w=int(stride[1]),
-            pad_h=int(padding[0]),
-            pad_w=int(padding[1]),
+            kernel_h=1 if is_conv1d else int(workload.weight_shape[2]),
+            kernel_w=int(workload.weight_shape[2] if is_conv1d else workload.weight_shape[3]),
+            out_height=1 if is_conv1d else int(workload.output_shape[2]),
+            out_width=int(workload.output_shape[2] if is_conv1d else workload.output_shape[3]),
+            stride_h=1 if is_conv1d else int(stride[0]),
+            stride_w=int(stride[0] if is_conv1d else stride[1]),
+            pad_h=0 if is_conv1d else int(padding[0]),
+            pad_w=int(padding[0] if is_conv1d else padding[1]),
             output_pad_h=int(workload.conv_config.get("output_padding", (0, 0))[0]),
             output_pad_w=int(workload.conv_config.get("output_padding", (0, 0))[1]),
-            dilation_h=int(dilation[0]),
-            dilation_w=int(dilation[1]),
+            dilation_h=1 if is_conv1d else int(dilation[0]),
+            dilation_w=int(dilation[0] if is_conv1d else dilation[1]),
             iterations=int(iterations),
             repeats=int(repeats),
+            transposed=workload.op in CK_TRANSPOSED_CONV_OPS,
             has_bias=workload.bias_shape is not None,
             has_residual=workload.residual_shape is not None,
             x_elements=int(np.prod(workload.x_shape, dtype=np.int64)),
@@ -5573,6 +5693,7 @@ class _CkRocmProfiler:
                 ctypes.c_int,
                 ctypes.c_int,
                 ctypes.c_int,
+                ctypes.c_int,
                 ptr,
             ]
         else:
@@ -5639,30 +5760,52 @@ class _CkRocmProfiler:
         ptr = ctypes.c_void_p
         has_bias = workload.bias_shape is not None
         has_residual = workload.residual_shape is not None
-        fn.argtypes = [
-            ptr,
-            ptr,
-            *( [ptr] if has_bias else [] ),
-            *( [ptr] if has_residual else [] ),
-            ptr,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            *( [ctypes.c_int, ctypes.c_int] if workload.op in CK_TRANSPOSED_CONV_OPS else [] ),
-            ctypes.c_int,
-            ctypes.c_int,
-            ctypes.c_int,
-            ptr,
-        ]
+        is_conv1d = len(workload.x_shape) == 3
+        fn.argtypes = (
+            [
+                ptr,
+                ptr,
+                *([ptr] if has_bias else []),
+                *([ptr] if has_residual else []),
+                ptr,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ptr,
+            ]
+            if is_conv1d
+            else [
+                ptr,
+                ptr,
+                *([ptr] if has_bias else []),
+                *([ptr] if has_residual else []),
+                ptr,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                *([ctypes.c_int, ctypes.c_int] if workload.op in CK_TRANSPOSED_CONV_OPS else []),
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ptr,
+            ]
+        )
         try:
             x = self._device_array(_random_storage(workload.x_shape, workload.dtype, rng))
             weight = self._device_array(_random_storage(workload.weight_shape, workload.dtype, rng))
@@ -5677,40 +5820,64 @@ class _CkRocmProfiler:
                 else None
             )
             output = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
-            batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
-            if workload.op in CK_TRANSPOSED_CONV_OPS:
-                _weight_channels, out_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+            if is_conv1d:
+                batch, in_channels, in_width = (int(dim) for dim in workload.x_shape)
+                out_channels, _weight_channels, kernel_w = (int(dim) for dim in workload.weight_shape)
+                out_width = int(workload.output_shape[2])
             else:
-                out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
-            out_height, out_width = int(workload.output_shape[2]), int(workload.output_shape[3])
-            stride = list(workload.conv_config.get("stride", (1, 1)))
-            padding = list(workload.conv_config.get("padding", (0, 0)))
+                batch, in_channels, in_height, in_width = (int(dim) for dim in workload.x_shape)
+                if workload.op in CK_TRANSPOSED_CONV_OPS:
+                    _weight_channels, out_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+                else:
+                    out_channels, _weight_channels, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+                out_height, out_width = int(workload.output_shape[2]), int(workload.output_shape[3])
+            stride = list(workload.conv_config.get("stride", (1,) if is_conv1d else (1, 1)))
+            padding = list(workload.conv_config.get("padding", (0,) if is_conv1d else (0, 0)))
             output_padding = list(workload.conv_config.get("output_padding", (0, 0)))
-            dilation = list(workload.conv_config.get("dilation", (1, 1)))
+            dilation = list(workload.conv_config.get("dilation", (1,) if is_conv1d else (1, 1)))
             pointer_args = [x, weight, *([bias] if bias is not None else []), *([residual] if residual is not None else []), output]
-            elapsed_ms = float(
-                fn(
-                    *pointer_args,
-                    batch,
-                    in_channels,
-                    in_height,
-                    in_width,
-                    out_channels,
-                    kernel_h,
-                    kernel_w,
-                    out_height,
-                    out_width,
-                    int(stride[0]),
-                    int(stride[1]),
-                    int(padding[0]),
-                    int(padding[1]),
-                    *([int(output_padding[0]), int(output_padding[1])] if workload.op in CK_TRANSPOSED_CONV_OPS else []),
-                    int(dilation[0]),
-                    int(dilation[1]),
-                    int(iterations),
-                    ctypes.c_void_p(),
+            if is_conv1d:
+                elapsed_ms = float(
+                    fn(
+                        *pointer_args,
+                        batch,
+                        in_channels,
+                        in_width,
+                        out_channels,
+                        kernel_w,
+                        out_width,
+                        int(stride[0]),
+                        int(padding[0]),
+                        int(dilation[0]),
+                        0,
+                        int(iterations),
+                        ctypes.c_void_p(),
+                    )
                 )
-            )
+            else:
+                elapsed_ms = float(
+                    fn(
+                        *pointer_args,
+                        batch,
+                        in_channels,
+                        in_height,
+                        in_width,
+                        out_channels,
+                        kernel_h,
+                        kernel_w,
+                        out_height,
+                        out_width,
+                        int(stride[0]),
+                        int(stride[1]),
+                        int(padding[0]),
+                        int(padding[1]),
+                        *([int(output_padding[0]), int(output_padding[1])] if workload.op in CK_TRANSPOSED_CONV_OPS else []),
+                        int(dilation[0]),
+                        int(dilation[1]),
+                        int(iterations),
+                        ctypes.c_void_p(),
+                    )
+                )
             self._check_ck_elapsed(elapsed_ms, workload)
             return elapsed_ms, int(workload.workspace_nbytes)
         finally:

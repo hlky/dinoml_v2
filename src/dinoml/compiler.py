@@ -120,24 +120,34 @@ def _compile_with_profile(
     )
     _validate_profile_shape_expressions(lowered_ir, target)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
-    _materialize_profile_bootstrap_artifact(
-        spec,
-        target,
-        artifact_dir=artifact_dir,
-        lowered_ir=lowered_ir,
-        reports=reports,
-        backend=backend,
-        constant_load_policy=constant_load_policy,
-        kernel_manifest=kernel_manifest,
-    )
-    profile_report = profile_artifact(
-        profile_artifact_dir,
-        input_shapes=input_shapes,
-        iterations=iterations,
-        repeats=repeats,
-        refresh=refresh,
-        cutlass_conv_validation_mode=cutlass_conv_validation_mode,
-    )
+    previous_cutlass_conv_profiler_env = os.environ.get("DINOML_BUILD_CUTLASS_CONV_PROFILERS")
+    if target.name == "cuda":
+        os.environ["DINOML_BUILD_CUTLASS_CONV_PROFILERS"] = "1"
+    try:
+        _materialize_profile_bootstrap_artifact(
+            spec,
+            target,
+            artifact_dir=artifact_dir,
+            lowered_ir=lowered_ir,
+            reports=reports,
+            backend=backend,
+            constant_load_policy=constant_load_policy,
+            kernel_manifest=kernel_manifest,
+        )
+        profile_report = profile_artifact(
+            profile_artifact_dir,
+            input_shapes=input_shapes,
+            iterations=iterations,
+            repeats=repeats,
+            refresh=refresh,
+            cutlass_conv_validation_mode=cutlass_conv_validation_mode,
+        )
+    finally:
+        if target.name == "cuda":
+            if previous_cutlass_conv_profiler_env is None:
+                os.environ.pop("DINOML_BUILD_CUTLASS_CONV_PROFILERS", None)
+            else:
+                os.environ["DINOML_BUILD_CUTLASS_CONV_PROFILERS"] = previous_cutlass_conv_profiler_env
     execution_plan_summary = profile_report.get("execution_plan", {})
     if not isinstance(execution_plan_summary, Mapping) or not execution_plan_summary.get("path"):
         raise ValueError("Profiler did not produce an execution plan")
@@ -625,7 +635,8 @@ def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
 
 
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any], *, target: Target) -> Dict:
-    prepacked_conv_weights = _cuda_cutlass_conv_weight_constants(ir) if target.name == "cuda" else set()
+    prepacked_cutlass_conv_weights = _cuda_cutlass_conv_weight_constants(ir) if target.name == "cuda" else set()
+    prepacked_ck_conv1d_weights = _rocm_ck_conv1d_weight_constants(ir) if target.name == "rocm" else set()
     offset = 0
     constant_infos = []
     with (artifact_dir / "constants.bin").open("wb") as handle:
@@ -646,23 +657,45 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
                 expected_dtype = dtype_numpy(str(constant["dtype"]))
                 if array.dtype != expected_dtype:
                     raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
-            if constant["tensor"] in prepacked_conv_weights:
-                if array.ndim != 4:
-                    raise ValueError(f"CUTLASS Conv weight constant {name} must be rank-4 OIHW before packing")
-                array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
-                constant = dict(constant)
-                constant["storage"] = {
+            prepack_storage = None
+            if constant["tensor"] in prepacked_cutlass_conv_weights:
+                if array.ndim == 4:
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
+                    logical_layout = "oihw"
+                    storage_layout = "ohwi"
+                elif array.ndim == 3:
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+                    logical_layout = "oiw"
+                    storage_layout = "owi"
+                else:
+                    raise ValueError(f"CUTLASS Conv weight constant {name} must be rank-3 OIW or rank-4 OIHW before packing")
+                prepack_storage = {
                     **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
                     "kind": "cutlass_conv_weight",
-                    "logical_layout": "oihw",
-                    "storage_layout": "ohwi",
+                    "logical_layout": logical_layout,
+                    "storage_layout": storage_layout,
+                }
+            elif constant["tensor"] in prepacked_ck_conv1d_weights:
+                if array.ndim != 3:
+                    raise ValueError(f"CK Conv1d weight constant {name} must be rank-3 OIW before packing")
+                array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+                prepack_storage = {
+                    **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
+                    "kind": "ck_conv1d_weight",
+                    "logical_layout": "oiw",
+                    "storage_layout": "kxc",
                 }
             data = array.tobytes(order="C")
             constant = dict(constant)
             constant["offset"] = offset
             constant["nbytes"] = len(data)
             if materialized.storage is not None:
-                constant["storage"] = materialized.storage
+                storage = dict(materialized.storage)
+                if prepack_storage is not None:
+                    storage = {**storage, **prepack_storage}
+                constant["storage"] = storage
+            elif prepack_storage is not None:
+                constant["storage"] = prepack_storage
             else:
                 constant.pop("storage", None)
             constant_infos.append(constant)
@@ -678,7 +711,31 @@ def _cuda_cutlass_conv_weight_constants(ir: Mapping[str, Any]) -> set[str]:
     constants = {str(item["tensor"]) for item in ir.get("constants", [])}
     result: set[str] = set()
     for node in ir.get("nodes", []):
-        if str(node.get("op", "")) not in {"conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu"}:
+        if str(node.get("op", "")) not in {
+            "conv1d_bias",
+            "conv1d_bias_relu",
+            "conv1d_bias_add",
+            "conv1d_bias_add_relu",
+            "conv2d_bias",
+            "conv2d_bias_relu",
+            "conv2d_bias_add",
+            "conv2d_bias_add_relu",
+        }:
+            continue
+        inputs = node.get("inputs", ())
+        if not isinstance(inputs, Sequence) or len(inputs) < 2:
+            continue
+        weight = str(inputs[1])
+        if weight in constants:
+            result.add(weight)
+    return result
+
+
+def _rocm_ck_conv1d_weight_constants(ir: Mapping[str, Any]) -> set[str]:
+    constants = {str(item["tensor"]) for item in ir.get("constants", [])}
+    result: set[str] = set()
+    for node in ir.get("nodes", []):
+        if str(node.get("op", "")) not in {"conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu"}:
             continue
         inputs = node.get("inputs", ())
         if not isinstance(inputs, Sequence) or len(inputs) < 2:

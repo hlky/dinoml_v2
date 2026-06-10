@@ -18,6 +18,7 @@ from dinoml.kernels.providers.ck.bmm import (
     ck_bmm_static_library_name,
 )
 from dinoml.kernels.providers.ck.conv import (
+    CK_CONV1D_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_static_library_name,
@@ -75,7 +76,13 @@ from dinoml.kernels.providers.cutlass.alignment import (
 )
 from dinoml.kernels.gemm import gemm_op_spec, gemm_problem
 from dinoml.lowering.ops import generated_source_provenance
-from dinoml.ops.conv import TRANSPOSED_CONV2D_FAMILY_OPS, normalize_conv2d_bias_attrs, normalize_transposed_conv2d_attrs
+from dinoml.ops.conv import (
+    CONV1D_BIAS_FAMILY_OPS,
+    TRANSPOSED_CONV2D_FAMILY_OPS,
+    normalize_conv1d_bias_attrs,
+    normalize_conv2d_bias_attrs,
+    normalize_transposed_conv2d_attrs,
+)
 from dinoml.ops.definitions import get_op_def
 
 
@@ -207,6 +214,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
+            ck_conv_runtime_plan = _ck_conv_runtime_plan(node, constant_map=constant_map, target=target)
         elif kernel_library == "cutlass_conv":
             candidates = [dict(candidate) for candidate in cutlass_conv_candidates(str(node["op"]), dtype, target=target)]
             candidate_set = cutlass_conv_candidate_set(str(node["op"]), dtype, target=target)
@@ -227,9 +235,11 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             profiler_symbol = str(selected_candidate["profiler_symbol"])
             selected_candidate_id = str(selected_candidate["candidate_id"])
             gguf_runtime_dequant = None
+            ck_conv_runtime_plan = None
         else:
             gguf_runtime_dequant = None
             cutlass_conv_plan = None
+            ck_conv_runtime_plan = None
         model_generated_source = (
             generated_source_provenance(target_name, node, tensor_map) if kernel_library == "model" else None
         )
@@ -240,6 +250,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             canonical_json(model_generated_source) if model_generated_source is not None else "",
             canonical_json(gguf_runtime_dequant) if gguf_runtime_dequant is not None else "",
             canonical_json(cutlass_conv_plan) if cutlass_conv_plan is not None else "",
+            canonical_json(ck_conv_runtime_plan) if ck_conv_runtime_plan is not None else "",
         )
         if key in seen:
             continue
@@ -279,6 +290,8 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
             item["candidate_set"] = candidate_set
         if kernel_library == "ck_conv":
             item.update(_ck_conv_profile_blocked_metadata(node))
+        if ck_conv_runtime_plan is not None:
+            item["ck_conv_runtime_plan"] = ck_conv_runtime_plan
         if gguf_runtime_dequant is not None:
             item["gguf_runtime_dequant"] = gguf_runtime_dequant
         if cutlass_conv_plan is not None:
@@ -356,6 +369,13 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
                 attrs.get("dilation", (1, 1)),
                 raw_groups,
             )
+        elif str(node.get("op")) in CONV1D_BIAS_FAMILY_OPS:
+            _stride, _padding, _dilation, groups = normalize_conv1d_bias_attrs(
+                attrs.get("stride", (1,)),
+                attrs.get("padding", (0,)),
+                attrs.get("dilation", (1,)),
+                raw_groups,
+            )
         else:
             _stride, _padding, _dilation, groups = normalize_conv2d_bias_attrs(
                 attrs.get("stride", (1, 1)),
@@ -374,6 +394,30 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
             "profile_blocked_details": {"groups": int(groups), "supported_groups": [1]},
         }
     return {}
+
+
+def _ck_conv_runtime_plan(
+    node: Mapping[str, Any],
+    *,
+    constant_map: Mapping[str, Mapping[str, Any]],
+    target: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    if target.get("name") != "rocm":
+        return None
+    op_name = str(node.get("op", ""))
+    if op_name not in CK_CONV1D_OPS:
+        return None
+    inputs = node.get("inputs", ())
+    if not isinstance(inputs, Sequence) or len(inputs) < 2:
+        return None
+    weight_name = str(inputs[1])
+    if weight_name not in constant_map:
+        return None
+    return {
+        "node_id": str(node.get("id", "")),
+        "weight_pack_mode": "constants_bin_prepacked_kxc",
+        "constant_tensor": weight_name,
+    }
 
 
 def _select_ck_gemm_manifest_candidate(
@@ -460,6 +504,27 @@ def _select_ck_conv_manifest_candidate(
     out_shape = _static_tensor_shape(tensor_map.get(output_names[0], {}))
     if x_shape is None or weight_shape is None or out_shape is None:
         return candidates[0]
+    if str(node.get("op")) in CONV1D_BIAS_FAMILY_OPS:
+        if len(x_shape) != 3 or len(weight_shape) != 3 or len(out_shape) != 3:
+            return candidates[0]
+        batch, in_channels, _ = x_shape
+        out_channels, _weight_in_channels, kernel_w = weight_shape
+        out_w = out_shape[2]
+        attrs = dict(node.get("attrs", {}))
+        raw_groups = attrs.get("groups", 1)
+        groups = int(raw_groups) if isinstance(raw_groups, int) and not isinstance(raw_groups, bool) else -1
+        problem = {
+            "batch": batch,
+            "in_channels": in_channels,
+            "out_channels": out_channels,
+            "kernel_w": kernel_w,
+            "out_w": out_w,
+            "groups": groups,
+            "gemm_m": batch * out_w,
+            "gemm_n": out_channels,
+            "gemm_k": in_channels * kernel_w,
+        }
+        return _select_ck_candidate(candidates, problem)
     if len(x_shape) != 4 or len(weight_shape) != 4 or len(out_shape) != 4:
         return candidates[0]
     batch, in_channels, _, _ = x_shape
@@ -1116,7 +1181,12 @@ def _execution_plan_guarded_ck_conv_shape_supported(
     *,
     strict: bool,
 ) -> bool:
-    required_fields = ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+    is_conv1d = str(key[0]) in CONV1D_BIAS_FAMILY_OPS
+    required_fields = (
+        ("n", "c", "w", "out_n", "out_c", "out_w", "kernel_w")
+        if is_conv1d
+        else ("n", "c", "h", "w", "out_n", "out_c", "out_h", "out_w", "kernel_h", "kernel_w")
+    )
     for field in required_fields:
         if _execution_plan_int_field(shape, field, None, minimum=1, key=key, strict=strict, context="guarded shape") is None:
             return False
@@ -1124,7 +1194,8 @@ def _execution_plan_guarded_ck_conv_shape_supported(
     if isinstance(conv_config, Mapping):
         for field in ("stride", "padding", "dilation"):
             values = conv_config.get(field)
-            if not isinstance(values, Sequence) or isinstance(values, (str, bytes)) or len(values) != 2:
+            expected_len = 1 if is_conv1d else 2
+            if not isinstance(values, Sequence) or isinstance(values, (str, bytes)) or len(values) != expected_len:
                 if strict:
                     raise ValueError(
                         f"Execution plan guarded shape for {key[0]} {key[1]} has malformed conv_config.{field}: {values!r}"

@@ -634,6 +634,10 @@ if(DINOML_ENABLE_ROCM)
     option(DINOML_ENABLE_CK_CONV_PROFILER "Build CK Conv standalone profiler modules" OFF)
     set(DINOML_CK_CONV_PROFILER_TARGETS "" CACHE STRING "CK Conv profiler targets or ALL")
     set(DINOML_CK_CONV_OPS
+      conv1d_bias
+      conv1d_bias_relu
+      conv1d_bias_add
+      conv1d_bias_add_relu
       conv2d_bias
       conv2d_bias_relu
       conv2d_bias_add
@@ -1430,6 +1434,7 @@ if(DINOML_ENABLE_CUDA)
   if(DINOML_ENABLE_CUTLASS_CONV)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(DINOML_CUTLASS_CONV_OPS
+      conv1d_bias conv1d_bias_relu conv1d_bias_add conv1d_bias_add_relu
       conv2d_bias conv2d_bias_relu conv2d_bias_add conv2d_bias_add_relu
       transposed_conv2d
     )

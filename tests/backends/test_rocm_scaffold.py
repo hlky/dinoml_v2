@@ -58,6 +58,7 @@ from dinoml.kernels.providers.ck.bmm import (
     render_ck_bmm_source,
 )
 from dinoml.kernels.providers.ck.conv import (
+    CK_CONV1D_OPS,
     CK_CONV_OPS,
     CK_TRANSPOSED_CONV_OPS,
     ck_conv_candidate_set,
@@ -299,6 +300,58 @@ def test_cli_profile_summary_handles_rocm_ck_conv_shapes(monkeypatch, capsys):
     assert problem["shape"]["out_h"] == 4
     assert problem["shape"]["out_w"] == 6
     assert problem["conv"]["stride"] == [2, 2]
+    assert "split_k" not in problem
+
+
+def test_cli_profile_summary_handles_rocm_ck_conv1d_shapes(monkeypatch, capsys):
+    from dinoml import cli as dinoml_cli
+
+    def fake_profile_artifact(*_args, **_kwargs):
+        return {
+            "artifact": "conv1d_artifact.dinoml",
+            "target": {"name": "rocm", "arch": "gfx1201"},
+            "iterations": 3,
+            "repeats": 2,
+            "problems": [
+                {
+                    "node_id": "n0",
+                    "op": "conv1d_bias_add_relu",
+                    "dtype": "float16",
+                    "kernel_library": "ck_conv",
+                    "profiler_symbol": "dinoml_profile_ck_conv1d_bias_add_relu_float16_xdl_wide_m_v1",
+                    "shape": {
+                        "n": 2,
+                        "c": 8,
+                        "w": 17,
+                        "out_n": 2,
+                        "out_c": 16,
+                        "out_w": 9,
+                        "kernel_w": 3,
+                    },
+                    "conv": {"stride": [2], "padding": [1], "dilation": [1], "groups": 1},
+                    "elapsed_ms": 0.125,
+                    "workspace_nbytes": 0,
+                    "timing": {"sample_count": 2},
+                    "tflops": 0.045,
+                    "selected": {"candidate_id": "ck_conv1d_bias_add_relu_float16_xdl_wide_m_v1"},
+                }
+            ],
+            "execution_plan": {"path": "execution_plan.json"},
+            "summary": {"profiled": 1, "failed": 0},
+        }
+
+    monkeypatch.setattr(dinoml_cli, "profile_artifact", fake_profile_artifact)
+
+    assert dinoml_cli.main(["profile", "conv1d_artifact.dinoml"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    problem = payload["problems"][0]
+
+    assert problem["kernel_library"] == "ck_conv"
+    assert problem["candidate_id"] == "ck_conv1d_bias_add_relu_float16_xdl_wide_m_v1"
+    assert problem["shape"]["out_w"] == 9
+    assert "out_h" not in problem["shape"]
+    assert problem["conv"]["stride"] == [2]
+    assert problem["conv"]["padding"] == [1]
     assert "split_k" not in problem
 
 
@@ -3131,6 +3184,71 @@ def test_rocm_conv2d_bias_add_relu_uses_ck_manifest_and_profile_workloads():
 @pytest.mark.parametrize(
     ("op_name", "expected_epilogue", "expected_inputs", "expected_launch_abi"),
     [
+        ("conv1d_bias", "bias", ["bias"], "dinoml_ck_conv1d_bias_v1"),
+        ("conv1d_bias_relu", "bias_relu", ["bias"], "dinoml_ck_conv1d_bias_relu_v1"),
+        ("conv1d_bias_add", "bias_add", ["bias", "d0"], "dinoml_ck_conv1d_bias_add_v1"),
+        ("conv1d_bias_add_relu", "bias_add_relu", ["bias", "d0"], "dinoml_ck_conv1d_bias_add_relu_v1"),
+    ],
+)
+def test_rocm_conv1d_ops_use_ck_manifest_and_profile_workloads(
+    op_name: str,
+    expected_epilogue: str,
+    expected_inputs: list[str],
+    expected_launch_abi: str,
+):
+    assert op_name in CK_CONV1D_OPS
+    ir = _rocm_conv1d_bias_ir(
+        "float16",
+        op_name=op_name,
+        batch=4,
+        in_channels=8,
+        out_channels=16,
+        width=17,
+        kernel_w=3,
+        stride=2,
+        padding=1,
+    )
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = manifest["required_kernels"][0]
+
+    workloads = build_profile_workloads(ir, manifest)
+
+    assert item["kernel_library"] == "ck_conv"
+    assert item["candidate_set_id"] == f"ck_{op_name}_float16_{expected_epilogue}_v1"
+    assert item["candidate_set"]["family"] == "conv1d_fprop"
+    assert item["candidate_set"]["epilogue"] == expected_epilogue
+    assert item["candidate_set"]["epilogue_config"]["inputs"] == expected_inputs
+    assert item["candidate_set"]["epilogue_config"]["launch_abi"] == expected_launch_abi
+    assert item["candidate_set"]["semantic_layout"]["activation"] == "ncw"
+    assert item["candidate_set"]["semantic_layout"]["weight"] == "oiw"
+    assert item["candidate_set"]["semantic_layout"]["output"] == "ncw"
+    assert item["candidate_set"]["provider_layout"]["activation"] == "g_nw_c_strided"
+    assert item["candidate_set"]["provider_layout"]["weight"] == "g_k_x_c_strided"
+    assert item["candidate_set"]["provider_layout"]["output"] == "g_nw_k_strided"
+    assert item["candidate_set"]["generator"] == "static_ck_conv1d_xdl_curated_candidates_v1"
+    assert item["support_archive"] == ck_conv_static_library_name(op_name, "float16")
+    assert item["selected_candidate_id"] == f"ck_{op_name}_float16_xdl_small_v1"
+    assert item["kernel_symbol"] == f"dinoml_ck_{op_name}_float16_xdl_small_v1"
+    assert {workload.kernel_library for workload in workloads} == {"ck_conv"}
+    assert {workload.op for workload in workloads} == {op_name}
+    assert {workload.candidate_id for workload in workloads} == {
+        f"ck_{op_name}_float16_xdl_custom_v1",
+        f"ck_{op_name}_float16_xdl_small_v1",
+    }
+    assert all(workload.x_shape == (4, 8, 17) for workload in workloads)
+    assert all(workload.weight_shape == (16, 8, 3) for workload in workloads)
+    assert all(workload.bias_shape == (16,) for workload in workloads)
+    assert all(workload.output_shape == (4, 16, 9) for workload in workloads)
+    assert all(workload.conv_config == {"stride": [2], "padding": [1], "dilation": [1], "groups": 1} for workload in workloads)
+    if op_name in {"conv1d_bias_add", "conv1d_bias_add_relu"}:
+        assert all(workload.residual_shape == workload.output_shape for workload in workloads)
+    else:
+        assert all(workload.residual_shape is None for workload in workloads)
+
+
+@pytest.mark.parametrize(
+    ("op_name", "expected_epilogue", "expected_inputs", "expected_launch_abi"),
+    [
         ("transposed_conv2d", "identity", [], "dinoml_ck_transposed_conv2d_v1"),
         ("transposed_conv2d_bias", "bias", ["bias"], "dinoml_ck_transposed_conv2d_bias_v1"),
         ("transposed_conv2d_bias_relu", "bias_relu", ["bias"], "dinoml_ck_transposed_conv2d_bias_relu_v1"),
@@ -3197,6 +3315,16 @@ def test_rocm_transposed_conv2d_uses_ck_manifest_and_profile_workloads(
     ("op_name", "expected_pointer_shapes", "expected_args"),
     [
         (
+            "conv1d_bias",
+            [(2, 8, 16), (64, 8, 3), (64,), (2, 64, 16)],
+            (2, 8, 16, 64, 3, 16, 1, 1, 1, 0, 11),
+        ),
+        (
+            "conv1d_bias_add_relu",
+            [(2, 8, 16), (64, 8, 3), (64,), (2, 64, 16), (2, 64, 16)],
+            (2, 8, 16, 64, 3, 16, 1, 1, 1, 0, 11),
+        ),
+        (
             "conv2d_bias",
             [(2, 8, 16, 16), (64, 8, 3, 3), (64,), (2, 64, 16, 16)],
             (2, 8, 16, 16, 64, 3, 3, 16, 16, 1, 1, 1, 1, 1, 1, 11),
@@ -3224,6 +3352,17 @@ def test_rocm_ck_conv_profiler_passes_epilogue_pointers(
     expected_args: tuple[int, ...],
 ):
     ir = (
+        _rocm_conv1d_bias_ir(
+            "float16",
+            op_name=op_name,
+            batch=2,
+            in_channels=8,
+            out_channels=64,
+            width=16,
+            padding=1,
+        )
+        if op_name.startswith("conv1d")
+        else (
         _rocm_transposed_conv2d_ir(
             "float16",
             op_name=op_name,
@@ -3245,7 +3384,7 @@ def test_rocm_ck_conv_profiler_passes_epilogue_pointers(
             out_channels=64,
             height=16,
             width=16,
-        )
+        ))
     )
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
     workload = build_profile_workloads(ir, manifest)[0]
@@ -3456,6 +3595,7 @@ def test_ck_conv_profiler_groups_problem_candidates_and_maps_rows():
     rows_by_candidate = {row["candidate"]["candidate_id"]: row for row in rows}
 
     assert calls[0]["profiler_symbols"] == [workload.profiler_symbol for workload in workloads]
+    assert calls[0]["transposed"] is False
     assert calls[0]["has_residual"] is False
     assert rows_by_candidate[workloads[0].candidate_id]["samples_ms"] == [0.19, 0.18]
     assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.12, 0.11]
@@ -4106,6 +4246,76 @@ def test_rocm_conv2d_bias_add_relu_module_declares_and_calls_ck_symbol():
     assert "conv2d_bias_add_relu CK Conv launcher failed" in source
 
 
+def test_rocm_conv1d_bias_module_declares_and_calls_ck_symbol():
+    ir = _rocm_conv1d_bias_ir("float16")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_conv1d_bias_float16_xdl_custom_v1' in source
+    assert "const half* weight" in source
+    assert "const half* bias" in source
+    assert "dinoml_ck_conv1d_bias_float16_xdl_custom_v1(ptr_x, ptr_weight, ptr_bias, ptr_y" in source
+    assert "shape_y_1 != shape_weight_0" in source
+    assert "conv1d_bias CK Conv launcher failed" in source
+
+
+def test_rocm_conv1d_bias_add_relu_module_declares_and_calls_ck_symbol():
+    ir = _rocm_conv1d_bias_ir("float16", op_name="conv1d_bias_add_relu")
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert 'extern "C" int dinoml_ck_conv1d_bias_add_relu_float16_xdl_custom_v1' in source
+    assert "const half* residual" in source
+    assert (
+        "dinoml_ck_conv1d_bias_add_relu_float16_xdl_custom_v1(ptr_x, ptr_weight, ptr_bias, ptr_residual, ptr_y"
+        in source
+    )
+    assert "conv1d_bias_add_relu residual shape mismatch" in source
+    assert "conv1d_bias_add_relu CK Conv launcher failed" in source
+
+
+def test_rocm_conv1d_constant_weight_prepack_is_recorded_in_metadata_and_launch_source(tmp_path):
+    spec = _trace_rocm_constant_weight_conv1d_spec("float16")
+    ir = dml_compiler._write_constants(tmp_path, spec.ir, spec.constants, target=dml.Target("rocm"))
+    constants_by_name = {constant["name"]: constant for constant in ir["constants"]}
+    weight_constant = constants_by_name["weight"]
+
+    assert weight_constant["storage"]["kind"] == "ck_conv1d_weight"
+    assert weight_constant["storage"]["logical_layout"] == "oiw"
+    assert weight_constant["storage"]["storage_layout"] == "kxc"
+
+    stored = np.frombuffer((tmp_path / "constants.bin").read_bytes(), dtype=np.float16)
+    stored = stored[
+        weight_constant["offset"] // np.dtype(np.float16).itemsize : (
+            weight_constant["offset"] + weight_constant["nbytes"]
+        )
+        // np.dtype(np.float16).itemsize
+    ].reshape(weight_constant["shape"])
+    expected = np.ascontiguousarray(np.transpose(spec.constants["weight"], (0, 2, 1)))
+    np.testing.assert_array_equal(stored, expected)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = next(
+        kernel
+        for kernel in manifest["required_kernels"]
+        if kernel["op"] == "conv1d_bias_add_relu" and kernel["kernel_library"] == "ck_conv"
+    )
+
+    assert item["ck_conv_runtime_plan"] == {
+        "node_id": "n0",
+        "weight_pack_mode": "constants_bin_prepacked_kxc",
+        "constant_tensor": "weight",
+    }
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert "dinoml_ck_conv1d_bias_add_relu_float16_" in source
+    assert "ptr_x, ptr_weight, ptr_bias, ptr_residual, ptr_t0" in source
+    assert ", 2, 1, 1, 1, session->stream" in source
+
+
 def test_rocm_transposed_conv2d_module_declares_and_calls_ck_symbol():
     ir = _rocm_transposed_conv2d_ir(
         "float16",
@@ -4175,6 +4385,29 @@ def test_ck_conv_unit_generation_uses_device_op_not_reference_path():
     assert "DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle" in rendered
     assert "DinoConvBiasEpilogue" in rendered
     assert "DINOML_CK_CONV2D_BIAS_EXPORT(conv2d_bias, float16, half, xdl_custom_v1, kBaseline)" in rendered
+
+
+def test_ck_conv_unit_generation_supports_conv1d_base_op():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "conv1d_bias",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias",
+        "launch_abi": "dinoml_ck_conv1d_bias_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_conv1d_bias_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_conv1d_bias_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert "DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle" in rendered
+    assert "DINOML_CK_CONV1D_BIAS_EXPORT(conv1d_bias, float16, half, xdl_custom_v1, kBaseline)" in rendered
 
 
 def test_ck_conv_unit_generation_supports_transposed_conv2d_base_op():
@@ -4303,6 +4536,31 @@ def test_ck_conv_unit_generation_supports_bias_add_relu_epilogue():
     assert "ck::Tuple<BiasLayout, OutLayout>" in rendered
     assert (
         "DINOML_CK_CONV2D_BIAS_ADD_RELU_EXPORT(conv2d_bias_add_relu, float16, half, "
+        "xdl_custom_v1, kBaseline)"
+    ) in rendered
+
+
+def test_ck_conv_unit_generation_supports_conv1d_bias_add_relu_epilogue():
+    source = Path("kernels/rocm/src/ck_conv.hip").read_text(encoding="utf-8")
+    candidate = {
+        "op": "conv1d_bias_add_relu",
+        "dtype": "float16",
+        "symbol_id": "xdl_custom_v1",
+        "epilogue": "bias_add_relu",
+        "launch_abi": "dinoml_ck_conv1d_bias_add_relu_v1",
+    }
+
+    rendered = render_ck_conv_source(
+        source,
+        {
+            "candidates": [candidate],
+            "kernel_symbols": ["dinoml_ck_conv1d_bias_add_relu_float16_xdl_custom_v1"],
+            "profiler_symbols": ["dinoml_profile_ck_conv1d_bias_add_relu_float16_xdl_custom_v1"],
+        },
+    )
+
+    assert (
+        "DINOML_CK_CONV1D_BIAS_ADD_RELU_EXPORT(conv1d_bias_add_relu, float16, half, "
         "xdl_custom_v1, kBaseline)"
     ) in rendered
 
@@ -4458,6 +4716,45 @@ def test_rocm_ck_conv_compile_profile_smoke_with_real_toolchain(tmp_path, monkey
         spec,
         dml.Target("rocm"),
         tmp_path / "ck_conv_profile_rocm.dinoml",
+        profile=True,
+        profile_iterations=1,
+        profile_repeats=1,
+        profile_refresh=True,
+    )
+
+    manifest = read_json(artifact.path / "manifest.json")
+    report = read_json(artifact.path / "debug" / "bootstrap_profile_report.json")
+    _assert_rocm_ck_profile_smoke_report(manifest, report, "ck_conv")
+
+
+@pytest.mark.skipif(
+    os.environ.get("DINOML_RUN_ROCM_PROFILE_SMOKE") != "1",
+    reason="set DINOML_RUN_ROCM_PROFILE_SMOKE=1 with a working ROCm device/toolchain",
+)
+def test_rocm_ck_conv1d_compile_profile_smoke_with_real_toolchain(tmp_path, monkeypatch):
+    if not _rocm_module_compile_toolchain_available():
+        pytest.skip("ROCm module compile toolchain not found from active Python/PATH")
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(tmp_path / "cache"))
+
+    class TinyCkConv1d(dml.Module):
+        def forward(self, x, weight, bias, residual):
+            return {"y": dml.ops.conv1d_bias_add_relu(x, weight, bias, residual, stride=2, padding=1)}
+
+    spec = dml.trace(
+        TinyCkConv1d(),
+        {
+            "x": dml.TensorSpec([2, 8, 17], "float16"),
+            "weight": dml.TensorSpec([64, 8, 3], "float16"),
+            "bias": dml.TensorSpec([64], "float16"),
+            "residual": dml.TensorSpec([2, 64, 9], "float16"),
+        },
+        name="rocm_ck_conv1d_compile_profile_smoke",
+    )
+
+    artifact = dml.compile(
+        spec,
+        dml.Target("rocm"),
+        tmp_path / "ck_conv1d_profile_rocm.dinoml",
         profile=True,
         profile_iterations=1,
         profile_repeats=1,
@@ -4778,6 +5075,83 @@ def _bmm_layout_from_op(op_name: str) -> str:
     layout = op_name.removeprefix("bmm_").removesuffix("_add")
     assert len(layout) == 3 and set(layout) <= {"c", "r"}
     return layout
+
+
+def _rocm_conv1d_bias_ir(
+    dtype: str,
+    *,
+    op_name: str = "conv1d_bias",
+    batch: int = 2,
+    in_channels: int = 4,
+    out_channels: int = 6,
+    width: int = 17,
+    kernel_w: int = 3,
+    stride: int | None = None,
+    padding: int | None = None,
+    dilation: int | None = None,
+    groups: int = 1,
+) -> dict:
+    stride = 1 if stride is None else int(stride)
+    padding = 1 if padding is None else int(padding)
+    dilation = 1 if dilation is None else int(dilation)
+    output_w = (width + 2 * padding - dilation * (kernel_w - 1) - 1) // stride + 1
+    has_residual = op_name in {"conv1d_bias_add", "conv1d_bias_add_relu"}
+    tensors = [
+        _tensor("x", [batch, in_channels, width], dtype, "input"),
+        _tensor("weight", [out_channels, in_channels, kernel_w], dtype, "input"),
+        _tensor("bias", [out_channels], dtype, "input"),
+        *([_tensor("residual", [batch, out_channels, output_w], dtype, "input")] if has_residual else []),
+        _tensor("y", [batch, out_channels, output_w], dtype, "output"),
+    ]
+    inputs = [
+        _io("x", [batch, in_channels, width], dtype),
+        _io("weight", [out_channels, in_channels, kernel_w], dtype),
+        _io("bias", [out_channels], dtype),
+        *([_io("residual", [batch, out_channels, output_w], dtype)] if has_residual else []),
+    ]
+    node_inputs = ["x", "weight", "bias", *(["residual"] if has_residual else [])]
+    return {
+        "schema_version": 1,
+        "name": f"rocm_{op_name}_smoke",
+        "inputs": inputs,
+        "constants": [],
+        "outputs": [_io("y", [batch, out_channels, output_w], dtype)],
+        "nodes": [
+            {
+                "id": "n0",
+                "op": op_name,
+                "inputs": node_inputs,
+                "outputs": ["y"],
+                "attrs": {"stride": [stride], "padding": [padding], "dilation": [dilation], "groups": groups},
+            }
+        ],
+        "tensors": tensors,
+        "metadata": {},
+    }
+
+
+def _trace_rocm_constant_weight_conv1d_spec(dtype: str) -> dml.ModelSpec:
+    value_dtype = np.float16 if dtype == "float16" else np.float32
+    weight_value = (np.arange(5 * 3 * 3, dtype=np.float32).reshape(5, 3, 3) / 37.0).astype(value_dtype)
+    bias_value = (np.arange(5, dtype=np.float32) / 13.0).astype(value_dtype)
+
+    class TinyConstConv1d(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter([5, 3, 3], dtype=dtype, value=weight_value)
+            self.bias = dml.Parameter([5], dtype=dtype, value=bias_value)
+
+        def forward(self, x, residual):
+            y = dml.ops.conv1d_bias_add_relu(x, self.weight, self.bias, residual, stride=2, padding=1)
+            return dml.ops.output(y, "y")
+
+    return dml.trace(
+        TinyConstConv1d(),
+        {
+            "x": dml.TensorSpec([2, 3, 9], dtype),
+            "residual": dml.TensorSpec([2, 5, 5], dtype),
+        },
+        name=f"rocm_conv1d_constant_weight_{dtype}",
+    )
 
 
 def _rocm_conv2d_bias_ir(

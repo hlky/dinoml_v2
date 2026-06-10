@@ -24,6 +24,9 @@ using S = ck::Sequence<Is...>;
 
 namespace conv_layout = ck::tensor_layout::convolution;
 
+using In1dLayout = conv_layout::G_NW_C;
+using Wei1dLayout = conv_layout::G_K_X_C;
+using Out1dLayout = conv_layout::G_NW_K;
 using InLayout = conv_layout::G_NHW_C;
 using WeiLayout = conv_layout::G_K_YX_C;
 using BiasLayout = conv_layout::G_K;
@@ -40,6 +43,7 @@ enum class ConvConfig {
   kSmall,
 };
 
+static constexpr ck::index_t NDimSpatial1 = 1;
 static constexpr ck::index_t NDimSpatial = 2;
 static constexpr auto ConvSpec =
     ck::tensor_operation::device::ConvolutionForwardSpecialization::Default;
@@ -247,6 +251,158 @@ template <typename Storage, typename Element>
 Element* ck_ptr(Storage* ptr) {
   static_assert(sizeof(Storage) == sizeof(Element), "CK element storage size mismatch");
   return reinterpret_cast<Element*>(ptr);
+}
+
+template <typename Storage>
+__global__ void dino_ck_pack_conv1d_weight_kcx_to_kxc(
+    Storage const* source,
+    Storage* packed,
+    int out_channels,
+    int in_channels,
+    int kernel_w) {
+  const auto linear_idx = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const auto total = static_cast<std::size_t>(out_channels) * in_channels * kernel_w;
+  if (linear_idx >= total) {
+    return;
+  }
+  const auto w = linear_idx % static_cast<std::size_t>(kernel_w);
+  const auto c = (linear_idx / static_cast<std::size_t>(kernel_w)) % static_cast<std::size_t>(in_channels);
+  const auto k = linear_idx / (static_cast<std::size_t>(kernel_w) * in_channels);
+  const auto packed_idx =
+      (k * static_cast<std::size_t>(kernel_w) + w) * static_cast<std::size_t>(in_channels) + c;
+  packed[packed_idx] = source[linear_idx];
+}
+
+template <typename Storage>
+int pack_conv1d_weight_kcx_to_kxc(
+    Storage const* source,
+    Storage** packed_out,
+    int out_channels,
+    int in_channels,
+    int kernel_w,
+    hipStream_t stream) {
+  if (source == nullptr || packed_out == nullptr || out_channels <= 0 || in_channels <= 0 || kernel_w <= 0) {
+    return 5;
+  }
+  *packed_out = nullptr;
+  const auto count = static_cast<std::size_t>(out_channels) * in_channels * kernel_w;
+  const auto nbytes = count * sizeof(Storage);
+  if (hipMalloc(reinterpret_cast<void**>(packed_out), nbytes) != hipSuccess) {
+    return 5;
+  }
+  const dim3 block(256);
+  const dim3 grid(static_cast<unsigned int>((count + block.x - 1) / block.x));
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dino_ck_pack_conv1d_weight_kcx_to_kxc<Storage>),
+      grid,
+      block,
+      0,
+      stream,
+      source,
+      *packed_out,
+      out_channels,
+      in_channels,
+      kernel_w);
+  if (hipGetLastError() != hipSuccess) {
+    (void)hipFree(*packed_out);
+    *packed_out = nullptr;
+    return 5;
+  }
+  return 0;
+}
+
+template <typename Storage>
+__global__ void dino_ck_pack_conv1d_ncw_to_nwc(
+    Storage const* source,
+    Storage* packed,
+    int batch,
+    int channels,
+    int width) {
+  const auto linear_idx = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const auto total = static_cast<std::size_t>(batch) * channels * width;
+  if (linear_idx >= total) {
+    return;
+  }
+  const auto w = linear_idx % static_cast<std::size_t>(width);
+  const auto c = (linear_idx / static_cast<std::size_t>(width)) % static_cast<std::size_t>(channels);
+  const auto n = linear_idx / (static_cast<std::size_t>(width) * channels);
+  const auto packed_idx = (n * static_cast<std::size_t>(width) + w) * static_cast<std::size_t>(channels) + c;
+  packed[packed_idx] = source[linear_idx];
+}
+
+template <typename Storage>
+int launch_ck_conv1d_ncw_to_nwc(
+    Storage const* source,
+    Storage* packed,
+    int batch,
+    int channels,
+    int width,
+    hipStream_t stream) {
+  if (source == nullptr || packed == nullptr || batch <= 0 || channels <= 0 || width <= 0) {
+    return 1;
+  }
+  const auto total = static_cast<std::size_t>(batch) * channels * width;
+  const dim3 block(256);
+  const dim3 grid(static_cast<unsigned int>((total + block.x - 1) / block.x));
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dino_ck_pack_conv1d_ncw_to_nwc<Storage>),
+      grid,
+      block,
+      0,
+      stream,
+      source,
+      packed,
+      batch,
+      channels,
+      width);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename Storage>
+__global__ void dino_ck_unpack_conv1d_nwk_to_ncw(
+    Storage const* source,
+    Storage* unpacked,
+    int batch,
+    int channels,
+    int width) {
+  const auto linear_idx = static_cast<std::size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const auto total = static_cast<std::size_t>(batch) * width * channels;
+  if (linear_idx >= total) {
+    return;
+  }
+  const auto c = linear_idx % static_cast<std::size_t>(channels);
+  const auto w = (linear_idx / static_cast<std::size_t>(channels)) % static_cast<std::size_t>(width);
+  const auto n = linear_idx / (static_cast<std::size_t>(channels) * width);
+  const auto unpacked_idx = (n * static_cast<std::size_t>(channels) + c) * static_cast<std::size_t>(width) + w;
+  unpacked[unpacked_idx] = source[linear_idx];
+}
+
+template <typename Storage>
+int launch_ck_conv1d_nwk_to_ncw(
+    Storage const* source,
+    Storage* unpacked,
+    int batch,
+    int channels,
+    int width,
+    hipStream_t stream) {
+  if (source == nullptr || unpacked == nullptr || batch <= 0 || channels <= 0 || width <= 0) {
+    return 1;
+  }
+  const auto total = static_cast<std::size_t>(batch) * width * channels;
+  const dim3 block(256);
+  const dim3 grid(static_cast<unsigned int>((total + block.x - 1) / block.x));
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dino_ck_unpack_conv1d_nwk_to_ncw<Storage>),
+      grid,
+      block,
+      0,
+      stream,
+      source,
+      unpacked,
+      batch,
+      channels,
+      width);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
 }
 
 template <typename T>
@@ -1197,6 +1353,928 @@ float profile_ck_conv2d_bias_relu(
   return ms / static_cast<float>(iterations);
 }
 
+template <
+    ConvConfig Config,
+    typename Storage,
+    typename Element,
+    typename DLayouts,
+    typename DDataTypes,
+    typename CDEElementOp>
+using DeviceConv1dXdl = ck::tensor_operation::device::DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle<
+    NDimSpatial1,
+    In1dLayout,
+    Wei1dLayout,
+    DLayouts,
+    Out1dLayout,
+    Element,
+    Element,
+    float,
+    Element,
+    DDataTypes,
+    Element,
+    PassThrough,
+    PassThrough,
+    CDEElementOp,
+    ConvSpec,
+    GemmSpec,
+    1,
+    ConvKernelConfig<Config, Storage>::BlockSize,
+    ConvKernelConfig<Config, Storage>::MPerBlock,
+    ConvKernelConfig<Config, Storage>::NPerBlock,
+    ConvKernelConfig<Config, Storage>::KPerBlock,
+    ConvKernelConfig<Config, Storage>::AK1,
+    ConvKernelConfig<Config, Storage>::BK1,
+    ConvKernelConfig<Config, Storage>::MPerXDL,
+    ConvKernelConfig<Config, Storage>::NPerXDL,
+    ConvKernelConfig<Config, Storage>::MXdlPerWave,
+    ConvKernelConfig<Config, Storage>::NXdlPerWave,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::ABlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::ABlockTransferDstScalarPerVector_AK1,
+    1,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1,
+    1,
+    1,
+    1,
+    typename ConvKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
+    ConvKernelConfig<Config, Storage>::CDEBlockTransferScalarPerVector_NPerBlock>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv1dBiasXdl =
+    DeviceConv1dXdl<Config, Storage, Element, ck::Tuple<BiasLayout>, ck::Tuple<Element>, DinoConvBiasEpilogue>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv1dBiasReluXdl =
+    DeviceConv1dXdl<Config, Storage, Element, ck::Tuple<BiasLayout>, ck::Tuple<Element>, DinoConvBiasReluEpilogue>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv1dBiasAddXdl = DeviceConv1dXdl<
+    Config,
+    Storage,
+    Element,
+    ck::Tuple<BiasLayout, Out1dLayout>,
+    ck::Tuple<Element, Element>,
+    DinoConvBiasAddEpilogue>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv1dBiasAddReluXdl = DeviceConv1dXdl<
+    Config,
+    Storage,
+    Element,
+    ck::Tuple<BiasLayout, Out1dLayout>,
+    ck::Tuple<Element, Element>,
+    DinoConvBiasAddReluEpilogue>;
+
+template <typename Storage, ConvConfig Config>
+int launch_ck_conv1d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
+    return 1;
+  }
+  if (batch <= 0 || in_channels <= 0 || in_width <= 0 || out_channels <= 0 || kernel_w <= 0 ||
+      out_width <= 0 || stride_w <= 0 || pad_w < 0 || dilation_w <= 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceConv1dBiasXdl<Config, Storage, Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(in_channels);
+  const auto wi = static_cast<ck::index_t>(in_width);
+  const auto k = static_cast<ck::index_t>(out_channels);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto wo = static_cast<ck::index_t>(out_width);
+  const std::size_t packed_input_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(in_width) * static_cast<std::size_t>(in_channels) *
+      sizeof(Storage);
+  const std::size_t packed_output_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(out_width) * static_cast<std::size_t>(out_channels) *
+      sizeof(Storage);
+  Storage* packed_input = nullptr;
+  Storage* packed_weight = nullptr;
+  const Storage* kernel_weight = nullptr;
+  bool owns_packed_weight = false;
+  Storage* packed_output = nullptr;
+  if (hipMalloc(reinterpret_cast<void**>(&packed_input), packed_input_nbytes) != hipSuccess) {
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_output), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  int pack_status = launch_ck_conv1d_ncw_to_nwc(x, packed_input, batch, in_channels, in_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  if (weight_is_kxc != 0) {
+    kernel_weight = weight;
+  } else {
+    pack_status = pack_conv1d_weight_kcx_to_kxc(weight, &packed_weight, out_channels, in_channels, kernel_w, stream);
+    if (pack_status != 0) {
+      (void)hipFree(packed_output);
+      (void)hipFree(packed_input);
+      return pack_status;
+    }
+    kernel_weight = packed_weight;
+    owns_packed_weight = true;
+  }
+
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_lengths{g, n, c, wi};
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_strides{
+      c,
+      wi * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_lengths{g, k, c, x_filter};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_strides{
+      k * x_filter * c,
+      x_filter * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_strides{
+      k,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_strides{
+      k,
+      wo * k,
+      ck::index_t{1},
+      k};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 1> ds_lengths{{bias_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 1> ds_strides{{bias_strides}};
+  const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+  const std::array<ck::index_t, NDimSpatial1> conv_strides{static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial1> conv_dilations{static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial1> left_pads{static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial1> right_pads{static_cast<ck::index_t>(pad_w)};
+
+  auto argument = DeviceOp::MakeArgument(
+      ck_ptr<Storage, Element>(packed_input),
+      ck_ptr<Storage, Element>(kernel_weight),
+      ds_ptrs,
+      ck_ptr<Storage, Element>(packed_output),
+      a_lengths,
+      a_strides,
+      b_lengths,
+      b_strides,
+      ds_lengths,
+      ds_strides,
+      e_lengths,
+      e_strides,
+      conv_strides,
+      conv_dilations,
+      left_pads,
+      right_pads,
+      PassThrough{},
+      PassThrough{},
+      DinoConvBiasEpilogue{});
+  if (!DeviceOp::IsSupportedArgument(argument)) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    if (owns_packed_weight) {
+      (void)hipFree(packed_weight);
+    }
+    return 4;
+  }
+  auto invoker = DeviceOp::MakeInvoker();
+  (void)invoker.Run(argument, StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  int unpack_status = 0;
+  if (err == hipSuccess) {
+    unpack_status = launch_ck_conv1d_nwk_to_ncw(packed_output, output, batch, out_channels, out_width, stream);
+  }
+  (void)hipFree(packed_output);
+  (void)hipFree(packed_input);
+  if (owns_packed_weight) {
+    (void)hipFree(packed_weight);
+  }
+  if (err != hipSuccess) {
+    return 3;
+  }
+  return unpack_status;
+}
+
+template <typename Storage, ConvConfig Config>
+int launch_ck_conv1d_bias_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
+    return 1;
+  }
+  if (batch <= 0 || in_channels <= 0 || in_width <= 0 || out_channels <= 0 || kernel_w <= 0 ||
+      out_width <= 0 || stride_w <= 0 || pad_w < 0 || dilation_w <= 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceConv1dBiasReluXdl<Config, Storage, Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(in_channels);
+  const auto wi = static_cast<ck::index_t>(in_width);
+  const auto k = static_cast<ck::index_t>(out_channels);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto wo = static_cast<ck::index_t>(out_width);
+  const std::size_t packed_input_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(in_width) * static_cast<std::size_t>(in_channels) *
+      sizeof(Storage);
+  const std::size_t packed_output_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(out_width) * static_cast<std::size_t>(out_channels) *
+      sizeof(Storage);
+  Storage* packed_input = nullptr;
+  Storage* packed_weight = nullptr;
+  const Storage* kernel_weight = nullptr;
+  bool owns_packed_weight = false;
+  Storage* packed_output = nullptr;
+  if (hipMalloc(reinterpret_cast<void**>(&packed_input), packed_input_nbytes) != hipSuccess) {
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_output), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  int pack_status = launch_ck_conv1d_ncw_to_nwc(x, packed_input, batch, in_channels, in_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  if (weight_is_kxc != 0) {
+    kernel_weight = weight;
+  } else {
+    pack_status = pack_conv1d_weight_kcx_to_kxc(weight, &packed_weight, out_channels, in_channels, kernel_w, stream);
+    if (pack_status != 0) {
+      (void)hipFree(packed_output);
+      (void)hipFree(packed_input);
+      return pack_status;
+    }
+    kernel_weight = packed_weight;
+    owns_packed_weight = true;
+  }
+
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_lengths{g, n, c, wi};
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_strides{
+      c,
+      wi * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_lengths{g, k, c, x_filter};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_strides{
+      k * x_filter * c,
+      x_filter * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_strides{
+      k,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_strides{
+      k,
+      wo * k,
+      ck::index_t{1},
+      k};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 1> ds_lengths{{bias_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 1> ds_strides{{bias_strides}};
+  const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+  const std::array<ck::index_t, NDimSpatial1> conv_strides{static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial1> conv_dilations{static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial1> left_pads{static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial1> right_pads{static_cast<ck::index_t>(pad_w)};
+
+  auto argument = DeviceOp::MakeArgument(
+      ck_ptr<Storage, Element>(packed_input),
+      ck_ptr<Storage, Element>(kernel_weight),
+      ds_ptrs,
+      ck_ptr<Storage, Element>(packed_output),
+      a_lengths,
+      a_strides,
+      b_lengths,
+      b_strides,
+      ds_lengths,
+      ds_strides,
+      e_lengths,
+      e_strides,
+      conv_strides,
+      conv_dilations,
+      left_pads,
+      right_pads,
+      PassThrough{},
+      PassThrough{},
+      DinoConvBiasReluEpilogue{});
+  if (!DeviceOp::IsSupportedArgument(argument)) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    if (owns_packed_weight) {
+      (void)hipFree(packed_weight);
+    }
+    return 4;
+  }
+  auto invoker = DeviceOp::MakeInvoker();
+  (void)invoker.Run(argument, StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  int unpack_status = 0;
+  if (err == hipSuccess) {
+    unpack_status = launch_ck_conv1d_nwk_to_ncw(packed_output, output, batch, out_channels, out_width, stream);
+  }
+  (void)hipFree(packed_output);
+  (void)hipFree(packed_input);
+  if (owns_packed_weight) {
+    (void)hipFree(packed_weight);
+  }
+  if (err != hipSuccess) {
+    return 3;
+  }
+  return unpack_status;
+}
+
+template <typename Storage, ConvConfig Config>
+int launch_ck_conv1d_bias_add(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || residual == nullptr || output == nullptr) {
+    return 1;
+  }
+  if (batch <= 0 || in_channels <= 0 || in_width <= 0 || out_channels <= 0 || kernel_w <= 0 ||
+      out_width <= 0 || stride_w <= 0 || pad_w < 0 || dilation_w <= 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceConv1dBiasAddXdl<Config, Storage, Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(in_channels);
+  const auto wi = static_cast<ck::index_t>(in_width);
+  const auto k = static_cast<ck::index_t>(out_channels);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto wo = static_cast<ck::index_t>(out_width);
+  const std::size_t packed_input_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(in_width) * static_cast<std::size_t>(in_channels) *
+      sizeof(Storage);
+  const std::size_t packed_output_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(out_width) * static_cast<std::size_t>(out_channels) *
+      sizeof(Storage);
+  Storage* packed_input = nullptr;
+  Storage* packed_weight = nullptr;
+  const Storage* kernel_weight = nullptr;
+  bool owns_packed_weight = false;
+  Storage* packed_output = nullptr;
+  Storage* packed_residual = nullptr;
+  if (hipMalloc(reinterpret_cast<void**>(&packed_input), packed_input_nbytes) != hipSuccess) {
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_output), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_residual), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  int pack_status = launch_ck_conv1d_ncw_to_nwc(x, packed_input, batch, in_channels, in_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  pack_status = launch_ck_conv1d_ncw_to_nwc(residual, packed_residual, batch, out_channels, out_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  if (weight_is_kxc != 0) {
+    kernel_weight = weight;
+  } else {
+    pack_status = pack_conv1d_weight_kcx_to_kxc(weight, &packed_weight, out_channels, in_channels, kernel_w, stream);
+    if (pack_status != 0) {
+      (void)hipFree(packed_residual);
+      (void)hipFree(packed_output);
+      (void)hipFree(packed_input);
+      return pack_status;
+    }
+    kernel_weight = packed_weight;
+    owns_packed_weight = true;
+  }
+
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_lengths{g, n, c, wi};
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_strides{
+      c,
+      wi * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_lengths{g, k, c, x_filter};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_strides{
+      k * x_filter * c,
+      x_filter * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_strides{
+      k,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_strides{
+      k,
+      wo * k,
+      ck::index_t{1},
+      k};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 2> ds_lengths{{bias_lengths, e_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 2> ds_strides{{bias_strides, e_strides}};
+  const std::array<const void*, 2> ds_ptrs{
+      ck_ptr<Storage, Element>(bias),
+      ck_ptr<Storage, Element>(packed_residual)};
+  const std::array<ck::index_t, NDimSpatial1> conv_strides{static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial1> conv_dilations{static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial1> left_pads{static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial1> right_pads{static_cast<ck::index_t>(pad_w)};
+
+  auto argument = DeviceOp::MakeArgument(
+      ck_ptr<Storage, Element>(packed_input),
+      ck_ptr<Storage, Element>(kernel_weight),
+      ds_ptrs,
+      ck_ptr<Storage, Element>(packed_output),
+      a_lengths,
+      a_strides,
+      b_lengths,
+      b_strides,
+      ds_lengths,
+      ds_strides,
+      e_lengths,
+      e_strides,
+      conv_strides,
+      conv_dilations,
+      left_pads,
+      right_pads,
+      PassThrough{},
+      PassThrough{},
+      DinoConvBiasAddEpilogue{});
+  if (!DeviceOp::IsSupportedArgument(argument)) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    if (owns_packed_weight) {
+      (void)hipFree(packed_weight);
+    }
+    return 4;
+  }
+  auto invoker = DeviceOp::MakeInvoker();
+  (void)invoker.Run(argument, StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  int unpack_status = 0;
+  if (err == hipSuccess) {
+    unpack_status = launch_ck_conv1d_nwk_to_ncw(packed_output, output, batch, out_channels, out_width, stream);
+  }
+  (void)hipFree(packed_residual);
+  (void)hipFree(packed_output);
+  (void)hipFree(packed_input);
+  if (owns_packed_weight) {
+    (void)hipFree(packed_weight);
+  }
+  if (err != hipSuccess) {
+    return 3;
+  }
+  return unpack_status;
+}
+
+template <typename Storage, ConvConfig Config>
+int launch_ck_conv1d_bias_add_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || residual == nullptr || output == nullptr) {
+    return 1;
+  }
+  if (batch <= 0 || in_channels <= 0 || in_width <= 0 || out_channels <= 0 || kernel_w <= 0 ||
+      out_width <= 0 || stride_w <= 0 || pad_w < 0 || dilation_w <= 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  using DeviceOp = DeviceConv1dBiasAddReluXdl<Config, Storage, Element>;
+  const auto g = ck::index_t{1};
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto c = static_cast<ck::index_t>(in_channels);
+  const auto wi = static_cast<ck::index_t>(in_width);
+  const auto k = static_cast<ck::index_t>(out_channels);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto wo = static_cast<ck::index_t>(out_width);
+  const std::size_t packed_input_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(in_width) * static_cast<std::size_t>(in_channels) *
+      sizeof(Storage);
+  const std::size_t packed_output_nbytes =
+      static_cast<std::size_t>(batch) * static_cast<std::size_t>(out_width) * static_cast<std::size_t>(out_channels) *
+      sizeof(Storage);
+  Storage* packed_input = nullptr;
+  Storage* packed_weight = nullptr;
+  const Storage* kernel_weight = nullptr;
+  bool owns_packed_weight = false;
+  Storage* packed_output = nullptr;
+  Storage* packed_residual = nullptr;
+  if (hipMalloc(reinterpret_cast<void**>(&packed_input), packed_input_nbytes) != hipSuccess) {
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_output), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  if (hipMalloc(reinterpret_cast<void**>(&packed_residual), packed_output_nbytes) != hipSuccess) {
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return 5;
+  }
+  int pack_status = launch_ck_conv1d_ncw_to_nwc(x, packed_input, batch, in_channels, in_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  pack_status = launch_ck_conv1d_ncw_to_nwc(residual, packed_residual, batch, out_channels, out_width, stream);
+  if (pack_status != 0) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    return pack_status;
+  }
+  if (weight_is_kxc != 0) {
+    kernel_weight = weight;
+  } else {
+    pack_status = pack_conv1d_weight_kcx_to_kxc(weight, &packed_weight, out_channels, in_channels, kernel_w, stream);
+    if (pack_status != 0) {
+      (void)hipFree(packed_residual);
+      (void)hipFree(packed_output);
+      (void)hipFree(packed_input);
+      return pack_status;
+    }
+    kernel_weight = packed_weight;
+    owns_packed_weight = true;
+  }
+
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_lengths{g, n, c, wi};
+  const std::array<ck::index_t, NDimSpatial1 + 3> a_strides{
+      c,
+      wi * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_lengths{g, k, c, x_filter};
+  const std::array<ck::index_t, NDimSpatial1 + 3> b_strides{
+      k * x_filter * c,
+      x_filter * c,
+      ck::index_t{1},
+      c};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> bias_strides{
+      k,
+      ck::index_t{0},
+      ck::index_t{1},
+      ck::index_t{0}};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_lengths{g, n, k, wo};
+  const std::array<ck::index_t, NDimSpatial1 + 3> e_strides{
+      k,
+      wo * k,
+      ck::index_t{1},
+      k};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 2> ds_lengths{{bias_lengths, e_lengths}};
+  const std::array<std::array<ck::index_t, NDimSpatial1 + 3>, 2> ds_strides{{bias_strides, e_strides}};
+  const std::array<const void*, 2> ds_ptrs{
+      ck_ptr<Storage, Element>(bias),
+      ck_ptr<Storage, Element>(packed_residual)};
+  const std::array<ck::index_t, NDimSpatial1> conv_strides{static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial1> conv_dilations{static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial1> left_pads{static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial1> right_pads{static_cast<ck::index_t>(pad_w)};
+
+  auto argument = DeviceOp::MakeArgument(
+      ck_ptr<Storage, Element>(packed_input),
+      ck_ptr<Storage, Element>(kernel_weight),
+      ds_ptrs,
+      ck_ptr<Storage, Element>(packed_output),
+      a_lengths,
+      a_strides,
+      b_lengths,
+      b_strides,
+      ds_lengths,
+      ds_strides,
+      e_lengths,
+      e_strides,
+      conv_strides,
+      conv_dilations,
+      left_pads,
+      right_pads,
+      PassThrough{},
+      PassThrough{},
+      DinoConvBiasAddReluEpilogue{});
+  if (!DeviceOp::IsSupportedArgument(argument)) {
+    (void)hipFree(packed_residual);
+    (void)hipFree(packed_output);
+    (void)hipFree(packed_input);
+    if (owns_packed_weight) {
+      (void)hipFree(packed_weight);
+    }
+    return 4;
+  }
+  auto invoker = DeviceOp::MakeInvoker();
+  (void)invoker.Run(argument, StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  int unpack_status = 0;
+  if (err == hipSuccess) {
+    unpack_status = launch_ck_conv1d_nwk_to_ncw(packed_output, output, batch, out_channels, out_width, stream);
+  }
+  (void)hipFree(packed_residual);
+  (void)hipFree(packed_output);
+  (void)hipFree(packed_input);
+  if (owns_packed_weight) {
+    (void)hipFree(packed_weight);
+  }
+  if (err != hipSuccess) {
+    return 3;
+  }
+  return unpack_status;
+}
+
+template <typename Storage, ConvConfig Config>
+float profile_ck_conv1d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch_ck_conv1d_bias<Storage, Config>(
+        x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, ConvConfig Config>
+float profile_ck_conv1d_bias_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch_ck_conv1d_bias_relu<Storage, Config>(
+        x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, ConvConfig Config>
+float profile_ck_conv1d_bias_add(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch_ck_conv1d_bias_add<Storage, Config>(
+        x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, ConvConfig Config>
+float profile_ck_conv1d_bias_add_relu(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage const* residual,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_width,
+    int out_channels,
+    int kernel_w,
+    int out_width,
+    int stride_w,
+    int pad_w,
+    int dilation_w,
+    int weight_is_kxc,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch_ck_conv1d_bias_add_relu<Storage, Config>(
+        x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
 using TransposedInputLayout = conv_layout::NGKHW;
 using TransposedWeightLayout = conv_layout::GKCYX;
 using TransposedOutputLayout = conv_layout::NGCHW;
@@ -2118,6 +3196,174 @@ float profile_ck_transposed_conv2d_bias_add_relu(
 }
 
 }  // namespace
+
+#define DINOML_CK_CONV1D_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    hipStream_t stream) { \
+  return launch_ck_conv1d_bias<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_conv1d_bias<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, iterations, stream); \
+}
+
+#define DINOML_CK_CONV1D_BIAS_RELU_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    hipStream_t stream) { \
+  return launch_ck_conv1d_bias_relu<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_conv1d_bias_relu<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, iterations, stream); \
+}
+
+#define DINOML_CK_CONV1D_BIAS_ADD_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    hipStream_t stream) { \
+  return launch_ck_conv1d_bias_add<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_conv1d_bias_add<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, iterations, stream); \
+}
+
+#define DINOML_CK_CONV1D_BIAS_ADD_RELU_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    hipStream_t stream) { \
+  return launch_ck_conv1d_bias_add_relu<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE const* residual, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_width, \
+    int out_channels, \
+    int kernel_w, \
+    int out_width, \
+    int stride_w, \
+    int pad_w, \
+    int dilation_w, \
+    int weight_is_kxc, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_conv1d_bias_add_relu<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, residual, output, batch, in_channels, in_width, out_channels, kernel_w, out_width, stride_w, pad_w, dilation_w, weight_is_kxc, iterations, stream); \
+}
 
 #define DINOML_CK_CONV2D_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
 extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \

@@ -21,6 +21,9 @@ dinoml::ck_conv_profiler::ConvRequest request_from_kwargs(const py::kwargs& kwar
     request.profiler_symbols = py::cast<std::vector<std::string>>(kwargs["profiler_symbols"]);
   }
   request.dtype = py::cast<std::string>(kwargs["dtype"]);
+  if (kwargs.contains("spatial_rank")) {
+    request.spatial_rank = py::cast<int>(kwargs["spatial_rank"]);
+  }
   request.batch = py::cast<int>(kwargs["batch"]);
   request.in_channels = py::cast<int>(kwargs["in_channels"]);
   request.in_height = py::cast<int>(kwargs["in_height"]);

@@ -42,6 +42,7 @@ int main(int argc, char** argv) {
     dinoml::ck_conv_profiler::ConvRequest request;
     request.profiler_symbol = required_arg(begin, end, "--profiler_symbol");
     request.dtype = required_arg(begin, end, "--dtype");
+    request.spatial_rank = int_arg(begin, end, "--spatial_rank");
     request.batch = int_arg(begin, end, "--batch");
     request.in_channels = int_arg(begin, end, "--in_channels");
     request.in_height = int_arg(begin, end, "--in_height");

@@ -227,7 +227,49 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
     bias_arg = ""
     residual_arg = ""
     extra_shape_args = ""
-    if launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
+    if launch_abi in {"dinoml_ck_conv1d_bias_v1", "dinoml_ck_conv1d_bias_relu_v1"}:
+        bias_arg = f"    const {cpp_type}* bias,\n"
+        return (
+            f'extern "C" int {symbol}(\n'
+            f"    const {cpp_type}* x,\n"
+            f"    const {cpp_type}* weight,\n"
+            f"{bias_arg}"
+            f"    {cpp_type}* output,\n"
+            "    int batch,\n"
+            "    int in_channels,\n"
+            "    int in_width,\n"
+            "    int out_channels,\n"
+            "    int kernel_w,\n"
+            "    int out_width,\n"
+            "    int stride_w,\n"
+            "    int pad_w,\n"
+            "    int dilation_w,\n"
+            "    int weight_is_kxc,\n"
+            "    hipStream_t stream);"
+        )
+    elif launch_abi in {"dinoml_ck_conv1d_bias_add_v1", "dinoml_ck_conv1d_bias_add_relu_v1"}:
+        bias_arg = f"    const {cpp_type}* bias,\n"
+        residual_arg = f"    const {cpp_type}* residual,\n"
+        return (
+            f'extern "C" int {symbol}(\n'
+            f"    const {cpp_type}* x,\n"
+            f"    const {cpp_type}* weight,\n"
+            f"{bias_arg}"
+            f"{residual_arg}"
+            f"    {cpp_type}* output,\n"
+            "    int batch,\n"
+            "    int in_channels,\n"
+            "    int in_width,\n"
+            "    int out_channels,\n"
+            "    int kernel_w,\n"
+            "    int out_width,\n"
+            "    int stride_w,\n"
+            "    int pad_w,\n"
+            "    int dilation_w,\n"
+            "    int weight_is_kxc,\n"
+            "    hipStream_t stream);"
+        )
+    elif launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
     elif launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"

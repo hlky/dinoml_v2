@@ -17,6 +17,7 @@ struct ConvRequest {
   std::string profiler_symbol;
   std::vector<std::string> profiler_symbols;
   std::string dtype;
+  int spatial_rank = 2;
   int batch = 0;
   int in_channels = 0;
   int in_height = 0;
@@ -158,6 +159,67 @@ inline float run_candidate(
     void* bias,
     void* residual,
     void* output) {
+  if (request.spatial_rank == 1) {
+    if (!request.has_bias) {
+      throw std::runtime_error("CK Conv1d profiler requires bias-enabled kernels");
+    }
+    if (!request.has_residual) {
+      using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, int, int, int, int, int, int, int, hipStream_t);
+      return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+          x,
+          weight,
+          bias,
+          output,
+          request.batch,
+          request.in_channels,
+          request.in_width,
+          request.out_channels,
+          request.kernel_w,
+          request.out_width,
+          request.stride_w,
+          request.pad_w,
+          request.dilation_w,
+          0,
+          request.iterations,
+          nullptr);
+    }
+    using Fn = float (*)(
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        void*,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        hipStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+        x,
+        weight,
+        bias,
+        residual,
+        output,
+        request.batch,
+        request.in_channels,
+        request.in_width,
+        request.out_channels,
+        request.kernel_w,
+        request.out_width,
+        request.stride_w,
+        request.pad_w,
+        request.dilation_w,
+        0,
+        request.iterations,
+        nullptr);
+  }
   if (request.transposed) {
     if (!request.has_bias) {
       using Fn = float (*)(
@@ -406,6 +468,9 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
   const auto profiler_symbols = requested_profiler_symbols(request);
   if (profiler_symbols.empty()) {
     throw std::runtime_error("CK Conv profiler symbol is required");
+  }
+  if (request.spatial_rank <= 0 || request.spatial_rank > 2) {
+    throw std::runtime_error("CK Conv profiler spatial_rank must be 1 or 2");
   }
   if (request.batch <= 0 || request.in_channels <= 0 || request.in_height <= 0 || request.in_width <= 0 ||
       request.out_channels <= 0 || request.kernel_h <= 0 || request.kernel_w <= 0 || request.out_height <= 0 ||

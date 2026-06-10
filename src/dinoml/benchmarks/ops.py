@@ -121,6 +121,7 @@ def benchmark_cases() -> list[BenchmarkCase]:
         ("sigmoid", lambda x, **_: dml.ops.sigmoid(x)),
         ("leaky_relu", lambda x, **_: dml.ops.leaky_relu(x, negative_slope=0.2)),
         ("hardtanh", lambda x, **_: dml.ops.hardtanh(x, min_value=-0.5, max_value=0.75)),
+        ("clamp", lambda x, **_: dml.ops.clamp(x, min=-0.5, max=0.75)),
         ("relu", lambda x, **_: dml.ops.relu(x)),
         ("nan_to_num", lambda x, **_: dml.ops.nan_to_num(x, nan_replacement=0.0, posinf_replacement=0.0, neginf_replacement=0.0)),
         ("clamp_nan_to_num", lambda x, **_: dml.ops.clamp_nan_to_num(x, clamp_min=-1.0, clamp_max=1.0, nan_replacement=0.0)),

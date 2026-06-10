@@ -644,6 +644,17 @@ def hardtanh(x0: Any, min_value: float = -1.0, max_value: float = 1.0) -> Tensor
     return Hardtanh.forward(x0, min_value=min_value, max_value=max_value)
 
 
+def clamp(x0: Any, min: Any | None = None, max: Any | None = None) -> Tensor:
+    if min is None and max is None:
+        raise ValueError("clamp requires at least one of min or max")
+    result = as_tensor(x0, dtype_hint=_dtype_hint((x0,), FLOAT_ELEMENTWISE_DTYPES))
+    if min is not None:
+        result = Max.forward(result, min)
+    if max is not None:
+        result = Min.forward(result, max)
+    return result
+
+
 def relu(x0: Any) -> Tensor:
     return Relu.forward(x0)
 
@@ -774,6 +785,7 @@ __all__ = [
     "sigmoid",
     "leaky_relu",
     "hardtanh",
+    "clamp",
     "relu",
     "nan_to_num",
     "clamp_nan_to_num",

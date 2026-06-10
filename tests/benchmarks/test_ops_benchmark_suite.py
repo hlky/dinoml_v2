@@ -12,6 +12,7 @@ def test_ops_benchmark_cases_are_individual_not_condensed():
 
     assert "add" in names
     assert "sub" in names
+    assert "clamp" in names
     assert "reduce_sum" in names
     assert "reduce_max" in names
     assert "reduce_sum_float16" in names

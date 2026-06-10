@@ -57,6 +57,51 @@ def _cutlass_conv_workload() -> ConvProfileWorkload:
     )
 
 
+def _cutlass_conv1d_workload() -> ConvProfileWorkload:
+    candidate = {
+        "candidate_id": "cand1",
+        "candidate_config_key": "cfg1",
+        "profiler_symbol": "profile_conv1d_symbol",
+        "status": "runtime",
+        "profiler_status": "runtime_profiler",
+    }
+    return ConvProfileWorkload(
+        node_id="n1",
+        op="conv1d_bias_add_relu",
+        dtype="float16",
+        kernel_symbol="kernel_conv1d_symbol",
+        profiler_symbol="profile_conv1d_symbol",
+        candidate_set_id="cutlass_conv1d_set",
+        candidate_set_key="cutlass_conv1d_set_key",
+        candidate_id="cand1",
+        candidate_config_key="cfg1",
+        candidate=candidate,
+        x_tensor="x",
+        weight_tensor="w",
+        bias_tensor="b",
+        residual_tensor="r",
+        output_tensor="y",
+        x_shape=(2, 8, 16),
+        weight_shape=(64, 8, 3),
+        bias_shape=(64,),
+        residual_shape=(2, 64, 8),
+        output_shape=(2, 64, 8),
+        conv_config={"stride": [2], "padding": [1], "dilation": [1]},
+        semantic_layout={},
+        provider_layout={},
+        layout_translation={},
+        weight_transform={},
+        temporary_buffers=(),
+        workspace_nbytes=0,
+        source_op=None,
+        bias_mode=None,
+        shape_source="static",
+        shape_case_id="case1",
+        dim_values={},
+        dim_sources={},
+    )
+
+
 def _cutlass_transposed_conv2d_workload() -> ConvProfileWorkload:
     candidate = {
         "candidate_id": "cand0",
@@ -172,6 +217,29 @@ def test_cutlass_transposed_conv2d_profiler_marks_bias_absent():
     assert calls[0]["c"] == workload.x_shape[1]
     assert calls[0]["out_c"] == workload.output_shape[1]
     assert calls[0]["residual_count"] == 0
+    assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
+
+
+def test_cutlass_conv1d_profiler_forwards_1d_shape_contract():
+    workload = _cutlass_conv1d_workload()
+    calls = []
+
+    class FakeModule:
+        def profile_conv(self, **kwargs):
+            calls.append(kwargs)
+            return [{"profiler_symbol": workload.profiler_symbol, "samples_ms": [0.23], "workspace_nbytes": 0}]
+
+    profiler = _CutlassConvProfiler(
+        {(workload.op, workload.dtype): FakeModule()},
+        {(workload.op, workload.dtype): [workload.candidate]},
+    )
+    rows = profiler.profile(workload, iterations=9, repeats=1)
+
+    assert calls[0]["spatial_rank"] == 1
+    assert calls[0]["w"] == workload.x_shape[2]
+    assert calls[0]["out_w"] == workload.output_shape[2]
+    assert calls[0]["kernel_w"] == workload.weight_shape[2]
+    assert calls[0]["residual_count"] == 1
     assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
 
 

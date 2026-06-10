@@ -680,30 +680,43 @@ def _ensure_cmake_cutlass_conv_archives(arch: str, kernel_manifest: Mapping[str,
     lib_dir = support_root / "lib"
     modules = _required_cutlass_conv_modules(kernel_manifest)
     archives = tuple(lib_dir / module["archive"] for module in modules)
+    build_profiler_bindings = os.environ.get("DINOML_BUILD_CUTLASS_CONV_PROFILERS") == "1"
+    profiler_link_targets = [module["target"] for module in modules]
+    profiler_bind_targets = [
+        f"dinoml_cutlass_conv_profiler_{module['op']}_{module['dtype']}_bind"
+        for module in modules
+    ]
     lib_dir.mkdir(parents=True, exist_ok=True)
     _prepare_cmake_build_dir(build_dir)
-    if any(not archive.exists() for archive in archives) or not build_dir.exists():
+    if any(not archive.exists() for archive in archives) or not build_dir.exists() or build_profiler_bindings:
+        configure_args = [
+            "cmake",
+            "-S",
+            str(repo_root),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DDINOML_ENABLE_CUDA=ON",
+            "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
+            "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
+            "-DDINOML_ENABLE_CUTLASS_CONV=ON",
+            "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
+            f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
+            f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
+            f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
+        ]
+        if build_profiler_bindings and profiler_link_targets:
+            configure_args.append(
+                "-DDINOML_CUTLASS_CONV_PROFILER_TARGETS=" + ";".join(profiler_link_targets)
+            )
         _run_cmake(
-            [
-                "cmake",
-                "-S",
-                str(repo_root),
-                "-B",
-                str(build_dir),
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-DDINOML_ENABLE_CUDA=ON",
-                "-DDINOML_ENABLE_CUTLASS_GEMM=OFF",
-                "-DDINOML_ENABLE_CUTLASS_BMM=OFF",
-                "-DDINOML_ENABLE_CUTLASS_CONV=ON",
-                "-DDINOML_ENABLE_LIBGGUF_CUDA=OFF",
-                f"-DCMAKE_CUDA_ARCHITECTURES={arch_num}",
-                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={lib_dir}",
-                f"-DCMAKE_ARCHIVE_OUTPUT_DIRECTORY={lib_dir}",
-                f"-DCMAKE_RUNTIME_OUTPUT_DIRECTORY={lib_dir}",
-            ],
+            configure_args,
             cwd=repo_root,
         )
     targets = [module["target"] for module in modules]
+    if build_profiler_bindings:
+        targets.extend(profiler_bind_targets)
     _run_cmake(
         [
             "cmake",

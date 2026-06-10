@@ -6,8 +6,12 @@ from pathlib import Path
 from dinoml.kernels.providers.cutlass.conv import (
     CONV_OPS,
     CONV_SUPPORTED_DTYPES,
+    CUTLASS_CONV1D_OPS,
     CUTLASS_TRANSPOSED_CONV_OPS,
     cutlass_conv_candidates,
+    cutlass_conv1d_input_pack_symbol,
+    cutlass_conv1d_output_unpack_symbol,
+    cutlass_conv1d_weight_pack_symbol,
     cutlass_conv_input_pack_symbol,
     cutlass_conv_output_unpack_symbol,
     cutlass_conv_weight_pack_symbol,
@@ -15,6 +19,41 @@ from dinoml.kernels.providers.cutlass.conv import (
     cutlass_transposed_conv_weight_pack_symbol,
     render_cutlass_conv_source,
 )
+
+
+def _conv1d_transform_helpers(dtype: str) -> list[dict[str, str]]:
+    return [
+        {
+            "symbol": cutlass_conv1d_input_pack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "activation",
+            "transform": "ncw_to_nwc_temporary",
+            "layout_from": "ncw",
+            "layout_to": "nwc",
+            "shape_order": ["n", "c", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+        {
+            "symbol": cutlass_conv1d_weight_pack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "weight",
+            "transform": "oiw_to_owi_temporary",
+            "layout_from": "oiw",
+            "layout_to": "owi",
+            "shape_order": ["o", "i", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+        {
+            "symbol": cutlass_conv1d_output_unpack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "output",
+            "transform": "nwc_to_ncw_temporary",
+            "layout_from": "nwc",
+            "layout_to": "ncw",
+            "shape_order": ["n", "c", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+    ]
 
 
 def _transform_helpers(dtype: str) -> list[dict[str, str]]:
@@ -95,6 +134,9 @@ def render_cutlass_conv_unit(op: str, dtype: str, source: Path) -> str:
     if op in CUTLASS_TRANSPOSED_CONV_OPS:
         candidates = cutlass_transposed_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
         transform_helpers = _transposed_transform_helpers(dtype)
+    elif op in CUTLASS_CONV1D_OPS:
+        candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
+        transform_helpers = _conv1d_transform_helpers(dtype)
     else:
         candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
         transform_helpers = _transform_helpers(dtype)

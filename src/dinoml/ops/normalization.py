@@ -165,13 +165,15 @@ class GroupNorm(OpDef):
     )
     infer_shape = infer_group_norm
     backend_kernels = {
-        "cpu": KernelBinding("generated_group_norm", "model", source_template="group_norm_cpu.cpp.j2"),
+        "cuda": KernelBinding("generated_group_norm", "model", source_template="group_norm_gpu"),
+        "rocm": KernelBinding("generated_group_norm", "model", source_template="group_norm_gpu"),
+        "cpu": KernelBinding("generated_group_norm", "model", source_template="group_norm_cpu"),
     }
     frontend = FrontendBinding("group_norm")
     allowed_dtypes = GROUP_NORM_DTYPES
     description = (
-        "Affine GroupNorm over the last channel dimension with NHWC-style channel-last layout and fp32 accumulation. "
-        "Currently lowered on CPU only; CUDA and ROCm compilation are rejected explicitly."
+        "Affine GroupNorm over the last channel dimension with NHWC-style channel-last layout and fp32 accumulation, "
+        "supported on CPU, CUDA, and ROCm for static non-batch dimensions."
     )
 
     @classmethod
@@ -210,13 +212,15 @@ class GroupNormSwish(OpDef):
     )
     infer_shape = infer_group_norm
     backend_kernels = {
-        "cpu": KernelBinding("generated_group_norm_swish", "model", source_template="group_norm_cpu.cpp.j2"),
+        "cuda": KernelBinding("generated_group_norm_swish", "model", source_template="group_norm_gpu"),
+        "rocm": KernelBinding("generated_group_norm_swish", "model", source_template="group_norm_gpu"),
+        "cpu": KernelBinding("generated_group_norm_swish", "model", source_template="group_norm_cpu"),
     }
     frontend = FrontendBinding("group_norm_swish")
     allowed_dtypes = GROUP_NORM_DTYPES
     description = (
-        "Fused GroupNorm followed by swish/silu over the normalized output. "
-        "Currently lowered on CPU only; CUDA and ROCm compilation are rejected explicitly."
+        "Fused GroupNorm followed by swish/silu over the normalized output, supported on CPU, CUDA, and ROCm "
+        "for static non-batch dimensions."
     )
 
     @classmethod

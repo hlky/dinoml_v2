@@ -32,8 +32,7 @@ EXPECTED_CUDA_NOT_ROCM: tuple[str, ...] = ()
 EXPECTED_ROCM_NOT_CUDA: tuple[str, ...] = ("flash_attention_bias", "flash_attention_static_kv_cache_bias")
 
 EXPECTED_BACKEND_BUCKETS = {
-    "cpu,cuda,rocm": 52,
-    "cpu": 2,
+    "cpu,cuda,rocm": 54,
     "cuda,rocm": 52,
     "rocm": 2,
     "fused/no direct": 39,

@@ -1,0 +1,95 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT weight,
+    const {{ storage_type }}* DINO_RESTRICT bias,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t batch) {
+  constexpr int64_t sample_size = {{ sample_size }};
+  constexpr int64_t spatial_size = {{ spatial_size }};
+  constexpr int64_t channels = {{ channels }};
+  constexpr int64_t num_groups = {{ num_groups }};
+  constexpr int64_t group_channels = {{ group_channels }};
+  constexpr int64_t group_size = {{ group_size }};
+  constexpr float eps = {{ eps_literal }};
+  constexpr float inv_group_size = {{ inv_group_size_literal }};
+  const int64_t job = static_cast<int64_t>(blockIdx.x);
+  if (job >= batch * num_groups) {
+    return;
+  }
+
+  extern __shared__ float shared[];
+  float* shared_sum = shared;
+  float* shared_sum_sq = shared + blockDim.x;
+  const int tid = threadIdx.x;
+  const int64_t batch_idx = job / num_groups;
+  const int64_t group_idx = job % num_groups;
+  const int64_t sample_base = batch_idx * sample_size;
+  const int64_t channel_base = group_idx * group_channels;
+
+  float thread_sum = 0.0f;
+  float thread_sum_sq = 0.0f;
+  for (int64_t idx = tid; idx < group_size; idx += blockDim.x) {
+    const int64_t spatial_idx = idx / group_channels;
+    const int64_t channel_idx = idx - spatial_idx * group_channels;
+    const int64_t offset = sample_base + spatial_idx * channels + channel_base + channel_idx;
+    const float value = dinoml::math::cast<float>(x[offset]);
+    thread_sum += value;
+    thread_sum_sq += value * value;
+  }
+  shared_sum[tid] = thread_sum;
+  shared_sum_sq[tid] = thread_sum_sq;
+  __syncthreads();
+
+  for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+    if (tid < stride) {
+      shared_sum[tid] += shared_sum[tid + stride];
+      shared_sum_sq[tid] += shared_sum_sq[tid + stride];
+    }
+    __syncthreads();
+  }
+
+  const float mean = shared_sum[0] * inv_group_size;
+  const float variance = fmaxf(shared_sum_sq[0] * inv_group_size - mean * mean, 0.0f);
+  const float inv_std = rsqrtf(variance + eps);
+
+  for (int64_t idx = tid; idx < group_size; idx += blockDim.x) {
+    const int64_t spatial_idx = idx / group_channels;
+    const int64_t channel_idx = idx - spatial_idx * group_channels;
+    const int64_t full_channel = channel_base + channel_idx;
+    const int64_t offset = sample_base + spatial_idx * channels + full_channel;
+    const float value = dinoml::math::cast<float>(x[offset]);
+    const float scale = dinoml::math::cast<float>(weight[full_channel]);
+    const float shift = dinoml::math::cast<float>(bias[full_channel]);
+    float output = (value - mean) * inv_std * scale + shift;
+{% if apply_swish %}
+    output = output / (1.0f + expf(-output));
+{% endif %}
+    y[offset] = dinoml::math::cast<{{ storage_type }}>(output);
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT weight,
+    const {{ storage_type }}* DINO_RESTRICT bias,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t sample_size = {{ sample_size }};
+  constexpr int64_t num_groups = {{ num_groups }};
+  if (runtime_total % sample_size != 0) {
+    return dino_runtime_fail("{{ func }} received non-sample-aligned element count");
+  }
+  const int64_t batch = runtime_total / sample_size;
+  const int64_t jobs = batch * num_groups;
+  if (jobs == 0) {
+    return 0;
+  }
+  const int block = {{ block_size }};
+  {{ kernel }}<<<static_cast<unsigned int>(jobs), block, block * 2 * sizeof(float), stream>>>(x, weight, bias, y, batch);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

@@ -5,6 +5,7 @@ import pytest
 
 import dinoml as dml
 from dinoml.reference import reference_numpy
+from dinoml.lowering.ops import render_generated_kernels
 
 
 def test_dml_nn_linear_layernorm_activation_trace_and_reference():
@@ -100,7 +101,7 @@ def test_dml_nn_group_norm_and_group_norm_swish_trace_and_reference():
 
 @pytest.mark.parametrize("backend", ("cuda", "rocm"))
 @pytest.mark.parametrize("op_name", ("group_norm", "group_norm_swish"))
-def test_group_norm_family_gpu_backends_are_rejected_explicitly(backend: str, op_name: str, tmp_path):
+def test_group_norm_family_gpu_generated_sources_render(backend: str, op_name: str):
     class Tiny(dml.nn.Module):
         def forward(self, x, weight, bias):
             op = getattr(dml.ops, op_name)
@@ -113,11 +114,13 @@ def test_group_norm_family_gpu_backends_are_rejected_explicitly(backend: str, op
             "weight": dml.TensorSpec([4], "float32"),
             "bias": dml.TensorSpec([4], "float32"),
         },
-        name=f"{op_name}_{backend}_unsupported",
+        name=f"{op_name}_{backend}_generated",
     )
+    tensor_map = {tensor["name"]: tensor for tensor in spec.ir["tensors"]}
+    source = render_generated_kernels(backend, spec.ir["nodes"], tensor_map)[0]
 
-    with pytest.raises(NotImplementedError, match=fr"{backend} backend does not support op {op_name}"):
-        dml.compile(spec, dml.Target(backend), tmp_path / f"{op_name}_{backend}.dinoml")
+    assert f"static int {op_name}_" in source
+    assert "received non-sample-aligned element count" in source
 
 
 def test_dml_nn_conv2d_embedding_and_sequential_exports():

@@ -5,7 +5,7 @@ import math
 from typing import Any, Mapping
 
 from dinoml.lowering.ops.base import OpLowering
-from dinoml.lowering.ops.template_rendering import render_op_template
+from dinoml.lowering.ops.template_rendering import render_op_template, supported_target_spec
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.ops.normalization import GROUP_NORM_DTYPES
@@ -15,9 +15,12 @@ _GROUP_NORM_OPS = frozenset({"group_norm", "group_norm_swish"})
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target != "cpu":
-        raise ValueError(f"Unsupported {node['op']} target: {target}")
-    return render_op_template("group_norm_cpu.cpp.j2", _context(node, tensor_map))
+    spec = supported_target_spec(target, str(node["op"]))
+    context = _context(target, node, tensor_map)
+    if not spec.is_gpu:
+        return render_op_template("group_norm_cpu.cpp.j2", context)
+    context.update(spec.gpu_template_context())
+    return render_op_template("group_norm_gpu.j2", context)
 
 
 def render_launch(
@@ -27,19 +30,20 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
-    if target != "cpu":
-        raise ValueError(f"Unsupported {node['op']} target: {target}")
+    spec = supported_target_spec(target, str(node["op"]))
     func = _function_name(node, tensor_map)
     x = _c_ident(node["inputs"][0])
     weight = _c_ident(node["inputs"][1])
     bias = _c_ident(node["inputs"][2])
     out = _c_ident(node["outputs"][0])
-    return f"if (int err = {func}(ptr_{x}, ptr_{weight}, ptr_{bias}, ptr_{out}, runtime_numel_{out})) return err;"
+    args = f"ptr_{x}, ptr_{weight}, ptr_{bias}, ptr_{out}, runtime_numel_{out}"
+    if not spec.is_gpu:
+        return f"if (int err = {func}({args})) return err;"
+    return f"if (int err = {func}({args}, {spec.stream_expr})) return err;"
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    if target != "cpu":
-        raise ValueError(f"Unsupported {node['op']} target: {target}")
+    supported_target_spec(target, str(node["op"]))
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -48,7 +52,7 @@ def generated_function_name(target: str, node: Mapping[str, Any], tensor_map: Ma
     return _function_name(node, tensor_map)
 
 
-def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     x_tensor = tensor_map[node["inputs"][0]]
     weight_tensor = tensor_map[node["inputs"][1]]
     bias_tensor = tensor_map[node["inputs"][2]]
@@ -61,17 +65,22 @@ def _context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]
     group_channels = channels // num_groups
     group_size = spatial_size * group_channels
     dtype = str(x_tensor["dtype"])
+    func = _function_name(node, tensor_map)
     return {
-        "func": _function_name(node, tensor_map),
+        "func": func,
+        "kernel": f"{func}_kernel",
         "cpu_storage_type": target_storage_type(dtype, "cpu"),
+        "storage_type": target_storage_type(dtype, target),
         "sample_size": sample_size,
         "spatial_size": spatial_size,
         "channels": channels,
         "num_groups": num_groups,
         "group_channels": group_channels,
+        "group_size": group_size,
         "eps_literal": _float_literal(float(node.get("attrs", {}).get("eps", 1e-5))),
         "inv_group_size_literal": _float_literal(1.0 / float(group_size)),
         "apply_swish": str(node["op"]) == "group_norm_swish",
+        "block_size": _gpu_block_size(group_size),
     }
 
 
@@ -137,6 +146,13 @@ def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str
 
 def _float_literal(value: float) -> str:
     return f"{float(value):.9g}f"
+
+
+def _gpu_block_size(group_size: int) -> int:
+    block = 1
+    while block < group_size and block < 256:
+        block *= 2
+    return max(32, block)
 
 
 GROUP_NORM_LOWERING = OpLowering(

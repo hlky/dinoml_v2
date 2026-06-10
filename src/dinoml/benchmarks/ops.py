@@ -426,16 +426,14 @@ def benchmark_cases() -> list[BenchmarkCase]:
         group_norm_specs,
         group_norm_inputs,
         lambda x, weight, bias: dml.ops.group_norm(x, 32, weight, bias, eps=1e-5),
-        template="group_norm_cpu.cpp.j2",
-        targets=("cpu",),
+        template="group_norm_gpu.j2",
     )
     add(
         "group_norm_swish",
         group_norm_specs,
         group_norm_inputs,
         lambda x, weight, bias: dml.ops.group_norm_swish(x, 32, weight, bias, eps=1e-5),
-        template="group_norm_cpu.cpp.j2",
-        targets=("cpu",),
+        template="group_norm_gpu.j2",
     )
     for dtype in ("float16", "bfloat16"):
         typed_group_norm_specs = {
@@ -456,16 +454,14 @@ def benchmark_cases() -> list[BenchmarkCase]:
             typed_group_norm_specs,
             typed_group_norm_inputs,
             lambda x, weight, bias: dml.ops.group_norm(x, 32, weight, bias, eps=1e-5),
-            template="group_norm_cpu.cpp.j2",
-            targets=("cpu",),
+            template="group_norm_gpu.j2",
         )
         add(
             f"group_norm_swish_{dtype}",
             typed_group_norm_specs,
             typed_group_norm_inputs,
             lambda x, weight, bias: dml.ops.group_norm_swish(x, 32, weight, bias, eps=1e-5),
-            template="group_norm_cpu.cpp.j2",
-            targets=("cpu",),
+            template="group_norm_gpu.j2",
         )
 
     add("get_timestep_embedding", {"timesteps": dml.TensorSpec([4096], "float32")}, {"timesteps": np.arange(4096, dtype=np.float32)}, lambda timesteps: dml.ops.get_timestep_embedding(timesteps, embedding_dim=128), template="get_timestep_embedding_gpu.j2")

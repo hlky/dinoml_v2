@@ -921,8 +921,6 @@ def group_norm_case() -> GraphCase:
         build_spec,
         inputs,
         frozenset({"group_norm", "group_norm_swish"}),
-        cuda=False,
-        rocm=False,
         atol=1e-4,
         rtol=1e-4,
     )
@@ -977,8 +975,6 @@ def dtype_group_norm_case() -> GraphCase:
         build_spec,
         inputs,
         frozenset({"group_norm", "group_norm_swish"}),
-        cuda=False,
-        rocm=False,
         atol=3e-2,
         rtol=3e-2,
     )

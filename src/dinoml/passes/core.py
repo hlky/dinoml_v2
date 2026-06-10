@@ -10,7 +10,12 @@ from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS, elementwise_output_dtype
 from dinoml.ops.positional import (
     GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS,
+    ROTARY_POSITIONAL_FUSION_OPS,
     infer_get_1d_rotary_pos_embed_component_shape_spec,
+    normalize_get_2d_rotary_pos_embed_attrs,
+    normalize_get_2d_rotary_pos_embed_lumina_attrs,
+    normalize_get_3d_rotary_pos_embed_allegro_attrs,
+    normalize_get_3d_rotary_pos_embed_attrs,
 )
 from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
 from dinoml.passes.memory_planning import plan_temporary_memory
@@ -35,6 +40,9 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
             _assign_tensor_shape_type(tensors[node["outputs"][0]], inputs[0]["shape"], inputs[0].get("shape_spec", inputs[0]["shape"]), inputs[0]["dtype"])
             _assign_tensor_shape_type(tensors[node["outputs"][1]], inputs[1]["shape"], inputs[1].get("shape_spec", inputs[1]["shape"]), inputs[1]["dtype"])
+            continue
+        if node["op"] in ROTARY_POSITIONAL_FUSION_OPS:
+            _assign_rotary_positional_fusion_shapes(node, tensors)
             continue
         if node["op"] in REDUCTION_OPS:
             expected_shape = infer_reduction_with_attrs(
@@ -89,6 +97,91 @@ def _assign_tensor_shape_type(
     tensor["layout"] = dense_layout(shape)
     tensor["dtype"] = str(dtype)
     tensor["nbytes"] = int(np.prod(shape, dtype=np.int64) * dtype_nbytes(str(dtype)))
+
+
+def _assign_rotary_positional_fusion_shapes(
+    node: Mapping[str, Any],
+    tensors: Mapping[str, Dict[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    attrs = node.get("attrs", {})
+    output_dtype = str(attrs.get("dtype", tensors[node["outputs"][0]]["dtype"]))
+    if op_name == "get_2d_rotary_pos_embed":
+        normalized = normalize_get_2d_rotary_pos_embed_attrs(
+            embed_dim=attrs.get("embed_dim"),
+            crop_start_h=attrs.get("crop_start_h"),
+            crop_start_w=attrs.get("crop_start_w"),
+            crop_stop_h=attrs.get("crop_stop_h"),
+            crop_stop_w=attrs.get("crop_stop_w"),
+            grid_h=attrs.get("grid_h"),
+            grid_w=attrs.get("grid_w"),
+            theta=attrs.get("theta", 10000.0),
+            use_real=attrs.get("use_real", True),
+        )
+        output_specs = [([int(normalized["grid_h"]) * int(normalized["grid_w"]), int(normalized["embed_dim"])], output_dtype)] * 2
+    elif op_name == "get_2d_rotary_pos_embed_lumina":
+        normalized = normalize_get_2d_rotary_pos_embed_lumina_attrs(
+            embed_dim=attrs.get("embed_dim"),
+            len_h=attrs.get("len_h"),
+            len_w=attrs.get("len_w"),
+            linear_factor=attrs.get("linear_factor", 1.0),
+            ntk_factor=attrs.get("ntk_factor", 1.0),
+        )
+        output_specs = [([int(normalized["len_h"]), int(normalized["len_w"]), int(normalized["embed_dim"]) // 2], output_dtype)] * 2
+    elif op_name == "get_3d_rotary_pos_embed":
+        normalized = normalize_get_3d_rotary_pos_embed_attrs(
+            embed_dim=attrs.get("embed_dim"),
+            crop_start_h=attrs.get("crop_start_h"),
+            crop_start_w=attrs.get("crop_start_w"),
+            crop_stop_h=attrs.get("crop_stop_h"),
+            crop_stop_w=attrs.get("crop_stop_w"),
+            grid_h=attrs.get("grid_h"),
+            grid_w=attrs.get("grid_w"),
+            temporal_size=attrs.get("temporal_size"),
+            theta=attrs.get("theta", 10000.0),
+            use_real=attrs.get("use_real", True),
+            grid_type=attrs.get("grid_type", "linspace"),
+            max_h=attrs.get("max_h", 0),
+            max_w=attrs.get("max_w", 0),
+        )
+        output_specs = [
+            (
+                [
+                    int(normalized["temporal_size"]) * int(normalized["grid_h"]) * int(normalized["grid_w"]),
+                    int(normalized["embed_dim"]),
+                ],
+                output_dtype,
+            )
+        ] * 2
+    elif op_name == "get_3d_rotary_pos_embed_allegro":
+        normalized = normalize_get_3d_rotary_pos_embed_allegro_attrs(
+            height=attrs.get("height"),
+            width=attrs.get("width"),
+            num_frames=attrs.get("num_frames"),
+            vae_scale_factor_spatial=attrs.get("vae_scale_factor_spatial", 8),
+            patch_size=attrs.get("patch_size", 2),
+            interpolation_scale_h=attrs.get("interpolation_scale_h", 2.0),
+            interpolation_scale_t=attrs.get("interpolation_scale_t", 2.2),
+            interpolation_scale_w=attrs.get("interpolation_scale_w", 2.0),
+            attention_head_dim=attrs.get("attention_head_dim", 96),
+        )
+        dim_axis = int(normalized["attention_head_dim"]) // 3
+        grid_shape = [1, int(normalized["num_frames"]) * int(normalized["grid_h"]) * int(normalized["grid_w"])]
+        output_specs = [
+            ([int(normalized["num_frames"]), dim_axis], output_dtype),
+            ([int(normalized["num_frames"]), dim_axis], output_dtype),
+            ([int(normalized["grid_h"]), dim_axis], output_dtype),
+            ([int(normalized["grid_h"]), dim_axis], output_dtype),
+            ([int(normalized["grid_w"]), dim_axis], output_dtype),
+            ([int(normalized["grid_w"]), dim_axis], output_dtype),
+            (grid_shape, "int64"),
+            (grid_shape, "int64"),
+            (grid_shape, "int64"),
+        ]
+    else:
+        raise ValidationError(f"Unsupported rotary positional fusion op: {op_name}")
+    for output_name, (shape, dtype) in zip(node["outputs"], output_specs):
+        _assign_tensor_shape_type(tensors[output_name], shape, shape, dtype)
 
 
 def _infer_node_shape_spec(

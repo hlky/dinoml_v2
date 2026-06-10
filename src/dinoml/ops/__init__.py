@@ -168,6 +168,10 @@ from dinoml.ops.internal import ShapeBufferCountTrue
 from dinoml.ops.normalization import add_layer_norm, group_norm, group_norm_swish, layer_norm, rms_norm, t5_layer_norm
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
 from dinoml.ops.positional import (
+    get_2d_rotary_pos_embed,
+    get_2d_rotary_pos_embed_lumina,
+    get_3d_rotary_pos_embed,
+    get_3d_rotary_pos_embed_allegro,
     get_1d_rotary_pos_embed,
     get_timestep_embedding,
     glm_ocr_text_rope,
@@ -356,6 +360,10 @@ __all__ = [
     "gemm_rrr_bias_sigmoid_mul_tanh",
     "gemm_rrr_bias_swish",
     "gemm_rrr_bias_tanh",
+    "get_2d_rotary_pos_embed",
+    "get_2d_rotary_pos_embed_lumina",
+    "get_3d_rotary_pos_embed",
+    "get_3d_rotary_pos_embed_allegro",
     "get_1d_rotary_pos_embed",
     "get_timestep_embedding",
     "glm_ocr_stitch_image_features",

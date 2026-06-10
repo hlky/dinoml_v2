@@ -1,0 +1,38 @@
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT real_out,
+    {{ storage_type }}* DINO_RESTRICT imag_out,
+    int64_t real_total,
+    int64_t imag_total) {
+  if (real_out == nullptr || imag_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t len_h = {{ len_h }};
+  constexpr int64_t len_w = {{ len_w }};
+  constexpr int64_t output_cols = {{ output_cols }};
+  constexpr int64_t quarter_dim = {{ quarter_dim }};
+  constexpr float neg_log_scaled_theta = {{ neg_log_scaled_theta_literal }};
+  constexpr float inv_linear_factor = {{ inv_linear_factor_literal }};
+  if (real_total != len_h * len_w * output_cols || imag_total != len_h * len_w * output_cols) {
+    return dino_runtime_fail("{{ func }} received mismatched output element counts");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t h_idx = 0; h_idx < len_h; ++h_idx) {
+    for (int64_t w_idx = 0; w_idx < len_w; ++w_idx) {
+      const int64_t base = (h_idx * len_w + w_idx) * output_cols;
+      for (int64_t dim_idx = 0; dim_idx < quarter_dim; ++dim_idx) {
+        const float exponent = (neg_log_scaled_theta * static_cast<float>(dim_idx)) / static_cast<float>(quarter_dim);
+        const float scale = expf(exponent) * inv_linear_factor;
+        const float angle_h = static_cast<float>(h_idx) * scale;
+        const float angle_w = static_cast<float>(w_idx) * scale;
+        const int64_t out_col = 2 * dim_idx;
+        real_out[base + out_col] = dinoml::math::cast<{{ storage_type }}>(cosf(angle_h));
+        imag_out[base + out_col] = dinoml::math::cast<{{ storage_type }}>(sinf(angle_h));
+        real_out[base + out_col + 1] = dinoml::math::cast<{{ storage_type }}>(cosf(angle_w));
+        imag_out[base + out_col + 1] = dinoml::math::cast<{{ storage_type }}>(sinf(angle_w));
+      }
+    }
+  }
+  return 0;
+}

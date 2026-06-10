@@ -918,6 +918,12 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
     }
+    rotary_allegro_grid_output_tensors = {
+        output_name
+        for node in ir["nodes"]
+        if node.get("op") == "get_3d_rotary_pos_embed_allegro" and len(node.get("outputs", [])) == 9
+        for output_name in node["outputs"][6:]
+    }
     flash_attention_static_kv_cache_seqlens_tensors = {
         node["inputs"][5]
         for node in ir["nodes"]
@@ -1084,6 +1090,28 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"unsupported compiled dtypes: {[output_dtype]}"
                 )
             continue
+        if node.get("op") in {
+            "get_2d_rotary_pos_embed",
+            "get_2d_rotary_pos_embed_lumina",
+            "get_3d_rotary_pos_embed",
+            "get_3d_rotary_pos_embed_allegro",
+        }:
+            output_dtypes = [str(tensor_map[name]["dtype"]) for name in node["outputs"]]
+            float_dtypes = output_dtypes if node.get("op") != "get_3d_rotary_pos_embed_allegro" else output_dtypes[:6]
+            unsupported_float_dtypes = [dtype for dtype in float_dtypes if dtype not in {"float16", "float32", "bfloat16"}]
+            if unsupported_float_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports float outputs ['float16', 'float32', 'bfloat16']; "
+                    f"unsupported compiled dtypes: {unsupported_float_dtypes}"
+                )
+            if node.get("op") == "get_3d_rotary_pos_embed_allegro":
+                grid_dtypes = output_dtypes[6:]
+                if any(dtype != "int64" for dtype in grid_dtypes):
+                    raise NotImplementedError(
+                        "Op get_3d_rotary_pos_embed_allegro grid outputs must use int64; "
+                        f"unsupported compiled dtypes: {grid_dtypes}"
+                    )
+            continue
         if node.get("op") in {"flash_attention_static_kv_cache", "flash_attention_static_kv_cache_bias"}:
             op_name = str(node["op"])
             data_input_names = list(node["inputs"][:5])
@@ -1137,6 +1165,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_input_tensors
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
+            and str(tensor["name"]) not in rotary_allegro_grid_output_tensors
             and str(tensor["name"]) not in flash_attention_static_kv_cache_seqlens_tensors
             and str(tensor["name"]) not in flash_attention_varlen_cu_seqlens_tensors
             and str(tensor["name"]) not in fused_integer_eq_tensors

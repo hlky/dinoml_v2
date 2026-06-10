@@ -1,0 +1,90 @@
+__global__ void {{ kernel }}_table(
+    {{ storage_type }}* DINO_RESTRICT cos_out,
+    {{ storage_type }}* DINO_RESTRICT sin_out,
+    int64_t rows,
+    float inv_interp) {
+  constexpr int64_t dim_axis = {{ dim_axis }};
+  constexpr int64_t pair_dim = {{ pair_dim }};
+  constexpr float neg_log_theta = {{ neg_log_theta_literal }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t total = rows * dim_axis;
+  if (linear_idx >= total) {
+    return;
+  }
+  const int64_t row = linear_idx / dim_axis;
+  const int64_t col = linear_idx - row * dim_axis;
+  const int64_t pair_idx = col < pair_dim ? col : (col - pair_dim);
+  const float exponent = (neg_log_theta * static_cast<float>(pair_idx)) / static_cast<float>(pair_dim);
+  const float angle = (static_cast<float>(row) * inv_interp) * expf(exponent);
+  cos_out[linear_idx] = dinoml::math::cast<{{ storage_type }}>(cosf(angle));
+  sin_out[linear_idx] = dinoml::math::cast<{{ storage_type }}>(sinf(angle));
+}
+
+__global__ void {{ kernel }}_grid(
+    {{ grid_storage_type }}* DINO_RESTRICT grid_t,
+    {{ grid_storage_type }}* DINO_RESTRICT grid_h_out,
+    {{ grid_storage_type }}* DINO_RESTRICT grid_w_out) {
+  constexpr int64_t num_frames = {{ num_frames }};
+  constexpr int64_t grid_h = {{ grid_h }};
+  constexpr int64_t grid_w = {{ grid_w }};
+  const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t total = num_frames * grid_h * grid_w;
+  if (idx >= total) {
+    return;
+  }
+  const int64_t t_idx = idx / (grid_h * grid_w);
+  const int64_t spatial_idx = idx - t_idx * grid_h * grid_w;
+  const int64_t h_idx = spatial_idx / grid_w;
+  const int64_t w_idx = spatial_idx - h_idx * grid_w;
+  grid_t[idx] = static_cast<{{ grid_storage_type }}>(t_idx);
+  grid_h_out[idx] = static_cast<{{ grid_storage_type }}>(h_idx);
+  grid_w_out[idx] = static_cast<{{ grid_storage_type }}>(w_idx);
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT t_cos,
+    {{ storage_type }}* DINO_RESTRICT t_sin,
+    {{ storage_type }}* DINO_RESTRICT h_cos,
+    {{ storage_type }}* DINO_RESTRICT h_sin,
+    {{ storage_type }}* DINO_RESTRICT w_cos,
+    {{ storage_type }}* DINO_RESTRICT w_sin,
+    {{ grid_storage_type }}* DINO_RESTRICT grid_t,
+    {{ grid_storage_type }}* DINO_RESTRICT grid_h_out,
+    {{ grid_storage_type }}* DINO_RESTRICT grid_w_out,
+    int64_t t_cos_total,
+    int64_t t_sin_total,
+    int64_t h_cos_total,
+    int64_t h_sin_total,
+    int64_t w_cos_total,
+    int64_t w_sin_total,
+    int64_t grid_t_total,
+    int64_t grid_h_total,
+    int64_t grid_w_total,
+    {{ gpu_stream_type }} stream) {
+  if (t_cos == nullptr || t_sin == nullptr || h_cos == nullptr || h_sin == nullptr || w_cos == nullptr || w_sin == nullptr || grid_t == nullptr || grid_h_out == nullptr || grid_w_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t num_frames = {{ num_frames }};
+  constexpr int64_t grid_h = {{ grid_h }};
+  constexpr int64_t grid_w = {{ grid_w }};
+  constexpr int64_t dim_axis = {{ dim_axis }};
+  constexpr int64_t grid_total = num_frames * grid_h * grid_w;
+  if (
+      t_cos_total != num_frames * dim_axis || t_sin_total != num_frames * dim_axis ||
+      h_cos_total != grid_h * dim_axis || h_sin_total != grid_h * dim_axis ||
+      w_cos_total != grid_w * dim_axis || w_sin_total != grid_w * dim_axis ||
+      grid_t_total != grid_total || grid_h_total != grid_total || grid_w_total != grid_total) {
+    return dino_runtime_fail("{{ func }} received mismatched output element counts");
+  }
+  const int block = {{ block_size }};
+  const int grid_t_blocks = static_cast<int>(((num_frames * dim_axis) + block - 1) / block);
+  const int grid_h_blocks = static_cast<int>(((grid_h * dim_axis) + block - 1) / block);
+  const int grid_w_blocks = static_cast<int>(((grid_w * dim_axis) + block - 1) / block);
+  const int grid_blocks = static_cast<int>((grid_total + block - 1) / block);
+  {{ kernel }}_table<<<grid_t_blocks, block, 0, stream>>>(t_cos, t_sin, num_frames, {{ inv_interp_t_literal }});
+  {{ kernel }}_table<<<grid_h_blocks, block, 0, stream>>>(h_cos, h_sin, grid_h, {{ inv_interp_h_literal }});
+  {{ kernel }}_table<<<grid_w_blocks, block, 0, stream>>>(w_cos, w_sin, grid_w, {{ inv_interp_w_literal }});
+  {{ kernel }}_grid<<<grid_blocks, block, 0, stream>>>(grid_t, grid_h_out, grid_w_out);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

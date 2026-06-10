@@ -1047,6 +1047,83 @@ def dtype_positional_case() -> GraphCase:
     )
 
 
+class RotaryPositionalFusionModule(dml.Module):
+    def forward(self):
+        cos2, sin2 = dml.ops.get_2d_rotary_pos_embed(
+            embed_dim=64,
+            crops_coords=((0.0, 0.0), (1.5, 2.25)),
+            grid_size=(4, 5),
+        )
+        real2, imag2 = dml.ops.get_2d_rotary_pos_embed_lumina(
+            embed_dim=64,
+            len_h=4,
+            len_w=5,
+            linear_factor=1.25,
+            ntk_factor=1.5,
+        )
+        cos3, sin3 = dml.ops.get_3d_rotary_pos_embed(
+            embed_dim=64,
+            crops_coords=((0.0, 0.0), (1.25, 2.0)),
+            grid_size=(3, 4),
+            temporal_size=2,
+            grid_type="slice",
+            max_size=(6, 7),
+        )
+        (freqs, grids) = dml.ops.get_3d_rotary_pos_embed_allegro(
+            height=96,
+            width=128,
+            num_frames=3,
+            vae_scale_factor_spatial=8,
+            patch_size=2,
+            interpolation_scale_h=2.0,
+            interpolation_scale_t=2.2,
+            interpolation_scale_w=2.0,
+            attention_head_dim=96,
+        )
+        (t_freqs, h_freqs, w_freqs) = freqs
+        t_cos, t_sin = t_freqs
+        h_cos, h_sin = h_freqs
+        w_cos, w_sin = w_freqs
+        grid_t, grid_h, grid_w = grids
+        return {
+            "rotary2d_cos": dml.ops.output(cos2, "rotary2d_cos"),
+            "rotary2d_sin": dml.ops.output(sin2, "rotary2d_sin"),
+            "rotary2d_lumina_real": dml.ops.output(real2, "rotary2d_lumina_real"),
+            "rotary2d_lumina_imag": dml.ops.output(imag2, "rotary2d_lumina_imag"),
+            "rotary3d_cos": dml.ops.output(cos3, "rotary3d_cos"),
+            "rotary3d_sin": dml.ops.output(sin3, "rotary3d_sin"),
+            "allegro_t_cos": dml.ops.output(t_cos, "allegro_t_cos"),
+            "allegro_t_sin": dml.ops.output(t_sin, "allegro_t_sin"),
+            "allegro_h_cos": dml.ops.output(h_cos, "allegro_h_cos"),
+            "allegro_h_sin": dml.ops.output(h_sin, "allegro_h_sin"),
+            "allegro_w_cos": dml.ops.output(w_cos, "allegro_w_cos"),
+            "allegro_w_sin": dml.ops.output(w_sin, "allegro_w_sin"),
+            "allegro_grid_t": dml.ops.output(grid_t, "allegro_grid_t"),
+            "allegro_grid_h": dml.ops.output(grid_h, "allegro_grid_h"),
+            "allegro_grid_w": dml.ops.output(grid_w, "allegro_grid_w"),
+        }
+
+
+def rotary_positional_fusions_case() -> GraphCase:
+    return GraphCase(
+        "rotary_positional_fusions",
+        lambda: dml.trace(RotaryPositionalFusionModule(), inputs={}, name="fresh_rotary_positional_fusions"),
+        lambda: {},
+        frozenset(
+            {
+                "get_2d_rotary_pos_embed",
+                "get_2d_rotary_pos_embed_lumina",
+                "get_3d_rotary_pos_embed",
+                "get_3d_rotary_pos_embed_allegro",
+            }
+        ),
+        rocm=True,
+        cuda=True,
+        atol=1e-4,
+        rtol=1e-4,
+    )
+
+
 class VisionLayoutModule(dml.Module):
     def forward(self, x_shuffle, x_unshuffle):
         return {
@@ -1347,6 +1424,7 @@ def standard_cases() -> list[GraphCase]:
         dtype_group_norm_case(),
         positional_case(),
         dtype_positional_case(),
+        rotary_positional_fusions_case(),
         vision_layout_case(),
         embedding_case(),
         dtype_embedding_case(),

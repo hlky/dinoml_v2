@@ -1,0 +1,58 @@
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT cos_out,
+    {{ storage_type }}* DINO_RESTRICT sin_out) {
+  constexpr int64_t rows = {{ rows }};
+  constexpr int64_t half_embed_dim = {{ half_embed_dim }};
+  constexpr int64_t embed_dim = {{ embed_dim }};
+  constexpr int64_t pair_dim = {{ pair_dim }};
+  constexpr int64_t grid_h = {{ grid_h }};
+  constexpr int64_t grid_w = {{ grid_w }};
+  constexpr float crop_start_h = {{ crop_start_h_literal }};
+  constexpr float crop_start_w = {{ crop_start_w_literal }};
+  constexpr float grid_h_step = {{ grid_h_step_literal }};
+  constexpr float grid_w_step = {{ grid_w_step_literal }};
+  constexpr float neg_log_theta = {{ neg_log_theta_literal }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t total = rows * half_embed_dim;
+  if (linear_idx >= total) {
+    return;
+  }
+  const int64_t row = linear_idx / half_embed_dim;
+  const int64_t col = linear_idx - row * half_embed_dim;
+  const int64_t h_idx = row / grid_w;
+  const int64_t w_idx = row - h_idx * grid_w;
+  const float first_pos = crop_start_w + static_cast<float>(w_idx) * grid_w_step;
+  const float second_pos = crop_start_h + static_cast<float>(h_idx) * grid_h_step;
+  const int64_t pair_idx = col / 2;
+  const float exponent = (neg_log_theta * static_cast<float>(pair_idx)) / static_cast<float>(pair_dim);
+  const float scale = expf(exponent);
+  const float first_angle = first_pos * scale;
+  const float second_angle = second_pos * scale;
+  const int64_t base = row * embed_dim;
+  cos_out[base + col] = dinoml::math::cast<{{ storage_type }}>(cosf(first_angle));
+  sin_out[base + col] = dinoml::math::cast<{{ storage_type }}>(sinf(first_angle));
+  cos_out[base + half_embed_dim + col] = dinoml::math::cast<{{ storage_type }}>(cosf(second_angle));
+  sin_out[base + half_embed_dim + col] = dinoml::math::cast<{{ storage_type }}>(sinf(second_angle));
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT cos_out,
+    {{ storage_type }}* DINO_RESTRICT sin_out,
+    int64_t cos_total,
+    int64_t sin_total,
+    {{ gpu_stream_type }} stream) {
+  if (cos_out == nullptr || sin_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t rows = {{ rows }};
+  constexpr int64_t embed_dim = {{ embed_dim }};
+  if (cos_total != rows * embed_dim || sin_total != rows * embed_dim) {
+    return dino_runtime_fail("{{ func }} received mismatched output element counts");
+  }
+  const int block = {{ block_size }};
+  const int64_t total = rows * {{ half_embed_dim }};
+  const int grid = static_cast<int>((total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(cos_out, sin_out);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

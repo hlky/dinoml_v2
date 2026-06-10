@@ -60,6 +60,7 @@ from dinoml.lowering.ops.qwen2_5_vl_stitch_image_features import QWEN2_5_VL_STIT
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
+from dinoml.lowering.ops.rotary_positional_fusions import ROTARY_POSITIONAL_FUSION_LOWERINGS
 from dinoml.lowering.ops.runtime_index_select import RUNTIME_INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.shape_buffer_count_true import SHAPE_BUFFER_COUNT_TRUE_LOWERING
 from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
@@ -133,6 +134,7 @@ OP_LOWERINGS.update(GEMM_LOWERINGS)
 OP_LOWERINGS.update(BMM_LOWERINGS)
 OP_LOWERINGS.update(TOPK_LOWERINGS)
 OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
+OP_LOWERINGS.update(ROTARY_POSITIONAL_FUSION_LOWERINGS)
 OP_LOWERINGS.update(PERMUTE_LOWERINGS)
 
 

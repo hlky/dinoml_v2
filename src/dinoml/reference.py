@@ -11,7 +11,13 @@ from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims
 from dinoml.shapes import evaluate_symbolic_int
-from dinoml.ops.positional import normalize_get_1d_rotary_pos_embed_attrs
+from dinoml.ops.positional import (
+    normalize_get_1d_rotary_pos_embed_attrs,
+    normalize_get_2d_rotary_pos_embed_attrs,
+    normalize_get_2d_rotary_pos_embed_lumina_attrs,
+    normalize_get_3d_rotary_pos_embed_allegro_attrs,
+    normalize_get_3d_rotary_pos_embed_attrs,
+)
 
 
 def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -112,6 +118,25 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "get_2d_rotary_pos_embed":
+            cos_name, sin_name = node["outputs"]
+            cos_out, sin_out = _execute_get_2d_rotary_pos_embed(node.get("attrs", {}))
+            values[cos_name] = _store_reference(cos_out, _tensor_dtype(ir, cos_name))
+            values[sin_name] = _store_reference(sin_out, _tensor_dtype(ir, sin_name))
+        elif node["op"] == "get_2d_rotary_pos_embed_lumina":
+            real_name, imag_name = node["outputs"]
+            real_out, imag_out = _execute_get_2d_rotary_pos_embed_lumina(node.get("attrs", {}))
+            values[real_name] = _store_reference(real_out, _tensor_dtype(ir, real_name))
+            values[imag_name] = _store_reference(imag_out, _tensor_dtype(ir, imag_name))
+        elif node["op"] == "get_3d_rotary_pos_embed":
+            cos_name, sin_name = node["outputs"]
+            cos_out, sin_out = _execute_get_3d_rotary_pos_embed(node.get("attrs", {}))
+            values[cos_name] = _store_reference(cos_out, _tensor_dtype(ir, cos_name))
+            values[sin_name] = _store_reference(sin_out, _tensor_dtype(ir, sin_name))
+        elif node["op"] == "get_3d_rotary_pos_embed_allegro":
+            outputs = _execute_get_3d_rotary_pos_embed_allegro(node.get("attrs", {}))
+            for output_name, output_value in zip(node["outputs"], outputs):
+                values[output_name] = _store_reference(output_value, _tensor_dtype(ir, output_name))
         elif node["op"] == "glm_ocr_text_rope":
             q_name, k_name = node["outputs"]
             q_out, k_out = _execute_glm_ocr_text_rope(
@@ -934,6 +959,243 @@ def _execute_get_1d_rotary_pos_embed_component(
     if bool(normalized["repeat_interleave_real"]):
         return np.repeat(base, 2, axis=1).astype(np.float32, copy=False)
     return np.concatenate([base, base], axis=1).astype(np.float32, copy=False)
+
+
+def _execute_get_2d_rotary_pos_embed(attrs: Mapping[str, object]) -> tuple[np.ndarray, np.ndarray]:
+    normalized = normalize_get_2d_rotary_pos_embed_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        crop_start_h=attrs.get("crop_start_h"),
+        crop_start_w=attrs.get("crop_start_w"),
+        crop_stop_h=attrs.get("crop_stop_h"),
+        crop_stop_w=attrs.get("crop_stop_w"),
+        grid_h=attrs.get("grid_h"),
+        grid_w=attrs.get("grid_w"),
+        theta=attrs.get("theta", 10000.0),
+        use_real=attrs.get("use_real", True),
+    )
+    grid_h = int(normalized["grid_h"])
+    grid_w = int(normalized["grid_w"])
+    h_positions = np.linspace(
+        float(normalized["crop_start_h"]),
+        float(normalized["crop_stop_h"]) * float(grid_h - 1) / float(grid_h),
+        num=grid_h,
+        dtype=np.float32,
+    )
+    w_positions = np.linspace(
+        float(normalized["crop_start_w"]),
+        float(normalized["crop_stop_w"]) * float(grid_w - 1) / float(grid_w),
+        num=grid_w,
+        dtype=np.float32,
+    )
+    grid_0, grid_1 = np.meshgrid(w_positions, h_positions, indexing="xy")
+    rotary_attrs = {
+        "dim": int(normalized["embed_dim"]) // 2,
+        "theta": float(normalized["theta"]),
+        "use_real": True,
+        "linear_factor": 1.0,
+        "ntk_factor": 1.0,
+        "repeat_interleave_real": True,
+    }
+    cos_h = _execute_get_1d_rotary_pos_embed_component(grid_0.reshape(-1), rotary_attrs, output_kind="cos")
+    sin_h = _execute_get_1d_rotary_pos_embed_component(grid_0.reshape(-1), rotary_attrs, output_kind="sin")
+    cos_w = _execute_get_1d_rotary_pos_embed_component(grid_1.reshape(-1), rotary_attrs, output_kind="cos")
+    sin_w = _execute_get_1d_rotary_pos_embed_component(grid_1.reshape(-1), rotary_attrs, output_kind="sin")
+    return (
+        np.concatenate([cos_h, cos_w], axis=1).astype(np.float32, copy=False),
+        np.concatenate([sin_h, sin_w], axis=1).astype(np.float32, copy=False),
+    )
+
+
+def _execute_get_2d_rotary_pos_embed_lumina(attrs: Mapping[str, object]) -> tuple[np.ndarray, np.ndarray]:
+    normalized = normalize_get_2d_rotary_pos_embed_lumina_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        len_h=attrs.get("len_h"),
+        len_w=attrs.get("len_w"),
+        linear_factor=attrs.get("linear_factor", 1.0),
+        ntk_factor=attrs.get("ntk_factor", 1.0),
+    )
+    embed_dim = int(normalized["embed_dim"])
+    len_h = int(normalized["len_h"])
+    len_w = int(normalized["len_w"])
+    rotary_attrs = {
+        "dim": embed_dim // 2,
+        "theta": 10000.0,
+        "use_real": False,
+        "linear_factor": float(normalized["linear_factor"]),
+        "ntk_factor": float(normalized["ntk_factor"]),
+        "repeat_interleave_real": True,
+    }
+    pos_h = np.arange(len_h, dtype=np.float32)
+    pos_w = np.arange(len_w, dtype=np.float32)
+    real_h = _execute_get_1d_rotary_pos_embed_component(pos_h, rotary_attrs, output_kind="cos")
+    imag_h = _execute_get_1d_rotary_pos_embed_component(pos_h, rotary_attrs, output_kind="sin")
+    real_w = _execute_get_1d_rotary_pos_embed_component(pos_w, rotary_attrs, output_kind="cos")
+    imag_w = _execute_get_1d_rotary_pos_embed_component(pos_w, rotary_attrs, output_kind="sin")
+    quarter_dim = embed_dim // 4
+    real = np.empty((len_h, len_w, embed_dim // 2), dtype=np.float32)
+    imag = np.empty_like(real)
+    for h_idx in range(len_h):
+        for w_idx in range(len_w):
+            for dim_idx in range(quarter_dim):
+                base = 2 * dim_idx
+                real[h_idx, w_idx, base] = real_h[h_idx, dim_idx]
+                imag[h_idx, w_idx, base] = imag_h[h_idx, dim_idx]
+                real[h_idx, w_idx, base + 1] = real_w[w_idx, dim_idx]
+                imag[h_idx, w_idx, base + 1] = imag_w[w_idx, dim_idx]
+    return real, imag
+
+
+def _execute_get_3d_rotary_pos_embed(attrs: Mapping[str, object]) -> tuple[np.ndarray, np.ndarray]:
+    normalized = normalize_get_3d_rotary_pos_embed_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        crop_start_h=attrs.get("crop_start_h"),
+        crop_start_w=attrs.get("crop_start_w"),
+        crop_stop_h=attrs.get("crop_stop_h"),
+        crop_stop_w=attrs.get("crop_stop_w"),
+        grid_h=attrs.get("grid_h"),
+        grid_w=attrs.get("grid_w"),
+        temporal_size=attrs.get("temporal_size"),
+        theta=attrs.get("theta", 10000.0),
+        use_real=attrs.get("use_real", True),
+        grid_type=attrs.get("grid_type", "linspace"),
+        max_h=attrs.get("max_h", 0),
+        max_w=attrs.get("max_w", 0),
+    )
+    embed_dim = int(normalized["embed_dim"])
+    grid_h = int(normalized["grid_h"])
+    grid_w = int(normalized["grid_w"])
+    temporal_size = int(normalized["temporal_size"])
+    if str(normalized["grid_type"]) == "linspace":
+        h_positions = np.linspace(
+            float(normalized["crop_start_h"]),
+            float(normalized["crop_stop_h"]) * float(grid_h - 1) / float(grid_h),
+            num=grid_h,
+            dtype=np.float32,
+        )
+        w_positions = np.linspace(
+            float(normalized["crop_start_w"]),
+            float(normalized["crop_stop_w"]) * float(grid_w - 1) / float(grid_w),
+            num=grid_w,
+            dtype=np.float32,
+        )
+        t_positions = np.linspace(
+            0.0,
+            float(temporal_size) * float(temporal_size - 1) / float(temporal_size),
+            num=temporal_size,
+            dtype=np.float32,
+        )
+    else:
+        h_positions = np.arange(int(normalized["max_h"]), dtype=np.float32)
+        w_positions = np.arange(int(normalized["max_w"]), dtype=np.float32)
+        t_positions = np.arange(temporal_size, dtype=np.float32)
+    dim_t = embed_dim // 4
+    dim_h = (embed_dim // 8) * 3
+    dim_w = (embed_dim // 8) * 3
+    rotary_t = {
+        "dim": dim_t,
+        "theta": float(normalized["theta"]),
+        "use_real": True,
+        "linear_factor": 1.0,
+        "ntk_factor": 1.0,
+        "repeat_interleave_real": True,
+    }
+    rotary_h = {
+        "dim": dim_h,
+        "theta": float(normalized["theta"]),
+        "use_real": True,
+        "linear_factor": 1.0,
+        "ntk_factor": 1.0,
+        "repeat_interleave_real": True,
+    }
+    rotary_w = {
+        "dim": dim_w,
+        "theta": float(normalized["theta"]),
+        "use_real": True,
+        "linear_factor": 1.0,
+        "ntk_factor": 1.0,
+        "repeat_interleave_real": True,
+    }
+    t_cos = _execute_get_1d_rotary_pos_embed_component(t_positions, rotary_t, output_kind="cos")
+    t_sin = _execute_get_1d_rotary_pos_embed_component(t_positions, rotary_t, output_kind="sin")
+    h_cos = _execute_get_1d_rotary_pos_embed_component(h_positions, rotary_h, output_kind="cos")
+    h_sin = _execute_get_1d_rotary_pos_embed_component(h_positions, rotary_h, output_kind="sin")
+    w_cos = _execute_get_1d_rotary_pos_embed_component(w_positions, rotary_w, output_kind="cos")
+    w_sin = _execute_get_1d_rotary_pos_embed_component(w_positions, rotary_w, output_kind="sin")
+    if str(normalized["grid_type"]) == "slice":
+        h_cos = h_cos[:grid_h]
+        h_sin = h_sin[:grid_h]
+        w_cos = w_cos[:grid_w]
+        w_sin = w_sin[:grid_w]
+
+    def _combine(freq_t: np.ndarray, freq_h: np.ndarray, freq_w: np.ndarray) -> np.ndarray:
+        freq_t_b = np.broadcast_to(freq_t[:, None, None, :], (temporal_size, grid_h, grid_w, freq_t.shape[1]))
+        freq_h_b = np.broadcast_to(freq_h[None, :, None, :], (temporal_size, grid_h, grid_w, freq_h.shape[1]))
+        freq_w_b = np.broadcast_to(freq_w[None, None, :, :], (temporal_size, grid_h, grid_w, freq_w.shape[1]))
+        return np.concatenate([freq_t_b, freq_h_b, freq_w_b], axis=-1).reshape(temporal_size * grid_h * grid_w, -1)
+
+    return (
+        _combine(t_cos, h_cos, w_cos).astype(np.float32, copy=False),
+        _combine(t_sin, h_sin, w_sin).astype(np.float32, copy=False),
+    )
+
+
+def _execute_get_3d_rotary_pos_embed_allegro(attrs: Mapping[str, object]) -> tuple[np.ndarray, ...]:
+    normalized = normalize_get_3d_rotary_pos_embed_allegro_attrs(
+        height=attrs.get("height"),
+        width=attrs.get("width"),
+        num_frames=attrs.get("num_frames"),
+        vae_scale_factor_spatial=attrs.get("vae_scale_factor_spatial", 8),
+        patch_size=attrs.get("patch_size", 2),
+        interpolation_scale_h=attrs.get("interpolation_scale_h", 2.0),
+        interpolation_scale_t=attrs.get("interpolation_scale_t", 2.2),
+        interpolation_scale_w=attrs.get("interpolation_scale_w", 2.0),
+        attention_head_dim=attrs.get("attention_head_dim", 96),
+    )
+    num_frames = int(normalized["num_frames"])
+    grid_h = int(normalized["grid_h"])
+    grid_w = int(normalized["grid_w"])
+    dim_axis = int(normalized["attention_head_dim"]) // 3
+    t_positions = np.linspace(
+        0.0,
+        float(num_frames) * float(num_frames - 1) / float(num_frames),
+        num=num_frames,
+        dtype=np.float32,
+    ) / np.float32(normalized["interpolation_scale_t"])
+    h_positions = np.linspace(0.0, float(grid_h - 1), num=grid_h, dtype=np.float32) / np.float32(
+        normalized["interpolation_scale_h"]
+    )
+    w_positions = np.linspace(0.0, float(grid_w - 1), num=grid_w, dtype=np.float32) / np.float32(
+        normalized["interpolation_scale_w"]
+    )
+    rotary_attrs = {
+        "dim": dim_axis,
+        "theta": 10000.0,
+        "use_real": True,
+        "linear_factor": 1.0,
+        "ntk_factor": 1.0,
+        "repeat_interleave_real": False,
+    }
+    t_cos = _execute_get_1d_rotary_pos_embed_component(t_positions, rotary_attrs, output_kind="cos")
+    t_sin = _execute_get_1d_rotary_pos_embed_component(t_positions, rotary_attrs, output_kind="sin")
+    h_cos = _execute_get_1d_rotary_pos_embed_component(h_positions, rotary_attrs, output_kind="cos")
+    h_sin = _execute_get_1d_rotary_pos_embed_component(h_positions, rotary_attrs, output_kind="sin")
+    w_cos = _execute_get_1d_rotary_pos_embed_component(w_positions, rotary_attrs, output_kind="cos")
+    w_sin = _execute_get_1d_rotary_pos_embed_component(w_positions, rotary_attrs, output_kind="sin")
+    grid_t_vals = np.arange(num_frames, dtype=np.int64)
+    grid_h_vals = np.arange(grid_h, dtype=np.int64)
+    grid_w_vals = np.arange(grid_w, dtype=np.int64)
+    grid_t, grid_h_arr, grid_w_arr = np.meshgrid(grid_t_vals, grid_h_vals, grid_w_vals, indexing="ij")
+    return (
+        t_cos.astype(np.float32, copy=False),
+        t_sin.astype(np.float32, copy=False),
+        h_cos.astype(np.float32, copy=False),
+        h_sin.astype(np.float32, copy=False),
+        w_cos.astype(np.float32, copy=False),
+        w_sin.astype(np.float32, copy=False),
+        grid_t.reshape(1, -1),
+        grid_h_arr.reshape(1, -1),
+        grid_w_arr.reshape(1, -1),
+    )
 
 
 def _execute_glm_ocr_text_rope(

@@ -22,8 +22,15 @@ from dinoml.ops.elementwise import (
     elementwise_output_dtype,
 )
 from dinoml.ops.positional import (
+    GET_3D_ROTARY_POS_EMBED_ALLEGRO_DTYPES,
     GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS,
     GET_1D_ROTARY_POS_EMBED_DTYPES,
+    ROTARY_POSITIONAL_FUSION_DTYPES,
+    ROTARY_POSITIONAL_FUSION_OPS,
+    normalize_get_2d_rotary_pos_embed_attrs,
+    normalize_get_2d_rotary_pos_embed_lumina_attrs,
+    normalize_get_3d_rotary_pos_embed_allegro_attrs,
+    normalize_get_3d_rotary_pos_embed_attrs,
     normalize_get_1d_rotary_pos_embed_attrs,
     rotary_output_cols,
 )
@@ -208,6 +215,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
         _validate_get_1d_rotary_pos_embed_node(node, inputs, tensors)
+        return
+    if node["op"] in ROTARY_POSITIONAL_FUSION_OPS:
+        _validate_rotary_positional_fusion_node(node, inputs, tensors)
         return
     if node["op"] == "t5_layer_norm":
         _validate_t5_layer_norm_node(node, inputs, tensors)
@@ -509,6 +519,114 @@ def _validate_get_1d_rotary_pos_embed_node(
         raise ValidationError(
             f"Node {node['id']} output {output_name} has width {output['shape'][1]}, expected {expected_cols}"
         )
+
+
+def _validate_rotary_positional_fusion_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    if inputs:
+        raise ValidationError(f"{op_name} expects no tensor inputs")
+    output_tensors = [tensors[name] for name in node["outputs"]]
+    output_dtype = str(node.get("attrs", {}).get("dtype", output_tensors[0]["dtype"]))
+    if op_name == "get_2d_rotary_pos_embed":
+        if len(output_tensors) != 2:
+            raise ValidationError("get_2d_rotary_pos_embed expects exactly two outputs")
+        normalized = normalize_get_2d_rotary_pos_embed_attrs(
+            embed_dim=node.get("attrs", {}).get("embed_dim"),
+            crop_start_h=node.get("attrs", {}).get("crop_start_h"),
+            crop_start_w=node.get("attrs", {}).get("crop_start_w"),
+            crop_stop_h=node.get("attrs", {}).get("crop_stop_h"),
+            crop_stop_w=node.get("attrs", {}).get("crop_stop_w"),
+            grid_h=node.get("attrs", {}).get("grid_h"),
+            grid_w=node.get("attrs", {}).get("grid_w"),
+            theta=node.get("attrs", {}).get("theta", 10000.0),
+            use_real=node.get("attrs", {}).get("use_real", True),
+        )
+        expected_shape = [int(normalized["grid_h"]) * int(normalized["grid_w"]), int(normalized["embed_dim"])]
+        expected_dtypes = [output_dtype, output_dtype]
+    elif op_name == "get_2d_rotary_pos_embed_lumina":
+        if len(output_tensors) != 2:
+            raise ValidationError("get_2d_rotary_pos_embed_lumina expects exactly two outputs")
+        normalized = normalize_get_2d_rotary_pos_embed_lumina_attrs(
+            embed_dim=node.get("attrs", {}).get("embed_dim"),
+            len_h=node.get("attrs", {}).get("len_h"),
+            len_w=node.get("attrs", {}).get("len_w"),
+            linear_factor=node.get("attrs", {}).get("linear_factor", 1.0),
+            ntk_factor=node.get("attrs", {}).get("ntk_factor", 1.0),
+        )
+        expected_shape = [int(normalized["len_h"]), int(normalized["len_w"]), int(normalized["embed_dim"]) // 2]
+        expected_dtypes = [output_dtype, output_dtype]
+    elif op_name == "get_3d_rotary_pos_embed":
+        if len(output_tensors) != 2:
+            raise ValidationError("get_3d_rotary_pos_embed expects exactly two outputs")
+        normalized = normalize_get_3d_rotary_pos_embed_attrs(
+            embed_dim=node.get("attrs", {}).get("embed_dim"),
+            crop_start_h=node.get("attrs", {}).get("crop_start_h"),
+            crop_start_w=node.get("attrs", {}).get("crop_start_w"),
+            crop_stop_h=node.get("attrs", {}).get("crop_stop_h"),
+            crop_stop_w=node.get("attrs", {}).get("crop_stop_w"),
+            grid_h=node.get("attrs", {}).get("grid_h"),
+            grid_w=node.get("attrs", {}).get("grid_w"),
+            temporal_size=node.get("attrs", {}).get("temporal_size"),
+            theta=node.get("attrs", {}).get("theta", 10000.0),
+            use_real=node.get("attrs", {}).get("use_real", True),
+            grid_type=node.get("attrs", {}).get("grid_type", "linspace"),
+            max_h=node.get("attrs", {}).get("max_h", 0),
+            max_w=node.get("attrs", {}).get("max_w", 0),
+        )
+        expected_shape = [
+            int(normalized["temporal_size"]) * int(normalized["grid_h"]) * int(normalized["grid_w"]),
+            int(normalized["embed_dim"]),
+        ]
+        expected_dtypes = [output_dtype, output_dtype]
+    elif op_name == "get_3d_rotary_pos_embed_allegro":
+        if len(output_tensors) != 9:
+            raise ValidationError("get_3d_rotary_pos_embed_allegro expects exactly nine outputs")
+        normalized = normalize_get_3d_rotary_pos_embed_allegro_attrs(
+            height=node.get("attrs", {}).get("height"),
+            width=node.get("attrs", {}).get("width"),
+            num_frames=node.get("attrs", {}).get("num_frames"),
+            vae_scale_factor_spatial=node.get("attrs", {}).get("vae_scale_factor_spatial", 8),
+            patch_size=node.get("attrs", {}).get("patch_size", 2),
+            interpolation_scale_h=node.get("attrs", {}).get("interpolation_scale_h", 2.0),
+            interpolation_scale_t=node.get("attrs", {}).get("interpolation_scale_t", 2.2),
+            interpolation_scale_w=node.get("attrs", {}).get("interpolation_scale_w", 2.0),
+            attention_head_dim=node.get("attrs", {}).get("attention_head_dim", 96),
+        )
+        dim_axis = int(normalized["attention_head_dim"]) // 3
+        grid_shape = [1, int(normalized["num_frames"]) * int(normalized["grid_h"]) * int(normalized["grid_w"])]
+        expected_shapes = [
+            [int(normalized["num_frames"]), dim_axis],
+            [int(normalized["num_frames"]), dim_axis],
+            [int(normalized["grid_h"]), dim_axis],
+            [int(normalized["grid_h"]), dim_axis],
+            [int(normalized["grid_w"]), dim_axis],
+            [int(normalized["grid_w"]), dim_axis],
+            grid_shape,
+            grid_shape,
+            grid_shape,
+        ]
+        expected_dtypes = [output_dtype] * 6 + ["int64", "int64", "int64"]
+        if output_dtype not in ROTARY_POSITIONAL_FUSION_DTYPES:
+            raise ValidationError(f"{op_name} does not support dtype {output_dtype}")
+        if any(str(output_tensors[idx]["dtype"]) != expected_dtypes[idx] for idx in range(len(output_tensors))):
+            raise ValidationError(f"{op_name} output dtypes do not match the fused contract")
+        if any(list(output_tensors[idx]["shape"]) != expected_shapes[idx] for idx in range(len(output_tensors))):
+            raise ValidationError(f"{op_name} output shapes do not match the fused contract")
+        return
+    else:
+        raise ValidationError(f"Unsupported rotary positional fusion op: {op_name}")
+
+    if output_dtype not in ROTARY_POSITIONAL_FUSION_DTYPES:
+        raise ValidationError(f"{op_name} does not support dtype {output_dtype}")
+    for output_tensor, expected_dtype in zip(output_tensors, expected_dtypes):
+        if list(output_tensor["shape"]) != expected_shape:
+            raise ValidationError(f"{op_name} output shape must match the fused contract")
+        if str(output_tensor["dtype"]) != expected_dtype:
+            raise ValidationError(f"{op_name} output dtype must match the fused contract")
 
 
 def _validate_t5_layer_norm_node(

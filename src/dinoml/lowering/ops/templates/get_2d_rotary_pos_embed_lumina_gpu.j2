@@ -1,0 +1,50 @@
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT real_out,
+    {{ storage_type }}* DINO_RESTRICT imag_out) {
+  constexpr int64_t len_h = {{ len_h }};
+  constexpr int64_t len_w = {{ len_w }};
+  constexpr int64_t output_cols = {{ output_cols }};
+  constexpr int64_t quarter_dim = {{ quarter_dim }};
+  constexpr float neg_log_scaled_theta = {{ neg_log_scaled_theta_literal }};
+  constexpr float inv_linear_factor = {{ inv_linear_factor_literal }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  const int64_t total = len_h * len_w * quarter_dim;
+  if (linear_idx >= total) {
+    return;
+  }
+  const int64_t hw_idx = linear_idx / quarter_dim;
+  const int64_t dim_idx = linear_idx - hw_idx * quarter_dim;
+  const int64_t h_idx = hw_idx / len_w;
+  const int64_t w_idx = hw_idx - h_idx * len_w;
+  const float exponent = (neg_log_scaled_theta * static_cast<float>(dim_idx)) / static_cast<float>(quarter_dim);
+  const float scale = expf(exponent) * inv_linear_factor;
+  const float angle_h = static_cast<float>(h_idx) * scale;
+  const float angle_w = static_cast<float>(w_idx) * scale;
+  const int64_t base = hw_idx * output_cols;
+  const int64_t out_col = 2 * dim_idx;
+  real_out[base + out_col] = dinoml::math::cast<{{ storage_type }}>(cosf(angle_h));
+  imag_out[base + out_col] = dinoml::math::cast<{{ storage_type }}>(sinf(angle_h));
+  real_out[base + out_col + 1] = dinoml::math::cast<{{ storage_type }}>(cosf(angle_w));
+  imag_out[base + out_col + 1] = dinoml::math::cast<{{ storage_type }}>(sinf(angle_w));
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT real_out,
+    {{ storage_type }}* DINO_RESTRICT imag_out,
+    int64_t real_total,
+    int64_t imag_total,
+    {{ gpu_stream_type }} stream) {
+  if (real_out == nullptr || imag_out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t total_values = {{ len_h }} * {{ len_w }} * {{ output_cols }};
+  if (real_total != total_values || imag_total != total_values) {
+    return dino_runtime_fail("{{ func }} received mismatched output element counts");
+  }
+  const int block = {{ block_size }};
+  const int64_t total = {{ len_h }} * {{ len_w }} * {{ quarter_dim }};
+  const int grid = static_cast<int>((total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(real_out, imag_out);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

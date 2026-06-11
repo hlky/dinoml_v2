@@ -87,6 +87,40 @@ than timing repeated Python calls around `run_numpy(...)`.
 
 DinoML can also emit CUDA and ROCm artifacts when the local toolchain is available.
 
+For this repository's remote CUDA verification workflow, the current preferred
+container image is `hlky/dinoml:ubuntu-nodeps`. It is intended for Runpod/Codex
+remote validation and already contains:
+
+- the DinoML v2 source tree at `/opt/src/dinoml_v2`
+- the Python environment at `/opt/venvs/dinoml`
+- CUDA 12.9 tooling
+- `transformers` and `diffusers` source checkouts
+
+When using the repo-local Runpod helper with that image, prefer reusing the
+prebaked repo path:
+
+```powershell
+python .codex/skills/runpod-codex-remote/scripts/create_runpod_codex_remote.py `
+  --gpu-id "NVIDIA RTX 2000 Ada Generation" `
+  --repo https://github.com/hlky/dinoml_v2.git `
+  --name dinoml-ubuntu-nodeps-rtx2000ada `
+  --image hlky/dinoml:ubuntu-nodeps `
+  --existing-project-path /opt/src/dinoml_v2 `
+  --volume-gb 20 `
+  --ports 22/tcp `
+  --auto-connect
+```
+
+The current smoke-validation baseline for that image is:
+
+- `torch` CUDA tensor/matmul
+- tiny `transformers` GPT-2 forward on CUDA
+- tiny `diffusers` UNet/scheduler forward on CUDA
+- DinoML v2 trace/compile/load/run smoke on CUDA
+
+See [.codex/skills/runpod-codex-remote/SKILL.md](.codex/skills/runpod-codex-remote/SKILL.md)
+for the repository-local remote workflow details.
+
 CUDA example:
 
 ```powershell
@@ -196,6 +230,7 @@ Additional project docs:
 - `docs/provider_contract.md`: provider maturity and required pieces.
 - `docs/op_admission.md`: checklist for new or expanded public ops.
 - `docs/model_pipeline_benchmarking.md`: benchmarking surfaces and reporting rules.
+- `docs/cuda_remote_verification.md`: preferred Runpod image and CUDA remote validation flow.
 
 ## Artifact Layout
 

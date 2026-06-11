@@ -1,0 +1,13 @@
+.git
+.pytest_cache
+.venv
+.codex
+.work
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+_tmp
+.tmp
+artifacts
+build

@@ -676,6 +676,53 @@ def dtype_collection_case() -> GraphCase:
     )
 
 
+class PaddingLayoutHelperModule(dml.Module):
+    def forward(self, x_nhwc_f32, x_ndhwc_f32, x_nhwc_f16, x_ndhwc_f16):
+        return {
+            "nhwc3to4": dml.ops.output(dml.ops.nhwc3to4(x_nhwc_f32), "nhwc3to4"),
+            "nhwc3to8": dml.ops.output(dml.ops.nhwc3to8(x_nhwc_f32), "nhwc3to8"),
+            "ndhwc3to8": dml.ops.output(dml.ops.ndhwc3to8(x_ndhwc_f32), "ndhwc3to8"),
+            "nhwc3to4_float16": dml.ops.output(dml.ops.nhwc3to4(x_nhwc_f16), "nhwc3to4_float16"),
+            "nhwc3to8_float16": dml.ops.output(dml.ops.nhwc3to8(x_nhwc_f16), "nhwc3to8_float16"),
+            "ndhwc3to8_float16": dml.ops.output(dml.ops.ndhwc3to8(x_ndhwc_f16), "ndhwc3to8_float16"),
+        }
+
+
+def padding_layout_helper_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            PaddingLayoutHelperModule(),
+            inputs={
+                "x_nhwc_f32": dml.TensorSpec([2, 5, 7, 3], "float32"),
+                "x_ndhwc_f32": dml.TensorSpec([2, 3, 4, 5, 3], "float32"),
+                "x_nhwc_f16": dml.TensorSpec([1, 6, 4, 3], "float16"),
+                "x_ndhwc_f16": dml.TensorSpec([1, 2, 3, 4, 3], "float16"),
+            },
+            name="fresh_padding_layout_helpers",
+        )
+
+    def inputs():
+        x_nhwc_f32 = np.arange(2 * 5 * 7 * 3, dtype=np.float32).reshape(2, 5, 7, 3) * np.float32(0.01)
+        x_ndhwc_f32 = np.arange(2 * 3 * 4 * 5 * 3, dtype=np.float32).reshape(2, 3, 4, 5, 3) * np.float32(0.02)
+        x_nhwc_f16 = np.arange(1 * 6 * 4 * 3, dtype=np.float32).reshape(1, 6, 4, 3) * np.float32(0.015)
+        x_ndhwc_f16 = np.arange(1 * 2 * 3 * 4 * 3, dtype=np.float32).reshape(1, 2, 3, 4, 3) * np.float32(0.025)
+        return {
+            "x_nhwc_f32": x_nhwc_f32,
+            "x_ndhwc_f32": x_ndhwc_f32,
+            "x_nhwc_f16": _roundtrip(x_nhwc_f16, "float16"),
+            "x_ndhwc_f16": _roundtrip(x_ndhwc_f16, "float16"),
+        }
+
+    return GraphCase(
+        "padding_layout_helpers",
+        build_spec,
+        inputs,
+        frozenset({"nhwc3to4", "nhwc3to8", "ndhwc3to8"}),
+        atol=2e-3,
+        rtol=2e-3,
+    )
+
+
 class PoolingModule(dml.Module):
     def forward(self, x1, x2):
         return {
@@ -1703,6 +1750,7 @@ def standard_cases() -> list[GraphCase]:
         shape_view_case(),
         collection_case(),
         dtype_collection_case(),
+        padding_layout_helper_case(),
         pooling_case(),
         dtype_pooling_case(),
         selection_case(),

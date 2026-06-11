@@ -57,6 +57,7 @@ from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
+from dinoml.lowering.ops.padding_layout_helpers import PADDING_LAYOUT_HELPER_LOWERINGS
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
 from dinoml.lowering.ops.positional_helper_fusions import POSITIONAL_HELPER_FUSION_LOWERINGS
 from dinoml.lowering.ops.qkv_split import QKV_SPLIT_LOWERING
@@ -147,6 +148,7 @@ OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
 OP_LOWERINGS.update(POSITIONAL_HELPER_FUSION_LOWERINGS)
 OP_LOWERINGS.update(ROTARY_POSITIONAL_FUSION_LOWERINGS)
 OP_LOWERINGS.update(PERMUTE_LOWERINGS)
+OP_LOWERINGS.update(PADDING_LAYOUT_HELPER_LOWERINGS)
 OP_LOWERINGS.update(TENSOR_FILTER_HELPER_LOWERINGS)
 OP_LOWERINGS.update(UPSAMPLING_FAMILY_LOWERINGS)
 

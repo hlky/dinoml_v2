@@ -508,6 +508,14 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] in {"nhwc3to4", "nhwc3to8", "ndhwc3to8"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            padded_channels = 4 if node["op"] == "nhwc3to4" else 8
+            values[output_name] = _store_reference(
+                _execute_padding_layout_helper(values[node["inputs"][0]], padded_channels=padded_channels),
+                output_dtype,
+            )
         elif node["op"] == "avg_pool1d":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -762,6 +770,13 @@ def _execute_embedding(table: np.ndarray, indices: np.ndarray) -> np.ndarray:
         selected = int(index_values[tuple(int(axis) for axis in bad[0])])
         raise ValueError(f"embedding index {selected} is out of bounds for vocab size {vocab_size}")
     return np.array(table[index_values], copy=True)
+
+
+def _execute_padding_layout_helper(x: np.ndarray, *, padded_channels: int) -> np.ndarray:
+    source = np.asarray(x)
+    output = np.zeros((*source.shape[:-1], int(padded_channels)), dtype=source.dtype)
+    output[..., :3] = source
+    return output
 
 
 def _execute_fused_elementwise(node: Mapping[str, object], values: Dict[str, np.ndarray], ir: Mapping[str, object]) -> None:

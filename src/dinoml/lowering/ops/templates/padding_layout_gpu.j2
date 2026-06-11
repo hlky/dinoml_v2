@@ -1,0 +1,40 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const {{ storage_type }} zero_value = dinoml::math::cast<{{ storage_type }}>(0.0f);
+  const int64_t positions = runtime_numel / {{ padded_channels }};
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t pos = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; pos < positions; pos += stride) {
+    const int64_t input_base = pos * 3;
+    const int64_t output_base = pos * {{ padded_channels }};
+    y[output_base] = x[input_base];
+    y[output_base + 1] = x[input_base + 1];
+    y[output_base + 2] = x[input_base + 2];
+{% for channel in range(3, padded_channels) %}
+    y[output_base + {{ channel }}] = zero_value;
+{% endfor %}
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if ((runtime_numel % {{ padded_channels }}) != 0) {
+    return dino_runtime_fail("{{ func }} received invalid output numel");
+  }
+  const int64_t positions = runtime_numel / {{ padded_channels }};
+  const int block = {{ block_size }};
+  const int64_t grid64 = (positions + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(x, y, runtime_numel);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+}

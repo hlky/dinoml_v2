@@ -570,6 +570,27 @@ def benchmark_cases() -> list[BenchmarkCase]:
     )
     add("slice_scatter", {"x": dml.TensorSpec(list(collection_shape), "float32"), "update": dml.TensorSpec([16, 32, 768], "float32")}, lambda: {"x": _float_array(collection_shape, step=0.0001), "update": _float_array((16, 32, 768), 100.0, 0.0001)}, lambda x, update: dml.ops.slice_scatter(x, update, [0, 48, 0]), template="slice_scatter_gpu.j2")
     add("pad", collection_specs, collection_inputs, lambda x: dml.ops.pad(x, [1, 2], value=-1.0), template="pad_gpu.j2")
+    add(
+        "nhwc3to4",
+        {"x": dml.TensorSpec([16, 64, 64, 3], "float32")},
+        lambda: {"x": _float_array((16, 64, 64, 3), step=0.0001)},
+        lambda x: dml.ops.nhwc3to4(x),
+        template="padding_layout_gpu.j2",
+    )
+    add(
+        "nhwc3to8",
+        {"x": dml.TensorSpec([16, 64, 64, 3], "float32")},
+        lambda: {"x": _float_array((16, 64, 64, 3), 10.0, 0.0001)},
+        lambda x: dml.ops.nhwc3to8(x),
+        template="padding_layout_gpu.j2",
+    )
+    add(
+        "ndhwc3to8",
+        {"x": dml.TensorSpec([4, 8, 32, 32, 3], "float32")},
+        lambda: {"x": _float_array((4, 8, 32, 32, 3), 20.0, 0.0001)},
+        lambda x: dml.ops.ndhwc3to8(x),
+        template="padding_layout_gpu.j2",
+    )
     for dtype in ("float16", "bfloat16"):
         typed_collection_specs = {"x": dml.TensorSpec(list(collection_shape), dtype)}
         typed_collection_inputs = lambda dtype=dtype: {"x": _typed_float_array(collection_shape, dtype, step=0.0001)}
@@ -630,6 +651,28 @@ def benchmark_cases() -> list[BenchmarkCase]:
             lambda x, update: dml.ops.slice_scatter(x, update, [0, 48, 0]),
             template="slice_scatter_gpu.j2",
         )
+        if dtype == "float16":
+            add(
+                "nhwc3to4_float16",
+                {"x": dml.TensorSpec([16, 64, 64, 3], "float16")},
+                lambda: {"x": _typed_float_array((16, 64, 64, 3), "float16", step=0.0001)},
+                lambda x: dml.ops.nhwc3to4(x),
+                template="padding_layout_gpu.j2",
+            )
+            add(
+                "nhwc3to8_float16",
+                {"x": dml.TensorSpec([16, 64, 64, 3], "float16")},
+                lambda: {"x": _typed_float_array((16, 64, 64, 3), "float16", 10.0, 0.0001)},
+                lambda x: dml.ops.nhwc3to8(x),
+                template="padding_layout_gpu.j2",
+            )
+            add(
+                "ndhwc3to8_float16",
+                {"x": dml.TensorSpec([4, 8, 32, 32, 3], "float16")},
+                lambda: {"x": _typed_float_array((4, 8, 32, 32, 3), "float16", 20.0, 0.0001)},
+                lambda x: dml.ops.ndhwc3to8(x),
+                template="padding_layout_gpu.j2",
+            )
 
     provider_targets = ("cuda", "rocm")
     provider_dtype = "float16"

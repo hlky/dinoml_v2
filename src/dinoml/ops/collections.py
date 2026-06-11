@@ -12,6 +12,8 @@ from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, sy
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
 GATHER_INDEX_DTYPES = ("int64", "int32")
+PADDING_LAYOUT_HELPER_DTYPES = ("float16", "float32")
+PADDING_LAYOUT_HELPER_OPS = ("ndhwc3to8", "nhwc3to4", "nhwc3to8")
 SPECIALIZED_PERMUTE_DIMS: dict[str, tuple[int, ...]] = {
     "permute021": (0, 2, 1),
     "permute0213": (0, 2, 1, 3),
@@ -87,6 +89,18 @@ def infer_pad_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(input_shapes) != 1:
         raise ValueError("pad expects one tensor input")
     return infer_pad_shape_with_attrs(input_shapes, {"pad": (0, 0)})
+
+
+def infer_nhwc3to4_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return _infer_padding_layout_shape("nhwc3to4", input_shapes, expected_rank=4, padded_channels=4)
+
+
+def infer_nhwc3to8_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return _infer_padding_layout_shape("nhwc3to8", input_shapes, expected_rank=4, padded_channels=8)
+
+
+def infer_ndhwc3to8_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return _infer_padding_layout_shape("ndhwc3to8", input_shapes, expected_rank=5, padded_channels=8)
 
 
 def infer_concatenate_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -184,6 +198,23 @@ def infer_pad_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Map
     if len(input_shapes) != 1:
         raise ValueError("pad expects one tensor input")
     return resolve_pad_shape(input_shapes[0], attrs.get("pad"))
+
+
+def _infer_padding_layout_shape(
+    op_name: str,
+    input_shapes: Sequence[Sequence[int]],
+    *,
+    expected_rank: int,
+    padded_channels: int,
+) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError(f"{op_name} expects one tensor input")
+    return resolve_padding_layout_shape(
+        op_name,
+        input_shapes[0],
+        expected_rank=expected_rank,
+        padded_channels=padded_channels,
+    )
 
 
 def normalize_concatenate_dim(dim: Any, rank: int) -> int:
@@ -450,6 +481,20 @@ def normalize_pad_widths(pad: Any, rank: int) -> tuple[list[int], list[int]]:
         left[axis] = values[2 * pair_index]
         right[axis] = values[2 * pair_index + 1]
     return left, right
+
+
+def resolve_padding_layout_shape(
+    op_name: str,
+    input_shape: Sequence[int],
+    *,
+    expected_rank: int,
+    padded_channels: int,
+) -> list[int]:
+    if len(input_shape) != expected_rank:
+        raise ValueError(f"{op_name} expects rank-{expected_rank} input, got rank {len(input_shape)}")
+    if int(input_shape[-1]) != 3:
+        raise ValueError(f"{op_name} expects input.shape[-1] == 3, got {int(input_shape[-1])}")
+    return [*[int(dim) for dim in input_shape[:-1]], int(padded_channels)]
 
 
 def normalize_split_dim(dim: Any, rank: int) -> int:
@@ -1012,6 +1057,63 @@ class Pad(OpDef):
         return pad(x, pad_width, value)
 
 
+@op_def
+class Nhwc3to4(OpDef):
+    name = "nhwc3to4"
+    schema = OpSchema(inputs=("x",))
+    infer_shape = infer_nhwc3to4_shape
+    allowed_dtypes = PADDING_LAYOUT_HELPER_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_nhwc3to4", library="model", source_template="padding_layout_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_nhwc3to4", library="model", source_template="padding_layout_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_nhwc3to4", library="model", source_template="padding_layout_gpu.j2"),
+    }
+    frontend = FrontendBinding("nhwc3to4")
+    description = "Pad a rank-4 NHWC tensor with exactly 3 channels to 4 channels by appending zeros."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return nhwc3to4(x)
+
+
+@op_def
+class Nhwc3to8(OpDef):
+    name = "nhwc3to8"
+    schema = OpSchema(inputs=("x",))
+    infer_shape = infer_nhwc3to8_shape
+    allowed_dtypes = PADDING_LAYOUT_HELPER_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_nhwc3to8", library="model", source_template="padding_layout_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_nhwc3to8", library="model", source_template="padding_layout_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_nhwc3to8", library="model", source_template="padding_layout_gpu.j2"),
+    }
+    frontend = FrontendBinding("nhwc3to8")
+    description = "Pad a rank-4 NHWC tensor with exactly 3 channels to 8 channels by appending zeros."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return nhwc3to8(x)
+
+
+@op_def
+class Ndhwc3to8(OpDef):
+    name = "ndhwc3to8"
+    schema = OpSchema(inputs=("x",))
+    infer_shape = infer_ndhwc3to8_shape
+    allowed_dtypes = PADDING_LAYOUT_HELPER_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_ndhwc3to8", library="model", source_template="padding_layout_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_ndhwc3to8", library="model", source_template="padding_layout_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_ndhwc3to8", library="model", source_template="padding_layout_gpu.j2"),
+    }
+    frontend = FrontendBinding("ndhwc3to8")
+    description = "Pad a rank-5 NDHWC tensor with exactly 3 channels to 8 channels by appending zeros."
+
+    @classmethod
+    def forward(cls, x: Any) -> Tensor:
+        return ndhwc3to8(x)
+
+
 def concatenate(inputs: Any, dim: int = 0) -> Tensor:
     tensors = _as_tensor_sequence(inputs, "concatenate")
     dtype = _check_collection_tensors("concatenate", tensors)
@@ -1372,6 +1474,18 @@ def pad_last_dim(x: Any, left: Any, right: Any, value: Any = 0.0) -> Tensor:
     return pad(x, [int(left), int(right)], value=value)
 
 
+def nhwc3to4(x: Any) -> Tensor:
+    return _padding_layout_helper("nhwc3to4", x, expected_rank=4, padded_channels=4)
+
+
+def nhwc3to8(x: Any) -> Tensor:
+    return _padding_layout_helper("nhwc3to8", x, expected_rank=4, padded_channels=8)
+
+
+def ndhwc3to8(x: Any) -> Tensor:
+    return _padding_layout_helper("ndhwc3to8", x, expected_rank=5, padded_channels=8)
+
+
 def transpose(x: Any, dim0: Any, dim1: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in COLLECTION_DTYPES:
@@ -1425,6 +1539,43 @@ def _specialized_permute(op_name: str, x: Any) -> Tensor:
         {"dims": normalized_dims},
         shape_spec=out_shape_spec,
     )
+
+
+def _padding_layout_helper(op_name: str, x: Any, *, expected_rank: int, padded_channels: int) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in PADDING_LAYOUT_HELPER_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {tensor.dtype}")
+    if tensor.rank != expected_rank:
+        raise ValueError(f"{op_name} expects rank-{expected_rank} input, got rank {tensor.rank}")
+    out_shape = resolve_padding_layout_shape(
+        op_name,
+        tensor.shape,
+        expected_rank=expected_rank,
+        padded_channels=padded_channels,
+    )
+    out_shape_spec = _padding_layout_output_shape_spec(
+        op_name,
+        tensor.shape_spec,
+        expected_rank=expected_rank,
+        padded_channels=padded_channels,
+    )
+    return tensor.builder.emit(op_name, [tensor], out_shape, tensor.dtype, {}, shape_spec=out_shape_spec)
+
+
+def _padding_layout_output_shape_spec(
+    op_name: str,
+    input_shape_spec: Sequence[Any],
+    *,
+    expected_rank: int,
+    padded_channels: int,
+) -> list[Any]:
+    if len(input_shape_spec) != expected_rank:
+        raise ValueError(f"{op_name} expects rank-{expected_rank} input, got rank {len(input_shape_spec)}")
+    channels = normalize_symbolic_int(input_shape_spec[-1], f"{op_name} input.shape[-1]")
+    channels_min, channels_max = symbolic_int_interval(channels)
+    if channels_min != 3 or channels_max != 3:
+        raise ValueError(f"{op_name} expects input.shape[-1] == 3, got {input_shape_spec[-1]!r}")
+    return [*[_copy_shape_dim(dim_spec) for dim_spec in input_shape_spec[:-1]], int(padded_channels)]
 
 
 def _normalize_pixel_factor(factor: Any, name: str) -> int:
@@ -1490,7 +1641,12 @@ __all__ = [
     "GATHER_INDEX_DTYPES",
     "Gather",
     "IndexSelect",
+    "Ndhwc3to8",
+    "Nhwc3to4",
+    "Nhwc3to8",
     "Pad",
+    "PADDING_LAYOUT_HELPER_DTYPES",
+    "PADDING_LAYOUT_HELPER_OPS",
     "Permute",
     "Permute021",
     "Permute0213",
@@ -1506,6 +1662,7 @@ __all__ = [
     "concatenate",
     "concatenate_fast",
     "concatenate_tanh",
+    "ndhwc3to8",
     "dynamic_slice",
     "flip",
     "gather",
@@ -1522,6 +1679,9 @@ __all__ = [
     "infer_gather_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
+    "infer_ndhwc3to8_shape",
+    "infer_nhwc3to4_shape",
+    "infer_nhwc3to8_shape",
     "infer_pad_shape",
     "infer_pad_shape_with_attrs",
     "infer_repeat_interleave_shape",
@@ -1535,6 +1695,8 @@ __all__ = [
     "infer_specialized_permute_shape_with_attrs",
     "infer_stack_shape",
     "infer_stack_shape_with_attrs",
+    "nhwc3to4",
+    "nhwc3to8",
     "pad",
     "pad_last_dim",
     "permute",
@@ -1577,6 +1739,7 @@ __all__ = [
     "resolve_flip_shape",
     "resolve_gather_shape",
     "resolve_index_select_shape",
+    "resolve_padding_layout_shape",
     "resolve_pad_shape",
     "resolve_repeat_interleave_shape",
     "resolve_runtime_index_select_shape",

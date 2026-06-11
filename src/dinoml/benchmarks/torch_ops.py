@@ -233,6 +233,9 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
         ),
         "slice_scatter": lambda x, update, **_: _slice_scatter(x, update, [0, 48, 0]),
         "pad": lambda torch, x, **_: torch.nn.functional.pad(x, (1, 2), value=-1.0),
+        "nhwc3to4": lambda torch, x, **_: torch.nn.functional.pad(x, (0, 1)),
+        "nhwc3to8": lambda torch, x, **_: torch.nn.functional.pad(x, (0, 5)),
+        "ndhwc3to8": lambda torch, x, **_: torch.nn.functional.pad(x, (0, 5)),
         "gemm_rcr": lambda a, b, **_: a @ b.transpose(-1, -2),
         "gemm_rcr_bias": lambda a, b, bias, **_: (a @ b.transpose(-1, -2)) + bias,
         "gemm_rcr_bias_add_relu": lambda torch, a, b, bias, d0, **_: torch.relu((a @ b.transpose(-1, -2)) + bias + d0),
@@ -346,6 +349,9 @@ def _torch_case_fns() -> dict[str, Callable[..., Any]]:
             "index_select",
             "slice_scatter",
             "pad",
+            "nhwc3to4",
+            "nhwc3to8",
+            "ndhwc3to8",
         ):
             fns[f"{name}_{dtype}"] = _with_float_dtype(fns[name], dtype)
 

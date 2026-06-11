@@ -975,6 +975,25 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             if output_dtype != data_dtype:
                 raise NotImplementedError(f"Op {op_name} output dtype {output_dtype} must match input dtype {data_dtype}")
             continue
+        if node.get("op") == "masked_select":
+            data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            mask_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if data_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[data_dtype]}"
+                )
+            if mask_dtype != "bool":
+                raise NotImplementedError(
+                    "Op masked_select mask supports dtype ['bool']; "
+                    f"unsupported compiled dtypes: {[mask_dtype]}"
+                )
+            if output_dtype != data_dtype:
+                raise NotImplementedError(
+                    f"Op masked_select output dtype {output_dtype} must match input dtype {data_dtype}"
+                )
+            continue
         if node.get("op") == "batch_gather":
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
             index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])

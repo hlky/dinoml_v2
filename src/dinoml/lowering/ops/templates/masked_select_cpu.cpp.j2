@@ -1,0 +1,16 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ mask_storage_type }}* DINO_RESTRICT mask,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t output_capacity,
+    int64_t* DINO_RESTRICT out_shape{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}, int64_t x_stride_{{ axis }}, int64_t mask_stride_{{ axis }}{% endfor %}) {
+  if (x == nullptr || mask == nullptr || y == nullptr || out_shape == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (output_capacity <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{{ copy_body }}
+  return 0;
+}

@@ -1,0 +1,118 @@
+#if defined(DINO_COMPILE_CUDA)
+#include <cub/cub.cuh>
+namespace dino_masked_select_backend = cub;
+#else
+#include <hipcub/hipcub.hpp>
+namespace dino_masked_select_backend = hipcub;
+#endif
+
+static inline size_t {{ func }}_align_up(size_t value, size_t alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+__global__ void {{ kernel }}(
+    {% if need_expand_input %}const {{ storage_type }}* DINO_RESTRICT x,{% endif %}
+    {% if need_expand_mask %}const {{ mask_storage_type }}* DINO_RESTRICT mask,{% endif %}
+    {% if need_expand_input %}{{ storage_type }}* DINO_RESTRICT expanded_x,{% endif %}
+    {% if need_expand_mask %}{{ mask_storage_type }}* DINO_RESTRICT expanded_mask,{% endif %}
+    int64_t output_capacity{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}, int64_t x_stride_{{ axis }}, int64_t mask_stride_{{ axis }}{% endfor %}) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < output_capacity; idx += stride) {
+    int64_t remaining = idx;
+    int64_t x_index = 0;
+    int64_t mask_index = 0;
+    int64_t coord = 0;
+{% for axis in range(rank - 1, -1, -1) %}
+    coord = remaining % out_extent_{{ axis }};
+    remaining = remaining / out_extent_{{ axis }};
+    x_index += coord * x_stride_{{ axis }};
+    mask_index += coord * mask_stride_{{ axis }};
+{% endfor %}
+{% if need_expand_input %}
+    expanded_x[idx] = x[x_index];
+{% endif %}
+{% if need_expand_mask %}
+    expanded_mask[idx] = mask[mask_index];
+{% endif %}
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ mask_storage_type }}* DINO_RESTRICT mask,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t output_capacity,
+    int64_t* DINO_RESTRICT out_shape{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}, int64_t x_stride_{{ axis }}, int64_t mask_stride_{{ axis }}{% endfor %},
+    void* DINO_RESTRICT scratch,
+    size_t scratch_nbytes,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || mask == nullptr || y == nullptr || out_shape == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (scratch == nullptr) {
+    return dino_runtime_fail("{{ func }} received null masked_select scratch");
+  }
+  if (output_capacity <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+
+  uint8_t* scratch_bytes = static_cast<uint8_t*>(scratch);
+  size_t offset = 0;
+{% if need_expand_input %}
+  offset = {{ func }}_align_up(offset, 16);
+  {{ storage_type }}* expanded_x = reinterpret_cast<{{ storage_type }}*>(scratch_bytes + offset);
+  offset += static_cast<size_t>(output_capacity) * sizeof({{ storage_type }});
+{% else %}
+  const {{ storage_type }}* expanded_x = x;
+{% endif %}
+{% if need_expand_mask %}
+  offset = {{ func }}_align_up(offset, 16);
+  {{ mask_storage_type }}* expanded_mask = reinterpret_cast<{{ mask_storage_type }}*>(scratch_bytes + offset);
+  offset += static_cast<size_t>(output_capacity) * sizeof({{ mask_storage_type }});
+{% else %}
+  const {{ mask_storage_type }}* expanded_mask = mask;
+{% endif %}
+  offset = {{ func }}_align_up(offset, 16);
+  size_t temp_storage_bytes = 0;
+  {{ gpu_check_macro }}(dino_masked_select_backend::DeviceSelect::Flagged(
+      nullptr,
+      temp_storage_bytes,
+      expanded_x,
+      expanded_mask,
+      y,
+      out_shape,
+      output_capacity,
+      stream));
+  const size_t scratch_required = offset + temp_storage_bytes;
+  if (scratch_nbytes < scratch_required) {
+    return dino_runtime_fail("{{ func }} masked_select scratch is too small");
+  }
+  void* temp_storage = scratch_bytes + offset;
+{% if need_expand_input or need_expand_mask %}
+  const int block = {{ block_size }};
+  const int64_t grid64 = (output_capacity + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(
+{% if need_expand_input %}        x,{% endif %}
+{% if need_expand_mask %}        mask,{% endif %}
+{% if need_expand_input %}        expanded_x,{% endif %}
+{% if need_expand_mask %}        expanded_mask,{% endif %}
+        output_capacity{% for axis in range(rank) %},
+        out_extent_{{ axis }}, x_stride_{{ axis }}, mask_stride_{{ axis }}{% endfor %});
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+{% endif %}
+  {{ gpu_check_macro }}(dino_masked_select_backend::DeviceSelect::Flagged(
+      temp_storage,
+      temp_storage_bytes,
+      expanded_x,
+      expanded_mask,
+      y,
+      out_shape,
+      output_capacity,
+      stream));
+  return 0;
+}

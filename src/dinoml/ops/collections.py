@@ -7,7 +7,7 @@ from dinoml.frontend import Parameter, Tensor, as_tensor
 from dinoml.ops.elementwise import tanh
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 from dinoml.ops.shape_views import reshape
-from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, symbolic_int_expr, symbolic_int_interval
+from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, shape_numel, symbolic_int_expr, symbolic_int_interval
 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
@@ -64,6 +64,12 @@ def infer_runtime_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> l
     if len(input_shapes) != 2:
         raise ValueError("runtime_index_select expects two tensor inputs")
     return infer_runtime_index_select_shape_with_attrs(input_shapes, {"dim": 0})
+
+
+def infer_masked_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("masked_select expects two tensor inputs")
+    return infer_masked_select_shape_with_attrs(input_shapes, {})
 
 
 def infer_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -173,6 +179,13 @@ def infer_runtime_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[
     if len(input_shapes) != 2:
         raise ValueError("runtime_index_select expects two tensor inputs")
     return resolve_runtime_index_select_shape(input_shapes[0], input_shapes[1], attrs.get("dim", 0))
+
+
+def infer_masked_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    del attrs
+    if len(input_shapes) != 2:
+        raise ValueError("masked_select expects two tensor inputs")
+    return resolve_masked_select_shape(input_shapes[0], input_shapes[1])
 
 
 def infer_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -663,6 +676,11 @@ def resolve_runtime_index_select_shape(input_shape: Sequence[int], index_shape: 
     return [int(index_shape[0]), *[int(axis) for axis in input_shape[1:]]]
 
 
+def resolve_masked_select_shape(input_shape: Sequence[int], mask_shape: Sequence[int]) -> list[int]:
+    broadcast_shape_spec = broadcast_shape_spec_with_shapes(input_shape, mask_shape)
+    return [shape_numel(max_shape(broadcast_shape_spec))]
+
+
 def resolve_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int], dim: Any) -> list[int]:
     normalize_gather_attrs(dim, input_shape, index_shape)
     return [int(axis) for axis in index_shape]
@@ -963,6 +981,29 @@ class RuntimeIndexSelect(OpDef):
     @classmethod
     def forward(cls, x: Any, dim: Any, indices: Any) -> Tensor:
         return runtime_index_select(x, dim, indices)
+
+
+@op_def
+class MaskedSelect(OpDef):
+    name = "masked_select"
+    schema = OpSchema(inputs=("x", "mask"))
+    infer_shape = infer_masked_select_shape
+    infer_shape_with_attrs = infer_masked_select_shape_with_attrs
+    allowed_dtypes = COLLECTION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_masked_select", library="model", source_template="masked_select_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_masked_select", library="model", source_template="masked_select_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_masked_select", library="model", source_template="masked_select_gpu.j2"),
+    }
+    frontend = FrontendBinding("masked_select")
+    description = (
+        "Materialize a 1D stable-order selection from a broadcasted bool mask; "
+        "the public output shape is reported at runtime through the output shape buffer."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, mask: Any) -> Tensor:
+        return masked_select(x, mask)
 
 
 @op_def
@@ -1336,6 +1377,30 @@ def runtime_index_select(x: Any, dim: Any, indices: Any) -> Tensor:
     )
 
 
+def masked_select(x: Any, mask: Any) -> Tensor:
+    tensor = as_tensor(x)
+    mask_tensor = as_tensor(mask)
+    if tensor.builder is not mask_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"masked_select does not support dtype {tensor.dtype}")
+    if mask_tensor.dtype != "bool":
+        raise ValueError(f"masked_select mask must have dtype bool, got {mask_tensor.dtype}")
+    broadcast_shape = broadcast_shape_spec(tensor.shape_spec, mask_tensor.shape_spec)
+    out_shape = [shape_numel(max_shape(broadcast_shape))]
+    out_shape_spec = [_symbolic_numel(broadcast_shape)]
+    output = tensor.builder.emit(
+        "masked_select",
+        [tensor, mask_tensor],
+        out_shape,
+        tensor.dtype,
+        {},
+        shape_spec=out_shape_spec,
+    )
+    tensor.builder.report_output_shape(output)
+    return output
+
+
 def gather(x: Any, dim: Any, index: Any) -> Tensor:
     tensor = as_tensor(x)
     index_tensor = as_tensor(index)
@@ -1622,6 +1687,51 @@ def _copy_shape_dim(dim: Any) -> Any:
     return dict(dim) if isinstance(dim, Mapping) else dim
 
 
+def _symbolic_numel(shape_spec: Sequence[Any]) -> Any:
+    total: Any = 1
+    for dim in shape_spec:
+        total = symbolic_int_expr("mul", total, normalize_symbolic_int(dim))
+    return total
+
+
+def _dim_is_known_one(dim: Any) -> bool:
+    if isinstance(dim, int):
+        return int(dim) == 1
+    min_dim, max_dim = symbolic_int_interval(normalize_symbolic_int(dim))
+    return min_dim == 1 and max_dim == 1
+
+
+def broadcast_shape_spec(
+    a_shape_spec: Sequence[Any],
+    b_shape_spec: Sequence[Any],
+) -> list[Any]:
+    a_dims = [_copy_shape_dim(dim) for dim in a_shape_spec]
+    b_dims = [_copy_shape_dim(dim) for dim in b_shape_spec]
+    rank = max(len(a_dims), len(b_dims))
+    a_aligned = [1] * (rank - len(a_dims)) + a_dims
+    b_aligned = [1] * (rank - len(b_dims)) + b_dims
+    result: list[Any] = []
+    for a_dim, b_dim in zip(a_aligned, b_aligned):
+        if a_dim == b_dim:
+            result.append(_copy_shape_dim(a_dim))
+            continue
+        if _dim_is_known_one(a_dim):
+            result.append(_copy_shape_dim(b_dim))
+            continue
+        if _dim_is_known_one(b_dim):
+            result.append(_copy_shape_dim(a_dim))
+            continue
+        raise ValueError(f"Shapes are not broadcastable: {list(a_shape_spec)} and {list(b_shape_spec)}")
+    return result
+
+
+def broadcast_shape_spec_with_shapes(
+    a_shape: Sequence[Any],
+    b_shape: Sequence[Any],
+) -> list[Any]:
+    return broadcast_shape_spec(normalize_shape(a_shape), normalize_shape(b_shape))
+
+
 def _sum_shape_dims(dims: Sequence[Any]) -> Any:
     items = tuple(_copy_shape_dim(dim) for dim in dims)
     if all(isinstance(dim, int) for dim in items):
@@ -1641,6 +1751,7 @@ __all__ = [
     "GATHER_INDEX_DTYPES",
     "Gather",
     "IndexSelect",
+    "MaskedSelect",
     "Ndhwc3to8",
     "Nhwc3to4",
     "Nhwc3to8",
@@ -1667,6 +1778,7 @@ __all__ = [
     "flip",
     "gather",
     "index_select",
+    "masked_select",
     "infer_batch_gather_shape",
     "infer_batch_gather_shape_with_attrs",
     "infer_concatenate_shape",
@@ -1679,6 +1791,8 @@ __all__ = [
     "infer_gather_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
+    "infer_masked_select_shape",
+    "infer_masked_select_shape_with_attrs",
     "infer_ndhwc3to8_shape",
     "infer_nhwc3to4_shape",
     "infer_nhwc3to8_shape",
@@ -1739,6 +1853,7 @@ __all__ = [
     "resolve_flip_shape",
     "resolve_gather_shape",
     "resolve_index_select_shape",
+    "resolve_masked_select_shape",
     "resolve_padding_layout_shape",
     "resolve_pad_shape",
     "resolve_repeat_interleave_shape",

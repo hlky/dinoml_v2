@@ -451,6 +451,16 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] == "masked_select":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_masked_select(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                ),
+                output_dtype,
+            )
         elif node["op"] == "gather":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -747,6 +757,11 @@ def _execute_gather(x: np.ndarray, index: np.ndarray, dim: int) -> np.ndarray:
         input_coord[dim] = selected
         result[output_coord] = x[tuple(input_coord)]
     return result
+
+
+def _execute_masked_select(x: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    source, mask_values = np.broadcast_arrays(np.asarray(x), np.asarray(mask, dtype=np.bool_))
+    return np.asarray(source[mask_values], copy=True)
 
 
 def _execute_batch_gather(x: np.ndarray, indices: np.ndarray) -> np.ndarray:

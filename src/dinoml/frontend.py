@@ -5,7 +5,15 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
 
 import numpy as np
 
-from dinoml.ir import IR_SCHEMA_VERSION, ModelSpec, VIEW_METADATA_VERSION, array_to_storage, dtype_nbytes, normalize_dtype
+from dinoml.ir import (
+    IR_SCHEMA_VERSION,
+    ModelSpec,
+    OUTPUT_SHAPE_REPORT_METADATA_VERSION,
+    VIEW_METADATA_VERSION,
+    array_to_storage,
+    dtype_nbytes,
+    normalize_dtype,
+)
 from dinoml.layout import dense_layout
 from dinoml.shapes import Dim, Shape, shape_constraints, shape_numel
 
@@ -185,6 +193,7 @@ class GraphBuilder:
         self.constants: List[Dict[str, Any]] = []
         self.constant_values: Dict[str, np.ndarray] = {}
         self.views: List[Dict[str, Any]] = []
+        self.output_shape_report_tensors: set[str] = set()
         self._constant_tensors: Dict[Parameter, Tensor] = {}
         self._next_tensor_id = 0
         self._next_node_id = 0
@@ -332,6 +341,11 @@ class GraphBuilder:
         )
         return tensor
 
+    def report_output_shape(self, tensor: Tensor) -> None:
+        if tensor.builder is not self:
+            raise ValueError("Cannot register an output shape report for a tensor from another DinoML trace")
+        self.output_shape_report_tensors.add(str(tensor.name))
+
     def to_ir(self, outputs: Sequence[Tensor]) -> Dict[str, Any]:
         output_infos = []
         aliased_output_tensors: set[str] = set()
@@ -362,6 +376,17 @@ class GraphBuilder:
         metadata = _shape_metadata([*self.inputs, *self.states, *self.constants, *output_infos, *self.tensors.values()])
         if self.views:
             metadata["views"] = {"version": VIEW_METADATA_VERSION, "views": self.views}
+        if self.output_shape_report_tensors:
+            reports = []
+            for output in output_infos:
+                if str(output["tensor"]) not in self.output_shape_report_tensors:
+                    continue
+                reports.append({"output": str(output["name"]), "kind": "shape_buffer"})
+            if reports:
+                metadata["output_shape_reports"] = {
+                    "version": OUTPUT_SHAPE_REPORT_METADATA_VERSION,
+                    "reports": reports,
+                }
 
         return {
             "schema_version": IR_SCHEMA_VERSION,

@@ -93,6 +93,10 @@ struct DinoSession {
   void* gguf_dequant_scratch = nullptr;
   size_t gguf_dequant_scratch_nbytes = {{ gguf_dequant_scratch.nbytes }};
 {% endif %}
+{% if masked_select_scratch %}
+  void* masked_select_scratch = nullptr;
+  size_t masked_select_scratch_nbytes = {{ masked_select_scratch.nbytes }};
+{% endif %}
 {% if topk_scratch %}
   void* topk_scratch = nullptr;
   size_t topk_scratch_nbytes = {{ topk_scratch.nbytes }};
@@ -479,6 +483,9 @@ DINO_EXPORT int dino_session_create(DinoModule* module, DinoSession** out) {
 {% if gguf_dequant_scratch %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->gguf_dequant_scratch, {{ gguf_dequant_scratch.nbytes }}));
 {% endif %}
+{% if masked_select_scratch %}
+  DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->masked_select_scratch, {{ masked_select_scratch.nbytes }}));
+{% endif %}
 {% if topk_scratch %}
   DINO_SESSION_CREATE_GPU_CHECK({{ device_malloc }}(&session->topk_scratch, {{ topk_scratch.nbytes }}));
 {% endif %}
@@ -554,6 +561,11 @@ DINO_EXPORT int dino_session_destroy(DinoSession* session) {
 {% if gguf_dequant_scratch %}
   if (session->gguf_dequant_scratch) {
     {{ device_free }}(session->gguf_dequant_scratch);
+  }
+{% endif %}
+{% if masked_select_scratch %}
+  if (session->masked_select_scratch) {
+    {{ device_free }}(session->masked_select_scratch);
   }
 {% endif %}
 {% if topk_scratch %}

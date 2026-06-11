@@ -12,6 +12,7 @@ from dinoml.ir import (
     normalize_dtype,
 )
 from dinoml.layout import validate_layout
+from dinoml.ops.collections import broadcast_shape_spec
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import (
     CAST_ELEMENTWISE_DTYPES,
@@ -37,7 +38,7 @@ from dinoml.ops.positional import (
 from dinoml.ops.glm_ocr import GLM_OCR_STITCH_IMAGE_FEATURES_DTYPES
 from dinoml.ops.qwen2_5_vl import QWEN2_5_VL_STITCH_IMAGE_FEATURES_DTYPES
 from dinoml.passes.utils import tensor_map
-from dinoml.shapes import is_dynamic_shape, validate_shape_spec
+from dinoml.shapes import is_dynamic_shape, normalize_symbolic_int, symbolic_int_expr, validate_shape_spec
 
 
 class ValidationError(ValueError):
@@ -88,6 +89,7 @@ def validate_ir(ir: Mapping[str, Any]) -> None:
     validate_view_metadata(ir.get("metadata", {}).get("views"), tensors)
     validate_view_metadata(ir.get("metadata", {}).get("memory_plan", {}).get("views"), tensors)
     validate_output_shape_report_metadata(ir.get("metadata", {}).get("output_shape_reports"), ir["outputs"], tensors)
+    _validate_masked_select_output_contract(ir, tensors)
 
 
 def validate_view_metadata(view_metadata: Any, tensors: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
@@ -206,6 +208,9 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] == "where":
         _validate_where_node(node, inputs, tensors)
+        return
+    if node["op"] == "masked_select":
+        _validate_masked_select_node(node, inputs, tensors)
         return
     if node["op"] == "argmax":
         _validate_argmax_node(node, inputs, tensors)
@@ -404,6 +409,42 @@ def _validate_where_node(
         raise ValidationError(
             f"Node {node['id']} output {output_name} has dtype {tensors[output_name]['dtype']}, "
             f"expected {inputs[1]['dtype']}"
+        )
+
+
+def _validate_masked_select_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 2:
+        raise ValidationError("masked_select expects 2 inputs")
+    try:
+        expected_shape = get_op_def("masked_select").infer_shape([input_info["shape"] for input_info in inputs])
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    if str(inputs[1]["dtype"]) != "bool":
+        raise ValidationError(f"masked_select mask must have dtype bool, got {inputs[1]['dtype']}")
+    if str(inputs[0]["dtype"]) not in get_op_def("masked_select").allowed_dtypes:
+        raise ValidationError(f"masked_select does not support dtype {inputs[0]['dtype']}")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has shape {output['shape']}, expected {expected_shape}"
+        )
+    if str(output["dtype"]) != str(inputs[0]["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {inputs[0]['dtype']}"
+        )
+    expected_shape_spec = [_masked_select_capacity_spec(inputs[0], inputs[1])]
+    actual_shape_spec = list(output.get("shape_spec", output["shape"]))
+    if actual_shape_spec != expected_shape_spec:
+        raise ValidationError(
+            f"masked_select output shape_spec must equal the broadcast capacity expression {expected_shape_spec}, "
+            f"got {actual_shape_spec}"
         )
 
 
@@ -1282,6 +1323,51 @@ def _validate_collection_node(
         )
 
 
+def _validate_masked_select_output_contract(
+    ir: Mapping[str, Any],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    output_names_by_tensor = {
+        str(output["tensor"]): str(output["name"])
+        for output in ir.get("outputs", [])
+    }
+    reported_outputs = {
+        str(report.get("output"))
+        for report in ir.get("metadata", {}).get("output_shape_reports", {}).get("reports", [])
+        if isinstance(report, Mapping) and report.get("kind") == "shape_buffer"
+    }
+    consumer_counts: dict[str, int] = {}
+    for node in ir.get("nodes", []):
+        for input_name in node.get("inputs", []):
+            consumer_counts[str(input_name)] = consumer_counts.get(str(input_name), 0) + 1
+    view_sources = {
+        str(view.get("source"))
+        for view in ir.get("metadata", {}).get("views", {}).get("views", [])
+        if isinstance(view, Mapping)
+    }
+    for node in ir.get("nodes", []):
+        if str(node.get("op")) != "masked_select":
+            continue
+        output_name = str(node["outputs"][0])
+        public_output_name = output_names_by_tensor.get(output_name)
+        if public_output_name is None:
+            raise ValidationError(
+                "masked_select currently requires a public output because its data-dependent result length "
+                "is reported through the output shape buffer"
+            )
+        if consumer_counts.get(output_name, 0) != 0:
+            raise ValidationError("masked_select output cannot feed downstream ops before jagged data flow is modeled")
+        if output_name in view_sources:
+            raise ValidationError("masked_select output cannot feed shape views before jagged data flow is modeled")
+        if public_output_name not in reported_outputs:
+            raise ValidationError(
+                f"masked_select public output {public_output_name!r} must be listed in metadata.output_shape_reports"
+            )
+        output_tensor = tensors[output_name]
+        if len(output_tensor.get("shape_spec", output_tensor["shape"])) != 1:
+            raise ValidationError("masked_select output must be rank-1")
+
+
 def _validate_embedding_node(
     node: Mapping[str, Any],
     inputs: Sequence[Mapping[str, Any]],
@@ -1317,6 +1403,20 @@ def _validate_embedding_node(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
             f"expected {table_tensor['dtype']}"
         )
+
+
+def _masked_select_capacity_spec(
+    input_tensor: Mapping[str, Any],
+    mask_tensor: Mapping[str, Any],
+) -> int | dict[str, Any]:
+    broadcast_shape = broadcast_shape_spec(
+        input_tensor.get("shape_spec", input_tensor["shape"]),
+        mask_tensor.get("shape_spec", mask_tensor["shape"]),
+    )
+    total: int | dict[str, Any] = 1
+    for dim in broadcast_shape:
+        total = symbolic_int_expr("mul", total, normalize_symbolic_int(dim))
+    return total
 
 
 def _fused_elementwise_output_dtype(sub_op: Mapping[str, Any], input_dtypes: Sequence[str]) -> str:

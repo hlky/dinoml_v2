@@ -55,6 +55,7 @@ from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
+from dinoml.lowering.ops.masked_select import MASKED_SELECT_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.padding_layout_helpers import PADDING_LAYOUT_HELPER_LOWERINGS
@@ -126,6 +127,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
     LAYER_NORM_LOWERING.op_name: LAYER_NORM_LOWERING,
     LAYERNORM_SIGMOID_MUL_LOWERING.op_name: LAYERNORM_SIGMOID_MUL_LOWERING,
+    MASKED_SELECT_LOWERING.op_name: MASKED_SELECT_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
     QKV_SPLIT_LOWERING.op_name: QKV_SPLIT_LOWERING,

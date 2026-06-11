@@ -52,3 +52,4 @@ profile_cache.json
 .work/*
 !.work/.gitkeep
 _tmp/
+.tmp/

@@ -80,6 +80,9 @@ Benchmark the runtime session:
 python -m dinoml.cli benchmark build/cuda_linear_cpu.dinoml --against examples/cuda_linear.py --warmup 5 --iterations 20
 ```
 
+This path uses the artifact's native `dino_session_benchmark` entry point rather
+than timing repeated Python calls around `run_numpy(...)`.
+
 ## CUDA And ROCm Targets
 
 DinoML can also emit CUDA and ROCm artifacts when the local toolchain is available.
@@ -96,8 +99,8 @@ ROCm example:
 python -m dinoml.cli compile examples/cuda_linear.py --target rocm --arch gfx1201 --out build/cuda_linear_rocm.dinoml
 ```
 
-See [docs/rocm.md](docs/rocm.md) for ROCm benchmarking notes, including graph
-replay timing, event flags, and CLIP tower comparison guidance.
+See [docs/model_pipeline_benchmarking.md](docs/model_pipeline_benchmarking.md)
+for the current benchmarking surfaces and reporting rules.
 
 Profiling-enabled compile:
 
@@ -154,6 +157,8 @@ outputs = session.run_numpy({
 })
 
 print(outputs["y"])
+session.close()
+module.close()
 ```
 
 ## Architecture
@@ -184,6 +189,13 @@ Key pieces:
 - `tools/`: CUTLASS/CK codegen and profiling helpers.
 - `examples/`: small model workflows and CLIP-oriented compiler exercises.
 - `tests/`: compiler, runtime, backend, profiling, and benchmark contracts.
+
+Additional project docs:
+
+- `docs/project_invariants.md`: durable architecture, provider, constant, and op rules.
+- `docs/provider_contract.md`: provider maturity and required pieces.
+- `docs/op_admission.md`: checklist for new or expanded public ops.
+- `docs/model_pipeline_benchmarking.md`: benchmarking surfaces and reporting rules.
 
 ## Artifact Layout
 
@@ -225,6 +237,7 @@ Representative CLI commands:
 python -m dinoml.cli benchmark-ops cpu --only add --only reduce_sum
 python -m dinoml.cli benchmark-ops cuda --only gemm_rrr_bias --jobs 4
 python -m dinoml.cli benchmark-torch-ops --device cuda --only gemm_rrr_bias
+python -m dinoml.cli profile build/cuda_linear_cuda.dinoml --iterations 20 --repeats 3
 ```
 
 ## GGUF And Quantization Work
@@ -244,13 +257,18 @@ This area is research-grade, but it is the direction of the project: keep quanti
 ## Examples
 
 - `examples/cuda_linear.py`: minimal traced linear layer with dynamic batch.
+- `examples/coordinate_ramp.py`: simple coordinate-generation workflow.
 - `examples/fused_elementwise.py`: elementwise fusion path.
 - `examples/image_pooling.py`: pooling and image-like tensor operations.
 - `examples/subpixel_upsample.py`: layout/shape-sensitive image op.
-- `examples/clip_text_workflow.py`: bounded CLIP text tower workflow.
-- `examples/clip_model_workflow.py`: bounded CLIP text+vision model workflow.
-- `examples/clip_checkpoint_workflow.py`: checkpoint-oriented CLIP workflow.
 - `examples/candidate_selection.py`: profiling and candidate-selection workflow.
+
+Model-oriented pipeline and parity tools currently live under `tools/`, for
+example:
+
+- `tools/benchmark_glm_ocr_static_cache_pipeline.py`
+- `tools/benchmark_qwen2_5_vl_static_cache_pipeline.py`
+- `tools/check_glm_ocr_decode_parity.py`
 
 ## Tests
 
@@ -264,8 +282,8 @@ Useful focused checks:
 
 ```powershell
 python -m pytest tests/ir tests/cpu
-python -m pytest tests/test_runtime_benchmark.py
-python -m pytest tests/test_ops_benchmark_suite.py
+python -m pytest tests/runtime/test_runtime_benchmark.py
+python -m pytest tests/benchmarks/test_ops_benchmark_suite.py
 python -m pytest tests/backends/test_ck_gguf_q8_gemm_kernel.py
 ```
 

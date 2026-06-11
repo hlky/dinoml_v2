@@ -70,6 +70,7 @@ from dinoml.lowering.ops.stack import STACK_LOWERING
 from dinoml.lowering.ops.swiglu import SWIGLU_LOWERING
 from dinoml.lowering.ops.t5_layer_norm import T5_LAYER_NORM_LOWERING
 from dinoml.lowering.ops.topk import TOPK_LOWERINGS
+from dinoml.lowering.ops.upsampling import UPSAMPLING_FAMILY_LOWERINGS
 from dinoml.lowering.target_specs import generated_source_extension
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS
 
@@ -138,6 +139,7 @@ OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
 OP_LOWERINGS.update(POSITIONAL_HELPER_FUSION_LOWERINGS)
 OP_LOWERINGS.update(ROTARY_POSITIONAL_FUSION_LOWERINGS)
 OP_LOWERINGS.update(PERMUTE_LOWERINGS)
+OP_LOWERINGS.update(UPSAMPLING_FAMILY_LOWERINGS)
 
 
 def generated_source_provenance(

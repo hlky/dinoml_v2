@@ -1,0 +1,297 @@
+template <typename Elem>
+__device__ __forceinline__ Elem {{ func }}_elem_add(Elem a, Elem b) {
+  return a + b;
+}
+
+template <>
+__device__ __forceinline__ half {{ func }}_elem_add(half a, half b) {
+  return __hadd(a, b);
+}
+
+template <>
+__device__ __forceinline__ dinoml::bfloat16 {{ func }}_elem_add(
+    dinoml::bfloat16 a,
+    dinoml::bfloat16 b) {
+  return __hadd(a, b);
+}
+
+template <typename Vec, typename Elem>
+__device__ __forceinline__ Vec {{ func }}_packed_add(
+    const Vec& a,
+    const Vec& b) {
+  static_assert(
+      sizeof(Vec) % sizeof(Elem) == 0,
+      "Packed add requires the vector size to be a multiple of the element size.");
+  Vec out;
+  auto* out_ptr = reinterpret_cast<Elem*>(&out);
+  auto* a_ptr = reinterpret_cast<const Elem*>(&a);
+  auto* b_ptr = reinterpret_cast<const Elem*>(&b);
+  constexpr int lanes = sizeof(Vec) / sizeof(Elem);
+#pragma unroll
+  for (int lane = 0; lane < lanes; ++lane) {
+    out_ptr[lane] = {{ func }}_elem_add<Elem>(a_ptr[lane], b_ptr[lane]);
+  }
+  return out;
+}
+
+__device__ __forceinline__ float {{ func }}_packed_add(
+    const float& a,
+    const float& b) {
+  return a + b;
+}
+
+__device__ __forceinline__ half2 {{ func }}_packed_add(
+    const half2& a,
+    const half2& b) {
+  return __hadd2(a, b);
+}
+
+__device__ __forceinline__ dinoml::bfloat162 {{ func }}_packed_add(
+    const dinoml::bfloat162& a,
+    const dinoml::bfloat162& b) {
+  return __hadd2(a, b);
+}
+
+__device__ __forceinline__ float2 {{ func }}_packed_add(
+    const float2& a,
+    const float2& b) {
+  return {a.x + b.x, a.y + b.y};
+}
+
+template <typename Vec2>
+struct {{ func }}_interp2;
+
+template <>
+struct {{ func }}_interp2<float2> {
+  __device__ __forceinline__ static float2 to_float2(const float2& value) {
+    return value;
+  }
+
+  __device__ __forceinline__ static float2 from_float2(const float2& value) {
+    return value;
+  }
+};
+
+template <>
+struct {{ func }}_interp2<half2> {
+  __device__ __forceinline__ static float2 to_float2(const half2& value) {
+    return __half22float2(value);
+  }
+
+  __device__ __forceinline__ static half2 from_float2(const float2& value) {
+    return __float22half2_rn(value);
+  }
+};
+
+template <>
+struct {{ func }}_interp2<dinoml::bfloat162> {
+  __device__ __forceinline__ static float2 to_float2(const dinoml::bfloat162& value) {
+    return __bfloat1622float2(value);
+  }
+
+  __device__ __forceinline__ static dinoml::bfloat162 from_float2(const float2& value) {
+    return __float22bfloat162_rn(value);
+  }
+};
+
+template <typename Elem, typename Vec2, bool AlignCorners, bool HasResidual>
+__global__ void {{ kernel }}_linear_packed(
+    const Elem* DINO_RESTRICT x_raw,
+    const Elem* DINO_RESTRICT residual_raw,
+    Elem* DINO_RESTRICT y_raw,
+    int64_t batch,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_w) {
+  const Vec2* x = reinterpret_cast<const Vec2*>(x_raw);
+  const Vec2* residual = reinterpret_cast<const Vec2*>(residual_raw);
+  Vec2* y = reinterpret_cast<Vec2*>(y_raw);
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_w * channels_packed;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t out_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       out_idx < num_threads;
+       out_idx += stride) {
+    int64_t t = out_idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    const int64_t n = t / out_w;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t left_x = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t right_x = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float x_lerp = in_x - floorf(in_x);
+    const Vec2 left = LDG(x + (n * in_w + left_x) * channels_packed + c);
+    const Vec2 right = LDG(x + (n * in_w + right_x) * channels_packed + c);
+    const float2 l = {{ func }}_interp2<Vec2>::to_float2(left);
+    const float2 r = {{ func }}_interp2<Vec2>::to_float2(right);
+    const float2 out = {
+        l.x + (r.x - l.x) * x_lerp,
+        l.y + (r.y - l.y) * x_lerp,
+    };
+    const Vec2 packed = {{ func }}_interp2<Vec2>::from_float2(out);
+    if constexpr (HasResidual) {
+      y[out_idx] = {{ func }}_packed_add<Vec2, Elem>(LDG(residual + out_idx), packed);
+    } else {
+      y[out_idx] = packed;
+    }
+  }
+}
+
+template <typename Elem, bool AlignCorners, bool HasResidual>
+__global__ void {{ kernel }}_linear_scalar(
+    const Elem* DINO_RESTRICT x,
+    const Elem* DINO_RESTRICT residual,
+    Elem* DINO_RESTRICT y,
+    int64_t batch,
+    int64_t in_w,
+    int64_t channels,
+    int64_t out_w) {
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_w * channels;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       idx < num_threads;
+       idx += stride) {
+    int64_t t = idx;
+    const int64_t c = t % channels;
+    t /= channels;
+    const int64_t out_x = t % out_w;
+    const int64_t n = t / out_w;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t left_x = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t right_x = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float x_lerp = in_x - floorf(in_x);
+    const float left = dinoml::math::to_float(x[(n * in_w + left_x) * channels + c]);
+    const float right = dinoml::math::to_float(x[(n * in_w + right_x) * channels + c]);
+    float out_value = left + (right - left) * x_lerp;
+    if constexpr (HasResidual) {
+      out_value += dinoml::math::to_float(residual[idx]);
+    }
+    y[idx] = dinoml::math::from_float<Elem>(out_value);
+  }
+}
+
+template <typename Elem, typename Vec, int Alignment, bool Exact, bool HasResidual>
+__global__ void {{ kernel }}_nearest(
+    const Vec* DINO_RESTRICT x,
+    const Vec* DINO_RESTRICT residual,
+    Vec* DINO_RESTRICT y,
+    int64_t batch,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_w) {
+  const float width_scale = {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_w * channels_packed;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       idx < num_threads;
+       idx += stride) {
+    int64_t t = idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    const int64_t n = t / out_w;
+    int64_t in_x = 0;
+    if constexpr (Exact) {
+      in_x = max(
+          min(static_cast<int64_t>(floorf((static_cast<float>(out_x) + 0.5f) * width_scale)), in_w - 1),
+          static_cast<int64_t>(0));
+    } else {
+      in_x = max(
+          min(static_cast<int64_t>(floorf(static_cast<float>(out_x) * width_scale)), in_w - 1),
+          static_cast<int64_t>(0));
+    }
+    const Vec input_value = LDG(x + (n * in_w + in_x) * channels_packed + c);
+    if constexpr (HasResidual) {
+      y[idx] = {{ func }}_packed_add<Vec, Elem>(input_value, LDG(residual + idx));
+    } else {
+      y[idx] = input_value;
+    }
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT residual,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t in_n,
+    int64_t in_w,
+    int64_t in_c,
+    int64_t out_n,
+    int64_t out_w,
+    int64_t out_c,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || y == nullptr{% if has_residual %} || residual == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != out_n * out_w * out_c) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  if (in_n != out_n || in_c != out_c) {
+    return dino_runtime_fail("{{ func }} requires matching batch and channel dimensions");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid <= 0) {
+    return 0;
+  }
+{% if mode == "linear" %}
+{% if use_packed_interpolation %}
+  if ((in_c % {{ interpolation_alignment }}) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by {{ interpolation_alignment }} for packed interpolation");
+  }
+  using DinoUpsampling1dVec = {{ interpolation_vec_type }};
+  {{ kernel }}_linear_packed<
+      {{ storage_type }},
+      DinoUpsampling1dVec,
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(
+          x,
+          residual,
+          y,
+          in_n,
+          in_w,
+          in_c / {{ interpolation_alignment }},
+          out_w);
+{% else %}
+  {{ kernel }}_linear_scalar<
+      {{ storage_type }},
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(x, residual, y, in_n, in_w, in_c, out_w);
+{% endif %}
+{% else %}
+  if ((in_c % {{ nearest_alignment }}) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by {{ nearest_alignment }} for packed nearest upsampling");
+  }
+  using DinoUpsampling1dVec = {{ nearest_vec_type }};
+  {{ kernel }}_nearest<
+      {{ storage_type }},
+      DinoUpsampling1dVec,
+      {{ nearest_alignment }},
+      {{ "true" if mode == "nearest-exact" else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(
+          reinterpret_cast<const DinoUpsampling1dVec*>(x),
+          reinterpret_cast<const DinoUpsampling1dVec*>(residual),
+          reinterpret_cast<DinoUpsampling1dVec*>(y),
+          in_n,
+          in_w,
+          in_c / {{ nearest_alignment }},
+          out_w);
+{% endif %}
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

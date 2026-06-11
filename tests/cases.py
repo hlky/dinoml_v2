@@ -1377,6 +1377,67 @@ def vision_layout_case() -> GraphCase:
     return GraphCase("vision_layout", build_spec, inputs, frozenset({"reshape", "permute", "pixel_shuffle", "pixel_unshuffle"}))
 
 
+class UpsamplingFamilyModule(dml.Module):
+    def forward(self, x1d, r1d, x2d, r2d, x3d, r3d, xct):
+        return {
+            "upsampling1d": dml.ops.output(dml.ops.upsampling1d(x1d, 2.0, "linear", align_corners=False), "upsampling1d"),
+            "upsampling1d_add": dml.ops.output(dml.ops.upsampling1d_add(x1d, r1d, 2.0, "nearest-exact", align_corners=None), "upsampling1d_add"),
+            "upsampling2d": dml.ops.output(dml.ops.upsampling2d(x2d, 2.0, "bilinear", align_corners=True), "upsampling2d"),
+            "upsampling2d_add": dml.ops.output(dml.ops.upsampling2d_add(x2d, r2d, 2.0, "nearest", align_corners=None), "upsampling2d_add"),
+            "upsampling3d": dml.ops.output(dml.ops.upsampling3d(x3d, 2.0, "trilinear", align_corners=False), "upsampling3d"),
+            "upsampling3d_add": dml.ops.output(dml.ops.upsampling3d_add(x3d, r3d, 2.0, "nearest-exact", align_corners=None), "upsampling3d_add"),
+            "upsampling3d_compress_time": dml.ops.output(dml.ops.upsampling3d_compress_time(xct), "upsampling3d_compress_time"),
+        }
+
+
+def upsampling_family_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            UpsamplingFamilyModule(),
+            inputs={
+                "x1d": dml.TensorSpec([2, 4, 6], "float32"),
+                "r1d": dml.TensorSpec([2, 8, 6], "float32"),
+                "x2d": dml.TensorSpec([2, 3, 4, 6], "float32"),
+                "r2d": dml.TensorSpec([2, 6, 8, 6], "float32"),
+                "x3d": dml.TensorSpec([1, 3, 4, 5, 6], "float32"),
+                "r3d": dml.TensorSpec([1, 6, 8, 10, 6], "float32"),
+                "xct": dml.TensorSpec([1, 3, 4, 5, 6], "float32"),
+            },
+            name="fresh_upsampling_family",
+        )
+
+    def inputs():
+        rng = np.random.default_rng(23)
+        return {
+            "x1d": rng.normal(size=(2, 4, 6)).astype(np.float32),
+            "r1d": rng.normal(size=(2, 8, 6)).astype(np.float32),
+            "x2d": rng.normal(size=(2, 3, 4, 6)).astype(np.float32),
+            "r2d": rng.normal(size=(2, 6, 8, 6)).astype(np.float32),
+            "x3d": rng.normal(size=(1, 3, 4, 5, 6)).astype(np.float32),
+            "r3d": rng.normal(size=(1, 6, 8, 10, 6)).astype(np.float32),
+            "xct": rng.normal(size=(1, 3, 4, 5, 6)).astype(np.float32),
+        }
+
+    return GraphCase(
+        "upsampling_family",
+        build_spec,
+        inputs,
+        frozenset(
+            {
+                "upsampling1d",
+                "upsampling1d_add",
+                "upsampling2d",
+                "upsampling2d_add",
+                "upsampling3d",
+                "upsampling3d_add",
+                "upsampling3d_compress_time",
+            }
+        ),
+        atol=1e-4,
+        rtol=1e-4,
+    )
+
+
 class EmbeddingModule(dml.Module):
     def forward(self, table, indices):
         return dml.ops.output(dml.ops.embedding(table, indices), "embedding")
@@ -1656,6 +1717,7 @@ def standard_cases() -> list[GraphCase]:
         positional_helper_fusions_case(),
         dtype_positional_helper_fusions_case(),
         vision_layout_case(),
+        upsampling_family_case(),
         embedding_case(),
         dtype_embedding_case(),
         split_chunk_case(),

@@ -1,0 +1,390 @@
+template <typename Elem>
+__device__ __forceinline__ Elem {{ func }}_elem_add(Elem a, Elem b) {
+  return a + b;
+}
+
+template <>
+__device__ __forceinline__ half {{ func }}_elem_add(half a, half b) {
+  return __hadd(a, b);
+}
+
+template <>
+__device__ __forceinline__ dinoml::bfloat16 {{ func }}_elem_add(
+    dinoml::bfloat16 a,
+    dinoml::bfloat16 b) {
+  return __hadd(a, b);
+}
+
+template <typename Vec, typename Elem>
+__device__ __forceinline__ Vec {{ func }}_packed_add(const Vec& a, const Vec& b) {
+  static_assert(sizeof(Vec) % sizeof(Elem) == 0, "Packed add requires compatible vector width");
+  Vec out;
+  auto* out_ptr = reinterpret_cast<Elem*>(&out);
+  auto* a_ptr = reinterpret_cast<const Elem*>(&a);
+  auto* b_ptr = reinterpret_cast<const Elem*>(&b);
+  constexpr int lanes = sizeof(Vec) / sizeof(Elem);
+#pragma unroll
+  for (int lane = 0; lane < lanes; ++lane) {
+    out_ptr[lane] = {{ func }}_elem_add<Elem>(a_ptr[lane], b_ptr[lane]);
+  }
+  return out;
+}
+
+__device__ __forceinline__ float {{ func }}_packed_add(const float& a, const float& b) {
+  return a + b;
+}
+
+__device__ __forceinline__ float2 {{ func }}_packed_add(const float2& a, const float2& b) {
+  return {a.x + b.x, a.y + b.y};
+}
+
+__device__ __forceinline__ half2 {{ func }}_packed_add(const half2& a, const half2& b) {
+  return __hadd2(a, b);
+}
+
+__device__ __forceinline__ dinoml::bfloat162 {{ func }}_packed_add(
+    const dinoml::bfloat162& a,
+    const dinoml::bfloat162& b) {
+  return __hadd2(a, b);
+}
+
+template <typename Vec2>
+struct {{ func }}_interp2;
+
+template <>
+struct {{ func }}_interp2<float2> {
+  __device__ __forceinline__ static float2 to_float2(const float2& value) {
+    return value;
+  }
+
+  __device__ __forceinline__ static float2 from_float2(const float2& value) {
+    return value;
+  }
+};
+
+template <>
+struct {{ func }}_interp2<half2> {
+  __device__ __forceinline__ static float2 to_float2(const half2& value) {
+    return __half22float2(value);
+  }
+
+  __device__ __forceinline__ static half2 from_float2(const float2& value) {
+    return __float22half2_rn(value);
+  }
+};
+
+template <>
+struct {{ func }}_interp2<dinoml::bfloat162> {
+  __device__ __forceinline__ static float2 to_float2(const dinoml::bfloat162& value) {
+    return __bfloat1622float2(value);
+  }
+
+  __device__ __forceinline__ static dinoml::bfloat162 from_float2(const float2& value) {
+    return __float22bfloat162_rn(value);
+  }
+};
+
+template <typename Elem, typename Vec2, bool AlignCorners, bool HasResidual>
+__global__ void {{ kernel }}_trilinear_packed(
+    const Elem* DINO_RESTRICT x_raw,
+    const Elem* DINO_RESTRICT residual_raw,
+    Elem* DINO_RESTRICT y_raw,
+    int64_t batch,
+    int64_t in_f,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_f,
+    int64_t out_h,
+    int64_t out_w) {
+  const Vec2* x = reinterpret_cast<const Vec2*>(x_raw);
+  const Vec2* residual = reinterpret_cast<const Vec2*>(residual_raw);
+  Vec2* y = reinterpret_cast<Vec2*>(y_raw);
+  const float frame_scale = AlignCorners
+      ? ((in_f <= 1 || out_f <= 1) ? 0.0f : static_cast<float>(in_f - 1) / static_cast<float>(out_f - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float height_scale = AlignCorners
+      ? ((in_h <= 1 || out_h <= 1) ? 0.0f : static_cast<float>(in_h - 1) / static_cast<float>(out_h - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_f * out_h * out_w * channels_packed;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t out_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       out_idx < num_threads;
+       out_idx += stride) {
+    int64_t t = out_idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    t /= out_h;
+    const int64_t out_frame = t % out_f;
+    const int64_t n = t / out_f;
+    const float in_frame = AlignCorners
+        ? static_cast<float>(out_frame) * frame_scale
+        : (static_cast<float>(out_frame) + 0.5f) * frame_scale - 0.5f;
+    const float in_y = AlignCorners
+        ? static_cast<float>(out_y) * height_scale
+        : (static_cast<float>(out_y) + 0.5f) * height_scale - 0.5f;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t f0 = in_frame > 0.0f ? static_cast<int64_t>(floorf(in_frame)) : 0;
+    const int64_t f1 = in_frame < static_cast<float>(in_f - 1) ? static_cast<int64_t>(ceilf(in_frame)) : (in_f - 1);
+    const int64_t y0 = in_y > 0.0f ? static_cast<int64_t>(floorf(in_y)) : 0;
+    const int64_t y1 = in_y < static_cast<float>(in_h - 1) ? static_cast<int64_t>(ceilf(in_y)) : (in_h - 1);
+    const int64_t x0 = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t x1 = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float f_lerp = in_frame - floorf(in_frame);
+    const float y_lerp = in_y - floorf(in_y);
+    const float x_lerp = in_x - floorf(in_x);
+    const Vec2 v000 = LDG(x + (((n * in_f + f0) * in_h + y0) * in_w + x0) * channels_packed + c);
+    const Vec2 v001 = LDG(x + (((n * in_f + f0) * in_h + y0) * in_w + x1) * channels_packed + c);
+    const Vec2 v010 = LDG(x + (((n * in_f + f0) * in_h + y1) * in_w + x0) * channels_packed + c);
+    const Vec2 v011 = LDG(x + (((n * in_f + f0) * in_h + y1) * in_w + x1) * channels_packed + c);
+    const Vec2 v100 = LDG(x + (((n * in_f + f1) * in_h + y0) * in_w + x0) * channels_packed + c);
+    const Vec2 v101 = LDG(x + (((n * in_f + f1) * in_h + y0) * in_w + x1) * channels_packed + c);
+    const Vec2 v110 = LDG(x + (((n * in_f + f1) * in_h + y1) * in_w + x0) * channels_packed + c);
+    const Vec2 v111 = LDG(x + (((n * in_f + f1) * in_h + y1) * in_w + x1) * channels_packed + c);
+    const float2 f000 = {{ func }}_interp2<Vec2>::to_float2(v000);
+    const float2 f001 = {{ func }}_interp2<Vec2>::to_float2(v001);
+    const float2 f010 = {{ func }}_interp2<Vec2>::to_float2(v010);
+    const float2 f011 = {{ func }}_interp2<Vec2>::to_float2(v011);
+    const float2 f100 = {{ func }}_interp2<Vec2>::to_float2(v100);
+    const float2 f101 = {{ func }}_interp2<Vec2>::to_float2(v101);
+    const float2 f110 = {{ func }}_interp2<Vec2>::to_float2(v110);
+    const float2 f111 = {{ func }}_interp2<Vec2>::to_float2(v111);
+    const float2 f00 = {f000.x + (f001.x - f000.x) * x_lerp, f000.y + (f001.y - f000.y) * x_lerp};
+    const float2 f01 = {f010.x + (f011.x - f010.x) * x_lerp, f010.y + (f011.y - f010.y) * x_lerp};
+    const float2 f10 = {f100.x + (f101.x - f100.x) * x_lerp, f100.y + (f101.y - f100.y) * x_lerp};
+    const float2 f11 = {f110.x + (f111.x - f110.x) * x_lerp, f110.y + (f111.y - f110.y) * x_lerp};
+    const float2 fy0 = {f00.x + (f01.x - f00.x) * y_lerp, f00.y + (f01.y - f00.y) * y_lerp};
+    const float2 fy1 = {f10.x + (f11.x - f10.x) * y_lerp, f10.y + (f11.y - f10.y) * y_lerp};
+    const float2 out = {fy0.x + (fy1.x - fy0.x) * f_lerp, fy0.y + (fy1.y - fy0.y) * f_lerp};
+    const Vec2 packed = {{ func }}_interp2<Vec2>::from_float2(out);
+    if constexpr (HasResidual) {
+      y[out_idx] = {{ func }}_packed_add<Vec2, Elem>(LDG(residual + out_idx), packed);
+    } else {
+      y[out_idx] = packed;
+    }
+  }
+}
+
+template <typename Elem, bool AlignCorners, bool HasResidual>
+__global__ void {{ kernel }}_trilinear_scalar(
+    const Elem* DINO_RESTRICT x,
+    const Elem* DINO_RESTRICT residual,
+    Elem* DINO_RESTRICT y,
+    int64_t batch,
+    int64_t in_f,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels,
+    int64_t out_f,
+    int64_t out_h,
+    int64_t out_w) {
+  const float frame_scale = AlignCorners
+      ? ((in_f <= 1 || out_f <= 1) ? 0.0f : static_cast<float>(in_f - 1) / static_cast<float>(out_f - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float height_scale = AlignCorners
+      ? ((in_h <= 1 || out_h <= 1) ? 0.0f : static_cast<float>(in_h - 1) / static_cast<float>(out_h - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_f * out_h * out_w * channels;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       idx < num_threads;
+       idx += stride) {
+    int64_t t = idx;
+    const int64_t c = t % channels;
+    t /= channels;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    t /= out_h;
+    const int64_t out_frame = t % out_f;
+    const int64_t n = t / out_f;
+    const float in_frame = AlignCorners
+        ? static_cast<float>(out_frame) * frame_scale
+        : (static_cast<float>(out_frame) + 0.5f) * frame_scale - 0.5f;
+    const float in_y = AlignCorners
+        ? static_cast<float>(out_y) * height_scale
+        : (static_cast<float>(out_y) + 0.5f) * height_scale - 0.5f;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t f0 = in_frame > 0.0f ? static_cast<int64_t>(floorf(in_frame)) : 0;
+    const int64_t f1 = in_frame < static_cast<float>(in_f - 1) ? static_cast<int64_t>(ceilf(in_frame)) : (in_f - 1);
+    const int64_t y0 = in_y > 0.0f ? static_cast<int64_t>(floorf(in_y)) : 0;
+    const int64_t y1 = in_y < static_cast<float>(in_h - 1) ? static_cast<int64_t>(ceilf(in_y)) : (in_h - 1);
+    const int64_t x0 = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t x1 = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float f_lerp = in_frame - floorf(in_frame);
+    const float y_lerp = in_y - floorf(in_y);
+    const float x_lerp = in_x - floorf(in_x);
+    const float v000 = dinoml::math::to_float(x[(((n * in_f + f0) * in_h + y0) * in_w + x0) * channels + c]);
+    const float v001 = dinoml::math::to_float(x[(((n * in_f + f0) * in_h + y0) * in_w + x1) * channels + c]);
+    const float v010 = dinoml::math::to_float(x[(((n * in_f + f0) * in_h + y1) * in_w + x0) * channels + c]);
+    const float v011 = dinoml::math::to_float(x[(((n * in_f + f0) * in_h + y1) * in_w + x1) * channels + c]);
+    const float v100 = dinoml::math::to_float(x[(((n * in_f + f1) * in_h + y0) * in_w + x0) * channels + c]);
+    const float v101 = dinoml::math::to_float(x[(((n * in_f + f1) * in_h + y0) * in_w + x1) * channels + c]);
+    const float v110 = dinoml::math::to_float(x[(((n * in_f + f1) * in_h + y1) * in_w + x0) * channels + c]);
+    const float v111 = dinoml::math::to_float(x[(((n * in_f + f1) * in_h + y1) * in_w + x1) * channels + c]);
+    const float v00 = v000 + (v001 - v000) * x_lerp;
+    const float v01 = v010 + (v011 - v010) * x_lerp;
+    const float v10 = v100 + (v101 - v100) * x_lerp;
+    const float v11 = v110 + (v111 - v110) * x_lerp;
+    const float vy0 = v00 + (v01 - v00) * y_lerp;
+    const float vy1 = v10 + (v11 - v10) * y_lerp;
+    float out_value = vy0 + (vy1 - vy0) * f_lerp;
+    if constexpr (HasResidual) {
+      out_value += dinoml::math::to_float(residual[idx]);
+    }
+    y[idx] = dinoml::math::from_float<Elem>(out_value);
+  }
+}
+
+template <typename Elem, typename Vec, int Alignment, bool Exact, bool HasResidual>
+__global__ void {{ kernel }}_nearest(
+    const Vec* DINO_RESTRICT x,
+    const Vec* DINO_RESTRICT residual,
+    Vec* DINO_RESTRICT y,
+    int64_t batch,
+    int64_t in_f,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_f,
+    int64_t out_h,
+    int64_t out_w) {
+  const float frame_scale = {{ inverse_scale_factor_literal }};
+  const float height_scale = {{ inverse_scale_factor_literal }};
+  const float width_scale = {{ inverse_scale_factor_literal }};
+  const int64_t num_threads = batch * out_f * out_h * out_w * channels_packed;
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+       idx < num_threads;
+       idx += stride) {
+    int64_t t = idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    t /= out_h;
+    const int64_t out_frame = t % out_f;
+    const int64_t n = t / out_f;
+    int64_t in_frame = 0;
+    int64_t in_y = 0;
+    int64_t in_x = 0;
+    if constexpr (Exact) {
+      in_frame = max(min(static_cast<int64_t>(floorf((static_cast<float>(out_frame) + 0.5f) * frame_scale)), in_f - 1), static_cast<int64_t>(0));
+      in_y = max(min(static_cast<int64_t>(floorf((static_cast<float>(out_y) + 0.5f) * height_scale)), in_h - 1), static_cast<int64_t>(0));
+      in_x = max(min(static_cast<int64_t>(floorf((static_cast<float>(out_x) + 0.5f) * width_scale)), in_w - 1), static_cast<int64_t>(0));
+    } else {
+      in_frame = max(min(static_cast<int64_t>(floorf(static_cast<float>(out_frame) * frame_scale)), in_f - 1), static_cast<int64_t>(0));
+      in_y = max(min(static_cast<int64_t>(floorf(static_cast<float>(out_y) * height_scale)), in_h - 1), static_cast<int64_t>(0));
+      in_x = max(min(static_cast<int64_t>(floorf(static_cast<float>(out_x) * width_scale)), in_w - 1), static_cast<int64_t>(0));
+    }
+    const Vec input_value = LDG(x + (((n * in_f + in_frame) * in_h + in_y) * in_w + in_x) * channels_packed + c);
+    if constexpr (HasResidual) {
+      y[idx] = {{ func }}_packed_add<Vec, Elem>(input_value, LDG(residual + idx));
+    } else {
+      y[idx] = input_value;
+    }
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT residual,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t in_n,
+    int64_t in_f,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t in_c,
+    int64_t out_n,
+    int64_t out_f,
+    int64_t out_h,
+    int64_t out_w,
+    int64_t out_c,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || y == nullptr{% if has_residual %} || residual == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != out_n * out_f * out_h * out_w * out_c) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  if (in_n != out_n || in_c != out_c) {
+    return dino_runtime_fail("{{ func }} requires matching batch and channel dimensions");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid <= 0) {
+    return 0;
+  }
+{% if mode == "trilinear" %}
+{% if use_packed_interpolation %}
+  if ((in_c % {{ interpolation_alignment }}) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by {{ interpolation_alignment }} for packed interpolation");
+  }
+  using DinoUpsampling3dVec = {{ interpolation_vec_type }};
+  {{ kernel }}_trilinear_packed<
+      {{ storage_type }},
+      DinoUpsampling3dVec,
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(
+          x,
+          residual,
+          y,
+          in_n,
+          in_f,
+          in_h,
+          in_w,
+          in_c / {{ interpolation_alignment }},
+          out_f,
+          out_h,
+          out_w);
+{% else %}
+  {{ kernel }}_trilinear_scalar<
+      {{ storage_type }},
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(x, residual, y, in_n, in_f, in_h, in_w, in_c, out_f, out_h, out_w);
+{% endif %}
+{% else %}
+  if ((in_c % {{ nearest_alignment }}) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by {{ nearest_alignment }} for packed nearest upsampling");
+  }
+  using DinoUpsampling3dVec = {{ nearest_vec_type }};
+  {{ kernel }}_nearest<
+      {{ storage_type }},
+      DinoUpsampling3dVec,
+      {{ nearest_alignment }},
+      {{ "true" if mode == "nearest-exact" else "false" }},
+      {{ "true" if has_residual else "false" }}>
+      <<<grid, block, 0, stream>>>(
+          reinterpret_cast<const DinoUpsampling3dVec*>(x),
+          reinterpret_cast<const DinoUpsampling3dVec*>(residual),
+          reinterpret_cast<DinoUpsampling3dVec*>(y),
+          in_n,
+          in_f,
+          in_h,
+          in_w,
+          in_c / {{ nearest_alignment }},
+          out_f,
+          out_h,
+          out_w);
+{% endif %}
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

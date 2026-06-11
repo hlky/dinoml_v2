@@ -1,0 +1,269 @@
+template <typename Elem>
+inline Elem {{ func }}_cpu_elem_add(Elem a, Elem b) {
+  return dinoml::math::from_float<Elem>(dinoml::math::to_float(a) + dinoml::math::to_float(b));
+}
+
+template <typename Elem, int Alignment>
+struct alignas(sizeof(Elem) * Alignment) {{ func }}_cpu_pack {
+  Elem lanes[Alignment];
+};
+
+template <typename Elem, int Alignment>
+inline {{ func }}_cpu_pack<Elem, Alignment> {{ func }}_cpu_pack_add(
+    const {{ func }}_cpu_pack<Elem, Alignment>& a,
+    const {{ func }}_cpu_pack<Elem, Alignment>& b) {
+  {{ func }}_cpu_pack<Elem, Alignment> out{};
+  for (int lane = 0; lane < Alignment; ++lane) {
+    out.lanes[lane] = {{ func }}_cpu_elem_add<Elem>(a.lanes[lane], b.lanes[lane]);
+  }
+  return out;
+}
+
+template <typename Elem, bool AlignCorners, bool HasResidual>
+inline void {{ func }}_cpu_bilinear_scalar(
+    const Elem* x,
+    const Elem* residual,
+    Elem* y,
+    int64_t batch,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels,
+    int64_t out_h,
+    int64_t out_w) {
+  const float height_scale = AlignCorners
+      ? ((in_h <= 1 || out_h <= 1) ? 0.0f : static_cast<float>(in_h - 1) / static_cast<float>(out_h - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < batch * out_h * out_w * channels; ++idx) {
+    int64_t t = idx;
+    const int64_t c = t % channels;
+    t /= channels;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    const int64_t n = t / out_h;
+    const float in_y = AlignCorners
+        ? static_cast<float>(out_y) * height_scale
+        : (static_cast<float>(out_y) + 0.5f) * height_scale - 0.5f;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t top_y = in_y > 0.0f ? static_cast<int64_t>(floorf(in_y)) : 0;
+    const int64_t bottom_y = in_y < static_cast<float>(in_h - 1) ? static_cast<int64_t>(ceilf(in_y)) : (in_h - 1);
+    const int64_t left_x = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t right_x = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float y_lerp = in_y - floorf(in_y);
+    const float x_lerp = in_x - floorf(in_x);
+    const float tl = dinoml::math::to_float(x[((n * in_h + top_y) * in_w + left_x) * channels + c]);
+    const float tr = dinoml::math::to_float(x[((n * in_h + top_y) * in_w + right_x) * channels + c]);
+    const float bl = dinoml::math::to_float(x[((n * in_h + bottom_y) * in_w + left_x) * channels + c]);
+    const float br = dinoml::math::to_float(x[((n * in_h + bottom_y) * in_w + right_x) * channels + c]);
+    const float top = tl + (tr - tl) * x_lerp;
+    const float bottom = bl + (br - bl) * x_lerp;
+    float out_value = top + (bottom - top) * y_lerp;
+    if constexpr (HasResidual) {
+      out_value += dinoml::math::to_float(residual[idx]);
+    }
+    y[idx] = dinoml::math::from_float<Elem>(out_value);
+  }
+}
+
+template <typename Elem, bool AlignCorners, bool HasResidual>
+inline void {{ func }}_cpu_bilinear_packed2(
+    const Elem* x_raw,
+    const Elem* residual_raw,
+    Elem* y_raw,
+    int64_t batch,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_h,
+    int64_t out_w) {
+  using Pack2 = {{ func }}_cpu_pack<Elem, 2>;
+  const Pack2* x = reinterpret_cast<const Pack2*>(x_raw);
+  const Pack2* residual = reinterpret_cast<const Pack2*>(residual_raw);
+  Pack2* y = reinterpret_cast<Pack2*>(y_raw);
+  const float height_scale = AlignCorners
+      ? ((in_h <= 1 || out_h <= 1) ? 0.0f : static_cast<float>(in_h - 1) / static_cast<float>(out_h - 1))
+      : {{ inverse_scale_factor_literal }};
+  const float width_scale = AlignCorners
+      ? ((in_w <= 1 || out_w <= 1) ? 0.0f : static_cast<float>(in_w - 1) / static_cast<float>(out_w - 1))
+      : {{ inverse_scale_factor_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < batch * out_h * out_w * channels_packed; ++idx) {
+    int64_t t = idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    const int64_t n = t / out_h;
+    const float in_y = AlignCorners
+        ? static_cast<float>(out_y) * height_scale
+        : (static_cast<float>(out_y) + 0.5f) * height_scale - 0.5f;
+    const float in_x = AlignCorners
+        ? static_cast<float>(out_x) * width_scale
+        : (static_cast<float>(out_x) + 0.5f) * width_scale - 0.5f;
+    const int64_t top_y = in_y > 0.0f ? static_cast<int64_t>(floorf(in_y)) : 0;
+    const int64_t bottom_y = in_y < static_cast<float>(in_h - 1) ? static_cast<int64_t>(ceilf(in_y)) : (in_h - 1);
+    const int64_t left_x = in_x > 0.0f ? static_cast<int64_t>(floorf(in_x)) : 0;
+    const int64_t right_x = in_x < static_cast<float>(in_w - 1) ? static_cast<int64_t>(ceilf(in_x)) : (in_w - 1);
+    const float y_lerp = in_y - floorf(in_y);
+    const float x_lerp = in_x - floorf(in_x);
+    const Pack2 tl = x[((n * in_h + top_y) * in_w + left_x) * channels_packed + c];
+    const Pack2 tr = x[((n * in_h + top_y) * in_w + right_x) * channels_packed + c];
+    const Pack2 bl = x[((n * in_h + bottom_y) * in_w + left_x) * channels_packed + c];
+    const Pack2 br = x[((n * in_h + bottom_y) * in_w + right_x) * channels_packed + c];
+    Pack2 out{};
+    for (int lane = 0; lane < 2; ++lane) {
+      const float top = dinoml::math::to_float(tl.lanes[lane]) +
+          (dinoml::math::to_float(tr.lanes[lane]) - dinoml::math::to_float(tl.lanes[lane])) * x_lerp;
+      const float bottom = dinoml::math::to_float(bl.lanes[lane]) +
+          (dinoml::math::to_float(br.lanes[lane]) - dinoml::math::to_float(bl.lanes[lane])) * x_lerp;
+      out.lanes[lane] = dinoml::math::from_float<Elem>(top + (bottom - top) * y_lerp);
+    }
+    if constexpr (HasResidual) {
+      y[idx] = {{ func }}_cpu_pack_add<Elem, 2>(residual[idx], out);
+    } else {
+      y[idx] = out;
+    }
+  }
+}
+
+template <typename Elem, int Alignment, bool Exact, bool HasResidual>
+inline void {{ func }}_cpu_nearest_packed(
+    const Elem* x_raw,
+    const Elem* residual_raw,
+    Elem* y_raw,
+    int64_t batch,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t channels_packed,
+    int64_t out_h,
+    int64_t out_w) {
+  using Pack = {{ func }}_cpu_pack<Elem, Alignment>;
+  const Pack* x = reinterpret_cast<const Pack*>(x_raw);
+  const Pack* residual = reinterpret_cast<const Pack*>(residual_raw);
+  Pack* y = reinterpret_cast<Pack*>(y_raw);
+  const float height_scale = {{ inverse_scale_factor_literal }};
+  const float width_scale = {{ inverse_scale_factor_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < batch * out_h * out_w * channels_packed; ++idx) {
+    int64_t t = idx;
+    const int64_t c = t % channels_packed;
+    t /= channels_packed;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    const int64_t n = t / out_h;
+    int64_t in_y = 0;
+    int64_t in_x = 0;
+    if constexpr (Exact) {
+      in_y = std::max<int64_t>(
+          std::min<int64_t>(static_cast<int64_t>(floorf((static_cast<float>(out_y) + 0.5f) * height_scale)), in_h - 1),
+          0);
+      in_x = std::max<int64_t>(
+          std::min<int64_t>(static_cast<int64_t>(floorf((static_cast<float>(out_x) + 0.5f) * width_scale)), in_w - 1),
+          0);
+    } else {
+      in_y = std::max<int64_t>(
+          std::min<int64_t>(static_cast<int64_t>(floorf(static_cast<float>(out_y) * height_scale)), in_h - 1),
+          0);
+      in_x = std::max<int64_t>(
+          std::min<int64_t>(static_cast<int64_t>(floorf(static_cast<float>(out_x) * width_scale)), in_w - 1),
+          0);
+    }
+    const Pack input_value = x[((n * in_h + in_y) * in_w + in_x) * channels_packed + c];
+    if constexpr (HasResidual) {
+      y[idx] = {{ func }}_cpu_pack_add<Elem, Alignment>(input_value, residual[idx]);
+    } else {
+      y[idx] = input_value;
+    }
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT residual,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t in_n,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t in_c,
+    int64_t out_n,
+    int64_t out_h,
+    int64_t out_w,
+    int64_t out_c) {
+  if (x == nullptr || y == nullptr{% if has_residual %} || residual == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != out_n * out_h * out_w * out_c) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  if (in_n != out_n || in_c != out_c) {
+    return dino_runtime_fail("{{ func }} requires matching batch and channel dimensions");
+  }
+{% if mode == "bilinear" %}
+{% if use_packed_interpolation %}
+  if ((in_c % 2) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by 2 for packed interpolation");
+  }
+  {{ func }}_cpu_bilinear_packed2<
+      {{ storage_type }},
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>(
+          x,
+          residual,
+          y,
+          in_n,
+          in_h,
+          in_w,
+          in_c / 2,
+          out_h,
+          out_w);
+{% else %}
+  {{ func }}_cpu_bilinear_scalar<
+      {{ storage_type }},
+      {{ "true" if align_corners else "false" }},
+      {{ "true" if has_residual else "false" }}>(
+          x,
+          residual,
+          y,
+          in_n,
+          in_h,
+          in_w,
+          in_c,
+          out_h,
+          out_w);
+{% endif %}
+{% else %}
+  if ((in_c % {{ nearest_alignment }}) != 0) {
+    return dino_runtime_fail("{{ func }} requires channels divisible by {{ nearest_alignment }} for packed nearest upsampling");
+  }
+  {{ func }}_cpu_nearest_packed<
+      {{ storage_type }},
+      {{ nearest_alignment }},
+      {{ "true" if mode == "nearest-exact" else "false" }},
+      {{ "true" if has_residual else "false" }}>(
+          x,
+          residual,
+          y,
+          in_n,
+          in_h,
+          in_w,
+          in_c / {{ nearest_alignment }},
+          out_h,
+          out_w);
+{% endif %}
+  return 0;
+}

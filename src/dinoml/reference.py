@@ -23,6 +23,7 @@ from dinoml.ops.positional import (
     normalize_relative_attention_bias_attrs,
     normalize_sinusoidal_positional_embedding_attrs,
 )
+from dinoml.ops.upsampling import normalize_upsampling_attrs
 
 
 def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -458,6 +459,32 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_max_pool2d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] in {
+            "upsampling1d",
+            "upsampling1d_add",
+            "upsampling2d",
+            "upsampling2d_add",
+            "upsampling3d",
+            "upsampling3d_add",
+        }:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_upsampling_family(
+                    node["op"],
+                    values[node["inputs"][0]],
+                    None if not node["op"].endswith("_add") else values[node["inputs"][1]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "upsampling3d_compress_time":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_upsampling3d_compress_time(values[node["inputs"][0]]),
                 output_dtype,
             )
         elif node["op"] in {"conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu"}:
@@ -2039,6 +2066,257 @@ def _execute_max_pool2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.nd
                             max_value = max(max_value, float(source[n, c, ih, iw]))
                     result[n, c, oh, ow] = max_value
     return result
+
+
+def _execute_upsampling_family(
+    op_name: str,
+    value: np.ndarray,
+    residual: np.ndarray | None,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_upsampling_attrs(
+        op_name,
+        scale_factor=attrs.get("scale_factor"),
+        mode=attrs.get("mode"),
+        align_corners=attrs.get("align_corners", False),
+    )
+    mode = str(normalized["mode"])
+    align_corners = bool(normalized["align_corners"]) if normalized["align_corners"] is not None else False
+    scale_factor = float(normalized["scale_factor"])
+    if op_name.startswith("upsampling1d"):
+        output = _execute_upsampling1d(value, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
+    elif op_name.startswith("upsampling2d"):
+        output = _execute_upsampling2d(value, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
+    else:
+        output = _execute_upsampling3d(value, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
+    if residual is not None:
+        output = output + np.asarray(residual, dtype=np.float32)
+    return output
+
+
+def _execute_upsampling1d(
+    value: np.ndarray,
+    *,
+    scale_factor: float,
+    mode: str,
+    align_corners: bool,
+) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_w, channels = x.shape
+    out_w = int(in_w * scale_factor)
+    output = np.empty((batch, out_w, channels), dtype=np.float32)
+    if mode == "linear":
+        for out_x in range(out_w):
+            left_x, right_x, x_lerp = _upsampling_linear_position(
+                out_x,
+                in_w,
+                out_w,
+                align_corners,
+                scale_factor=scale_factor,
+            )
+            output[:, out_x, :] = x[:, left_x, :] + (x[:, right_x, :] - x[:, left_x, :]) * x_lerp
+        return output
+    for out_x in range(out_w):
+        in_x = _upsampling_nearest_index(
+            out_x,
+            in_w,
+            out_w,
+            exact=mode == "nearest-exact",
+            scale_factor=scale_factor,
+        )
+        output[:, out_x, :] = x[:, in_x, :]
+    return output
+
+
+def _execute_upsampling2d(
+    value: np.ndarray,
+    *,
+    scale_factor: float,
+    mode: str,
+    align_corners: bool,
+) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_h, in_w, channels = x.shape
+    out_h = int(in_h * scale_factor)
+    out_w = int(in_w * scale_factor)
+    output = np.empty((batch, out_h, out_w, channels), dtype=np.float32)
+    if mode == "bilinear":
+        for out_y in range(out_h):
+            top_y, bottom_y, y_lerp = _upsampling_linear_position(
+                out_y,
+                in_h,
+                out_h,
+                align_corners,
+                scale_factor=scale_factor,
+            )
+            for out_x in range(out_w):
+                left_x, right_x, x_lerp = _upsampling_linear_position(
+                    out_x,
+                    in_w,
+                    out_w,
+                    align_corners,
+                    scale_factor=scale_factor,
+                )
+                top = x[:, top_y, left_x, :] + (x[:, top_y, right_x, :] - x[:, top_y, left_x, :]) * x_lerp
+                bottom = x[:, bottom_y, left_x, :] + (x[:, bottom_y, right_x, :] - x[:, bottom_y, left_x, :]) * x_lerp
+                output[:, out_y, out_x, :] = top + (bottom - top) * y_lerp
+        return output
+    for out_y in range(out_h):
+        in_y = _upsampling_nearest_index(
+            out_y,
+            in_h,
+            out_h,
+            exact=mode == "nearest-exact",
+            scale_factor=scale_factor,
+        )
+        for out_x in range(out_w):
+            in_x = _upsampling_nearest_index(
+                out_x,
+                in_w,
+                out_w,
+                exact=mode == "nearest-exact",
+                scale_factor=scale_factor,
+            )
+            output[:, out_y, out_x, :] = x[:, in_y, in_x, :]
+    return output
+
+
+def _execute_upsampling3d(
+    value: np.ndarray,
+    *,
+    scale_factor: float,
+    mode: str,
+    align_corners: bool,
+) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_f, in_h, in_w, channels = x.shape
+    out_f = int(in_f * scale_factor)
+    out_h = int(in_h * scale_factor)
+    out_w = int(in_w * scale_factor)
+    output = np.empty((batch, out_f, out_h, out_w, channels), dtype=np.float32)
+    if mode == "trilinear":
+        for out_frame in range(out_f):
+            f0, f1, f_lerp = _upsampling_linear_position(
+                out_frame,
+                in_f,
+                out_f,
+                align_corners,
+                scale_factor=scale_factor,
+            )
+            for out_y in range(out_h):
+                y0, y1, y_lerp = _upsampling_linear_position(
+                    out_y,
+                    in_h,
+                    out_h,
+                    align_corners,
+                    scale_factor=scale_factor,
+                )
+                for out_x in range(out_w):
+                    x0, x1, x_lerp = _upsampling_linear_position(
+                        out_x,
+                        in_w,
+                        out_w,
+                        align_corners,
+                        scale_factor=scale_factor,
+                    )
+                    v000 = x[:, f0, y0, x0, :]
+                    v001 = x[:, f0, y0, x1, :]
+                    v010 = x[:, f0, y1, x0, :]
+                    v011 = x[:, f0, y1, x1, :]
+                    v100 = x[:, f1, y0, x0, :]
+                    v101 = x[:, f1, y0, x1, :]
+                    v110 = x[:, f1, y1, x0, :]
+                    v111 = x[:, f1, y1, x1, :]
+                    v00 = v000 + (v001 - v000) * x_lerp
+                    v01 = v010 + (v011 - v010) * x_lerp
+                    v10 = v100 + (v101 - v100) * x_lerp
+                    v11 = v110 + (v111 - v110) * x_lerp
+                    vy0 = v00 + (v01 - v00) * y_lerp
+                    vy1 = v10 + (v11 - v10) * y_lerp
+                    output[:, out_frame, out_y, out_x, :] = vy0 + (vy1 - vy0) * f_lerp
+        return output
+    for out_frame in range(out_f):
+        in_frame = _upsampling_nearest_index(
+            out_frame,
+            in_f,
+            out_f,
+            exact=mode == "nearest-exact",
+            scale_factor=scale_factor,
+        )
+        for out_y in range(out_h):
+            in_y = _upsampling_nearest_index(
+                out_y,
+                in_h,
+                out_h,
+                exact=mode == "nearest-exact",
+                scale_factor=scale_factor,
+            )
+            for out_x in range(out_w):
+                in_x = _upsampling_nearest_index(
+                    out_x,
+                    in_w,
+                    out_w,
+                    exact=mode == "nearest-exact",
+                    scale_factor=scale_factor,
+                )
+                output[:, out_frame, out_y, out_x, :] = x[:, in_frame, in_y, in_x, :]
+    return output
+
+
+def _execute_upsampling3d_compress_time(value: np.ndarray) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, frames, in_h, in_w, channels = x.shape
+    out_f = 1 if frames == 1 else (2 * frames if (frames % 2) == 0 else 2 * frames - 1)
+    out_h = in_h * 2
+    out_w = in_w * 2
+    output = np.empty((batch, out_f, out_h, out_w, channels), dtype=np.float32)
+    for out_frame in range(out_f):
+        if frames == 1:
+            in_frame = 0
+        elif (frames % 2) == 0:
+            in_frame = _upsampling_nearest_index(out_frame, frames, out_f, exact=False)
+        elif out_frame == 0:
+            in_frame = 0
+        else:
+            in_frame = min(1 + int(math.floor((out_frame - 1) * 0.5)), frames - 1)
+        for out_y in range(out_h):
+            in_y = _upsampling_nearest_index(out_y, in_h, out_h, exact=False)
+            for out_x in range(out_w):
+                in_x = _upsampling_nearest_index(out_x, in_w, out_w, exact=False)
+                output[:, out_frame, out_y, out_x, :] = x[:, in_frame, in_y, in_x, :]
+    return output
+
+
+def _upsampling_linear_position(
+    out_index: int,
+    in_extent: int,
+    out_extent: int,
+    align_corners: bool,
+    *,
+    scale_factor: float | None = None,
+) -> tuple[int, int, float]:
+    if align_corners:
+        scale = 0.0 if in_extent <= 1 or out_extent <= 1 else float(in_extent - 1) / float(out_extent - 1)
+        coord = float(out_index) * scale
+    else:
+        scale = 1.0 / float(scale_factor) if scale_factor is not None else float(in_extent) / float(out_extent)
+        coord = (float(out_index) + 0.5) * scale - 0.5
+    lower = int(math.floor(coord)) if coord > 0.0 else 0
+    upper = int(math.ceil(coord)) if coord < float(in_extent - 1) else in_extent - 1
+    return lower, upper, float(coord - math.floor(coord))
+
+
+def _upsampling_nearest_index(
+    out_index: int,
+    in_extent: int,
+    out_extent: int,
+    *,
+    exact: bool,
+    scale_factor: float | None = None,
+) -> int:
+    scale = 1.0 / float(scale_factor) if scale_factor is not None else float(in_extent) / float(out_extent)
+    coord = (float(out_index) + 0.5) * scale if exact else float(out_index) * scale
+    return max(min(int(math.floor(coord)), in_extent - 1), 0)
 
 
 def _execute_conv1d_bias_family(

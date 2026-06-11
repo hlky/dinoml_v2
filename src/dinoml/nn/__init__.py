@@ -242,6 +242,71 @@ class MaxPool2d(Module):
         return ops.max_pool2d(x, self.kernel_size, stride=self.stride, padding=self.padding)
 
 
+class Upsampling1d(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.upsampling1d(x, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling1dAdd(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any, residual: Any) -> Tensor:
+        return ops.upsampling1d_add(x, residual, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling2d(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.upsampling2d(x, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling2dAdd(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any, residual: Any) -> Tensor:
+        return ops.upsampling2d_add(x, residual, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling3d(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.upsampling3d(x, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling3dAdd(Module):
+    def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
+        self.scale_factor = float(scale_factor)
+        self.mode = str(mode)
+        self.align_corners = align_corners
+
+    def forward(self, x: Any, residual: Any) -> Tensor:
+        return ops.upsampling3d_add(x, residual, self.scale_factor, self.mode, align_corners=self.align_corners)
+
+
+class Upsampling3dCompressTime(Module):
+    def forward(self, x: Any) -> Tensor:
+        return ops.upsampling3d_compress_time(x)
+
+
 class ReLU(Module):
     def __init__(self, inplace: bool = False):
         if inplace:
@@ -486,4 +551,11 @@ __all__ = [
     "Softmax",
     "T5LayerNorm",
     "Tanh",
+    "Upsampling1d",
+    "Upsampling1dAdd",
+    "Upsampling2d",
+    "Upsampling2dAdd",
+    "Upsampling3d",
+    "Upsampling3dAdd",
+    "Upsampling3dCompressTime",
 ]

@@ -195,6 +195,15 @@ from dinoml.ops.reductions import (
 from dinoml.ops.qwen2_5_vl import qwen2_5_vl_stitch_image_features
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
+from dinoml.ops.upsampling import (
+    upsampling1d,
+    upsampling1d_add,
+    upsampling2d,
+    upsampling2d_add,
+    upsampling3d,
+    upsampling3d_add,
+    upsampling3d_compress_time,
+)
 from dinoml.ops.where import where
 from dinoml.shapes import symbolic_int_expr
 
@@ -453,6 +462,13 @@ __all__ = [
     "transposed_conv2d_bias_relu",
     "tuple_construct",
     "unsqueeze",
+    "upsampling1d",
+    "upsampling1d_add",
+    "upsampling2d",
+    "upsampling2d_add",
+    "upsampling3d",
+    "upsampling3d_add",
+    "upsampling3d_compress_time",
     "var",
     "vector_norm",
     "where",

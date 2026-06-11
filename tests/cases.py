@@ -1124,6 +1124,234 @@ def rotary_positional_fusions_case() -> GraphCase:
     )
 
 
+class PositionalHelperFusionModule(dml.Module):
+    def forward(self, x, weight, box, rel_embedding, seq):
+        return {
+            "cropped_pos_embed": dml.ops.output(
+                dml.ops.cropped_pos_embed(
+                    embed_dim=16,
+                    pos_embed_max_size=8,
+                    base_size=4,
+                    interpolation_scale=1.0,
+                    patch_size=2,
+                    height=8,
+                    width=12,
+                ),
+                "cropped_pos_embed",
+            ),
+            "gaussian_fourier_projection": dml.ops.output(
+                dml.ops.gaussian_fourier_projection(x, weight, log=True, flip_sin_to_cos=True),
+                "gaussian_fourier_projection",
+            ),
+            "get_fourier_embeds_from_boundingbox": dml.ops.output(
+                dml.ops.get_fourier_embeds_from_boundingbox(4, box),
+                "get_fourier_embeds_from_boundingbox",
+            ),
+            "relative_attention_bias": dml.ops.output(
+                dml.ops.relative_attention_bias(
+                    rel_embedding,
+                    3,
+                    5,
+                    bidirectional=True,
+                    num_buckets=16,
+                    max_distance=32,
+                ),
+                "relative_attention_bias",
+            ),
+            "sinusoidal_positional_embedding": dml.ops.output(
+                dml.ops.sinusoidal_positional_embedding(seq, 8, 6),
+                "sinusoidal_positional_embedding",
+            ),
+        }
+
+
+def positional_helper_fusions_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            PositionalHelperFusionModule(),
+            inputs={
+                "x": dml.TensorSpec([4], "float32"),
+                "weight": dml.TensorSpec([6], "float32"),
+                "box": dml.TensorSpec([2, 3, 4], "float32"),
+                "rel_embedding": dml.TensorSpec([16, 2], "float32"),
+                "seq": dml.TensorSpec([2, 6, 8], "float32"),
+            },
+            name="fresh_positional_helper_fusions",
+        )
+
+    def inputs():
+        return {
+            "x": np.array([0.125, 0.5, 1.25, 3.0], dtype=np.float32),
+            "weight": np.linspace(-0.75, 0.5, num=6, dtype=np.float32),
+            "box": np.linspace(-0.5, 0.75, num=24, dtype=np.float32).reshape(2, 3, 4),
+            "rel_embedding": np.linspace(-1.0, 1.0, num=32, dtype=np.float32).reshape(16, 2),
+            "seq": np.linspace(-1.25, 1.5, num=96, dtype=np.float32).reshape(2, 6, 8),
+        }
+
+    return GraphCase(
+        "positional_helper_fusions",
+        build_spec,
+        inputs,
+        frozenset(
+            {
+                "cropped_pos_embed",
+                "gaussian_fourier_projection",
+                "get_fourier_embeds_from_boundingbox",
+                "relative_attention_bias",
+                "sinusoidal_positional_embedding",
+            }
+        ),
+        atol=1e-4,
+        rtol=1e-4,
+    )
+
+
+class DtypePositionalHelperFusionModule(dml.Module):
+    def forward(
+        self,
+        x16,
+        weight16,
+        box16,
+        rel_embedding16,
+        seq16,
+        xbf,
+        weightbf,
+        boxbf,
+        rel_embeddingbf,
+        seqbf,
+    ):
+        return {
+            "cropped_pos_embed_float16": dml.ops.output(
+                dml.ops.cropped_pos_embed(
+                    embed_dim=16,
+                    pos_embed_max_size=8,
+                    base_size=4,
+                    interpolation_scale=1.0,
+                    patch_size=2,
+                    height=8,
+                    width=12,
+                    dtype="float16",
+                ),
+                "cropped_pos_embed_float16",
+            ),
+            "cropped_pos_embed_bfloat16": dml.ops.output(
+                dml.ops.cropped_pos_embed(
+                    embed_dim=16,
+                    pos_embed_max_size=8,
+                    base_size=4,
+                    interpolation_scale=1.0,
+                    patch_size=2,
+                    height=8,
+                    width=12,
+                    dtype="bfloat16",
+                ),
+                "cropped_pos_embed_bfloat16",
+            ),
+            "gaussian_fourier_projection_float16": dml.ops.output(
+                dml.ops.gaussian_fourier_projection(x16, weight16, log=False, flip_sin_to_cos=False),
+                "gaussian_fourier_projection_float16",
+            ),
+            "gaussian_fourier_projection_bfloat16": dml.ops.output(
+                dml.ops.gaussian_fourier_projection(xbf, weightbf, log=False, flip_sin_to_cos=True),
+                "gaussian_fourier_projection_bfloat16",
+            ),
+            "get_fourier_embeds_from_boundingbox_float16": dml.ops.output(
+                dml.ops.get_fourier_embeds_from_boundingbox(4, box16),
+                "get_fourier_embeds_from_boundingbox_float16",
+            ),
+            "get_fourier_embeds_from_boundingbox_bfloat16": dml.ops.output(
+                dml.ops.get_fourier_embeds_from_boundingbox(4, boxbf),
+                "get_fourier_embeds_from_boundingbox_bfloat16",
+            ),
+            "relative_attention_bias_float16": dml.ops.output(
+                dml.ops.relative_attention_bias(
+                    rel_embedding16,
+                    3,
+                    5,
+                    bidirectional=False,
+                    num_buckets=16,
+                    max_distance=32,
+                ),
+                "relative_attention_bias_float16",
+            ),
+            "relative_attention_bias_bfloat16": dml.ops.output(
+                dml.ops.relative_attention_bias(
+                    rel_embeddingbf,
+                    3,
+                    5,
+                    bidirectional=True,
+                    num_buckets=16,
+                    max_distance=32,
+                ),
+                "relative_attention_bias_bfloat16",
+            ),
+            "sinusoidal_positional_embedding_float16": dml.ops.output(
+                dml.ops.sinusoidal_positional_embedding(seq16, 8, 6),
+                "sinusoidal_positional_embedding_float16",
+            ),
+            "sinusoidal_positional_embedding_bfloat16": dml.ops.output(
+                dml.ops.sinusoidal_positional_embedding(seqbf, 8, 6),
+                "sinusoidal_positional_embedding_bfloat16",
+            ),
+        }
+
+
+def dtype_positional_helper_fusions_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            DtypePositionalHelperFusionModule(),
+            inputs={
+                "x16": dml.TensorSpec([4], "float16"),
+                "weight16": dml.TensorSpec([6], "float16"),
+                "box16": dml.TensorSpec([2, 3, 4], "float16"),
+                "rel_embedding16": dml.TensorSpec([16, 2], "float16"),
+                "seq16": dml.TensorSpec([2, 6, 8], "float16"),
+                "xbf": dml.TensorSpec([4], "bfloat16"),
+                "weightbf": dml.TensorSpec([6], "bfloat16"),
+                "boxbf": dml.TensorSpec([2, 3, 4], "bfloat16"),
+                "rel_embeddingbf": dml.TensorSpec([16, 2], "bfloat16"),
+                "seqbf": dml.TensorSpec([2, 6, 8], "bfloat16"),
+            },
+            name="fresh_dtype_pos_helpers",
+        )
+
+    def inputs():
+        x = np.array([0.125, 0.5, 1.25, 3.0], dtype=np.float32)
+        weight = np.linspace(-0.75, 0.5, num=6, dtype=np.float32)
+        box = np.linspace(-0.5, 0.75, num=24, dtype=np.float32).reshape(2, 3, 4)
+        rel_embedding = np.linspace(-1.0, 1.0, num=32, dtype=np.float32).reshape(16, 2)
+        seq = np.linspace(-1.25, 1.5, num=96, dtype=np.float32).reshape(2, 6, 8)
+        return {
+            "x16": _roundtrip(x, "float16"),
+            "weight16": _roundtrip(weight, "float16"),
+            "box16": _roundtrip(box, "float16"),
+            "rel_embedding16": _roundtrip(rel_embedding, "float16"),
+            "seq16": _roundtrip(seq, "float16"),
+            "xbf": _roundtrip(x, "bfloat16"),
+            "weightbf": _roundtrip(weight, "bfloat16"),
+            "boxbf": _roundtrip(box, "bfloat16"),
+            "rel_embeddingbf": _roundtrip(rel_embedding, "bfloat16"),
+            "seqbf": _roundtrip(seq, "bfloat16"),
+        }
+
+    return GraphCase(
+        "dtype_pos_helpers",
+        build_spec,
+        inputs,
+        frozenset(
+            {
+                "cropped_pos_embed",
+                "gaussian_fourier_projection",
+                "get_fourier_embeds_from_boundingbox",
+                "relative_attention_bias",
+                "sinusoidal_positional_embedding",
+            }
+        ),
+        atol=3e-2,
+        rtol=3e-2,
+    )
+
+
 class VisionLayoutModule(dml.Module):
     def forward(self, x_shuffle, x_unshuffle):
         return {
@@ -1425,6 +1653,8 @@ def standard_cases() -> list[GraphCase]:
         positional_case(),
         dtype_positional_case(),
         rotary_positional_fusions_case(),
+        positional_helper_fusions_case(),
+        dtype_positional_helper_fusions_case(),
         vision_layout_case(),
         embedding_case(),
         dtype_embedding_case(),

@@ -1,0 +1,31 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT box,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t box_total,
+    int64_t y_total) {
+  if (box == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t embed_dim = {{ embed_dim }};
+  constexpr int64_t output_cols = {{ output_cols }};
+  if (box_total % 4 != 0 || y_total != (box_total / 4) * output_cols) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t linear_idx = 0; linear_idx < y_total; ++linear_idx) {
+    const int64_t box_idx = linear_idx / output_cols;
+    const int64_t col = linear_idx - box_idx * output_cols;
+    const int64_t embed_idx = col / 8;
+    const int64_t rem = col - embed_idx * 8;
+    const int64_t trig_idx = rem / 4;
+    const int64_t coord_idx = rem - trig_idx * 4;
+    const float exponent = static_cast<float>(embed_idx) / static_cast<float>(embed_dim);
+    const float scaled = expf({{ log_100_literal }} * exponent);
+    const float angle = dinoml::math::cast<float>(box[box_idx * 4 + coord_idx]) * scaled;
+    const float value = trig_idx == 0 ? sinf(angle) : cosf(angle);
+    y[linear_idx] = dinoml::math::cast<{{ storage_type }}>(value);
+  }
+  return 0;
+}

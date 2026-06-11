@@ -1,0 +1,48 @@
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT weight,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t x_total,
+    int64_t weight_total,
+    int64_t y_total) {
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (linear_idx >= y_total) {
+    return;
+  }
+  const int64_t row = linear_idx / (weight_total * 2);
+  const int64_t col = linear_idx - row * weight_total * 2;
+  const int64_t weight_idx = col % weight_total;
+  float position = dinoml::math::cast<float>(x[row]);
+{% if log_input %}
+  position = logf(position);
+{% endif %}
+  const float projected = position * dinoml::math::cast<float>(weight[weight_idx]) * {{ two_pi_literal }};
+  const bool first_half = col < weight_total;
+{% if flip_sin_to_cos %}
+  const float value = first_half ? cosf(projected) : sinf(projected);
+{% else %}
+  const float value = first_half ? sinf(projected) : cosf(projected);
+{% endif %}
+  y[linear_idx] = dinoml::math::cast<{{ storage_type }}>(value);
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ storage_type }}* DINO_RESTRICT weight,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t x_total,
+    int64_t weight_total,
+    int64_t y_total,
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || weight == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (y_total != x_total * weight_total * 2) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  const int block = {{ block_size }};
+  const int grid = static_cast<int>((y_total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(x, weight, y, x_total, weight_total, y_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

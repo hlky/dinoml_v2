@@ -1,0 +1,43 @@
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total) {
+  constexpr int64_t crop_h = {{ crop_h }};
+  constexpr int64_t crop_w = {{ crop_w }};
+  constexpr int64_t embed_dim = {{ embed_dim }};
+  constexpr int64_t half_embed_dim = {{ half_embed_dim }};
+  constexpr int64_t pair_dim = {{ pair_dim }};
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (linear_idx >= runtime_total) {
+    return;
+  }
+  const int64_t token_idx = linear_idx / embed_dim;
+  const int64_t col = linear_idx - token_idx * embed_dim;
+  const int64_t h_idx = token_idx / crop_w;
+  const int64_t w_idx = token_idx - h_idx * crop_w;
+  const float grid_w = static_cast<float>({{ left }}) + static_cast<float>(w_idx);
+  const float grid_h = static_cast<float>({{ top }}) + static_cast<float>(h_idx);
+  const bool first_half = col < half_embed_dim;
+  const int64_t local_col = first_half ? col : (col - half_embed_dim);
+  const int64_t freq_idx = local_col < pair_dim ? local_col : (local_col - pair_dim);
+  const float position = (first_half ? grid_w : grid_h) * {{ grid_scale_literal }};
+  const float angle = position * expf({{ neg_log_10000_literal }} * static_cast<float>(freq_idx) / static_cast<float>(pair_dim));
+  const float value = local_col < pair_dim ? sinf(angle) : cosf(angle);
+  y[linear_idx] = dinoml::math::cast<{{ storage_type }}>(value);
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total,
+    {{ gpu_stream_type }} stream) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_total != static_cast<int64_t>({{ crop_h }}) * static_cast<int64_t>({{ crop_w }}) * static_cast<int64_t>({{ embed_dim }})) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  const int block = {{ block_size }};
+  const int grid = static_cast<int>((runtime_total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(y, runtime_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

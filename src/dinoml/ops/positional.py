@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 from dinoml.frontend import GraphBuilder, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
+from dinoml.shapes import normalize_symbolic_int, symbolic_int_expr, symbolic_int_interval
 
 
 GET_TIMESTEP_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
@@ -13,6 +14,11 @@ GET_1D_ROTARY_POS_EMBED_DTYPES = ("float16", "float32", "bfloat16")
 ROTARY_POSITIONAL_FUSION_DTYPES = GET_1D_ROTARY_POS_EMBED_DTYPES
 GET_3D_ROTARY_POS_EMBED_ALLEGRO_DTYPES = (*ROTARY_POSITIONAL_FUSION_DTYPES, "int64")
 GLM_OCR_ROPE_DTYPES = ("float16", "float32", "bfloat16")
+CROPPED_POS_EMBED_DTYPES = ("float16", "float32", "bfloat16")
+GAUSSIAN_FOURIER_PROJECTION_DTYPES = ("float16", "float32", "bfloat16")
+FOURIER_EMBEDS_FROM_BOUNDINGBOX_DTYPES = ("float16", "float32", "bfloat16")
+RELATIVE_ATTENTION_BIAS_DTYPES = ("float16", "float32", "bfloat16")
+SINUSOIDAL_POSITIONAL_EMBEDDING_DTYPES = ("float16", "float32", "bfloat16")
 GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS = (
     "get_1d_rotary_pos_embed_cos",
     "get_1d_rotary_pos_embed_sin",
@@ -23,6 +29,257 @@ ROTARY_POSITIONAL_FUSION_OPS = (
     "get_3d_rotary_pos_embed",
     "get_3d_rotary_pos_embed_allegro",
 )
+POSITIONAL_HELPER_FUSION_OPS = (
+    "cropped_pos_embed",
+    "gaussian_fourier_projection",
+    "get_fourier_embeds_from_boundingbox",
+    "relative_attention_bias",
+    "sinusoidal_positional_embedding",
+)
+
+
+def infer_cropped_pos_embed(shapes: Sequence[Sequence[int]]) -> list[int]:
+    raise ValueError("cropped_pos_embed shape inference requires attrs")
+
+
+def infer_cropped_pos_embed_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    if input_shapes:
+        raise ValueError("cropped_pos_embed expects no tensor inputs")
+    normalized = normalize_cropped_pos_embed_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        pos_embed_max_size=attrs.get("pos_embed_max_size"),
+        base_size=attrs.get("base_size"),
+        interpolation_scale=attrs.get("interpolation_scale"),
+        patch_size=attrs.get("patch_size"),
+        height=attrs.get("height"),
+        width=attrs.get("width"),
+    )
+    return [1, int(normalized["crop_h"]) * int(normalized["crop_w"]), int(normalized["embed_dim"])]
+
+
+def normalize_cropped_pos_embed_attrs(
+    *,
+    embed_dim: Any,
+    pos_embed_max_size: Any,
+    base_size: Any,
+    interpolation_scale: Any,
+    patch_size: Any,
+    height: Any,
+    width: Any,
+) -> dict[str, Any]:
+    normalized_embed_dim = _positive_int_attr(embed_dim, "cropped_pos_embed embed_dim")
+    if normalized_embed_dim % 4 != 0:
+        raise ValueError("cropped_pos_embed embed_dim must be divisible by 4")
+    normalized_pos_embed_max_size = _positive_int_attr(
+        pos_embed_max_size,
+        "cropped_pos_embed pos_embed_max_size",
+    )
+    normalized_base_size = _positive_int_attr(base_size, "cropped_pos_embed base_size")
+    normalized_patch_size = _positive_int_attr(patch_size, "cropped_pos_embed patch_size")
+    normalized_height = _positive_int_attr(height, "cropped_pos_embed height")
+    normalized_width = _positive_int_attr(width, "cropped_pos_embed width")
+    normalized_interpolation_scale = _positive_finite_float_attr(
+        interpolation_scale,
+        "cropped_pos_embed interpolation_scale",
+    )
+    crop_h = normalized_height // normalized_patch_size
+    crop_w = normalized_width // normalized_patch_size
+    if crop_h <= 0 or crop_w <= 0:
+        raise ValueError("cropped_pos_embed derived crop size must be positive")
+    if crop_h > normalized_pos_embed_max_size:
+        raise ValueError(
+            "cropped_pos_embed height crop must not exceed pos_embed_max_size"
+        )
+    if crop_w > normalized_pos_embed_max_size:
+        raise ValueError(
+            "cropped_pos_embed width crop must not exceed pos_embed_max_size"
+        )
+    return {
+        "embed_dim": normalized_embed_dim,
+        "pos_embed_max_size": normalized_pos_embed_max_size,
+        "base_size": normalized_base_size,
+        "interpolation_scale": normalized_interpolation_scale,
+        "patch_size": normalized_patch_size,
+        "height": normalized_height,
+        "width": normalized_width,
+        "crop_h": crop_h,
+        "crop_w": crop_w,
+        "top": (normalized_pos_embed_max_size - crop_h) // 2,
+        "left": (normalized_pos_embed_max_size - crop_w) // 2,
+    }
+
+
+def infer_gaussian_fourier_projection(shapes: Sequence[Sequence[int]]) -> list[int]:
+    raise ValueError("gaussian_fourier_projection shape inference requires attrs")
+
+
+def infer_gaussian_fourier_projection_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("gaussian_fourier_projection expects exactly two inputs")
+    x_shape = list(input_shapes[0])
+    weight_shape = list(input_shapes[1])
+    if len(x_shape) != 1:
+        raise ValueError("gaussian_fourier_projection expects rank-1 x")
+    if len(weight_shape) != 1:
+        raise ValueError("gaussian_fourier_projection expects rank-1 weight")
+    normalize_gaussian_fourier_projection_attrs(
+        log=attrs.get("log", True),
+        flip_sin_to_cos=attrs.get("flip_sin_to_cos", False),
+    )
+    return [int(x_shape[0]), int(weight_shape[0]) * 2]
+
+
+def normalize_gaussian_fourier_projection_attrs(
+    *,
+    log: Any = True,
+    flip_sin_to_cos: Any = False,
+) -> dict[str, bool]:
+    if not isinstance(log, bool):
+        raise ValueError(f"gaussian_fourier_projection log must be bool, got {log!r}")
+    if not isinstance(flip_sin_to_cos, bool):
+        raise ValueError(
+            "gaussian_fourier_projection flip_sin_to_cos must be bool, "
+            f"got {flip_sin_to_cos!r}"
+        )
+    return {
+        "log": bool(log),
+        "flip_sin_to_cos": bool(flip_sin_to_cos),
+    }
+
+
+def infer_get_fourier_embeds_from_boundingbox(shapes: Sequence[Sequence[int]]) -> list[int]:
+    raise ValueError("get_fourier_embeds_from_boundingbox shape inference requires attrs")
+
+
+def infer_get_fourier_embeds_from_boundingbox_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("get_fourier_embeds_from_boundingbox expects exactly one input")
+    box_shape = list(input_shapes[0])
+    if len(box_shape) != 3:
+        raise ValueError("get_fourier_embeds_from_boundingbox expects rank-3 box")
+    if int(box_shape[2]) != 4:
+        raise ValueError("get_fourier_embeds_from_boundingbox expects box[..., 4]")
+    normalized = normalize_get_fourier_embeds_from_boundingbox_attrs(embed_dim=attrs.get("embed_dim"))
+    return [int(box_shape[0]), int(box_shape[1]), int(normalized["embed_dim"]) * 8]
+
+
+def normalize_get_fourier_embeds_from_boundingbox_attrs(*, embed_dim: Any) -> dict[str, int]:
+    return {
+        "embed_dim": _positive_int_attr(
+            embed_dim,
+            "get_fourier_embeds_from_boundingbox embed_dim",
+        ),
+    }
+
+
+def infer_relative_attention_bias(shapes: Sequence[Sequence[int]]) -> list[int]:
+    raise ValueError("relative_attention_bias shape inference requires attrs")
+
+
+def infer_relative_attention_bias_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("relative_attention_bias expects exactly one input")
+    embedding_shape = list(input_shapes[0])
+    if len(embedding_shape) != 2:
+        raise ValueError("relative_attention_bias expects embedding with shape [num_buckets, heads]")
+    normalized = normalize_relative_attention_bias_attrs(
+        query_length=attrs.get("query_length"),
+        key_length=attrs.get("key_length"),
+        bidirectional=attrs.get("bidirectional", True),
+        num_buckets=attrs.get("num_buckets", 32),
+        max_distance=attrs.get("max_distance", 128),
+    )
+    return [
+        1,
+        int(embedding_shape[1]),
+        _symbolic_int_max_value(normalized["query_length"]),
+        _symbolic_int_max_value(normalized["key_length"]),
+    ]
+
+
+def normalize_relative_attention_bias_attrs(
+    *,
+    query_length: Any,
+    key_length: Any,
+    bidirectional: Any = True,
+    num_buckets: Any = 32,
+    max_distance: Any = 128,
+) -> dict[str, Any]:
+    if not isinstance(bidirectional, bool):
+        raise ValueError(f"relative_attention_bias bidirectional must be bool, got {bidirectional!r}")
+    normalized_num_buckets = _positive_int_attr(num_buckets, "relative_attention_bias num_buckets")
+    normalized_max_distance = _positive_int_attr(
+        max_distance,
+        "relative_attention_bias max_distance",
+    )
+    buckets_per_direction = normalized_num_buckets // 2 if bidirectional else normalized_num_buckets
+    if buckets_per_direction < 2:
+        raise ValueError("relative_attention_bias num_buckets is too small for the selected directionality")
+    if normalized_max_distance <= buckets_per_direction // 2:
+        raise ValueError("relative_attention_bias max_distance must exceed the exact-bucket threshold")
+    return {
+        "query_length": _positive_symbolic_int_attr(
+            query_length,
+            "relative_attention_bias query_length",
+        ),
+        "key_length": _positive_symbolic_int_attr(
+            key_length,
+            "relative_attention_bias key_length",
+        ),
+        "bidirectional": bool(bidirectional),
+        "num_buckets": normalized_num_buckets,
+        "max_distance": normalized_max_distance,
+    }
+
+
+def infer_sinusoidal_positional_embedding(shapes: Sequence[Sequence[int]]) -> list[int]:
+    raise ValueError("sinusoidal_positional_embedding shape inference requires attrs")
+
+
+def infer_sinusoidal_positional_embedding_with_attrs(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("sinusoidal_positional_embedding expects exactly one input")
+    x_shape = list(input_shapes[0])
+    if len(x_shape) != 3:
+        raise ValueError("sinusoidal_positional_embedding expects rank-3 x")
+    normalized = normalize_sinusoidal_positional_embedding_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        max_seq_len=attrs.get("max_seq_len"),
+    )
+    if int(x_shape[2]) != int(normalized["embed_dim"]):
+        raise ValueError("sinusoidal_positional_embedding embed_dim must match x.shape[-1]")
+    if int(x_shape[1]) > int(normalized["max_seq_len"]):
+        raise ValueError("sinusoidal_positional_embedding seq length must not exceed max_seq_len")
+    return list(x_shape)
+
+
+def normalize_sinusoidal_positional_embedding_attrs(
+    *,
+    embed_dim: Any,
+    max_seq_len: Any,
+) -> dict[str, int]:
+    return {
+        "embed_dim": _positive_int_attr(embed_dim, "sinusoidal_positional_embedding embed_dim"),
+        "max_seq_len": _positive_int_attr(
+            max_seq_len,
+            "sinusoidal_positional_embedding max_seq_len",
+        ),
+    }
 
 
 def infer_get_timestep_embedding(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -623,6 +880,170 @@ class GetTimestepEmbedding(OpDef):
         )
 
 
+@op_def
+class CroppedPosEmbed(OpDef):
+    name = "cropped_pos_embed"
+    schema = OpSchema(
+        inputs=(),
+        attrs=(
+            AttrDef("embed_dim", "int", required=True),
+            AttrDef("pos_embed_max_size", "int", required=True),
+            AttrDef("base_size", "int", required=True),
+            AttrDef("interpolation_scale", "float", required=True),
+            AttrDef("patch_size", "int", required=True),
+            AttrDef("height", "int", required=True),
+            AttrDef("width", "int", required=True),
+            AttrDef("dtype", "dtype", "float32"),
+        ),
+    )
+    infer_shape = infer_cropped_pos_embed
+    infer_shape_with_attrs = infer_cropped_pos_embed_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding("generated_cropped_pos_embed", "model", source_template="cropped_pos_embed_cpu.cpp.j2"),
+        "cuda": KernelBinding("generated_cropped_pos_embed", "model", source_template="cropped_pos_embed_gpu.j2"),
+        "rocm": KernelBinding("generated_cropped_pos_embed", "model", source_template="cropped_pos_embed_gpu.j2"),
+    }
+    frontend = FrontendBinding("cropped_pos_embed")
+    allowed_dtypes = CROPPED_POS_EMBED_DTYPES
+    description = "Fused center-cropped 2D sin/cos positional embedding generation."
+
+
+@op_def
+class GaussianFourierProjection(OpDef):
+    name = "gaussian_fourier_projection"
+    schema = OpSchema(
+        inputs=("x", "weight"),
+        attrs=(
+            AttrDef("log", "bool", True),
+            AttrDef("flip_sin_to_cos", "bool", False),
+        ),
+    )
+    infer_shape = infer_gaussian_fourier_projection
+    infer_shape_with_attrs = infer_gaussian_fourier_projection_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding(
+            "generated_gaussian_fourier_projection",
+            "model",
+            source_template="gaussian_fourier_projection_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            "generated_gaussian_fourier_projection",
+            "model",
+            source_template="gaussian_fourier_projection_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            "generated_gaussian_fourier_projection",
+            "model",
+            source_template="gaussian_fourier_projection_gpu.j2",
+        ),
+    }
+    frontend = FrontendBinding("gaussian_fourier_projection")
+    allowed_dtypes = GAUSSIAN_FOURIER_PROJECTION_DTYPES
+    description = "Fused Gaussian Fourier projection with optional log input transform."
+
+
+@op_def
+class GetFourierEmbedsFromBoundingbox(OpDef):
+    name = "get_fourier_embeds_from_boundingbox"
+    schema = OpSchema(
+        inputs=("box",),
+        attrs=(AttrDef("embed_dim", "int", required=True),),
+    )
+    infer_shape = infer_get_fourier_embeds_from_boundingbox
+    infer_shape_with_attrs = infer_get_fourier_embeds_from_boundingbox_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding(
+            "generated_get_fourier_embeds_from_boundingbox",
+            "model",
+            source_template="get_fourier_embeds_from_boundingbox_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            "generated_get_fourier_embeds_from_boundingbox",
+            "model",
+            source_template="get_fourier_embeds_from_boundingbox_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            "generated_get_fourier_embeds_from_boundingbox",
+            "model",
+            source_template="get_fourier_embeds_from_boundingbox_gpu.j2",
+        ),
+    }
+    frontend = FrontendBinding("get_fourier_embeds_from_boundingbox")
+    allowed_dtypes = FOURIER_EMBEDS_FROM_BOUNDINGBOX_DTYPES
+    description = "Fused Fourier box embedding over [B, N, 4] bounding boxes."
+
+
+@op_def
+class RelativeAttentionBias(OpDef):
+    name = "relative_attention_bias"
+    schema = OpSchema(
+        inputs=("embedding",),
+        attrs=(
+            AttrDef("query_length", "symbolic_int", required=True),
+            AttrDef("key_length", "symbolic_int", required=True),
+            AttrDef("bidirectional", "bool", True),
+            AttrDef("num_buckets", "int", 32),
+            AttrDef("max_distance", "int", 128),
+        ),
+    )
+    infer_shape = infer_relative_attention_bias
+    infer_shape_with_attrs = infer_relative_attention_bias_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding(
+            "generated_relative_attention_bias",
+            "model",
+            source_template="relative_attention_bias_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            "generated_relative_attention_bias",
+            "model",
+            source_template="relative_attention_bias_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            "generated_relative_attention_bias",
+            "model",
+            source_template="relative_attention_bias_gpu.j2",
+        ),
+    }
+    frontend = FrontendBinding("relative_attention_bias")
+    allowed_dtypes = RELATIVE_ATTENTION_BIAS_DTYPES
+    description = "T5-style relative position bucket lookup expanded to [1, heads, query, key]."
+
+
+@op_def
+class SinusoidalPositionalEmbedding(OpDef):
+    name = "sinusoidal_positional_embedding"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(
+            AttrDef("embed_dim", "int", required=True),
+            AttrDef("max_seq_len", "int", required=True),
+        ),
+    )
+    infer_shape = infer_sinusoidal_positional_embedding
+    infer_shape_with_attrs = infer_sinusoidal_positional_embedding_with_attrs
+    backend_kernels = {
+        "cpu": KernelBinding(
+            "generated_sinusoidal_positional_embedding",
+            "model",
+            source_template="sinusoidal_positional_embedding_cpu.cpp.j2",
+        ),
+        "cuda": KernelBinding(
+            "generated_sinusoidal_positional_embedding",
+            "model",
+            source_template="sinusoidal_positional_embedding_gpu.j2",
+        ),
+        "rocm": KernelBinding(
+            "generated_sinusoidal_positional_embedding",
+            "model",
+            source_template="sinusoidal_positional_embedding_gpu.j2",
+        ),
+    }
+    frontend = FrontendBinding("sinusoidal_positional_embedding")
+    allowed_dtypes = SINUSOIDAL_POSITIONAL_EMBEDDING_DTYPES
+    description = "Additive sinusoidal position encoding for rank-3 [batch, seq, hidden] tensors."
+
+
 def _rotary_component_schema(output_kind: str) -> OpSchema:
     return OpSchema(
         inputs=(),
@@ -855,6 +1276,164 @@ class GlmOcrVisionRope(OpDef):
     frontend = FrontendBinding("glm_ocr_vision_rope")
     allowed_dtypes = GLM_OCR_ROPE_DTYPES
     description = "Fused GLM-OCR vision RoPE for Q/K tensors using half rotation and fp32 internal math."
+
+
+def cropped_pos_embed(
+    embed_dim: int,
+    pos_embed_max_size: int,
+    base_size: int,
+    interpolation_scale: float,
+    patch_size: int,
+    height: int,
+    width: int,
+    dtype: str = "float32",
+) -> Tensor:
+    output_dtype = normalize_dtype(dtype)
+    if output_dtype not in CROPPED_POS_EMBED_DTYPES:
+        raise ValueError(f"cropped_pos_embed does not support dtype {output_dtype}")
+    attrs = normalize_cropped_pos_embed_attrs(
+        embed_dim=embed_dim,
+        pos_embed_max_size=pos_embed_max_size,
+        base_size=base_size,
+        interpolation_scale=interpolation_scale,
+        patch_size=patch_size,
+        height=height,
+        width=width,
+    )
+    attrs["dtype"] = output_dtype
+    output_shape = infer_cropped_pos_embed_with_attrs([], attrs)
+    return GraphBuilder.current().emit(
+        "cropped_pos_embed",
+        [],
+        output_shape,
+        output_dtype,
+        attrs,
+        shape_spec=output_shape,
+    )
+
+
+def gaussian_fourier_projection(
+    x: Any,
+    weight: Any,
+    log: bool = True,
+    flip_sin_to_cos: bool = False,
+) -> Tensor:
+    x_tensor = as_tensor(x, dtype_hint="float32")
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if x_tensor.builder is not weight_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if x_tensor.dtype != weight_tensor.dtype:
+        raise ValueError(
+            "gaussian_fourier_projection requires x and weight to have matching dtypes, "
+            f"got {x_tensor.dtype} and {weight_tensor.dtype}"
+        )
+    if x_tensor.dtype not in GAUSSIAN_FOURIER_PROJECTION_DTYPES:
+        raise ValueError(f"gaussian_fourier_projection does not support dtype {x_tensor.dtype}")
+    attrs = normalize_gaussian_fourier_projection_attrs(
+        log=log,
+        flip_sin_to_cos=flip_sin_to_cos,
+    )
+    output_shape = infer_gaussian_fourier_projection_with_attrs(
+        [x_tensor.shape, weight_tensor.shape],
+        attrs,
+    )
+    output_shape_spec = [
+        _copy_shape_dim(x_tensor.shape_spec[0]),
+        symbolic_int_expr("mul", _copy_shape_dim(weight_tensor.shape_spec[0]), 2),
+    ]
+    return x_tensor.builder.emit(
+        "gaussian_fourier_projection",
+        [x_tensor, weight_tensor],
+        output_shape,
+        x_tensor.dtype,
+        attrs,
+        shape_spec=output_shape_spec,
+    )
+
+
+def get_fourier_embeds_from_boundingbox(embed_dim: int, box: Any) -> Tensor:
+    box_tensor = as_tensor(box, dtype_hint="float32")
+    if box_tensor.dtype not in FOURIER_EMBEDS_FROM_BOUNDINGBOX_DTYPES:
+        raise ValueError(
+            "get_fourier_embeds_from_boundingbox does not support dtype "
+            f"{box_tensor.dtype}"
+        )
+    attrs = normalize_get_fourier_embeds_from_boundingbox_attrs(embed_dim=embed_dim)
+    output_shape = infer_get_fourier_embeds_from_boundingbox_with_attrs([box_tensor.shape], attrs)
+    output_shape_spec = [
+        _copy_shape_dim(box_tensor.shape_spec[0]),
+        _copy_shape_dim(box_tensor.shape_spec[1]),
+        int(attrs["embed_dim"]) * 8,
+    ]
+    return box_tensor.builder.emit(
+        "get_fourier_embeds_from_boundingbox",
+        [box_tensor],
+        output_shape,
+        box_tensor.dtype,
+        attrs,
+        shape_spec=output_shape_spec,
+    )
+
+
+def relative_attention_bias(
+    embedding: Any,
+    query_length: Any,
+    key_length: Any,
+    *,
+    bidirectional: bool = True,
+    num_buckets: int = 32,
+    max_distance: int = 128,
+    dtype: str | None = None,
+) -> Tensor:
+    embedding_tensor = as_tensor(embedding, dtype_hint="float32")
+    output_dtype = embedding_tensor.dtype if dtype is None else normalize_dtype(dtype)
+    if output_dtype not in RELATIVE_ATTENTION_BIAS_DTYPES:
+        raise ValueError(f"relative_attention_bias does not support dtype {output_dtype}")
+    if embedding_tensor.dtype != output_dtype:
+        from dinoml.ops.cast import cast
+
+        embedding_tensor = cast(embedding_tensor, output_dtype)
+    attrs = normalize_relative_attention_bias_attrs(
+        query_length=query_length,
+        key_length=key_length,
+        bidirectional=bidirectional,
+        num_buckets=num_buckets,
+        max_distance=max_distance,
+    )
+    output_shape = infer_relative_attention_bias_with_attrs([embedding_tensor.shape], attrs)
+    output_shape_spec = [
+        1,
+        _copy_shape_dim(embedding_tensor.shape_spec[1]),
+        _copy_shape_dim(attrs["query_length"]),
+        _copy_shape_dim(attrs["key_length"]),
+    ]
+    return embedding_tensor.builder.emit(
+        "relative_attention_bias",
+        [embedding_tensor],
+        output_shape,
+        output_dtype,
+        attrs,
+        shape_spec=output_shape_spec,
+    )
+
+
+def sinusoidal_positional_embedding(x: Any, embed_dim: int, max_seq_len: int) -> Tensor:
+    x_tensor = as_tensor(x, dtype_hint="float32")
+    if x_tensor.dtype not in SINUSOIDAL_POSITIONAL_EMBEDDING_DTYPES:
+        raise ValueError(f"sinusoidal_positional_embedding does not support dtype {x_tensor.dtype}")
+    attrs = normalize_sinusoidal_positional_embedding_attrs(
+        embed_dim=embed_dim,
+        max_seq_len=max_seq_len,
+    )
+    output_shape = infer_sinusoidal_positional_embedding_with_attrs([x_tensor.shape], attrs)
+    return x_tensor.builder.emit(
+        "sinusoidal_positional_embedding",
+        [x_tensor],
+        output_shape,
+        x_tensor.dtype,
+        attrs,
+        shape_spec=list(x_tensor.shape_spec),
+    )
 
 
 def get_timestep_embedding(
@@ -1229,6 +1808,20 @@ def _positive_finite_float_attr(value: Any, name: str) -> float:
     return normalized
 
 
+def _positive_symbolic_int_attr(value: Any, name: str) -> int | dict[str, Any]:
+    normalized = normalize_symbolic_int(value, name)
+    min_value, _ = symbolic_int_interval(normalized)
+    if min_value <= 0:
+        raise ValueError(f"{name} must be positive, got {value!r}")
+    return normalized
+
+
+def _symbolic_int_max_value(value: int | Mapping[str, Any]) -> int:
+    if isinstance(value, int):
+        return int(value)
+    return int(symbolic_int_interval(value)[1])
+
+
 def _required_true_bool_attr(value: Any, name: str) -> bool:
     if not isinstance(value, bool):
         raise ValueError(f"{name} must be bool, got {value!r}")
@@ -1275,14 +1868,25 @@ def _copy_shape_dim(dim: Any) -> Any:
     if isinstance(dim, Mapping):
         return dict(dim)
     return dim
+
+
 __all__ = [
+    "CROPPED_POS_EMBED_DTYPES",
+    "FOURIER_EMBEDS_FROM_BOUNDINGBOX_DTYPES",
+    "GAUSSIAN_FOURIER_PROJECTION_DTYPES",
     "GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS",
     "GET_1D_ROTARY_POS_EMBED_DTYPES",
     "GET_3D_ROTARY_POS_EMBED_ALLEGRO_DTYPES",
     "GET_TIMESTEP_EMBEDDING_DTYPES",
     "GLM_OCR_ROPE_DTYPES",
+    "POSITIONAL_HELPER_FUSION_OPS",
+    "RELATIVE_ATTENTION_BIAS_DTYPES",
     "ROTARY_POSITIONAL_FUSION_DTYPES",
     "ROTARY_POSITIONAL_FUSION_OPS",
+    "SINUSOIDAL_POSITIONAL_EMBEDDING_DTYPES",
+    "CroppedPosEmbed",
+    "GaussianFourierProjection",
+    "GetFourierEmbedsFromBoundingbox",
     "Get1dRotaryPosEmbedCos",
     "Get1dRotaryPosEmbedSin",
     "Get2dRotaryPosEmbed",
@@ -1292,15 +1896,24 @@ __all__ = [
     "GlmOcrTextRope",
     "GlmOcrVisionRope",
     "GetTimestepEmbedding",
+    "RelativeAttentionBias",
+    "SinusoidalPositionalEmbedding",
+    "cropped_pos_embed",
     "emit_get_1d_rotary_pos_embed_component",
+    "gaussian_fourier_projection",
     "get_2d_rotary_pos_embed",
     "get_2d_rotary_pos_embed_lumina",
     "get_3d_rotary_pos_embed",
     "get_3d_rotary_pos_embed_allegro",
     "get_1d_rotary_pos_embed",
+    "get_fourier_embeds_from_boundingbox",
     "get_timestep_embedding",
     "glm_ocr_text_rope",
     "glm_ocr_vision_rope",
+    "infer_cropped_pos_embed",
+    "infer_cropped_pos_embed_with_attrs",
+    "infer_gaussian_fourier_projection",
+    "infer_gaussian_fourier_projection_with_attrs",
     "infer_get_2d_rotary_pos_embed",
     "infer_get_2d_rotary_pos_embed_lumina",
     "infer_get_2d_rotary_pos_embed_lumina_with_attrs",
@@ -1312,17 +1925,30 @@ __all__ = [
     "infer_get_1d_rotary_pos_embed_component",
     "infer_get_1d_rotary_pos_embed_component_shape_spec",
     "infer_get_1d_rotary_pos_embed_component_with_attrs",
+    "infer_get_fourier_embeds_from_boundingbox",
+    "infer_get_fourier_embeds_from_boundingbox_with_attrs",
     "infer_glm_ocr_text_rope_q_shape",
     "infer_glm_ocr_text_rope_q_shape_with_attrs",
     "infer_glm_ocr_vision_rope_q_shape",
+    "infer_relative_attention_bias",
+    "infer_relative_attention_bias_with_attrs",
+    "infer_sinusoidal_positional_embedding",
+    "infer_sinusoidal_positional_embedding_with_attrs",
     "infer_get_timestep_embedding",
     "infer_get_timestep_embedding_with_attrs",
+    "normalize_cropped_pos_embed_attrs",
+    "normalize_gaussian_fourier_projection_attrs",
     "normalize_get_2d_rotary_pos_embed_attrs",
     "normalize_get_2d_rotary_pos_embed_lumina_attrs",
     "normalize_get_3d_rotary_pos_embed_allegro_attrs",
     "normalize_get_3d_rotary_pos_embed_attrs",
     "normalize_glm_ocr_text_rope_attrs",
     "normalize_get_1d_rotary_pos_embed_attrs",
+    "normalize_get_fourier_embeds_from_boundingbox_attrs",
+    "normalize_relative_attention_bias_attrs",
+    "normalize_sinusoidal_positional_embedding_attrs",
     "normalize_get_timestep_embedding_attrs",
+    "relative_attention_bias",
     "rotary_output_cols",
+    "sinusoidal_positional_embedding",
 ]

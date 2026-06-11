@@ -168,6 +168,9 @@ from dinoml.ops.internal import ShapeBufferCountTrue
 from dinoml.ops.normalization import add_layer_norm, group_norm, group_norm_swish, layer_norm, rms_norm, t5_layer_norm
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
 from dinoml.ops.positional import (
+    cropped_pos_embed,
+    gaussian_fourier_projection,
+    get_fourier_embeds_from_boundingbox,
     get_2d_rotary_pos_embed,
     get_2d_rotary_pos_embed_lumina,
     get_3d_rotary_pos_embed,
@@ -176,6 +179,8 @@ from dinoml.ops.positional import (
     get_timestep_embedding,
     glm_ocr_text_rope,
     glm_ocr_vision_rope,
+    relative_attention_bias,
+    sinusoidal_positional_embedding,
 )
 from dinoml.ops.reductions import (
     argmax,
@@ -360,6 +365,9 @@ __all__ = [
     "gemm_rrr_bias_sigmoid_mul_tanh",
     "gemm_rrr_bias_swish",
     "gemm_rrr_bias_tanh",
+    "cropped_pos_embed",
+    "gaussian_fourier_projection",
+    "get_fourier_embeds_from_boundingbox",
     "get_2d_rotary_pos_embed",
     "get_2d_rotary_pos_embed_lumina",
     "get_3d_rotary_pos_embed",
@@ -416,10 +424,12 @@ __all__ = [
     "runtime_index_select",
     "reshape",
     "rms_norm",
+    "relative_attention_bias",
     "sigmoid",
     "sign",
     "silu",
     "sin",
+    "sinusoidal_positional_embedding",
     "size",
     "slice_reshape_scatter",
     "slice_scatter",

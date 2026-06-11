@@ -1,0 +1,66 @@
+__device__ inline int64_t {{ kernel }}_bucket(int64_t relative_position) {
+  int64_t bucket = 0;
+  int64_t n = {{ num_buckets }};
+{% if bidirectional %}
+  n /= 2;
+  if (relative_position > 0) {
+    bucket += n;
+  }
+  relative_position = relative_position > 0 ? relative_position : -relative_position;
+{% else %}
+  relative_position = relative_position < 0 ? -relative_position : 0;
+{% endif %}
+  const int64_t max_exact = n / 2;
+  if (relative_position < max_exact) {
+    return bucket + relative_position;
+  }
+  const float scaled = static_cast<float>(max_exact) + (
+      logf(static_cast<float>(relative_position) / static_cast<float>(max_exact)) /
+      logf(static_cast<float>({{ max_distance }}) / static_cast<float>(max_exact))) *
+      static_cast<float>(n - max_exact);
+  const int64_t large_bucket = static_cast<int64_t>(scaled);
+  return bucket + (large_bucket < (n - 1) ? large_bucket : (n - 1));
+}
+
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT embedding,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t query_length,
+    int64_t key_length,
+    int64_t heads,
+    int64_t y_total) {
+  const int64_t linear_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (linear_idx >= y_total) {
+    return;
+  }
+  int64_t tmp = linear_idx;
+  const int64_t key_idx = tmp % key_length;
+  tmp /= key_length;
+  const int64_t query_idx = tmp % query_length;
+  tmp /= query_length;
+  const int64_t head_idx = tmp;
+  const int64_t bucket = {{ kernel }}_bucket(key_idx - query_idx);
+  y[linear_idx] = embedding[bucket * heads + head_idx];
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT embedding,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t query_length,
+    int64_t key_length,
+    int64_t heads,
+    int64_t embedding_total,
+    int64_t y_total,
+    {{ gpu_stream_type }} stream) {
+  if (embedding == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (embedding_total != static_cast<int64_t>({{ num_buckets }}) * heads || y_total != heads * query_length * key_length) {
+    return dino_runtime_fail("{{ func }} received mismatched input/output element counts");
+  }
+  const int block = {{ block_size }};
+  const int grid = static_cast<int>((y_total + block - 1) / block);
+  {{ kernel }}<<<grid, block, 0, stream>>>(embedding, y, query_length, key_length, heads, y_total);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

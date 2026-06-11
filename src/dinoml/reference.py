@@ -12,11 +12,16 @@ from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims
 from dinoml.shapes import evaluate_symbolic_int
 from dinoml.ops.positional import (
+    normalize_cropped_pos_embed_attrs,
+    normalize_gaussian_fourier_projection_attrs,
+    normalize_get_fourier_embeds_from_boundingbox_attrs,
     normalize_get_1d_rotary_pos_embed_attrs,
     normalize_get_2d_rotary_pos_embed_attrs,
     normalize_get_2d_rotary_pos_embed_lumina_attrs,
     normalize_get_3d_rotary_pos_embed_allegro_attrs,
     normalize_get_3d_rotary_pos_embed_attrs,
+    normalize_relative_attention_bias_attrs,
+    normalize_sinusoidal_positional_embedding_attrs,
 )
 
 
@@ -105,6 +110,54 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_get_timestep_embedding(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "cropped_pos_embed":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_cropped_pos_embed(node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "gaussian_fourier_projection":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_gaussian_fourier_projection(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "get_fourier_embeds_from_boundingbox":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_get_fourier_embeds_from_boundingbox(
+                    values[node["inputs"][0]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "relative_attention_bias":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_relative_attention_bias(
+                    values[node["inputs"][0]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "sinusoidal_positional_embedding":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_sinusoidal_positional_embedding(
+                    values[node["inputs"][0]],
+                    node.get("attrs", {}),
+                ),
                 output_dtype,
             )
         elif node["op"] in {"get_1d_rotary_pos_embed_cos", "get_1d_rotary_pos_embed_sin"}:
@@ -892,6 +945,198 @@ def _execute_group_norm(
     if apply_swish:
         result = result / (1.0 + np.exp(-result))
     return np.asarray(result, dtype=np.float32)
+
+
+def _execute_cropped_pos_embed(attrs: Mapping[str, object]) -> np.ndarray:
+    normalized = normalize_cropped_pos_embed_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        pos_embed_max_size=attrs.get("pos_embed_max_size"),
+        base_size=attrs.get("base_size"),
+        interpolation_scale=attrs.get("interpolation_scale"),
+        patch_size=attrs.get("patch_size"),
+        height=attrs.get("height"),
+        width=attrs.get("width"),
+    )
+    embed_dim = int(normalized["embed_dim"])
+    max_size = int(normalized["pos_embed_max_size"])
+    crop_h = int(normalized["crop_h"])
+    crop_w = int(normalized["crop_w"])
+    top = int(normalized["top"])
+    left = int(normalized["left"])
+    grid_h = (
+        np.arange(max_size, dtype=np.float32)
+        / np.float32(float(max_size) / float(normalized["base_size"]))
+        / np.float32(normalized["interpolation_scale"])
+    )
+    grid_w = (
+        np.arange(max_size, dtype=np.float32)
+        / np.float32(float(max_size) / float(normalized["base_size"]))
+        / np.float32(normalized["interpolation_scale"])
+    )
+    grid_0, grid_1 = np.meshgrid(grid_w, grid_h, indexing="xy")
+    pair_dim = embed_dim // 4
+    omega = np.arange(pair_dim, dtype=np.float32) / np.float32(pair_dim)
+    omega = np.float32(1.0) / np.power(np.float32(10000.0), omega, dtype=np.float32)
+    out_0 = grid_0.reshape(-1, 1) * omega.reshape(1, -1)
+    out_1 = grid_1.reshape(-1, 1) * omega.reshape(1, -1)
+    pos_embed = np.concatenate(
+        [
+            np.sin(out_0).astype(np.float32, copy=False),
+            np.cos(out_0).astype(np.float32, copy=False),
+            np.sin(out_1).astype(np.float32, copy=False),
+            np.cos(out_1).astype(np.float32, copy=False),
+        ],
+        axis=1,
+    )
+    spatial = pos_embed.reshape(1, max_size, max_size, embed_dim)
+    return spatial[:, top : top + crop_h, left : left + crop_w, :].reshape(
+        1,
+        crop_h * crop_w,
+        embed_dim,
+    )
+
+
+def _execute_gaussian_fourier_projection(
+    x: np.ndarray,
+    weight: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_gaussian_fourier_projection_attrs(
+        log=attrs.get("log", True),
+        flip_sin_to_cos=attrs.get("flip_sin_to_cos", False),
+    )
+    if x.ndim != 1 or weight.ndim != 1:
+        raise ValueError("CPU reference gaussian_fourier_projection expects rank-1 x and weight")
+    x_value = np.asarray(x, dtype=np.float32)
+    weight_value = np.asarray(weight, dtype=np.float32)
+    if bool(normalized["log"]):
+        x_value = np.log(x_value)
+    x_proj = x_value[:, None] * weight_value[None, :] * np.float32(2.0 * math.pi)
+    if bool(normalized["flip_sin_to_cos"]):
+        return np.concatenate(
+            [
+                np.cos(x_proj).astype(np.float32, copy=False),
+                np.sin(x_proj).astype(np.float32, copy=False),
+            ],
+            axis=1,
+        )
+    return np.concatenate(
+        [
+            np.sin(x_proj).astype(np.float32, copy=False),
+            np.cos(x_proj).astype(np.float32, copy=False),
+        ],
+        axis=1,
+    )
+
+
+def _execute_get_fourier_embeds_from_boundingbox(
+    box: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_get_fourier_embeds_from_boundingbox_attrs(embed_dim=attrs.get("embed_dim"))
+    if box.ndim != 3 or int(box.shape[2]) != 4:
+        raise ValueError("CPU reference get_fourier_embeds_from_boundingbox expects [B, N, 4] input")
+    box_value = np.asarray(box, dtype=np.float32)
+    embed_dim = int(normalized["embed_dim"])
+    emb = np.power(np.float32(100.0), np.arange(embed_dim, dtype=np.float32) / np.float32(embed_dim))
+    projected = box_value[..., None] * emb.reshape(1, 1, 1, embed_dim)
+    stacked = np.stack(
+        (
+            np.sin(projected).astype(np.float32, copy=False),
+            np.cos(projected).astype(np.float32, copy=False),
+        ),
+        axis=-1,
+    )
+    return np.transpose(stacked, (0, 1, 3, 4, 2)).reshape(box.shape[0], box.shape[1], embed_dim * 8)
+
+
+def _execute_relative_attention_bias(
+    embedding: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_relative_attention_bias_attrs(
+        query_length=attrs.get("query_length"),
+        key_length=attrs.get("key_length"),
+        bidirectional=attrs.get("bidirectional", True),
+        num_buckets=attrs.get("num_buckets", 32),
+        max_distance=attrs.get("max_distance", 128),
+    )
+    if embedding.ndim != 2:
+        raise ValueError("CPU reference relative_attention_bias expects [num_buckets, heads] embedding")
+    embedding_value = np.asarray(embedding, dtype=np.float32)
+    num_buckets, heads = [int(dim) for dim in embedding_value.shape]
+    if num_buckets != int(normalized["num_buckets"]):
+        raise ValueError("CPU reference relative_attention_bias num_buckets must match embedding.shape[0]")
+    query_length = int(normalized["query_length"])
+    key_length = int(normalized["key_length"])
+    result = np.empty((1, heads, query_length, key_length), dtype=np.float32)
+    for query_idx in range(query_length):
+        for key_idx in range(key_length):
+            bucket = _relative_attention_bucket(
+                key_idx - query_idx,
+                bidirectional=bool(normalized["bidirectional"]),
+                num_buckets=int(normalized["num_buckets"]),
+                max_distance=int(normalized["max_distance"]),
+            )
+            result[0, :, query_idx, key_idx] = embedding_value[bucket]
+    return result
+
+
+def _execute_sinusoidal_positional_embedding(
+    x: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_sinusoidal_positional_embedding_attrs(
+        embed_dim=attrs.get("embed_dim"),
+        max_seq_len=attrs.get("max_seq_len"),
+    )
+    if x.ndim != 3:
+        raise ValueError("CPU reference sinusoidal_positional_embedding expects rank-3 x")
+    x_value = np.asarray(x, dtype=np.float32)
+    batch, seq_len, hidden = [int(dim) for dim in x_value.shape]
+    embed_dim = int(normalized["embed_dim"])
+    max_seq_len = int(normalized["max_seq_len"])
+    if hidden != embed_dim:
+        raise ValueError("CPU reference sinusoidal_positional_embedding embed_dim must match x.shape[-1]")
+    if seq_len > max_seq_len:
+        raise ValueError("CPU reference sinusoidal_positional_embedding seq length exceeds max_seq_len")
+    position = np.arange(max_seq_len, dtype=np.float32).reshape(max_seq_len, 1)
+    div_term = np.exp(
+        np.arange(0, embed_dim, 2, dtype=np.float32) * (-np.log(np.float32(10000.0)) / np.float32(embed_dim))
+    ).astype(np.float32, copy=False)
+    pe = np.zeros((1, max_seq_len, embed_dim), dtype=np.float32)
+    pe[:, :, 0::2] = np.sin(position * div_term).reshape(1, max_seq_len, -1)
+    pe[:, :, 1::2] = np.cos(position * div_term[: pe[:, :, 1::2].shape[2]]).reshape(1, max_seq_len, -1)
+    return (x_value + pe[:, :seq_len, :]).reshape(batch, seq_len, embed_dim)
+
+
+def _relative_attention_bucket(
+    relative_position: int,
+    *,
+    bidirectional: bool,
+    num_buckets: int,
+    max_distance: int,
+) -> int:
+    bucket = 0
+    buckets_per_direction = int(num_buckets)
+    rel = int(relative_position)
+    if bidirectional:
+        buckets_per_direction //= 2
+        if rel > 0:
+            bucket += buckets_per_direction
+        rel = abs(rel)
+    else:
+        rel = -min(rel, 0)
+
+    max_exact = buckets_per_direction // 2
+    if rel < max_exact:
+        return bucket + rel
+    scaled = max_exact + int(
+        math.log(float(rel) / float(max_exact))
+        / math.log(float(max_distance) / float(max_exact))
+        * float(buckets_per_direction - max_exact)
+    )
+    return bucket + min(scaled, buckets_per_direction - 1)
 
 
 def _execute_get_timestep_embedding(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:

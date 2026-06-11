@@ -206,6 +206,13 @@ from dinoml.ops.reductions import (
 from dinoml.ops.qwen2_5_vl import qwen2_5_vl_stitch_image_features
 from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
 from dinoml.ops.softmax import softmax
+from dinoml.ops.tensor_filters import (
+    fir_downsample2d,
+    fir_filter_pad2,
+    fir_upsample2d,
+    kdownsample2d_weight,
+    kupsample2d_weight,
+)
 from dinoml.ops.upsampling import (
     upsampling1d,
     upsampling1d_add,
@@ -331,6 +338,9 @@ __all__ = [
     "expand",
     "expand_static_shape",
     "fast_gelu",
+    "fir_downsample2d",
+    "fir_filter_pad2",
+    "fir_upsample2d",
     "flatten",
     "flip",
     "floor",
@@ -411,6 +421,8 @@ __all__ = [
     "int_div",
     "int_mul",
     "int_sub",
+    "kdownsample2d_weight",
+    "kupsample2d_weight",
     "layer_norm",
     "layernorm_sigmoid_mul",
     "le",

@@ -1,0 +1,63 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t in_n,
+    int64_t in_h,
+    int64_t in_w,
+    int64_t in_c,
+    int64_t out_n,
+    int64_t out_h,
+    int64_t out_w,
+    int64_t out_c) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != out_n * out_h * out_w * out_c) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  if (in_n != out_n || in_c != out_c) {
+    return dino_runtime_fail("{{ func }} requires matching batch and channel dimensions");
+  }
+  if (out_h != (in_h * {{ up }} + {{ pad0 }} + {{ pad1 }} - 3) || out_w != (in_w * {{ up }} + {{ pad0 }} + {{ pad1 }} - 3)) {
+    return dino_runtime_fail("{{ func }} output shape does not match fir_upsample2d semantics");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    int64_t t = idx;
+    const int64_t c = t % out_c;
+    t /= out_c;
+    const int64_t out_x = t % out_w;
+    t /= out_w;
+    const int64_t out_y = t % out_h;
+    const int64_t n = t / out_h;
+    float acc = 0.0f;
+    for (int64_t kh = 0; kh < 4; ++kh) {
+      const int64_t upsampled_y = out_y + kh - {{ pad0 }};
+      if ((upsampled_y % {{ up }}) != 0) {
+        continue;
+      }
+      const int64_t in_y = upsampled_y / {{ up }};
+      if (in_y < 0 || in_y >= in_h) {
+        continue;
+      }
+      const float k_h = (kh == 0 || kh == 3) ? 0.25f : 0.75f;
+      for (int64_t kw = 0; kw < 4; ++kw) {
+        const int64_t upsampled_x = out_x + kw - {{ pad0 }};
+        if ((upsampled_x % {{ up }}) != 0) {
+          continue;
+        }
+        const int64_t in_x = upsampled_x / {{ up }};
+        if (in_x < 0 || in_x >= in_w) {
+          continue;
+        }
+        const float k_w = (kw == 0 || kw == 3) ? 0.25f : 0.75f;
+        acc += dinoml::math::to_float(x[((n * in_h + in_y) * in_w + in_x) * in_c + c]) * (k_h * k_w);
+      }
+    }
+    y[idx] = dinoml::math::from_float<{{ storage_type }}>(acc);
+  }
+  return 0;
+}

@@ -23,6 +23,7 @@ from dinoml.ops.positional import (
     normalize_relative_attention_bias_attrs,
     normalize_sinusoidal_positional_embedding_attrs,
 )
+from dinoml.ops.tensor_filters import normalize_fir_upsample2d_attrs, normalize_tensor_filter_channels
 from dinoml.ops.upsampling import normalize_upsampling_attrs
 
 
@@ -323,6 +324,41 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             attrs = node.get("attrs", {})
             values[output_name] = _store_reference(
                 _execute_randn(output_shape, int(attrs.get("seed", 0)), str(attrs.get("rng", "dinoml")), output_dtype),
+                output_dtype,
+            )
+        elif node["op"] == "fir_downsample2d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_fir_downsample2d(values[node["inputs"][0]]),
+                output_dtype,
+            )
+        elif node["op"] == "fir_filter_pad2":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_fir_filter_pad2(values[node["inputs"][0]]),
+                output_dtype,
+            )
+        elif node["op"] == "fir_upsample2d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_fir_upsample2d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "kdownsample2d_weight":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_kdownsample2d_weight(node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "kupsample2d_weight":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_kupsample2d_weight(node.get("attrs", {})),
                 output_dtype,
             )
         elif node["op"] == "expand":
@@ -2277,6 +2313,109 @@ def _execute_upsampling_family(
         output = _execute_upsampling3d(value, scale_factor=scale_factor, mode=mode, align_corners=align_corners)
     if residual is not None:
         output = output + np.asarray(residual, dtype=np.float32)
+    return output
+
+
+def _execute_fir_downsample2d(value: np.ndarray) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_h, in_w, channels = x.shape
+    out_h = in_h // 2
+    out_w = in_w // 2
+    output = np.empty((batch, out_h, out_w, channels), dtype=np.float32)
+    kernel = np.asarray((0.125, 0.375, 0.375, 0.125), dtype=np.float32)
+    for n in range(batch):
+        for out_y in range(out_h):
+            for out_x in range(out_w):
+                acc = np.zeros((channels,), dtype=np.float32)
+                for kh in range(4):
+                    in_y = out_y * 2 + kh - 1
+                    if in_y < 0 or in_y >= in_h:
+                        continue
+                    for kw in range(4):
+                        in_x = out_x * 2 + kw - 1
+                        if in_x < 0 or in_x >= in_w:
+                            continue
+                        acc += x[n, in_y, in_x, :] * np.float32(kernel[kh] * kernel[kw])
+                output[n, out_y, out_x, :] = acc
+    return output
+
+
+def _execute_fir_filter_pad2(value: np.ndarray) -> np.ndarray:
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_h, in_w, channels = x.shape
+    out_h = in_h + 1
+    out_w = in_w + 1
+    output = np.empty((batch, out_h, out_w, channels), dtype=np.float32)
+    kernel = np.asarray((0.125, 0.375, 0.375, 0.125), dtype=np.float32)
+    for n in range(batch):
+        for out_y in range(out_h):
+            for out_x in range(out_w):
+                acc = np.zeros((channels,), dtype=np.float32)
+                for kh in range(4):
+                    in_y = out_y + kh - 2
+                    if in_y < 0 or in_y >= in_h:
+                        continue
+                    for kw in range(4):
+                        in_x = out_x + kw - 2
+                        if in_x < 0 or in_x >= in_w:
+                            continue
+                        acc += x[n, in_y, in_x, :] * np.float32(kernel[kh] * kernel[kw])
+                output[n, out_y, out_x, :] = acc
+    return output
+
+
+def _execute_fir_upsample2d(value: np.ndarray, attrs: Mapping[str, object]) -> np.ndarray:
+    normalized = normalize_fir_upsample2d_attrs(
+        up=attrs.get("up", 2),
+        pad0=attrs.get("pad0", 2),
+        pad1=attrs.get("pad1", 1),
+    )
+    x = np.asarray(value, dtype=np.float32)
+    batch, in_h, in_w, channels = x.shape
+    out_h = in_h * int(normalized["up"]) + int(normalized["pad0"]) + int(normalized["pad1"]) - 3
+    out_w = in_w * int(normalized["up"]) + int(normalized["pad0"]) + int(normalized["pad1"]) - 3
+    output = np.empty((batch, out_h, out_w, channels), dtype=np.float32)
+    kernel = np.asarray((0.25, 0.75, 0.75, 0.25), dtype=np.float32)
+    up = int(normalized["up"])
+    pad0 = int(normalized["pad0"])
+    for n in range(batch):
+        for out_y in range(out_h):
+            for out_x in range(out_w):
+                acc = np.zeros((channels,), dtype=np.float32)
+                for kh in range(4):
+                    upsampled_y = out_y + kh - pad0
+                    if (upsampled_y % up) != 0:
+                        continue
+                    in_y = upsampled_y // up
+                    if in_y < 0 or in_y >= in_h:
+                        continue
+                    for kw in range(4):
+                        upsampled_x = out_x + kw - pad0
+                        if (upsampled_x % up) != 0:
+                            continue
+                        in_x = upsampled_x // up
+                        if in_x < 0 or in_x >= in_w:
+                            continue
+                        acc += x[n, in_y, in_x, :] * np.float32(kernel[kh] * kernel[kw])
+                output[n, out_y, out_x, :] = acc
+    return output
+
+
+def _execute_kdownsample2d_weight(attrs: Mapping[str, object]) -> np.ndarray:
+    channels = normalize_tensor_filter_channels(attrs.get("channels"), "kdownsample2d_weight channels")
+    return _execute_tensor_filter_weight(channels, np.asarray((0.125, 0.375, 0.375, 0.125), dtype=np.float32))
+
+
+def _execute_kupsample2d_weight(attrs: Mapping[str, object]) -> np.ndarray:
+    channels = normalize_tensor_filter_channels(attrs.get("channels"), "kupsample2d_weight channels")
+    return _execute_tensor_filter_weight(channels, np.asarray((0.25, 0.75, 0.75, 0.25), dtype=np.float32))
+
+
+def _execute_tensor_filter_weight(channels: int, kernel_1d: np.ndarray) -> np.ndarray:
+    output = np.zeros((channels, channels, 4, 4), dtype=np.float32)
+    kernel_2d = np.outer(kernel_1d, kernel_1d).astype(np.float32, copy=False)
+    for channel in range(channels):
+        output[channel, channel, :, :] = kernel_2d
     return output
 
 

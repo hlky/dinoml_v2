@@ -1,0 +1,41 @@
+__global__ void {{ kernel }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+    int64_t t = idx;
+    const int64_t kw = t % 4;
+    t /= 4;
+    const int64_t kh = t % 4;
+    t /= 4;
+    const int64_t c_in = t % {{ channels }};
+    const int64_t c_out = t / {{ channels }};
+    float value = 0.0f;
+    if (c_in == c_out) {
+      const float k_h = (kh == 0 || kh == 3) ? 0.25f : 0.75f;
+      const float k_w = (kw == 0 || kw == 3) ? 0.25f : 0.75f;
+      value = k_h * k_w;
+    }
+    y[idx] = dinoml::math::from_float<{{ storage_type }}>(value);
+  }
+}
+
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    {{ gpu_stream_type }} stream) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != static_cast<int64_t>({{ channels }}) * {{ channels }} * 16) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+  const int block = {{ block_size }};
+  const int64_t grid64 = (runtime_numel + block - 1) / block;
+  const int grid = static_cast<int>(grid64 > 65535 ? 65535 : grid64);
+  if (grid > 0) {
+    {{ kernel }}<<<grid, block, 0, stream>>>(y, runtime_numel);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+}

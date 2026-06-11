@@ -1,0 +1,30 @@
+static int {{ func }}(
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel != static_cast<int64_t>({{ channels }}) * {{ channels }} * 16) {
+    return dino_runtime_fail("{{ func }} received mismatched output element count");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    int64_t t = idx;
+    const int64_t kw = t % 4;
+    t /= 4;
+    const int64_t kh = t % 4;
+    t /= 4;
+    const int64_t c_in = t % {{ channels }};
+    const int64_t c_out = t / {{ channels }};
+    float value = 0.0f;
+    if (c_in == c_out) {
+      const float k_h = (kh == 0 || kh == 3) ? 0.125f : 0.375f;
+      const float k_w = (kw == 0 || kw == 3) ? 0.125f : 0.375f;
+      value = k_h * k_w;
+    }
+    y[idx] = dinoml::math::from_float<{{ storage_type }}>(value);
+  }
+  return 0;
+}

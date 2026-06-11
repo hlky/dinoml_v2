@@ -1,0 +1,53 @@
+static int {{ func }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    const {{ cpu_storage_type }}* DINO_RESTRICT weight,
+    const {{ cpu_storage_type }}* DINO_RESTRICT bias,
+    {{ cpu_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel_x,
+    int64_t runtime_numel_weight) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t cols = {{ cols }};
+  if (runtime_numel_x == 0) {
+    return 0;
+  }
+  if (runtime_numel_weight <= 0 || runtime_numel_weight % cols != 0) {
+    return dino_runtime_fail("{{ func }} received invalid affine tensor sizes");
+  }
+  const int64_t batch = runtime_numel_weight / cols;
+  if (batch <= 0 || runtime_numel_x % (batch * cols) != 0) {
+    return dino_runtime_fail("{{ func }} received incompatible input and affine tensor sizes");
+  }
+  const int64_t rows_per_batch = runtime_numel_x / (batch * cols);
+  const int64_t rows = batch * rows_per_batch;
+  constexpr float eps = {{ eps_literal }};
+  constexpr float inv_cols = {{ inv_cols_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < rows; ++row) {
+    const int64_t batch_idx = row / rows_per_batch;
+    const int64_t base = row * cols;
+    const int64_t affine_base = batch_idx * cols;
+    float sum = 0.0f;
+    float sum_sq = 0.0f;
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      sum += value;
+      sum_sq += value * value;
+    }
+    const float mean = sum * inv_cols;
+    const float variance = fmaxf(sum_sq * inv_cols - mean * mean, 0.0f);
+    const float inv_std = 1.0f / sqrtf(variance + eps);
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      const float scale = dinoml::math::cast<float>(weight[affine_base + col]);
+      const float shift = dinoml::math::cast<float>(bias[affine_base + col]);
+      const float normalized = (value - mean) * inv_std * scale + shift;
+      const float fused = value / (1.0f + expf(-normalized));
+      y[base + col] = dinoml::math::cast<{{ cpu_storage_type }}>(fused);
+    }
+  }
+  return 0;
+}

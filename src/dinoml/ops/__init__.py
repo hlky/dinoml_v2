@@ -165,7 +165,18 @@ from dinoml.ops.gemm import (
     gemm_rrr_bias_tanh,
 )
 from dinoml.ops.internal import ShapeBufferCountTrue
-from dinoml.ops.normalization import add_layer_norm, group_norm, group_norm_swish, layer_norm, rms_norm, t5_layer_norm
+from dinoml.ops.normalization import (
+    add_layer_norm,
+    batch_layernorm_sigmoid_mul,
+    group_layernorm,
+    group_layernorm_sigmoid_mul,
+    group_norm,
+    group_norm_swish,
+    layernorm_sigmoid_mul,
+    layer_norm,
+    rms_norm,
+    t5_layer_norm,
+)
 from dinoml.ops.pooling import avg_pool1d, avg_pool2d, max_pool2d
 from dinoml.ops.positional import (
     cropped_pos_embed,
@@ -273,6 +284,7 @@ __all__ = [
     "avg_pool1d",
     "avg_pool2d",
     "batch_gather",
+    "batch_layernorm_sigmoid_mul",
     "bmm",
     "bmm_ccc",
     "bmm_ccc_add",
@@ -389,6 +401,8 @@ __all__ = [
     "getitem",
     "group_norm",
     "group_norm_swish",
+    "group_layernorm",
+    "group_layernorm_sigmoid_mul",
     "gt",
     "hardtanh",
     "identity",
@@ -398,6 +412,7 @@ __all__ = [
     "int_mul",
     "int_sub",
     "layer_norm",
+    "layernorm_sigmoid_mul",
     "le",
     "leaky_relu",
     "list_construct",

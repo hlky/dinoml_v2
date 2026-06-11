@@ -225,6 +225,15 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
     if node["op"] == "layer_norm":
         _validate_layer_norm_node(node, inputs, tensors)
         return
+    if node["op"] == "layernorm_sigmoid_mul":
+        _validate_layernorm_sigmoid_mul_node(node, inputs, tensors)
+        return
+    if node["op"] == "batch_layernorm_sigmoid_mul":
+        _validate_batch_layernorm_sigmoid_mul_node(node, inputs, tensors)
+        return
+    if node["op"] in {"group_layernorm", "group_layernorm_sigmoid_mul"}:
+        _validate_group_layernorm_node(node, inputs, tensors)
+        return
     if node["op"] == "add_layer_norm":
         _validate_add_layer_norm_node(node, inputs, tensors)
         return
@@ -696,30 +705,26 @@ def _validate_layer_norm_node(
     output = tensors[output_name]
     x_tensor, weight_tensor, bias_tensor = inputs
     x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
-    weight_shape_spec = weight_tensor.get("shape_spec", weight_tensor["shape"])
-    bias_shape_spec = bias_tensor.get("shape_spec", bias_tensor["shape"])
     if not x_tensor["shape"]:
         raise ValidationError("layer_norm requires rank >= 1 input")
-    if len(weight_tensor["shape"]) != 1:
-        raise ValidationError("layer_norm requires rank-1 weight")
-    if len(bias_tensor["shape"]) != 1:
-        raise ValidationError("layer_norm requires rank-1 bias")
-    if not isinstance(x_shape_spec[-1], int):
-        raise ValidationError("layer_norm currently requires a static last dimension")
-    if not isinstance(weight_shape_spec[0], int):
-        raise ValidationError("layer_norm currently requires a static weight shape")
-    if not isinstance(bias_shape_spec[0], int):
-        raise ValidationError("layer_norm currently requires a static bias shape")
-    if int(weight_tensor["shape"][0]) != int(x_tensor["shape"][-1]):
-        raise ValidationError(
-            "layer_norm weight length must match the input hidden size: "
-            f"got hidden={x_tensor['shape'][-1]}, weight={weight_tensor['shape'][0]}"
-        )
-    if int(bias_tensor["shape"][0]) != int(x_tensor["shape"][-1]):
-        raise ValidationError(
-            "layer_norm bias length must match the input hidden size: "
-            f"got hidden={x_tensor['shape'][-1]}, bias={bias_tensor['shape'][0]}"
-        )
+    normalized_shape = node.get("attrs", {}).get("normalized_shape")
+    if normalized_shape is None:
+        normalized_shape = list(weight_tensor["shape"])
+    if not isinstance(normalized_shape, list) or not normalized_shape:
+        raise ValidationError("layer_norm requires a non-empty normalized_shape attr or affine suffix shape")
+    if any(not isinstance(dim, int) or int(dim) <= 0 for dim in normalized_shape):
+        raise ValidationError("layer_norm normalized_shape must contain only positive integers")
+    norm_rank = len(normalized_shape)
+    if len(x_tensor["shape"]) < norm_rank:
+        raise ValidationError("layer_norm input rank must be at least len(normalized_shape)")
+    if list(x_tensor["shape"][-norm_rank:]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layer_norm input suffix must match normalized_shape")
+    if any(not isinstance(dim, int) for dim in x_shape_spec[-norm_rank:]):
+        raise ValidationError("layer_norm currently requires a static normalized_shape suffix")
+    if list(weight_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layer_norm weight shape must match normalized_shape")
+    if list(bias_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layer_norm bias shape must match normalized_shape")
     try:
         expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
     except (ValueError, NotImplementedError) as exc:
@@ -743,6 +748,162 @@ def _validate_layer_norm_node(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
             f"expected {x_tensor['dtype']}"
         )
+
+
+def _validate_layernorm_sigmoid_mul_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("layernorm_sigmoid_mul")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 3:
+        raise ValidationError("layernorm_sigmoid_mul expects exactly three inputs")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    x_tensor, weight_tensor, bias_tensor = inputs
+    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+    normalized_shape = node.get("attrs", {}).get("normalized_shape")
+    if not isinstance(normalized_shape, list) or not normalized_shape:
+        raise ValidationError("layernorm_sigmoid_mul requires a non-empty normalized_shape attr")
+    if any(not isinstance(dim, int) or int(dim) <= 0 for dim in normalized_shape):
+        raise ValidationError("layernorm_sigmoid_mul normalized_shape must contain only positive integers")
+    norm_rank = len(normalized_shape)
+    if len(x_tensor["shape"]) < norm_rank:
+        raise ValidationError("layernorm_sigmoid_mul input rank must be at least len(normalized_shape)")
+    if list(x_tensor["shape"][-norm_rank:]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layernorm_sigmoid_mul input suffix must match normalized_shape")
+    if any(not isinstance(dim, int) for dim in x_shape_spec[-norm_rank:]):
+        raise ValidationError("layernorm_sigmoid_mul currently requires a static normalized_shape suffix")
+    if list(weight_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layernorm_sigmoid_mul weight shape must match normalized_shape")
+    if list(bias_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
+        raise ValidationError("layernorm_sigmoid_mul bias shape must match normalized_shape")
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape) or list(output["shape"]) != list(x_tensor["shape"]):
+        raise ValidationError("layernorm_sigmoid_mul output shape must match the input shape")
+    if any(input_info["dtype"] != x_tensor["dtype"] for input_info in inputs):
+        raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
+    if x_tensor["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"layernorm_sigmoid_mul does not support dtype {x_tensor['dtype']}")
+    if str(output["dtype"]) != str(x_tensor["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {x_tensor['dtype']}"
+        )
+
+
+def _validate_batch_layernorm_sigmoid_mul_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_def = get_op_def("batch_layernorm_sigmoid_mul")
+    if len(node["outputs"]) != 1:
+        raise ValidationError(f"Node {node['id']} must have exactly one output")
+    if len(inputs) != 3:
+        raise ValidationError("batch_layernorm_sigmoid_mul expects exactly three inputs")
+    output_name = node["outputs"][0]
+    output = tensors[output_name]
+    x_tensor, weight_tensor, bias_tensor = inputs
+    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+    if len(x_tensor["shape"]) != 3:
+        raise ValidationError("batch_layernorm_sigmoid_mul expects rank-3 input")
+    normalized_shape = node.get("attrs", {}).get("normalized_shape")
+    if not isinstance(normalized_shape, list) or len(normalized_shape) != 1:
+        raise ValidationError("batch_layernorm_sigmoid_mul requires normalized_shape=[hidden]")
+    hidden = normalized_shape[0]
+    if not isinstance(hidden, int) or int(hidden) <= 0:
+        raise ValidationError("batch_layernorm_sigmoid_mul normalized_shape must contain one positive integer")
+    if not isinstance(x_shape_spec[-1], int):
+        raise ValidationError("batch_layernorm_sigmoid_mul currently requires a static hidden dimension")
+    if int(x_tensor["shape"][-1]) != int(hidden):
+        raise ValidationError("batch_layernorm_sigmoid_mul input hidden size must match normalized_shape")
+    if len(weight_tensor["shape"]) != 2 or list(weight_tensor["shape"])[1:] != [int(hidden)]:
+        raise ValidationError("batch_layernorm_sigmoid_mul weight shape must be [batch, hidden]")
+    if len(bias_tensor["shape"]) != 2 or list(bias_tensor["shape"])[1:] != [int(hidden)]:
+        raise ValidationError("batch_layernorm_sigmoid_mul bias shape must be [batch, hidden]")
+    if weight_tensor["shape"][0] != x_tensor["shape"][0]:
+        raise ValidationError("batch_layernorm_sigmoid_mul weight batch dimension must match the input batch size")
+    if bias_tensor["shape"][0] != x_tensor["shape"][0]:
+        raise ValidationError("batch_layernorm_sigmoid_mul bias batch dimension must match the input batch size")
+    try:
+        expected_shape = op_def.infer_shape_for([input_info["shape"] for input_info in inputs], node.get("attrs", {}))
+    except (ValueError, NotImplementedError) as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape) or list(output["shape"]) != list(x_tensor["shape"]):
+        raise ValidationError("batch_layernorm_sigmoid_mul output shape must match the input shape")
+    if any(input_info["dtype"] != x_tensor["dtype"] for input_info in inputs):
+        raise ValidationError(f"Node {node['id']} has mismatched input dtypes")
+    if x_tensor["dtype"] not in op_def.allowed_dtypes:
+        raise ValidationError(f"batch_layernorm_sigmoid_mul does not support dtype {x_tensor['dtype']}")
+    if str(output["dtype"]) != str(x_tensor["dtype"]):
+        raise ValidationError(
+            f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected {x_tensor['dtype']}"
+        )
+
+
+def _validate_group_layernorm_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    op_name = str(node["op"])
+    op_def = get_op_def(op_name)
+    group_count = node.get("attrs", {}).get("group_count")
+    if not isinstance(group_count, int) or isinstance(group_count, bool) or int(group_count) <= 0:
+        raise ValidationError(f"{op_name} requires a positive integer group_count")
+    if len(inputs) != 3 * int(group_count):
+        raise ValidationError(f"{op_name} expects flattened [inputs, weights, biases] triples")
+    if len(node["outputs"]) != int(group_count):
+        raise ValidationError(f"{op_name} expects exactly one output per group")
+    normalized_shapes = node.get("attrs", {}).get("normalized_shapes")
+    if not isinstance(normalized_shapes, list) or len(normalized_shapes) != int(group_count):
+        raise ValidationError(f"{op_name} requires normalized_shapes matching group_count")
+    x_tensors = inputs[:group_count]
+    weight_tensors = inputs[group_count : 2 * group_count]
+    bias_tensors = inputs[2 * group_count :]
+    batch_prefix_shape = None
+    batch_prefix_spec = None
+    x_dtype = str(x_tensors[0]["dtype"])
+    if x_dtype not in op_def.allowed_dtypes:
+        raise ValidationError(f"{op_name} does not support dtype {x_dtype}")
+    for index, (x_tensor, weight_tensor, bias_tensor, output_name, norm_shape) in enumerate(
+        zip(x_tensors, weight_tensors, bias_tensors, node["outputs"], normalized_shapes)
+    ):
+        output_tensor = tensors[output_name]
+        if not isinstance(norm_shape, list) or not norm_shape:
+            raise ValidationError(f"{op_name} requires non-empty normalized_shapes[{index}]")
+        if any(not isinstance(dim, int) or int(dim) <= 0 for dim in norm_shape):
+            raise ValidationError(f"{op_name} normalized_shapes[{index}] must contain only positive integers")
+        if any(str(tensor["dtype"]) != x_dtype for tensor in (x_tensor, weight_tensor, bias_tensor, output_tensor)):
+            raise ValidationError(f"{op_name} group {index} requires matching input/output dtypes")
+        norm_rank = len(norm_shape)
+        x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+        if len(x_tensor["shape"]) < norm_rank:
+            raise ValidationError(f"{op_name} group {index} input rank must be at least len(normalized_shape)")
+        if list(x_tensor["shape"][-norm_rank:]) != [int(dim) for dim in norm_shape]:
+            raise ValidationError(f"{op_name} group {index} input suffix must match normalized_shape")
+        if any(not isinstance(dim, int) for dim in x_shape_spec[-norm_rank:]):
+            raise ValidationError(f"{op_name} group {index} currently requires a static normalized_shape suffix")
+        if list(weight_tensor["shape"]) != [int(dim) for dim in norm_shape]:
+            raise ValidationError(f"{op_name} group {index} weight shape must match normalized_shape")
+        if list(bias_tensor["shape"]) != [int(dim) for dim in norm_shape]:
+            raise ValidationError(f"{op_name} group {index} bias shape must match normalized_shape")
+        prefix_shape = list(x_tensor["shape"][: len(x_tensor["shape"]) - norm_rank])
+        prefix_spec = list(x_shape_spec[: len(x_shape_spec) - norm_rank])
+        if batch_prefix_shape is None:
+            batch_prefix_shape = prefix_shape
+            batch_prefix_spec = prefix_spec
+        elif prefix_shape != batch_prefix_shape or prefix_spec != batch_prefix_spec:
+            raise ValidationError(f"{op_name} inputs must share the same leading batch dimensions")
+        if list(output_tensor["shape"]) != list(x_tensor["shape"]):
+            raise ValidationError(f"{op_name} group {index} output shape must match the input shape")
+        if str(output_tensor["dtype"]) != x_dtype:
+            raise ValidationError(f"{op_name} group {index} output dtype must match the input dtype")
 
 
 def _validate_add_layer_norm_node(

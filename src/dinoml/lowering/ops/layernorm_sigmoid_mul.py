@@ -1,26 +1,22 @@
 from __future__ import annotations
 
 import hashlib
-import re
-from pathlib import Path
 from typing import Any, Mapping
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
-
-from dinoml.lowering.target_specs import storage_type as target_storage_type
 from dinoml.lowering.ops.base import OpLowering
-from dinoml.lowering.ops.template_rendering import supported_target_spec
-from dinoml.ops.normalization import LAYER_NORM_DTYPES
+from dinoml.lowering.ops.template_rendering import render_op_template, supported_target_spec
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
+from dinoml.lowering.target_specs import storage_type as target_storage_type
+from dinoml.ops.normalization import LAYER_NORM_DTYPES
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    spec = supported_target_spec(target, "layer_norm")
+    spec = supported_target_spec(target, "layernorm_sigmoid_mul")
     context = _context(target, node, tensor_map)
     if not spec.is_gpu:
-        return _render_template("layer_norm_cpu.cpp.j2", context)
+        return render_op_template("layernorm_sigmoid_mul_cpu.cpp.j2", context)
     context.update(spec.gpu_template_context())
-    return _render_template("layer_norm_gpu.j2", context)
+    return render_op_template("layernorm_sigmoid_mul_gpu.j2", context)
 
 
 def render_launch(
@@ -30,7 +26,7 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     del kernel_manifest
-    spec = supported_target_spec(target, "layer_norm")
+    spec = supported_target_spec(target, "layernorm_sigmoid_mul")
     func = _function_name(node, tensor_map)
     x = _c_ident(node["inputs"][0])
     weight = _c_ident(node["inputs"][1])
@@ -43,7 +39,7 @@ def render_launch(
 
 
 def source_key(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
-    supported_target_spec(target, "layer_norm")
+    supported_target_spec(target, "layernorm_sigmoid_mul")
     return f"{target}:{_function_name(node, tensor_map)}"
 
 
@@ -59,10 +55,11 @@ def _context(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapp
     output_tensor = tensor_map[node["outputs"][0]]
     cols = _validate_node_contract(node, x_tensor, weight_tensor, bias_tensor, output_tensor)
     dtype = str(x_tensor["dtype"])
+    func = _function_name(node, tensor_map)
     return {
-        "func": _function_name(node, tensor_map),
-        "kernel": f"{_function_name(node, tensor_map)}_kernel",
-        "warp_kernel": f"{_function_name(node, tensor_map)}_warp_kernel",
+        "func": func,
+        "kernel": f"{func}_kernel",
+        "warp_kernel": f"{func}_warp_kernel",
         "cpu_storage_type": target_storage_type(dtype, "cpu"),
         "storage_type": target_storage_type(dtype, target),
         "cols": cols,
@@ -82,39 +79,32 @@ def _validate_node_contract(
     bias_tensor: Mapping[str, Any],
     output_tensor: Mapping[str, Any],
 ) -> int:
-    if str(node["op"]) != "layer_norm":
+    if str(node["op"]) != "layernorm_sigmoid_mul":
         raise ValueError(f"Unsupported normalization op: {node['op']}")
     x_dtype = str(x_tensor["dtype"])
-    weight_dtype = str(weight_tensor["dtype"])
-    bias_dtype = str(bias_tensor["dtype"])
-    output_dtype = str(output_tensor["dtype"])
-    if x_dtype != weight_dtype or x_dtype != bias_dtype or x_dtype != output_dtype:
-        raise NotImplementedError("layer_norm lowering currently requires matching input/output dtypes")
     if x_dtype not in LAYER_NORM_DTYPES:
-        raise NotImplementedError("layer_norm lowering supports float16, float32, and bfloat16 tensors only")
+        raise NotImplementedError("layernorm_sigmoid_mul lowering supports float16, float32, and bfloat16 tensors only")
+    if any(str(tensor["dtype"]) != x_dtype for tensor in (weight_tensor, bias_tensor, output_tensor)):
+        raise NotImplementedError("layernorm_sigmoid_mul lowering currently requires matching input/output dtypes")
     if list(x_tensor["shape"]) != list(output_tensor["shape"]):
-        raise ValueError("layer_norm input and output shapes must match")
-    if not x_tensor["shape"]:
-        raise ValueError("layer_norm requires rank >= 1 input")
-    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+        raise ValueError("layernorm_sigmoid_mul input and output shapes must match")
     normalized_shape = node.get("attrs", {}).get("normalized_shape")
-    if normalized_shape is None:
-        normalized_shape = list(weight_tensor["shape"])
     if not isinstance(normalized_shape, list) or not normalized_shape:
-        raise ValueError("layer_norm lowering requires a non-empty normalized_shape attr or affine suffix shape")
+        raise ValueError("layernorm_sigmoid_mul lowering requires a non-empty normalized_shape attr")
     if any(not isinstance(dim, int) or int(dim) <= 0 for dim in normalized_shape):
-        raise ValueError("layer_norm lowering requires positive static normalized_shape dims")
+        raise ValueError("layernorm_sigmoid_mul lowering requires positive static normalized_shape dims")
     norm_rank = len(normalized_shape)
     if len(x_tensor["shape"]) < norm_rank:
-        raise ValueError("layer_norm input rank must be at least len(normalized_shape)")
+        raise ValueError("layernorm_sigmoid_mul input rank must be at least len(normalized_shape)")
     if list(x_tensor["shape"][-norm_rank:]) != [int(dim) for dim in normalized_shape]:
-        raise ValueError("layer_norm input suffix must match normalized_shape")
-    if any(not isinstance(dim, int) for dim in x_shape_spec[-norm_rank:]):
-        raise ValueError("layer_norm lowering requires a static normalized_shape suffix")
+        raise ValueError("layernorm_sigmoid_mul input suffix must match normalized_shape")
     if list(weight_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
-        raise ValueError("layer_norm lowering requires weight shape matching normalized_shape")
+        raise ValueError("layernorm_sigmoid_mul weight shape must match normalized_shape")
     if list(bias_tensor["shape"]) != [int(dim) for dim in normalized_shape]:
-        raise ValueError("layer_norm lowering requires bias shape matching normalized_shape")
+        raise ValueError("layernorm_sigmoid_mul bias shape must match normalized_shape")
+    x_shape_spec = x_tensor.get("shape_spec", x_tensor["shape"])
+    if any(not isinstance(dim, int) for dim in x_shape_spec[-norm_rank:]):
+        raise ValueError("layernorm_sigmoid_mul lowering requires a static normalized_shape suffix")
     cols = 1
     for dim in normalized_shape:
         cols *= int(dim)
@@ -139,33 +129,22 @@ def _cuda_rows_per_block(cols: int) -> int:
 def _function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
     x_tensor = tensor_map[node["inputs"][0]]
     signature = {
-        "op": "layer_norm",
+        "op": "layernorm_sigmoid_mul",
         "shape": list(x_tensor["shape"]),
         "dtype": str(x_tensor["dtype"]),
-        "normalized_shape": list(node.get("attrs", {}).get("normalized_shape", tensor_map[node["inputs"][1]]["shape"])),
+        "normalized_shape": list(node.get("attrs", {}).get("normalized_shape", [])),
         "eps": float(node.get("attrs", {}).get("eps", 1e-5)),
     }
     digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
-    return f"layer_norm_{digest}"
+    return f"layernorm_sigmoid_mul_{digest}"
 
 
 def _float_literal(value: float) -> str:
     return f"{float(value):.9g}f"
 
 
-def _render_template(name: str, context: Mapping[str, Any]) -> str:
-    env = Environment(
-        loader=FileSystemLoader(str(Path(__file__).resolve().parent / "templates")),
-        undefined=StrictUndefined,
-        trim_blocks=True,
-        lstrip_blocks=True,
-        keep_trailing_newline=True,
-    )
-    return env.get_template(name).render(**context)
-
-
-LAYER_NORM_LOWERING = OpLowering(
-    op_name="layer_norm",
+LAYERNORM_SIGMOID_MUL_LOWERING = OpLowering(
+    op_name="layernorm_sigmoid_mul",
     render_generated_kernel=render_generated_kernel,
     render_launch=render_launch,
     source_key=source_key,

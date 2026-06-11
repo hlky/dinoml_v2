@@ -78,6 +78,30 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "layernorm_sigmoid_mul":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_layernorm_sigmoid_mul(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "batch_layernorm_sigmoid_mul":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_batch_layernorm_sigmoid_mul(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "add_layer_norm":
             summed_name, normalized_name = node["outputs"]
             summed_dtype = _tensor_dtype(ir, summed_name)
@@ -93,6 +117,14 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 normalized_dtype,
             )
+        elif node["op"] in {"group_layernorm", "group_layernorm_sigmoid_mul"}:
+            group_outputs = _execute_group_layernorm_family(
+                [values[name] for name in node["inputs"]],
+                node.get("attrs", {}),
+                apply_sigmoid_mul=node["op"] == "group_layernorm_sigmoid_mul",
+            )
+            for output_name, output_value in zip(node["outputs"], group_outputs):
+                values[output_name] = _store_reference(output_value, _tensor_dtype(ir, output_name))
         elif node["op"] in {"group_norm", "group_norm_swish"}:
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -897,31 +929,149 @@ def _execute_layer_norm(
 ) -> np.ndarray:
     if value.ndim < 1:
         raise ValueError("CPU reference layer_norm requires rank >= 1 input")
-    if weight.ndim != 1:
-        raise ValueError("CPU reference layer_norm requires rank-1 weight")
-    if bias.ndim != 1:
-        raise ValueError("CPU reference layer_norm requires rank-1 bias")
-    hidden = int(value.shape[-1])
-    if hidden <= 0:
-        raise ValueError("CPU reference layer_norm requires a positive last dimension")
-    if int(weight.shape[0]) != hidden:
-        raise ValueError(
-            "CPU reference layer_norm weight length must match input hidden size: "
-            f"got hidden={hidden}, weight={weight.shape[0]}"
-        )
-    if int(bias.shape[0]) != hidden:
-        raise ValueError(
-            "CPU reference layer_norm bias length must match input hidden size: "
-            f"got hidden={hidden}, bias={bias.shape[0]}"
-        )
+    normalized_shape = attrs.get("normalized_shape")
+    if normalized_shape is None:
+        normalized_shape = list(weight.shape)
+    normalized_shape = _normalize_shape_attr("layer_norm", normalized_shape)
+    if value.ndim < len(normalized_shape):
+        raise ValueError("CPU reference layer_norm input rank must cover normalized_shape")
+    if tuple(int(dim) for dim in value.shape[-len(normalized_shape) :]) != tuple(normalized_shape):
+        raise ValueError("CPU reference layer_norm input suffix must match normalized_shape")
+    if tuple(int(dim) for dim in weight.shape) != tuple(normalized_shape):
+        raise ValueError("CPU reference layer_norm weight shape must match normalized_shape")
+    if tuple(int(dim) for dim in bias.shape) != tuple(normalized_shape):
+        raise ValueError("CPU reference layer_norm bias shape must match normalized_shape")
     eps = float(attrs.get("eps", 1e-5))
     source = np.asarray(value, dtype=np.float32)
     scale = np.asarray(weight, dtype=np.float32)
     shift = np.asarray(bias, dtype=np.float32)
-    mean = np.mean(source, axis=-1, keepdims=True)
-    variance = np.maximum(np.mean(source * source, axis=-1, keepdims=True) - mean * mean, 0.0)
+    reduce_axes = tuple(range(source.ndim - len(normalized_shape), source.ndim))
+    mean = np.mean(source, axis=reduce_axes, keepdims=True)
+    variance = np.maximum(np.mean((source - mean) * (source - mean), axis=reduce_axes, keepdims=True), 0.0)
     normalized = (source - mean) * (1.0 / np.sqrt(variance + eps))
     return np.asarray(normalized * scale + shift, dtype=np.float32)
+
+
+def _execute_layernorm_sigmoid_mul(
+    value: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized_shape = _normalized_shape_suffix("layernorm_sigmoid_mul", value, weight, bias, attrs)
+    source = np.asarray(value, dtype=np.float32)
+    scale = np.asarray(weight, dtype=np.float32)
+    shift = np.asarray(bias, dtype=np.float32)
+    reduce_axes = tuple(range(source.ndim - len(normalized_shape), source.ndim))
+    eps = float(attrs.get("eps", 1e-5))
+    mean = np.mean(source, axis=reduce_axes, keepdims=True)
+    variance = np.maximum(np.mean((source - mean) * (source - mean), axis=reduce_axes, keepdims=True), 0.0)
+    normalized = (source - mean) * (1.0 / np.sqrt(variance + eps))
+    layernorm = normalized * scale + shift
+    return np.asarray(source * _sigmoid(layernorm), dtype=np.float32)
+
+
+def _execute_batch_layernorm_sigmoid_mul(
+    value: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    source = np.asarray(value, dtype=np.float32)
+    scale = np.asarray(weight, dtype=np.float32)
+    shift = np.asarray(bias, dtype=np.float32)
+    if source.ndim != 3:
+        raise ValueError(f"CPU reference batch_layernorm_sigmoid_mul expects rank-3 input, got {source.ndim}")
+    normalized_shape = attrs.get("normalized_shape")
+    if not isinstance(normalized_shape, Sequence) or len(normalized_shape) != 1:
+        raise ValueError("CPU reference batch_layernorm_sigmoid_mul requires normalized_shape=[hidden]")
+    hidden = int(normalized_shape[0])
+    if int(source.shape[-1]) != hidden:
+        raise ValueError(
+            "CPU reference batch_layernorm_sigmoid_mul input hidden size must match normalized_shape: "
+            f"got {source.shape[-1]} and {hidden}"
+        )
+    if scale.shape != (source.shape[0], hidden):
+        raise ValueError(
+            "CPU reference batch_layernorm_sigmoid_mul weight shape must be [batch, hidden], "
+            f"got {tuple(int(dim) for dim in scale.shape)}"
+        )
+    if shift.shape != (source.shape[0], hidden):
+        raise ValueError(
+            "CPU reference batch_layernorm_sigmoid_mul bias shape must be [batch, hidden], "
+            f"got {tuple(int(dim) for dim in shift.shape)}"
+        )
+    eps = float(attrs.get("eps", 1e-5))
+    mean = np.mean(source, axis=-1, keepdims=True)
+    variance = np.maximum(np.mean((source - mean) * (source - mean), axis=-1, keepdims=True), 0.0)
+    normalized = (source - mean) * (1.0 / np.sqrt(variance + eps))
+    layernorm = normalized * scale[:, None, :] + shift[:, None, :]
+    return np.asarray(source * _sigmoid(layernorm), dtype=np.float32)
+
+
+def _execute_group_layernorm_family(
+    values: Sequence[np.ndarray],
+    attrs: Mapping[str, object],
+    *,
+    apply_sigmoid_mul: bool,
+) -> list[np.ndarray]:
+    group_count = int(attrs.get("group_count", 0))
+    if group_count <= 0:
+        raise ValueError("CPU reference group_layernorm family requires a positive group_count")
+    if len(values) != 3 * group_count:
+        raise ValueError(
+            "CPU reference group_layernorm family expects flattened [inputs, weights, biases] groups, "
+            f"got {len(values)} tensors for group_count={group_count}"
+        )
+    normalized_shapes = attrs.get("normalized_shapes")
+    if not isinstance(normalized_shapes, Sequence) or len(normalized_shapes) != group_count:
+        raise ValueError("CPU reference group_layernorm family requires normalized_shapes matching group_count")
+    inputs = values[:group_count]
+    weights = values[group_count : 2 * group_count]
+    biases = values[2 * group_count :]
+    outputs: list[np.ndarray] = []
+    for value, weight, bias, normalized_shape in zip(inputs, weights, biases, normalized_shapes):
+        output = _execute_group_layernorm_single(
+            value,
+            weight,
+            bias,
+            normalized_shape,
+            float(attrs.get("eps", 1e-5)),
+            apply_sigmoid_mul=apply_sigmoid_mul,
+        )
+        outputs.append(output)
+    return outputs
+
+
+def _execute_group_layernorm_single(
+    value: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    normalized_shape: object,
+    eps: float,
+    *,
+    apply_sigmoid_mul: bool,
+) -> np.ndarray:
+    normalized_dims = _normalize_shape_attr("group_layernorm family", normalized_shape)
+    source = np.asarray(value, dtype=np.float32)
+    scale = np.asarray(weight, dtype=np.float32)
+    shift = np.asarray(bias, dtype=np.float32)
+    if source.ndim < len(normalized_dims):
+        raise ValueError("CPU reference group_layernorm family input rank must cover normalized_shape")
+    if tuple(int(dim) for dim in source.shape[-len(normalized_dims) :]) != tuple(normalized_dims):
+        raise ValueError("CPU reference group_layernorm family input suffix must match normalized_shape")
+    if tuple(int(dim) for dim in scale.shape) != tuple(normalized_dims):
+        raise ValueError("CPU reference group_layernorm family weight shape must match normalized_shape")
+    if tuple(int(dim) for dim in shift.shape) != tuple(normalized_dims):
+        raise ValueError("CPU reference group_layernorm family bias shape must match normalized_shape")
+    reduce_axes = tuple(range(source.ndim - len(normalized_dims), source.ndim))
+    mean = np.mean(source, axis=reduce_axes, keepdims=True)
+    variance = np.maximum(np.mean((source - mean) * (source - mean), axis=reduce_axes, keepdims=True), 0.0)
+    normalized = (source - mean) * (1.0 / np.sqrt(variance + eps))
+    layernorm = normalized * scale + shift
+    if apply_sigmoid_mul:
+        return np.asarray(source * _sigmoid(layernorm), dtype=np.float32)
+    return np.asarray(layernorm, dtype=np.float32)
 
 
 def _execute_group_norm(
@@ -972,6 +1122,42 @@ def _execute_group_norm(
     if apply_swish:
         result = result / (1.0 + np.exp(-result))
     return np.asarray(result, dtype=np.float32)
+
+
+def _normalize_shape_attr(op_name: str, normalized_shape: object) -> list[int]:
+    if not isinstance(normalized_shape, Sequence) or isinstance(normalized_shape, (str, bytes, bytearray)):
+        raise ValueError(f"CPU reference {op_name} normalized_shape must be a sequence")
+    dims: list[int] = []
+    for dim in normalized_shape:
+        if not isinstance(dim, int) or isinstance(dim, bool) or int(dim) <= 0:
+            raise ValueError(f"CPU reference {op_name} normalized_shape must contain only positive integers")
+        dims.append(int(dim))
+    if not dims:
+        raise ValueError(f"CPU reference {op_name} normalized_shape must be non-empty")
+    return dims
+
+
+def _normalized_shape_suffix(
+    op_name: str,
+    value: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> list[int]:
+    normalized_shape = _normalize_shape_attr(op_name, attrs.get("normalized_shape"))
+    if value.ndim < len(normalized_shape):
+        raise ValueError(f"CPU reference {op_name} input rank must cover normalized_shape")
+    if tuple(int(dim) for dim in value.shape[-len(normalized_shape) :]) != tuple(normalized_shape):
+        raise ValueError(f"CPU reference {op_name} input suffix must match normalized_shape")
+    if tuple(int(dim) for dim in weight.shape) != tuple(normalized_shape):
+        raise ValueError(f"CPU reference {op_name} weight shape must match normalized_shape")
+    if tuple(int(dim) for dim in bias.shape) != tuple(normalized_shape):
+        raise ValueError(f"CPU reference {op_name} bias shape must match normalized_shape")
+    return normalized_shape
+
+
+def _sigmoid(value: np.ndarray) -> np.ndarray:
+    return np.asarray(1.0 / (1.0 + np.exp(-value)), dtype=np.float32)
 
 
 def _execute_cropped_pos_embed(attrs: Mapping[str, object]) -> np.ndarray:

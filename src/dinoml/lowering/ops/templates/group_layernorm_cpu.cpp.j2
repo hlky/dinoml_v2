@@ -1,0 +1,63 @@
+{% for group in groups %}
+static int {{ func }}_g{{ group.index }}(
+    const {{ cpu_storage_type }}* DINO_RESTRICT x,
+    const {{ cpu_storage_type }}* DINO_RESTRICT weight,
+    const {{ cpu_storage_type }}* DINO_RESTRICT bias,
+    {{ cpu_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_total) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} group {{ group.index }} received null pointer");
+  }
+  constexpr int64_t cols = {{ group.cols }};
+  if (runtime_total % cols != 0) {
+    return dino_runtime_fail("{{ func }} group {{ group.index }} received non-row-aligned element count");
+  }
+  const int64_t rows = runtime_total / cols;
+  constexpr float eps = {{ eps_literal }};
+  constexpr float inv_cols = {{ group.inv_cols_literal }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < rows; ++row) {
+    const int64_t base = row * cols;
+    float sum = 0.0f;
+    float sum_sq = 0.0f;
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      sum += value;
+      sum_sq += value * value;
+    }
+    const float mean = sum * inv_cols;
+    const float variance = fmaxf(sum_sq * inv_cols - mean * mean, 0.0f);
+    const float inv_std = 1.0f / sqrtf(variance + eps);
+    for (int64_t col = 0; col < cols; ++col) {
+      const float value = dinoml::math::cast<float>(x[base + col]);
+      const float scale = dinoml::math::cast<float>(weight[col]);
+      const float shift = dinoml::math::cast<float>(bias[col]);
+      const float normalized = (value - mean) * inv_std * scale + shift;
+{% if apply_sigmoid_mul %}
+      const float output = value / (1.0f + expf(-normalized));
+{% else %}
+      const float output = normalized;
+{% endif %}
+      y[base + col] = dinoml::math::cast<{{ cpu_storage_type }}>(output);
+    }
+  }
+  return 0;
+}
+
+{% endfor %}
+static int {{ func }}(
+{% for group in groups %}
+    const {{ cpu_storage_type }}* DINO_RESTRICT x{{ group.index }},
+    const {{ cpu_storage_type }}* DINO_RESTRICT weight{{ group.index }},
+    const {{ cpu_storage_type }}* DINO_RESTRICT bias{{ group.index }},
+    {{ cpu_storage_type }}* DINO_RESTRICT y{{ group.index }},
+    int64_t runtime_total{{ group.index }}{{ "," if not loop.last else "" }}
+{% endfor %}
+) {
+{% for group in groups %}
+  if (int err = {{ func }}_g{{ group.index }}(x{{ group.index }}, weight{{ group.index }}, bias{{ group.index }}, y{{ group.index }}, runtime_total{{ group.index }})) return err;
+{% endfor %}
+  return 0;
+}

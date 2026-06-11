@@ -11,6 +11,7 @@ from dinoml.lowering.ops.arange import ARANGE_LOWERING
 from dinoml.lowering.ops.avg_pool1d import AVG_POOL1D_LOWERING
 from dinoml.lowering.ops.avg_pool2d import AVG_POOL2D_LOWERING
 from dinoml.lowering.ops.batch_gather import BATCH_GATHER_LOWERING
+from dinoml.lowering.ops.batch_layernorm_sigmoid_mul import BATCH_LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.bmm import BMM_LOWERINGS
 from dinoml.lowering.ops.concatenate import CONCATENATE_LOWERING
 from dinoml.lowering.ops.conv import (
@@ -46,12 +47,14 @@ from dinoml.lowering.ops.gather import GATHER_LOWERING
 from dinoml.lowering.ops.glm_ocr_stitch_image_features import GLM_OCR_STITCH_IMAGE_FEATURES_LOWERING
 from dinoml.lowering.ops.glm_ocr_rope import GLM_OCR_TEXT_ROPE_LOWERING, GLM_OCR_VISION_ROPE_LOWERING
 from dinoml.lowering.ops.group_norm import GROUP_NORM_LOWERING, GROUP_NORM_SWISH_LOWERING
+from dinoml.lowering.ops.group_layernorm import GROUP_LAYERNORM_LOWERING, GROUP_LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.full import FULL_LOWERING
 from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_LOWERINGS
 from dinoml.lowering.ops.get_timestep_embedding import GET_TIMESTEP_EMBEDDING_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
+from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
@@ -82,6 +85,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     AVG_POOL1D_LOWERING.op_name: AVG_POOL1D_LOWERING,
     AVG_POOL2D_LOWERING.op_name: AVG_POOL2D_LOWERING,
     BATCH_GATHER_LOWERING.op_name: BATCH_GATHER_LOWERING,
+    BATCH_LAYERNORM_SIGMOID_MUL_LOWERING.op_name: BATCH_LAYERNORM_SIGMOID_MUL_LOWERING,
     CONCATENATE_LOWERING.op_name: CONCATENATE_LOWERING,
     CONV1D_BIAS_ADD_LOWERING.op_name: CONV1D_BIAS_ADD_LOWERING,
     CONV1D_BIAS_ADD_RELU_LOWERING.op_name: CONV1D_BIAS_ADD_RELU_LOWERING,
@@ -113,10 +117,13 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     GLM_OCR_VISION_ROPE_LOWERING.op_name: GLM_OCR_VISION_ROPE_LOWERING,
     GROUP_NORM_LOWERING.op_name: GROUP_NORM_LOWERING,
     GROUP_NORM_SWISH_LOWERING.op_name: GROUP_NORM_SWISH_LOWERING,
+    GROUP_LAYERNORM_LOWERING.op_name: GROUP_LAYERNORM_LOWERING,
+    GROUP_LAYERNORM_SIGMOID_MUL_LOWERING.op_name: GROUP_LAYERNORM_SIGMOID_MUL_LOWERING,
     FULL_LOWERING.op_name: FULL_LOWERING,
     GET_TIMESTEP_EMBEDDING_LOWERING.op_name: GET_TIMESTEP_EMBEDDING_LOWERING,
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
     LAYER_NORM_LOWERING.op_name: LAYER_NORM_LOWERING,
+    LAYERNORM_SIGMOID_MUL_LOWERING.op_name: LAYERNORM_SIGMOID_MUL_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
     QKV_SPLIT_LOWERING.op_name: QKV_SPLIT_LOWERING,

@@ -37,6 +37,18 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
     for node in ir["nodes"]:
         inputs = [tensors[name] for name in node["inputs"]]
         op_def = get_op_def(node["op"])
+        if node["op"] in {"group_layernorm", "group_layernorm_sigmoid_mul"}:
+            group_count = int(node.get("attrs", {}).get("group_count", 0))
+            if group_count <= 0:
+                raise ValidationError(f"{node['op']} requires a positive group_count")
+            for output_name, input_tensor in zip(node["outputs"], inputs[:group_count]):
+                _assign_tensor_shape_type(
+                    tensors[output_name],
+                    input_tensor["shape"],
+                    input_tensor.get("shape_spec", input_tensor["shape"]),
+                    str(input_tensor["dtype"]),
+                )
+            continue
         if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
             _assign_tensor_shape_type(tensors[node["outputs"][0]], inputs[0]["shape"], inputs[0].get("shape_spec", inputs[0]["shape"]), inputs[0]["dtype"])
             _assign_tensor_shape_type(tensors[node["outputs"][1]], inputs[1]["shape"], inputs[1].get("shape_spec", inputs[1]["shape"]), inputs[1]["dtype"])

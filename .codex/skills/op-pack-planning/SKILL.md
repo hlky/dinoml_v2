@@ -98,6 +98,16 @@ For every selected task, state:
 If decomposition is acceptable completion, say so directly.
 If decomposition is not acceptable completion, say so directly.
 
+For thin frontend or rewrite-only packs, be stricter:
+
+- name the concrete user-visible API file or module to edit when known, especially under `src/dinoml/nn/` or another named local surface
+- name the exact existing DinoML op(s) or helper(s) that admitted calls must route to or rewrite into
+- say directly that no parallel backend, kernel, or duplicate runtime path should be added
+- avoid role words such as `frontend`, `export`, `binding`, `Torch-facing`, `integration`, or `pipeline` unless they are immediately anchored to a concrete local file or symbol
+- prefer `Add <api> in <file>` over `Add a Torch-facing path`
+- prefer `Route admitted calls to <existing op>` over `Wire the frontend mapping`
+- if the exact file is not yet known, say that the pack must identify the concrete local API file before implementation rather than inventing subsystem wording
+
 ### 5) Encode failure-mode guardrails
 
 Use `references/common-failure-modes.md` and write pack-local guidance that blocks the failure modes relevant to the chosen task.
@@ -135,7 +145,8 @@ Be concrete and conservative.
 
 - Prefer bounded tasks over roadmap prose.
 - Prefer explicit non-scope over implied future work.
-- Prefer “not selected because already covered by X” over vague dismissal.
-- Prefer “defer because this implies broader representation work” over pretending the op is routine.
+- Prefer "not selected because already covered by X" over vague dismissal.
+- Prefer "defer because this implies broader representation work" over pretending the op is routine.
+- For thin frontend packs, prefer file-and-op wording such as `Add \`interpolate\` in \`src/.../functional.py\`; route admitted calls to \`upsampling2d\`` over abstract wording such as `Add a Torch-facing interpolate path`.
 
 If uncertain, tighten scope rather than broadening it.

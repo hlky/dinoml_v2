@@ -4,6 +4,7 @@ import math
 from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
+from dinoml.ops.collections import permute
 from dinoml.ops.registry import AttrDef, FrontendBinding, KernelBinding, OpDef, OpSchema, op_def
 from dinoml.shapes import symbolic_int_expr
 
@@ -295,6 +296,39 @@ def upsampling3d_compress_time(x: Any) -> Tensor:
     )
 
 
+def interpolate(
+    x: Any,
+    size: Any = None,
+    scale_factor: Any = None,
+    mode: str = "nearest",
+    align_corners: bool | None = None,
+    recompute_scale_factor: Any = None,
+    antialias: bool = False,
+) -> Tensor:
+    tensor = as_tensor(x)
+    if size is not None:
+        raise NotImplementedError("interpolate currently supports only scale_factor=; size= is not supported")
+    if scale_factor is None:
+        raise NotImplementedError("interpolate currently requires scale_factor=")
+    if recompute_scale_factor not in (None, False):
+        raise NotImplementedError("interpolate does not support recompute_scale_factor")
+    if antialias:
+        raise NotImplementedError("interpolate does not support antialias=True")
+    op_name = _interpolate_upsampling_op_name(tensor.rank, mode)
+    normalized_scale = _normalize_interpolate_scale_factor(scale_factor, spatial_rank=tensor.rank - 2)
+    normalized_align = _normalize_interpolate_align_corners(mode, align_corners)
+    layout_adapted = permute(tensor, _interpolate_to_channels_last_dims(tensor.rank))
+    upsampled = _upsampling_forward(
+        op_name,
+        layout_adapted,
+        None,
+        scale_factor=normalized_scale,
+        mode=mode,
+        align_corners=normalized_align,
+    )
+    return permute(upsampled, _interpolate_to_channels_first_dims(tensor.rank))
+
+
 def _infer_upsampling_shape_with_attrs(
     op_name: str,
     input_shapes: Sequence[Sequence[int]],
@@ -424,6 +458,74 @@ def _integral_scale_factor(scale_factor: float) -> int | None:
     if math.isclose(float(scale_factor), float(rounded)):
         return int(rounded)
     return None
+
+
+def _interpolate_upsampling_op_name(rank: int, mode: Any) -> str:
+    if not isinstance(mode, str):
+        raise ValueError(f"interpolate mode must be a string, got {mode!r}")
+    if rank == 3:
+        allowed = ("linear", "nearest", "nearest-exact")
+        if mode not in allowed:
+            raise ValueError(f"interpolate rank-3 mode must be one of {allowed}, got {mode!r}")
+        return "upsampling1d"
+    if rank == 4:
+        allowed = ("bilinear", "nearest", "nearest-exact")
+        if mode not in allowed:
+            raise ValueError(f"interpolate rank-4 mode must be one of {allowed}, got {mode!r}")
+        return "upsampling2d"
+    if rank == 5:
+        allowed = ("trilinear", "nearest", "nearest-exact")
+        if mode not in allowed:
+            raise ValueError(f"interpolate rank-5 mode must be one of {allowed}, got {mode!r}")
+        return "upsampling3d"
+    raise ValueError(f"interpolate expects rank-3, rank-4, or rank-5 dense tensors, got rank {rank}")
+
+
+def _normalize_interpolate_scale_factor(scale_factor: Any, *, spatial_rank: int) -> float:
+    if isinstance(scale_factor, Sequence) and not isinstance(scale_factor, (str, bytes, bytearray)):
+        values = tuple(scale_factor)
+        if len(values) != spatial_rank:
+            raise ValueError(
+                f"interpolate scale_factor sequence length {len(values)} must match spatial rank {spatial_rank}"
+            )
+        normalized_values = tuple(_positive_finite_float(value, "interpolate scale_factor") for value in values)
+        first = normalized_values[0]
+        if any(not math.isclose(value, first) for value in normalized_values[1:]):
+            raise NotImplementedError("interpolate currently requires a uniform scale_factor across spatial dims")
+        return float(first)
+    return _positive_finite_float(scale_factor, "interpolate scale_factor")
+
+
+def _normalize_interpolate_align_corners(mode: str, align_corners: Any) -> bool | None:
+    if mode in {"linear", "bilinear", "trilinear"}:
+        if align_corners is None:
+            return False
+        if not isinstance(align_corners, bool):
+            raise ValueError(f"interpolate align_corners must be bool for mode {mode}, got {align_corners!r}")
+        return bool(align_corners)
+    if align_corners not in (None, False):
+        raise ValueError(f"interpolate align_corners must be None or False for mode {mode}, got {align_corners!r}")
+    return None
+
+
+def _interpolate_to_channels_last_dims(rank: int) -> list[int]:
+    if rank == 3:
+        return [0, 2, 1]
+    if rank == 4:
+        return [0, 2, 3, 1]
+    if rank == 5:
+        return [0, 2, 3, 4, 1]
+    raise ValueError(f"interpolate expects rank-3, rank-4, or rank-5 dense tensors, got rank {rank}")
+
+
+def _interpolate_to_channels_first_dims(rank: int) -> list[int]:
+    if rank == 3:
+        return [0, 2, 1]
+    if rank == 4:
+        return [0, 3, 1, 2]
+    if rank == 5:
+        return [0, 4, 1, 2, 3]
+    raise ValueError(f"interpolate expects rank-3, rank-4, or rank-5 dense tensors, got rank {rank}")
 
 
 def _compress_time_frames(frames: int) -> int:
@@ -610,6 +712,7 @@ __all__ = [
     "infer_upsampling3d_compress_time_shape",
     "infer_upsampling3d_shape",
     "infer_upsampling3d_shape_with_attrs",
+    "interpolate",
     "normalize_upsampling_attrs",
     "resolve_upsampling1d_shape",
     "resolve_upsampling2d_shape",

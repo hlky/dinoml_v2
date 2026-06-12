@@ -226,6 +226,7 @@ from dinoml.ops.tensor_filters import (
     kupsample2d_weight,
 )
 from dinoml.ops.upsampling import (
+    interpolate,
     upsampling1d,
     upsampling1d_add,
     upsampling2d,
@@ -442,6 +443,7 @@ __all__ = [
     "hardtanh",
     "identity",
     "index_select",
+    "interpolate",
     "int_add",
     "int_div",
     "int_mul",

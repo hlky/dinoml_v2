@@ -14,6 +14,14 @@ This repository is not a polished end-user framework. It is a compiler/runtime l
 
 Stable repository-wide guidance from `README.md`, `docs/project_invariants.md`, `docs/provider_contract.md`, `docs/op_admission.md`, and `docs/model_pipeline_benchmarking.md` is already summarized here and in the developer instructions. Do not reread those files by default on ordinary implementation tasks unless the task explicitly points to them or a concrete uncertainty remains after reading the task-local sources.
 
+Unless the user or the task pack explicitly narrows scope, treat DinoML op implementation work as requiring:
+
+- CPU
+- CUDA
+- ROCm
+
+Do not treat missing one backend as an acceptable stopping point for an ordinary op task.
+
 ## CUDA Remote Verification Baseline
 
 The current repo-preferred CUDA remote verification image is:
@@ -122,6 +130,9 @@ Validation should match the risk of the change.
 - For DinoML, start with stable first-party checks such as `tests/ir`, `tests/cpu`, narrow scaffold/manifest tests, or runtime benchmark tests before reaching for gated GPU contract runs.
 - For performance-related changes, use measurements when feasible and say when you have not measured.
 - If the environment limits what can be validated locally, say so plainly instead of pretending confidence.
+- A local validation limit changes the validation route, not the required backend surface.
+- Do not reinterpret a ROCm-oriented local machine as permission to skip CUDA work. Use the repository remote CUDA workflow when CUDA is in scope.
+- Do not treat CPU-only or CPU+ROCm-only progress as complete for an ordinary op task while CUDA is still missing or unverified.
 - Do not claim a fix is complete if you have only verified a nearby codepath.
 
 # Output Style

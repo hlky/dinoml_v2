@@ -44,8 +44,11 @@ Typical signs:
 - clear static-shape contract
 - reasonable reference oracle
 - plausible lowering path within existing architecture
+- the task needs an explicit IR op and should still plan a real backend or kernel implementation rather than a permanent composed fallback
 
 Do not use this label if honest support would immediately require broader type-system, jagged, sparse, or complex-tensor work.
+Do not use this label when the pack would stop at a decomposition through existing ops instead of requiring a real backend or kernel endpoint.
+Do not use this label when the main unresolved truth is really backend execution strategy or kernel availability.
 
 ## `real-backend-lowering-work`
 
@@ -57,8 +60,10 @@ Typical signs:
 - runtime or kernel manifest support is required
 - backend support claims would otherwise be false
 - decomposition would be misleading or would dodge the real task
+- the op has a meaningful performance identity and honest completion should end in a real provider or kernel implementation rather than a permanent composed fallback
 
 This is the default label for conv, GEMM, BMM, pooling, and similar families when backend truth matters.
+It is also the safer default when an op might look decomposable on paper but the expected steady-state implementation should not rely on a broad composed graph.
 
 ## `broader-representation-work`
 

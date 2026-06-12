@@ -37,10 +37,19 @@ Do not infer that a local toolchain, accelerator, or backend is unavailable when
 - Prefer a direct probe over inference from docs, test decorators, old failures, or missing prior evidence.
 - Before speaking about backend status, classify it explicitly as one of: `available`, `misconfigured`, `not yet verified`, or `unavailable`.
 - Do not collapse backend availability, toolchain health, and op-specific runtime parity into one conclusion.
+- Do not collapse "not yet remotely verified on CUDA" into "CUDA should be avoided."
 
 # GPU Backend Verification
 
 Keep CUDA and ROCm verification rules separate. Do not generalize restrictions from one backend to the other.
+
+For DinoML op work, default scope is:
+
+- CPU
+- CUDA
+- ROCm
+
+Unless the user or task file explicitly narrows scope, missing any one of these means the task is still incomplete.
 
 - For ROCm-related work on this machine, probe local availability before making any claim about support:
   - `hipconfig`
@@ -56,6 +65,8 @@ Keep CUDA and ROCm verification rules separate. Do not generalize restrictions f
 - If a change claims CUDA support for the affected path, the required next validation step is the repository's remote CUDA workflow unless the user explicitly scopes CUDA out.
 - Do not substitute local CUDA probes, lowering/render checks, missing `nvcc`, or local permission issues for the repository's remote CUDA validation workflow.
 - When CUDA has not yet been validated through the repo workflow, say that CUDA remains pending remote validation per the repository workflow. Do not describe it as unavailable unless a concrete CUDA-specific probe shows that.
+- A ROCm-only local machine is not a reason to reject or skip CUDA work. It means CUDA verification must happen through the remote repository workflow.
+- Do not use "honest backend-support claims" as an excuse to narrow the implementation surface. Implement the in-scope backend, then state the exact remaining validation step.
 
 ## Required Architecture Rule
 
@@ -133,6 +144,8 @@ Validation should be proportional and honest.
 - If remote CUDA validation has not been run yet, say so explicitly as a pending required step rather than as a generic inability to validate CUDA.
 - If you do not run backend runtime parity, do not claim backend runtime support for that path; say the backend remains unverified or reject support explicitly.
 - Do not let successful lowering/render checks stand in for runtime parity, and do not let missing runtime parity stand in for backend unavailability.
+- For ordinary DinoML op tasks, do not treat CPU-only, ROCm-only, or CPU+ROCm-only progress as complete while CUDA remains unimplemented or unverified.
+- Do not decline CUDA work on the basis that this machine is ROCm-oriented. Use the remote CUDA workflow.
 - If you could not run an important check, say so plainly.
 - Do not imply certainty that has not been earned by the available evidence.
 

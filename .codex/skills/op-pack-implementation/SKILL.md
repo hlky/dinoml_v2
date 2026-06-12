@@ -24,6 +24,14 @@ At minimum, identify and read:
 
 If the pack includes backend-specific task files, read the ones that apply to the claimed implementation surface.
 
+Unless the pack explicitly states a narrower non-scope, treat DinoML op implementation as a three-backend requirement:
+
+- CPU
+- CUDA
+- ROCm
+
+Do not infer that a backend may be skipped just because the current local machine cannot run it directly.
+
 Do not begin by rereading broad repo docs when the pack already gives the local contract.
 
 When the work includes adding or revising tests, also read and follow the repo-local skill:
@@ -83,6 +91,8 @@ If the required architecture cannot support the task within scope, record the bl
 
 Do not present a backend as supported unless the implemented path is actually wired and validated at the level required by the pack.
 
+For DinoML op packs, honesty means finishing the required backend work, not declining it. If CPU, CUDA, and ROCm are in scope, then all three must be implemented. A local validation limitation changes the validation route, not the required backend surface.
+
 These do not count as backend support by themselves:
 
 - frontend acceptance
@@ -92,6 +102,8 @@ These do not count as backend support by themselves:
 - code inspection
 
 If a backend is intentionally unsupported during development, reject it explicitly and test that rejection when appropriate.
+
+Do not convert "not yet locally validated" into "out of scope" or "do not touch this backend."
 
 ### 5) Validate in the order the pack expects
 
@@ -115,8 +127,16 @@ Before calling the task complete, verify that the pack’s completion boundary i
 
 Do not silently narrow scope because the hard part is inconvenient.
 Do not treat partial backend work as complete unless the pack explicitly allows that boundary.
+For ordinary DinoML op packs, partial completion on CPU-only, CPU+ROCm-only, or CPU+CUDA-only is not complete. Unless the pack explicitly narrows scope, completion requires CPU, CUDA, and ROCm.
 
 ## Backend execution rules
+
+### CPU
+
+For work that claims CPU support:
+
+- implement and validate the CPU path required by the pack
+- do not treat GPU completion as a substitute for CPU runtime parity
 
 ### ROCm
 
@@ -128,14 +148,20 @@ For work that claims ROCm support:
 
 ### CUDA
 
-For work that claims CUDA support:
+For DinoML op implementation work, CUDA support is required unless the pack explicitly narrows scope.
+
+For work that includes CUDA support:
 
 - use the repo-local `runpod-codex-remote` skill when remote CUDA verification is required
 - prefer the validated image `hlky/dinoml:ubuntu-nodeps`
 - prefer reusing `/opt/src/dinoml_v2` with `--existing-project-path /opt/src/dinoml_v2`
 - stay within the usual verification budget guidance when the pack uses the standard repo constraints
+- refresh the prebaked tree with `git -C /opt/src/dinoml_v2 pull --ff-only` before validation unless the user explicitly wants a pinned or alternate checkout flow
+
+CUDA validation for DinoML op work must use the repository remote-CUDA workflow. Do not treat a ROCm-only local machine, missing local CUDA, missing local `nvcc`, or the absence of a prior CUDA run as permission to drop CUDA from the task.
 
 Do not mark CUDA support complete when remote CUDA validation required by the pack is still pending.
+Do not reject CUDA only because the current machine is ROCm-oriented. Required next step: run the remote CUDA path.
 
 ### CK and CUTLASS
 
@@ -158,6 +184,8 @@ Watch for these and stop them explicitly:
 - broad representation work disguised as a routine op
 - static-shape-only completion for a task that requires runtime shape support
 - CUDA pending treated as done
+- local ROCm-only machine misread as permission to skip CUDA work
+- "honest backend claims" misread as "avoid implementing unvalidated CUDA"
 - v1 structure imported directly into v2
 - validation that does not exercise the changed path
 

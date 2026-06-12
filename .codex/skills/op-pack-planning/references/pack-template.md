@@ -45,6 +45,7 @@ Include:
 - public API expectations
 - for torch-family targets, the exact official PyTorch API reference URL for the scoped op
 - whether decomposition is acceptable
+- whether completion requires a real provider/kernel implementation
 - whether new IR is required
 - backend truth expected at completion
 
@@ -190,5 +191,7 @@ Keep it short and explicit:
 - If an implementation shortcut is forbidden, say so plainly.
 - If a backend is required for completion, say so plainly.
 - If a backend is out of scope, say so plainly.
+- If a real backend/provider/kernel implementation is required, say so plainly.
+- For any pack that is not `already-covered` or `thin-frontend-rewrite`, say plainly that composition through existing ops does not count as completion.
 - For thin frontend or rewrite-only tasks, prefer file names, module names, function names, and reused DinoML ops over subsystem labels.
 - Avoid overloaded trigger words such as `export` unless the task really is about `torch.export`.

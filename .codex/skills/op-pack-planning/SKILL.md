@@ -25,6 +25,12 @@ Always read:
 
 Read `references/pack-template.md` when you are drafting a new `.work/op/` pack.
 
+Unless there is a real, explicit reason to narrow scope, plan DinoML op implementation packs as three-backend work:
+
+- CPU
+- CUDA
+- ROCm
+
 Then read only the smallest local inputs needed for the current request:
 
 - the usage or missing-op report the user named
@@ -46,6 +52,7 @@ For each candidate op, record:
 - whether it needs a new frontend mapping only
 - whether it needs a new IR op
 - whether it needs real lowering, runtime, or backend work
+- whether completion requires a real provider or kernel implementation
 - whether it implies broader representation work
 - whether it has dynamic-output risk
 - whether it has complex-dtype risk
@@ -68,6 +75,8 @@ Apply the rubric from `references/classification-rubric.md`.
 
 Do not silently upgrade a rewrite-only candidate into a full backend task.
 Do not silently downgrade a real backend task into a frontend-only task.
+Do not leave the pack ambiguous about kernel expectations.
+For any candidate that is not `already-covered` or `thin-frontend-rewrite`, prefer a real kernel/provider implementation.
 
 ### 3) Choose pack format
 
@@ -89,14 +98,20 @@ For every selected task, state:
 - target public API surface
 - official API reference URL when the target op comes from `torch`, `torch.Tensor`, `torch.nn`, or `torch.nn.functional`
 - required v2 touchpoint stack
+- kernel expectation: frontend rewrite only for thin rewrites, otherwise real provider/kernel work required
 - allowed implementation style
 - forbidden shortcuts
 - required parity oracle
 - required verification backends
 - completion boundary
 
+For ordinary DinoML op packs, required verification backends should be CPU, CUDA, and ROCm. If any backend is intentionally excluded, say so explicitly in non-scope and explain why. Do not leave backend scope to implication.
+
 If decomposition is acceptable completion, say so directly.
 If decomposition is not acceptable completion, say so directly.
+If the task requires a real backend/provider/kernel implementation for honest completion, say that directly.
+For any pack that is not `already-covered` or `thin-frontend-rewrite`, composition through existing ops does not count as completion.
+For any non-rewrite DinoML op pack, partial backend completion does not count as completion. Say directly that CPU-only, CPU+ROCm-only, or CPU+CUDA-only completion is insufficient unless the pack explicitly narrows scope.
 
 For thin frontend or rewrite-only packs, be stricter:
 
@@ -107,6 +122,13 @@ For thin frontend or rewrite-only packs, be stricter:
 - prefer `Add <api> in <file>` over `Add a Torch-facing path`
 - prefer `Route admitted calls to <existing op>` over `Wire the frontend mapping`
 - if the exact file is not yet known, say that the pack must identify the concrete local API file before implementation rather than inventing subsystem wording
+
+For `new-ir-op` versus `real-backend-lowering-work`, be stricter about kernel truth:
+
+- use `new-ir-op` only when the main planning distinction is that a new explicit IR op is needed in addition to the required real backend/kernel work
+- use `real-backend-lowering-work` when the primary difficulty is provider, lowering, runtime, or kernel implementation
+- do not describe a task as having an "honest lowering path" if that wording would make composed execution sound acceptable as the end state
+- do not use a broad composition of existing ops as the planned end state for a newly selected op pack
 
 ### 5) Encode failure-mode guardrails
 
@@ -134,10 +156,12 @@ Plan verification honestly from the start.
 
 - CPU or reference verification is required but not sufficient when the task claims GPU support.
 - Local ROCm verification is required unless the scoped pack explicitly removes it.
-- CUDA verification must be planned through the repository workflow, not hand-waved.
+- CUDA verification must be planned through the repository remote-CUDA workflow, not hand-waved and not replaced by local inference.
 - When remote CUDA verification is required, use the repo-local `runpod-codex-remote` skill and follow the budget and GPU guidance in `references/pack-shapes.md`.
 - Lowering or render coverage does not count as runtime parity.
 - If a task is backend work, the pack must say so clearly and must not let the implementation stop at API or scaffold coverage.
+- A ROCm-only local machine does not justify scoping CUDA out. It changes the execution venue for CUDA verification, not the required backend surface.
+- Do not draft packs with wording that lets "unvalidated backend claim" be misread as permission to avoid implementing CUDA. The pack should say that CUDA remains required and must be verified through the remote workflow.
 
 ## Style
 

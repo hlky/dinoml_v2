@@ -36,6 +36,7 @@ Before editing, write down internally:
 
 - covered ops
 - explicit non-scope
+- shape contract: static-only, static-rank dynamic, runtime-shape-dependent, or deferred
 - required v2 touchpoint stack
 - required architecture or provider path
 - parity oracle
@@ -146,6 +147,7 @@ Watch for these and stop them explicitly:
 - silent scope shrink
 - rewrite as dodge for real backend work
 - broad representation work disguised as a routine op
+- static-shape-only completion for a task that requires runtime shape support
 - CUDA pending treated as done
 - v1 structure imported directly into v2
 - validation that does not exercise the changed path

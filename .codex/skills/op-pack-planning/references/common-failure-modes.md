@@ -86,7 +86,20 @@ Guardrail:
 - state the required CUDA verification path
 - say that pending CUDA verification keeps the task out of done unless CUDA is explicitly out of scope
 
-## 8) v1 structure imported into v2
+## 8) Static-shape-only completion
+
+Failure mode:
+
+- task contract requires static-rank dynamic shape or runtime-shape-aware behavior
+- implementation only works when relevant extents are compile-time constants
+- result is still presented as completing the task
+
+Guardrail:
+
+- state the shape contract explicitly: static-only, static-rank dynamic, runtime-shape-dependent, or deferred
+- require verification that exercises runtime-varying extents when dynamic shape support is in scope
+
+## 9) v1 structure imported into v2
 
 Failure mode:
 
@@ -96,7 +109,7 @@ Guardrail:
 
 - say that v1 is for behavioral or oracle guidance only unless the task explicitly calls for a provider or runtime pattern that still applies
 
-## 9) Validation mismatch
+## 10) Validation mismatch
 
 Failure mode:
 

@@ -85,6 +85,7 @@ For every selected task, state:
 
 - covered ops
 - explicit non-scope
+- shape contract: static-only, static-rank dynamic, runtime-shape-dependent, or deferred
 - required v2 touchpoint stack
 - allowed implementation style
 - forbidden shortcuts

@@ -126,6 +126,7 @@ Do not inject unnecessary process by default.
 Validation should be proportional and honest.
 
 - Start with the narrowest relevant check.
+- Default pytest runs should fail fast with `-x` or `--maxfail=1` unless the user explicitly asks to collect multiple failures in one pass.
 - Prefer current tests, examples, and executable harnesses over older prose docs when workflow semantics differ.
 - For DinoML work, prefer checks that directly exercise the changed compiler/runtime path.
 - For op-level and whole-artifact performance, use `benchmark_numpy`, `benchmark_device_pointers`, `dino_session_benchmark`, or the existing benchmark suites before timing around `run_numpy`.

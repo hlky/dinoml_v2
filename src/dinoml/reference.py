@@ -525,6 +525,17 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "one_hot":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_one_hot(
+                    values[node["inputs"][0]],
+                    int(attrs.get("num_classes", 0)),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "masked_select":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -924,6 +935,24 @@ def _execute_index_add(x: np.ndarray, index: np.ndarray, source: np.ndarray, dim
         output_coord = list(source_coord)
         output_coord[dim] = selected
         result[tuple(output_coord)] = result[tuple(output_coord)] + source[source_coord]
+    return result
+
+
+def _execute_one_hot(x: np.ndarray, num_classes: int) -> np.ndarray:
+    if num_classes <= 0:
+        raise ValueError(f"one_hot num_classes must be positive, got {num_classes}")
+    index_values = np.asarray(x, dtype=np.int64)
+    if index_values.ndim < 1:
+        raise ValueError("one_hot expects rank >= 1 input")
+    bad = np.argwhere((index_values < 0) | (index_values >= int(num_classes)))
+    if bad.size:
+        coord = tuple(int(axis) for axis in bad[0])
+        selected = int(index_values[coord])
+        raise ValueError(f"one_hot index {selected} is out of bounds for num_classes {num_classes}")
+    result = np.zeros((*index_values.shape, int(num_classes)), dtype=np.int64)
+    flat_result = result.reshape(-1, int(num_classes))
+    flat_indices = index_values.reshape(-1)
+    flat_result[np.arange(flat_indices.size, dtype=np.int64), flat_indices] = 1
     return result
 
 

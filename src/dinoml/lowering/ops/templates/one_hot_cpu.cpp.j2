@@ -1,0 +1,22 @@
+static int {{ func }}(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+    {{ output_storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel_x,
+    int64_t runtime_numel_out) {
+  if (x == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel_out != runtime_numel_x * {{ num_classes }}) {
+    return dino_runtime_fail("one_hot runtime output size mismatch");
+  }
+  for (int64_t idx = 0; idx < runtime_numel_out; ++idx) {
+    const int64_t input_idx = idx / {{ num_classes }};
+    const int64_t class_idx = idx - input_idx * {{ num_classes }};
+    const int64_t selected = static_cast<int64_t>(x[input_idx]);
+    if (selected < 0 || selected >= {{ num_classes }}) {
+      return dino_runtime_fail("one_hot index out of bounds");
+    }
+    y[idx] = (selected == class_idx) ? static_cast<int64_t>(1) : static_cast<int64_t>(0);
+  }
+  return 0;
+}

@@ -912,6 +912,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
     index_tensors.update(
         node["inputs"][0]
         for node in ir["nodes"]
+        if node.get("op") == "one_hot" and len(node.get("inputs", [])) == 1
+    )
+    index_tensors.update(
+        node["inputs"][0]
+        for node in ir["nodes"]
         if node.get("op") in {"glm_ocr_stitch_image_features", "qwen2_5_vl_stitch_image_features"}
         and len(node.get("inputs", [])) == 3
     )
@@ -929,6 +934,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         node["outputs"][0]
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
+    }
+    one_hot_output_tensors = {
+        node["outputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "one_hot" and len(node.get("outputs", [])) == 1
     }
     nms_int64_output_tensors = {
         node["outputs"][0]
@@ -1049,6 +1059,17 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                 )
             if output_dtype != data_dtype:
                 raise NotImplementedError(f"Op index_add output dtype {output_dtype} must match input dtype {data_dtype}")
+            continue
+        if node.get("op") == "one_hot":
+            input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op one_hot input supports dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[input_dtype]}"
+                )
+            if output_dtype != "int64":
+                raise NotImplementedError(f"Op one_hot output dtype {output_dtype} must be int64")
             continue
         if node.get("op") == "masked_select":
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
@@ -1258,6 +1279,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in index_tensors
             and str(tensor["name"]) not in argmax_input_tensors
             and str(tensor["name"]) not in argmax_output_tensors
+            and str(tensor["name"]) not in one_hot_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
             and str(tensor["name"]) not in nms_int64_output_tensors
             and str(tensor["name"]) not in rotary_allegro_grid_output_tensors

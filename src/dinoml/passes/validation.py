@@ -12,7 +12,7 @@ from dinoml.ir import (
     normalize_dtype,
 )
 from dinoml.layout import validate_layout
-from dinoml.ops.collections import INDEX_ADD_DTYPES, broadcast_shape_spec, normalize_index_add_attrs
+from dinoml.ops.collections import INDEX_ADD_DTYPES, broadcast_shape_spec, normalize_index_add_attrs, normalize_one_hot_num_classes
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import (
     CAST_ELEMENTWISE_DTYPES,
@@ -308,6 +308,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "index_select",
         "runtime_index_select",
         "index_add",
+        "one_hot",
         "gather",
         "batch_gather",
         "slice_scatter",
@@ -1279,6 +1280,7 @@ def _validate_collection_node(
         "dynamic_slice",
         "index_add",
         "index_select",
+        "one_hot",
         "runtime_index_select",
         "permute",
         "permute021",
@@ -1353,6 +1355,27 @@ def _validate_collection_node(
             raise ValidationError(
                 f"index_add output shape_spec must match input shape_spec {expected_shape_spec}, "
                 f"got {actual_shape_spec}"
+            )
+        return
+    if op_name == "one_hot":
+        if len(inputs) != 1:
+            raise ValidationError("one_hot expects exactly one input")
+        if str(inputs[0]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"one_hot input must have dtype int64 or int32, got {inputs[0]['dtype']}")
+        num_classes = normalize_one_hot_num_classes(node.get("attrs", {}).get("num_classes"))
+        expected_shape_spec = [
+            *(dict(dim) if isinstance(dim, Mapping) else dim for dim in inputs[0].get("shape_spec", inputs[0]["shape"])),
+            num_classes,
+        ]
+        actual_shape_spec = list(output.get("shape_spec", output["shape"]))
+        if actual_shape_spec != expected_shape_spec:
+            raise ValidationError(
+                f"one_hot output shape_spec must equal input shape_spec plus num_classes {num_classes}, "
+                f"got {actual_shape_spec}"
+            )
+        if str(output["dtype"]) != "int64":
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, expected int64"
             )
         return
     if op_name == "batch_gather":

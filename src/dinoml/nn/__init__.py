@@ -7,6 +7,7 @@ from dinoml import ops
 from dinoml.frontend import Module as _FrontendModule
 from dinoml.frontend import Parameter, Tensor
 from dinoml.ir import normalize_dtype
+from . import functional
 
 
 class Module(_FrontendModule):
@@ -628,4 +629,5 @@ __all__ = [
     "Upsampling3d",
     "Upsampling3dAdd",
     "Upsampling3dCompressTime",
+    "functional",
 ]

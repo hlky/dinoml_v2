@@ -13,6 +13,7 @@ from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, sh
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
 INDEX_ADD_DTYPES = ("float16", "float32", "bfloat16")
 GATHER_INDEX_DTYPES = ("int64", "int32")
+ONE_HOT_INPUT_DTYPES = ("int64", "int32")
 PADDING_LAYOUT_HELPER_DTYPES = ("float16", "float32")
 PADDING_LAYOUT_HELPER_OPS = ("ndhwc3to8", "nhwc3to4", "nhwc3to8")
 SPECIALIZED_PERMUTE_DIMS: dict[str, tuple[int, ...]] = {
@@ -77,6 +78,12 @@ def infer_masked_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int
     if len(input_shapes) != 2:
         raise ValueError("masked_select expects two tensor inputs")
     return infer_masked_select_shape_with_attrs(input_shapes, {})
+
+
+def infer_one_hot_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("one_hot expects one tensor input")
+    raise ValueError("one_hot shape inference requires num_classes attrs")
 
 
 def infer_gather_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -199,6 +206,12 @@ def infer_masked_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], 
     if len(input_shapes) != 2:
         raise ValueError("masked_select expects two tensor inputs")
     return resolve_masked_select_shape(input_shapes[0], input_shapes[1])
+
+
+def infer_one_hot_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("one_hot expects one tensor input")
+    return resolve_one_hot_shape(input_shapes[0], attrs.get("num_classes"))
 
 
 def infer_gather_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -411,6 +424,15 @@ def normalize_index_add_dim(dim: Any, rank: int) -> int:
         normalized += rank
     if normalized < 0 or normalized >= rank:
         raise ValueError(f"index_add dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
+def normalize_one_hot_num_classes(num_classes: Any) -> int:
+    if not isinstance(num_classes, int) or isinstance(num_classes, bool):
+        raise ValueError(f"one_hot num_classes must be a positive integer, got {num_classes!r}")
+    normalized = int(num_classes)
+    if normalized <= 0:
+        raise ValueError(f"one_hot num_classes must be positive, got {num_classes!r}")
     return normalized
 
 
@@ -753,6 +775,13 @@ def resolve_masked_select_shape(input_shape: Sequence[int], mask_shape: Sequence
     return [shape_numel(max_shape(broadcast_shape_spec))]
 
 
+def resolve_one_hot_shape(input_shape: Sequence[int], num_classes: Any) -> list[int]:
+    normalized_classes = normalize_one_hot_num_classes(num_classes)
+    if len(input_shape) < 1:
+        raise ValueError("one_hot input rank must be at least 1")
+    return [*[int(axis) for axis in input_shape], normalized_classes]
+
+
 def resolve_gather_shape(input_shape: Sequence[int], index_shape: Sequence[int], dim: Any) -> list[int]:
     normalize_gather_attrs(dim, input_shape, index_shape)
     return [int(axis) for axis in index_shape]
@@ -1079,6 +1108,32 @@ class IndexAdd(OpDef):
     @classmethod
     def forward(cls, x: Any, dim: Any, index: Any, source: Any) -> Tensor:
         return index_add(x, dim, index, source)
+
+
+@op_def
+class OneHot(OpDef):
+    name = "one_hot"
+    schema = OpSchema(
+        inputs=("x",),
+        attrs=(AttrDef("num_classes", "int", required=True),),
+    )
+    infer_shape = infer_one_hot_shape
+    infer_shape_with_attrs = infer_one_hot_shape_with_attrs
+    allowed_dtypes = ONE_HOT_INPUT_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_one_hot", library="model", source_template="one_hot_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_one_hot", library="model", source_template="one_hot_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_one_hot", library="model", source_template="one_hot_gpu.j2"),
+    }
+    frontend = FrontendBinding("one_hot")
+    description = (
+        "Materialize an explicit one_hot op with a static num_classes contract; "
+        "lowered through existing dense ops."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, num_classes: Any) -> Tensor:
+        return one_hot(x, num_classes)
 
 
 @op_def
@@ -1502,6 +1557,23 @@ def index_add(x: Any, dim: Any, index: Any, source: Any) -> Tensor:
     )
 
 
+def one_hot(x: Any, num_classes: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in ONE_HOT_INPUT_DTYPES:
+        raise ValueError(f"one_hot input must have dtype int64 or int32, got {tensor.dtype}")
+    normalized_classes = normalize_one_hot_num_classes(num_classes)
+    out_shape = infer_one_hot_shape_with_attrs([tensor.shape], {"num_classes": normalized_classes})
+    out_shape_spec = [*[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec], normalized_classes]
+    return tensor.builder.emit(
+        "one_hot",
+        [tensor],
+        out_shape,
+        "int64",
+        {"num_classes": normalized_classes},
+        shape_spec=out_shape_spec,
+    )
+
+
 def masked_select(x: Any, mask: Any) -> Tensor:
     tensor = as_tensor(x)
     mask_tensor = as_tensor(mask)
@@ -1883,6 +1955,7 @@ __all__ = [
     "IndexAdd",
     "IndexSelect",
     "MaskedSelect",
+    "OneHot",
     "Ndhwc3to8",
     "Nhwc3to4",
     "Nhwc3to8",
@@ -1911,6 +1984,7 @@ __all__ = [
     "index_add",
     "index_select",
     "masked_select",
+    "one_hot",
     "infer_batch_gather_shape",
     "infer_batch_gather_shape_with_attrs",
     "infer_concatenate_shape",
@@ -1927,6 +2001,8 @@ __all__ = [
     "infer_index_select_shape_with_attrs",
     "infer_masked_select_shape",
     "infer_masked_select_shape_with_attrs",
+    "infer_one_hot_shape",
+    "infer_one_hot_shape_with_attrs",
     "infer_ndhwc3to8_shape",
     "infer_nhwc3to4_shape",
     "infer_nhwc3to8_shape",
@@ -1974,6 +2050,7 @@ __all__ = [
     "normalize_index_select_attrs",
     "normalize_index_select_dim",
     "normalize_index_select_indices",
+    "normalize_one_hot_num_classes",
     "normalize_pad_widths",
     "normalize_repeat_interleave_dim",
     "normalize_repeat_interleave_repeats",
@@ -1991,6 +2068,7 @@ __all__ = [
     "resolve_index_add_shape",
     "resolve_index_select_shape",
     "resolve_masked_select_shape",
+    "resolve_one_hot_shape",
     "resolve_padding_layout_shape",
     "resolve_pad_shape",
     "resolve_repeat_interleave_shape",

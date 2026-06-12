@@ -6,6 +6,7 @@ import numpy as np
 
 from dinoml.ir import VIEW_METADATA_VERSION, dtype_nbytes
 from dinoml.layout import dense_layout
+from dinoml.ops.collections import normalize_one_hot_num_classes
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import FUSABLE_ELEMENTWISE_OPS, elementwise_output_dtype
 from dinoml.ops.positional import (
@@ -99,6 +100,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             expected_dtype = str(inputs[1]["dtype"])
         elif node["op"] in {"glm_ocr_stitch_image_features", "qwen2_5_vl_stitch_image_features"}:
             expected_dtype = str(inputs[1]["dtype"])
+        elif node["op"] == "one_hot":
+            expected_dtype = "int64"
         elif node["op"] == "argmax":
             expected_dtype = "int64"
         elif node["op"] == "topk_indices":
@@ -126,7 +129,6 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
             output["layout"] = dict(tensor["layout"])
         output["dtype"] = tensor["dtype"]
     return ir
-
 
 def _assign_tensor_shape_type(
     tensor: Dict[str, Any],
@@ -246,6 +248,9 @@ def _infer_node_shape_spec(
         shape_spec = _copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]))
         shape_spec[-1] = int(node.get("attrs", {})["k"])
         return shape_spec
+    if node["op"] == "one_hot":
+        num_classes = normalize_one_hot_num_classes(node.get("attrs", {}).get("num_classes"))
+        return [*_copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"])), num_classes]
     if node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
         return infer_get_1d_rotary_pos_embed_component_shape_spec(
             None if not inputs else inputs[0].get("shape_spec", inputs[0]["shape"]),

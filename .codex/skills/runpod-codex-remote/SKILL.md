@@ -414,13 +414,15 @@ Only seed legacy managed remote connection entries when needed for older app bui
 
 ## Cleanup
 
-Prefer stopping a pod to end compute billing while preserving state:
+For disposable CUDA verification pods created by this workflow, prefer delete when verification is complete. `stop` ends compute billing but leaves volume storage billable.
+
+Use stop only when the pod is intentionally being preserved:
 
 ```bash
 runpodctl pod stop POD_ID
 ```
 
-If this workflow created a fresh disposable pod in the current task and it turns out to be unusable, failed, or clearly no longer needed, delete it as part of cleanup rather than leaving billable junk behind:
+Use delete directly when you know the pod should be terminated:
 
 ```bash
 runpodctl pod delete POD_ID

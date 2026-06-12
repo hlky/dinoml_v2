@@ -619,6 +619,7 @@ def main() -> int:
             seed_discovered_remote_alias(args.name, project_path, args.project_label or repo_dir, auto_connect=args.auto_connect)
 
     print(f"Ready: {args.name} -> {userhost}:{port}, project at {project_path}")
+    print(f"Cleanup hint: if this was a disposable verification pod, run `runpodctl pod delete {pod_id}` when done; `stop` leaves volume storage billable.")
     return 0
 
 

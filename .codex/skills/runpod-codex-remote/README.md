@@ -14,6 +14,7 @@ For DinoML v2 CUDA remote verification, the current preferred image is
 
 So the preferred DinoML flow is to reuse the prebaked repo path with
 `--existing-project-path /opt/src/dinoml_v2`.
+For that flow, fresh pods should normally be treated as disposable and deleted after verification unless the user explicitly wants to keep them.
 
 For DinoML v2 task execution, an explicit request or goal prompt that says CUDA verification is required counts as approval to create a temporary verification pod within the task's stated budget and GPU guidance. Do not stop for a second approval unless the requested resources exceed that guidance or the user explicitly requires confirmation.
 
@@ -198,13 +199,15 @@ If the host or project does not appear immediately, refresh or restart Codex Des
 
 ## Cleanup
 
-Stop a pod to end compute billing while preserving it:
+For disposable CUDA verification pods created by this workflow, prefer delete when verification is complete. `stop` ends compute billing but leaves volume storage billable.
+
+Use stop only when the pod is intentionally being preserved:
 
 ```bash
 runpodctl pod stop POD_ID
 ```
 
-Delete only when you are sure you no longer need it:
+Use delete directly when you know the pod should be terminated:
 
 ```bash
 runpodctl pod delete POD_ID

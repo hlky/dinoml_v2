@@ -111,6 +111,8 @@ python .codex/skills/runpod-codex-remote/scripts/create_runpod_codex_remote.py `
   --auto-connect
 ```
 
+For disposable verification pods, delete the pod when done. `runpodctl pod stop` only stops compute; volume storage remains billable until `runpodctl pod delete`.
+
 The current smoke-validation baseline for that image is:
 
 - `torch` CUDA tensor/matmul

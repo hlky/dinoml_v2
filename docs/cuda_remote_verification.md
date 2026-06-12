@@ -33,6 +33,8 @@ python .codex/skills/runpod-codex-remote/scripts/create_runpod_codex_remote.py `
   --auto-connect
 ```
 
+For disposable verification pods, delete the pod when done. `runpodctl pod stop` only stops compute; volume storage remains billable until `runpodctl pod delete`.
+
 ## Current Smoke Baseline
 
 The current image was validated on a fresh Runpod pod with these smoke checks:

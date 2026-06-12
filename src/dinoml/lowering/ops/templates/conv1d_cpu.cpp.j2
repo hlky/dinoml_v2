@@ -41,17 +41,30 @@ static int {{ func }}(
   for (int64_t batch = 0; batch < {{ batch }}; ++batch) {
     for (int64_t out_channel = 0; out_channel < {{ out_channels }}; ++out_channel) {
       for (int64_t out_w = 0; out_w < {{ out_width }}; ++out_w) {
-        float acc = dinoml::math::cast<float>(bias[out_channel]);
+        float acc = {% if has_bias %}dinoml::math::cast<float>(bias[out_channel]){% else %}0.0f{% endif %};
         for (int64_t in_channel = 0; in_channel < {{ in_channels }}; ++in_channel) {
-          const int64_t w_start = out_w * {{ stride_w }} - {{ pad_w }};
           for (int64_t kernel_w = 0; kernel_w < {{ kernel_w }}; ++kernel_w) {
+{% if transposed %}
+            const int64_t w_numerator = out_w + {{ pad_w }} - kernel_w * {{ dilation_w }};
+            if (w_numerator < 0 || w_numerator % {{ stride_w }} != 0) {
+              continue;
+            }
+            const int64_t in_w = w_numerator / {{ stride_w }};
+{% else %}
+            const int64_t w_start = out_w * {{ stride_w }} - {{ pad_w }};
             const int64_t in_w = w_start + kernel_w * {{ dilation_w }};
+{% endif %}
             if (in_w < 0 || in_w >= {{ in_width }}) {
               continue;
             }
             const int64_t x_index = (batch * {{ in_channels }} + in_channel) * {{ in_width }} + in_w;
+{% if transposed %}
+            const int64_t weight_index =
+                (in_channel * {{ out_channels }} + out_channel) * {{ kernel_w }} + kernel_w;
+{% else %}
             const int64_t weight_index =
                 (out_channel * {{ in_channels }} + in_channel) * {{ kernel_w }} + kernel_w;
+{% endif %}
             acc += dinoml::math::cast<float>(x[x_index]) * dinoml::math::cast<float>(weight[weight_index]);
           }
         }

@@ -286,6 +286,53 @@ def test_dml_nn_transposed_conv2d_trace_and_validation():
         )
 
 
+def test_dml_nn_transposed_conv1d_trace_and_validation():
+    class TinyTranspose1d(dml.nn.Module):
+        def forward(self, x, weight):
+            y = dml.ops.transposed_conv1d(x, weight, stride=2, padding=1, output_padding=1)
+            return dml.ops.output(y, "y")
+
+    spec = dml.trace(
+        TinyTranspose1d(),
+        inputs={
+            "x": dml.TensorSpec([1, 3, 4], "float32"),
+            "weight": dml.TensorSpec([3, 5, 3], "float32"),
+        },
+        name="nn_transposed_conv1d",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == ["transposed_conv1d"]
+    assert spec.ir["outputs"][0]["shape"] == [1, 5, 8]
+
+    class BadOutputPadding(dml.nn.Module):
+        def forward(self, x, weight):
+            return dml.ops.output(dml.ops.transposed_conv1d(x, weight, stride=2, output_padding=2), "y")
+
+    with pytest.raises(ValueError, match="output_padding must be smaller than stride"):
+        dml.trace(
+            BadOutputPadding(),
+            inputs={
+                "x": dml.TensorSpec([1, 3, 4], "float32"),
+                "weight": dml.TensorSpec([3, 5, 3], "float32"),
+            },
+            name="nn_transposed_conv1d_bad_output_padding",
+        )
+
+    class BadGroups(dml.nn.Module):
+        def forward(self, x, weight):
+            return dml.ops.output(dml.ops.transposed_conv1d(x, weight, groups=2), "y")
+
+    with pytest.raises(NotImplementedError, match="groups=1 only"):
+        dml.trace(
+            BadGroups(),
+            inputs={
+                "x": dml.TensorSpec([1, 3, 4], "float32"),
+                "weight": dml.TensorSpec([3, 5, 3], "float32"),
+            },
+            name="nn_transposed_conv1d_bad_groups",
+        )
+
+
 def test_dml_conv3d_family_trace_and_validation():
     class TinyConv3d(dml.nn.Module):
         def forward(self, x, weight, bias):

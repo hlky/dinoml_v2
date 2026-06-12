@@ -681,6 +681,17 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "transposed_conv1d":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_transposed_conv1d(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
         elif node["op"] in {
             "transposed_conv2d",
             "transposed_conv2d_bias",
@@ -3279,6 +3290,50 @@ def _execute_transposed_conv2d_family(
                     if op_name in {"transposed_conv2d_bias_relu", "transposed_conv2d_bias_add_relu"}:
                         total = max(total, 0.0)
                     result[n, oc, oh, ow] = total
+    return result
+
+
+def _execute_transposed_conv1d(
+    x: np.ndarray,
+    weight: np.ndarray,
+    attrs: Mapping[str, Any],
+) -> np.ndarray:
+    source = np.asarray(x)
+    filters = np.asarray(weight)
+    if source.ndim != 3:
+        raise ValueError(f"transposed_conv1d CPU reference expects rank-3 activation, got {source.ndim}")
+    if filters.ndim != 3:
+        raise ValueError(f"transposed_conv1d CPU reference expects rank-3 weight, got {filters.ndim}")
+    stride = int(attrs.get("stride", [1])[0])
+    padding = int(attrs.get("padding", [0])[0])
+    output_padding = int(attrs.get("output_padding", [0])[0])
+    dilation = int(attrs.get("dilation", [1])[0])
+    groups = int(attrs.get("groups", 1))
+    if groups != 1:
+        raise NotImplementedError("transposed_conv1d CPU reference currently supports groups=1 only")
+    batch, in_channels, in_width = source.shape
+    weight_in_channels, out_channels, kernel_w = filters.shape
+    if in_channels != weight_in_channels:
+        raise ValueError(
+            "transposed_conv1d CPU reference input channels must match weight input channels, "
+            f"got {in_channels} and {weight_in_channels}"
+        )
+    out_width = (in_width - 1) * stride - 2 * padding + dilation * (kernel_w - 1) + output_padding + 1
+    result = np.zeros((batch, out_channels, out_width), dtype=np.float32)
+    for n in range(batch):
+        for oc in range(out_channels):
+            for ow in range(out_width):
+                total = 0.0
+                for ic in range(in_channels):
+                    for kw in range(kernel_w):
+                        w_numerator = ow + padding - kw * dilation
+                        if w_numerator < 0 or w_numerator % stride != 0:
+                            continue
+                        iw = w_numerator // stride
+                        if iw < 0 or iw >= in_width:
+                            continue
+                        total += float(source[n, ic, iw] * filters[ic, oc, kw])
+                result[n, oc, ow] = total
     return result
 
 

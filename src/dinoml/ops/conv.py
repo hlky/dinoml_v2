@@ -38,6 +38,7 @@ CUTLASS_CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
 CONV1D_BIAS_FAMILY_OPS = ("conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu")
 CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
 CONV3D_FAMILY_OPS = ("conv3d_bias", "depthwise_conv3d")
+TRANSPOSED_CONV1D_OPS = ("transposed_conv1d",)
 TRANSPOSED_CONV2D_FAMILY_OPS = (
     "transposed_conv2d",
     "transposed_conv2d_bias",
@@ -262,6 +263,40 @@ def infer_transposed_conv2d_shape(input_shapes: Sequence[Sequence[int]]) -> list
             "dilation": (1, 1),
             "groups": 1,
         },
+    )
+
+
+def infer_transposed_conv1d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_transposed_conv1d_shape_with_attrs(
+        input_shapes,
+        {
+            "stride": (1,),
+            "padding": (0,),
+            "output_padding": (0,),
+            "dilation": (1,),
+            "groups": 1,
+        },
+    )
+
+
+def infer_transposed_conv1d_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("transposed_conv1d expects activation and weight inputs")
+    stride, padding, output_padding, dilation, groups = normalize_transposed_conv1d_attrs(
+        attrs.get("stride", (1,)),
+        attrs.get("padding", (0,)),
+        attrs.get("output_padding", (0,)),
+        attrs.get("dilation", (1,)),
+        attrs.get("groups", 1),
+    )
+    return resolve_transposed_conv1d_shape(
+        input_shapes[0],
+        input_shapes[1],
+        stride=stride,
+        padding=padding,
+        output_padding=output_padding,
+        dilation=dilation,
+        groups=groups,
     )
 
 
@@ -518,6 +553,32 @@ def normalize_transposed_conv2d_attrs(
         list(normalized_padding),
         list(normalized_output_padding),
         list(normalized_dilation),
+        normalized_groups,
+    )
+
+
+def normalize_transposed_conv1d_attrs(
+    stride: Any,
+    padding: Any,
+    output_padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> tuple[list[int], list[int], list[int], list[int], int]:
+    normalized_stride = _normalize_positive_single(stride, "transposed_conv1d stride")
+    normalized_padding = _normalize_non_negative_single(padding, "transposed_conv1d padding")
+    normalized_output_padding = _normalize_non_negative_single(output_padding, "transposed_conv1d output_padding")
+    normalized_dilation = _normalize_positive_single(dilation, "transposed_conv1d dilation")
+    normalized_groups = _normalize_groups(groups, "transposed_conv1d")
+    if normalized_output_padding >= normalized_stride:
+        raise ValueError(
+            "transposed_conv1d output_padding must be smaller than stride, "
+            f"got output_padding={normalized_output_padding} and stride={normalized_stride}"
+        )
+    return (
+        [normalized_stride],
+        [normalized_padding],
+        [normalized_output_padding],
+        [normalized_dilation],
         normalized_groups,
     )
 
@@ -1142,6 +1203,43 @@ def resolve_transposed_conv2d_shape(
         dilation=dilation,
         groups=groups,
     )
+
+
+def resolve_transposed_conv1d_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    output_padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    _validate_rank(input_shape, 3, "transposed_conv1d expects rank-3 NCW activation")
+    _validate_rank(weight_shape, 3, "transposed_conv1d expects rank-3 IOW weight")
+    normalized_stride, normalized_padding, normalized_output_padding, normalized_dilation, normalized_groups = (
+        normalize_transposed_conv1d_attrs(stride, padding, output_padding, dilation, groups)
+    )
+    batch, in_channels, in_width = (int(dim) for dim in input_shape)
+    weight_in_channels, out_channels, kernel_w = (int(dim) for dim in weight_shape)
+    if in_channels != weight_in_channels:
+        raise ValueError(
+            f"transposed_conv1d input channels must match weight input channels, got {in_channels} and {weight_in_channels}"
+        )
+    if normalized_groups != 1:
+        raise NotImplementedError("transposed_conv1d currently supports groups=1 only")
+    _validate_kernel_extent("transposed_conv1d", kernel_w, "width")
+    out_width = _transposed_conv_output_dim(
+        "transposed_conv1d",
+        in_width,
+        kernel_w,
+        normalized_stride[0],
+        normalized_padding[0],
+        normalized_output_padding[0],
+        normalized_dilation[0],
+        "width",
+    )
+    return [batch, out_channels, out_width]
 
 
 def _conv_output_dim(
@@ -1925,6 +2023,61 @@ def transposed_conv2d(
     )
 
 
+def transposed_conv1d(
+    x: Any,
+    weight: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    output_padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if weight_tensor.builder is not x_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if weight_tensor.dtype != x_tensor.dtype:
+        raise ValueError(f"transposed_conv1d dtype mismatch: {x_tensor.dtype} vs {weight_tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"transposed_conv1d does not support dtype {x_tensor.dtype}")
+    _validate_tensor_rank(x_tensor, 3, "transposed_conv1d expects rank-3 NCW activation")
+    _validate_tensor_rank(weight_tensor, 3, "transposed_conv1d expects rank-3 IOW weight")
+    if x_tensor.dynamic or weight_tensor.dynamic:
+        raise ValueError("transposed_conv1d currently supports only static activation and weight shapes")
+    normalized_stride, normalized_padding, normalized_output_padding, normalized_dilation, normalized_groups = (
+        normalize_transposed_conv1d_attrs(
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        )
+    )
+    out_shape = resolve_transposed_conv1d_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        output_padding=normalized_output_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    return x_tensor.builder.emit(
+        "transposed_conv1d",
+        [x_tensor, weight_tensor],
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "output_padding": normalized_output_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+        },
+        shape_spec=out_shape,
+    )
+
+
 def conv1d_bias(
     x: Any,
     weight: Any,
@@ -2539,6 +2692,26 @@ class Conv2dBiasAddRelu(OpDef):
 
 
 @op_def
+class TransposedConv1d(OpDef):
+    name = "transposed_conv1d"
+    schema = OpSchema(
+        inputs=("x", "weight"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0,)),
+            AttrDef("output_padding", "ints", default=(0,)),
+            AttrDef("dilation", "ints", default=(1,)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_transposed_conv1d_shape
+    infer_shape_with_attrs = infer_transposed_conv1d_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _transposed_conv_backend_kernels("transposed_conv1d")
+    frontend = FrontendBinding("transposed_conv1d")
+
+
+@op_def
 class TransposedConv2d(OpDef):
     name = "transposed_conv2d"
     schema = OpSchema(
@@ -2865,8 +3038,10 @@ __all__ = [
     "Conv2dBiasAddRelu",
     "Conv2dBiasRelu",
     "DepthwiseConv3d",
+    "TRANSPOSED_CONV1D_OPS",
     "TRANSPOSED_CONV2D_BIAS_FAMILY_OPS",
     "TRANSPOSED_CONV2D_FAMILY_OPS",
+    "TransposedConv1d",
     "TransposedConv2d",
     "TransposedConv2dBias",
     "TransposedConv2dBiasAdd",
@@ -2908,6 +3083,8 @@ __all__ = [
     "infer_conv3d_shape_with_attrs",
     "infer_depthwise_conv3d_shape",
     "infer_depthwise_conv3d_shape_with_attrs",
+    "infer_transposed_conv1d_shape",
+    "infer_transposed_conv1d_shape_with_attrs",
     "infer_transposed_conv2d_bias_add_relu_shape",
     "infer_transposed_conv2d_bias_add_relu_shape_with_attrs",
     "infer_transposed_conv2d_bias_add_shape",
@@ -2921,6 +3098,7 @@ __all__ = [
     "normalize_conv1d_bias_attrs",
     "normalize_conv2d_bias_attrs",
     "normalize_conv3d_attrs",
+    "normalize_transposed_conv1d_attrs",
     "normalize_transposed_conv2d_attrs",
     "resolve_conv1d_bias_add_relu_shape",
     "resolve_conv1d_bias_add_shape",
@@ -2934,11 +3112,13 @@ __all__ = [
     "resolve_conv3d_bias_shape",
     "resolve_conv3d_shape",
     "resolve_depthwise_conv3d_shape",
+    "resolve_transposed_conv1d_shape",
     "resolve_transposed_conv2d_bias_add_relu_shape",
     "resolve_transposed_conv2d_bias_add_shape",
     "resolve_transposed_conv2d_bias_relu_shape",
     "resolve_transposed_conv2d_bias_shape",
     "resolve_transposed_conv2d_shape",
+    "transposed_conv1d",
     "transposed_conv2d",
     "transposed_conv2d_bias",
     "transposed_conv2d_bias_add",

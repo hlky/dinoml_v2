@@ -19,7 +19,7 @@ CUTLASS_CONV2D_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "con
 CUTLASS_CONV3D_OPS = ("conv3d_bias",)
 CONV_OPS = CUTLASS_CONV1D_OPS + CUTLASS_CONV2D_OPS + CUTLASS_CONV3D_OPS
 CUTLASS_CONV_OPS = CONV_OPS
-CUTLASS_TRANSPOSED_CONV_OPS = ("transposed_conv2d",)
+CUTLASS_TRANSPOSED_CONV_OPS = ("transposed_conv1d", "transposed_conv2d")
 CONV_SUPPORTED_DTYPES = ("float16", "float32", "bfloat16")
 _CUTLASS_CONV_DEFAULT_SYMBOL_ID = "conv_analytic_simt_sm80_f32_128x64x8_s2_w32x64x8_f32_align1"
 _CUTLASS_CONV1D_PLAN_KIND = "cutlass_conv1d_bias_plan"
@@ -142,9 +142,11 @@ _CUTLASS_CONV_LAUNCH_ABI_BY_OP = {
     "conv3d_bias": "dinoml_cutlass_conv3d_bias_v1",
 }
 _CUTLASS_TRANSPOSED_CONV_RUNTIME_LAUNCHER_BY_OP = {
+    "transposed_conv1d": "cutlass_implicit_gemm_conv2d_dgrad",
     "transposed_conv2d": "cutlass_implicit_gemm_conv2d_dgrad",
 }
 _CUTLASS_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP = {
+    "transposed_conv1d": "dinoml_cutlass_transposed_conv2d_v1",
     "transposed_conv2d": "dinoml_cutlass_transposed_conv2d_v1",
 }
 
@@ -1601,13 +1603,24 @@ def _cutlass_transposed_conv_layout_plan(
     x_shape = [int(dim) for dim in tensor_map[x_name]["shape"]]
     weight_shape = [int(dim) for dim in tensor_map[weight_name]["shape"]]
     output_shape = [int(dim) for dim in tensor_map[output_name]["shape"]]
+    public_rank = 3 if op_name == "transposed_conv1d" else 4
+    if op_name == "transposed_conv1d":
+        x_shape = [x_shape[0], x_shape[1], 1, x_shape[2]]
+        weight_shape = [weight_shape[0], weight_shape[1], 1, weight_shape[2]]
+        output_shape = [output_shape[0], output_shape[1], 1, output_shape[2]]
     dtype = str(tensor_map[output_name]["dtype"])
     dtype_size = dtype_nbytes(dtype)
     weight_is_constant = str(tensor_map[weight_name].get("kind", "")) == "constant"
-    stride = [int(item) for item in attrs.get("stride", (1, 1))]
-    padding = [int(item) for item in attrs.get("padding", (0, 0))]
-    output_padding = [int(item) for item in attrs.get("output_padding", (0, 0))]
-    dilation = [int(item) for item in attrs.get("dilation", (1, 1))]
+    if op_name == "transposed_conv1d":
+        stride = [1, int(attrs.get("stride", (1,))[0])]
+        padding = [0, int(attrs.get("padding", (0,))[0])]
+        output_padding = [0, int(attrs.get("output_padding", (0,))[0])]
+        dilation = [1, int(attrs.get("dilation", (1,))[0])]
+    else:
+        stride = [int(item) for item in attrs.get("stride", (1, 1))]
+        padding = [int(item) for item in attrs.get("padding", (0, 0))]
+        output_padding = [int(item) for item in attrs.get("output_padding", (0, 0))]
+        dilation = [int(item) for item in attrs.get("dilation", (1, 1))]
     groups = int(attrs.get("groups", 1))
     temporary_buffers = [
         {"name": "activation_nhwc", "kind": "layout_pack", "layout": "nhwc", "nbytes": _nbytes(x_shape, dtype_size)},
@@ -1637,6 +1650,7 @@ def _cutlass_transposed_conv_layout_plan(
             "profiler_status": _CUTLASS_CONV_PROFILER_STATUS,
             "node_id": str(node.get("id", "")),
             "op_family": op_name,
+            "public_rank": public_rank,
             "dtype": dtype,
             "epilogue": _transposed_conv_epilogue(op_name),
             "epilogue_config": _transposed_conv_epilogue_config(op_name),
@@ -3413,7 +3427,7 @@ def _cutlass_transposed_conv_item_wrapper_stages(item: Mapping[str, Any]) -> lis
         "kernel_library": "cutlass_conv",
         "dtype": str(conv_plan["dtype"]),
         "status": str(conv_plan["status"]),
-        "public_rank": 4,
+        "public_rank": int(conv_plan.get("public_rank", 4) or 4),
     }
     stages = [
         {
@@ -3617,6 +3631,12 @@ def _cutlass_conv_candidate_layouts(op_name: str) -> dict[str, str]:
 
 def _cutlass_transposed_conv_semantic_layout(op_name: str) -> dict[str, str]:
     _validate_transposed_conv_op_name(op_name)
+    if op_name == "transposed_conv1d":
+        return {
+            "activation": "ncw",
+            "weight": "iow",
+            "output": "ncw",
+        }
     return dict(_CUTLASS_TRANSPOSED_CONV_BASE_SEMANTIC_LAYOUT)
 
 

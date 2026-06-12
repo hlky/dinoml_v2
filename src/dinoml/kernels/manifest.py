@@ -79,10 +79,12 @@ from dinoml.kernels.gemm import gemm_op_spec, gemm_problem
 from dinoml.lowering.ops import generated_source_provenance
 from dinoml.ops.conv import (
     CONV1D_BIAS_FAMILY_OPS,
+    TRANSPOSED_CONV1D_OPS,
     TRANSPOSED_CONV2D_FAMILY_OPS,
     normalize_conv1d_bias_attrs,
     normalize_conv2d_bias_attrs,
     normalize_conv3d_attrs,
+    normalize_transposed_conv1d_attrs,
     normalize_transposed_conv2d_attrs,
 )
 from dinoml.ops.definitions import get_op_def
@@ -370,7 +372,15 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
             "profile_blocked_details": {"groups": int(raw_groups), "supported_groups": [1]},
         }
     try:
-        if str(node.get("op")) in TRANSPOSED_CONV2D_FAMILY_OPS:
+        if str(node.get("op")) in TRANSPOSED_CONV1D_OPS:
+            _stride, _padding, _output_padding, _dilation, groups = normalize_transposed_conv1d_attrs(
+                attrs.get("stride", (1,)),
+                attrs.get("padding", (0,)),
+                attrs.get("output_padding", (0,)),
+                attrs.get("dilation", (1,)),
+                raw_groups,
+            )
+        elif str(node.get("op")) in TRANSPOSED_CONV2D_FAMILY_OPS:
             _stride, _padding, _output_padding, _dilation, groups = normalize_transposed_conv2d_attrs(
                 attrs.get("stride", (1, 1)),
                 attrs.get("padding", (0, 0)),

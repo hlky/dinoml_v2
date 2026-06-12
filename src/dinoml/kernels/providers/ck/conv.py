@@ -22,6 +22,7 @@ CK_CONV2D_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_b
 CK_CONV3D_OPS = ("conv3d_bias",)
 CK_CONV_OPS = (*CK_CONV1D_OPS, *CK_CONV2D_OPS, *CK_CONV3D_OPS)
 CK_TRANSPOSED_CONV_OPS = (
+    "transposed_conv1d",
     "transposed_conv2d",
     "transposed_conv2d_bias",
     "transposed_conv2d_bias_relu",
@@ -42,6 +43,7 @@ _CK_CONV_EPILOGUE_BY_OP = {
     "conv3d_bias": "bias",
 }
 _CK_TRANSPOSED_CONV_EPILOGUE_BY_OP = {
+    "transposed_conv1d": "identity",
     "transposed_conv2d": "identity",
     "transposed_conv2d_bias": "bias",
     "transposed_conv2d_bias_relu": "bias_relu",
@@ -60,6 +62,7 @@ _CK_CONV_LAUNCH_ABI_BY_OP = {
     "conv3d_bias": "dinoml_ck_conv3d_bias_v1",
 }
 _CK_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP = {
+    "transposed_conv1d": "dinoml_ck_transposed_conv2d_v1",
     "transposed_conv2d": "dinoml_ck_transposed_conv2d_v1",
     "transposed_conv2d_bias": "dinoml_ck_transposed_conv2d_bias_v1",
     "transposed_conv2d_bias_relu": "dinoml_ck_transposed_conv2d_bias_relu_v1",
@@ -763,6 +766,12 @@ def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
 
 def _ck_transposed_conv_semantic_layout(op_name: str) -> dict[str, str]:
     _validate_ck_transposed_conv_op(op_name)
+    if op_name == "transposed_conv1d":
+        return {
+            "activation": "ncw",
+            "weight": "iow",
+            "output": "ncw",
+        }
     layout = {
         "activation": "nchw",
         "weight": "iohw",
@@ -777,6 +786,12 @@ def _ck_transposed_conv_semantic_layout(op_name: str) -> dict[str, str]:
 
 def _ck_transposed_conv_provider_layout(op_name: str) -> dict[str, str]:
     _validate_ck_transposed_conv_op(op_name)
+    if op_name == "transposed_conv1d":
+        return {
+            "activation": "g_nhw_k_strided",
+            "weight": "g_k_c_yx_strided",
+            "output": "g_nhw_c_strided",
+        }
     layout = {
         "activation": "g_nhw_k_strided",
         "weight": "g_k_c_yx_strided",

@@ -27,13 +27,6 @@ You are working in the Codex desktop app on Windows with PowerShell.
 - Do not pass `sandbox_permissions`; commands that include it will be rejected.
 - Prefer non-interactive commands and workflows.
 
-When referencing project files in responses:
-
-- Use absolute file paths in clickable markdown links.
-- On Windows, use the native drive-qualified absolute path directly, for example `H:\dinoml_v2\src\dinoml\ops\conv.py`.
-- Do not prepend invented placeholders or pseudo-prefixes such as `/absolute/path/`, `C:/absolute/path/`, or similar wrappers around an already absolute Windows path.
-- Do not use `file://`, `vscode://`, or web URLs for local file references.
-
 # Environment Probing
 
 Do not infer that a local toolchain, accelerator, or backend is unavailable when a cheap local probe can answer the question directly.
@@ -165,7 +158,6 @@ Keep the user informed without adding noise.
 - Do not pad answers with motivational filler, apology loops, or alarmist framing.
 - Do not inflate ordinary debugging friction into a systemic crisis.
 - If a concern is real, explain the evidence, the likely impact, and the next step to reduce uncertainty.
-- Do not narrate formatting corrections or internal self-corrections in user-visible output. Fix the formatting silently instead of writing text such as `Wait must use full absolute filesystem paths`.
 
 # Review Mode
 

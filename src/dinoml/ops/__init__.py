@@ -213,7 +213,7 @@ from dinoml.ops.reductions import (
     vector_norm,
 )
 from dinoml.ops.qwen2_5_vl import qwen2_5_vl_stitch_image_features
-from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unsqueeze
+from dinoml.ops.shape_views import flatten, identity, reshape, squeeze, unflatten, unsqueeze
 from dinoml.ops.softmax import softmax
 from dinoml.ops.tensor_filters import (
     fir_downsample2d,
@@ -509,6 +509,7 @@ __all__ = [
     "transposed_conv2d_bias_add_relu",
     "transposed_conv2d_bias_relu",
     "tuple_construct",
+    "unflatten",
     "unsqueeze",
     "upsampling1d",
     "upsampling1d_add",

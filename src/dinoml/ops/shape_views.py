@@ -46,6 +46,23 @@ def flatten(x: Any, start_dim: int = 0, end_dim: int = -1) -> Tensor:
     return tensor.builder.emit_view("flatten", tensor, out_shape, out_shape_spec)
 
 
+def unflatten(x: Any, dim: int, sizes: Sequence[Any]) -> Tensor:
+    tensor = as_tensor(x)
+    axis = _normalize_axis(dim, len(tensor.shape))
+    replacement_shape, replacement_shape_spec = _resolve_unflatten_shape(tensor.shape_spec[axis], sizes)
+    out_shape_spec = [
+        *tensor.shape_spec[:axis],
+        *replacement_shape_spec,
+        *tensor.shape_spec[axis + 1 :],
+    ]
+    out_shape = [
+        *tensor.shape[:axis],
+        *replacement_shape,
+        *tensor.shape[axis + 1 :],
+    ]
+    return tensor.builder.emit_view("reshape", tensor, out_shape, out_shape_spec)
+
+
 def squeeze(x: Any, dim: int | Sequence[int] | None = None) -> Tensor:
     tensor = as_tensor(x)
     rank = len(tensor.shape)
@@ -98,6 +115,44 @@ def _resolve_reshape_shape(
     out_shape = [_symbolic_dim_max(dim) for dim in output_shape_spec]
     if shape_numel(out_shape) != shape_numel(input_max_shape):
         raise ValueError(f"reshape must preserve element count: {input_max_shape} -> {out_shape}")
+    return out_shape, output_shape_spec
+
+
+def _resolve_unflatten_shape(
+    input_dim_spec: int | Mapping[str, Any],
+    requested_sizes: Sequence[Any],
+) -> tuple[list[int], list[int | dict[str, Any]]]:
+    if isinstance(requested_sizes, (str, bytes, bytearray)) or not isinstance(requested_sizes, Sequence):
+        raise TypeError(f"unflatten sizes must be a sequence, got {type(requested_sizes).__name__}")
+    if not requested_sizes:
+        raise ValueError("unflatten sizes must be non-empty")
+    output_shape_spec: list[int | dict[str, Any]] = []
+    inferred_axes: list[int] = []
+    for idx, dim in enumerate(requested_sizes):
+        if isinstance(dim, int) and dim == -1:
+            inferred_axes.append(idx)
+            output_shape_spec.append(-1)
+            continue
+        normalized = normalize_symbolic_int(dim, f"unflatten size {idx}")
+        if isinstance(normalized, int) and normalized <= 0:
+            raise ValueError(f"unflatten sizes must be positive or -1, got {dim}")
+        if not isinstance(normalized, int) and symbolic_int_interval(normalized)[0] <= 0:
+            raise ValueError(f"unflatten symbolic size at axis {idx} must be positive, got {dim!r}")
+        output_shape_spec.append(normalized if isinstance(normalized, int) else dict(normalized))
+    if len(inferred_axes) > 1:
+        raise ValueError("unflatten can infer at most one -1 dimension")
+    input_dim = normalize_symbolic_int(input_dim_spec, "unflatten input dim")
+    if inferred_axes:
+        known_numel = _symbolic_numel([dim for dim in output_shape_spec if dim != -1])
+        inferred = symbolic_int_expr("div", input_dim, known_numel)
+        interval = symbolic_int_interval(inferred)
+        if interval[0] <= 0:
+            raise ValueError(f"unflatten inferred a non-positive dimension {interval[0]} for {list(requested_sizes)}")
+        output_shape_spec[inferred_axes[0]] = inferred if isinstance(inferred, int) else dict(inferred)
+    input_dim_max = _symbolic_dim_max(input_dim)
+    out_shape = [_symbolic_dim_max(dim) for dim in output_shape_spec]
+    if shape_numel(out_shape) != input_dim_max:
+        raise ValueError(f"unflatten target sizes must preserve dimension size: {input_dim_max} -> {out_shape}")
     return out_shape, output_shape_spec
 
 

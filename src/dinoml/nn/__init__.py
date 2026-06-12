@@ -419,6 +419,15 @@ class Flatten(Module):
         return ops.flatten(x, start_dim=self.start_dim, end_dim=self.end_dim)
 
 
+class Unflatten(Module):
+    def __init__(self, dim: int, unflattened_size: Sequence[Any]):
+        self.dim = int(dim)
+        self.unflattened_size = tuple(unflattened_size)
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.unflatten(x, self.dim, self.unflattened_size)
+
+
 class Dropout(Module):
     def __init__(self, p: float = 0.5, inplace: bool = False):
         p_value = float(p)
@@ -611,6 +620,7 @@ __all__ = [
     "Softmax",
     "T5LayerNorm",
     "Tanh",
+    "Unflatten",
     "Upsampling1d",
     "Upsampling1dAdd",
     "Upsampling2d",

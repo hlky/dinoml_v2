@@ -834,6 +834,10 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
 
 def _materialize_available_views(ir: Mapping[str, object], values: Dict[str, np.ndarray]) -> None:
     views = ir.get("metadata", {}).get("views", {}).get("views", [])
+    tensor_specs = {
+        str(tensor["name"]): tensor.get("shape_spec", tensor["shape"])
+        for tensor in ir.get("tensors", [])
+    }
     while True:
         progressed = False
         for view in views:
@@ -842,11 +846,47 @@ def _materialize_available_views(ir: Mapping[str, object], values: Dict[str, np.
             if tensor in values or source not in values:
                 continue
             offset = int(view.get("offset_elements", 0))
-            numel = int(np.prod([int(dim) for dim in view["shape"]], dtype=np.int64))
-            values[tensor] = np.reshape(values[source].reshape(-1)[offset : offset + numel], tuple(int(dim) for dim in view["shape"])).copy()
+            source_dim_values = _shape_dim_values_from_runtime_shape(
+                tensor_specs.get(source, []),
+                values[source].shape,
+            )
+            runtime_shape = _runtime_shape_from_shape_spec(
+                view.get("shape_spec", view["shape"]),
+                source_dim_values,
+            )
+            numel = int(np.prod(runtime_shape, dtype=np.int64))
+            values[tensor] = np.reshape(values[source].reshape(-1)[offset : offset + numel], runtime_shape).copy()
             progressed = True
         if not progressed:
             return
+
+
+def _shape_dim_values_from_runtime_shape(
+    shape_spec: Sequence[object],
+    runtime_shape: Sequence[int],
+) -> dict[str, int]:
+    dim_values: dict[str, int] = {}
+    for actual, dim_spec in zip(runtime_shape, shape_spec):
+        if not isinstance(dim_spec, Mapping) or dim_spec.get("kind") != "dim":
+            continue
+        dim_values[str(dim_spec["name"])] = int(actual)
+    return dim_values
+
+
+def _runtime_shape_from_shape_spec(
+    shape_spec: Sequence[object],
+    dim_values: Mapping[str, int],
+) -> tuple[int, ...]:
+    runtime_shape = []
+    for dim_spec in shape_spec:
+        if isinstance(dim_spec, int):
+            runtime_shape.append(int(dim_spec))
+            continue
+        if dim_spec.get("kind") == "dim":
+            runtime_shape.append(int(dim_values[str(dim_spec["name"])]))
+            continue
+        runtime_shape.append(int(evaluate_symbolic_int(dim_spec, dim_values)))
+    return tuple(runtime_shape)
 
 
 def _execute_gather(x: np.ndarray, index: np.ndarray, dim: int) -> np.ndarray:

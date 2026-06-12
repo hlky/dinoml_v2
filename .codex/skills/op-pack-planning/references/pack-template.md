@@ -35,6 +35,7 @@ Include:
 Include:
 
 - public API expectations
+- for torch-family targets, the exact official PyTorch API reference URL for the scoped op
 - whether decomposition is acceptable
 - whether new IR is required
 - backend truth expected at completion
@@ -120,6 +121,7 @@ Include:
 
 - user-facing or frontend surface
 - reference oracle source
+- for torch-family targets, the exact official PyTorch API reference URL for the scoped op
 - v1 reading budget if relevant
 
 ### Backend-specific files

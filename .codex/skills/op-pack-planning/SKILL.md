@@ -86,6 +86,8 @@ For every selected task, state:
 - covered ops
 - explicit non-scope
 - shape contract: static-only, static-rank dynamic, runtime-shape-dependent, or deferred
+- target public API surface
+- official API reference URL when the target op comes from `torch`, `torch.Tensor`, `torch.nn`, or `torch.nn.functional`
 - required v2 touchpoint stack
 - allowed implementation style
 - forbidden shortcuts
@@ -114,6 +116,7 @@ When the user asks for pack creation, produce:
 - the chosen pack shape
 - the file list to create under `.work/op/`
 - draft content aligned to the pack template
+- the exact official PyTorch API reference link for each scoped torch-family op when applicable
 
 ## Verification planning rules
 

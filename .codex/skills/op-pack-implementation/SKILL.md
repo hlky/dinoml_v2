@@ -41,6 +41,8 @@ Before editing, write down internally:
 - covered ops
 - explicit non-scope
 - shape contract: static-only, static-rank dynamic, runtime-shape-dependent, or deferred
+- target public API surface
+- official API reference URL when the target op comes from `torch`, `torch.Tensor`, `torch.nn`, or `torch.nn.functional`
 - required v2 touchpoint stack
 - required architecture or provider path
 - parity oracle
@@ -49,6 +51,7 @@ Before editing, write down internally:
 - what does not count as completion
 
 If any of these are unclear, resolve that before broad implementation work.
+If a torch-family op pack is missing the official PyTorch API reference URL, treat that as a pack contract gap and resolve it before broad implementation work.
 
 ### 2) Read only the necessary local codepaths
 

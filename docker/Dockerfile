@@ -151,6 +151,7 @@ RUN python3 -m venv "${DINOML_VENV}" && \
       numpy \
       packaging \
       pillow \
+      pybind11 \
       psutil \
       pyyaml \
       pytest \
@@ -184,6 +185,8 @@ print("diffusers", diffusers.__version__)
 print("transformers", transformers.__version__)
 print("libgguf", libgguf.__file__)
 PY
+
+RUN "${DINOML_VENV}/bin/python" -m pybind11 --cmakedir
 
 RUN PYTHONPATH="/opt/src/dinoml_v1/src${PYTHONPATH:+:${PYTHONPATH}}" "${DINOML_VENV}/bin/python" - <<'PY'
 import dinoml
@@ -319,6 +322,8 @@ print("diffusers", diffusers.__version__)
 print("transformers", transformers.__version__)
 print("libgguf", libgguf.__file__)
 PY
+
+RUN "${DINOML_VENV}/bin/python" -m pybind11 --cmakedir
 
 RUN dinoml-v1-python - <<'PY'
 import dinoml

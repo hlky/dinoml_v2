@@ -10,7 +10,7 @@ The current preferred image is:
 
 It is the validated DinoML v2 CUDA verification baseline and already contains:
 
-- `/opt/src/dinoml_v2`
+- a live git checkout at `/opt/src/dinoml_v2`
 - `/opt/venvs/dinoml`
 - CUDA 12.9 tooling
 - `transformers` source at `/opt/src/transformers`

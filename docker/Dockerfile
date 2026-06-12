@@ -15,6 +15,8 @@ ARG TORCHVISION_VERSION=0.25.0
 ARG TORCHAUDIO_VERSION=2.10.0
 ARG CUDA_BINDINGS_VERSION=12.9.4
 ARG TRITON_VERSION=3.6.0
+ARG DINOML_V2_GIT_URL=https://github.com/hlky/dinoml_v2.git
+ARG DINOML_V2_REF=main
 ARG DINOML_V1_GIT_URL=https://github.com/hlky/dinoml.git
 ARG DINOML_V1_REF=main
 ARG TRANSFORMERS_GIT_URL=https://github.com/huggingface/transformers.git
@@ -92,6 +94,12 @@ RUN mkdir -p "${RP_WORKSPACE}" "${HF_HOME}" "${PIP_CACHE_DIR}" /var/run/sshd && 
       tar -xz -C /usr/local/bin runpodctl
 
 RUN git clone \
+      --branch "${DINOML_V2_REF}" \
+      --depth 1 \
+      --recursive \
+      "${DINOML_V2_GIT_URL}" \
+      "${DINOML_V2_SRC}" && \
+    git clone \
       --branch "${DINOML_V1_REF}" \
       --depth 1 \
       --recursive \
@@ -120,7 +128,8 @@ COPY src ${DINOML_V2_SRC}/src
 COPY third_party ${DINOML_V2_SRC}/third_party
 COPY tools ${DINOML_V2_SRC}/tools
 
-RUN test -f "${DINOML_V2_SRC}/third_party/cutlass/CMakeLists.txt" && \
+RUN test -d "${DINOML_V2_SRC}/.git" && \
+    test -f "${DINOML_V2_SRC}/third_party/cutlass/CMakeLists.txt" && \
     test -f "${DINOML_V2_SRC}/third_party/libgguf/pyproject.toml" && \
     test -f "${DINOML_V2_SRC}/third_party/flash_attn/CMakeLists.txt" && \
     test -f "${DINOML_V2_SRC}/third_party/composable_kernel/CHANGELOG.md" && \

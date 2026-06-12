@@ -91,7 +91,7 @@ For this repository's remote CUDA verification workflow, the current preferred
 container image is `hlky/dinoml:ubuntu-nodeps`. It is intended for Runpod/Codex
 remote validation and already contains:
 
-- the DinoML v2 source tree at `/opt/src/dinoml_v2`
+- a live DinoML v2 git checkout at `/opt/src/dinoml_v2`
 - the Python environment at `/opt/venvs/dinoml`
 - CUDA 12.9 tooling
 - `transformers` and `diffusers` source checkouts

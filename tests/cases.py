@@ -1424,6 +1424,99 @@ def vision_layout_case() -> GraphCase:
     return GraphCase("vision_layout", build_spec, inputs, frozenset({"reshape", "permute", "pixel_shuffle", "pixel_unshuffle"}))
 
 
+class RoiAlignModule(dml.Module):
+    def forward(self, x, rois):
+        return dml.ops.output(
+            dml.ops.roi_align(x, rois, pooled_size=(2, 3), sampling_ratio=2, spatial_scale=1.0),
+            "roi_align",
+        )
+
+
+def roi_align_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            RoiAlignModule(),
+            inputs={
+                "x": dml.TensorSpec([2, 3, 8, 8], "float32"),
+                "rois": dml.TensorSpec([4, 5], "float32"),
+            },
+            name="fresh_roi_align",
+        )
+
+    def inputs():
+        x = np.arange(2 * 3 * 8 * 8, dtype=np.float32).reshape(2, 3, 8, 8) / np.float32(10.0)
+        rois = np.array(
+            [
+                [0.0, 0.0, 0.0, 7.0, 7.0],
+                [1.0, 1.0, 1.0, 6.0, 6.0],
+                [0.0, 2.0, 1.0, 6.5, 7.0],
+                [1.0, 0.5, 2.0, 5.0, 7.0],
+            ],
+            dtype=np.float32,
+        )
+        return {"x": x, "rois": rois}
+
+    return GraphCase("roi_align", build_spec, inputs, frozenset({"roi_align"}), atol=1e-4, rtol=1e-4)
+
+
+class MultiLevelRoiAlignModule(dml.Module):
+    def forward(self, p2, p3, p4, p5, rois):
+        return dml.ops.output(
+            dml.ops.multi_level_roi_align(
+                p2,
+                p3,
+                p4,
+                p5,
+                rois,
+                pooled_size=(2, 2),
+                sampling_ratio=2,
+                spatial_scale=1.0,
+                im_shape=(64, 64),
+            ),
+            "multi_level_roi_align",
+        )
+
+
+def multi_level_roi_align_case() -> GraphCase:
+    def build_spec():
+        return dml.trace(
+            MultiLevelRoiAlignModule(),
+            inputs={
+                "p2": dml.TensorSpec([2, 2, 16, 16], "float32"),
+                "p3": dml.TensorSpec([2, 2, 8, 8], "float32"),
+                "p4": dml.TensorSpec([2, 2, 4, 4], "float32"),
+                "p5": dml.TensorSpec([2, 2, 2, 2], "float32"),
+                "rois": dml.TensorSpec([4, 5], "float32"),
+            },
+            name="fresh_multi_level_roi_align",
+        )
+
+    def inputs():
+        p2 = np.arange(2 * 2 * 16 * 16, dtype=np.float32).reshape(2, 2, 16, 16) / np.float32(50.0)
+        p3 = np.arange(2 * 2 * 8 * 8, dtype=np.float32).reshape(2, 2, 8, 8) / np.float32(40.0)
+        p4 = np.arange(2 * 2 * 4 * 4, dtype=np.float32).reshape(2, 2, 4, 4) / np.float32(30.0)
+        p5 = np.arange(2 * 2 * 2 * 2, dtype=np.float32).reshape(2, 2, 2, 2) / np.float32(20.0)
+        rois = np.array(
+            [
+                [0.0, 2.0, 2.0, 10.0, 10.0],
+                [1.0, 4.0, 4.0, 24.0, 24.0],
+                [0.0, 8.0, 8.0, 40.0, 40.0],
+                [1.0, 0.0, 0.0, 63.0, 63.0],
+            ],
+            dtype=np.float32,
+        )
+        return {"p2": p2, "p3": p3, "p4": p4, "p5": p5, "rois": rois}
+
+    return GraphCase(
+        "multi_level_roi_align",
+        build_spec,
+        inputs,
+        frozenset({"multi_level_roi_align"}),
+        atol=1e-4,
+        rtol=1e-4,
+    )
+
+
 class UpsamplingFamilyModule(dml.Module):
     def forward(self, x1d, r1d, x2d, r2d, x3d, r3d, xct):
         return {
@@ -1765,6 +1858,8 @@ def standard_cases() -> list[GraphCase]:
         positional_helper_fusions_case(),
         dtype_positional_helper_fusions_case(),
         vision_layout_case(),
+        roi_align_case(),
+        multi_level_roi_align_case(),
         upsampling_family_case(),
         embedding_case(),
         dtype_embedding_case(),

@@ -66,6 +66,7 @@ from dinoml.lowering.ops.qwen2_5_vl_stitch_image_features import QWEN2_5_VL_STIT
 from dinoml.lowering.ops.randn import RANDN_LOWERING
 from dinoml.lowering.ops.reduction import REDUCTION_LOWERINGS
 from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
+from dinoml.lowering.ops.roi_align_family import MULTI_LEVEL_ROI_ALIGN_LOWERING, ROI_ALIGN_LOWERING
 from dinoml.lowering.ops.rotary_positional_fusions import ROTARY_POSITIONAL_FUSION_LOWERINGS
 from dinoml.lowering.ops.runtime_index_select import RUNTIME_INDEX_SELECT_LOWERING
 from dinoml.lowering.ops.shape_buffer_count_true import SHAPE_BUFFER_COUNT_TRUE_LOWERING
@@ -134,6 +135,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING.op_name: QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING,
     RANDN_LOWERING.op_name: RANDN_LOWERING,
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
+    ROI_ALIGN_LOWERING.op_name: ROI_ALIGN_LOWERING,
     RUNTIME_INDEX_SELECT_LOWERING.op_name: RUNTIME_INDEX_SELECT_LOWERING,
     SHAPE_BUFFER_COUNT_TRUE_LOWERING.op_name: SHAPE_BUFFER_COUNT_TRUE_LOWERING,
     SLICE_SCATTER_LOWERING.op_name: SLICE_SCATTER_LOWERING,
@@ -141,6 +143,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     STACK_LOWERING.op_name: STACK_LOWERING,
     SWIGLU_LOWERING.op_name: SWIGLU_LOWERING,
     T5_LAYER_NORM_LOWERING.op_name: T5_LAYER_NORM_LOWERING,
+    MULTI_LEVEL_ROI_ALIGN_LOWERING.op_name: MULTI_LEVEL_ROI_ALIGN_LOWERING,
 }
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)

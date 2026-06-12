@@ -1,0 +1,127 @@
+static inline float {{ func }}_bilinear(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    int64_t height,
+    int64_t width,
+    float y,
+    float x_coord) {
+  if (y < -1.0f || y > static_cast<float>(height) || x_coord < -1.0f || x_coord > static_cast<float>(width)) {
+    return 0.0f;
+  }
+  if (y <= 0.0f) {
+    y = 0.0f;
+  }
+  if (x_coord <= 0.0f) {
+    x_coord = 0.0f;
+  }
+  int64_t y_low = static_cast<int64_t>(y);
+  int64_t x_low = static_cast<int64_t>(x_coord);
+  int64_t y_high;
+  int64_t x_high;
+  if (y_low >= height - 1) {
+    y_high = y_low = height - 1;
+    y = static_cast<float>(y_low);
+  } else {
+    y_high = y_low + 1;
+  }
+  if (x_low >= width - 1) {
+    x_high = x_low = width - 1;
+    x_coord = static_cast<float>(x_low);
+  } else {
+    x_high = x_low + 1;
+  }
+  const float ly = y - static_cast<float>(y_low);
+  const float lx = x_coord - static_cast<float>(x_low);
+  const float hy = 1.0f - ly;
+  const float hx = 1.0f - lx;
+  const float v1 = dinoml::math::cast<float>(x[y_low * width + x_low]);
+  const float v2 = dinoml::math::cast<float>(x[y_low * width + x_high]);
+  const float v3 = dinoml::math::cast<float>(x[y_high * width + x_low]);
+  const float v4 = dinoml::math::cast<float>(x[y_high * width + x_high]);
+  return hy * hx * v1 + hy * lx * v2 + ly * hx * v3 + ly * lx * v4;
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT p2,
+    const {{ storage_type }}* DINO_RESTRICT p3,
+    const {{ storage_type }}* DINO_RESTRICT p4,
+    const {{ storage_type }}* DINO_RESTRICT p5,
+    const {{ storage_type }}* DINO_RESTRICT rois,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  if (p2 == nullptr || p3 == nullptr || p4 == nullptr || p5 == nullptr || rois == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    int64_t remaining = idx;
+    const int64_t ow = remaining % {{ pooled_w }};
+    remaining /= {{ pooled_w }};
+    const int64_t oh = remaining % {{ pooled_h }};
+    remaining /= {{ pooled_h }};
+    const int64_t oc = remaining % {{ channels }};
+    const int64_t roi_idx = remaining / {{ channels }};
+    const {{ storage_type }}* roi_ptr = rois + roi_idx * 5;
+    const int64_t batch_idx = static_cast<int64_t>(dinoml::math::cast<float>(roi_ptr[0]));
+    float out_value = 0.0f;
+    if (batch_idx >= 0 && batch_idx < {{ batch }}) {
+      float x1 = dinoml::math::cast<float>(roi_ptr[1]) * {{ spatial_scale }}f;
+      float y1 = dinoml::math::cast<float>(roi_ptr[2]) * {{ spatial_scale }}f;
+      float x2 = dinoml::math::cast<float>(roi_ptr[3]) * {{ spatial_scale }}f;
+      float y2 = dinoml::math::cast<float>(roi_ptr[4]) * {{ spatial_scale }}f;
+      x1 = std::max(0.0f, std::min(static_cast<float>({{ im_w }}), x1));
+      y1 = std::max(0.0f, std::min(static_cast<float>({{ im_h }}), y1));
+      x2 = std::max(0.0f, std::min(static_cast<float>({{ im_w }}), x2));
+      y2 = std::max(0.0f, std::min(static_cast<float>({{ im_h }}), y2));
+      const float roi_area = std::max(0.0f, (x2 - x1) * (y2 - y1)) / static_cast<float>({{ im_w }} * {{ im_h }});
+      const {{ storage_type }}* level_ptr = p2;
+      int64_t level_h = {{ p2_h }};
+      int64_t level_w = {{ p2_w }};
+      if (roi_area > {{ first_threshold }}f) {
+        level_ptr = p3;
+        level_h = {{ p3_h }};
+        level_w = {{ p3_w }};
+      }
+      if (roi_area > {{ first_threshold * 4.0 }}f) {
+        level_ptr = p4;
+        level_h = {{ p4_h }};
+        level_w = {{ p4_w }};
+      }
+      if (roi_area > {{ first_threshold * 16.0 }}f) {
+        level_ptr = p5;
+        level_h = {{ p5_h }};
+        level_w = {{ p5_w }};
+      }
+      const float roi_offset = {% if continuous_coordinate %}0.5f{% else %}0.0f{% endif %};
+      const float scale_h = static_cast<float>(level_h) / static_cast<float>({{ im_h }});
+      const float scale_w = static_cast<float>(level_w) / static_cast<float>({{ im_w }});
+      const float roi_start_w = x1 * scale_w - roi_offset;
+      const float roi_start_h = y1 * scale_h - roi_offset;
+      const float roi_end_w = x2 * scale_w - roi_offset;
+      const float roi_end_h = y2 * scale_h - roi_offset;
+      float roi_width = roi_end_w - roi_start_w;
+      float roi_height = roi_end_h - roi_start_h;
+      {% if not continuous_coordinate %}
+      if (roi_width < 1.0f) roi_width = 1.0f;
+      if (roi_height < 1.0f) roi_height = 1.0f;
+      {% endif %}
+      const float bin_size_h = roi_height / static_cast<float>({{ pooled_h }});
+      const float bin_size_w = roi_width / static_cast<float>({{ pooled_w }});
+      const int roi_bin_grid_h = {{ sampling_ratio }} > 0 ? {{ sampling_ratio }} : std::max(1, static_cast<int>(std::ceil(roi_height / static_cast<float>({{ pooled_h }}))));
+      const int roi_bin_grid_w = {{ sampling_ratio }} > 0 ? {{ sampling_ratio }} : std::max(1, static_cast<int>(std::ceil(roi_width / static_cast<float>({{ pooled_w }}))));
+      const float count = static_cast<float>(roi_bin_grid_h * roi_bin_grid_w);
+      const {{ storage_type }}* feature = level_ptr + ((batch_idx * {{ channels }} + oc) * level_h * level_w);
+      for (int iy = 0; iy < roi_bin_grid_h; ++iy) {
+        const float sample_y = roi_start_h + static_cast<float>(oh) * bin_size_h + (static_cast<float>(iy) + 0.5f) * bin_size_h / static_cast<float>(roi_bin_grid_h);
+        for (int ix = 0; ix < roi_bin_grid_w; ++ix) {
+          const float sample_x = roi_start_w + static_cast<float>(ow) * bin_size_w + (static_cast<float>(ix) + 0.5f) * bin_size_w / static_cast<float>(roi_bin_grid_w);
+          out_value += {{ func }}_bilinear(feature, level_h, level_w, sample_y, sample_x);
+        }
+      }
+      out_value /= count;
+    }
+    y[idx] = dinoml::math::cast<{{ storage_type }}>(out_value);
+  }
+  return 0;
+}

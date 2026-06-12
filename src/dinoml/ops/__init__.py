@@ -226,6 +226,7 @@ from dinoml.ops.upsampling import (
     upsampling3d_add,
     upsampling3d_compress_time,
 )
+from dinoml.ops.vision import multi_level_roi_align, roi_align
 from dinoml.ops.where import where
 from dinoml.shapes import symbolic_int_expr
 
@@ -438,6 +439,7 @@ __all__ = [
     "max",
     "max_pool2d",
     "meshgrid",
+    "multi_level_roi_align",
     "min",
     "mul",
     "nan_to_num",
@@ -461,6 +463,7 @@ __all__ = [
     "reduce_sum",
     "relu",
     "repeat_interleave",
+    "roi_align",
     "runtime_index_select",
     "masked_select",
     "reshape",

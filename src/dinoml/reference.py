@@ -25,6 +25,7 @@ from dinoml.ops.positional import (
 )
 from dinoml.ops.tensor_filters import normalize_fir_upsample2d_attrs, normalize_tensor_filter_channels
 from dinoml.ops.upsampling import normalize_upsampling_attrs
+from dinoml.ops.vision import normalize_multi_level_roi_align_im_shape, normalize_roi_align_attrs
 
 
 def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -345,6 +346,27 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_fir_upsample2d(values[node["inputs"][0]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "roi_align":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_roi_align(values[node["inputs"][0]], values[node["inputs"][1]], node.get("attrs", {})),
+                output_dtype,
+            )
+        elif node["op"] == "multi_level_roi_align":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_multi_level_roi_align(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    values[node["inputs"][3]],
+                    values[node["inputs"][4]],
+                    node.get("attrs", {}),
+                ),
                 output_dtype,
             )
         elif node["op"] == "kdownsample2d_weight":
@@ -2768,6 +2790,33 @@ def _execute_conv2d_bias_add_relu(
     attrs: Mapping[str, object],
 ) -> np.ndarray:
     return _execute_conv2d_bias_family("conv2d_bias_add_relu", x, weight, bias, residual, attrs)
+
+
+def _execute_roi_align(
+    x: np.ndarray,
+    rois: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_roi_align_attrs(
+        pooled_size=attrs.get("pooled_size"),
+        sampling_ratio=attrs.get("sampling_ratio", 0),
+        spatial_scale=attrs.get("spatial_scale", 1.0),
+        position_sensitive=attrs.get("position_sensitive", False),
+        continuous_coordinate=attrs.get("continuous_coordinate", False),
+    )
+    source = np.asarray(x, dtype=np.float32)
+    boxes = np.asarray(rois, dtype=np.float32)
+    pooled_h, pooled_w = [int(v) for v in normalized["pooled_size"]]
+    return _roi_align_reference_nchw(
+        source,
+        boxes,
+        pooled_h=pooled_h,
+        pooled_w=pooled_w,
+        sampling_ratio=int(normalized["sampling_ratio"]),
+        scale_h=float(normalized["spatial_scale"]),
+        scale_w=float(normalized["spatial_scale"]),
+        continuous_coordinate=bool(normalized["continuous_coordinate"]),
+    )
 
 
 def _execute_conv2d_bias_family(

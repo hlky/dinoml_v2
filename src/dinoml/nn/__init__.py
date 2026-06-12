@@ -242,6 +242,66 @@ class MaxPool2d(Module):
         return ops.max_pool2d(x, self.kernel_size, stride=self.stride, padding=self.padding)
 
 
+class RoiAlign(Module):
+    def __init__(
+        self,
+        pooled_size: int | Sequence[int],
+        spatial_scale: float = 1.0,
+        sampling_ratio: int = 0,
+        position_sensitive: bool = False,
+        continuous_coordinate: bool = False,
+    ):
+        self.pooled_size = _pair(pooled_size, "RoiAlign pooled_size", positive=True)
+        self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
+        self.position_sensitive = bool(position_sensitive)
+        self.continuous_coordinate = bool(continuous_coordinate)
+
+    def forward(self, x: Any, rois: Any) -> Tensor:
+        return ops.roi_align(
+            x,
+            rois,
+            pooled_size=self.pooled_size,
+            spatial_scale=self.spatial_scale,
+            sampling_ratio=self.sampling_ratio,
+            position_sensitive=self.position_sensitive,
+            continuous_coordinate=self.continuous_coordinate,
+        )
+
+
+class MultiLevelRoiAlign(Module):
+    def __init__(
+        self,
+        pooled_size: int | Sequence[int],
+        im_shape: Sequence[int],
+        spatial_scale: float = 1.0,
+        sampling_ratio: int = 0,
+        position_sensitive: bool = False,
+        continuous_coordinate: bool = False,
+    ):
+        self.pooled_size = _pair(pooled_size, "MultiLevelRoiAlign pooled_size", positive=True)
+        self.im_shape = _pair(im_shape, "MultiLevelRoiAlign im_shape", positive=True)
+        self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
+        self.position_sensitive = bool(position_sensitive)
+        self.continuous_coordinate = bool(continuous_coordinate)
+
+    def forward(self, p2: Any, p3: Any, p4: Any, p5: Any, rois: Any) -> Tensor:
+        return ops.multi_level_roi_align(
+            p2,
+            p3,
+            p4,
+            p5,
+            rois,
+            pooled_size=self.pooled_size,
+            im_shape=self.im_shape,
+            spatial_scale=self.spatial_scale,
+            sampling_ratio=self.sampling_ratio,
+            position_sensitive=self.position_sensitive,
+            continuous_coordinate=self.continuous_coordinate,
+        )
+
+
 class Upsampling1d(Module):
     def __init__(self, scale_factor: float, mode: str, align_corners: bool | None = False):
         self.scale_factor = float(scale_factor)

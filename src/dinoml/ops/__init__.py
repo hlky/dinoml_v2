@@ -130,6 +130,7 @@ from dinoml.ops.elementwise import (
     sub,
     tanh,
 )
+from dinoml.ops.einsum import einsum
 from dinoml.ops.embedding import embedding
 from dinoml.ops.glm_ocr import glm_ocr_stitch_image_features
 from dinoml.ops.gating import swiglu
@@ -355,6 +356,7 @@ __all__ = [
     "elu",
     "efficient_nms",
     "embedding",
+    "einsum",
     "eq",
     "exp",
     "expand",

@@ -56,6 +56,7 @@ from dinoml.lowering.ops.get_1d_rotary_pos_embed import GET_1D_ROTARY_POS_EMBED_
 from dinoml.lowering.ops.get_timestep_embedding import GET_TIMESTEP_EMBEDDING_LOWERING
 from dinoml.lowering.ops.gemm import GEMM_LOWERINGS
 from dinoml.lowering.ops.index_select import INDEX_SELECT_LOWERING
+from dinoml.lowering.ops.index_add import INDEX_ADD_LOWERING
 from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.masked_select import MASKED_SELECT_LOWERING
@@ -133,6 +134,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     FULL_LOWERING.op_name: FULL_LOWERING,
     GET_TIMESTEP_EMBEDDING_LOWERING.op_name: GET_TIMESTEP_EMBEDDING_LOWERING,
     INDEX_SELECT_LOWERING.op_name: INDEX_SELECT_LOWERING,
+    INDEX_ADD_LOWERING.op_name: INDEX_ADD_LOWERING,
     LAYER_NORM_LOWERING.op_name: LAYER_NORM_LOWERING,
     LAYERNORM_SIGMOID_MUL_LOWERING.op_name: LAYERNORM_SIGMOID_MUL_LOWERING,
     MASKED_SELECT_LOWERING.op_name: MASKED_SELECT_LOWERING,

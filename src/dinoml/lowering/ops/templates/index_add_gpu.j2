@@ -1,0 +1,121 @@
+#include <assert.h>
+#include <stdint.h>
+
+template <typename T>
+__device__ __forceinline__ uint16_t {{ func }}_bits(T value) {
+  union {
+    T value;
+    uint16_t bits;
+  } raw;
+  raw.value = value;
+  return raw.bits;
+}
+
+template <typename T>
+__device__ __forceinline__ T {{ func }}_from_bits(uint16_t bits) {
+  union {
+    T value;
+    uint16_t bits;
+  } raw;
+  raw.bits = bits;
+  return raw.value;
+}
+
+__device__ __forceinline__ void {{ func }}_atomic_add(float* addr, float value) {
+  atomicAdd(addr, value);
+}
+
+template <typename T>
+__device__ __forceinline__ void {{ func }}_atomic_add_16(T* addr, float value) {
+  const uintptr_t address = reinterpret_cast<uintptr_t>(addr);
+  auto* word_ptr = reinterpret_cast<unsigned int*>(address & ~static_cast<uintptr_t>(0x3));
+  const bool upper = (address & 0x2u) != 0;
+  unsigned int old_word = *word_ptr;
+  unsigned int assumed_word = 0;
+  do {
+    assumed_word = old_word;
+    const uint16_t old_bits = upper
+        ? static_cast<uint16_t>((assumed_word >> 16) & 0xffffu)
+        : static_cast<uint16_t>(assumed_word & 0xffffu);
+    const float sum = dinoml::math::cast<float>({{ func }}_from_bits<T>(old_bits)) + value;
+    const uint16_t new_bits = {{ func }}_bits(dinoml::math::cast<T>(sum));
+    const unsigned int new_word = upper
+        ? ((assumed_word & 0x0000ffffu) | (static_cast<unsigned int>(new_bits) << 16))
+        : ((assumed_word & 0xffff0000u) | static_cast<unsigned int>(new_bits));
+    old_word = atomicCAS(word_ptr, assumed_word, new_word);
+  } while (old_word != assumed_word);
+}
+
+__device__ __forceinline__ void {{ func }}_atomic_add(half* addr, float value) {
+  {{ func }}_atomic_add_16(addr, value);
+}
+
+__device__ __forceinline__ void {{ func }}_atomic_add(dinoml::bfloat16* addr, float value) {
+  {{ func }}_atomic_add_16(addr, value);
+}
+
+__global__ void {{ copy_kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; idx < runtime_numel; idx += stride) {
+{{ copy_body }}
+  }
+}
+
+__global__ void {{ scatter_kernel }}(
+    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT source,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel_source{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+    int64_t source_extent_{{ axis }}{% endfor %}) {
+  const int64_t stride = static_cast<int64_t>(blockDim.x) * static_cast<int64_t>(gridDim.x);
+  for (int64_t src_idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; src_idx < runtime_numel_source; src_idx += stride) {
+{{ scatter_body }}
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT source,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t runtime_numel_source{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+    int64_t source_extent_{{ axis }}{% endfor %},
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || index == nullptr || source == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel <= 0 || runtime_numel_source <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% for axis in range(rank) %}
+  if (out_extent_{{ axis }} <= 0 || source_extent_{{ axis }} <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% endfor %}
+  const int block = {{ block_size }};
+  const int64_t copy_grid64 = (runtime_numel + block - 1) / block;
+  const int copy_grid = static_cast<int>(copy_grid64 > 65535 ? 65535 : copy_grid64);
+  if (copy_grid > 0) {
+    {{ copy_kernel }}<<<copy_grid, block, 0, stream>>>(x, y, runtime_numel);
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  const int64_t scatter_grid64 = (runtime_numel_source + block - 1) / block;
+  const int scatter_grid = static_cast<int>(scatter_grid64 > 65535 ? 65535 : scatter_grid64);
+  if (scatter_grid > 0) {
+    {{ scatter_kernel }}<<<scatter_grid, block, 0, stream>>>(
+        index,
+        source,
+        y,
+        runtime_numel_source{% for axis in range(rank) %},
+        out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+        source_extent_{{ axis }}{% endfor %});
+    {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  }
+  return 0;
+}

@@ -37,6 +37,7 @@ from dinoml.kernels.codegen import create_codegen_plan
 from dinoml.kernels.profiling import profile_artifact
 from dinoml.lowering.ops.conv import render_conv_wrapper_source
 from dinoml.lowering.shape_buffers import validate_symbolic_int_sources
+from dinoml.ops.collections import INDEX_ADD_DTYPES
 from dinoml.ops.definitions import get_op_def
 from dinoml.passes import PassManager
 
@@ -898,6 +899,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         and len(node.get("inputs", [])) == 2
     }
     index_tensors.update(
+        node["inputs"][1]
+        for node in ir["nodes"]
+        if node.get("op") == "index_add" and len(node.get("inputs", [])) == 3
+    )
+    index_tensors.update(
         node["inputs"][0]
         for node in ir["nodes"]
         if node.get("op") in {"glm_ocr_stitch_image_features", "qwen2_5_vl_stitch_image_features"}
@@ -1015,6 +1021,28 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                 )
             if output_dtype != data_dtype:
                 raise NotImplementedError(f"Op {op_name} output dtype {output_dtype} must match input dtype {data_dtype}")
+            continue
+        if node.get("op") == "index_add":
+            data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            index_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            source_dtype = str(tensor_map[node["inputs"][2]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if data_dtype not in INDEX_ADD_DTYPES:
+                raise NotImplementedError(
+                    f"Op index_add supports dtypes {list(INDEX_ADD_DTYPES)}; "
+                    f"unsupported compiled dtypes: {[data_dtype]}"
+                )
+            if index_dtype not in {"int64", "int32"}:
+                raise NotImplementedError(
+                    "Op index_add index supports dtypes ['int64', 'int32']; "
+                    f"unsupported compiled dtypes: {[index_dtype]}"
+                )
+            if source_dtype != data_dtype:
+                raise NotImplementedError(
+                    f"Op index_add source dtype {source_dtype} must match input dtype {data_dtype}"
+                )
+            if output_dtype != data_dtype:
+                raise NotImplementedError(f"Op index_add output dtype {output_dtype} must match input dtype {data_dtype}")
             continue
         if node.get("op") == "masked_select":
             data_dtype = str(tensor_map[node["inputs"][0]]["dtype"])

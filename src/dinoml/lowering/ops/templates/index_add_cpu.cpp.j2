@@ -1,0 +1,35 @@
+static inline void {{ func }}_atomic_add({{ storage_type }}* addr, float value) {
+  *addr = dinoml::math::cast<{{ storage_type }}>(dinoml::math::cast<float>(*addr) + value);
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT source,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t runtime_numel_source{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+    int64_t source_extent_{{ axis }}{% endfor %}) {
+  if (x == nullptr || index == nullptr || source == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel <= 0 || runtime_numel_source <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% for axis in range(rank) %}
+  if (out_extent_{{ axis }} <= 0 || source_extent_{{ axis }} <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% endfor %}
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+{{ copy_body }}
+  }
+  for (int64_t src_idx = 0; src_idx < runtime_numel_source; ++src_idx) {
+{{ scatter_body }}
+  }
+  return 0;
+}

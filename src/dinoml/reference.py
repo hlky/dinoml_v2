@@ -511,6 +511,19 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ).copy(),
                 output_dtype,
             )
+        elif node["op"] == "index_add":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_index_add(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    int(attrs.get("dim", 0)),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "masked_select":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -847,6 +860,22 @@ def _execute_gather(x: np.ndarray, index: np.ndarray, dim: int) -> np.ndarray:
         input_coord = list(output_coord)
         input_coord[dim] = selected
         result[output_coord] = x[tuple(input_coord)]
+    return result
+
+
+def _execute_index_add(x: np.ndarray, index: np.ndarray, source: np.ndarray, dim: int) -> np.ndarray:
+    index_values = np.asarray(index, dtype=np.int64)
+    if index_values.ndim != 1:
+        raise ValueError(f"index_add expects rank-1 indices, got rank {index_values.ndim}")
+    result = np.array(x, copy=True)
+    dim_extent = int(result.shape[dim])
+    for source_coord in np.ndindex(source.shape):
+        selected = int(index_values[source_coord[dim]])
+        if selected < 0 or selected >= dim_extent:
+            raise ValueError(f"index_add index {selected} is out of bounds for dim size {dim_extent}")
+        output_coord = list(source_coord)
+        output_coord[dim] = selected
+        result[tuple(output_coord)] = result[tuple(output_coord)] + source[source_coord]
     return result
 
 

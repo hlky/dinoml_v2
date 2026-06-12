@@ -11,6 +11,7 @@ from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, sh
 
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
+INDEX_ADD_DTYPES = ("float16", "float32", "bfloat16")
 GATHER_INDEX_DTYPES = ("int64", "int32")
 PADDING_LAYOUT_HELPER_DTYPES = ("float16", "float32")
 PADDING_LAYOUT_HELPER_OPS = ("ndhwc3to8", "nhwc3to4", "nhwc3to8")
@@ -64,6 +65,12 @@ def infer_runtime_index_select_shape(input_shapes: Sequence[Sequence[int]]) -> l
     if len(input_shapes) != 2:
         raise ValueError("runtime_index_select expects two tensor inputs")
     return infer_runtime_index_select_shape_with_attrs(input_shapes, {"dim": 0})
+
+
+def infer_index_add_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("index_add expects three tensor inputs")
+    return infer_index_add_shape_with_attrs(input_shapes, {"dim": 0})
 
 
 def infer_masked_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -179,6 +186,12 @@ def infer_runtime_index_select_shape_with_attrs(input_shapes: Sequence[Sequence[
     if len(input_shapes) != 2:
         raise ValueError("runtime_index_select expects two tensor inputs")
     return resolve_runtime_index_select_shape(input_shapes[0], input_shapes[1], attrs.get("dim", 0))
+
+
+def infer_index_add_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("index_add expects three tensor inputs")
+    return resolve_index_add_shape(input_shapes[0], input_shapes[1], input_shapes[2], attrs.get("dim", 0))
 
 
 def infer_masked_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -388,6 +401,19 @@ def normalize_index_select_dim(dim: Any, rank: int) -> int:
     return normalized
 
 
+def normalize_index_add_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"index_add dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("index_add input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"index_add dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
 def normalize_index_select_indices(indices: Any, dim_extent: int) -> list[int]:
     if not isinstance(indices, Sequence) or isinstance(indices, (str, bytes, bytearray)):
         raise ValueError(f"index_select indices must be a non-empty sequence of integers, got {indices!r}")
@@ -408,6 +434,42 @@ def normalize_index_select_attrs(dim: Any, indices: Any, input_shape: Sequence[i
     normalized_dim = normalize_index_select_dim(dim, len(input_shape))
     normalized_indices = normalize_index_select_indices(indices, int(input_shape[normalized_dim]))
     return normalized_dim, normalized_indices
+
+
+def normalize_index_add_attrs(
+    dim: Any,
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+) -> int:
+    rank = len(input_shape)
+    normalized_dim = normalize_index_add_dim(dim, rank)
+    if len(index_shape) != 1:
+        raise ValueError(f"index_add index rank {len(index_shape)} must be 1")
+    if len(source_shape) != rank:
+        raise ValueError(f"index_add source rank {len(source_shape)} must match input rank {rank}")
+    index_extent = normalize_symbolic_int(index_shape[0], "index_add index.shape[0]")
+    source_dim_extent = normalize_symbolic_int(
+        source_shape[normalized_dim],
+        f"index_add source.shape[{normalized_dim}]",
+    )
+    if source_dim_extent != index_extent:
+        raise ValueError(
+            f"index_add source dim {normalized_dim} size {_shape_dim_debug(source_shape[normalized_dim])} "
+            f"must match index length {_shape_dim_debug(index_shape[0])}"
+        )
+    for axis, (source_extent, input_extent) in enumerate(zip(source_shape, input_shape)):
+        if axis == normalized_dim:
+            continue
+        if normalize_symbolic_int(source_extent, f"index_add source.shape[{axis}]") != normalize_symbolic_int(
+            input_extent,
+            f"index_add input.shape[{axis}]",
+        ):
+            raise ValueError(
+                f"index_add source axis {axis} size {_shape_dim_debug(source_extent)} "
+                f"must match input dim {_shape_dim_debug(input_extent)}"
+            )
+    return normalized_dim
 
 
 def normalize_gather_dim(dim: Any, rank: int) -> int:
@@ -674,6 +736,16 @@ def resolve_runtime_index_select_shape(input_shape: Sequence[int], index_shape: 
     if len(index_shape) != 1:
         raise ValueError("runtime_index_select expects rank-1 indices")
     return [int(index_shape[0]), *[int(axis) for axis in input_shape[1:]]]
+
+
+def resolve_index_add_shape(
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+    dim: Any,
+) -> list[int]:
+    normalize_index_add_attrs(dim, input_shape, index_shape, source_shape)
+    return [int(axis) for axis in input_shape]
 
 
 def resolve_masked_select_shape(input_shape: Sequence[int], mask_shape: Sequence[int]) -> list[int]:
@@ -981,6 +1053,32 @@ class RuntimeIndexSelect(OpDef):
     @classmethod
     def forward(cls, x: Any, dim: Any, indices: Any) -> Tensor:
         return runtime_index_select(x, dim, indices)
+
+
+@op_def
+class IndexAdd(OpDef):
+    name = "index_add"
+    schema = OpSchema(
+        inputs=("x", "index", "source"),
+        attrs=(AttrDef("dim", "int", required=True),),
+    )
+    infer_shape = infer_index_add_shape
+    infer_shape_with_attrs = infer_index_add_shape_with_attrs
+    allowed_dtypes = INDEX_ADD_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_index_add", library="model", source_template="index_add_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_index_add", library="model", source_template="index_add_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_index_add", library="model", source_template="index_add_gpu.j2"),
+    }
+    frontend = FrontendBinding("index_add")
+    description = (
+        "Materialize a dense index_add accumulation along one static dimension "
+        "using a rank-1 integer index tensor."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+        return index_add(x, dim, index, source)
 
 
 @op_def
@@ -1377,6 +1475,33 @@ def runtime_index_select(x: Any, dim: Any, indices: Any) -> Tensor:
     )
 
 
+def index_add(x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    source_tensor = as_tensor(source, dtype_hint=tensor.dtype)
+    if tensor.builder is not index_tensor.builder or tensor.builder is not source_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in INDEX_ADD_DTYPES:
+        raise ValueError(f"index_add does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"index_add index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if source_tensor.dtype != tensor.dtype:
+        raise ValueError(f"index_add dtype mismatch: {tensor.dtype} vs {source_tensor.dtype}")
+    normalized_dim = normalize_index_add_attrs(dim, tensor.shape_spec, index_tensor.shape_spec, source_tensor.shape_spec)
+    out_shape = infer_index_add_shape_with_attrs(
+        [tensor.shape, index_tensor.shape, source_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "index_add",
+        [tensor, index_tensor, source_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec],
+    )
+
+
 def masked_select(x: Any, mask: Any) -> Tensor:
     tensor = as_tensor(x)
     mask_tensor = as_tensor(mask)
@@ -1687,6 +1812,10 @@ def _copy_shape_dim(dim: Any) -> Any:
     return dict(dim) if isinstance(dim, Mapping) else dim
 
 
+def _shape_dim_debug(dim: Any) -> str:
+    return str(int(dim)) if isinstance(dim, int) else repr(dim)
+
+
 def _symbolic_numel(shape_spec: Sequence[Any]) -> Any:
     total: Any = 1
     for dim in shape_spec:
@@ -1749,7 +1878,9 @@ __all__ = [
     "DynamicSlice",
     "Flip",
     "GATHER_INDEX_DTYPES",
+    "INDEX_ADD_DTYPES",
     "Gather",
+    "IndexAdd",
     "IndexSelect",
     "MaskedSelect",
     "Ndhwc3to8",
@@ -1777,6 +1908,7 @@ __all__ = [
     "dynamic_slice",
     "flip",
     "gather",
+    "index_add",
     "index_select",
     "masked_select",
     "infer_batch_gather_shape",
@@ -1789,6 +1921,8 @@ __all__ = [
     "infer_flip_shape_with_attrs",
     "infer_gather_shape",
     "infer_gather_shape_with_attrs",
+    "infer_index_add_shape",
+    "infer_index_add_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
     "infer_masked_select_shape",
@@ -1835,6 +1969,8 @@ __all__ = [
     "normalize_flip_dims",
     "normalize_gather_attrs",
     "normalize_gather_dim",
+    "normalize_index_add_attrs",
+    "normalize_index_add_dim",
     "normalize_index_select_attrs",
     "normalize_index_select_dim",
     "normalize_index_select_indices",
@@ -1852,6 +1988,7 @@ __all__ = [
     "resolve_dynamic_slice_shape",
     "resolve_flip_shape",
     "resolve_gather_shape",
+    "resolve_index_add_shape",
     "resolve_index_select_shape",
     "resolve_masked_select_shape",
     "resolve_padding_layout_shape",

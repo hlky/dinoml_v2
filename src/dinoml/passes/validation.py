@@ -12,7 +12,7 @@ from dinoml.ir import (
     normalize_dtype,
 )
 from dinoml.layout import validate_layout
-from dinoml.ops.collections import broadcast_shape_spec
+from dinoml.ops.collections import INDEX_ADD_DTYPES, broadcast_shape_spec, normalize_index_add_attrs
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import (
     CAST_ELEMENTWISE_DTYPES,
@@ -307,6 +307,7 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "dynamic_slice",
         "index_select",
         "runtime_index_select",
+        "index_add",
         "gather",
         "batch_gather",
         "slice_scatter",
@@ -1276,6 +1277,7 @@ def _validate_collection_node(
         "concatenate_fast",
         "concatenate_tanh",
         "dynamic_slice",
+        "index_add",
         "index_select",
         "runtime_index_select",
         "permute",
@@ -1319,6 +1321,38 @@ def _validate_collection_node(
             raise ValidationError(
                 f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
                 f"expected {inputs[0]['dtype']}"
+            )
+        return
+    if op_name == "index_add":
+        if str(inputs[0]["dtype"]) not in INDEX_ADD_DTYPES:
+            raise ValidationError(f"index_add does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"index_add index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(inputs[2]["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} has mismatched input dtypes for index_add: "
+                f"{inputs[0]['dtype']} vs {inputs[2]['dtype']}"
+            )
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        try:
+            normalize_index_add_attrs(
+                node.get("attrs", {}).get("dim", 0),
+                inputs[0].get("shape_spec", inputs[0]["shape"]),
+                inputs[1].get("shape_spec", inputs[1]["shape"]),
+                inputs[2].get("shape_spec", inputs[2]["shape"]),
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        expected_shape_spec = list(inputs[0].get("shape_spec", inputs[0]["shape"]))
+        actual_shape_spec = list(output.get("shape_spec", output["shape"]))
+        if actual_shape_spec != expected_shape_spec:
+            raise ValidationError(
+                f"index_add output shape_spec must match input shape_spec {expected_shape_spec}, "
+                f"got {actual_shape_spec}"
             )
         return
     if op_name == "batch_gather":

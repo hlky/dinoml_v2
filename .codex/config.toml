@@ -1,0 +1,27 @@
+model_instructions_file = "base.md"
+developer_instructions_file = "developer.md"
+
+include_permissions_instructions = false
+include_apps_instructions = false
+include_collaboration_mode_instructions = false
+
+default_local_environment = "rocm"
+
+[local_environments.msvc]
+description = "MSVC x64 developer shell"
+
+[local_environments.msvc.script]
+script = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Auxiliary\\Build\\vcvars64.bat"
+shell = "cmd"
+args = []
+
+[local_environments.rocm]
+description = "ROCm venv"
+
+[local_environments.rocm.shell_environment_policy]
+inherit = "all"
+set = { VIRTUAL_ENV = "H:\\dinoml_v2\\.venv\\rocm" }
+path_prepend = ["H:\\dinoml_v2\\.venv\\rocm\\Scripts"]
+
+[skills]
+include_instructions = true

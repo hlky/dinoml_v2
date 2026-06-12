@@ -1,0 +1,4 @@
+interface:
+  display_name: "Op Pack Planning"
+  short_description: "Select next DinoML ops and draft bounded .work/op packs"
+  default_prompt: "Analyze the provided DinoML op audit data, filter out already-covered or rewrite-only cases, classify the remaining candidates, and draft a bounded .work/op implementation pack with explicit scope, provider expectations, pitfalls, and verification requirements."

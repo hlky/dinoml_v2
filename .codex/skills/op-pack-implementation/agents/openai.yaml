@@ -1,0 +1,4 @@
+interface:
+  display_name: "Op Pack Implementation"
+  short_description: "Execute DinoML .work/op packs with strict scope and verification discipline"
+  default_prompt: "Implement the named DinoML .work/op pack by reading the pack-local files first, staying within the required architecture, keeping backend support claims honest, and validating completion against the pack contract rather than partial progress."

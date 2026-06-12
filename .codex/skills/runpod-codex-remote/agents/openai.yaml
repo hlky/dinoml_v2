@@ -1,0 +1,4 @@
+interface:
+  display_name: "Runpod Codex Remote"
+  short_description: "Create Runpod GPU pods and register them as Codex remotes"
+  default_prompt: "Create a Runpod pod for the requested GPU, add it as a Codex remote connection, install the required CLIs, and clone the requested project."

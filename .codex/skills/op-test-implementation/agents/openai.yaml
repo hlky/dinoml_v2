@@ -1,0 +1,4 @@
+interface:
+  display_name: "Op Test Implementation"
+  short_description: "Add DinoML op-pack tests with honest backend coverage"
+  default_prompt: "Use $op-test-implementation to add or update tests for a DinoML .work/op pack by following repo-local test structure, sharing parity helpers where useful, and keeping backend claims honest."

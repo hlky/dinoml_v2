@@ -26,6 +26,10 @@ If the pack includes backend-specific task files, read the ones that apply to th
 
 Do not begin by rereading broad repo docs when the pack already gives the local contract.
 
+When the work includes adding or revising tests, also read and follow the repo-local skill:
+
+- `H:\dinoml_v2\.codex\skills\op-test-implementation\SKILL.md`
+
 ## Required execution workflow
 
 Follow this order.
@@ -99,6 +103,8 @@ Keep these surfaces separate:
 - performance measurement
 
 Do not let one surface stand in for another.
+
+When implementing the test files themselves, use the repo-local `op-test-implementation` skill to choose file layout, shared parity helpers, and backend-specific test boundaries.
 
 ### 6) Check completion against the pack, not against partial progress
 

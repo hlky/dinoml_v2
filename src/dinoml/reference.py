@@ -661,6 +661,26 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] in {"conv3d_bias", "depthwise_conv3d"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                (
+                    _execute_depthwise_conv3d(
+                        values[node["inputs"][0]],
+                        values[node["inputs"][1]],
+                        node.get("attrs", {}),
+                    )
+                    if node["op"] == "depthwise_conv3d"
+                    else _execute_conv3d_bias(
+                        values[node["inputs"][0]],
+                        values[node["inputs"][1]],
+                        values[node["inputs"][2]],
+                        node.get("attrs", {}),
+                    )
+                ),
+                output_dtype,
+            )
         elif node["op"] in {
             "transposed_conv2d",
             "transposed_conv2d_bias",
@@ -2828,6 +2848,104 @@ def _execute_conv2d_bias_add_relu(
     attrs: Mapping[str, object],
 ) -> np.ndarray:
     return _execute_conv2d_bias_family("conv2d_bias_add_relu", x, weight, bias, residual, attrs)
+
+
+def _execute_conv3d_bias(
+    x: np.ndarray,
+    weight: np.ndarray,
+    bias: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    stride_d, stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1, 1))]
+    pad_d, pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0, 0))]
+    dilation_d, dilation_h, dilation_w = [int(item) for item in attrs.get("dilation", (1, 1, 1))]
+    groups = int(attrs.get("groups", 1))
+    batch, in_channels, in_depth, in_height, in_width = [int(dim) for dim in x.shape]
+    out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = [int(dim) for dim in weight.shape]
+    if in_channels % groups != 0:
+        raise ValueError(
+            f"conv3d_bias CPU reference activation channels must be divisible by groups, got C={in_channels} and groups={groups}"
+        )
+    channels_per_group = in_channels // groups
+    if weight_in_channels != channels_per_group:
+        raise ValueError(
+            "conv3d_bias CPU reference weight input channels must match input channels per group: "
+            f"got activation C={in_channels}, groups={groups}, weight I={weight_in_channels}, expected I={channels_per_group}"
+        )
+    if out_channels % groups != 0:
+        raise ValueError(
+            f"conv3d_bias CPU reference output channels must be divisible by groups, got O={out_channels} and groups={groups}"
+        )
+    if bias.shape != (out_channels,):
+        raise ValueError(
+            f"conv3d_bias CPU reference bias shape must be ({out_channels},), got {tuple(int(dim) for dim in bias.shape)}"
+        )
+    out_depth = (in_depth + 2 * pad_d - dilation_d * (kernel_d - 1) - 1) // stride_d + 1
+    out_height = (in_height + 2 * pad_h - dilation_h * (kernel_h - 1) - 1) // stride_h + 1
+    out_width = (in_width + 2 * pad_w - dilation_w * (kernel_w - 1) - 1) // stride_w + 1
+    result = np.empty((batch, out_channels, out_depth, out_height, out_width), dtype=np.float32)
+    source = np.asarray(x, dtype=np.float32)
+    filters = np.asarray(weight, dtype=np.float32)
+    bias_values = np.asarray(bias, dtype=np.float32)
+    out_channels_per_group = out_channels // groups
+    for n in range(batch):
+        for oc in range(out_channels):
+            group_index = oc // out_channels_per_group
+            in_channel_base = group_index * channels_per_group
+            for od in range(out_depth):
+                d_start = od * stride_d - pad_d
+                for oh in range(out_height):
+                    h_start = oh * stride_h - pad_h
+                    for ow in range(out_width):
+                        w_start = ow * stride_w - pad_w
+                        total = float(bias_values[oc])
+                        for icg in range(channels_per_group):
+                            ic = in_channel_base + icg
+                            for kd in range(kernel_d):
+                                id_ = d_start + kd * dilation_d
+                                if id_ < 0 or id_ >= in_depth:
+                                    continue
+                                for kh in range(kernel_h):
+                                    ih = h_start + kh * dilation_h
+                                    if ih < 0 or ih >= in_height:
+                                        continue
+                                    for kw in range(kernel_w):
+                                        iw = w_start + kw * dilation_w
+                                        if iw < 0 or iw >= in_width:
+                                            continue
+                                        total += float(source[n, ic, id_, ih, iw] * filters[oc, icg, kd, kh, kw])
+                        result[n, oc, od, oh, ow] = total
+    return result
+
+
+def _execute_depthwise_conv3d(
+    x: np.ndarray,
+    weight: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    stride_d, stride_h, stride_w = [int(item) for item in attrs.get("stride", (1, 1, 1))]
+    pad_d, pad_h, pad_w = [int(item) for item in attrs.get("padding", (0, 0, 0))]
+    dilation_d, dilation_h, dilation_w = [int(item) for item in attrs.get("dilation", (1, 1, 1))]
+    groups = int(attrs.get("groups", 1))
+    batch, in_channels, in_depth, in_height, in_width = [int(dim) for dim in x.shape]
+    out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = [int(dim) for dim in weight.shape]
+    if groups != in_channels:
+        raise ValueError(
+            f"depthwise_conv3d CPU reference groups must equal activation channels, got groups={groups} and C={in_channels}"
+        )
+    if out_channels != in_channels:
+        raise ValueError(
+            f"depthwise_conv3d CPU reference output channels must equal activation channels, got O={out_channels} and C={in_channels}"
+        )
+    if weight_in_channels != 1:
+        raise ValueError(f"depthwise_conv3d CPU reference weight input channels must be 1, got {weight_in_channels}")
+    zero_bias = np.zeros((out_channels,), dtype=x.dtype)
+    return _execute_conv3d_bias(
+        x,
+        weight,
+        zero_bias,
+        {"stride": (stride_d, stride_h, stride_w), "padding": (pad_d, pad_h, pad_w), "dilation": (dilation_d, dilation_h, dilation_w), "groups": groups},
+    )
 
 
 def _execute_roi_align(

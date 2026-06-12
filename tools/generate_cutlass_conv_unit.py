@@ -7,11 +7,16 @@ from dinoml.kernels.providers.cutlass.conv import (
     CONV_OPS,
     CONV_SUPPORTED_DTYPES,
     CUTLASS_CONV1D_OPS,
+    CUTLASS_CONV3D_OPS,
     CUTLASS_TRANSPOSED_CONV_OPS,
     cutlass_conv_candidates,
     cutlass_conv1d_input_pack_symbol,
     cutlass_conv1d_output_unpack_symbol,
     cutlass_conv1d_weight_pack_symbol,
+    cutlass_conv3d_input_pack_symbol,
+    cutlass_conv3d_depthwise_weight_pack_symbol,
+    cutlass_conv3d_output_unpack_symbol,
+    cutlass_conv3d_weight_pack_symbol,
     cutlass_conv_input_pack_symbol,
     cutlass_conv_output_unpack_symbol,
     cutlass_conv_weight_pack_symbol,
@@ -91,6 +96,51 @@ def _transform_helpers(dtype: str) -> list[dict[str, str]]:
     ]
 
 
+def _conv3d_transform_helpers(dtype: str) -> list[dict[str, str]]:
+    return [
+        {
+            "symbol": cutlass_conv3d_input_pack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "activation",
+            "transform": "ncdhw_to_ndhwc_temporary",
+            "layout_from": "ncdhw",
+            "layout_to": "ndhwc",
+            "shape_order": ["n", "c", "d", "h", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+        {
+            "symbol": cutlass_conv3d_weight_pack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "weight",
+            "transform": "oidhw_to_ktrsc_temporary",
+            "layout_from": "oidhw",
+            "layout_to": "ktrsc",
+            "shape_order": ["o", "i", "d", "h", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+        {
+            "symbol": cutlass_conv3d_depthwise_weight_pack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "weight",
+            "transform": "depthwise_oidhw_to_ktrsc_temporary",
+            "layout_from": "oidhw",
+            "layout_to": "ktrsc",
+            "shape_order": ["o", "i", "d", "h", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+        {
+            "symbol": cutlass_conv3d_output_unpack_symbol(dtype),
+            "dtype": dtype,
+            "tensor_role": "output",
+            "transform": "ndhwc_to_ncdhw_temporary",
+            "layout_from": "ndhwc",
+            "layout_to": "ncdhw",
+            "shape_order": ["n", "c", "d", "h", "w"],
+            "helper_abi": "dinoml_cutlass_layout_transform_v1",
+        },
+    ]
+
+
 def _transposed_transform_helpers(dtype: str) -> list[dict[str, str]]:
     return [
         {
@@ -137,6 +187,9 @@ def render_cutlass_conv_unit(op: str, dtype: str, source: Path) -> str:
     elif op in CUTLASS_CONV1D_OPS:
         candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
         transform_helpers = _conv1d_transform_helpers(dtype)
+    elif op in CUTLASS_CONV3D_OPS:
+        candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
+        transform_helpers = _conv3d_transform_helpers(dtype)
     else:
         candidates = cutlass_conv_candidates(op, dtype, target={"name": "cuda", "arch": "sm_80"})
         transform_helpers = _transform_helpers(dtype)

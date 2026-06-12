@@ -20,21 +20,28 @@ struct ConvRequest {
   int spatial_rank = 2;
   int batch = 0;
   int in_channels = 0;
+  int in_depth = 0;
   int in_height = 0;
   int in_width = 0;
   int out_channels = 0;
+  int kernel_d = 0;
   int kernel_h = 0;
   int kernel_w = 0;
+  int out_depth = 0;
   int out_height = 0;
   int out_width = 0;
+  int stride_d = 1;
   int stride_h = 1;
   int stride_w = 1;
+  int pad_d = 0;
   int pad_h = 0;
   int pad_w = 0;
   int output_pad_h = 0;
   int output_pad_w = 0;
+  int dilation_d = 1;
   int dilation_h = 1;
   int dilation_w = 1;
+  int groups = 1;
   int iterations = 1;
   int repeats = 1;
   bool transposed = false;
@@ -217,6 +224,75 @@ inline float run_candidate(
         request.pad_w,
         request.dilation_w,
         0,
+        request.iterations,
+        nullptr);
+  }
+  if (request.spatial_rank == 3) {
+    if (request.transposed) {
+      throw std::runtime_error("CK Conv3d profiler does not support transposed kernels");
+    }
+    if (!request.has_bias) {
+      throw std::runtime_error("CK Conv3d profiler requires bias-enabled kernels");
+    }
+    if (request.has_residual) {
+      throw std::runtime_error("CK Conv3d profiler does not support residual kernels");
+    }
+    using Fn = float (*)(
+        const void*,
+        const void*,
+        const void*,
+        void*,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        int,
+        hipStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+        x,
+        weight,
+        bias,
+        output,
+        request.batch,
+        request.in_channels,
+        request.in_depth,
+        request.in_height,
+        request.in_width,
+        request.out_channels,
+        request.kernel_d,
+        request.kernel_h,
+        request.kernel_w,
+        request.out_depth,
+        request.out_height,
+        request.out_width,
+        request.stride_d,
+        request.stride_h,
+        request.stride_w,
+        request.pad_d,
+        request.pad_h,
+        request.pad_w,
+        request.dilation_d,
+        request.dilation_h,
+        request.dilation_w,
+        request.groups,
         request.iterations,
         nullptr);
   }
@@ -469,12 +545,14 @@ inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uin
   if (profiler_symbols.empty()) {
     throw std::runtime_error("CK Conv profiler symbol is required");
   }
-  if (request.spatial_rank <= 0 || request.spatial_rank > 2) {
-    throw std::runtime_error("CK Conv profiler spatial_rank must be 1 or 2");
+  if (request.spatial_rank <= 0 || request.spatial_rank > 3) {
+    throw std::runtime_error("CK Conv profiler spatial_rank must be 1, 2, or 3");
   }
-  if (request.batch <= 0 || request.in_channels <= 0 || request.in_height <= 0 || request.in_width <= 0 ||
-      request.out_channels <= 0 || request.kernel_h <= 0 || request.kernel_w <= 0 || request.out_height <= 0 ||
-      request.out_width <= 0 || request.iterations <= 0 || request.repeats <= 0) {
+  if (request.batch <= 0 || request.in_channels <= 0 || request.in_width <= 0 || request.out_channels <= 0 ||
+      request.kernel_w <= 0 || request.out_width <= 0 || request.iterations <= 0 || request.repeats <= 0 ||
+      (request.spatial_rank >= 2 && (request.in_height <= 0 || request.kernel_h <= 0 || request.out_height <= 0)) ||
+      (request.spatial_rank >= 3 && (request.in_depth <= 0 || request.kernel_d <= 0 || request.out_depth <= 0)) ||
+      request.groups <= 0) {
     throw std::runtime_error("CK Conv profiler dimensions, iterations, and repeats must be positive");
   }
 

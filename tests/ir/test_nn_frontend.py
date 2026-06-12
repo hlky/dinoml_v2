@@ -284,3 +284,69 @@ def test_dml_nn_transposed_conv2d_trace_and_validation():
             },
             name="nn_transposed_conv2d_bad_groups",
         )
+
+
+def test_dml_conv3d_family_trace_and_validation():
+    class TinyConv3d(dml.nn.Module):
+        def forward(self, x, weight, bias):
+            base = dml.ops.conv3d(x, weight, stride=(2, 1, 1), padding=(1, 1, 0), dilation=(1, 1, 1))
+            fused = dml.ops.conv3d_bias(x, weight, bias, stride=(2, 1, 1), padding=(1, 1, 0), dilation=(1, 1, 1))
+            depthwise = dml.ops.depthwise_conv3d(
+                x,
+                dml.ops.full([3, 1, 3, 3, 2], 0.25, dtype="float32"),
+                stride=(2, 1, 1),
+                padding=(1, 1, 0),
+                dilation=(1, 1, 1),
+            )
+            return {
+                "base": dml.ops.output(base, "base"),
+                "fused": dml.ops.output(fused, "fused"),
+                "depthwise": dml.ops.output(depthwise, "depthwise"),
+            }
+
+    spec = dml.trace(
+        TinyConv3d(),
+        inputs={
+            "x": dml.TensorSpec([1, 3, 5, 6, 7], "float32"),
+            "weight": dml.TensorSpec([4, 3, 3, 3, 2], "float32"),
+            "bias": dml.TensorSpec([4], "float32"),
+        },
+        name="nn_conv3d_family",
+    )
+
+    assert [node["op"] for node in spec.ir["nodes"]] == ["conv3d_bias", "conv3d_bias", "full", "conv3d_bias"]
+    output_shapes = {output["name"]: output["shape"] for output in spec.ir["outputs"]}
+    assert output_shapes == {
+        "base": [1, 4, 3, 6, 6],
+        "fused": [1, 4, 3, 6, 6],
+        "depthwise": [1, 3, 3, 6, 6],
+    }
+
+    class BadGroups(dml.nn.Module):
+        def forward(self, x, weight, bias):
+            return dml.ops.output(dml.ops.conv3d_bias(x, weight, bias, groups=2), "y")
+
+    with pytest.raises(ValueError, match="divisible by groups"):
+        dml.trace(
+            BadGroups(),
+            inputs={
+                "x": dml.TensorSpec([1, 3, 5, 6, 7], "float32"),
+                "weight": dml.TensorSpec([4, 3, 3, 3, 2], "float32"),
+                "bias": dml.TensorSpec([4], "float32"),
+            },
+            name="nn_conv3d_bad_groups",
+        )
+
+    class BadDepthwise(dml.nn.Module):
+        def forward(self, x, weight):
+            return dml.ops.output(dml.ops.depthwise_conv3d(x, weight, groups=2), "y")
+
+    with pytest.raises(ValueError, match="groups must equal the activation channel count"):
+        dml.trace(
+            BadDepthwise(),
+            inputs={
+                "x": dml.TensorSpec([1, 3, 5, 6, 7], "float32"),
+                "weight": dml.TensorSpec([3, 1, 3, 3, 2], "float32"),
+            },
+            name="nn_depthwise_conv3d_bad_groups",
+        )

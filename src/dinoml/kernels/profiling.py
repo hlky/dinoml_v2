@@ -38,7 +38,7 @@ from dinoml.kernels.providers.cutlass.alignment import (
     cutlass_gemm_profile_alignment_context,
     filter_candidates_by_alignment,
 )
-from dinoml.kernels.providers.ck.conv import CK_CONV1D_OPS, CK_TRANSPOSED_CONV_OPS
+from dinoml.kernels.providers.ck.conv import CK_CONV1D_OPS, CK_CONV3D_OPS, CK_TRANSPOSED_CONV_OPS
 from dinoml.kernels.providers.cutlass.conv import (
     CONV_OPS,
     CUTLASS_TRANSPOSED_CONV_OPS,
@@ -49,6 +49,7 @@ from dinoml.kernels.providers.cutlass.gemm import cutlass_gemm_split_k_supported
 from dinoml.ops.conv import (
     normalize_conv1d_bias_attrs,
     normalize_conv2d_bias_attrs,
+    normalize_conv3d_attrs,
     normalize_transposed_conv2d_attrs,
 )
 from dinoml.ops.definitions import get_op_def
@@ -219,6 +220,7 @@ class ConvProfileWorkload:
     weight_transform: Mapping[str, Any]
     temporary_buffers: tuple[Mapping[str, Any], ...]
     workspace_nbytes: int
+    provider_groups: int
     source_op: str | None
     bias_mode: str | None
     shape_source: str
@@ -254,6 +256,7 @@ class ConvProfileWorkload:
             "weight_transform": dict(self.weight_transform),
             "temporary_buffers": [dict(buffer) for buffer in self.temporary_buffers],
             "workspace_nbytes": self.workspace_nbytes,
+            "provider_groups": int(self.provider_groups),
             **(
                 {"source_op": self.source_op, "bias_mode": self.bias_mode}
                 if self.source_op is not None
@@ -397,6 +400,7 @@ def build_profile_workloads(
         if (
             op_name in CONV_OPS
             or (target_name == "rocm" and op_name in CK_CONV1D_OPS)
+            or (target_name == "rocm" and op_name in CK_CONV3D_OPS)
             or (target_name == "cuda" and op_name in CUTLASS_TRANSPOSED_CONV_OPS)
             or (target_name == "rocm" and op_name in CK_TRANSPOSED_CONV_OPS)
         ):
@@ -658,6 +662,13 @@ def _append_conv_profile_workloads(
                         if isinstance(buffer, Mapping)
                     ),
                     workspace_nbytes=int(normalized_conv_plan.get("workspace_nbytes", 0) or 0),
+                    provider_groups=int(
+                        dict(normalized_conv_plan.get("runtime", {})).get(
+                            "provider_groups",
+                            dict(normalized_conv_plan.get("conv_config", {})).get("groups", 1),
+                        )
+                        or 1
+                    ),
                     source_op=(
                         str(normalized_conv_plan["source_op"])
                         if normalized_conv_plan.get("source_op") is not None
@@ -693,6 +704,7 @@ def _append_ck_conv_profile_workloads(
         "conv2d_bias_relu",
         "conv2d_bias_add",
         "conv2d_bias_add_relu",
+        *CK_CONV3D_OPS,
         *CK_TRANSPOSED_CONV_OPS,
     }:
         return
@@ -705,6 +717,7 @@ def _append_ck_conv_profile_workloads(
         return
     is_transposed = op_name in CK_TRANSPOSED_CONV_OPS
     is_conv1d = op_name in CK_CONV1D_OPS
+    is_conv3d = op_name in CK_CONV3D_OPS
     has_bias = op_name != "transposed_conv2d"
     has_residual = op_name in {
         "conv1d_bias_add",
@@ -740,6 +753,14 @@ def _append_ck_conv_profile_workloads(
                 attrs.get("groups", 1),
             )
             output_padding = None
+        elif is_conv3d:
+            stride, padding, dilation, groups = normalize_conv3d_attrs(
+                attrs.get("stride", (1, 1, 1)),
+                attrs.get("padding", (0, 0, 0)),
+                attrs.get("dilation", (1, 1, 1)),
+                attrs.get("groups", 1),
+            )
+            output_padding = None
         else:
             stride, padding, dilation, groups = normalize_conv2d_bias_attrs(
                 attrs.get("stride", (1, 1)),
@@ -750,7 +771,7 @@ def _append_ck_conv_profile_workloads(
             output_padding = None
     except (NotImplementedError, ValueError):
         return
-    if int(groups) != 1:
+    if not is_conv3d and int(groups) != 1:
         return
     for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
         x_shape = _runtime_tensor_shape(x_name, tensor_map[x_name], scenario.overrides, scenario.dim_values)
@@ -766,7 +787,7 @@ def _append_ck_conv_profile_workloads(
             else None
         )
         output_shape = _runtime_tensor_shape(output_name, output_info, scenario.overrides, scenario.dim_values)
-        expected_rank = 3 if is_conv1d else 4
+        expected_rank = 3 if is_conv1d else (5 if is_conv3d else 4)
         if len(x_shape) != expected_rank or len(weight_shape) != expected_rank or len(output_shape) != expected_rank:
             continue
         if residual_shape is not None and tuple(int(dim) for dim in residual_shape) != tuple(int(dim) for dim in output_shape):
@@ -785,6 +806,26 @@ def _append_ck_conv_profile_workloads(
                 "gemm_m": batch * out_w,
                 "gemm_n": out_channels,
                 "gemm_k": in_channels * kernel_w,
+            }
+        elif is_conv3d:
+            batch, in_channels, _in_d, _in_h, _in_w = (int(dim) for dim in x_shape)
+            out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = (int(dim) for dim in weight_shape)
+            out_d, out_h, out_w = (int(dim) for dim in output_shape[2:])
+            problem = {
+                "batch": batch,
+                "in_channels": in_channels,
+                "weight_in_channels": weight_in_channels,
+                "out_channels": out_channels,
+                "kernel_d": kernel_d,
+                "kernel_h": kernel_h,
+                "kernel_w": kernel_w,
+                "out_d": out_d,
+                "out_h": out_h,
+                "out_w": out_w,
+                "groups": int(groups),
+                "gemm_m": batch * out_d * out_h * out_w,
+                "gemm_n": out_channels,
+                "gemm_k": weight_in_channels * kernel_d * kernel_h * kernel_w,
             }
         else:
             batch, in_channels, _in_h, _in_w = (int(dim) for dim in x_shape)
@@ -861,6 +902,7 @@ def _append_ck_conv_profile_workloads(
                     weight_transform={},
                     temporary_buffers=(),
                     workspace_nbytes=int(candidate.get("workspace_nbytes", 0) or 0),
+                    provider_groups=int(groups),
                     source_op=None,
                     bias_mode=None,
                     shape_source=scenario.source,
@@ -1507,6 +1549,7 @@ def _profile_workload_identity_key(
             _freeze_profile_key_value(workload.layout_translation),
             _freeze_profile_key_value(workload.weight_transform),
             _freeze_profile_key_value(workload.conv_config),
+            int(workload.provider_groups),
             workload.source_op,
             workload.bias_mode,
             workload.x_shape,
@@ -4094,6 +4137,7 @@ def _profile_provider_problem_payload(workload: GemmProfileWorkload | ConvProfil
             "layout_translation": dict(workload.layout_translation),
             "weight_transform": dict(workload.weight_transform),
             "conv_config": dict(workload.conv_config),
+            "provider_groups": int(workload.provider_groups),
         }
         if workload.source_op is not None:
             semantics["source_op"] = workload.source_op
@@ -4920,6 +4964,7 @@ class _CutlassConvProfiler:
             raise RuntimeError(f"CUTLASS Conv profiler for {workload.op}/{workload.dtype} is not loaded")
         is_transposed = workload.op in CUTLASS_TRANSPOSED_CONV_OPS
         is_conv1d = len(workload.x_shape) == 3
+        is_conv3d = len(workload.x_shape) == 5
         if is_conv1d:
             n, c, w = (int(dim) for dim in workload.x_shape)
             out_n, out_c, out_w = (int(dim) for dim in workload.output_shape)
@@ -4951,6 +4996,65 @@ class _CutlassConvProfiler:
                 residual_count=(1 if workload.residual_shape is not None else 0),
                 validation_mode=self._validation_mode,
                 seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(n), str(out_w), str(out_c)),
+            )
+        elif is_conv3d:
+            n, c, d, h, w = (int(dim) for dim in workload.x_shape)
+            out_n, out_c, out_d, out_h, out_w = (int(dim) for dim in workload.output_shape)
+            weight_0, weight_1, kernel_d, kernel_h, kernel_w = (int(dim) for dim in workload.weight_shape)
+            groups = int(workload.conv_config.get("groups", 1) or 1)
+            provider_groups = int(workload.provider_groups or groups)
+            provider_input_channels = int(workload.weight_transform.get("padded_input_channels", weight_1) or weight_1)
+            provider_output_channels = int(workload.weight_transform.get("padded_output_channels", weight_0) or weight_0)
+            expected_weight_in = provider_input_channels * provider_groups
+            expected_weight_out = provider_output_channels
+            if out_n != n or expected_weight_in != c or expected_weight_out != out_c:
+                raise RuntimeError(f"CUTLASS Conv profile workload has inconsistent shapes for {workload.node_id}")
+            stride = [int(value) for value in workload.conv_config.get("stride", ())]
+            padding = [int(value) for value in workload.conv_config.get("padding", ())]
+            dilation = [int(value) for value in workload.conv_config.get("dilation", ())]
+            if len(stride) != 3 or len(padding) != 3 or len(dilation) != 3:
+                raise RuntimeError(f"CUTLASS Conv profile workload has malformed conv_config for {workload.node_id}")
+            raw_results = module.profile_conv(
+                dtype=str(workload.dtype),
+                spatial_rank=3,
+                n=n,
+                d=d,
+                h=h,
+                w=w,
+                c=c,
+                out_d=out_d,
+                out_h=out_h,
+                out_w=out_w,
+                out_c=out_c,
+                kernel_d=kernel_d,
+                kernel_h=kernel_h,
+                kernel_w=kernel_w,
+                stride_d=stride[0],
+                stride_h=stride[1],
+                stride_w=stride[2],
+                pad_d=padding[0],
+                pad_h=padding[1],
+                pad_w=padding[2],
+                dilation_d=dilation[0],
+                dilation_h=dilation[1],
+                dilation_w=dilation[2],
+                groups=provider_groups,
+                iterations=int(iterations),
+                repeats=int(repeats),
+                has_bias=(workload.bias_shape is not None),
+                residual_count=(1 if workload.residual_shape is not None else 0),
+                validation_mode=self._validation_mode,
+                seed=_stable_u32_seed(
+                    workload.op,
+                    workload.dtype,
+                    workload.shape_case_id,
+                    str(n),
+                    str(out_d),
+                    str(out_h),
+                    str(out_w),
+                    str(out_c),
+                    str(provider_groups),
+                ),
             )
         else:
             n, c, h, w = (int(dim) for dim in workload.x_shape)
@@ -5415,31 +5519,39 @@ class _CkConvProfiler:
         if module is None:
             raise RuntimeError(f"CK Conv profiler for {workload.op}/{workload.dtype} is not loaded")
         is_conv1d = len(workload.x_shape) == 3
-        stride = list(workload.conv_config.get("stride", (1,) if is_conv1d else (1, 1)))
-        padding = list(workload.conv_config.get("padding", (0,) if is_conv1d else (0, 0)))
-        dilation = list(workload.conv_config.get("dilation", (1,) if is_conv1d else (1, 1)))
+        is_conv3d = len(workload.x_shape) == 5
+        stride = list(workload.conv_config.get("stride", (1,) if is_conv1d else ((1, 1, 1) if is_conv3d else (1, 1))))
+        padding = list(workload.conv_config.get("padding", (0,) if is_conv1d else ((0, 0, 0) if is_conv3d else (0, 0))))
+        dilation = list(workload.conv_config.get("dilation", (1,) if is_conv1d else ((1, 1, 1) if is_conv3d else (1, 1))))
         raw_results = module.profile_conv(
             profiler_symbol=str(workload.profiler_symbol),
             profiler_symbols=[str(item.profiler_symbol) for item in workloads],
             dtype=str(workload.dtype),
-            spatial_rank=1 if is_conv1d else 2,
+            spatial_rank=1 if is_conv1d else (3 if is_conv3d else 2),
             batch=int(workload.x_shape[0]),
             in_channels=int(workload.x_shape[1]),
-            in_height=1 if is_conv1d else int(workload.x_shape[2]),
-            in_width=int(workload.x_shape[2] if is_conv1d else workload.x_shape[3]),
+            in_depth=1 if not is_conv3d else int(workload.x_shape[2]),
+            in_height=1 if is_conv1d else int(workload.x_shape[3] if is_conv3d else workload.x_shape[2]),
+            in_width=int(workload.x_shape[2] if is_conv1d else (workload.x_shape[4] if is_conv3d else workload.x_shape[3])),
             out_channels=int(workload.weight_shape[1] if workload.op in CK_TRANSPOSED_CONV_OPS else workload.weight_shape[0]),
-            kernel_h=1 if is_conv1d else int(workload.weight_shape[2]),
-            kernel_w=int(workload.weight_shape[2] if is_conv1d else workload.weight_shape[3]),
-            out_height=1 if is_conv1d else int(workload.output_shape[2]),
-            out_width=int(workload.output_shape[2] if is_conv1d else workload.output_shape[3]),
-            stride_h=1 if is_conv1d else int(stride[0]),
-            stride_w=int(stride[0] if is_conv1d else stride[1]),
-            pad_h=0 if is_conv1d else int(padding[0]),
-            pad_w=int(padding[0] if is_conv1d else padding[1]),
+            kernel_d=1 if not is_conv3d else int(workload.weight_shape[2]),
+            kernel_h=1 if is_conv1d else int(workload.weight_shape[3] if is_conv3d else workload.weight_shape[2]),
+            kernel_w=int(workload.weight_shape[2] if is_conv1d else (workload.weight_shape[4] if is_conv3d else workload.weight_shape[3])),
+            out_depth=1 if not is_conv3d else int(workload.output_shape[2]),
+            out_height=1 if is_conv1d else int(workload.output_shape[3] if is_conv3d else workload.output_shape[2]),
+            out_width=int(workload.output_shape[2] if is_conv1d else (workload.output_shape[4] if is_conv3d else workload.output_shape[3])),
+            stride_d=1 if not is_conv3d else int(stride[0]),
+            stride_h=1 if is_conv1d else int(stride[1] if is_conv3d else stride[0]),
+            stride_w=int(stride[0] if is_conv1d else (stride[2] if is_conv3d else stride[1])),
+            pad_d=0 if not is_conv3d else int(padding[0]),
+            pad_h=0 if is_conv1d else int(padding[1] if is_conv3d else padding[0]),
+            pad_w=int(padding[0] if is_conv1d else (padding[2] if is_conv3d else padding[1])),
             output_pad_h=int(workload.conv_config.get("output_padding", (0, 0))[0]),
             output_pad_w=int(workload.conv_config.get("output_padding", (0, 0))[1]),
-            dilation_h=1 if is_conv1d else int(dilation[0]),
-            dilation_w=int(dilation[0] if is_conv1d else dilation[1]),
+            dilation_d=1 if not is_conv3d else int(dilation[0]),
+            dilation_h=1 if is_conv1d else int(dilation[1] if is_conv3d else dilation[0]),
+            dilation_w=int(dilation[0] if is_conv1d else (dilation[2] if is_conv3d else dilation[1])),
+            groups=int(workload.conv_config.get("groups", 1) or 1),
             iterations=int(iterations),
             repeats=int(repeats),
             transposed=workload.op in CK_TRANSPOSED_CONV_OPS,
@@ -5688,7 +5800,6 @@ class _CkRocmProfiler:
                 i64,
                 i64,
                 i64,
-                ctypes.c_int,
                 ctypes.c_int,
                 ctypes.c_int,
                 ctypes.c_int,

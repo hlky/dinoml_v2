@@ -14,12 +14,15 @@ int arg_int(char** argv, int index) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 15 && argc != 16 && argc != 21 && argc != 22) {
+  if (argc != 15 && argc != 16 && argc != 21 && argc != 22 && argc != 28 && argc != 29) {
     std::cerr
         << "usage: " << argv[0]
         << " dtype n w c out_w out_c kernel_w stride_w pad_w dilation_w iterations repeats has_bias residual_count [validation_mode]\n"
         << "   or: " << argv[0]
         << " dtype n h w c out_h out_w out_c kernel_h kernel_w stride_h stride_w pad_h pad_w dilation_h dilation_w iterations repeats has_bias residual_count [validation_mode]\n";
+    std::cerr
+        << "   or: " << argv[0]
+        << " dtype n d h w c out_d out_h out_w out_c kernel_d kernel_h kernel_w stride_d stride_h stride_w pad_d pad_h pad_w dilation_d dilation_h dilation_w groups iterations repeats has_bias residual_count [validation_mode]\n";
     return 2;
   }
   try {
@@ -43,7 +46,7 @@ int main(int argc, char** argv) {
       if (argc == 16) {
         request.validation_mode = argv[15];
       }
-    } else {
+    } else if (argc == 21 || argc == 22) {
       request.spatial_rank = 2;
       request.h = arg_int(argv, 3);
       request.w = arg_int(argv, 4);
@@ -65,6 +68,36 @@ int main(int argc, char** argv) {
       request.residual_count = arg_int(argv, 20);
       if (argc == 22) {
         request.validation_mode = argv[21];
+      }
+    } else {
+      request.spatial_rank = 3;
+      request.d = arg_int(argv, 3);
+      request.h = arg_int(argv, 4);
+      request.w = arg_int(argv, 5);
+      request.c = arg_int(argv, 6);
+      request.out_d = arg_int(argv, 7);
+      request.out_h = arg_int(argv, 8);
+      request.out_w = arg_int(argv, 9);
+      request.out_c = arg_int(argv, 10);
+      request.kernel_d = arg_int(argv, 11);
+      request.kernel_h = arg_int(argv, 12);
+      request.kernel_w = arg_int(argv, 13);
+      request.stride_d = arg_int(argv, 14);
+      request.stride_h = arg_int(argv, 15);
+      request.stride_w = arg_int(argv, 16);
+      request.pad_d = arg_int(argv, 17);
+      request.pad_h = arg_int(argv, 18);
+      request.pad_w = arg_int(argv, 19);
+      request.dilation_d = arg_int(argv, 20);
+      request.dilation_h = arg_int(argv, 21);
+      request.dilation_w = arg_int(argv, 22);
+      request.groups = arg_int(argv, 23);
+      request.iterations = arg_int(argv, 24);
+      request.repeats = arg_int(argv, 25);
+      request.has_bias = arg_int(argv, 26) != 0;
+      request.residual_count = arg_int(argv, 27);
+      if (argc == 29) {
+        request.validation_mode = argv[28];
       }
     }
     auto results = dinoml::cutlass_conv_profiler::profile_conv(request, 0xC011A55u);

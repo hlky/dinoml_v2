@@ -271,6 +271,38 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         )
     elif launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
+    elif launch_abi == "dinoml_ck_conv3d_bias_v1":
+        bias_arg = f"    const {cpp_type}* bias,\n"
+        return (
+            f'extern "C" int {symbol}(\n'
+            f"    const {cpp_type}* x,\n"
+            f"    const {cpp_type}* weight,\n"
+            f"{bias_arg}"
+            f"    {cpp_type}* output,\n"
+            "    int batch,\n"
+            "    int in_channels,\n"
+            "    int in_depth,\n"
+            "    int in_height,\n"
+            "    int in_width,\n"
+            "    int out_channels,\n"
+            "    int kernel_d,\n"
+            "    int kernel_h,\n"
+            "    int kernel_w,\n"
+            "    int out_depth,\n"
+            "    int out_height,\n"
+            "    int out_width,\n"
+            "    int stride_d,\n"
+            "    int stride_h,\n"
+            "    int stride_w,\n"
+            "    int pad_d,\n"
+            "    int pad_h,\n"
+            "    int pad_w,\n"
+            "    int dilation_d,\n"
+            "    int dilation_h,\n"
+            "    int dilation_w,\n"
+            "    int groups,\n"
+            "    hipStream_t stream);"
+        )
     elif launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
         residual_arg = f"    const {cpp_type}* residual,\n"

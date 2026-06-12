@@ -17,20 +17,27 @@ struct ConvRequest {
   std::string dtype;
   int spatial_rank = 2;
   int n = 0;
+  int d = 0;
   int h = 0;
   int w = 0;
   int c = 0;
+  int out_d = 0;
   int out_h = 0;
   int out_w = 0;
   int out_c = 0;
+  int kernel_d = 0;
   int kernel_h = 0;
   int kernel_w = 0;
+  int stride_d = 1;
   int stride_h = 1;
   int stride_w = 1;
+  int pad_d = 0;
   int pad_h = 0;
   int pad_w = 0;
+  int dilation_d = 1;
   int dilation_h = 1;
   int dilation_w = 1;
+  int groups = 1;
   int iterations = 1;
   int repeats = 1;
   bool has_bias = true;
@@ -163,14 +170,17 @@ inline bool candidate_matches(const ConvCandidate& candidate, const ConvRequest&
     return true;
   }
   if (kind == "semantic_input_channels") {
-    return candidate.input_channels == request.c;
+    int semantic_input_channels = request.spatial_rank == 3 && request.groups > 0 ? request.c / request.groups : request.c;
+    return candidate.input_channels == semantic_input_channels;
   }
   if (kind == "natural_alignment") {
-    return request.c >= candidate.min_input_channels &&
+    int semantic_input_channels = request.spatial_rank == 3 && request.groups > 0 ? request.c / request.groups : request.c;
+    int semantic_output_channels = request.spatial_rank == 3 && request.groups > 0 ? request.out_c / request.groups : request.out_c;
+    return semantic_input_channels >= candidate.min_input_channels &&
         candidate.input_channels_multiple > 0 &&
         candidate.output_channels_multiple > 0 &&
-        request.c % candidate.input_channels_multiple == 0 &&
-        request.out_c % candidate.output_channels_multiple == 0;
+        semantic_input_channels % candidate.input_channels_multiple == 0 &&
+        semantic_output_channels % candidate.output_channels_multiple == 0;
   }
   return false;
 }
@@ -254,6 +264,46 @@ inline float run_candidate(
           nullptr);
     }
     throw std::runtime_error("CUTLASS Conv profiler supports at most one residual input");
+  }
+  if (request.spatial_rank == 3) {
+    if (request.residual_count != 0) {
+      throw std::runtime_error("CUTLASS Conv profiler supports at most one residual input");
+    }
+    using Fn = float (*)(
+        const void*, const void*, const void*, void*,
+        int, int, int, int, int, int, int, int, int,
+        int, int, int, int, int, int, int, int, int, int,
+        int, int, int, int,
+        cudaStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(candidate.profiler_symbol))(
+        activation,
+        weight,
+        bias,
+        output,
+        request.n,
+        request.d,
+        request.h,
+        request.w,
+        request.c,
+        request.out_d,
+        request.out_h,
+        request.out_w,
+        request.out_c,
+        request.kernel_d,
+        request.kernel_h,
+        request.kernel_w,
+        request.stride_d,
+        request.stride_h,
+        request.stride_w,
+        request.pad_d,
+        request.pad_h,
+        request.pad_w,
+        request.dilation_d,
+        request.dilation_h,
+        request.dilation_w,
+        request.groups,
+        request.iterations,
+        nullptr);
   }
   if (!request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(
@@ -346,27 +396,38 @@ inline float run_candidate(
 }
 
 inline std::vector<ConvResult> profile_conv(const ConvRequest& request, std::uint32_t seed) {
-  if (request.spatial_rank != 1 && request.spatial_rank != 2) {
-    throw std::runtime_error("CUTLASS Conv profiler spatial_rank must be 1 or 2");
+  if (request.spatial_rank != 1 && request.spatial_rank != 2 && request.spatial_rank != 3) {
+    throw std::runtime_error("CUTLASS Conv profiler spatial_rank must be 1, 2, or 3");
   }
   const bool is_conv1d = request.spatial_rank == 1;
+  const bool is_conv3d = request.spatial_rank == 3;
   if (request.n <= 0 || request.w <= 0 || request.c <= 0 || request.out_w <= 0 || request.out_c <= 0 ||
       request.kernel_w <= 0 || request.iterations <= 0 || request.repeats <= 0 ||
-      (!is_conv1d && (request.h <= 0 || request.out_h <= 0 || request.kernel_h <= 0))) {
+      (!is_conv1d && (request.h <= 0 || request.out_h <= 0 || request.kernel_h <= 0)) ||
+      (is_conv3d && (request.d <= 0 || request.out_d <= 0 || request.kernel_d <= 0 || request.groups <= 0))) {
     throw std::runtime_error("CUTLASS Conv profiler dimensions, iterations, and repeats must be positive");
+  }
+  if (is_conv3d && ((request.c % request.groups) != 0 || (request.out_c % request.groups) != 0)) {
+    throw std::runtime_error("CUTLASS Conv3d profiler requires input/output channels divisible by groups");
   }
   const bool strict_validation = (normalize_validation_mode(request.validation_mode) == "strict");
   std::mt19937 rng(seed);
   const std::size_t element_size = dtype_size(request.dtype);
   const std::size_t activation_elements = is_conv1d
       ? static_cast<std::size_t>(request.n) * request.w * request.c
-      : static_cast<std::size_t>(request.n) * request.h * request.w * request.c;
+      : (is_conv3d
+          ? static_cast<std::size_t>(request.n) * request.d * request.h * request.w * request.c
+          : static_cast<std::size_t>(request.n) * request.h * request.w * request.c);
   const std::size_t weight_elements = is_conv1d
       ? static_cast<std::size_t>(request.out_c) * request.kernel_w * request.c
-      : static_cast<std::size_t>(request.out_c) * request.kernel_h * request.kernel_w * request.c;
+      : (is_conv3d
+          ? static_cast<std::size_t>(request.out_c) * request.kernel_d * request.kernel_h * request.kernel_w * (request.c / request.groups)
+          : static_cast<std::size_t>(request.out_c) * request.kernel_h * request.kernel_w * request.c);
   const std::size_t output_elements = is_conv1d
       ? static_cast<std::size_t>(request.n) * request.out_w * request.out_c
-      : static_cast<std::size_t>(request.n) * request.out_h * request.out_w * request.out_c;
+      : (is_conv3d
+          ? static_cast<std::size_t>(request.n) * request.out_d * request.out_h * request.out_w * request.out_c
+          : static_cast<std::size_t>(request.n) * request.out_h * request.out_w * request.out_c);
   DeviceBuffer activation(activation_elements * element_size);
   DeviceBuffer weight(weight_elements * element_size);
   DeviceBuffer bias;

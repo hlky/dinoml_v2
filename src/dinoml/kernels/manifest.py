@@ -19,6 +19,7 @@ from dinoml.kernels.providers.ck.bmm import (
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV1D_OPS,
+    CK_CONV3D_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
     ck_conv_static_library_name,
@@ -81,6 +82,7 @@ from dinoml.ops.conv import (
     TRANSPOSED_CONV2D_FAMILY_OPS,
     normalize_conv1d_bias_attrs,
     normalize_conv2d_bias_attrs,
+    normalize_conv3d_attrs,
     normalize_transposed_conv2d_attrs,
 )
 from dinoml.ops.definitions import get_op_def
@@ -130,6 +132,7 @@ def build_kernel_manifest(ir: Mapping[str, Any], target: Mapping[str, Any]) -> d
         candidates = [dict(candidate) for candidate in resolved.candidates]
         candidate_set = dict(resolved.candidate_set) if resolved.candidate_set else None
         selected_candidate_id = candidates[0]["candidate_id"] if candidates else None
+        ck_conv_runtime_plan = None
         rocm_tile_fallback = _rocm_tile_fp32_fallback(str(node["op"]), dtype, target, kernel_library)
         if rocm_tile_fallback is not None:
             kernel_library = str(rocm_tile_fallback["kernel_library"])
@@ -355,7 +358,13 @@ def _unsafe_rocm_fp32_ck_library(dtype: str, target: Mapping[str, Any], kernel_l
 def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]:
     attrs = dict(node.get("attrs", {}))
     raw_groups = attrs.get("groups", 1)
-    if isinstance(raw_groups, int) and not isinstance(raw_groups, bool) and int(raw_groups) > 0 and int(raw_groups) != 1:
+    if (
+        str(node.get("op")) not in CK_CONV3D_OPS
+        and isinstance(raw_groups, int)
+        and not isinstance(raw_groups, bool)
+        and int(raw_groups) > 0
+        and int(raw_groups) != 1
+    ):
         return {
             "profile_blocked_reason": "ck_conv_groups_unsupported_for_profile",
             "profile_blocked_details": {"groups": int(raw_groups), "supported_groups": [1]},
@@ -376,6 +385,20 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
                 attrs.get("dilation", (1,)),
                 raw_groups,
             )
+        elif str(node.get("op")) in CK_CONV1D_OPS:
+            _stride, _padding, _dilation, groups = normalize_conv1d_bias_attrs(
+                attrs.get("stride", (1,)),
+                attrs.get("padding", (0,)),
+                attrs.get("dilation", (1,)),
+                raw_groups,
+            )
+        elif str(node.get("op")) in CK_CONV3D_OPS:
+            _stride, _padding, _dilation, groups = normalize_conv3d_attrs(
+                attrs.get("stride", (1, 1, 1)),
+                attrs.get("padding", (0, 0, 0)),
+                attrs.get("dilation", (1, 1, 1)),
+                raw_groups,
+            )
         else:
             _stride, _padding, _dilation, groups = normalize_conv2d_bias_attrs(
                 attrs.get("stride", (1, 1)),
@@ -388,7 +411,7 @@ def _ck_conv_profile_blocked_metadata(node: Mapping[str, Any]) -> dict[str, Any]
             "profile_blocked_reason": "ck_conv_attrs_unsupported_for_profile",
             "profile_blocked_details": {"error": str(exc)},
         }
-    if int(groups) != 1:
+    if str(node.get("op")) not in CK_CONV3D_OPS and int(groups) != 1:
         return {
             "profile_blocked_reason": "ck_conv_groups_unsupported_for_profile",
             "profile_blocked_details": {"groups": int(groups), "supported_groups": [1]},
@@ -523,6 +546,32 @@ def _select_ck_conv_manifest_candidate(
             "gemm_m": batch * out_w,
             "gemm_n": out_channels,
             "gemm_k": in_channels * kernel_w,
+        }
+        return _select_ck_candidate(candidates, problem)
+    if str(node.get("op")) in CK_CONV3D_OPS:
+        if len(x_shape) != 5 or len(weight_shape) != 5 or len(out_shape) != 5:
+            return candidates[0]
+        batch, in_channels, _, _, _ = x_shape
+        out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = weight_shape
+        out_d, out_h, out_w = out_shape[2], out_shape[3], out_shape[4]
+        attrs = dict(node.get("attrs", {}))
+        raw_groups = attrs.get("groups", 1)
+        groups = int(raw_groups) if isinstance(raw_groups, int) and not isinstance(raw_groups, bool) else -1
+        problem = {
+            "batch": batch,
+            "in_channels": in_channels,
+            "weight_in_channels": weight_in_channels,
+            "out_channels": out_channels,
+            "kernel_d": kernel_d,
+            "kernel_h": kernel_h,
+            "kernel_w": kernel_w,
+            "out_d": out_d,
+            "out_h": out_h,
+            "out_w": out_w,
+            "groups": groups,
+            "gemm_m": batch * out_d * out_h * out_w,
+            "gemm_n": out_channels,
+            "gemm_k": weight_in_channels * kernel_d * kernel_h * kernel_w,
         }
         return _select_ck_candidate(candidates, problem)
     if len(x_shape) != 4 or len(weight_shape) != 4 or len(out_shape) != 4:

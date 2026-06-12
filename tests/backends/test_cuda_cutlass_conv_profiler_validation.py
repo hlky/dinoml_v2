@@ -48,6 +48,7 @@ def _cutlass_conv_workload() -> ConvProfileWorkload:
         weight_transform={},
         temporary_buffers=(),
         workspace_nbytes=0,
+        provider_groups=1,
         source_op=None,
         bias_mode=None,
         shape_source="static",
@@ -93,6 +94,7 @@ def _cutlass_conv1d_workload() -> ConvProfileWorkload:
         weight_transform={},
         temporary_buffers=(),
         workspace_nbytes=0,
+        provider_groups=1,
         source_op=None,
         bias_mode=None,
         shape_source="static",
@@ -138,10 +140,57 @@ def _cutlass_transposed_conv2d_workload() -> ConvProfileWorkload:
         weight_transform={},
         temporary_buffers=(),
         workspace_nbytes=0,
+        provider_groups=1,
         source_op=None,
         bias_mode=None,
         shape_source="static",
         shape_case_id="case0",
+        dim_values={},
+        dim_sources={},
+    )
+
+
+def _cutlass_conv3d_workload() -> ConvProfileWorkload:
+    candidate = {
+        "candidate_id": "cand3d",
+        "candidate_config_key": "cfg3d",
+        "profiler_symbol": "profile_conv3d_symbol",
+        "status": "runtime",
+        "profiler_status": "runtime_profiler",
+    }
+    return ConvProfileWorkload(
+        node_id="n3",
+        op="conv3d_bias",
+        dtype="float16",
+        kernel_symbol="kernel_conv3d_symbol",
+        profiler_symbol="profile_conv3d_symbol",
+        candidate_set_id="cutlass_conv3d_set",
+        candidate_set_key="cutlass_conv3d_set_key",
+        candidate_id="cand3d",
+        candidate_config_key="cfg3d",
+        candidate=candidate,
+        x_tensor="x",
+        weight_tensor="w",
+        bias_tensor="b",
+        residual_tensor=None,
+        output_tensor="y",
+        x_shape=(1, 4, 5, 6, 7),
+        weight_shape=(4, 1, 3, 3, 3),
+        bias_shape=(4,),
+        residual_shape=None,
+        output_shape=(1, 4, 5, 6, 7),
+        conv_config={"stride": [1, 1, 1], "padding": [1, 1, 1], "dilation": [1, 1, 1], "groups": 4},
+        semantic_layout={},
+        provider_layout={},
+        layout_translation={},
+        weight_transform={"padded_input_channels": 4, "padded_output_channels": 4},
+        temporary_buffers=(),
+        workspace_nbytes=0,
+        provider_groups=1,
+        source_op="depthwise_conv3d",
+        bias_mode="explicit_zero_constant",
+        shape_source="static",
+        shape_case_id="case3d",
         dim_values={},
         dim_sources={},
     )
@@ -241,6 +290,57 @@ def test_cutlass_conv1d_profiler_forwards_1d_shape_contract():
     assert calls[0]["kernel_w"] == workload.weight_shape[2]
     assert calls[0]["residual_count"] == 1
     assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
+
+
+def test_cutlass_conv3d_profiler_forwards_3d_shape_contract():
+    workload = _cutlass_conv3d_workload()
+    calls = []
+
+    class FakeModule:
+        def profile_conv(self, **kwargs):
+            calls.append(kwargs)
+            return [{"profiler_symbol": workload.profiler_symbol, "samples_ms": [0.31], "workspace_nbytes": 0}]
+
+    profiler = _CutlassConvProfiler(
+        {(workload.op, workload.dtype): FakeModule()},
+        {(workload.op, workload.dtype): [workload.candidate]},
+    )
+    rows = profiler.profile(workload, iterations=7, repeats=1)
+
+    assert calls[0]["spatial_rank"] == 3
+    assert calls[0]["d"] == workload.x_shape[2]
+    assert calls[0]["out_d"] == workload.output_shape[2]
+    assert calls[0]["kernel_d"] == workload.weight_shape[2]
+    assert calls[0]["groups"] == 1
+    assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
+
+
+def test_cutlass_conv3d_profile_cache_key_tracks_provider_groups():
+    workload = _cutlass_conv3d_workload()
+    manifest = {"target": {"name": "cuda", "arch": "sm_89"}}
+
+    base_lookup = _profile_cache_lookup(
+        workload,
+        manifest,
+        {"cache_key": "kernel-cache"},
+        {"cache_key": "codegen-cache"},
+        context=_profile_context(),
+        cutlass_conv_validation_mode="fast",
+    )
+
+    shifted_workload = ConvProfileWorkload(
+        **{**workload.__dict__, "provider_groups": 4},
+    )
+    shifted_lookup = _profile_cache_lookup(
+        shifted_workload,
+        manifest,
+        {"cache_key": "kernel-cache"},
+        {"cache_key": "codegen-cache"},
+        context=_profile_context(),
+        cutlass_conv_validation_mode="fast",
+    )
+
+    assert base_lookup.profile_key != shifted_lookup.profile_key
 
 
 def test_cutlass_conv_profiler_surfaces_strict_validation_failures():

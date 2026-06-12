@@ -19,7 +19,8 @@ CK_CONV_SKINNY_N_SYMBOL_ID = "xdl_skinny_n_v1"
 CK_CONV_SMALL_SYMBOL_ID = "xdl_small_v1"
 CK_CONV1D_OPS = ("conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu")
 CK_CONV2D_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
-CK_CONV_OPS = (*CK_CONV1D_OPS, *CK_CONV2D_OPS)
+CK_CONV3D_OPS = ("conv3d_bias",)
+CK_CONV_OPS = (*CK_CONV1D_OPS, *CK_CONV2D_OPS, *CK_CONV3D_OPS)
 CK_TRANSPOSED_CONV_OPS = (
     "transposed_conv2d",
     "transposed_conv2d_bias",
@@ -38,6 +39,7 @@ _CK_CONV_EPILOGUE_BY_OP = {
     "conv2d_bias_relu": "bias_relu",
     "conv2d_bias_add": "bias_add",
     "conv2d_bias_add_relu": "bias_add_relu",
+    "conv3d_bias": "bias",
 }
 _CK_TRANSPOSED_CONV_EPILOGUE_BY_OP = {
     "transposed_conv2d": "identity",
@@ -55,6 +57,7 @@ _CK_CONV_LAUNCH_ABI_BY_OP = {
     "conv2d_bias_relu": "dinoml_ck_conv2d_bias_relu_v1",
     "conv2d_bias_add": "dinoml_ck_conv2d_bias_add_v1",
     "conv2d_bias_add_relu": "dinoml_ck_conv2d_bias_add_relu_v1",
+    "conv3d_bias": "dinoml_ck_conv3d_bias_v1",
 }
 _CK_TRANSPOSED_CONV_LAUNCH_ABI_BY_OP = {
     "transposed_conv2d": "dinoml_ck_transposed_conv2d_v1",
@@ -217,7 +220,7 @@ def ck_conv_candidate_set(
         "schema_version": CK_CONV_CANDIDATE_SET_SCHEMA_VERSION,
         "candidate_set_id": ck_conv_candidate_set_id(op_name, normalized_dtype),
         "provider": "ck",
-        "family": "conv1d_fprop" if _ck_conv_is_1d(op_name) else "conv2d_fprop",
+        "family": _ck_conv_family(op_name),
         "op": op_name,
         "dtype": normalized_dtype,
         "accumulator_dtype": "float32",
@@ -225,7 +228,7 @@ def ck_conv_candidate_set(
         "epilogue_config": epilogue_config,
         "semantic_layout": _ck_conv_semantic_layout(op_name),
         "provider_layout": _ck_conv_provider_layout(op_name),
-        "supported_groups": [1],
+        "supported_groups": ["any_positive_int"] if _ck_conv_is_3d(op_name) else [1],
         "supported_dtypes": list(CK_CONV_SUPPORTED_DTYPES),
         "target_policy": {"rocm": True},
         "launch_abi": epilogue_config["launch_abi"],
@@ -233,9 +236,11 @@ def ck_conv_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_CONV_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_conv1d_xdl_curated_candidates_v1"
-        if _ck_conv_is_1d(op_name)
-        else "static_ck_conv2d_xdl_curated_candidates_v3",
+        "generator": (
+            "static_ck_conv1d_xdl_curated_candidates_v1"
+            if _ck_conv_is_1d(op_name)
+            else ("static_ck_conv3d_xdl_curated_candidates_v1" if _ck_conv_is_3d(op_name) else "static_ck_conv2d_xdl_curated_candidates_v3")
+        ),
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -249,7 +254,7 @@ def ck_conv_candidate_set_id(op_name: str, dtype: str) -> str:
     if op_name in CK_TRANSPOSED_CONV_OPS:
         return ck_transposed_conv_candidate_set_id(op_name, dtype)
     _validate_ck_conv_op(op_name)
-    version = "v1" if _ck_conv_is_1d(op_name) else "v3"
+    version = "v1" if (_ck_conv_is_1d(op_name) or _ck_conv_is_3d(op_name)) else "v3"
     return f"ck_{op_name}_{_normalize_ck_conv_dtype(dtype)}_{_ck_conv_epilogue(op_name)}_{version}"
 
 
@@ -418,9 +423,7 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
     cde_vector_width = _ck_conv_cde_vector_width(dtype, config_name)
     selection_predicate = {
         "priority": int(kernel_config["priority"]),
-        "exact": {
-            "groups": 1,
-        },
+        "exact": ({} if _ck_conv_is_3d(op_name) else {"groups": 1}),
         "min_problem": dict(kernel_config.get("min_problem", {})),
         "alignment": {
             "in_channels": vector_width,
@@ -447,7 +450,7 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
         "candidate_id": f"ck_{op_name}_{dtype}_{symbol_id}",
         "symbol_id": symbol_id,
         "provider": "ck",
-        "family": "conv1d_fprop" if _ck_conv_is_1d(op_name) else "conv2d_fprop",
+        "family": _ck_conv_family(op_name),
         "op": op_name,
         "dtype": dtype,
         "accumulator_dtype": "float32",
@@ -455,7 +458,7 @@ def _ck_conv_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
         "epilogue_config": epilogue_config,
         "semantic_layout": _ck_conv_semantic_layout(op_name),
         "provider_layout": _ck_conv_provider_layout(op_name),
-        "supported_groups": [1],
+        "supported_groups": ["any_positive_int"] if _ck_conv_is_3d(op_name) else [1],
         "optional": False,
         "launch_abi": epilogue_config["launch_abi"],
         "split_k_values": [1],
@@ -596,6 +599,8 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
         return f"DINOML_CK_CONV1D_BIAS_ADD_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     if launch_abi == "dinoml_ck_conv2d_bias_v1":
         return f"DINOML_CK_CONV2D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
+    if launch_abi == "dinoml_ck_conv3d_bias_v1":
+        return f"DINOML_CK_CONV3D_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     if launch_abi == "dinoml_ck_conv2d_bias_relu_v1":
         return f"DINOML_CK_CONV2D_BIAS_RELU_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {config_enum})"
     if launch_abi == "dinoml_ck_conv2d_bias_add_v1":
@@ -610,6 +615,7 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
     match = re.match(
         r"(?:DINOML_CK_CONV1D_BIAS(?:_ADD_RELU|_ADD|_RELU)?_EXPORT|"
         r"DINOML_CK_CONV2D_BIAS(?:_ADD_RELU|_ADD|_RELU)?_EXPORT|"
+        r"DINOML_CK_CONV3D_BIAS_EXPORT|"
         r"DINOML_CK_TRANSPOSED_CONV2D(?:_BIAS(?:_ADD_RELU|_ADD|_RELU)?)?_EXPORT)\((.*)\)\s*$",
         stripped,
     )
@@ -704,6 +710,13 @@ def _ck_conv_semantic_layout(op_name: str) -> dict[str, str]:
             "bias": "o",
             "output": "ncw",
         }
+    elif _ck_conv_is_3d(op_name):
+        layout = {
+            "activation": "ncdhw",
+            "weight": "oidhw",
+            "bias": "o",
+            "output": "ncdhw",
+        }
     else:
         layout = {
             "activation": "nchw",
@@ -712,7 +725,7 @@ def _ck_conv_semantic_layout(op_name: str) -> dict[str, str]:
             "output": "nchw",
         }
     if _ck_conv_op_has_residual(op_name):
-        layout["residual"] = "ncw" if _ck_conv_is_1d(op_name) else "nchw"
+        layout["residual"] = "ncw" if _ck_conv_is_1d(op_name) else ("ncdhw" if _ck_conv_is_3d(op_name) else "nchw")
     return layout
 
 
@@ -725,6 +738,13 @@ def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
             "bias": "g_k",
             "output": "g_nw_k_strided",
         }
+    elif _ck_conv_is_3d(op_name):
+        layout = {
+            "activation": "g_ndhw_c_strided",
+            "weight": "g_k_zyx_c_strided",
+            "bias": "g_k",
+            "output": "g_ndhw_k_strided",
+        }
     else:
         layout = {
             "activation": "g_nhw_c_strided",
@@ -733,7 +753,11 @@ def _ck_conv_provider_layout(op_name: str) -> dict[str, str]:
             "output": "g_nhw_k_strided",
         }
     if _ck_conv_op_has_residual(op_name):
-        layout["residual"] = "g_nw_k_strided" if _ck_conv_is_1d(op_name) else "g_nhw_k_strided"
+        layout["residual"] = (
+            "g_nw_k_strided"
+            if _ck_conv_is_1d(op_name)
+            else ("g_ndhw_k_strided" if _ck_conv_is_3d(op_name) else "g_nhw_k_strided")
+        )
     return layout
 
 
@@ -773,6 +797,20 @@ def _ck_conv_op_has_residual(op_name: str) -> bool:
 def _ck_conv_is_1d(op_name: str) -> bool:
     _validate_ck_conv_op(op_name)
     return op_name in CK_CONV1D_OPS
+
+
+def _ck_conv_is_3d(op_name: str) -> bool:
+    _validate_ck_conv_op(op_name)
+    return op_name in CK_CONV3D_OPS
+
+
+def _ck_conv_family(op_name: str) -> str:
+    _validate_ck_conv_op(op_name)
+    if _ck_conv_is_1d(op_name):
+        return "conv1d_fprop"
+    if _ck_conv_is_3d(op_name):
+        return "conv3d_fprop"
+    return "conv2d_fprop"
 
 
 def _ck_transposed_conv_op_has_residual(op_name: str) -> bool:

@@ -37,6 +37,7 @@ CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
 CUTLASS_CONV2D_BIAS_DTYPES = ("float16", "float32", "bfloat16")
 CONV1D_BIAS_FAMILY_OPS = ("conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu")
 CONV2D_BIAS_FAMILY_OPS = ("conv2d_bias", "conv2d_bias_relu", "conv2d_bias_add", "conv2d_bias_add_relu")
+CONV3D_FAMILY_OPS = ("conv3d_bias", "depthwise_conv3d")
 TRANSPOSED_CONV2D_FAMILY_OPS = (
     "transposed_conv2d",
     "transposed_conv2d_bias",
@@ -116,6 +117,85 @@ def infer_conv2d_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: 
         attrs.get("groups", 1),
     )
     return resolve_conv2d_shape(
+        input_shapes[0],
+        input_shapes[1],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def infer_conv3d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_conv3d_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1, 1), "padding": (0, 0, 0), "dilation": (1, 1, 1), "groups": 1},
+    )
+
+
+def infer_conv3d_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("conv3d expects activation and weight inputs")
+    stride, padding, dilation, groups = normalize_conv3d_attrs(
+        attrs.get("stride", (1, 1, 1)),
+        attrs.get("padding", (0, 0, 0)),
+        attrs.get("dilation", (1, 1, 1)),
+        attrs.get("groups", 1),
+    )
+    return resolve_conv3d_shape(
+        input_shapes[0],
+        input_shapes[1],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def infer_conv3d_bias_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_conv3d_bias_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1, 1), "padding": (0, 0, 0), "dilation": (1, 1, 1), "groups": 1},
+    )
+
+
+def infer_conv3d_bias_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("conv3d_bias expects activation, weight, and bias inputs")
+    stride, padding, dilation, groups = normalize_conv3d_attrs(
+        attrs.get("stride", (1, 1, 1)),
+        attrs.get("padding", (0, 0, 0)),
+        attrs.get("dilation", (1, 1, 1)),
+        attrs.get("groups", 1),
+    )
+    return resolve_conv3d_bias_shape(
+        input_shapes[0],
+        input_shapes[1],
+        input_shapes[2],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def infer_depthwise_conv3d_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_depthwise_conv3d_shape_with_attrs(
+        input_shapes,
+        {"stride": (1, 1, 1), "padding": (0, 0, 0), "dilation": (1, 1, 1)},
+    )
+
+
+def infer_depthwise_conv3d_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 2:
+        raise ValueError("depthwise_conv3d expects activation and weight inputs")
+    stride, padding, dilation, groups = normalize_conv3d_attrs(
+        attrs.get("stride", (1, 1, 1)),
+        attrs.get("padding", (0, 0, 0)),
+        attrs.get("dilation", (1, 1, 1)),
+        attrs.get("groups", int(input_shapes[0][1])),
+    )
+    return resolve_depthwise_conv3d_shape(
         input_shapes[0],
         input_shapes[1],
         stride=stride,
@@ -385,6 +465,19 @@ def normalize_conv2d_bias_attrs(
     normalized_padding = _normalize_non_negative_pair(padding, "conv2d padding")
     normalized_dilation = _normalize_positive_pair(dilation, "conv2d dilation")
     normalized_groups = _normalize_groups(groups, "conv2d")
+    return list(normalized_stride), list(normalized_padding), list(normalized_dilation), normalized_groups
+
+
+def normalize_conv3d_attrs(
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> tuple[list[int], list[int], list[int], int]:
+    normalized_stride = _normalize_positive_triple(stride, "conv3d stride")
+    normalized_padding = _normalize_non_negative_triple(padding, "conv3d padding")
+    normalized_dilation = _normalize_positive_triple(dilation, "conv3d dilation")
+    normalized_groups = _normalize_groups(groups, "conv3d")
     return list(normalized_stride), list(normalized_padding), list(normalized_dilation), normalized_groups
 
 
@@ -909,6 +1002,123 @@ def resolve_conv2d_shape(
     )
 
 
+def resolve_conv3d_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    _validate_rank(input_shape, 5, "conv3d expects rank-5 NCDHW activation")
+    _validate_rank(weight_shape, 5, "conv3d expects rank-5 OIDHW weight")
+    out_channels = int(weight_shape[0]) if weight_shape else 0
+    return resolve_conv3d_bias_shape(
+        input_shape,
+        weight_shape,
+        [out_channels],
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
+def resolve_conv3d_bias_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    bias_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    _validate_rank(input_shape, 5, "conv3d_bias expects rank-5 NCDHW activation")
+    _validate_rank(weight_shape, 5, "conv3d_bias expects rank-5 OIDHW weight")
+    _validate_rank(bias_shape, 1, "conv3d_bias expects rank-1 bias")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv3d_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    batch, in_channels, in_depth, in_height, in_width = [int(dim) for dim in input_shape]
+    out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = [int(dim) for dim in weight_shape]
+    if in_channels % normalized_groups != 0:
+        raise ValueError(
+            "conv3d_bias activation channels must be divisible by groups, "
+            f"got C={in_channels} and groups={normalized_groups}"
+        )
+    expected_weight_in_channels = in_channels // normalized_groups
+    if weight_in_channels != expected_weight_in_channels:
+        raise ValueError(
+            "conv3d_bias weight input channels must match input channels per group: "
+            f"got activation C={in_channels}, groups={normalized_groups}, weight I={weight_in_channels}, "
+            f"expected I={expected_weight_in_channels}"
+        )
+    if out_channels % normalized_groups != 0:
+        raise ValueError(
+            "conv3d_bias output channels must be divisible by groups, "
+            f"got O={out_channels} and groups={normalized_groups}"
+        )
+    if int(bias_shape[0]) != out_channels:
+        raise ValueError(
+            f"conv3d_bias bias length must match weight output channels, got bias {int(bias_shape[0])} and weight O={out_channels}"
+        )
+    _validate_kernel_extent("conv3d_bias", kernel_d, "depth")
+    _validate_kernel_shape("conv3d_bias", kernel_h, kernel_w)
+    return [
+        batch,
+        out_channels,
+        _conv_output_dim("conv3d_bias", in_depth, kernel_d, normalized_stride[0], normalized_padding[0], normalized_dilation[0], "depth"),
+        _conv_output_dim("conv3d_bias", in_height, kernel_h, normalized_stride[1], normalized_padding[1], normalized_dilation[1], "height"),
+        _conv_output_dim("conv3d_bias", in_width, kernel_w, normalized_stride[2], normalized_padding[2], normalized_dilation[2], "width"),
+    ]
+
+
+def resolve_depthwise_conv3d_shape(
+    input_shape: Sequence[int],
+    weight_shape: Sequence[int],
+    *,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: Any,
+) -> list[int]:
+    _validate_rank(input_shape, 5, "depthwise_conv3d expects rank-5 NCDHW activation")
+    _validate_rank(weight_shape, 5, "depthwise_conv3d expects rank-5 OIDHW weight")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv3d_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    batch, in_channels, in_depth, in_height, in_width = [int(dim) for dim in input_shape]
+    out_channels, weight_in_channels, kernel_d, kernel_h, kernel_w = [int(dim) for dim in weight_shape]
+    if normalized_groups != in_channels:
+        raise ValueError(
+            "depthwise_conv3d groups must equal the activation channel count, "
+            f"got groups={normalized_groups} and C={in_channels}"
+        )
+    if out_channels != in_channels:
+        raise ValueError(
+            "depthwise_conv3d output channels must equal the activation channel count, "
+            f"got O={out_channels} and C={in_channels}"
+        )
+    if weight_in_channels != 1:
+        raise ValueError(f"depthwise_conv3d weight input channels must be 1, got {weight_in_channels}")
+    return resolve_conv3d_shape(
+        input_shape,
+        weight_shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+
+
 def resolve_transposed_conv2d_shape(
     input_shape: Sequence[int],
     weight_shape: Sequence[int],
@@ -985,6 +1195,20 @@ def _normalize_non_negative_pair(value: Any, name: str) -> tuple[int, int]:
     return pair
 
 
+def _normalize_positive_triple(value: Any, name: str) -> tuple[int, int, int]:
+    triple = _normalize_triple(value, name)
+    if any(item <= 0 for item in triple):
+        raise ValueError(f"{name} must contain positive integers, got {value!r}")
+    return triple
+
+
+def _normalize_non_negative_triple(value: Any, name: str) -> tuple[int, int, int]:
+    triple = _normalize_triple(value, name)
+    if any(item < 0 for item in triple):
+        raise ValueError(f"{name} must contain non-negative integers, got {value!r}")
+    return triple
+
+
 def _normalize_positive_single(value: Any, name: str) -> int:
     single = _normalize_single(value, name)
     if single <= 0:
@@ -1012,6 +1236,20 @@ def _normalize_pair(value: Any, name: str) -> tuple[int, int]:
     raise ValueError(f"{name} must be an integer or pair of integers, got {value!r}")
 
 
+def _normalize_triple(value: Any, name: str) -> tuple[int, int, int]:
+    if isinstance(value, int) and not isinstance(value, bool):
+        item = int(value)
+        return item, item, item
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        values = list(value)
+        if len(values) != 3:
+            raise ValueError(f"{name} must be an integer or triple of integers, got {value!r}")
+        if any(not isinstance(item, int) or isinstance(item, bool) for item in values):
+            raise ValueError(f"{name} must contain non-bool integers, got {value!r}")
+        return int(values[0]), int(values[1]), int(values[2])
+    raise ValueError(f"{name} must be an integer or triple of integers, got {value!r}")
+
+
 def _normalize_single(value: Any, name: str) -> int:
     if isinstance(value, int) and not isinstance(value, bool):
         return int(value)
@@ -1031,8 +1269,6 @@ def _normalize_groups(groups: Any, op_name: str) -> int:
     normalized_groups = int(groups)
     if normalized_groups <= 0:
         raise ValueError(f"{op_name} groups must be positive, got {groups!r}")
-    if normalized_groups != 1:
-        raise NotImplementedError(f"{op_name} currently supports groups=1 only, got {normalized_groups}")
     return normalized_groups
 
 
@@ -1101,6 +1337,46 @@ def _cutlass_conv_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
             },
         )
     if op_name in CK_CONV_OPS:
+        kernels["rocm"] = KernelBinding(
+            ck_conv_symbol(op_name, "float32"),
+            "ck_conv",
+            profiler_symbol=ck_conv_profiler_symbol(op_name, "float32"),
+            dtype_variants={
+                dtype: KernelVariant(
+                    ck_conv_symbol(op_name, dtype),
+                    profiler_symbol=ck_conv_profiler_symbol(op_name, dtype),
+                    candidates=ck_conv_candidates(op_name, dtype),
+                    candidate_set=ck_conv_candidate_set(op_name, dtype),
+                )
+                for dtype in CK_CONV_SUPPORTED_DTYPES
+            },
+        )
+    return kernels
+
+
+def _conv3d_backend_kernels(op_name: str) -> dict[str, KernelBinding]:
+    kernels = {
+        "cpu": KernelBinding(
+            symbol=f"generated_{op_name}",
+            library="model",
+            source_template="conv3d_cpu.cpp.j2",
+        )
+    }
+    if op_name == "conv3d_bias":
+        kernels["cuda"] = KernelBinding(
+            cutlass_conv_symbol(op_name, "float32"),
+            "cutlass_conv",
+            profiler_symbol=cutlass_conv_profiler_symbol(op_name, "float32"),
+            dtype_variants={
+                dtype: KernelVariant(
+                    cutlass_conv_symbol(op_name, dtype),
+                    profiler_symbol=cutlass_conv_profiler_symbol(op_name, dtype),
+                    candidates=cutlass_conv_candidates(op_name, dtype),
+                    candidate_set=cutlass_conv_candidate_set(op_name, dtype),
+                )
+                for dtype in CUTLASS_CONV2D_BIAS_DTYPES
+            },
+        )
         kernels["rocm"] = KernelBinding(
             ck_conv_symbol(op_name, "float32"),
             "ck_conv",
@@ -1356,6 +1632,124 @@ def _conv_family_forward(
     )
 
 
+def _conv3d_bias_forward(
+    op_name: str,
+    *,
+    resolve_shape: Callable[..., list[int]],
+    x: Any,
+    weight: Any,
+    bias: Any,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: int,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    bias_tensor = as_tensor(bias, dtype_hint=x_tensor.dtype)
+    tensors = [x_tensor, weight_tensor, bias_tensor]
+    for tensor in tensors[1:]:
+        if tensor.builder is not x_tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if tensor.dtype != x_tensor.dtype:
+            raise ValueError(f"{op_name} dtype mismatch: {x_tensor.dtype} vs {tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"{op_name} does not support dtype {x_tensor.dtype}")
+    _validate_tensor_rank(x_tensor, 5, f"{op_name} expects rank-5 NCDHW activation")
+    _validate_tensor_rank(weight_tensor, 5, f"{op_name} expects rank-5 OIDHW weight")
+    _validate_tensor_rank(bias_tensor, 1, f"{op_name} expects rank-1 bias")
+    if any(tensor.dynamic for tensor in tensors):
+        raise ValueError(f"{op_name} currently supports only static activation, weight, and bias shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv3d_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    out_shape = resolve_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        bias_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    return x_tensor.builder.emit(
+        op_name,
+        tensors,
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+        },
+        shape_spec=out_shape,
+    )
+
+
+def _depthwise_conv3d_forward(
+    x: Any,
+    weight: Any,
+    stride: Any,
+    padding: Any,
+    dilation: Any,
+    groups: int,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if weight_tensor.builder is not x_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if weight_tensor.dtype != x_tensor.dtype:
+        raise ValueError(f"depthwise_conv3d dtype mismatch: {x_tensor.dtype} vs {weight_tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"depthwise_conv3d does not support dtype {x_tensor.dtype}")
+    _validate_tensor_rank(x_tensor, 5, "depthwise_conv3d expects rank-5 NCDHW activation")
+    _validate_tensor_rank(weight_tensor, 5, "depthwise_conv3d expects rank-5 OIDHW weight")
+    if x_tensor.dynamic or weight_tensor.dynamic:
+        raise ValueError("depthwise_conv3d currently supports only static activation and weight shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv3d_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    out_shape = resolve_depthwise_conv3d_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    zero_bias = as_tensor(
+        Parameter(
+            [int(weight_tensor.shape[0])],
+            dtype=x_tensor.dtype,
+            name="depthwise_conv3d_zero_bias",
+            value=np.zeros((int(weight_tensor.shape[0]),), dtype=np.float32),
+        ),
+        dtype_hint=x_tensor.dtype,
+    )
+    return x_tensor.builder.emit(
+        "conv3d_bias",
+        [x_tensor, weight_tensor, zero_bias],
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+            "source_op": "depthwise_conv3d",
+            "bias_mode": "explicit_zero_constant",
+        },
+        shape_spec=out_shape,
+    )
+
+
 def conv2d(
     x: Any,
     weight: Any,
@@ -1411,6 +1805,66 @@ def conv2d(
             "groups": normalized_groups,
             "bias_mode": "explicit_zero_constant",
             "source_op": "conv2d",
+        },
+        shape_spec=out_shape,
+    )
+
+
+def conv3d(
+    x: Any,
+    weight: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    weight_tensor = as_tensor(weight, dtype_hint=x_tensor.dtype)
+    if weight_tensor.builder is not x_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if weight_tensor.dtype != x_tensor.dtype:
+        raise ValueError(f"conv3d dtype mismatch: {x_tensor.dtype} vs {weight_tensor.dtype}")
+    if x_tensor.dtype not in CONV2D_BIAS_DTYPES:
+        raise ValueError(f"conv3d does not support dtype {x_tensor.dtype}")
+    _validate_tensor_rank(x_tensor, 5, "conv3d expects rank-5 NCDHW activation")
+    _validate_tensor_rank(weight_tensor, 5, "conv3d expects rank-5 OIDHW weight")
+    if x_tensor.dynamic or weight_tensor.dynamic:
+        raise ValueError("conv3d currently supports only static activation and weight shapes")
+    normalized_stride, normalized_padding, normalized_dilation, normalized_groups = normalize_conv3d_attrs(
+        stride,
+        padding,
+        dilation,
+        groups,
+    )
+    out_shape = resolve_conv3d_shape(
+        x_tensor.shape,
+        weight_tensor.shape,
+        stride=normalized_stride,
+        padding=normalized_padding,
+        dilation=normalized_dilation,
+        groups=normalized_groups,
+    )
+    zero_bias = as_tensor(
+        Parameter(
+            [int(weight_tensor.shape[0])],
+            dtype=x_tensor.dtype,
+            name="conv3d_zero_bias",
+            value=np.zeros((int(weight_tensor.shape[0]),), dtype=np.float32),
+        ),
+        dtype_hint=x_tensor.dtype,
+    )
+    return x_tensor.builder.emit(
+        "conv3d_bias",
+        [x_tensor, weight_tensor, zero_bias],
+        out_shape,
+        x_tensor.dtype,
+        {
+            "stride": normalized_stride,
+            "padding": normalized_padding,
+            "dilation": normalized_dilation,
+            "groups": normalized_groups,
+            "bias_mode": "explicit_zero_constant",
+            "source_op": "conv3d",
         },
         shape_spec=out_shape,
     )
@@ -1531,6 +1985,31 @@ def conv2d_bias(
     groups: int = 1,
 ) -> Tensor:
     return Conv2dBias.forward(x, weight, bias, stride, padding, dilation, groups)
+
+
+def conv3d_bias(
+    x: Any,
+    weight: Any,
+    bias: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int = 1,
+) -> Tensor:
+    return Conv3dBias.forward(x, weight, bias, stride, padding, dilation, groups)
+
+
+def depthwise_conv3d(
+    x: Any,
+    weight: Any,
+    stride: Any = 1,
+    padding: Any = 0,
+    dilation: Any = 1,
+    groups: int | None = None,
+) -> Tensor:
+    x_tensor = as_tensor(x)
+    resolved_groups = int(x_tensor.shape[1]) if groups is None else int(groups)
+    return DepthwiseConv3d.forward(x, weight, stride, padding, dilation, resolved_groups)
 
 
 def conv2d_bias_relu(
@@ -1846,6 +2325,86 @@ class Conv2dBias(OpDef):
             padding=padding,
             dilation=dilation,
             groups=groups,
+        )
+
+
+@op_def
+class Conv3dBias(OpDef):
+    name = "conv3d_bias"
+    schema = OpSchema(
+        inputs=("x", "weight", "bias"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1, 1)),
+            AttrDef("groups", "int", default=1),
+        ),
+    )
+    infer_shape = infer_conv3d_bias_shape
+    infer_shape_with_attrs = infer_conv3d_bias_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _conv3d_backend_kernels("conv3d_bias")
+    frontend = FrontendBinding("conv3d_bias")
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        bias: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _conv3d_bias_forward(
+            "conv3d_bias",
+            resolve_shape=resolve_conv3d_bias_shape,
+            x=x,
+            weight=weight,
+            bias=bias,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+
+
+@op_def
+class DepthwiseConv3d(OpDef):
+    name = "depthwise_conv3d"
+    schema = OpSchema(
+        inputs=("x", "weight"),
+        attrs=(
+            AttrDef("stride", "ints", required=True),
+            AttrDef("padding", "ints", default=(0, 0, 0)),
+            AttrDef("dilation", "ints", default=(1, 1, 1)),
+            AttrDef("groups", "int", required=True),
+        ),
+    )
+    infer_shape = infer_depthwise_conv3d_shape
+    infer_shape_with_attrs = infer_depthwise_conv3d_shape_with_attrs
+    allowed_dtypes = CONV2D_BIAS_DTYPES
+    backend_kernels = _conv3d_backend_kernels("depthwise_conv3d")
+    frontend = FrontendBinding("depthwise_conv3d")
+
+    @classmethod
+    def forward(
+        cls,
+        x: Any,
+        weight: Any,
+        stride: Any = 1,
+        padding: Any = 0,
+        dilation: Any = 1,
+        groups: int = 1,
+    ) -> Tensor:
+        return _depthwise_conv3d_forward(
+            x,
+            weight,
+            stride,
+            padding,
+            dilation,
+            groups,
         )
 
 
@@ -2295,14 +2854,17 @@ __all__ = [
     "CONV2D_BIAS_DTYPES",
     "CONV1D_BIAS_FAMILY_OPS",
     "CONV2D_BIAS_FAMILY_OPS",
+    "CONV3D_FAMILY_OPS",
     "Conv1dBias",
     "Conv1dBiasAdd",
     "Conv1dBiasAddRelu",
     "Conv1dBiasRelu",
     "Conv2dBias",
+    "Conv3dBias",
     "Conv2dBiasAdd",
     "Conv2dBiasAddRelu",
     "Conv2dBiasRelu",
+    "DepthwiseConv3d",
     "TRANSPOSED_CONV2D_BIAS_FAMILY_OPS",
     "TRANSPOSED_CONV2D_FAMILY_OPS",
     "TransposedConv2d",
@@ -2319,6 +2881,9 @@ __all__ = [
     "conv2d_bias_add",
     "conv2d_bias_add_relu",
     "conv2d_bias_relu",
+    "conv3d",
+    "conv3d_bias",
+    "depthwise_conv3d",
     "infer_conv1d_bias_add_relu_shape",
     "infer_conv1d_bias_add_relu_shape_with_attrs",
     "infer_conv1d_bias_add_shape",
@@ -2337,6 +2902,12 @@ __all__ = [
     "infer_conv2d_bias_shape_with_attrs",
     "infer_conv2d_shape",
     "infer_conv2d_shape_with_attrs",
+    "infer_conv3d_bias_shape",
+    "infer_conv3d_bias_shape_with_attrs",
+    "infer_conv3d_shape",
+    "infer_conv3d_shape_with_attrs",
+    "infer_depthwise_conv3d_shape",
+    "infer_depthwise_conv3d_shape_with_attrs",
     "infer_transposed_conv2d_bias_add_relu_shape",
     "infer_transposed_conv2d_bias_add_relu_shape_with_attrs",
     "infer_transposed_conv2d_bias_add_shape",
@@ -2349,6 +2920,7 @@ __all__ = [
     "infer_transposed_conv2d_shape_with_attrs",
     "normalize_conv1d_bias_attrs",
     "normalize_conv2d_bias_attrs",
+    "normalize_conv3d_attrs",
     "normalize_transposed_conv2d_attrs",
     "resolve_conv1d_bias_add_relu_shape",
     "resolve_conv1d_bias_add_shape",
@@ -2359,6 +2931,9 @@ __all__ = [
     "resolve_conv2d_bias_relu_shape",
     "resolve_conv2d_bias_shape",
     "resolve_conv2d_shape",
+    "resolve_conv3d_bias_shape",
+    "resolve_conv3d_shape",
+    "resolve_depthwise_conv3d_shape",
     "resolve_transposed_conv2d_bias_add_relu_shape",
     "resolve_transposed_conv2d_bias_add_shape",
     "resolve_transposed_conv2d_bias_relu_shape",

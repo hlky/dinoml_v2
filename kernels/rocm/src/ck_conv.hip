@@ -27,6 +27,12 @@ namespace conv_layout = ck::tensor_layout::convolution;
 using In1dLayout = conv_layout::G_NW_C;
 using Wei1dLayout = conv_layout::G_K_X_C;
 using Out1dLayout = conv_layout::G_NW_K;
+using In3dLegacyLayout = conv_layout::G_NDHW_C;
+using Wei3dLegacyLayout = conv_layout::G_K_ZYX_C;
+using Out3dLegacyLayout = conv_layout::G_NDHW_K;
+using In3dLayout = conv_layout::GNDHWC;
+using Wei3dLayout = conv_layout::GKZYXC;
+using Out3dLayout = conv_layout::GNDHWK;
 using InLayout = conv_layout::G_NHW_C;
 using WeiLayout = conv_layout::G_K_YX_C;
 using BiasLayout = conv_layout::G_K;
@@ -44,6 +50,7 @@ enum class ConvConfig {
 };
 
 static constexpr ck::index_t NDimSpatial1 = 1;
+static constexpr ck::index_t NDimSpatial3 = 3;
 static constexpr ck::index_t NDimSpatial = 2;
 static constexpr auto ConvSpec =
     ck::tensor_operation::device::ConvolutionForwardSpecialization::Default;
@@ -549,9 +556,125 @@ using DeviceConv2dXdl = ck::tensor_operation::device::DeviceGroupedConvFwdMultip
     typename ConvKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
     ConvKernelConfig<Config, Storage>::CDEBlockTransferScalarPerVector_NPerBlock>;
 
+template <
+    ConvConfig Config,
+    typename Storage,
+    typename Element,
+    typename DLayouts,
+    typename DDataTypes,
+    typename CDEElementOp>
+using DeviceConv3dXdl = ck::tensor_operation::device::DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle<
+    NDimSpatial3,
+    In3dLayout,
+    Wei3dLayout,
+    DLayouts,
+    Out3dLayout,
+    Element,
+    Element,
+    float,
+    Element,
+    DDataTypes,
+    Element,
+    PassThrough,
+    PassThrough,
+    CDEElementOp,
+    ConvSpec,
+    GemmSpec,
+    1,
+    ConvKernelConfig<Config, Storage>::BlockSize,
+    ConvKernelConfig<Config, Storage>::MPerBlock,
+    ConvKernelConfig<Config, Storage>::NPerBlock,
+    ConvKernelConfig<Config, Storage>::KPerBlock,
+    ConvKernelConfig<Config, Storage>::AK1,
+    ConvKernelConfig<Config, Storage>::BK1,
+    ConvKernelConfig<Config, Storage>::MPerXDL,
+    ConvKernelConfig<Config, Storage>::NPerXDL,
+    ConvKernelConfig<Config, Storage>::MXdlPerWave,
+    ConvKernelConfig<Config, Storage>::NXdlPerWave,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::ABlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::ABlockTransferDstScalarPerVector_AK1,
+    1,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1,
+    1,
+    1,
+    1,
+    typename ConvKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
+    ConvKernelConfig<Config, Storage>::CDEBlockTransferScalarPerVector_NPerBlock>;
+
+template <
+    ConvConfig Config,
+    typename Storage,
+    typename Element,
+    typename DLayouts,
+    typename DDataTypes,
+    typename CDEElementOp>
+using DeviceConv3dLegacyXdl = ck::tensor_operation::device::DeviceGroupedConvFwdMultipleABD_Xdl_CShuffle<
+    NDimSpatial3,
+    In3dLegacyLayout,
+    Wei3dLegacyLayout,
+    DLayouts,
+    Out3dLegacyLayout,
+    Element,
+    Element,
+    float,
+    Element,
+    DDataTypes,
+    Element,
+    PassThrough,
+    PassThrough,
+    CDEElementOp,
+    ConvSpec,
+    GemmSpec,
+    1,
+    ConvKernelConfig<Config, Storage>::BlockSize,
+    ConvKernelConfig<Config, Storage>::MPerBlock,
+    ConvKernelConfig<Config, Storage>::NPerBlock,
+    ConvKernelConfig<Config, Storage>::KPerBlock,
+    ConvKernelConfig<Config, Storage>::AK1,
+    ConvKernelConfig<Config, Storage>::BK1,
+    ConvKernelConfig<Config, Storage>::MPerXDL,
+    ConvKernelConfig<Config, Storage>::NPerXDL,
+    ConvKernelConfig<Config, Storage>::MXdlPerWave,
+    ConvKernelConfig<Config, Storage>::NXdlPerWave,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::ABlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::ABlockTransferDstScalarPerVector_AK1,
+    1,
+    S<4, 64, 1>,
+    S<1, 0, 2>,
+    S<1, 0, 2>,
+    2,
+    ConvKernelConfig<Config, Storage>::BBlockTransferSrcScalarPerVector,
+    ConvKernelConfig<Config, Storage>::BBlockTransferDstScalarPerVector_BK1,
+    1,
+    1,
+    1,
+    typename ConvKernelConfig<Config, Storage>::CDEBlockTransferClusterLengths,
+    ConvKernelConfig<Config, Storage>::CDEBlockTransferScalarPerVector_NPerBlock>;
+
 template <ConvConfig Config, typename Storage, typename Element>
 using DeviceConv2dBiasXdl =
     DeviceConv2dXdl<Config, Storage, Element, ck::Tuple<BiasLayout>, ck::Tuple<Element>, DinoConvBiasEpilogue>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv3dBiasXdl =
+    DeviceConv3dXdl<Config, Storage, Element, ck::Tuple<BiasLayout>, ck::Tuple<Element>, DinoConvBiasEpilogue>;
+
+template <ConvConfig Config, typename Storage, typename Element>
+using DeviceConv3dBiasLegacyXdl =
+    DeviceConv3dLegacyXdl<Config, Storage, Element, ck::Tuple<BiasLayout>, ck::Tuple<Element>, DinoConvBiasEpilogue>;
 
 template <ConvConfig Config, typename Storage, typename Element>
 using DeviceConv2dBiasReluXdl =
@@ -688,6 +811,215 @@ int launch_ck_conv2d_bias(
   }
   auto invoker = DeviceOp::MakeInvoker();
   (void)invoker.Run(argument, StreamConfig{stream, false});
+  const hipError_t err = hipGetLastError();
+  return err == hipSuccess ? 0 : 3;
+}
+
+template <typename Storage, ConvConfig Config>
+int launch_ck_conv3d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_depth,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_d,
+    int kernel_h,
+    int kernel_w,
+    int out_depth,
+    int out_height,
+    int out_width,
+    int stride_d,
+    int stride_h,
+    int stride_w,
+    int pad_d,
+    int pad_h,
+    int pad_w,
+    int dilation_d,
+    int dilation_h,
+    int dilation_w,
+    int groups,
+    hipStream_t stream) {
+  if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
+    return 1;
+  }
+  if (batch <= 0 || in_channels <= 0 || in_depth <= 0 || in_height <= 0 || in_width <= 0 || out_channels <= 0 ||
+      kernel_d <= 0 || kernel_h <= 0 || kernel_w <= 0 || out_depth <= 0 || out_height <= 0 || out_width <= 0 ||
+      stride_d <= 0 || stride_h <= 0 || stride_w <= 0 || pad_d < 0 || pad_h < 0 || pad_w < 0 ||
+      dilation_d <= 0 || dilation_h <= 0 || dilation_w <= 0 || groups <= 0 ||
+      (in_channels % groups) != 0 || (out_channels % groups) != 0) {
+    return 2;
+  }
+
+  using Element = typename CkElement<Storage>::Type;
+  const auto g = static_cast<ck::index_t>(groups);
+  const auto n = static_cast<ck::index_t>(batch);
+  const auto di = static_cast<ck::index_t>(in_depth);
+  const auto hi = static_cast<ck::index_t>(in_height);
+  const auto wi = static_cast<ck::index_t>(in_width);
+  const auto z = static_cast<ck::index_t>(kernel_d);
+  const auto y = static_cast<ck::index_t>(kernel_h);
+  const auto x_filter = static_cast<ck::index_t>(kernel_w);
+  const auto do_ = static_cast<ck::index_t>(out_depth);
+  const auto ho = static_cast<ck::index_t>(out_height);
+  const auto wo = static_cast<ck::index_t>(out_width);
+  const std::array<ck::index_t, NDimSpatial3> conv_strides{
+      static_cast<ck::index_t>(stride_d),
+      static_cast<ck::index_t>(stride_h),
+      static_cast<ck::index_t>(stride_w)};
+  const std::array<ck::index_t, NDimSpatial3> conv_dilations{
+      static_cast<ck::index_t>(dilation_d),
+      static_cast<ck::index_t>(dilation_h),
+      static_cast<ck::index_t>(dilation_w)};
+  const std::array<ck::index_t, NDimSpatial3> left_pads{
+      static_cast<ck::index_t>(pad_d),
+      static_cast<ck::index_t>(pad_h),
+      static_cast<ck::index_t>(pad_w)};
+  const std::array<ck::index_t, NDimSpatial3> right_pads{
+      static_cast<ck::index_t>(pad_d),
+      static_cast<ck::index_t>(pad_h),
+      static_cast<ck::index_t>(pad_w)};
+
+  if(groups == 1)
+  {
+    using DeviceOp = DeviceConv3dBiasLegacyXdl<Config, Storage, Element>;
+    const auto c = static_cast<ck::index_t>(in_channels);
+    const auto k = static_cast<ck::index_t>(out_channels);
+    const std::array<ck::index_t, NDimSpatial3 + 3> a_lengths{g, n, c, di, hi, wi};
+    const std::array<ck::index_t, NDimSpatial3 + 3> a_strides{
+        n * c * di * hi * wi,
+        c * di * hi * wi,
+        di * hi * wi,
+        hi * wi,
+        wi,
+        ck::index_t{1}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> b_lengths{g, k, c, z, y, x_filter};
+    const std::array<ck::index_t, NDimSpatial3 + 3> b_strides{
+        k * c * z * y * x_filter,
+        c * z * y * x_filter,
+        z * y * x_filter,
+        y * x_filter,
+        x_filter,
+        ck::index_t{1}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> bias_lengths{g, n, k, do_, ho, wo};
+    const std::array<ck::index_t, NDimSpatial3 + 3> bias_strides{
+        k,
+        ck::index_t{0},
+        ck::index_t{1},
+        ck::index_t{0},
+        ck::index_t{0},
+        ck::index_t{0}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> e_lengths{g, n, k, do_, ho, wo};
+    const std::array<ck::index_t, NDimSpatial3 + 3> e_strides{
+        n * k * do_ * ho * wo,
+        k * do_ * ho * wo,
+        do_ * ho * wo,
+        ho * wo,
+        wo,
+        ck::index_t{1}};
+    const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_lengths{{bias_lengths}};
+    const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_strides{{bias_strides}};
+    const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+    auto argument = DeviceOp::MakeArgument(
+        ck_ptr<Storage, Element>(x),
+        ck_ptr<Storage, Element>(weight),
+        ds_ptrs,
+        ck_ptr<Storage, Element>(output),
+        a_lengths,
+        a_strides,
+        b_lengths,
+        b_strides,
+        ds_lengths,
+        ds_strides,
+        e_lengths,
+        e_strides,
+        conv_strides,
+        conv_dilations,
+        left_pads,
+        right_pads,
+        PassThrough{},
+        PassThrough{},
+        DinoConvBiasEpilogue{});
+    if(!DeviceOp::IsSupportedArgument(argument))
+    {
+      return 4;
+    }
+    auto invoker = DeviceOp::MakeInvoker();
+    (void)invoker.Run(argument, StreamConfig{stream, false});
+  }
+  else
+  {
+    using DeviceOp = DeviceConv3dBiasXdl<Config, Storage, Element>;
+    const auto c_per_group = static_cast<ck::index_t>(in_channels / groups);
+    const auto k_per_group = static_cast<ck::index_t>(out_channels / groups);
+    const auto in_channel_stride = di * hi * wi;
+    const auto out_channel_stride = do_ * ho * wo;
+    const std::array<ck::index_t, NDimSpatial3 + 3> a_lengths{g, n, c_per_group, di, hi, wi};
+    const std::array<ck::index_t, NDimSpatial3 + 3> a_strides{
+        c_per_group * in_channel_stride,
+        static_cast<ck::index_t>(in_channels) * in_channel_stride,
+        in_channel_stride,
+        hi * wi,
+        wi,
+        ck::index_t{1}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> b_lengths{g, k_per_group, c_per_group, z, y, x_filter};
+    const std::array<ck::index_t, NDimSpatial3 + 3> b_strides{
+        k_per_group * c_per_group * z * y * x_filter,
+        c_per_group * z * y * x_filter,
+        z * y * x_filter,
+        y * x_filter,
+        x_filter,
+        ck::index_t{1}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> bias_lengths{g, n, k_per_group, do_, ho, wo};
+    const std::array<ck::index_t, NDimSpatial3 + 3> bias_strides{
+        k_per_group,
+        ck::index_t{0},
+        ck::index_t{1},
+        ck::index_t{0},
+        ck::index_t{0},
+        ck::index_t{0}};
+    const std::array<ck::index_t, NDimSpatial3 + 3> e_lengths{g, n, k_per_group, do_, ho, wo};
+    const std::array<ck::index_t, NDimSpatial3 + 3> e_strides{
+        k_per_group * out_channel_stride,
+        static_cast<ck::index_t>(out_channels) * out_channel_stride,
+        out_channel_stride,
+        ho * wo,
+        wo,
+        ck::index_t{1}};
+    const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_lengths{{bias_lengths}};
+    const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_strides{{bias_strides}};
+    const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
+    auto argument = DeviceOp::MakeArgument(
+        ck_ptr<Storage, Element>(x),
+        ck_ptr<Storage, Element>(weight),
+        ds_ptrs,
+        ck_ptr<Storage, Element>(output),
+        a_lengths,
+        a_strides,
+        b_lengths,
+        b_strides,
+        ds_lengths,
+        ds_strides,
+        e_lengths,
+        e_strides,
+        conv_strides,
+        conv_dilations,
+        left_pads,
+        right_pads,
+        PassThrough{},
+        PassThrough{},
+        DinoConvBiasEpilogue{});
+    if(!DeviceOp::IsSupportedArgument(argument))
+    {
+      return 4;
+    }
+    auto invoker = DeviceOp::MakeInvoker();
+    (void)invoker.Run(argument, StreamConfig{stream, false});
+  }
   const hipError_t err = hipGetLastError();
   return err == hipSuccess ? 0 : 3;
 }
@@ -1109,6 +1441,71 @@ float profile_ck_conv2d_bias(
             dilation_h,
             dilation_w,
             stream);
+    if (launch_status != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -static_cast<float>(launch_status);
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
+template <typename Storage, ConvConfig Config>
+float profile_ck_conv3d_bias(
+    Storage const* x,
+    Storage const* weight,
+    Storage const* bias,
+    Storage* output,
+    int batch,
+    int in_channels,
+    int in_depth,
+    int in_height,
+    int in_width,
+    int out_channels,
+    int kernel_d,
+    int kernel_h,
+    int kernel_w,
+    int out_depth,
+    int out_height,
+    int out_width,
+    int stride_d,
+    int stride_h,
+    int stride_w,
+    int pad_d,
+    int pad_h,
+    int pad_w,
+    int dilation_d,
+    int dilation_h,
+    int dilation_w,
+    int groups,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    return -1.0f;
+  }
+  hipEvent_t start = nullptr;
+  hipEvent_t end = nullptr;
+  if (hipEventCreate(&start) != hipSuccess || hipEventCreate(&end) != hipSuccess) {
+    if (start != nullptr) {
+      (void)hipEventDestroy(start);
+    }
+    if (end != nullptr) {
+      (void)hipEventDestroy(end);
+    }
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    const int launch_status = launch_ck_conv3d_bias<Storage, Config>(
+        x, weight, bias, output, batch, in_channels, in_depth, in_height, in_width, out_channels, kernel_d, kernel_h,
+        kernel_w, out_depth, out_height, out_width, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d,
+        dilation_h, dilation_w, groups, stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
       (void)hipEventDestroy(end);
@@ -3416,6 +3813,75 @@ extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID
   return profile_ck_conv2d_bias<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
       out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, iterations, stream); \
+}
+
+#define DINOML_CK_CONV3D_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_depth, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_d, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_depth, \
+    int out_height, \
+    int out_width, \
+    int stride_d, \
+    int stride_h, \
+    int stride_w, \
+    int pad_d, \
+    int pad_h, \
+    int pad_w, \
+    int dilation_d, \
+    int dilation_h, \
+    int dilation_w, \
+    int groups, \
+    hipStream_t stream) { \
+  return launch_ck_conv3d_bias<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_depth, in_height, in_width, out_channels, kernel_d, kernel_h, \
+      kernel_w, out_depth, out_height, out_width, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d, \
+      dilation_h, dilation_w, groups, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* x, \
+    CTYPE const* weight, \
+    CTYPE const* bias, \
+    CTYPE* output, \
+    int batch, \
+    int in_channels, \
+    int in_depth, \
+    int in_height, \
+    int in_width, \
+    int out_channels, \
+    int kernel_d, \
+    int kernel_h, \
+    int kernel_w, \
+    int out_depth, \
+    int out_height, \
+    int out_width, \
+    int stride_d, \
+    int stride_h, \
+    int stride_w, \
+    int pad_d, \
+    int pad_h, \
+    int pad_w, \
+    int dilation_d, \
+    int dilation_h, \
+    int dilation_w, \
+    int groups, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_conv3d_bias<CTYPE, ConvConfig::CONFIG>( \
+      x, weight, bias, output, batch, in_channels, in_depth, in_height, in_width, out_channels, kernel_d, kernel_h, \
+      kernel_w, out_depth, out_height, out_width, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d, \
+      dilation_h, dilation_w, groups, iterations, stream); \
 }
 
 #define DINOML_CK_CONV2D_BIAS_RELU_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, CONFIG) \

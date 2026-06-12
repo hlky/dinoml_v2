@@ -642,6 +642,7 @@ if(DINOML_ENABLE_ROCM)
       conv2d_bias_relu
       conv2d_bias_add
       conv2d_bias_add_relu
+      conv3d_bias
       transposed_conv2d
       transposed_conv2d_bias
       transposed_conv2d_bias_relu
@@ -1436,6 +1437,7 @@ if(DINOML_ENABLE_CUDA)
     set(DINOML_CUTLASS_CONV_OPS
       conv1d_bias conv1d_bias_relu conv1d_bias_add conv1d_bias_add_relu
       conv2d_bias conv2d_bias_relu conv2d_bias_add conv2d_bias_add_relu
+      conv3d_bias
       transposed_conv2d
     )
     set(DINOML_CUTLASS_CONV_DTYPES float32 float16 bfloat16)

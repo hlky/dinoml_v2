@@ -53,3 +53,6 @@ profile_cache.json
 !.work/.gitkeep
 _tmp/
 .tmp/
+
+# pytest
+.pytest_artifacts/

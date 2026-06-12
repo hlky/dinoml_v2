@@ -6,6 +6,7 @@ import re
 from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.kernels.families.gemm import GEMM_SUPPORTED_DTYPES, gemm_op_spec, normalize_gemm_dtype
 
 
@@ -23,6 +24,7 @@ CK_GEMM_DTYPE_SUFFIXES = {
     "bfloat16": "bfloat16",
 }
 CK_GEMM_DEFAULT_WORKSPACE_NBYTES = 0
+CK_DUAL_GEMM_DEFAULT_SYMBOL_ID = "xdl_dual_default_v1"
 
 
 _CK_GEMM_CODEGEN_TILES = (
@@ -338,17 +340,27 @@ def _ck_gemm_codegen_configs() -> tuple[dict[str, Any], ...]:
 CK_GEMM_CONFIGS = _ck_gemm_codegen_configs()
 
 
+def _is_dual_gemm_op(op_name: str) -> bool:
+    return op_name in DUAL_GEMM_OPS
+
+
+def _provider_op_spec(op_name: str):
+    return dual_gemm_op_spec(op_name) if _is_dual_gemm_op(op_name) else gemm_op_spec(op_name)
+
+
 def ck_gemm_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
-    gemm_op_spec(op_name)
+    _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
-    candidate_suffix = symbol_id or CK_GEMM_DEFAULT_SYMBOL_ID
+    default_symbol_id = CK_DUAL_GEMM_DEFAULT_SYMBOL_ID if _is_dual_gemm_op(op_name) else CK_GEMM_DEFAULT_SYMBOL_ID
+    candidate_suffix = symbol_id or default_symbol_id
     return f"dinoml_ck_{op_name}_{ck_gemm_dtype_suffix(normalized_dtype)}_{candidate_suffix}"
 
 
 def ck_gemm_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
-    gemm_op_spec(op_name)
+    _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
-    candidate_suffix = symbol_id or CK_GEMM_DEFAULT_SYMBOL_ID
+    default_symbol_id = CK_DUAL_GEMM_DEFAULT_SYMBOL_ID if _is_dual_gemm_op(op_name) else CK_GEMM_DEFAULT_SYMBOL_ID
+    candidate_suffix = symbol_id or default_symbol_id
     return f"dinoml_profile_ck_{op_name}_{ck_gemm_dtype_suffix(normalized_dtype)}_{candidate_suffix}"
 
 
@@ -363,6 +375,8 @@ def ck_gemm_candidates(
 ) -> tuple[dict[str, Any], ...]:
     del target
     normalized_dtype = normalize_gemm_dtype(dtype)
+    if _is_dual_gemm_op(op_name):
+        return (_ck_dual_gemm_candidate(op_name, normalized_dtype),)
     return tuple(_ck_gemm_candidate(op_name, normalized_dtype, config) for config in CK_GEMM_CONFIGS)
 
 
@@ -372,7 +386,7 @@ def ck_gemm_candidate_set(
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     del target
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     candidates = ck_gemm_candidates(op_name, normalized_dtype)
     config = {
@@ -392,7 +406,7 @@ def ck_gemm_candidate_set(
         "split_k_default": 1,
         "supports_split_k": False,
         "workspace_nbytes": CK_GEMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_ck_gemm_xdl_codegen_candidates_v3",
+        "generator": "static_ck_dual_gemm_codegen_candidates_v1" if _is_dual_gemm_op(op_name) else "static_ck_gemm_xdl_codegen_candidates_v3",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     return {
@@ -403,8 +417,9 @@ def ck_gemm_candidate_set(
 
 
 def ck_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
-    spec = gemm_op_spec(op_name)
-    return f"ck_{op_name}_{ck_gemm_dtype_suffix(dtype)}_{spec.epilogue.name}_v3"
+    spec = _provider_op_spec(op_name)
+    version = "v1" if _is_dual_gemm_op(op_name) else "v3"
+    return f"ck_{op_name}_{ck_gemm_dtype_suffix(dtype)}_{spec.epilogue.name}_{version}"
 
 
 def ck_gemm_used_candidate_plan(kernel_manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -634,8 +649,51 @@ def _ck_gemm_candidate(op_name: str, dtype: str, kernel_config: Mapping[str, Any
     }
 
 
+def _ck_dual_gemm_candidate(op_name: str, dtype: str) -> dict[str, Any]:
+    spec = dual_gemm_op_spec(op_name)
+    symbol_id = CK_DUAL_GEMM_DEFAULT_SYMBOL_ID
+    launch_abi = _ck_gemm_launch_abi(op_name)
+    config = {
+        "candidate_id": f"ck_{op_name}_{dtype}_{symbol_id}",
+        "symbol_id": symbol_id,
+        "provider": "ck",
+        "family": "gemm_universal",
+        "op": op_name,
+        "dtype": dtype,
+        "layouts": dict(spec.layouts),
+        "epilogue": spec.epilogue.name,
+        "epilogue_config": spec.epilogue.to_json(),
+        "accumulator_dtype": "float32",
+        "optional": False,
+        "launch_abi": launch_abi,
+        "split_k_values": [1],
+        "split_k_default": 1,
+        "supports_split_k": False,
+        "workspace_nbytes": CK_GEMM_DEFAULT_WORKSPACE_NBYTES,
+        "selection_predicate": {"priority": 0},
+        "ck": {
+            "api": "dual_gemm_custom_v1",
+            "symbol_id": symbol_id,
+            "source": "kernels/rocm/src/ck_gemm.hip",
+            "mode": "custom_dual_gemm",
+            "config": {
+                "name": "dual_default",
+                "config_enum": "kDualDefault",
+            },
+        },
+    }
+    return {
+        **config,
+        "kernel_symbol": ck_gemm_symbol(op_name, dtype, symbol_id),
+        "profiler_symbol": ck_gemm_profiler_symbol(op_name, dtype, symbol_id),
+        "candidate_config_key": hashlib.sha256(canonical_json(config).encode("utf-8")).hexdigest(),
+    }
+
+
 def _ck_gemm_launch_abi(op_name: str) -> str:
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
+    if _is_dual_gemm_op(op_name):
+        return "dinoml_ck_dual_gemm_bias_v1" if spec.epilogue.has_bias else "dinoml_ck_dual_gemm_v1"
     if not spec.epilogue.inputs:
         return "dinoml_ck_gemm_v1"
     residual_count = len(spec.epilogue.residual_inputs)
@@ -652,10 +710,17 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     op_name = str(candidate["op"])
     dtype = str(candidate["dtype"])
     ctype = _ck_export_ctype(dtype)
-    layout_b = "kRcr" if gemm_op_spec(op_name).base_layout == "rcr" else "kRrr"
-    epilogue = _ck_epilogue_enum(str(candidate["epilogue"]))
     symbol_id = str(candidate["symbol_id"])
     launch_abi = str(candidate["launch_abi"])
+    if _is_dual_gemm_op(op_name):
+        dual_epilogue = _ck_dual_epilogue_enum(str(candidate["epilogue"]))
+        if launch_abi == "dinoml_ck_dual_gemm_v1":
+            return f"DINOML_CK_DUAL_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {dual_epilogue})"
+        if launch_abi == "dinoml_ck_dual_gemm_bias_v1":
+            return f"DINOML_CK_DUAL_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {dual_epilogue})"
+        raise ValueError(f"Unsupported CK dual GEMM launch ABI: {launch_abi!r}")
+    layout_b = "kRcr" if gemm_op_spec(op_name).base_layout == "rcr" else "kRrr"
+    epilogue = _ck_epilogue_enum(str(candidate["epilogue"]))
     config_enum = str(candidate.get("ck", {}).get("config", {}).get("config_enum", "kBaseline"))
     if launch_abi == "dinoml_ck_gemm_v1":
         return f"DINOML_CK_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {symbol_id}, {layout_b}, {epilogue}, {config_enum})"
@@ -670,7 +735,7 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
 
 def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
-    match = re.match(r"(DINOML_CK_GEMM(?:_BIAS(?:_RESIDUAL2|_RESIDUAL)?)?_EXPORT)\((.*)\)\s*$", stripped)
+    match = re.match(r"(DINOML_CK_(?:GEMM(?:_BIAS(?:_RESIDUAL2|_RESIDUAL)?)?|DUAL_GEMM(?:_BIAS)?)_EXPORT)\((.*)\)\s*$", stripped)
     if match is None:
         return frozenset()
     args = [arg.strip() for arg in match.group(2).split(",")]
@@ -741,6 +806,33 @@ def _ck_epilogue_enum(epilogue: str) -> str:
         return aliases[epilogue]
     except KeyError as exc:
         raise ValueError(f"Unsupported CK GEMM epilogue: {epilogue!r}") from exc
+
+
+def _ck_dual_epilogue_enum(epilogue: str) -> str:
+    aliases = {
+        "left_relu_and_mul": "kLeftReluAndMul",
+        "left_gelu_and_mul": "kLeftGeluAndMul",
+        "left_fast_gelu_and_mul": "kLeftFastGeluAndMul",
+        "left_quick_gelu_and_mul": "kLeftQuickGeluAndMul",
+        "left_sigmoid_and_mul": "kLeftSigmoidAndMul",
+        "left_tanh_and_mul": "kLeftTanhAndMul",
+        "left_silu_and_mul": "kLeftSiLUAndMul",
+        "left_hardswish_and_mul": "kLeftHardSwishAndMul",
+        "left_elup1_and_mul": "kLeftElup1AndMul",
+        "left_bias_relu_and_mul": "kLeftReluAndMul",
+        "left_bias_gelu_and_mul": "kLeftGeluAndMul",
+        "left_bias_fast_gelu_and_mul": "kLeftFastGeluAndMul",
+        "left_bias_quick_gelu_and_mul": "kLeftQuickGeluAndMul",
+        "left_bias_sigmoid_and_mul": "kLeftSigmoidAndMul",
+        "left_bias_tanh_and_mul": "kLeftTanhAndMul",
+        "left_bias_swish_and_mul": "kLeftSiLUAndMul",
+        "left_bias_hardswish_and_mul": "kLeftHardSwishAndMul",
+        "left_bias_elup1_and_mul": "kLeftElup1AndMul",
+    }
+    try:
+        return aliases[epilogue]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported CK dual GEMM epilogue: {epilogue!r}") from exc
 
 
 def _selected_candidate(item: Mapping[str, Any], candidates: list[dict[str, Any]]) -> dict[str, Any]:

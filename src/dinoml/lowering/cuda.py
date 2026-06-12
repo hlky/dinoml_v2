@@ -217,7 +217,15 @@ def _cutlass_gemm_declaration(
             f"Unsupported CUTLASS split-K epilogue/launch ABI: {epilogue!r} / {launch_abi!r}"
         )
     extra_args = ""
-    if launch_abi == "dinoml_cutlass_gemm_bias_v1":
+    if launch_abi == "dinoml_cutlass_dual_gemm_v1":
+        extra_args = f"    const {cpp_type}* b1,\n"
+    elif launch_abi == "dinoml_cutlass_dual_gemm_bias_v1":
+        extra_args = (
+            f"    const {cpp_type}* b1,\n"
+            f"    const {cpp_type}* bias0,\n"
+            f"    const {cpp_type}* bias1,\n"
+        )
+    elif launch_abi == "dinoml_cutlass_gemm_bias_v1":
         extra_args = f"    const {cpp_type}* bias,\n"
     elif launch_abi == "dinoml_cutlass_gemm_bias_residual_v1":
         extra_args = f"    const {cpp_type}* bias,\n" f"    const {cpp_type}* d0,\n"
@@ -229,6 +237,9 @@ def _cutlass_gemm_declaration(
         )
     elif launch_abi != "dinoml_cutlass_gemm_v1":
         raise ValueError(f"Unsupported CUTLASS GEMM launch ABI: {launch_abi!r}")
+    shape_args = (
+        "    int b1_n,\n" if launch_abi in {"dinoml_cutlass_dual_gemm_v1", "dinoml_cutlass_dual_gemm_bias_v1"} else ""
+    )
     launch_args = (
         "    int split_k,\n"
         "    void* workspace,\n"
@@ -246,6 +257,7 @@ def _cutlass_gemm_declaration(
         "    int m,\n"
         "    int n,\n"
         "    int k,\n"
+        f"{shape_args}"
         f"{launch_args}"
     )
 

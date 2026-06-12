@@ -15,6 +15,7 @@ from dinoml.kernels.profiling import (
     _profile_result,
     build_profile_workloads,
 )
+from tests.dual_gemm_parity import DUAL_GEMM_CASES, DualGemmCase, trace_dual_gemm_spec
 
 
 def test_default_profile_cache_path_is_shared_per_target_directory(tmp_path):
@@ -209,6 +210,72 @@ def test_profile_key_differs_when_support_fingerprint_changes():
     )
 
     assert first.profile_key != second.profile_key
+
+
+def test_build_profile_workloads_includes_dual_gemm_for_cuda_and_rocm():
+    case = next(case for case in DUAL_GEMM_CASES if case.name == "dual_gemm_fast_gelu_f16_broadcast_dynamic")
+    ir = trace_dual_gemm_spec(case).ir
+
+    cuda_manifest = build_kernel_manifest(ir, {"name": "cuda", "arch": "sm89"})
+    rocm_manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+
+    cuda_workload = build_profile_workloads(ir, cuda_manifest)[0]
+    rocm_workload = build_profile_workloads(ir, rocm_manifest)[0]
+
+    assert cuda_workload.op == case.op_name
+    assert cuda_workload.b1_tensor == "b1"
+    assert cuda_workload.b1_shape == case.b1_shape
+    assert cuda_workload.bias1_tensor is None
+    assert cuda_workload.alignment_context["operands"]["b1"]["tensor"] == "b1"
+    assert rocm_workload.op == case.op_name
+    assert rocm_workload.b1_shape == case.b1_shape
+    assert rocm_workload.alignment_context["problem"]["b1_n"] == 1
+
+
+def test_profile_key_distinguishes_dual_gemm_rhs_broadcast_from_full_rhs():
+    broadcast_case = next(case for case in DUAL_GEMM_CASES if case.name == "dual_gemm_fast_gelu_f16_broadcast_dynamic")
+    full_rhs_case = DualGemmCase(
+        name="dual_gemm_fast_gelu_f16_full_rhs_dynamic",
+        op_name=broadcast_case.op_name,
+        dtype=broadcast_case.dtype,
+        a_shape=broadcast_case.a_shape,
+        b0_shape=broadcast_case.b0_shape,
+        b1_shape=broadcast_case.b0_shape,
+        a_spec_shape=broadcast_case.a_spec_shape,
+        b0_spec_shape=broadcast_case.b0_spec_shape,
+        b1_spec_shape=broadcast_case.b0_spec_shape,
+    )
+
+    target = {"name": "rocm", "arch": "gfx1201"}
+    broadcast_ir = trace_dual_gemm_spec(broadcast_case).ir
+    full_rhs_ir = trace_dual_gemm_spec(full_rhs_case).ir
+    broadcast_manifest = build_kernel_manifest(broadcast_ir, target)
+    full_rhs_manifest = build_kernel_manifest(full_rhs_ir, target)
+    broadcast_workload = build_profile_workloads(broadcast_ir, broadcast_manifest)[0]
+    full_rhs_workload = build_profile_workloads(full_rhs_ir, full_rhs_manifest)[0]
+    context = _fake_profile_context(broadcast_workload.kernel_library)
+
+    broadcast_lookup = _profile_cache_lookup(
+        broadcast_workload,
+        {"target": target},
+        broadcast_manifest,
+        {"cache_key": "plan-a"},
+        context=context,
+    )
+    full_rhs_lookup = _profile_cache_lookup(
+        full_rhs_workload,
+        {"target": target},
+        full_rhs_manifest,
+        {"cache_key": "plan-a"},
+        context=context,
+    )
+
+    assert broadcast_workload.m == full_rhs_workload.m == 8
+    assert broadcast_workload.n == full_rhs_workload.n == 6
+    assert broadcast_workload.k == full_rhs_workload.k == 8
+    assert broadcast_workload.b1_shape == (1, 8)
+    assert full_rhs_workload.b1_shape == (6, 8)
+    assert broadcast_lookup.profile_key != full_rhs_lookup.profile_key
 
 
 def test_parse_hipinfo_devices_extracts_stable_identity_fields():

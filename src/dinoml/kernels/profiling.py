@@ -23,6 +23,7 @@ import numpy as np
 
 from dinoml.ir import array_to_storage, canonical_json, dtype_nbytes, read_json, write_json
 from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec, bmm_problem
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec, dual_gemm_problem
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec, gemm_problem
 from dinoml.kernels.manifest import PROFILE_CACHE_SCHEMA_VERSION
 from dinoml.kernels.profile_cache import (
@@ -126,6 +127,10 @@ class GemmProfileWorkload:
     dim_values: Mapping[str, int]
     dim_sources: Mapping[str, str]
     alignment_context: Mapping[str, Any]
+    b1_tensor: str | None = None
+    b1_shape: tuple[int, ...] | None = None
+    bias1_tensor: str | None = None
+    bias1_shape: tuple[int, ...] | None = None
     kernel_library: str = "cutlass_gemm"
     batch_count: int | None = None
     batch_stride_a: int | None = None
@@ -153,7 +158,9 @@ class GemmProfileWorkload:
             "inputs": {
                 self.a_tensor: list(self.a_shape),
                 self.b_tensor: list(self.b_shape),
+                **({self.b1_tensor: list(self.b1_shape or ())} if self.b1_tensor is not None else {}),
                 **({self.bias_tensor: list(self.bias_shape or ())} if self.bias_tensor is not None else {}),
+                **({self.bias1_tensor: list(self.bias1_shape or ())} if self.bias1_tensor is not None else {}),
                 **{name: list(shape) for name, shape in zip(self.residual_tensors, self.residual_shapes)},
             },
             "output": {
@@ -426,7 +433,7 @@ def build_profile_workloads(
                     metadata_shape_scenarios,
                 )
             continue
-        if op_name not in GEMM_OPS:
+        if op_name not in {*GEMM_OPS, *DUAL_GEMM_OPS}:
             continue
         output_name = str(node["outputs"][0])
         output_info = tensor_map[output_name]
@@ -440,30 +447,60 @@ def build_profile_workloads(
         )
         if required_item is None:
             continue
-        spec = gemm_op_spec(op_name)
-        a_name, b_name = (str(name) for name in node["inputs"][:2])
+        is_dual_gemm = op_name in DUAL_GEMM_OPS
+        spec = dual_gemm_op_spec(op_name) if is_dual_gemm else gemm_op_spec(op_name)
+        a_name = str(node["inputs"][0])
+        b_name = str(node["inputs"][1])
+        b1_name = str(node["inputs"][2]) if is_dual_gemm else None
+        epilogue_input_start = 3 if is_dual_gemm else 2
         epilogue_tensor_names = {
             input_name: str(node["inputs"][input_offset])
-            for input_offset, input_name in enumerate(spec.epilogue.inputs, start=2)
+            for input_offset, input_name in enumerate(spec.epilogue.inputs, start=epilogue_input_start)
         }
-        bias_name = epilogue_tensor_names.get("bias")
+        bias_name = epilogue_tensor_names.get("bias0" if is_dual_gemm else "bias")
+        bias1_name = epilogue_tensor_names.get("bias1") if is_dual_gemm else None
         residual_names = tuple(epilogue_tensor_names[name] for name in spec.epilogue.inputs if name.startswith("d"))
         for scenario in _profile_shape_scenarios(node, tensor_map, overrides, metadata_shape_scenarios):
             a_shape = _runtime_tensor_shape(a_name, tensor_map[a_name], scenario.overrides, scenario.dim_values)
             b_shape = _runtime_tensor_shape(b_name, tensor_map[b_name], scenario.overrides, scenario.dim_values)
+            b1_shape = (
+                _runtime_tensor_shape(b1_name, tensor_map[b1_name], scenario.overrides, scenario.dim_values)
+                if b1_name is not None
+                else None
+            )
             bias_shape = (
                 _runtime_tensor_shape(bias_name, tensor_map[bias_name], scenario.overrides, scenario.dim_values)
                 if bias_name is not None
+                else None
+            )
+            bias1_shape = (
+                _runtime_tensor_shape(bias1_name, tensor_map[bias1_name], scenario.overrides, scenario.dim_values)
+                if bias1_name is not None
                 else None
             )
             residual_shapes = tuple(
                 _runtime_tensor_shape(name, tensor_map[name], scenario.overrides, scenario.dim_values)
                 for name in residual_names
             )
-            problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
-            m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
+            if is_dual_gemm:
+                problem_shapes = [
+                    a_shape,
+                    b_shape,
+                    b1_shape,
+                    *(shape for shape in (bias_shape, bias1_shape) if shape is not None),
+                ]
+                m, n, k, output_shape = dual_gemm_problem(op_name, problem_shapes)
+            else:
+                problem_shapes = [a_shape, b_shape, *(shape for shape in (bias_shape,) if shape is not None), *residual_shapes]
+                m, n, k, output_shape = gemm_problem(op_name, problem_shapes)
             if target_name == "rocm":
-                spec_problem = _ck_gemm_profile_problem(op_name, m=m, n=n, k=k)
+                spec_problem = _ck_gemm_profile_problem(
+                    op_name,
+                    m=m,
+                    n=n,
+                    k=k,
+                    b1_n=(int(b1_shape[0]) if b1_shape is not None else None),
+                )
                 alignment_context = _ck_profile_alignment_context(
                     kind="ck_gemm_profile_alignment_context",
                     problem=spec_problem,
@@ -477,7 +514,8 @@ def build_profile_workloads(
                     a_name=a_name,
                     b_name=b_name,
                     c_name=output_name,
-                    epilogue_names=tuple(name for name in (bias_name, *residual_names) if name is not None),
+                    extra_operand_names=((b1_name,) if b1_name is not None else ()),
+                    epilogue_names=tuple(name for name in (bias_name, bias1_name, *residual_names) if name is not None),
                     n=n,
                     k=k,
                 )
@@ -533,6 +571,10 @@ def build_profile_workloads(
                             dim_values=scenario.dim_values,
                             dim_sources=scenario.dim_sources,
                             alignment_context=alignment_context,
+                            b1_tensor=b1_name,
+                            b1_shape=None if b1_shape is None else tuple(b1_shape),
+                            bias1_tensor=bias1_name,
+                            bias1_shape=None if bias1_shape is None else tuple(bias1_shape),
                             kernel_library=binding.library,
                         )
                     )
@@ -1077,18 +1119,34 @@ def _bmm_d0_profile_layout(
     raise RuntimeError(f"CUTLASS BMM profiler only supports full-output or trailing-bias add epilogue, got {d0_shape}")
 
 
-def _ck_gemm_profile_problem(op_name: str, *, m: int, n: int, k: int) -> dict[str, int | str]:
-    spec = gemm_op_spec(op_name)
-    return {
+def _ck_gemm_profile_problem(
+    op_name: str,
+    *,
+    m: int,
+    n: int,
+    k: int,
+    b1_n: int | None = None,
+) -> dict[str, int | str]:
+    is_dual_gemm = op_name in DUAL_GEMM_OPS
+    spec = dual_gemm_op_spec(op_name) if is_dual_gemm else gemm_op_spec(op_name)
+    problem = {
         "m": int(m),
         "n": int(n),
         "k": int(k),
         "a_k": int(k),
         "b_k": int(k),
-        "b_n": int(n),
         "output_n": int(n),
         "base_layout": spec.base_layout,
     }
+    if is_dual_gemm:
+        if b1_n is None:
+            raise ValueError(f"dual GEMM profile problem requires b1_n for {op_name}")
+        problem["b0_n"] = int(n)
+        problem["b1_k"] = int(k)
+        problem["b1_n"] = int(b1_n)
+    else:
+        problem["b_n"] = int(n)
+    return problem
 
 
 def _ck_bmm_profile_problem(op_name: str, *, batch: int, m: int, n: int, k: int) -> dict[str, int | str]:
@@ -1594,6 +1652,10 @@ def _profile_workload_identity_key(
         int(workload.m),
         int(workload.n),
         int(workload.k),
+        workload.b1_shape,
+        workload.bias_shape,
+        workload.bias1_shape,
+        workload.residual_shapes,
         workload.candidate_set_key,
         workload.candidate_id,
         workload.candidate_config_key,
@@ -2691,7 +2753,9 @@ def _same_cutlass_native_profile_problem(
         and first.split_k == second.split_k
         and first.shape_case_id == second.shape_case_id
         and first.alignment_context == second.alignment_context
+        and first.b1_shape == second.b1_shape
         and first.bias_shape == second.bias_shape
+        and first.bias1_shape == second.bias1_shape
         and first.residual_shapes == second.residual_shapes
     )
     if not same or first.kernel_library != "cutlass_bmm":
@@ -2745,7 +2809,9 @@ def _same_ck_native_profile_problem(
         and first.k == second.k
         and first.split_k == second.split_k
         and first.alignment_context == second.alignment_context
+        and first.b1_shape == second.b1_shape
         and first.bias_shape == second.bias_shape
+        and first.bias1_shape == second.bias1_shape
         and first.residual_shapes == second.residual_shapes
     )
     if not same or first.kernel_library != "ck_bmm":
@@ -2811,8 +2877,12 @@ def _profile_result(
         bytes_moved = dtype_nbytes(workload.dtype) * (
             workload.m * workload.k + workload.n * workload.k + workload.m * workload.n
         )
+        if workload.b1_shape is not None:
+            bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.b1_shape, dtype=np.int64))
         if workload.bias_shape is not None:
             bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias_shape, dtype=np.int64))
+        if workload.bias1_shape is not None:
+            bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(workload.bias1_shape, dtype=np.int64))
         for residual_shape in workload.residual_shapes:
             bytes_moved += dtype_nbytes(workload.dtype) * int(np.prod(residual_shape, dtype=np.int64))
     seconds = max(float(elapsed_ms) / 1000.0, 1e-12)
@@ -4187,6 +4257,13 @@ def _profile_provider_problem_payload(workload: GemmProfileWorkload | ConvProfil
         "n": int(workload.n),
         "k": int(workload.k),
     }
+    if workload.b1_shape is not None:
+        problem["b1_shape"] = list(workload.b1_shape)
+        problem["b1_n"] = int(workload.b1_shape[0])
+    if workload.bias_shape is not None:
+        problem["bias_shape"] = list(workload.bias_shape)
+    if workload.bias1_shape is not None:
+        problem["bias1_shape"] = list(workload.bias1_shape)
     if workload.batch_count is not None:
         problem["batch_count"] = int(workload.batch_count)
     if workload.lda is not None or workload.ldb is not None or workload.ldc is not None:
@@ -4690,6 +4767,8 @@ def _static_execution_selections(
     static_selections: list[dict[str, Any]] = []
     conflicts: list[dict[str, Any]] = []
     for key, group in sorted(by_candidate_set.items()):
+        if key[0] in DUAL_GEMM_OPS:
+            continue
         selected_signatures = {
             (str(item.get("selected_candidate_id", "")), int(item.get("split_k", 1) or 1))
             for item in group
@@ -4824,13 +4903,23 @@ class _CutlassGemmProfiler:
             m=int(workload.m),
             n=int(workload.n),
             k=int(workload.k),
+            is_dual=workload.b1_shape is not None,
+            b1_n=(int(workload.b1_shape[0]) if workload.b1_shape is not None else 0),
             split_k=split_k,
             iterations=int(iterations),
             repeats=int(repeats),
             max_operand_alignment=int(workload.alignment_context.get("candidate_filter", {}).get("max_operand_alignment") or 0),
             has_bias=workload.bias_shape is not None,
             residual_count=len(workload.residual_shapes),
-            seed=_stable_u32_seed(workload.op, workload.dtype, workload.shape_case_id, str(workload.m), str(workload.n), str(workload.k)),
+            seed=_stable_u32_seed(
+                workload.op,
+                workload.dtype,
+                workload.shape_case_id,
+                str(workload.m),
+                str(workload.n),
+                str(workload.k),
+                str(int(workload.b1_shape[0])) if workload.b1_shape is not None else "",
+            ),
         )
         candidates = self._candidates.get((workload.op, workload.dtype), {})
         results = []
@@ -5372,6 +5461,7 @@ def _grouped_ck_profile_seed(workload: GemmProfileWorkload | ConvProfileWorkload
         str(workload.m),
         str(workload.n),
         str(workload.k),
+        str(int(workload.b1_shape[0])) if workload.b1_shape is not None else "",
         str(workload.split_k),
     ]
     if workload.batch_count is not None:
@@ -5419,6 +5509,8 @@ class _CkGemmProfiler:
             m=int(workload.m),
             n=int(workload.n),
             k=int(workload.k),
+            is_dual=workload.b1_shape is not None,
+            b1_n=(int(workload.b1_shape[0]) if workload.b1_shape is not None else 0),
             iterations=int(iterations),
             repeats=int(repeats),
             has_bias=workload.bias_shape is not None,
@@ -5749,17 +5841,47 @@ class _CkRocmProfiler:
             fn.argtypes = [ptr, ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
         elif abi == "dinoml_ck_gemm_bias_residual2_v1":
             fn.argtypes = [ptr, ptr, ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        elif abi == "dinoml_ck_dual_gemm_v1":
+            fn.argtypes = [ptr, ptr, ptr, ptr, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ptr]
+        elif abi == "dinoml_ck_dual_gemm_bias_v1":
+            fn.argtypes = [
+                ptr,
+                ptr,
+                ptr,
+                ptr,
+                ptr,
+                ptr,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ctypes.c_int,
+                ptr,
+            ]
         else:
             raise RuntimeError(f"Unsupported CK GEMM profiler ABI {abi!r} for {workload.candidate_id}")
         try:
             a = self._device_array(_random_storage(workload.a_shape, workload.dtype, rng))
             b = self._device_array(_random_storage(workload.b_shape, workload.dtype, rng))
+            b1 = (
+                self._device_array(_random_storage(workload.b1_shape, workload.dtype, rng))
+                if workload.b1_shape is not None
+                else None
+            )
             c = self._device_array(_zero_storage(workload.output_shape, workload.dtype))
             args: list[Any] = [a, b]
-            if abi != "dinoml_ck_gemm_v1":
+            if abi in {"dinoml_ck_dual_gemm_v1", "dinoml_ck_dual_gemm_bias_v1"}:
+                if b1 is None:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires B1")
+                args.append(b1)
+            if abi not in {"dinoml_ck_gemm_v1", "dinoml_ck_dual_gemm_v1"}:
                 if workload.bias_shape is None:
                     raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires a bias tensor")
                 args.append(self._device_array(_random_storage(workload.bias_shape, workload.dtype, rng)))
+            if abi == "dinoml_ck_dual_gemm_bias_v1":
+                if workload.bias1_shape is None:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires bias1")
+                args.append(self._device_array(_random_storage(workload.bias1_shape, workload.dtype, rng)))
             if abi in {"dinoml_ck_gemm_bias_residual_v1", "dinoml_ck_gemm_bias_residual2_v1"}:
                 if not workload.residual_shapes:
                     raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d0")
@@ -5768,7 +5890,13 @@ class _CkRocmProfiler:
                 if len(workload.residual_shapes) < 2:
                     raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires residual tensor d1")
                 args.append(self._device_array(_random_storage(workload.residual_shapes[1], workload.dtype, rng)))
-            args.extend([c, workload.m, workload.n, workload.k, int(iterations), ctypes.c_void_p()])
+            args.append(c)
+            args.extend([workload.m, workload.n, workload.k])
+            if abi in {"dinoml_ck_dual_gemm_v1", "dinoml_ck_dual_gemm_bias_v1"}:
+                if workload.b1_shape is None:
+                    raise RuntimeError(f"CK GEMM profiler ABI {abi!r} requires B1 shape metadata")
+                args.append(int(workload.b1_shape[0]))
+            args.extend([int(iterations), ctypes.c_void_p()])
             elapsed_ms = float(fn(*args))
             self._check_ck_elapsed(elapsed_ms, workload)
             return elapsed_ms, int(workload.workspace_nbytes)

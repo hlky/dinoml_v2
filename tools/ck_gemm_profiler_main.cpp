@@ -29,6 +29,15 @@ bool bool_arg(char** begin, char** end, const char* flag) {
   return int_arg(begin, end, flag) != 0;
 }
 
+bool has_flag(char** begin, char** end, const char* flag) {
+  for (char** it = begin; it != end; ++it) {
+    if (std::string(*it) == flag) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -41,6 +50,8 @@ int main(int argc, char** argv) {
     request.m = int_arg(begin, end, "--m");
     request.n = int_arg(begin, end, "--n");
     request.k = int_arg(begin, end, "--k");
+    request.is_dual = has_flag(begin, end, "--is_dual") ? bool_arg(begin, end, "--is_dual") : false;
+    request.b1_n = request.is_dual ? int_arg(begin, end, "--b1_n") : 0;
     request.iterations = int_arg(begin, end, "--iterations");
     request.repeats = int_arg(begin, end, "--repeats");
     request.has_bias = bool_arg(begin, end, "--has_bias");

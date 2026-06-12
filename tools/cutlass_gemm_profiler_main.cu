@@ -37,6 +37,8 @@ int main(int argc, char** argv) {
     request.m = std::stoi(get(args, "m"));
     request.n = std::stoi(get(args, "n"));
     request.k = std::stoi(get(args, "k"));
+    request.is_dual = std::stoi(args.count("is-dual") ? args["is-dual"] : "0") != 0;
+    request.b1_n = std::stoi(args.count("b1-n") ? args["b1-n"] : "0");
     request.split_k = std::stoi(args.count("split-k") ? args["split-k"] : "1");
     request.iterations = std::stoi(args.count("iterations") ? args["iterations"] : "20");
     request.repeats = std::stoi(args.count("repeats") ? args["repeats"] : "1");

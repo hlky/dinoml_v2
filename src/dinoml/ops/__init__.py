@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from dinoml.frontend import Tensor, as_tensor
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS
 from dinoml.ops.bmm import (
     bmm,
     bmm_ccc,
@@ -132,6 +133,7 @@ from dinoml.ops.elementwise import (
 from dinoml.ops.embedding import embedding
 from dinoml.ops.glm_ocr import glm_ocr_stitch_image_features
 from dinoml.ops.gating import swiglu
+from dinoml.ops import gemm as _gemm_ops
 from dinoml.ops.gemm import (
     gemm_rcr,
     gemm_rcr_bias,
@@ -292,6 +294,10 @@ def _normalize_symbolic_index(index: Any, length: int, name: str) -> int:
     return axis
 
 
+for _dual_gemm_name in DUAL_GEMM_OPS:
+    globals()[_dual_gemm_name] = getattr(_gemm_ops, _dual_gemm_name)
+
+
 __all__ = [
     "abs",
     "add_layer_norm",
@@ -345,6 +351,7 @@ __all__ = [
     "depthwise_conv3d",
     "div",
     "dynamic_slice",
+    *sorted(DUAL_GEMM_OPS),
     "elu",
     "efficient_nms",
     "embedding",

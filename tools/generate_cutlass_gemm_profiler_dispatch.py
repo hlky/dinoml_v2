@@ -31,8 +31,20 @@ def main() -> None:
 
     candidates = cutlass_gemm_candidates(args.op, args.dtype)
     profiler_symbols = sorted({candidate["profiler_symbol"] for candidate in candidates})
-    splitk_symbols = sorted({splitk_symbol(symbol) for symbol in profiler_symbols})
-    workspace_symbols = sorted({workspace_symbol(candidate["kernel_symbol"]) for candidate in candidates})
+    splitk_symbols = sorted(
+        {
+            splitk_symbol(str(candidate["profiler_symbol"]))
+            for candidate in candidates
+            if candidate.get("supports_split_k")
+        }
+    )
+    workspace_symbols = sorted(
+        {
+            workspace_symbol(str(candidate["kernel_symbol"]))
+            for candidate in candidates
+            if candidate.get("supports_split_k")
+        }
+    )
 
     lines = [
         '#include "cutlass_gemm_profiler_core.cuh"',
@@ -92,7 +104,7 @@ def main() -> None:
         lines.append(
             "    {"
             f"\"{candidate['profiler_symbol']}\", "
-            f"\"{workspace_symbol(candidate['kernel_symbol'])}\", "
+            f"\"{workspace_symbol(candidate['kernel_symbol']) if candidate.get('supports_split_k') else ''}\", "
             f"{int(candidate['cutlass']['align'])}, "
             f"{'true' if candidate.get('supports_split_k') else 'false'}, "
             f"{json.dumps(json.dumps(policy, sort_keys=True, separators=(',', ':')))}"

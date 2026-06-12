@@ -20,6 +20,8 @@ struct GemmRequest {
   int m = 0;
   int n = 0;
   int k = 0;
+  bool is_dual = false;
+  int b1_n = 0;
   int iterations = 1;
   int repeats = 1;
   bool has_bias = false;
@@ -134,24 +136,51 @@ inline float run_candidate(
     const GemmRequest& request,
     const std::string& profiler_symbol,
     void* a,
-    void* b,
+    void* b0,
+    void* b1,
     void* bias,
+    void* bias1,
     const std::vector<DeviceBuffer>& residuals,
     void* c) {
+  if (request.is_dual) {
+    if (request.residual_count != 0) {
+      throw std::runtime_error("CK dual GEMM profiler does not support residual inputs");
+    }
+    if (!request.has_bias) {
+      using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, int, hipStream_t);
+      return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+          a, b0, b1, c, request.m, request.n, request.k, request.b1_n, request.iterations, nullptr);
+    }
+    using Fn = float (*)(
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        void*,
+        int,
+        int,
+        int,
+        int,
+        int,
+        hipStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
+        a, b0, b1, bias, bias1, c, request.m, request.n, request.k, request.b1_n, request.iterations, nullptr);
+  }
   if (!request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, void*, int, int, int, int, hipStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
-        a, b, c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, hipStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
-        a, b, bias, c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, bias, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 1) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, void*, int, int, int, int, hipStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
-        a, b, bias, residuals[0].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, bias, residuals[0].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 2) {
     using Fn = float (*)(
@@ -168,7 +197,7 @@ inline float run_candidate(
         hipStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(profiler_symbol))(
         a,
-        b,
+        b0,
         bias,
         residuals[0].get(),
         residuals[1].get(),
@@ -193,25 +222,38 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
   if (request.residual_count < 0 || request.residual_count > 2) {
     throw std::runtime_error("CK GEMM profiler supports at most two residual inputs");
   }
+  if (request.is_dual && request.b1_n <= 0) {
+    throw std::runtime_error("CK dual GEMM profiler requires positive b1_n");
+  }
   if (!request.has_bias && request.residual_count != 0) {
     throw std::runtime_error("CK GEMM residual profiling requires bias");
   }
 
   std::mt19937 rng(seed);
   const std::size_t a_count = static_cast<std::size_t>(request.m) * static_cast<std::size_t>(request.k);
-  const std::size_t b_count = static_cast<std::size_t>(request.n) * static_cast<std::size_t>(request.k);
+  const std::size_t b0_count = static_cast<std::size_t>(request.n) * static_cast<std::size_t>(request.k);
+  const std::size_t b1_count = static_cast<std::size_t>(request.is_dual ? request.b1_n : request.n) * static_cast<std::size_t>(request.k);
   const std::size_t c_count = static_cast<std::size_t>(request.m) * static_cast<std::size_t>(request.n);
   DeviceBuffer a(a_count * dtype_size(request.dtype));
-  DeviceBuffer b(b_count * dtype_size(request.dtype));
+  DeviceBuffer b0(b0_count * dtype_size(request.dtype));
+  DeviceBuffer b1(request.is_dual ? (b1_count * dtype_size(request.dtype)) : 0);
   DeviceBuffer c(c_count * dtype_size(request.dtype));
   a.copy_from(random_storage(a_count, request.dtype, rng));
-  b.copy_from(random_storage(b_count, request.dtype, rng));
+  b0.copy_from(random_storage(b0_count, request.dtype, rng));
+  if (request.is_dual) {
+    b1.copy_from(random_storage(b1_count, request.dtype, rng));
+  }
   check_hip(hipMemset(c.get(), 0, c_count * dtype_size(request.dtype)), "hipMemset output");
 
   DeviceBuffer bias;
+  DeviceBuffer bias1;
   if (request.has_bias) {
     bias = DeviceBuffer(static_cast<std::size_t>(request.n) * dtype_size(request.dtype));
     bias.copy_from(random_storage(static_cast<std::size_t>(request.n), request.dtype, rng));
+    if (request.is_dual) {
+      bias1 = DeviceBuffer(static_cast<std::size_t>(request.b1_n) * dtype_size(request.dtype));
+      bias1.copy_from(random_storage(static_cast<std::size_t>(request.b1_n), request.dtype, rng));
+    }
   }
   std::vector<DeviceBuffer> residuals;
   residuals.reserve(static_cast<std::size_t>(request.residual_count));
@@ -229,7 +271,8 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
     result.samples_ms.reserve(static_cast<std::size_t>(request.repeats));
     try {
       for (int repeat = 0; repeat < request.repeats; ++repeat) {
-        const float elapsed_ms = run_candidate(request, profiler_symbol, a.get(), b.get(), bias.get(), residuals, c.get());
+        const float elapsed_ms =
+            run_candidate(request, profiler_symbol, a.get(), b0.get(), b1.get(), bias.get(), bias1.get(), residuals, c.get());
         if (!(elapsed_ms >= 0.0f)) {
           throw std::runtime_error("CK GEMM profiler candidate failed: " + profiler_symbol);
         }

@@ -19,6 +19,8 @@ struct GemmRequest {
   int m = 0;
   int n = 0;
   int k = 0;
+  bool is_dual = false;
+  int b1_n = 0;
   int split_k = 1;
   int iterations = 1;
   int repeats = 1;
@@ -166,8 +168,10 @@ inline float run_candidate(
     const GemmRequest& request,
     const GemmCandidate& candidate,
     void* a,
-    void* b,
+    void* b0,
+    void* b1,
     void* bias,
+    void* bias1,
     const std::vector<DeviceBuffer>& residuals,
     void* c,
     void* workspace,
@@ -176,45 +180,73 @@ inline float run_candidate(
   if (request.split_k > 1) {
     symbol = splitk_symbol(symbol);
   }
+  if (request.is_dual) {
+    if (request.residual_count != 0) {
+      throw std::runtime_error("CUTLASS dual GEMM profiler does not support residual inputs");
+    }
+    if (request.split_k != 1) {
+      throw std::runtime_error("CUTLASS dual GEMM profiler does not support split-K");
+    }
+    if (!request.has_bias) {
+      using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, int, cudaStream_t);
+      return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
+          a, b0, b1, c, request.m, request.n, request.k, request.b1_n, request.iterations, nullptr);
+    }
+    using Fn = float (*)(
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        const void*,
+        void*,
+        int,
+        int,
+        int,
+        int,
+        int,
+        cudaStream_t);
+    return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
+        a, b0, b1, bias, bias1, c, request.m, request.n, request.k, request.b1_n, request.iterations, nullptr);
+  }
   if (!request.has_bias && request.residual_count == 0 && request.split_k == 1) {
     using Fn = float (*)(const void*, const void*, void*, int, int, int, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (!request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, void*, int, int, int, int, void*, std::size_t, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
+        a, b0, c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 0 && request.split_k == 1) {
     using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, bias, c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 0) {
     using Fn = float (*)(const void*, const void*, const void*, void*, int, int, int, int, void*, std::size_t, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
+        a, b0, bias, c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 1 && request.split_k == 1) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, void*, int, int, int, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, residuals[0].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, bias, residuals[0].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 1) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, void*, int, int, int, int, void*, std::size_t, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, residuals[0].get(), c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
+        a, b0, bias, residuals[0].get(), c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 2 && request.split_k == 1) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, const void*, void*, int, int, int, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, residuals[0].get(), residuals[1].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
+        a, b0, bias, residuals[0].get(), residuals[1].get(), c, request.m, request.n, request.k, request.iterations, nullptr);
   }
   if (request.has_bias && request.residual_count == 2) {
     using Fn = float (*)(const void*, const void*, const void*, const void*, const void*, void*, int, int, int, int, void*, std::size_t, int, cudaStream_t);
     return reinterpret_cast<Fn>(resolve_profile_symbol(symbol))(
-        a, b, bias, residuals[0].get(), residuals[1].get(), c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
+        a, b0, bias, residuals[0].get(), residuals[1].get(), c, request.m, request.n, request.k, request.split_k, workspace, workspace_nbytes, request.iterations, nullptr);
   }
   throw std::runtime_error("Unsupported CUTLASS GEMM profiler epilogue input combination");
 }
@@ -226,6 +258,9 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
   if (request.residual_count < 0 || request.residual_count > 2) {
     throw std::runtime_error("CUTLASS GEMM profiler supports at most two residual inputs");
   }
+  if (request.is_dual && request.b1_n <= 0) {
+    throw std::runtime_error("CUTLASS dual GEMM profiler requires positive b1_n");
+  }
   auto candidates = selected_profiler_candidates(request);
   if (candidates.empty()) {
     throw std::runtime_error("CUTLASS GEMM profiler found no candidate for this problem");
@@ -233,19 +268,29 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
 
   std::mt19937 rng(seed);
   const std::size_t a_count = static_cast<std::size_t>(request.m) * static_cast<std::size_t>(request.k);
-  const std::size_t b_count = static_cast<std::size_t>(request.n) * static_cast<std::size_t>(request.k);
+  const std::size_t b0_count = static_cast<std::size_t>(request.n) * static_cast<std::size_t>(request.k);
+  const std::size_t b1_count = static_cast<std::size_t>(request.is_dual ? request.b1_n : request.n) * static_cast<std::size_t>(request.k);
   const std::size_t c_count = static_cast<std::size_t>(request.m) * static_cast<std::size_t>(request.n);
   DeviceBuffer a(a_count * dtype_size(request.dtype));
-  DeviceBuffer b(b_count * dtype_size(request.dtype));
+  DeviceBuffer b0(b0_count * dtype_size(request.dtype));
+  DeviceBuffer b1(request.is_dual ? (b1_count * dtype_size(request.dtype)) : 0);
   DeviceBuffer c(c_count * dtype_size(request.dtype));
   a.copy_from(random_storage(a_count, request.dtype, rng));
-  b.copy_from(random_storage(b_count, request.dtype, rng));
+  b0.copy_from(random_storage(b0_count, request.dtype, rng));
+  if (request.is_dual) {
+    b1.copy_from(random_storage(b1_count, request.dtype, rng));
+  }
   check_cuda(cudaMemset(c.get(), 0, c_count * dtype_size(request.dtype)), "cudaMemset output");
 
   DeviceBuffer bias;
+  DeviceBuffer bias1;
   if (request.has_bias) {
     bias = DeviceBuffer(static_cast<std::size_t>(request.n) * dtype_size(request.dtype));
     bias.copy_from(random_storage(static_cast<std::size_t>(request.n), request.dtype, rng));
+    if (request.is_dual) {
+      bias1 = DeviceBuffer(static_cast<std::size_t>(request.b1_n) * dtype_size(request.dtype));
+      bias1.copy_from(random_storage(static_cast<std::size_t>(request.b1_n), request.dtype, rng));
+    }
   }
   std::vector<DeviceBuffer> residuals;
   for (int i = 0; i < request.residual_count; ++i) {
@@ -278,8 +323,10 @@ inline std::vector<GemmResult> profile_gemm(const GemmRequest& request, std::uin
           request,
           *candidate,
           a.get(),
-          b.get(),
+          b0.get(),
+          b1.get(),
           bias.get(),
+          bias1.get(),
           residuals,
           c.get(),
           workspace.get(),

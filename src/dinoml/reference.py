@@ -8,6 +8,7 @@ import numpy as np
 from dinoml.ir import ModelSpec, array_from_storage, array_to_storage, dtype_numpy
 from dinoml.kernels.bmm import BMM_OPS, bmm_op_spec
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.ops.elementwise import ELEMENTWISE_BY_NAME, FUSABLE_ELEMENTWISE_OPS
 from dinoml.ops.collections import SPECIALIZED_PERMUTE_DIMS, normalize_permute_dims
 from dinoml.shapes import evaluate_symbolic_int
@@ -734,6 +735,13 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             output_dtype = _tensor_dtype(ir, output_name)
             values[output_name] = _store_reference(
                 _execute_gemm(node["op"], [values[name] for name in node["inputs"]]),
+                output_dtype,
+            )
+        elif node["op"] in DUAL_GEMM_OPS:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_dual_gemm(node["op"], [values[name] for name in node["inputs"]]),
                 output_dtype,
             )
         elif node["op"] in BMM_OPS:
@@ -2112,6 +2120,20 @@ def _execute_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     return np.asarray(result, dtype=np.float32)
 
 
+def _execute_dual_gemm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
+    spec = dual_gemm_op_spec(op)
+    a = np.asarray(inputs[0], dtype=np.float32)
+    b0 = np.asarray(inputs[1], dtype=np.float32)
+    b1 = np.asarray(inputs[2], dtype=np.float32)
+    left = np.matmul(a, np.swapaxes(b0, -1, -2))
+    right = np.matmul(a, np.swapaxes(b1, -1, -2))
+    if spec.epilogue.has_bias:
+        left = left + np.reshape(inputs[3], [1] * (left.ndim - 1) + [-1])
+        right = right + np.reshape(inputs[4], [1] * (right.ndim - 1) + [-1])
+    left = _execute_gemm_activation(spec.epilogue.activation, left)
+    return np.asarray(left * right, dtype=np.float32)
+
+
 def _execute_bmm(op: str, inputs: Sequence[np.ndarray]) -> np.ndarray:
     spec = bmm_op_spec(op)
     a = _logical_bmm_a(inputs[0], spec.a_layout)
@@ -2376,6 +2398,8 @@ def _logical_bmm_b(value: np.ndarray, layout: str) -> np.ndarray:
 def _execute_gemm_activation(activation: str, value: np.ndarray) -> np.ndarray:
     if activation == "relu":
         return np.maximum(value, 0.0)
+    if activation == "silu":
+        return value / (1.0 + np.exp(-value))
     if activation == "gelu":
         return 0.5 * value * (1.0 + np.tanh(np.sqrt(2.0 / np.pi) * (value + 0.044715 * value * value * value)))
     if activation == "fast_gelu":

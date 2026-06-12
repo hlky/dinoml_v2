@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Sequence
 
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.kernels.families.bmm import bmm_op_spec
 from dinoml.kernels.families.gemm import gemm_op_spec
 
@@ -24,7 +25,7 @@ def cutlass_candidate_epilogue_alignment(candidate: Mapping[str, Any]) -> int:
 
 
 def cutlass_gemm_problem_alignment(op_name: str, dtype: str, *, n: int, k: int) -> int:
-    spec = gemm_op_spec(op_name)
+    spec = _cutlass_gemm_op_spec(op_name)
     if spec.base_layout == "rrr":
         alignment_basis = math.gcd(int(k), int(n))
     elif spec.base_layout == "rcr":
@@ -40,7 +41,7 @@ def cutlass_gemm_guaranteed_alignment(
     a_tensor: Mapping[str, Any],
     b_tensor: Mapping[str, Any],
 ) -> int:
-    spec = gemm_op_spec(op_name)
+    spec = _cutlass_gemm_op_spec(op_name)
     a_spec = a_tensor.get("shape_spec", a_tensor["shape"])
     b_spec = b_tensor.get("shape_spec", b_tensor["shape"])
     b_k_axis = 0 if spec.base_layout == "rrr" else 1
@@ -76,6 +77,7 @@ def cutlass_gemm_static_alignment_context(
     a_name: str,
     b_name: str,
     c_name: str | None = None,
+    extra_operand_names: Sequence[str] = (),
     epilogue_names: Sequence[str] = (),
 ) -> dict[str, Any]:
     a_tensor = tensor_map[str(a_name)]
@@ -88,6 +90,7 @@ def cutlass_gemm_static_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
+        extra_operand_names=extra_operand_names,
         epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="shape_spec_divisibility",
@@ -135,6 +138,7 @@ def cutlass_bmm_static_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
+        extra_operand_names=(),
         epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="bmm_shape_spec_divisibility",
@@ -164,6 +168,7 @@ def cutlass_bmm_profile_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
+        extra_operand_names=(),
         epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="profiled_bmm_problem_shape",
@@ -180,6 +185,7 @@ def cutlass_gemm_profile_alignment_context(
     a_name: str,
     b_name: str,
     c_name: str | None = None,
+    extra_operand_names: Sequence[str] = (),
     epilogue_names: Sequence[str] = (),
     n: int,
     k: int,
@@ -192,6 +198,7 @@ def cutlass_gemm_profile_alignment_context(
         a_name=a_name,
         b_name=b_name,
         c_name=c_name,
+        extra_operand_names=extra_operand_names,
         epilogue_names=epilogue_names,
         shape_alignment=shape_alignment,
         shape_alignment_source="profiled_problem_shape",
@@ -325,12 +332,17 @@ def _cutlass_gemm_alignment_context(
     a_name: str,
     b_name: str,
     c_name: str | None,
+    extra_operand_names: Sequence[str],
     epilogue_names: Sequence[str],
     shape_alignment: int,
     shape_alignment_source: str,
 ) -> dict[str, Any]:
     a_context = cutlass_tensor_accessor_alignment_context(a_name, tensor_map)
     b_context = cutlass_tensor_accessor_alignment_context(b_name, tensor_map)
+    extra_operand_contexts = [
+        cutlass_tensor_accessor_alignment_context(name, tensor_map)
+        for name in extra_operand_names
+    ]
     c_context = (
         cutlass_tensor_accessor_alignment_context(c_name, tensor_map)
         if c_name is not None
@@ -344,6 +356,7 @@ def _cutlass_gemm_alignment_context(
         int(shape_alignment),
         a_context["alignment"],
         b_context["alignment"],
+        *(context["alignment"] for context in extra_operand_contexts),
     )
     epilogue_cap = combine_alignment_caps(
         c_context["alignment"] if c_context is not None else None,
@@ -362,6 +375,7 @@ def _cutlass_gemm_alignment_context(
         "operands": {
             "a": a_context,
             "b": b_context,
+            **{context["tensor"]: context for context in extra_operand_contexts},
         },
         "epilogue": {
             "c": c_context,
@@ -411,3 +425,7 @@ def _dim_divisible_by(dim: Any) -> int:
     if isinstance(dim, Mapping):
         return int(dim.get("divisible_by", 1))
     return int(dim)
+
+
+def _cutlass_gemm_op_spec(op_name: str):
+    return dual_gemm_op_spec(op_name) if op_name in DUAL_GEMM_OPS else gemm_op_spec(op_name)

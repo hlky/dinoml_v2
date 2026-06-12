@@ -5,6 +5,7 @@ import re
 from typing import Any, Mapping
 
 from dinoml.ir import canonical_json
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.kernels.families.gemm import GEMM_SUPPORTED_DTYPES, gemm_op_spec, normalize_gemm_dtype
 
 
@@ -115,6 +116,12 @@ CUTLASS_SM80_SIMT_F32_TILES = (
 CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS = (8, 4, 2)
 CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS = (4, 2, 1)
 CUTLASS_SM80_SIMT_F32_ALIGNMENTS = (1,)
+CUTLASS_DUAL_SM80_TENSOROP_16816_TILES = (
+    ((128, 64, 32), 3, (2, 2, 1)),
+)
+CUTLASS_DUAL_SM80_TENSOROP_TF32_TILES = (
+    ((128, 64, 32), 3, (2, 2, 1)),
+)
 CUTLASS_SM80_TENSOROP_ACCESS_SIZE_BITS = 128
 CUTLASS_SM80_TENSOROP_WARP_SIZE = 32
 CUTLASS_SM80_TENSOROP_MAX_WARP_THREAD_CONTIGUOUS = 8
@@ -417,20 +424,88 @@ CUTLASS_DEFAULT_SYMBOL_ID = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float16
 CUTLASS_DEFAULT_CANDIDATE_ID = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE["float16"][0]["candidate_id"])
 
 
+def _dual_cutlass_candidate_configs(dtype: str) -> tuple[dict[str, Any], ...]:
+    min_alignment = _dual_cutlass_min_alignment(dtype)
+    configs = []
+    if normalize_gemm_dtype(dtype) == "float32":
+        for threadblock, stages, warp_count in CUTLASS_DUAL_SM80_TENSOROP_TF32_TILES:
+            for align in CUTLASS_SM80_TENSOROP_TF32_ALIGNMENTS:
+                if align < min_alignment:
+                    continue
+                configs.append(
+                    _cutlass_candidate_config(
+                        threadblock,
+                        stages,
+                        warp_count,
+                        align,
+                        dtype="float32",
+                        accumulator_dtype="float32",
+                        instruction=(16, 8, 8),
+                        math="tf32",
+                        optional=True,
+                    )
+                )
+    else:
+        for threadblock, stages, warp_count in CUTLASS_DUAL_SM80_TENSOROP_16816_TILES:
+            for align in CUTLASS_SM80_TENSOROP_16816_ALIGNMENTS:
+                if align < min_alignment:
+                    continue
+                configs.append(
+                    _cutlass_candidate_config(
+                        threadblock,
+                        stages,
+                        warp_count,
+                        align,
+                        dtype=normalize_gemm_dtype(dtype),
+                        accumulator_dtype="float32",
+                        instruction=(16, 8, 16),
+                        math="16816",
+                    )
+                )
+    return tuple(sorted(configs, key=lambda config: str(config["candidate_id"])))
+
+
+def _dual_cutlass_min_alignment(dtype: str) -> int:
+    return 1 if normalize_gemm_dtype(dtype) == "float32" else 2
+
+
+CUTLASS_DUAL_GEMM_CANDIDATE_CONFIGS_BY_DTYPE = {
+    dtype: _dual_cutlass_candidate_configs(dtype) for dtype in GEMM_SUPPORTED_DTYPES
+}
+
+
+def _is_dual_gemm_op(op_name: str) -> bool:
+    return op_name in DUAL_GEMM_OPS
+
+
+def _provider_op_spec(op_name: str):
+    return dual_gemm_op_spec(op_name) if _is_dual_gemm_op(op_name) else gemm_op_spec(op_name)
+
+
 def cutlass_gemm_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
-    gemm_op_spec(op_name)
+    _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     suffix = gemm_dtype_suffix(normalized_dtype)
-    default_symbol_id = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype][0]["symbol_id"])
+    configs_by_dtype = (
+        CUTLASS_DUAL_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+        if _is_dual_gemm_op(op_name)
+        else CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+    )
+    default_symbol_id = str(configs_by_dtype[normalized_dtype][0]["symbol_id"])
     candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{default_symbol_id}"
     return f"dinoml_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
 
 def cutlass_gemm_profiler_symbol(op_name: str, dtype: str, symbol_id: str | None = None) -> str:
-    gemm_op_spec(op_name)
+    _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     suffix = gemm_dtype_suffix(normalized_dtype)
-    default_symbol_id = str(CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[normalized_dtype][0]["symbol_id"])
+    configs_by_dtype = (
+        CUTLASS_DUAL_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+        if _is_dual_gemm_op(op_name)
+        else CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+    )
+    default_symbol_id = str(configs_by_dtype[normalized_dtype][0]["symbol_id"])
     candidate_suffix = f"_{symbol_id}" if symbol_id else f"_{default_symbol_id}"
     return f"dinoml_profile_cutlass_{op_name}_{suffix}{candidate_suffix}"
 
@@ -440,7 +515,7 @@ def cutlass_gemm_default_candidate(op_name: str, dtype: str, target: Mapping[str
 
 
 def _cutlass_gemm_candidate(op_name: str, dtype: str, candidate_config: Mapping[str, Any]) -> dict[str, Any]:
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     symbol_id = str(candidate_config["symbol_id"])
     kernel_symbol = cutlass_gemm_symbol(op_name, normalized_dtype, symbol_id)
@@ -496,7 +571,7 @@ def cutlass_gemm_candidate_set(
     dtype: str,
     target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
     normalized_dtype = normalize_gemm_dtype(dtype)
     candidates = cutlass_gemm_candidates(op_name, normalized_dtype, target=target)
     supports_split_k = cutlass_gemm_split_k_supported({"launch_abi": spec.epilogue.launch_abi, "epilogue": spec.epilogue.name})
@@ -517,7 +592,7 @@ def cutlass_gemm_candidate_set(
         "split_k_default": CUTLASS_GEMM_DEFAULT_SPLIT_K,
         "supports_split_k": supports_split_k,
         "workspace_nbytes": CUTLASS_GEMM_DEFAULT_WORKSPACE_NBYTES,
-        "generator": "static_cutlass_gemm_candidates_v1",
+        "generator": "static_cutlass_dual_gemm_candidates_v1" if _is_dual_gemm_op(op_name) else "static_cutlass_gemm_candidates_v1",
         "candidate_config_keys": [candidate["candidate_config_key"] for candidate in candidates],
     }
     if supports_split_k:
@@ -530,7 +605,7 @@ def cutlass_gemm_candidate_set(
 
 
 def cutlass_gemm_candidate_set_id(op_name: str, dtype: str) -> str:
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
     suffix = gemm_dtype_suffix(dtype)
     return f"cutlass_{op_name}_{suffix}_{spec.epilogue.name}_v1"
 
@@ -547,14 +622,20 @@ def _cutlass_candidate_configs_for_target(
     dtype: str,
     target: Mapping[str, Any] | None,
 ) -> tuple[Mapping[str, Any], ...]:
-    spec = gemm_op_spec(op_name)
+    spec = _provider_op_spec(op_name)
+    configs_by_dtype = (
+        CUTLASS_DUAL_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+        if _is_dual_gemm_op(op_name)
+        else CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE
+    )
+    b_layout = spec.layouts["b1"] if _is_dual_gemm_op(op_name) else spec.layouts["b"]
     configs: tuple[Mapping[str, Any], ...] = tuple(
         config
-        for config in CUTLASS_GEMM_CANDIDATE_CONFIGS_BY_DTYPE[dtype]
+        for config in configs_by_dtype[dtype]
         if _cutlass_candidate_config_buildable_for_layouts(
             config,
             a_layout=spec.layouts["a"],
-            b_layout=spec.layouts["b"],
+            b_layout=b_layout,
         )
     )
     if target is None:
@@ -730,6 +811,17 @@ def _generated_export_line(candidate: Mapping[str, Any]) -> str:
     symbol_id = str(candidate["symbol_id"])
     policy = str(candidate["cutlass_policy"])
     align = int(candidate["cutlass"]["align"])
+    if _is_dual_gemm_op(op_name):
+        dual_epilogue = _cutlass_dual_epilogue_alias(str(candidate["epilogue"]))
+        if str(candidate["launch_abi"]) == "dinoml_cutlass_dual_gemm_bias_v1":
+            return (
+                f"DINOML_FORWARD_DUAL_GEMM_BIAS_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+                f"{dual_epilogue}, {symbol_id}, {policy}, {align})"
+            )
+        return (
+            f"DINOML_FORWARD_DUAL_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, "
+            f"{dual_epilogue}, {symbol_id}, {policy}, {align})"
+        )
     epilogue = str(candidate["epilogue"])
     if epilogue == "linear_combination":
         return f"DINOML_FORWARD_GEMM_EXPORT({op_name}, {dtype}, {ctype}, {element}, {old_suffix}, {symbol_id}, {policy}, {align})"
@@ -813,11 +905,41 @@ def _cutlass_epilogue_alias(epilogue: str) -> str:
         raise ValueError(f"Unsupported CUTLASS GEMM epilogue: {epilogue!r}") from exc
 
 
+def _cutlass_dual_epilogue_alias(op_name: str) -> str:
+    aliases = {
+        "left_relu_and_mul": "LeftReluAndMulEpilogue",
+        "left_gelu_and_mul": "LeftGeluAndMulEpilogue",
+        "left_fast_gelu_and_mul": "LeftFastGeluAndMulEpilogue",
+        "left_quick_gelu_and_mul": "LeftQuickGeluAndMulEpilogue",
+        "left_sigmoid_and_mul": "LeftSigmoidAndMulEpilogue",
+        "left_tanh_and_mul": "LeftTanhAndMulEpilogue",
+        "left_silu_and_mul": "LeftSiLUAndMulEpilogue",
+        "left_hardswish_and_mul": "LeftHardSwishAndMulEpilogue",
+        "left_elup1_and_mul": "LeftElup1AndMulEpilogue",
+        "left_bias_relu_and_mul": "LeftReluAndMulEpilogue",
+        "left_bias_gelu_and_mul": "LeftGeluAndMulEpilogue",
+        "left_bias_fast_gelu_and_mul": "LeftFastGeluAndMulEpilogue",
+        "left_bias_quick_gelu_and_mul": "LeftQuickGeluAndMulEpilogue",
+        "left_bias_sigmoid_and_mul": "LeftSigmoidAndMulEpilogue",
+        "left_bias_tanh_and_mul": "LeftTanhAndMulEpilogue",
+        "left_bias_swish_and_mul": "LeftSiLUAndMulEpilogue",
+        "left_bias_hardswish_and_mul": "LeftHardSwishAndMulEpilogue",
+        "left_bias_elup1_and_mul": "LeftElup1AndMulEpilogue",
+    }
+    try:
+        return aliases[op_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported CUTLASS dual GEMM epilogue: {op_name!r}") from exc
+
+
 def _generated_export_symbols(line: str) -> frozenset[str]:
     stripped = line.strip()
-    if not stripped.startswith("DINOML_FORWARD_GEMM"):
+    if not stripped.startswith("DINOML_FORWARD_"):
         return frozenset()
-    match = re.match(r"(DINOML_FORWARD_GEMM(?:_BIAS(?:_ACTIVATION|_RESIDUAL2|_RESIDUAL)?)?_EXPORT)\((.*)\)\s*$", stripped)
+    match = re.match(
+        r"(DINOML_FORWARD_(?:GEMM(?:_BIAS(?:_ACTIVATION|_RESIDUAL2|_RESIDUAL)?)?|DUAL_GEMM(?:_BIAS)?)_EXPORT)\((.*)\)\s*$",
+        stripped,
+    )
     if match is None:
         return frozenset()
     macro = match.group(1)
@@ -825,10 +947,19 @@ def _generated_export_symbols(line: str) -> frozenset[str]:
     try:
         if macro in {"DINOML_FORWARD_GEMM_EXPORT", "DINOML_FORWARD_GEMM_BIAS_EXPORT"}:
             op_name, dtype_name, symbol_id = args[0], args[1], args[5]
+        elif macro in {"DINOML_FORWARD_DUAL_GEMM_EXPORT", "DINOML_FORWARD_DUAL_GEMM_BIAS_EXPORT"}:
+            op_name, dtype_name, symbol_id = args[0], args[1], args[5]
         else:
             op_name, dtype_name, symbol_id = args[0], args[1], args[7]
     except IndexError as exc:
         raise ValueError(f"Malformed CUTLASS GEMM generated export: {line[:160]!r}") from exc
+    if macro in {"DINOML_FORWARD_DUAL_GEMM_EXPORT", "DINOML_FORWARD_DUAL_GEMM_BIAS_EXPORT"}:
+        return frozenset(
+            {
+                f"dinoml_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+                f"dinoml_profile_cutlass_{op_name}_{dtype_name}_{symbol_id}",
+            }
+        )
     return frozenset(
         {
             f"dinoml_cutlass_{op_name}_{dtype_name}_{symbol_id}",

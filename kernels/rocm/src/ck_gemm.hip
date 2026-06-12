@@ -78,6 +78,18 @@ enum class EpilogueKind {
   kBiasMulTanh,
 };
 
+enum class DualEpilogueKind {
+  kLeftReluAndMul,
+  kLeftGeluAndMul,
+  kLeftFastGeluAndMul,
+  kLeftQuickGeluAndMul,
+  kLeftSigmoidAndMul,
+  kLeftTanhAndMul,
+  kLeftSiLUAndMul,
+  kLeftHardSwishAndMul,
+  kLeftElup1AndMul,
+};
+
 template <ck::index_t... Is>
 using S = ck::Sequence<Is...>;
 
@@ -877,6 +889,153 @@ float profile_ck_gemm(
   return ms / static_cast<float>(iterations);
 }
 
+template <DualEpilogueKind Epilogue>
+__device__ float apply_dual_activation(float value) {
+  if constexpr (Epilogue == DualEpilogueKind::kLeftReluAndMul) {
+    return fmaxf(value, 0.0f);
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftGeluAndMul) {
+    return dinoml::math::to_float(dinoml::math::gelu(value));
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftFastGeluAndMul) {
+    return dinoml::math::to_float(dinoml::math::fast_gelu(value));
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftQuickGeluAndMul) {
+    return value / (1.0f + expf(-1.702f * value));
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftSigmoidAndMul) {
+    return dinoml::math::sigmoid_float(value);
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftTanhAndMul) {
+    return tanhf(value);
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftSiLUAndMul) {
+    return value * dinoml::math::sigmoid_float(value);
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftHardSwishAndMul) {
+    return value * fminf(fmaxf(value + 3.0f, 0.0f), 6.0f) / 6.0f;
+  } else if constexpr (Epilogue == DualEpilogueKind::kLeftElup1AndMul) {
+    return value >= 0.0f ? value + 1.0f : expf(value);
+  }
+  return value;
+}
+
+template <typename Storage, DualEpilogueKind Epilogue, bool HasBias>
+__global__ void dual_gemm_kernel(
+    Storage const* a,
+    Storage const* b0,
+    Storage const* b1,
+    Storage const* bias0,
+    Storage const* bias1,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int b1_n) {
+  const int col = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  const int row = static_cast<int>(blockIdx.y * blockDim.y + threadIdx.y);
+  if (row >= m || col >= n) {
+    return;
+  }
+  float acc0 = 0.0f;
+  float acc1 = 0.0f;
+  const int b1_row = b1_n == 1 ? 0 : col;
+  const int a_offset = row * k;
+  const int b0_offset = col * k;
+  const int b1_offset = b1_row * k;
+  for (int kk = 0; kk < k; ++kk) {
+    const float a_value = dinoml::math::to_float(a[a_offset + kk]);
+    acc0 += a_value * dinoml::math::to_float(b0[b0_offset + kk]);
+    acc1 += a_value * dinoml::math::to_float(b1[b1_offset + kk]);
+  }
+  if constexpr (HasBias) {
+    acc0 += dinoml::math::to_float(bias0[col]);
+    acc1 += dinoml::math::to_float(bias1[b1_row]);
+  }
+  c[row * n + col] = dinoml::math::from_float<Storage>(apply_dual_activation<Epilogue>(acc0) * acc1);
+}
+
+template <typename Storage, DualEpilogueKind Epilogue, bool HasBias>
+int launch_ck_dual_gemm(
+    Storage const* a,
+    Storage const* b0,
+    Storage const* b1,
+    Storage const* bias0,
+    Storage const* bias1,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int b1_n,
+    hipStream_t stream) {
+  if (a == nullptr || b0 == nullptr || b1 == nullptr || c == nullptr) {
+    return 1;
+  }
+  if constexpr (HasBias) {
+    if (bias0 == nullptr || bias1 == nullptr) {
+      return 1;
+    }
+  }
+  if (m <= 0 || n <= 0 || k <= 0 || (b1_n != 1 && b1_n != n)) {
+    return 2;
+  }
+  dim3 block(16, 16);
+  dim3 grid((static_cast<unsigned int>(n) + block.x - 1) / block.x, (static_cast<unsigned int>(m) + block.y - 1) / block.y);
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dual_gemm_kernel<Storage, Epilogue, HasBias>),
+      grid,
+      block,
+      0,
+      stream,
+      a,
+      b0,
+      b1,
+      bias0,
+      bias1,
+      c,
+      m,
+      n,
+      k,
+      b1_n);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename Storage, DualEpilogueKind Epilogue, bool HasBias>
+float profile_ck_dual_gemm(
+    Storage const* a,
+    Storage const* b0,
+    Storage const* b1,
+    Storage const* bias0,
+    Storage const* bias1,
+    Storage* c,
+    int m,
+    int n,
+    int k,
+    int b1_n,
+    int iterations,
+    hipStream_t stream) {
+  if (iterations <= 0) {
+    iterations = 20;
+  }
+  hipEvent_t start;
+  hipEvent_t end;
+  (void)hipEventCreate(&start);
+  (void)hipEventCreate(&end);
+  if (launch_ck_dual_gemm<Storage, Epilogue, HasBias>(a, b0, b1, bias0, bias1, c, m, n, k, b1_n, stream) != 0) {
+    (void)hipEventDestroy(start);
+    (void)hipEventDestroy(end);
+    return -1.0f;
+  }
+  (void)hipEventRecord(start, stream);
+  for (int i = 0; i < iterations; ++i) {
+    if (launch_ck_dual_gemm<Storage, Epilogue, HasBias>(a, b0, b1, bias0, bias1, c, m, n, k, b1_n, stream) != 0) {
+      (void)hipEventDestroy(start);
+      (void)hipEventDestroy(end);
+      return -1.0f;
+    }
+  }
+  (void)hipEventRecord(end, stream);
+  (void)hipEventSynchronize(end);
+  float ms = 0.0f;
+  (void)hipEventElapsedTime(&ms, start, end);
+  (void)hipEventDestroy(start);
+  (void)hipEventDestroy(end);
+  return ms / static_cast<float>(iterations);
+}
+
 }  // namespace
 
 #define DINOML_CK_GEMM_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, LAYOUT_B, EPILOGUE, CONFIG) \
@@ -981,6 +1140,64 @@ extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID
     int iterations, \
     hipStream_t stream) { \
   return profile_ck_gemm<CTYPE, GemmBLayout::LAYOUT_B, EpilogueKind::EPILOGUE, GemmConfig::CONFIG>(a, b, bias, d0, d1, c, m, n, k, iterations, stream); \
+}
+
+#define DINOML_CK_DUAL_GEMM_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, EPILOGUE) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b0, \
+    CTYPE const* b1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int b1_n, \
+    hipStream_t stream) { \
+  return launch_ck_dual_gemm<CTYPE, DualEpilogueKind::EPILOGUE, false>(a, b0, b1, nullptr, nullptr, c, m, n, k, b1_n, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b0, \
+    CTYPE const* b1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int b1_n, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_dual_gemm<CTYPE, DualEpilogueKind::EPILOGUE, false>(a, b0, b1, nullptr, nullptr, c, m, n, k, b1_n, iterations, stream); \
+}
+
+#define DINOML_CK_DUAL_GEMM_BIAS_EXPORT(OP, DTYPE_NAME, CTYPE, SYMBOL_ID, EPILOGUE) \
+extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b0, \
+    CTYPE const* b1, \
+    CTYPE const* bias0, \
+    CTYPE const* bias1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int b1_n, \
+    hipStream_t stream) { \
+  return launch_ck_dual_gemm<CTYPE, DualEpilogueKind::EPILOGUE, true>(a, b0, b1, bias0, bias1, c, m, n, k, b1_n, stream); \
+} \
+extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
+    CTYPE const* a, \
+    CTYPE const* b0, \
+    CTYPE const* b1, \
+    CTYPE const* bias0, \
+    CTYPE const* bias1, \
+    CTYPE* c, \
+    int m, \
+    int n, \
+    int k, \
+    int b1_n, \
+    int iterations, \
+    hipStream_t stream) { \
+  return profile_ck_dual_gemm<CTYPE, DualEpilogueKind::EPILOGUE, true>(a, b0, b1, bias0, bias1, c, m, n, k, b1_n, iterations, stream); \
 }
 
 #define DINOML_CK_GENERATED_EXPORTS 1

@@ -86,6 +86,7 @@ from dinoml.ops.elementwise import FusedElementwise
 from dinoml.passes import PassManager, validate_ir
 from dinoml.runtime import load
 from tests.cases import GraphCase, elementwise_case, standard_cases
+from tests.dual_gemm_parity import DUAL_GEMM_CASES, trace_dual_gemm_spec
 
 
 def test_rocm_backend_binding_coverage_matches_cuda_ops():
@@ -1866,6 +1867,56 @@ def test_rocm_ck_gemm_profiler_passes_epilogue_pointers(
     ]
 
 
+@pytest.mark.parametrize(
+    ("case_name", "expected_abi", "expected_device_shapes", "expected_pointer_values", "expected_problem_values"),
+    [
+        (
+            "dual_gemm_fast_gelu_f16_broadcast_dynamic",
+            "dinoml_ck_dual_gemm_v1",
+            [(2, 4, 8), (6, 8), (1, 8), (2, 4, 6)],
+            [0x1010, 0x1020, 0x1030, 0x1040],
+            (8, 6, 8, 1, 17),
+        ),
+        (
+            "dual_gemm_bias_fast_gelu_bf16_dynamic",
+            "dinoml_ck_dual_gemm_bias_v1",
+            [(2, 4, 8), (6, 8), (6, 8), (2, 4, 6), (6,), (6,)],
+            [0x1010, 0x1020, 0x1030, 0x1050, 0x1060, 0x1040],
+            (8, 6, 8, 6, 17),
+        ),
+    ],
+)
+def test_rocm_ck_dual_gemm_profiler_passes_secondary_rhs_and_bias_pointers(
+    case_name: str,
+    expected_abi: str,
+    expected_device_shapes: list[tuple[int, ...]],
+    expected_pointer_values: list[int],
+    expected_problem_values: tuple[int, ...],
+):
+    case = next(case for case in DUAL_GEMM_CASES if case.name == case_name)
+    ir = trace_dual_gemm_spec(case).ir
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+
+    fake_fn, call, device_shapes, elapsed_ms, workspace_nbytes = _profile_ck_gemm_with_fake_device_arrays(workload)
+
+    pointer_count = len(expected_pointer_values)
+
+    assert workload.candidate["launch_abi"] == expected_abi
+    assert elapsed_ms == 0.25
+    assert workspace_nbytes == 0
+    assert device_shapes == expected_device_shapes
+    assert [arg.value for arg in call[:pointer_count]] == expected_pointer_values
+    assert call[pointer_count : pointer_count + 5] == expected_problem_values
+    assert isinstance(call[-1], ctypes.c_void_p)
+    assert call[-1].value is None
+    assert fake_fn.argtypes == [
+        *([ctypes.c_void_p] * pointer_count),
+        *([ctypes.c_int] * 5),
+        ctypes.c_void_p,
+    ]
+
+
 def test_rocm_ck_profile_failure_result_includes_diagnostics():
     ir = _rocm_gemm_ir("gemm_rcr_bias_add_relu", "float16", m=128, n=128, k=96)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -3550,6 +3601,49 @@ def test_ck_gemm_profiler_groups_problem_candidates_and_maps_rows():
     assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.22, 0.21]
 
 
+def test_ck_gemm_profiler_passes_dual_problem_kwargs():
+    case = next(case for case in DUAL_GEMM_CASES if case.name == "dual_gemm_bias_fast_gelu_bf16_dynamic")
+    ir = trace_dual_gemm_spec(case).ir
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeModule:
+        def profile_gemm(self, **kwargs):
+            calls.append(kwargs)
+            return [
+                {
+                    "profiler_symbol": workload.profiler_symbol,
+                    "samples_ms": [0.19, 0.18],
+                    "workspace_nbytes": 0,
+                    "ok": True,
+                }
+            ]
+
+    profiler = _CkGemmProfiler({(workload.op, workload.dtype): FakeModule()})
+    rows = profiler.profile_problem([workload], iterations=9, repeats=2)
+
+    assert calls == [
+        {
+            "profiler_symbol": workload.profiler_symbol,
+            "profiler_symbols": [workload.profiler_symbol],
+            "dtype": workload.dtype,
+            "m": workload.m,
+            "n": workload.n,
+            "k": workload.k,
+            "is_dual": True,
+            "b1_n": 6,
+            "iterations": 9,
+            "repeats": 2,
+            "has_bias": True,
+            "residual_count": 0,
+            "seed": calls[0]["seed"],
+        }
+    ]
+    assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
+    assert rows[0]["samples_ms"] == [0.19, 0.18]
+
+
 def test_ck_bmm_profiler_groups_problem_candidates_and_maps_rows():
     ir = _rocm_bmm_ir("bmm_rcr_add", "float16", batch=2, m=64, n=128, k=96)
     manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
@@ -3599,6 +3693,65 @@ def test_ck_conv_profiler_groups_problem_candidates_and_maps_rows():
     assert calls[0]["has_residual"] is False
     assert rows_by_candidate[workloads[0].candidate_id]["samples_ms"] == [0.19, 0.18]
     assert rows_by_candidate[workloads[1].candidate_id]["samples_ms"] == [0.12, 0.11]
+
+
+@pytest.mark.parametrize(
+    ("case_name", "expected_has_bias", "expected_b1_n"),
+    [
+        ("dual_gemm_fast_gelu_f16_broadcast_dynamic", False, 1),
+        ("dual_gemm_bias_fast_gelu_bf16_dynamic", True, 6),
+    ],
+)
+def test_cutlass_gemm_profiler_passes_dual_problem_kwargs(
+    case_name: str,
+    expected_has_bias: bool,
+    expected_b1_n: int,
+):
+    case = next(case for case in DUAL_GEMM_CASES if case.name == case_name)
+    ir = trace_dual_gemm_spec(case).ir
+    manifest = build_kernel_manifest(ir, {"name": "cuda", "arch": "sm89"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    calls = []
+
+    class FakeModule:
+        def profile_gemm(self, **kwargs):
+            calls.append(kwargs)
+            return [{"profiler_symbol": workload.profiler_symbol, "samples_ms": [0.14], "workspace_nbytes": 0}]
+
+    profiler = profiling_mod._CutlassGemmProfiler(
+        {(workload.op, workload.dtype): FakeModule()},
+        {(workload.op, workload.dtype): [workload.candidate]},
+    )
+    rows = profiler.profile(workload, iterations=7, repeats=1)
+
+    assert calls[0]["is_dual"] is True
+    assert calls[0]["b1_n"] == expected_b1_n
+    assert calls[0]["has_bias"] is expected_has_bias
+    assert calls[0]["residual_count"] == 0
+    assert rows[0]["candidate"]["candidate_id"] == workload.candidate_id
+
+
+def test_dual_gemm_execution_plan_keeps_profile_selection_shape_guarded():
+    case = next(case for case in DUAL_GEMM_CASES if case.name == "dual_gemm_fast_gelu_f16_broadcast_dynamic")
+    ir = trace_dual_gemm_spec(case).ir
+    manifest = build_kernel_manifest(ir, {"name": "cuda", "arch": "sm89"})
+    workload = build_profile_workloads(ir, manifest)[0]
+    result = _profile_result(workload, 0.21, 1, profile_key="dual-profile-key", status="ok")
+
+    execution_plan = build_execution_plan(
+        {
+            "schema_version": 1,
+            "profile_cache_schema_version": PROFILE_CACHE_SCHEMA_VERSION,
+            "target": dict(manifest["target"]),
+            "kernel_manifest_cache_key": manifest.get("cache_key"),
+            "codegen_plan_cache_key": "test-codegen-plan",
+            "problems": [result],
+        }
+    )
+
+    assert execution_plan["static_selections"] == []
+    assert execution_plan["summary"]["static_selection_count"] == 0
+    assert execution_plan["selections"][0]["selected_candidate_id"] == workload.candidate_id
 
 
 def _write_profile_artifact_fixture(tmp_path: Path, ir: dict[str, object], kernel_manifest: dict[str, object]) -> Path:

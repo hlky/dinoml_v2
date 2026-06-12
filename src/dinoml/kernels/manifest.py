@@ -11,6 +11,7 @@ from dinoml.constant_sources import (
 from dinoml.ir import canonical_json, dtype_nbytes
 from dinoml.kernels.external import external_kernel_families
 from dinoml.kernels.bmm import bmm_op_spec, bmm_problem
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec, dual_gemm_problem
 from dinoml.kernels.providers.cutlass.bmm import cutlass_bmm_candidate_set, cutlass_bmm_candidates
 from dinoml.kernels.providers.ck.bmm import (
     ck_bmm_candidate_set,
@@ -458,6 +459,8 @@ def _select_ck_gemm_manifest_candidate(
     tensor_map: Mapping[str, Mapping[str, Any]],
     candidates: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any]:
+    if str(node["op"]) in DUAL_GEMM_OPS:
+        return candidates[0]
     input_names = [str(name) for name in node.get("inputs", ())]
     if len(input_names) < 2:
         return candidates[0]
@@ -469,10 +472,10 @@ def _select_ck_gemm_manifest_candidate(
     if any(shape is None for shape in shapes):
         return candidates[0]
     try:
-        m, n, k, _ = gemm_problem(str(node["op"]), [shape for shape in shapes if shape is not None])
+        m, n, k, _ = _provider_gemm_problem(str(node["op"]), [shape for shape in shapes if shape is not None])
     except ValueError:
         return candidates[0]
-    spec = gemm_op_spec(str(node["op"]))
+    spec = _provider_gemm_spec(str(node["op"]))
     problem = {
         "m": m,
         "n": n,
@@ -884,25 +887,37 @@ def _cutlass_gemm_alignment_contexts(
         resolved = binding.resolve(dtype)
         if resolved.library != "cutlass_gemm":
             continue
-        spec = gemm_op_spec(str(node["op"]))
+        op_name = str(node["op"])
+        spec = _provider_gemm_spec(op_name)
         a_name, b_name = (str(name) for name in node["inputs"][:2])
+        extra_operand_names = (str(node["inputs"][2]),) if op_name in DUAL_GEMM_OPS else ()
+        epilogue_input_start = 3 if op_name in DUAL_GEMM_OPS else 2
         epilogue_names = tuple(
             str(node["inputs"][input_offset])
-            for input_offset, _input_name in enumerate(spec.epilogue.inputs, start=2)
+            for input_offset, _input_name in enumerate(spec.epilogue.inputs, start=epilogue_input_start)
         )
         context = cutlass_gemm_static_alignment_context(
-            str(node["op"]),
+            op_name,
             dtype,
             tensor_map,
             a_name=a_name,
             b_name=b_name,
             c_name=str(node["outputs"][0]),
+            extra_operand_names=extra_operand_names,
             epilogue_names=epilogue_names,
         )
         context["node_id"] = str(node["id"])
-        key = (str(node["op"]), dtype)
+        key = (op_name, dtype)
         contexts.setdefault(key, []).append(context)
     return {key: merge_cutlass_alignment_contexts(values) for key, values in contexts.items()}
+
+
+def _provider_gemm_spec(op_name: str):
+    return dual_gemm_op_spec(op_name) if op_name in DUAL_GEMM_OPS else gemm_op_spec(op_name)
+
+
+def _provider_gemm_problem(op_name: str, shapes: Sequence[Sequence[int]]) -> tuple[int, int, int, tuple[int, ...]]:
+    return dual_gemm_problem(op_name, shapes) if op_name in DUAL_GEMM_OPS else gemm_problem(op_name, shapes)
 
 
 def _backend_kernel_binding_or_raise(op_def: Any, target_name: str):
@@ -966,11 +981,42 @@ def _select_cutlass_manifest_candidate(
         candidate_filter["max_epilogue_alignment"],
     )
     if not filtered:
+        if op_name in DUAL_GEMM_OPS:
+            fallback = _select_dual_cutlass_manifest_fallback_candidate(dtype, candidates, candidate_filter)
+            if fallback is not None:
+                return fallback
         raise ValueError(
             "CUTLASS GEMM manifest alignment filter removed all candidates "
             f"for {op_name} {dtype} with filter {candidate_filter}"
         )
     return filtered[0]
+
+
+def _select_dual_cutlass_manifest_fallback_candidate(
+    dtype: str,
+    candidates: Sequence[Mapping[str, Any]],
+    candidate_filter: Mapping[str, int | None],
+) -> Mapping[str, Any] | None:
+    min_alignment = 1 if str(dtype) == "float32" else 2
+    max_epilogue_alignment = candidate_filter["max_epilogue_alignment"]
+    compatible = [
+        candidate
+        for candidate in candidates
+        if cutlass_candidate_alignment(candidate) >= min_alignment
+        and (
+            max_epilogue_alignment is None
+            or cutlass_candidate_epilogue_alignment(candidate) <= max_epilogue_alignment
+        )
+    ]
+    if not compatible:
+        return None
+    return min(
+        compatible,
+        key=lambda candidate: (
+            cutlass_candidate_alignment(candidate),
+            str(candidate.get("candidate_id", "")),
+        ),
+    )
 
 
 def apply_execution_plan(

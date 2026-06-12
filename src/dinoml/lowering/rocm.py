@@ -166,7 +166,18 @@ def _ck_gemm_declaration_context(
 
 def _ck_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
     extra_args = ""
-    if launch_abi == "dinoml_ck_gemm_bias_v1":
+    shape_args = ""
+    if launch_abi == "dinoml_ck_dual_gemm_v1":
+        extra_args = f"    const {cpp_type}* b1,\n"
+        shape_args = "    int b1_n,\n"
+    elif launch_abi == "dinoml_ck_dual_gemm_bias_v1":
+        extra_args = (
+            f"    const {cpp_type}* b1,\n"
+            f"    const {cpp_type}* bias0,\n"
+            f"    const {cpp_type}* bias1,\n"
+        )
+        shape_args = "    int b1_n,\n"
+    elif launch_abi == "dinoml_ck_gemm_bias_v1":
         extra_args = f"    const {cpp_type}* bias,\n"
     elif launch_abi == "dinoml_ck_gemm_bias_residual_v1":
         extra_args = f"    const {cpp_type}* bias,\n" f"    const {cpp_type}* d0,\n"
@@ -187,6 +198,7 @@ def _ck_gemm_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         "    int m,\n"
         "    int n,\n"
         "    int k,\n"
+        f"{shape_args}"
         "    hipStream_t stream);"
     )
 

@@ -1,0 +1,81 @@
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT a,
+    int64_t runtime_numel_a,
+    const {{ storage_type }}* DINO_RESTRICT b0,
+    int64_t runtime_numel_b0,
+    const {{ storage_type }}* DINO_RESTRICT b1,
+    int64_t runtime_numel_b1,
+{% if has_bias %}
+    const {{ storage_type }}* DINO_RESTRICT bias0,
+    int64_t runtime_numel_bias0,
+    const {{ storage_type }}* DINO_RESTRICT bias1,
+    int64_t runtime_numel_bias1,
+{% endif %}
+    {{ storage_type }}* DINO_RESTRICT c,
+    int64_t runtime_numel_c,
+    int64_t runtime_m,
+    int64_t runtime_n,
+    int64_t runtime_k) {
+  if (a == nullptr || b0 == nullptr || b1 == nullptr || c == nullptr{% if has_bias %} || bias0 == nullptr || bias1 == nullptr{% endif %}) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_m < 0 || runtime_n <= 0 || runtime_k <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime GEMM shape");
+  }
+  if (runtime_numel_a != runtime_m * runtime_k) {
+    return dino_runtime_fail("{{ func }} runtime A size mismatch");
+  }
+  if (runtime_numel_b0 != runtime_n * runtime_k) {
+    return dino_runtime_fail("{{ func }} runtime B0 size mismatch");
+  }
+  if (runtime_numel_b1 % runtime_k != 0) {
+    return dino_runtime_fail("{{ func }} runtime B1 size mismatch");
+  }
+  const int64_t runtime_b1_n = runtime_numel_b1 / runtime_k;
+  if (runtime_b1_n != 1 && runtime_b1_n != runtime_n) {
+    return dino_runtime_fail("{{ func }} runtime B1 broadcast mismatch");
+  }
+{% if has_bias %}
+  if (runtime_numel_bias0 != runtime_n) {
+    return dino_runtime_fail("{{ func }} runtime bias0 size mismatch");
+  }
+  if (runtime_numel_bias1 != runtime_b1_n) {
+    return dino_runtime_fail("{{ func }} runtime bias1 size mismatch");
+  }
+{% endif %}
+  if (runtime_numel_c != runtime_m * runtime_n) {
+    return dino_runtime_fail("{{ func }} runtime output size mismatch");
+  }
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < runtime_m; ++row) {
+    const int64_t a_base = row * runtime_k;
+    const int64_t c_base = row * runtime_n;
+    for (int64_t col = 0; col < runtime_n; ++col) {
+      float left_acc = 0.0f;
+      float right_acc = 0.0f;
+      const int64_t b0_base = col * runtime_k;
+      const int64_t right_col = runtime_b1_n == 1 ? 0 : col;
+      const int64_t b1_base = right_col * runtime_k;
+      for (int64_t kk = 0; kk < runtime_k; ++kk) {
+        const float a_value = dinoml::math::cast<float>(a[a_base + kk]);
+        left_acc += a_value * dinoml::math::cast<float>(b0[b0_base + kk]);
+        right_acc += a_value * dinoml::math::cast<float>(b1[b1_base + kk]);
+      }
+{% if has_bias %}
+      left_acc += dinoml::math::cast<float>(bias0[col]);
+      right_acc += dinoml::math::cast<float>(bias1[right_col]);
+{% endif %}
+{% if activation == "silu" %}
+      const float left = left_acc / (1.0f + std::exp(-left_acc));
+{% elif activation == "fast_gelu" %}
+      const float left = 0.5f * left_acc * (1.0f + std::tanh(0.7978845608f * left_acc * (1.0f + 0.044715f * left_acc * left_acc)));
+{% else %}
+#error Unsupported dual GEMM CPU activation
+{% endif %}
+      c[c_base + col] = dinoml::math::cast<{{ storage_type }}>(left * right_acc);
+    }
+  }
+  return 0;
+}

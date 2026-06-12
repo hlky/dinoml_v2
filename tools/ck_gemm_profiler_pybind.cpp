@@ -24,6 +24,8 @@ dinoml::ck_gemm_profiler::GemmRequest request_from_kwargs(const py::kwargs& kwar
   request.m = py::cast<int>(kwargs["m"]);
   request.n = py::cast<int>(kwargs["n"]);
   request.k = py::cast<int>(kwargs["k"]);
+  request.is_dual = kwargs.contains("is_dual") ? py::cast<bool>(kwargs["is_dual"]) : false;
+  request.b1_n = kwargs.contains("b1_n") ? py::cast<int>(kwargs["b1_n"]) : 0;
   request.iterations = py::cast<int>(kwargs["iterations"]);
   request.repeats = py::cast<int>(kwargs["repeats"]);
   request.has_bias = py::cast<bool>(kwargs["has_bias"]);

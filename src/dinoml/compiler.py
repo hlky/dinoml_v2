@@ -121,8 +121,10 @@ def _compile_with_profile(
     )
     _validate_profile_shape_expressions(lowered_ir, target)
     kernel_manifest = build_kernel_manifest(lowered_ir, target.to_json())
+    previous_cutlass_gemm_profiler_env = os.environ.get("DINOML_BUILD_CUTLASS_GEMM_PROFILERS")
     previous_cutlass_conv_profiler_env = os.environ.get("DINOML_BUILD_CUTLASS_CONV_PROFILERS")
     if target.name == "cuda":
+        os.environ["DINOML_BUILD_CUTLASS_GEMM_PROFILERS"] = "1"
         os.environ["DINOML_BUILD_CUTLASS_CONV_PROFILERS"] = "1"
     try:
         _materialize_profile_bootstrap_artifact(
@@ -145,6 +147,10 @@ def _compile_with_profile(
         )
     finally:
         if target.name == "cuda":
+            if previous_cutlass_gemm_profiler_env is None:
+                os.environ.pop("DINOML_BUILD_CUTLASS_GEMM_PROFILERS", None)
+            else:
+                os.environ["DINOML_BUILD_CUTLASS_GEMM_PROFILERS"] = previous_cutlass_gemm_profiler_env
             if previous_cutlass_conv_profiler_env is None:
                 os.environ.pop("DINOML_BUILD_CUTLASS_CONV_PROFILERS", None)
             else:

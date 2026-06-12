@@ -108,6 +108,60 @@ using LinearCombinationQuickGELU = LinearCombinationGeneric<
     Round,
     false>;
 
+template <
+    template <typename>
+    class Activation_,
+    typename ElementOutput_,
+    int Count,
+    typename ElementAccumulator_ = ElementOutput_,
+    typename ElementCompute_ = ElementOutput_,
+    FloatRoundStyle Round = FloatRoundStyle::round_to_nearest>
+class LeftActivationAndMul {
+ public:
+  using ElementOutput = ElementOutput_;
+  using ElementAccumulator = ElementAccumulator_;
+  using ElementCompute = ElementCompute_;
+  static int const kCount = Count;
+  using FragmentOutput = Array<ElementOutput, kCount>;
+  using FragmentAccumulator = Array<ElementAccumulator, kCount>;
+  using ComputeFragment = Array<ElementCompute, kCount>;
+  static FloatRoundStyle const kRound = Round;
+
+  struct Params {};
+
+  CUTLASS_HOST_DEVICE
+  LeftActivationAndMul(Params const&) {}
+
+  CUTLASS_HOST_DEVICE
+  bool is_source_needed() const {
+    return true;
+  }
+
+  CUTLASS_HOST_DEVICE
+  void set_k_partition(int, int) {}
+
+  template <typename ElementLhs, typename ElementRhs>
+  CUTLASS_HOST_DEVICE
+  FragmentOutput operator()(Array<ElementLhs, kCount> const& lhs, Array<ElementRhs, kCount> const& rhs) const {
+    NumericArrayConverter<ElementCompute, ElementLhs, kCount, Round> lhs_to_compute;
+    NumericArrayConverter<ElementCompute, ElementRhs, kCount, Round> rhs_to_compute;
+    NumericArrayConverter<ElementOutput, ElementCompute, kCount, Round> compute_to_output;
+    ComputeFragment converted_lhs = lhs_to_compute(lhs);
+    ComputeFragment converted_rhs = rhs_to_compute(rhs);
+    Activation_<ComputeFragment> activation;
+    cutlass::multiplies<ComputeFragment> mul;
+    return compute_to_output(mul(activation(converted_lhs), converted_rhs));
+  }
+
+  template <typename ElementLhs, typename ElementRhs>
+  CUTLASS_HOST_DEVICE
+  ElementOutput operator()(ElementLhs const& lhs, ElementRhs const& rhs) const {
+    Activation_<ElementCompute> activation;
+    cutlass::multiplies<ElementCompute> mul;
+    return ElementOutput(mul(activation(ElementCompute(lhs)), ElementCompute(rhs)));
+  }
+};
+
 }  // namespace thread
 }  // namespace epilogue
 }  // namespace cutlass
@@ -202,6 +256,42 @@ using BiasElup1Epilogue = cutlass::epilogue::thread::LinearCombinationELUp1<
     float,
     cutlass::epilogue::thread::ScaleType::NoBetaScaling,
     cutlass::FloatRoundStyle::round_to_nearest>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftReluAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::ReLu, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftGeluAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::GELU, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftFastGeluAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::GELU_taylor, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftQuickGeluAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::QuickGELU, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftSigmoidAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::Sigmoid, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftTanhAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::Tanh, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftSiLUAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::SiLu, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftHardSwishAndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::HardSwish, Element, 1, ElementAccumulator, float>;
+
+template <typename Element, typename ElementAccumulator = float>
+using LeftElup1AndMulEpilogue =
+    cutlass::epilogue::thread::LeftActivationAndMul<cutlass::epilogue::thread::ELUp1, Element, 1, ElementAccumulator, float>;
 
 enum class BiasResidualKind {
   kAdd,

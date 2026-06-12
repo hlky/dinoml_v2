@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from dinoml.ir import dtype_nbytes
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.lowering.cpp_types import cpu_storage_type, cuda_storage_type
 from dinoml.lowering.ops.base import OpLowering
 from dinoml.kernels.gemm import GEMM_OPS, gemm_op_spec
@@ -16,11 +17,16 @@ from dinoml.ops.definitions import get_op_def
 
 
 _CPU_GEMM_OPS = {"gemm_rcr", "gemm_rcr_bias", "gemm_rcr_bias_fast_gelu", "gemm_rcr_bias_quick_gelu"}
+_CPU_DUAL_GEMM_OPS = set(DUAL_GEMM_OPS)
+_GEMM_FAMILY_OPS = tuple((*GEMM_OPS, *DUAL_GEMM_OPS))
 from dinoml.lowering.shape_buffers import c_ident as _c_ident
 
 
 def render_generated_kernel(target: str, node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str | None:
+    op_name = str(node["op"])
     if target == "cpu":
+        if op_name in DUAL_GEMM_OPS:
+            return _render_cpu_template("dual_gemm_cpu.cpp.j2", _dual_gemm_cpu_context(node, tensor_map))
         return _render_cpu_template("gemm_cpu.cpp.j2", _cpu_context(node, tensor_map))
     if target in {"cuda", "rocm"}:
         return None
@@ -34,6 +40,8 @@ def render_launch(
     kernel_manifest: Mapping[str, Any] | None = None,
 ) -> str:
     op_name = str(node["op"])
+    if op_name in DUAL_GEMM_OPS:
+        return _render_dual_gemm_launch(target, node, tensor_map, kernel_manifest)
     spec = gemm_op_spec(op_name)
     a_name, b_name = node["inputs"][:2]
     c_name = node["outputs"][0]
@@ -266,6 +274,92 @@ def _render_cpu_launch(
     return "\n".join(lines)
 
 
+def _render_dual_gemm_launch(
+    target: str,
+    node: Mapping[str, Any],
+    tensor_map: Mapping[str, Mapping[str, Any]],
+    kernel_manifest: Mapping[str, Any] | None = None,
+) -> str:
+    op_name = str(node["op"])
+    spec = dual_gemm_op_spec(op_name)
+    a_name, b0_name, b1_name = [str(name) for name in node["inputs"][:3]]
+    c_name = str(node["outputs"][0])
+    a_ident = _c_ident(a_name)
+    b0_ident = _c_ident(b0_name)
+    b1_ident = _c_ident(b1_name)
+    c_ident = _c_ident(c_name)
+    _validate_dual_gemm_static_contract(op_name, [tensor_map[name] for name in node["inputs"]], tensor_map[c_name], target=target)
+    a_rank = len(tensor_map[a_name]["shape"])
+    m_expr = _product_expr(f"shape_{a_ident}_{axis}" for axis in range(a_rank - 1))
+    k_expr = f"shape_{a_ident}_{a_rank - 1}"
+    dtype = str(tensor_map[c_name]["dtype"])
+    n_expr = f"shape_{b0_ident}_0"
+    b1_n_expr = f"shape_{b1_ident}_0"
+    lines = [
+        f'if ({k_expr} != shape_{b0_ident}_1) return dinoml::module::fail("{op_name} B0 K dimension mismatch");',
+        f'if ({k_expr} != shape_{b1_ident}_1) return dinoml::module::fail("{op_name} B1 K dimension mismatch");',
+        f'if ({b1_n_expr} != 1 && {b1_n_expr} != {n_expr}) return dinoml::module::fail("{op_name} B1 shape mismatch");',
+        f'if ({_folded_output_shape_check(c_ident, a_ident, a_rank, n_expr)}) return dinoml::module::fail("{op_name} output shape mismatch");',
+    ]
+    epilogue_args = []
+    for input_offset, input_name in enumerate(spec.epilogue.inputs, start=3):
+        tensor_name = str(node["inputs"][input_offset])
+        tensor_ident = _c_ident(tensor_name)
+        tensor_rank = len(tensor_map[tensor_name]["shape"])
+        if input_name == "bias0":
+            lines.extend(_bias_shape_rank_checks(op_name, tensor_ident, tensor_rank, n_expr, "bias0"))
+        elif input_name == "bias1":
+            lines.extend(_bias_shape_rank_checks(op_name, tensor_ident, tensor_rank, b1_n_expr, "bias1"))
+        else:
+            raise NotImplementedError(f"{op_name} CPU lowering does not support epilogue input {input_name!r}")
+        epilogue_args.append(f"ptr_{tensor_ident}, runtime_numel_{tensor_ident}, ")
+    func = _cpu_function_name(node, tensor_map)
+    if target == "cpu":
+        lines.append(
+            "if (int err = "
+            f"{func}(ptr_{a_ident}, runtime_numel_{a_ident}, ptr_{b0_ident}, runtime_numel_{b0_ident}, "
+            f"ptr_{b1_ident}, runtime_numel_{b1_ident}, {''.join(epilogue_args)}ptr_{c_ident}, runtime_numel_{c_ident}, "
+            f"{m_expr}, {n_expr}, {k_expr})) return err;"
+        )
+        return "\n".join(lines)
+    if target not in {"cuda", "rocm"}:
+        raise ValueError(f"{op_name} lowering is only implemented for CPU, CUDA, or ROCm")
+    kernel_library = "cutlass_gemm" if target == "cuda" else "ck_gemm"
+    manifest_item = _manifest_kernel_item(kernel_manifest, op_name, dtype, node_id=str(node["id"]), kernel_library=kernel_library)
+    symbol = (
+        str(manifest_item["kernel_symbol"])
+        if manifest_item is not None
+        else get_op_def(op_name).backend_kernels[target].resolve(dtype).symbol
+    )
+    bias_arg_text = "".join(f"ptr_{_c_ident(str(node['inputs'][offset]))}, " for offset in range(3, 3 + len(spec.epilogue.inputs)))
+    if target == "rocm":
+        lines.append(
+            f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b0_ident}, ptr_{b1_ident}, {bias_arg_text}ptr_{c_ident}, "
+            f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), static_cast<int>({b1_n_expr}), session->stream)) "
+            f'return dinoml::module::fail("{op_name} CK launcher failed");'
+        )
+        return "\n".join(lines)
+    selected_candidate = _selected_cutlass_candidate(manifest_item)
+    lines.extend(_dual_cutlass_runtime_alignment_checks(op_name, _candidate_cutlass_alignment(selected_candidate), dtype, a_ident, b0_ident, b1_ident))
+    lines.append(
+        f"if (int err = {symbol}(ptr_{a_ident}, ptr_{b0_ident}, ptr_{b1_ident}, {bias_arg_text}ptr_{c_ident}, "
+        f"static_cast<int>({m_expr}), static_cast<int>({n_expr}), static_cast<int>({k_expr}), static_cast<int>({b1_n_expr}), session->stream)) "
+        f'return dinoml::module::fail("{op_name} CUTLASS launcher failed");'
+    )
+    return "\n".join(lines)
+
+
+def _bias_shape_rank_checks(op_name: str, tensor_ident: str, tensor_rank: int, n_expr: str, bias_name: str) -> list[str]:
+    if tensor_rank == 1:
+        return [f'if (shape_{tensor_ident}_0 != {n_expr}) return dinoml::module::fail("{op_name} {bias_name} shape mismatch");']
+    if tensor_rank == 2:
+        return [
+            f'if (shape_{tensor_ident}_0 != 1 || shape_{tensor_ident}_1 != {n_expr}) '
+            f'return dinoml::module::fail("{op_name} {bias_name} shape mismatch");'
+        ]
+    raise NotImplementedError(f"{op_name} CPU lowering supports rank-1 or rank-2 {bias_name} only")
+
+
 def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     op_name = str(node["op"])
     if op_name not in _CPU_GEMM_OPS:
@@ -300,7 +394,30 @@ def _cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, 
     }
 
 
+def _dual_gemm_cpu_context(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    op_name = str(node["op"])
+    if op_name not in _CPU_DUAL_GEMM_OPS:
+        raise ValueError(f"CPU dual GEMM lowering only supports {_CPU_DUAL_GEMM_OPS}, got {op_name}")
+    output_tensor = tensor_map[node["outputs"][0]]
+    dtype = str(output_tensor["dtype"])
+    spec = dual_gemm_op_spec(op_name)
+    signature = {
+        "op": op_name,
+        "dtype": dtype,
+        "has_bias": spec.epilogue.has_bias,
+    }
+    digest = hashlib.sha256(repr(signature).encode("utf-8")).hexdigest()[:12]
+    return {
+        "func": f"{op_name}_{dtype}_{digest}",
+        "storage_type": cpu_storage_type(dtype),
+        "has_bias": spec.epilogue.has_bias,
+        "activation": spec.epilogue.activation,
+    }
+
+
 def _cpu_function_name(node: Mapping[str, Any], tensor_map: Mapping[str, Mapping[str, Any]]) -> str:
+    if str(node["op"]) in DUAL_GEMM_OPS:
+        return str(_dual_gemm_cpu_context(node, tensor_map)["func"])
     return str(_cpu_context(node, tensor_map)["func"])
 
 
@@ -672,6 +789,24 @@ def _cutlass_runtime_alignment_checks(
     ]
 
 
+def _dual_cutlass_runtime_alignment_checks(
+    op_name: str,
+    align: int,
+    dtype: str,
+    a_ident: str,
+    b0_ident: str,
+    b1_ident: str,
+) -> list[str]:
+    if align <= 1:
+        return []
+    byte_alignment = align * dtype_nbytes(dtype)
+    return [
+        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{a_ident}, ptr_{a_ident}, "{op_name} A", {byte_alignment})) return err;',
+        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{b0_ident}, ptr_{b0_ident}, "{op_name} B0", {byte_alignment})) return err;',
+        f'if (int err = dinoml::module::check_tensor_pointer_alignment(abi_{b1_ident}, ptr_{b1_ident}, "{op_name} B1", {byte_alignment})) return err;',
+    ]
+
+
 def _cutlass_runtime_alignment_conditions(align: int, dtype: str, a_ident: str, b_ident: str) -> list[str]:
     if align <= 1:
         return []
@@ -843,6 +978,29 @@ def _validate_static_contract(
         raise NotImplementedError(f"{op_name} {target.upper()} lowering expects A[...,K], rank-2 B, and C[...,N]")
 
 
+def _validate_dual_gemm_static_contract(
+    op_name: str,
+    input_infos: list[Mapping[str, Any]],
+    c_info: Mapping[str, Any],
+    *,
+    target: str,
+) -> None:
+    op_def = get_op_def(op_name)
+    if any(input_info["dtype"] != c_info["dtype"] for input_info in input_infos):
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering requires matching input/output dtypes")
+    if str(c_info["dtype"]) not in op_def.allowed_dtypes:
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering does not support dtype {c_info['dtype']}")
+    if len(input_infos) < 3:
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering expects at least A, B0, and B1 inputs")
+    if (
+        len(input_infos[0]["shape"]) < 2
+        or len(input_infos[1]["shape"]) != 2
+        or len(input_infos[2]["shape"]) != 2
+        or len(c_info["shape"]) != len(input_infos[0]["shape"])
+    ):
+        raise NotImplementedError(f"{op_name} {target.upper()} lowering expects A[...,K], rank-2 B0/B1, and C[...,N]")
+
+
 GEMM_LOWERINGS = {
     op_name: OpLowering(
         op_name=op_name,
@@ -851,5 +1009,5 @@ GEMM_LOWERINGS = {
         source_key=source_key,
         generated_function_name=generated_function_name,
     )
-    for op_name in GEMM_OPS
+    for op_name in _GEMM_FAMILY_OPS
 }

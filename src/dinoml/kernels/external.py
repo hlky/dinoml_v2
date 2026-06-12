@@ -8,6 +8,7 @@ from dinoml.kernels.bmm import (
     BMM_SUPPORTED_DTYPES,
     bmm_op_spec,
 )
+from dinoml.kernels.families.dual_gemm import DUAL_GEMM_OPS, dual_gemm_op_spec
 from dinoml.kernels.gemm import (
     GEMM_OPS,
     GEMM_SUPPORTED_DTYPES,
@@ -86,7 +87,8 @@ class ExternalKernelFamily:
 
 
 def _cutlass_gemm_family(op_name: str) -> ExternalKernelFamily:
-    spec = gemm_op_spec(op_name)
+    spec = dual_gemm_op_spec(op_name) if op_name in DUAL_GEMM_OPS else gemm_op_spec(op_name)
+    b_layout = spec.layouts["b1"] if op_name in DUAL_GEMM_OPS else spec.layouts["b"]
     return ExternalKernelFamily(
         op_name=op_name,
         backend="cuda",
@@ -101,7 +103,7 @@ def _cutlass_gemm_family(op_name: str) -> ExternalKernelFamily:
         candidate_sets_by_dtype={dtype: cutlass_gemm_candidate_set(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         attrs={
             "a_layout": spec.layouts["a"],
-            "b_layout": spec.layouts["b"],
+            "b_layout": b_layout,
             "c_layout": spec.layouts["c"],
             "epilogue": spec.epilogue.name,
             "epilogue_config": spec.epilogue.to_json(),
@@ -110,11 +112,12 @@ def _cutlass_gemm_family(op_name: str) -> ExternalKernelFamily:
     )
 
 
-CUTLASS_GEMM_FAMILIES = tuple(_cutlass_gemm_family(op_name) for op_name in GEMM_OPS)
+CUTLASS_GEMM_FAMILIES = tuple(_cutlass_gemm_family(op_name) for op_name in (*GEMM_OPS, *DUAL_GEMM_OPS))
 
 
 def _ck_gemm_family(op_name: str) -> ExternalKernelFamily:
-    spec = gemm_op_spec(op_name)
+    spec = dual_gemm_op_spec(op_name) if op_name in DUAL_GEMM_OPS else gemm_op_spec(op_name)
+    b_layout = spec.layouts["b1"] if op_name in DUAL_GEMM_OPS else spec.layouts["b"]
     return ExternalKernelFamily(
         op_name=op_name,
         backend="rocm",
@@ -129,7 +132,7 @@ def _ck_gemm_family(op_name: str) -> ExternalKernelFamily:
         candidate_sets_by_dtype={dtype: ck_gemm_candidate_set(op_name, dtype) for dtype in GEMM_SUPPORTED_DTYPES},
         attrs={
             "a_layout": spec.layouts["a"],
-            "b_layout": spec.layouts["b"],
+            "b_layout": b_layout,
             "c_layout": spec.layouts["c"],
             "epilogue": spec.epilogue.name,
             "epilogue_config": spec.epilogue.to_json(),
@@ -138,7 +141,7 @@ def _ck_gemm_family(op_name: str) -> ExternalKernelFamily:
     )
 
 
-CK_GEMM_FAMILIES = tuple(_ck_gemm_family(op_name) for op_name in GEMM_OPS)
+CK_GEMM_FAMILIES = tuple(_ck_gemm_family(op_name) for op_name in (*GEMM_OPS, *DUAL_GEMM_OPS))
 
 
 def _cutlass_bmm_family(op_name: str) -> ExternalKernelFamily:

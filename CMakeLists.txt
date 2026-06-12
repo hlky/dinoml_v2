@@ -190,6 +190,24 @@ if(DINOML_ENABLE_ROCM)
       gemm_rcr_bias_sigmoid_mul gemm_rrr_bias_sigmoid_mul
       gemm_rcr_bias_sigmoid_mul_tanh gemm_rrr_bias_sigmoid_mul_tanh
       gemm_rcr_bias_mul_tanh gemm_rrr_bias_mul_tanh
+      dual_gemm_rcr_relu
+      dual_gemm_rcr_gelu
+      dual_gemm_rcr_fast_gelu
+      dual_gemm_rcr_quick_gelu
+      dual_gemm_rcr_sigmoid
+      dual_gemm_rcr_tanh
+      dual_gemm_rcr_silu
+      dual_gemm_rcr_hardswish
+      dual_gemm_rcr_elup1
+      dual_gemm_rcr_bias_relu
+      dual_gemm_rcr_bias_gelu
+      dual_gemm_rcr_bias_fast_gelu
+      dual_gemm_rcr_bias_quick_gelu
+      dual_gemm_rcr_bias_sigmoid
+      dual_gemm_rcr_bias_tanh
+      dual_gemm_rcr_bias_swish
+      dual_gemm_rcr_bias_hardswish
+      dual_gemm_rcr_bias_elup1
       CACHE STRING "CK GEMM ops to expose as op/dtype static archives"
     )
     set(DINOML_CK_GEMM_DTYPES
@@ -201,6 +219,7 @@ if(DINOML_ENABLE_ROCM)
       ${CMAKE_CURRENT_SOURCE_DIR}/kernels/rocm/src/ck_gemm.hip
       ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/ck/gemm.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/gemm.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/dual_gemm.py
     )
     set(CK_ENABLE_FP16 ON)
     set(CK_ENABLE_BF16 ON)
@@ -1089,6 +1108,24 @@ if(DINOML_ENABLE_CUDA)
       gemm_rcr_bias_sigmoid_mul gemm_rrr_bias_sigmoid_mul
       gemm_rcr_bias_sigmoid_mul_tanh gemm_rrr_bias_sigmoid_mul_tanh
       gemm_rcr_bias_mul_tanh gemm_rrr_bias_mul_tanh
+      dual_gemm_rcr_relu
+      dual_gemm_rcr_gelu
+      dual_gemm_rcr_fast_gelu
+      dual_gemm_rcr_quick_gelu
+      dual_gemm_rcr_sigmoid
+      dual_gemm_rcr_tanh
+      dual_gemm_rcr_silu
+      dual_gemm_rcr_hardswish
+      dual_gemm_rcr_elup1
+      dual_gemm_rcr_bias_relu
+      dual_gemm_rcr_bias_gelu
+      dual_gemm_rcr_bias_fast_gelu
+      dual_gemm_rcr_bias_quick_gelu
+      dual_gemm_rcr_bias_sigmoid
+      dual_gemm_rcr_bias_tanh
+      dual_gemm_rcr_bias_swish
+      dual_gemm_rcr_bias_hardswish
+      dual_gemm_rcr_bias_elup1
     )
     set(DINOML_CUTLASS_GEMM_DTYPES float32 float16 bfloat16)
     set(DINOML_CUTLASS_GEMM_GENERATOR_DEPS
@@ -1097,6 +1134,7 @@ if(DINOML_ENABLE_CUDA)
       ${CMAKE_CURRENT_SOURCE_DIR}/kernels/cuda/src/cutlass_common.cuh
       ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/providers/cutlass/gemm.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/gemm.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/src/dinoml/kernels/families/dual_gemm.py
     )
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${DINOML_CUTLASS_GEMM_GENERATOR_DEPS})
     set(_cutlass_gemm_generated_dir "${CMAKE_CURRENT_BINARY_DIR}/cutlass_gemm_units")

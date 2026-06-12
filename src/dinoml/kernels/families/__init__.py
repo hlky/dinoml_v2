@@ -14,18 +14,30 @@ from dinoml.kernels.families.gemm import (
     gemm_op_spec,
     gemm_problem,
 )
+from dinoml.kernels.families.dual_gemm import (
+    DUAL_GEMM_OPS,
+    DualGemmEpilogue,
+    DualGemmOpSpec,
+    dual_gemm_op_spec,
+    dual_gemm_problem,
+)
 
 __all__ = [
     "BMM_BASE_OPS",
     "BMM_OPS",
     "BMM_SUPPORTED_DTYPES",
     "BmmOpSpec",
+    "DUAL_GEMM_OPS",
+    "DualGemmEpilogue",
+    "DualGemmOpSpec",
     "GEMM_OPS",
     "GEMM_SUPPORTED_DTYPES",
     "GemmEpilogue",
     "GemmOpSpec",
     "bmm_op_spec",
     "bmm_problem",
+    "dual_gemm_op_spec",
+    "dual_gemm_problem",
     "gemm_op_spec",
     "gemm_problem",
 ]

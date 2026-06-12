@@ -1,0 +1,59 @@
+static inline float {{ func }}_iou(const float* lhs, const float* rhs) {
+  const float inter_x1 = std::max(lhs[0], rhs[0]);
+  const float inter_y1 = std::max(lhs[1], rhs[1]);
+  const float inter_x2 = std::min(lhs[2], rhs[2]);
+  const float inter_y2 = std::min(lhs[3], rhs[3]);
+  const float inter_w = std::max(inter_x2 - inter_x1, 0.0f);
+  const float inter_h = std::max(inter_y2 - inter_y1, 0.0f);
+  const float intersection = inter_w * inter_h;
+  const float lhs_area = std::max(lhs[2] - lhs[0], 0.0f) * std::max(lhs[3] - lhs[1], 0.0f);
+  const float rhs_area = std::max(rhs[2] - rhs[0], 0.0f) * std::max(rhs[3] - rhs[1], 0.0f);
+  const float union_area = lhs_area + rhs_area - intersection;
+  return union_area <= 0.0f ? 0.0f : (intersection / union_area);
+}
+
+static inline void {{ func }}_load_box(const {{ storage_type }}* src, float* dst) {
+  for (int64_t coord = 0; coord < 4; ++coord) {
+    dst[coord] = dinoml::math::cast<float>(src[coord]);
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT boxes,
+    int64_t* DINO_RESTRICT out,
+    int64_t runtime_boxes,
+    int64_t runtime_out) {
+  if (boxes == nullptr || out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t num_boxes = {{ num_boxes }};
+  constexpr int64_t keep_n = {{ keep_n }};
+  if (runtime_boxes != num_boxes * 4 || runtime_out != num_boxes) {
+    return dino_runtime_fail("{{ func }} received mismatched tensor sizes");
+  }
+  std::fill(out, out + runtime_out, int64_t{0});
+  std::vector<int64_t> kept;
+  kept.reserve(static_cast<size_t>(num_boxes));
+  for (int64_t idx = 0; idx < num_boxes; ++idx) {
+    if (keep_n >= 0 && static_cast<int64_t>(kept.size()) >= keep_n) {
+      break;
+    }
+    float candidate[4];
+    {{ func }}_load_box(boxes + idx * 4, candidate);
+    bool suppressed = false;
+    for (int64_t kept_idx : kept) {
+      float prior[4];
+      {{ func }}_load_box(boxes + kept_idx * 4, prior);
+      if ({{ func }}_iou(candidate, prior) > {{ iou_threshold }}) {
+        suppressed = true;
+        break;
+      }
+    }
+    if (suppressed) {
+      continue;
+    }
+    out[idx] = 1;
+    kept.push_back(idx);
+  }
+  return 0;
+}

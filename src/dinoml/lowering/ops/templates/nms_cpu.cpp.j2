@@ -1,0 +1,94 @@
+static inline float {{ func }}_iou(const float* lhs, const float* rhs) {
+  const float inter_x1 = std::max(lhs[0], rhs[0]);
+  const float inter_y1 = std::max(lhs[1], rhs[1]);
+  const float inter_x2 = std::min(lhs[2], rhs[2]);
+  const float inter_y2 = std::min(lhs[3], rhs[3]);
+  const float inter_w = std::max(inter_x2 - inter_x1, 0.0f);
+  const float inter_h = std::max(inter_y2 - inter_y1, 0.0f);
+  const float intersection = inter_w * inter_h;
+  const float lhs_area = std::max(lhs[2] - lhs[0], 0.0f) * std::max(lhs[3] - lhs[1], 0.0f);
+  const float rhs_area = std::max(rhs[2] - rhs[0], 0.0f) * std::max(rhs[3] - rhs[1], 0.0f);
+  const float union_area = lhs_area + rhs_area - intersection;
+  return union_area <= 0.0f ? 0.0f : (intersection / union_area);
+}
+
+static inline void {{ func }}_load_box(const {{ storage_type }}* src, float* dst) {
+  for (int64_t coord = 0; coord < 4; ++coord) {
+    dst[coord] = dinoml::math::cast<float>(src[coord]);
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT boxes,
+    const {{ storage_type }}* DINO_RESTRICT scores,
+    {{ storage_type }}* DINO_RESTRICT out,
+    int64_t runtime_boxes,
+    int64_t runtime_scores,
+    int64_t runtime_out) {
+  if (boxes == nullptr || scores == nullptr || out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t batch = {{ batch }};
+  constexpr int64_t num_boxes = {{ num_boxes }};
+  constexpr int64_t max_output = {{ max_output }};
+  constexpr int64_t pre_nms_top = {{ pre_nms_top }};
+  if (runtime_boxes != batch * num_boxes * 4 || runtime_scores != batch * num_boxes || runtime_out != batch * max_output * 4) {
+    return dino_runtime_fail("{{ func }} received mismatched tensor sizes");
+  }
+  std::fill(out, out + runtime_out, {{ storage_type }}{});
+  for (int64_t batch_idx = 0; batch_idx < batch; ++batch_idx) {
+    const int64_t box_base = batch_idx * num_boxes * 4;
+    const int64_t score_base = batch_idx * num_boxes;
+    std::vector<int64_t> order(static_cast<size_t>(num_boxes));
+    for (int64_t idx = 0; idx < num_boxes; ++idx) {
+      order[static_cast<size_t>(idx)] = idx;
+    }
+    std::stable_sort(order.begin(), order.end(), [&](int64_t lhs, int64_t rhs) {
+      const float lhs_score = dinoml::math::cast<float>(scores[score_base + lhs]);
+      const float rhs_score = dinoml::math::cast<float>(scores[score_base + rhs]);
+      if (lhs_score != rhs_score) {
+        return lhs_score > rhs_score;
+      }
+      return lhs < rhs;
+    });
+    if (static_cast<int64_t>(order.size()) > pre_nms_top) {
+      order.resize(static_cast<size_t>(pre_nms_top));
+    }
+    std::vector<int64_t> kept;
+    kept.reserve(static_cast<size_t>(max_output));
+    for (int64_t idx : order) {
+      float candidate[4];
+      {{ func }}_load_box(boxes + box_base + idx * 4, candidate);
+      const float width = candidate[2] - candidate[0];
+      const float height = candidate[3] - candidate[1];
+      if (width < {{ min_box_size }} || height < {{ min_box_size }}) {
+        continue;
+      }
+      bool suppressed = false;
+      for (int64_t kept_idx : kept) {
+        float prior[4];
+        {{ func }}_load_box(boxes + box_base + kept_idx * 4, prior);
+        if ({{ func }}_iou(candidate, prior) > {{ iou_threshold }}) {
+          suppressed = true;
+          break;
+        }
+      }
+      if (suppressed) {
+        continue;
+      }
+      kept.push_back(idx);
+      if (static_cast<int64_t>(kept.size()) >= max_output) {
+        break;
+      }
+    }
+    for (size_t out_idx = 0; out_idx < kept.size(); ++out_idx) {
+      const int64_t box_idx = kept[out_idx];
+      const int64_t src = box_base + box_idx * 4;
+      const int64_t dst = batch_idx * max_output * 4 + static_cast<int64_t>(out_idx) * 4;
+      for (int64_t coord = 0; coord < 4; ++coord) {
+        out[dst + coord] = boxes[src + coord];
+      }
+    }
+  }
+  return 0;
+}

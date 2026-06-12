@@ -18,6 +18,12 @@ from dinoml.ops.positional import (
     normalize_get_3d_rotary_pos_embed_attrs,
 )
 from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
+from dinoml.ops.vision import (
+    infer_batched_nms_shape_with_attrs,
+    infer_efficient_nms_output_shapes,
+    normalize_batched_nms_attrs,
+    normalize_efficient_nms_attrs,
+)
 from dinoml.passes.memory_planning import plan_temporary_memory
 from dinoml.passes.utils import tensor_map
 from dinoml.passes.validation import ValidationError
@@ -52,6 +58,30 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         if node["op"] in {"glm_ocr_text_rope", "glm_ocr_vision_rope"}:
             _assign_tensor_shape_type(tensors[node["outputs"][0]], inputs[0]["shape"], inputs[0].get("shape_spec", inputs[0]["shape"]), inputs[0]["dtype"])
             _assign_tensor_shape_type(tensors[node["outputs"][1]], inputs[1]["shape"], inputs[1].get("shape_spec", inputs[1]["shape"]), inputs[1]["dtype"])
+            continue
+        if node["op"] == "batched_nms":
+            expected_shape = infer_batched_nms_shape_with_attrs([inputs[0]["shape"]], normalize_batched_nms_attrs(**node.get("attrs", {})))
+            _assign_tensor_shape_type(tensors[node["outputs"][0]], expected_shape, expected_shape, "int64")
+            continue
+        if node["op"] == "efficient_nms":
+            num_shape, boxes_shape, scores_shape, classes_shape = infer_efficient_nms_output_shapes(
+                [inputs[0]["shape"], inputs[1]["shape"]],
+                normalize_efficient_nms_attrs(**node.get("attrs", {})),
+            )
+            _assign_tensor_shape_type(tensors[node["outputs"][0]], num_shape, num_shape, "int64")
+            _assign_tensor_shape_type(
+                tensors[node["outputs"][1]],
+                boxes_shape,
+                boxes_shape,
+                str(inputs[0]["dtype"]),
+            )
+            _assign_tensor_shape_type(
+                tensors[node["outputs"][2]],
+                scores_shape,
+                scores_shape,
+                str(inputs[0]["dtype"]),
+            )
+            _assign_tensor_shape_type(tensors[node["outputs"][3]], classes_shape, classes_shape, "int64")
             continue
         if node["op"] in ROTARY_POSITIONAL_FUSION_OPS:
             _assign_rotary_positional_fusion_shapes(node, tensors)

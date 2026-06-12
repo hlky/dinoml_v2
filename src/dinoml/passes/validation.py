@@ -37,6 +37,17 @@ from dinoml.ops.positional import (
 )
 from dinoml.ops.glm_ocr import GLM_OCR_STITCH_IMAGE_FEATURES_DTYPES
 from dinoml.ops.qwen2_5_vl import QWEN2_5_VL_STITCH_IMAGE_FEATURES_DTYPES
+from dinoml.ops.vision import (
+    infer_batched_nms_shape_with_attrs,
+    infer_efficient_nms_output_shapes,
+    infer_nms_shape_with_attrs,
+    normalize_batched_nms_attrs,
+    normalize_batched_nms_shapes,
+    normalize_efficient_nms_attrs,
+    normalize_efficient_nms_shapes,
+    normalize_nms_attrs,
+    normalize_nms_shapes,
+)
 from dinoml.passes.utils import tensor_map
 from dinoml.shapes import is_dynamic_shape, normalize_symbolic_int, symbolic_int_expr, validate_shape_spec
 
@@ -262,6 +273,15 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         return
     if node["op"] == "embedding":
         _validate_embedding_node(node, inputs, tensors)
+        return
+    if node["op"] == "nms":
+        _validate_nms_node(node, inputs, tensors)
+        return
+    if node["op"] == "batched_nms":
+        _validate_batched_nms_node(node, inputs, tensors)
+        return
+    if node["op"] == "efficient_nms":
+        _validate_efficient_nms_node(node, inputs, tensors)
         return
     if node["op"] in {
         "avg_pool1d",
@@ -1403,6 +1423,78 @@ def _validate_embedding_node(
             f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
             f"expected {table_tensor['dtype']}"
         )
+
+
+def _validate_nms_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError("nms expects exactly one output")
+    if len(inputs) != 2:
+        raise ValidationError("nms expects exactly two inputs")
+    output = tensors[str(node["outputs"][0])]
+    try:
+        attrs = normalize_nms_attrs(**node.get("attrs", {}))
+        normalize_nms_shapes([inputs[0]["shape"], inputs[1]["shape"]])
+        expected_shape = infer_nms_shape_with_attrs([inputs[0]["shape"], inputs[1]["shape"]], attrs)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(f"nms output shape must be {expected_shape}, got {output['shape']}")
+    data_dtype = str(inputs[0]["dtype"])
+    if data_dtype != str(inputs[1]["dtype"]) or str(output["dtype"]) != data_dtype:
+        raise ValidationError("nms boxes, scores, and output must share dtype")
+
+
+def _validate_batched_nms_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 1:
+        raise ValidationError("batched_nms expects exactly one output")
+    if len(inputs) != 1:
+        raise ValidationError("batched_nms expects exactly one input")
+    output = tensors[str(node["outputs"][0])]
+    try:
+        attrs = normalize_batched_nms_attrs(**node.get("attrs", {}))
+        normalize_batched_nms_shapes([inputs[0]["shape"]])
+        expected_shape = infer_batched_nms_shape_with_attrs([inputs[0]["shape"]], attrs)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    if list(output["shape"]) != list(expected_shape):
+        raise ValidationError(f"batched_nms output shape must be {expected_shape}, got {output['shape']}")
+    if str(output["dtype"]) != "int64":
+        raise ValidationError(f"batched_nms output dtype must be int64, got {output['dtype']}")
+
+
+def _validate_efficient_nms_node(
+    node: Mapping[str, Any],
+    inputs: Sequence[Mapping[str, Any]],
+    tensors: Mapping[str, Mapping[str, Any]],
+) -> None:
+    if len(node["outputs"]) != 4:
+        raise ValidationError("efficient_nms expects exactly four outputs")
+    if len(inputs) != 2:
+        raise ValidationError("efficient_nms expects exactly two inputs")
+    outputs = [tensors[str(name)] for name in node["outputs"]]
+    try:
+        attrs = normalize_efficient_nms_attrs(**node.get("attrs", {}))
+        normalize_efficient_nms_shapes([inputs[0]["shape"], inputs[1]["shape"]])
+        expected_shapes = infer_efficient_nms_output_shapes([inputs[0]["shape"], inputs[1]["shape"]], attrs)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    data_dtype = str(inputs[0]["dtype"])
+    if data_dtype != str(inputs[1]["dtype"]):
+        raise ValidationError("efficient_nms boxes and scores must share dtype")
+    expected_dtypes = ("int64", data_dtype, data_dtype, "int64")
+    for output, expected_shape, expected_dtype in zip(outputs, expected_shapes, expected_dtypes):
+        if list(output["shape"]) != list(expected_shape):
+            raise ValidationError(f"efficient_nms output shape must be {expected_shape}, got {output['shape']}")
+        if str(output["dtype"]) != expected_dtype:
+            raise ValidationError(f"efficient_nms output dtype must be {expected_dtype}, got {output['dtype']}")
 
 
 def _masked_select_capacity_spec(

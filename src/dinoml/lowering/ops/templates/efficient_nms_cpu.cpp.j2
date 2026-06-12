@@ -1,0 +1,129 @@
+struct {{ func }}_candidate {
+  int64_t box_idx;
+  int64_t class_idx;
+  float score;
+};
+
+static inline float {{ func }}_iou(const float* lhs, const float* rhs) {
+  const float inter_x1 = std::max(lhs[0], rhs[0]);
+  const float inter_y1 = std::max(lhs[1], rhs[1]);
+  const float inter_x2 = std::min(lhs[2], rhs[2]);
+  const float inter_y2 = std::min(lhs[3], rhs[3]);
+  const float inter_w = std::max(inter_x2 - inter_x1, 0.0f);
+  const float inter_h = std::max(inter_y2 - inter_y1, 0.0f);
+  const float intersection = inter_w * inter_h;
+  const float lhs_area = std::max(lhs[2] - lhs[0], 0.0f) * std::max(lhs[3] - lhs[1], 0.0f);
+  const float rhs_area = std::max(rhs[2] - rhs[0], 0.0f) * std::max(rhs[3] - rhs[1], 0.0f);
+  const float union_area = lhs_area + rhs_area - intersection;
+  return union_area <= 0.0f ? 0.0f : (intersection / union_area);
+}
+
+static inline void {{ func }}_load_box(const {{ storage_type }}* src, float* dst) {
+  for (int64_t coord = 0; coord < 4; ++coord) {
+    dst[coord] = dinoml::math::cast<float>(src[coord]);
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT boxes,
+    const {{ storage_type }}* DINO_RESTRICT scores,
+    int64_t* DINO_RESTRICT num_det,
+    {{ storage_type }}* DINO_RESTRICT det_boxes,
+    {{ storage_type }}* DINO_RESTRICT det_scores,
+    int64_t* DINO_RESTRICT det_classes,
+    int64_t runtime_boxes,
+    int64_t runtime_scores,
+    int64_t runtime_num_det,
+    int64_t runtime_det_boxes,
+    int64_t runtime_det_scores,
+    int64_t runtime_det_classes) {
+  if (boxes == nullptr || scores == nullptr || num_det == nullptr || det_boxes == nullptr || det_scores == nullptr || det_classes == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t batch = {{ batch }};
+  constexpr int64_t num_boxes = {{ num_boxes }};
+  constexpr int64_t num_classes = {{ num_classes }};
+  constexpr int64_t max_output = {{ max_output }};
+  constexpr int64_t pre_nms_top = {{ pre_nms_top }};
+  if (runtime_boxes != batch * num_boxes * num_classes * 4 ||
+      runtime_scores != batch * num_boxes * num_classes ||
+      runtime_num_det != batch ||
+      runtime_det_boxes != batch * max_output * 4 ||
+      runtime_det_scores != batch * max_output ||
+      runtime_det_classes != batch * max_output) {
+    return dino_runtime_fail("{{ func }} received mismatched tensor sizes");
+  }
+  std::fill(num_det, num_det + runtime_num_det, int64_t{0});
+  std::fill(det_boxes, det_boxes + runtime_det_boxes, {{ storage_type }}{});
+  std::fill(det_scores, det_scores + runtime_det_scores, {{ storage_type }}{});
+  std::fill(det_classes, det_classes + runtime_det_classes, int64_t{0});
+  for (int64_t batch_idx = 0; batch_idx < batch; ++batch_idx) {
+    const int64_t box_base = batch_idx * num_boxes * num_classes * 4;
+    const int64_t score_base = batch_idx * num_boxes * num_classes;
+    std::vector<{{ func }}_candidate> candidates;
+    candidates.reserve(static_cast<size_t>(num_boxes * num_classes));
+    for (int64_t box_idx = 0; box_idx < num_boxes; ++box_idx) {
+      for (int64_t class_idx = 0; class_idx < num_classes; ++class_idx) {
+        const int64_t box_offset = box_base + (box_idx * num_classes + class_idx) * 4;
+        float candidate_box[4];
+        {{ func }}_load_box(boxes + box_offset, candidate_box);
+        const float width = candidate_box[2] - candidate_box[0];
+        const float height = candidate_box[3] - candidate_box[1];
+        if (width < {{ min_box_size }} || height < {{ min_box_size }}) {
+          continue;
+        }
+        candidates.push_back({box_idx, class_idx, dinoml::math::cast<float>(scores[score_base + box_idx * num_classes + class_idx])});
+      }
+    }
+    std::stable_sort(candidates.begin(), candidates.end(), [](const {{ func }}_candidate& lhs, const {{ func }}_candidate& rhs) {
+      if (lhs.score != rhs.score) {
+        return lhs.score > rhs.score;
+      }
+      if (lhs.class_idx != rhs.class_idx) {
+        return lhs.class_idx < rhs.class_idx;
+      }
+      return lhs.box_idx < rhs.box_idx;
+    });
+    if (static_cast<int64_t>(candidates.size()) > pre_nms_top) {
+      candidates.resize(static_cast<size_t>(pre_nms_top));
+    }
+    std::vector<{{ func }}_candidate> kept;
+    kept.reserve(static_cast<size_t>(max_output));
+    for (const {{ func }}_candidate& candidate : candidates) {
+      float candidate_box[4];
+      {{ func }}_load_box(boxes + box_base + (candidate.box_idx * num_classes + candidate.class_idx) * 4, candidate_box);
+      bool suppressed = false;
+      for (const {{ func }}_candidate& prior : kept) {
+        if (prior.class_idx != candidate.class_idx) {
+          continue;
+        }
+        float prior_box[4];
+        {{ func }}_load_box(boxes + box_base + (prior.box_idx * num_classes + prior.class_idx) * 4, prior_box);
+        if ({{ func }}_iou(candidate_box, prior_box) > {{ iou_threshold }}) {
+          suppressed = true;
+          break;
+        }
+      }
+      if (suppressed) {
+        continue;
+      }
+      kept.push_back(candidate);
+      if (static_cast<int64_t>(kept.size()) >= max_output) {
+        break;
+      }
+    }
+    num_det[batch_idx] = static_cast<int64_t>(kept.size());
+    for (size_t out_idx = 0; out_idx < kept.size(); ++out_idx) {
+      const {{ func }}_candidate& candidate = kept[out_idx];
+      const int64_t src = box_base + (candidate.box_idx * num_classes + candidate.class_idx) * 4;
+      const int64_t box_dst = batch_idx * max_output * 4 + static_cast<int64_t>(out_idx) * 4;
+      const int64_t vec_dst = batch_idx * max_output + static_cast<int64_t>(out_idx);
+      for (int64_t coord = 0; coord < 4; ++coord) {
+        det_boxes[box_dst + coord] = boxes[src + coord];
+      }
+      det_scores[vec_dst] = dinoml::math::cast<{{ storage_type }}>(candidate.score);
+      det_classes[vec_dst] = candidate.class_idx;
+    }
+  }
+  return 0;
+}

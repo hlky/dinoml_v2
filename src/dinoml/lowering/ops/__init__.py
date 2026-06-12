@@ -57,6 +57,7 @@ from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.masked_select import MASKED_SELECT_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
+from dinoml.lowering.ops.nms_family import BATCHED_NMS_LOWERING, EFFICIENT_NMS_LOWERING, NMS_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
 from dinoml.lowering.ops.padding_layout_helpers import PADDING_LAYOUT_HELPER_LOWERINGS
 from dinoml.lowering.ops.permute import PERMUTE_LOWERINGS
@@ -130,6 +131,9 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     LAYERNORM_SIGMOID_MUL_LOWERING.op_name: LAYERNORM_SIGMOID_MUL_LOWERING,
     MASKED_SELECT_LOWERING.op_name: MASKED_SELECT_LOWERING,
     MAX_POOL2D_LOWERING.op_name: MAX_POOL2D_LOWERING,
+    NMS_LOWERING.op_name: NMS_LOWERING,
+    BATCHED_NMS_LOWERING.op_name: BATCHED_NMS_LOWERING,
+    EFFICIENT_NMS_LOWERING.op_name: EFFICIENT_NMS_LOWERING,
     PAD_LOWERING.op_name: PAD_LOWERING,
     QKV_SPLIT_LOWERING.op_name: QKV_SPLIT_LOWERING,
     QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING.op_name: QWEN2_5_VL_STITCH_IMAGE_FEATURES_LOWERING,

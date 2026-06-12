@@ -918,6 +918,17 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
     }
+    nms_int64_output_tensors = {
+        node["outputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "batched_nms" and len(node.get("outputs", [])) == 1
+    }
+    nms_int64_output_tensors.update(
+        output_name
+        for node in ir["nodes"]
+        if node.get("op") == "efficient_nms" and len(node.get("outputs", [])) == 4
+        for output_name in (node["outputs"][0], node["outputs"][3])
+    )
     rotary_allegro_grid_output_tensors = {
         output_name
         for node in ir["nodes"]
@@ -956,6 +967,36 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                 )
             if output_dtype != "int64":
                 raise NotImplementedError(f"Op argmax output dtype {output_dtype} must be int64")
+            continue
+        if node.get("op") == "batched_nms":
+            input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports input dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[input_dtype]}"
+                )
+            if output_dtype != "int64":
+                raise NotImplementedError(f"Op batched_nms output dtype {output_dtype} must be int64")
+            continue
+        if node.get("op") == "efficient_nms":
+            box_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            score_dtype = str(tensor_map[node["inputs"][1]]["dtype"])
+            output_dtypes = [str(tensor_map[name]["dtype"]) for name in node["outputs"]]
+            if box_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports input dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[box_dtype]}"
+                )
+            if score_dtype != box_dtype:
+                raise NotImplementedError(
+                    f"Op efficient_nms scores dtype {score_dtype} must match boxes dtype {box_dtype}"
+                )
+            expected_output_dtypes = ["int64", box_dtype, box_dtype, "int64"]
+            if output_dtypes != expected_output_dtypes:
+                raise NotImplementedError(
+                    f"Op efficient_nms output dtypes {output_dtypes} must be {expected_output_dtypes}"
+                )
             continue
         if node.get("op") in {"gather", "runtime_index_select"}:
             op_name = str(node["op"])
@@ -1184,6 +1225,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_input_tensors
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
+            and str(tensor["name"]) not in nms_int64_output_tensors
             and str(tensor["name"]) not in rotary_allegro_grid_output_tensors
             and str(tensor["name"]) not in flash_attention_static_kv_cache_seqlens_tensors
             and str(tensor["name"]) not in flash_attention_varlen_cu_seqlens_tensors

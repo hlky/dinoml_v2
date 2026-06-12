@@ -25,7 +25,13 @@ from dinoml.ops.positional import (
 )
 from dinoml.ops.tensor_filters import normalize_fir_upsample2d_attrs, normalize_tensor_filter_channels
 from dinoml.ops.upsampling import normalize_upsampling_attrs
-from dinoml.ops.vision import normalize_multi_level_roi_align_im_shape, normalize_roi_align_attrs
+from dinoml.ops.vision import (
+    normalize_batched_nms_attrs,
+    normalize_efficient_nms_attrs,
+    normalize_multi_level_roi_align_im_shape,
+    normalize_nms_attrs,
+    normalize_roi_align_attrs,
+)
 
 
 def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[str, np.ndarray]:
@@ -369,6 +375,38 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "nms":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_nms(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "batched_nms":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            values[output_name] = _store_reference(
+                _execute_batched_nms(
+                    values[node["inputs"][0]],
+                    node.get("attrs", {}),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "efficient_nms":
+            num_name, boxes_name, scores_name, classes_name = node["outputs"]
+            num_out, boxes_out, scores_out, classes_out = _execute_efficient_nms(
+                values[node["inputs"][0]],
+                values[node["inputs"][1]],
+                node.get("attrs", {}),
+            )
+            values[num_name] = _store_reference(num_out, _tensor_dtype(ir, num_name))
+            values[boxes_name] = _store_reference(boxes_out, _tensor_dtype(ir, boxes_name))
+            values[scores_name] = _store_reference(scores_out, _tensor_dtype(ir, scores_name))
+            values[classes_name] = _store_reference(classes_out, _tensor_dtype(ir, classes_name))
         elif node["op"] == "kdownsample2d_weight":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -2817,6 +2855,173 @@ def _execute_roi_align(
         scale_w=float(normalized["spatial_scale"]),
         continuous_coordinate=bool(normalized["continuous_coordinate"]),
     )
+
+
+def _execute_nms(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_nms_attrs(
+        pre_nms_top=attrs.get("pre_nms_top"),
+        max_output=attrs.get("max_output"),
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        min_box_size=attrs.get("min_box_size", 0.0),
+    )
+    boxes_array = np.asarray(boxes, dtype=np.float32)
+    scores_array = np.asarray(scores, dtype=np.float32)
+    batch, _, _ = [int(dim) for dim in boxes_array.shape]
+    output = np.zeros((batch, int(normalized["max_output"]), 4), dtype=np.float32)
+    for batch_idx in range(batch):
+        keep = _nms_keep_indices(
+            boxes_array[batch_idx],
+            scores_array[batch_idx],
+            pre_nms_top=int(normalized["pre_nms_top"]),
+            max_output=int(normalized["max_output"]),
+            iou_threshold=float(normalized["iou_threshold"]),
+            min_box_size=float(normalized["min_box_size"]),
+        )
+        if keep:
+            output[batch_idx, : len(keep)] = boxes_array[batch_idx, keep]
+    return output
+
+
+def _execute_batched_nms(
+    boxes: np.ndarray,
+    attrs: Mapping[str, object],
+) -> np.ndarray:
+    normalized = normalize_batched_nms_attrs(
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        keep_n=attrs.get("keep_n", -1),
+    )
+    boxes_array = np.asarray(boxes, dtype=np.float32)
+    keep_mask = np.zeros((boxes_array.shape[0],), dtype=np.int64)
+    kept_indices: list[int] = []
+    max_keep = int(normalized["keep_n"])
+    for idx in range(int(boxes_array.shape[0])):
+        if max_keep >= 0 and len(kept_indices) >= max_keep:
+            break
+        candidate = boxes_array[idx]
+        if any(_box_iou(candidate, boxes_array[kept]) > float(normalized["iou_threshold"]) for kept in kept_indices):
+            continue
+        keep_mask[idx] = 1
+        kept_indices.append(idx)
+    return keep_mask
+
+
+def _execute_efficient_nms(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    attrs: Mapping[str, object],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    normalized = normalize_efficient_nms_attrs(
+        pre_nms_top=attrs.get("pre_nms_top"),
+        max_output=attrs.get("max_output"),
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        min_box_size=attrs.get("min_box_size", 0.0),
+    )
+    boxes_array = np.asarray(boxes, dtype=np.float32)
+    scores_array = np.asarray(scores, dtype=np.float32)
+    batch, _, _, _ = [int(dim) for dim in boxes_array.shape]
+    max_output = int(normalized["max_output"])
+    num_detections = np.zeros((batch, 1), dtype=np.int64)
+    detection_boxes = np.zeros((batch, max_output, 4), dtype=np.float32)
+    detection_scores = np.zeros((batch, max_output), dtype=np.float32)
+    detection_classes = np.zeros((batch, max_output), dtype=np.int64)
+    for batch_idx in range(batch):
+        keep = _efficient_nms_candidates(
+            boxes_array[batch_idx],
+            scores_array[batch_idx],
+            pre_nms_top=int(normalized["pre_nms_top"]),
+            max_output=max_output,
+            iou_threshold=float(normalized["iou_threshold"]),
+            min_box_size=float(normalized["min_box_size"]),
+        )
+        num_detections[batch_idx, 0] = len(keep)
+        for out_idx, (box_idx, class_idx, score_value) in enumerate(keep):
+            detection_boxes[batch_idx, out_idx] = boxes_array[batch_idx, box_idx, class_idx]
+            detection_scores[batch_idx, out_idx] = score_value
+            detection_classes[batch_idx, out_idx] = class_idx
+    return num_detections, detection_boxes, detection_scores, detection_classes
+
+
+def _nms_keep_indices(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    *,
+    pre_nms_top: int,
+    max_output: int,
+    iou_threshold: float,
+    min_box_size: float,
+) -> list[int]:
+    order = sorted(
+        range(int(scores.shape[0])),
+        key=lambda idx: (-float(scores[idx]), idx),
+    )[:pre_nms_top]
+    kept: list[int] = []
+    for idx in order:
+        box = boxes[idx]
+        if _box_too_small(box, min_box_size):
+            continue
+        if any(_box_iou(box, boxes[kept_idx]) > iou_threshold for kept_idx in kept):
+            continue
+        kept.append(idx)
+        if len(kept) >= max_output:
+            break
+    return kept
+
+
+def _efficient_nms_candidates(
+    boxes: np.ndarray,
+    scores: np.ndarray,
+    *,
+    pre_nms_top: int,
+    max_output: int,
+    iou_threshold: float,
+    min_box_size: float,
+) -> list[tuple[int, int, float]]:
+    candidates: list[tuple[int, int, float]] = []
+    num_boxes, num_classes = [int(dim) for dim in scores.shape]
+    for box_idx in range(num_boxes):
+        for class_idx in range(num_classes):
+            box = boxes[box_idx, class_idx]
+            if _box_too_small(box, min_box_size):
+                continue
+            candidates.append((box_idx, class_idx, float(scores[box_idx, class_idx])))
+    candidates.sort(key=lambda item: (-item[2], item[1], item[0]))
+    candidates = candidates[:pre_nms_top]
+    kept: list[tuple[int, int, float]] = []
+    for box_idx, class_idx, score_value in candidates:
+        box = boxes[box_idx, class_idx]
+        if any(
+            kept_class == class_idx and _box_iou(box, boxes[kept_box, kept_class]) > iou_threshold
+            for kept_box, kept_class, _ in kept
+        ):
+            continue
+        kept.append((box_idx, class_idx, score_value))
+        if len(kept) >= max_output:
+            break
+    return kept
+
+
+def _box_too_small(box: np.ndarray, min_box_size: float) -> bool:
+    return (float(box[2]) - float(box[0])) < min_box_size or (float(box[3]) - float(box[1])) < min_box_size
+
+
+def _box_iou(lhs: np.ndarray, rhs: np.ndarray) -> float:
+    inter_x1 = max(float(lhs[0]), float(rhs[0]))
+    inter_y1 = max(float(lhs[1]), float(rhs[1]))
+    inter_x2 = min(float(lhs[2]), float(rhs[2]))
+    inter_y2 = min(float(lhs[3]), float(rhs[3]))
+    inter_w = max(inter_x2 - inter_x1, 0.0)
+    inter_h = max(inter_y2 - inter_y1, 0.0)
+    intersection = inter_w * inter_h
+    lhs_area = max(float(lhs[2]) - float(lhs[0]), 0.0) * max(float(lhs[3]) - float(lhs[1]), 0.0)
+    rhs_area = max(float(rhs[2]) - float(rhs[0]), 0.0) * max(float(rhs[3]) - float(rhs[1]), 0.0)
+    union = lhs_area + rhs_area - intersection
+    if union <= 0.0:
+        return 0.0
+    return intersection / union
 
 
 def _execute_conv2d_bias_family(

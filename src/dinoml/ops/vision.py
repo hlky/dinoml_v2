@@ -179,6 +179,162 @@ def normalize_multi_level_roi_align_shapes(input_shapes: Sequence[Sequence[int]]
     return p2_shape, rois_shape
 
 
+def normalize_nms_positive_int(name: str, value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer, got {value!r}")
+    if int(value) <= 0:
+        raise ValueError(f"{name} must be positive, got {value!r}")
+    return int(value)
+
+
+def normalize_nms_keep_n(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"batched_nms keep_n must be an integer, got {value!r}")
+    return int(value)
+
+
+def normalize_nms_threshold(name: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a finite number, got {value!r}")
+    threshold = float(value)
+    if not math.isfinite(threshold):
+        raise ValueError(f"{name} must be finite, got {value!r}")
+    return threshold
+
+
+def normalize_nms_non_negative(name: str, value: Any) -> float:
+    number = normalize_nms_threshold(name, value)
+    if number < 0.0:
+        raise ValueError(f"{name} must be non-negative, got {value!r}")
+    return number
+
+
+def normalize_nms_attrs(
+    *,
+    pre_nms_top: Any,
+    max_output: Any,
+    iou_threshold: Any,
+    min_box_size: Any,
+) -> dict[str, Any]:
+    return {
+        "pre_nms_top": normalize_nms_positive_int("nms pre_nms_top", pre_nms_top),
+        "max_output": normalize_nms_positive_int("nms max_output", max_output),
+        "iou_threshold": normalize_nms_non_negative("nms iou_threshold", iou_threshold),
+        "min_box_size": normalize_nms_non_negative("nms min_box_size", min_box_size),
+    }
+
+
+def normalize_batched_nms_attrs(*, iou_threshold: Any, keep_n: Any) -> dict[str, Any]:
+    return {
+        "iou_threshold": normalize_nms_non_negative("batched_nms iou_threshold", iou_threshold),
+        "keep_n": normalize_nms_keep_n(keep_n),
+    }
+
+
+def normalize_efficient_nms_attrs(
+    *,
+    pre_nms_top: Any,
+    max_output: Any,
+    iou_threshold: Any,
+    min_box_size: Any,
+) -> dict[str, Any]:
+    return {
+        "pre_nms_top": normalize_nms_positive_int("efficient_nms pre_nms_top", pre_nms_top),
+        "max_output": normalize_nms_positive_int("efficient_nms max_output", max_output),
+        "iou_threshold": normalize_nms_non_negative("efficient_nms iou_threshold", iou_threshold),
+        "min_box_size": normalize_nms_non_negative("efficient_nms min_box_size", min_box_size),
+    }
+
+
+def normalize_nms_shapes(input_shapes: Sequence[Sequence[int]]) -> tuple[list[int], list[int]]:
+    if len(input_shapes) != 2:
+        raise ValueError("nms expects exactly two inputs")
+    boxes_shape = [int(dim) for dim in input_shapes[0]]
+    scores_shape = [int(dim) for dim in input_shapes[1]]
+    if len(boxes_shape) != 3 or boxes_shape[2] != 4:
+        raise ValueError("nms expects boxes with shape [batch, num_boxes, 4]")
+    if len(scores_shape) != 2:
+        raise ValueError("nms expects scores with shape [batch, num_boxes]")
+    if boxes_shape[0] != scores_shape[0] or boxes_shape[1] != scores_shape[1]:
+        raise ValueError("nms boxes and scores must agree on batch and num_boxes")
+    return boxes_shape, scores_shape
+
+
+def normalize_batched_nms_shapes(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 1:
+        raise ValueError("batched_nms expects exactly one input")
+    boxes_shape = [int(dim) for dim in input_shapes[0]]
+    if len(boxes_shape) != 2 or boxes_shape[1] != 4:
+        raise ValueError("batched_nms expects boxes with shape [num_boxes, 4]")
+    return boxes_shape
+
+
+def normalize_efficient_nms_shapes(input_shapes: Sequence[Sequence[int]]) -> tuple[list[int], list[int]]:
+    if len(input_shapes) != 2:
+        raise ValueError("efficient_nms expects exactly two inputs")
+    boxes_shape = [int(dim) for dim in input_shapes[0]]
+    scores_shape = [int(dim) for dim in input_shapes[1]]
+    if len(boxes_shape) != 4 or boxes_shape[3] != 4:
+        raise ValueError("efficient_nms expects boxes with shape [batch, num_boxes, num_classes, 4]")
+    if len(scores_shape) != 3:
+        raise ValueError("efficient_nms expects scores with shape [batch, num_boxes, num_classes]")
+    if boxes_shape[:3] != scores_shape:
+        raise ValueError("efficient_nms boxes and scores must agree on [batch, num_boxes, num_classes]")
+    return boxes_shape, scores_shape
+
+
+def infer_nms_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_nms_shape_with_attrs(
+        input_shapes,
+        {"pre_nms_top": 1, "max_output": 1, "iou_threshold": 0.5, "min_box_size": 0.0},
+    )
+
+
+def infer_nms_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    boxes_shape, _ = normalize_nms_shapes(input_shapes)
+    normalized = normalize_nms_attrs(
+        pre_nms_top=attrs.get("pre_nms_top", 1),
+        max_output=attrs.get("max_output", 1),
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        min_box_size=attrs.get("min_box_size", 0.0),
+    )
+    return [int(boxes_shape[0]), int(normalized["max_output"]), 4]
+
+
+def infer_batched_nms_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_batched_nms_shape_with_attrs(input_shapes, {"iou_threshold": 0.5, "keep_n": -1})
+
+
+def infer_batched_nms_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    boxes_shape = normalize_batched_nms_shapes(input_shapes)
+    normalize_batched_nms_attrs(
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        keep_n=attrs.get("keep_n", -1),
+    )
+    return [int(boxes_shape[0])]
+
+
+def infer_efficient_nms_output_shapes(
+    input_shapes: Sequence[Sequence[int]],
+    attrs: Mapping[str, Any],
+) -> tuple[list[int], list[int], list[int], list[int]]:
+    boxes_shape, _ = normalize_efficient_nms_shapes(input_shapes)
+    normalized = normalize_efficient_nms_attrs(
+        pre_nms_top=attrs.get("pre_nms_top", 1),
+        max_output=attrs.get("max_output", 1),
+        iou_threshold=attrs.get("iou_threshold", 0.5),
+        min_box_size=attrs.get("min_box_size", 0.0),
+    )
+    batch = int(boxes_shape[0])
+    max_output = int(normalized["max_output"])
+    return (
+        [batch, 1],
+        [batch, max_output, 4],
+        [batch, max_output],
+        [batch, max_output],
+    )
+
+
 @op_def
 class RoiAlign(OpDef):
     name = "roi_align"
@@ -337,6 +493,168 @@ class MultiLevelRoiAlign(OpDef):
         )
 
 
+@op_def
+class Nms(OpDef):
+    name = "nms"
+    schema = OpSchema(
+        inputs=("boxes", "scores"),
+        attrs=(
+            AttrDef("pre_nms_top", "int", required=True),
+            AttrDef("max_output", "int", required=True),
+            AttrDef("iou_threshold", "float", default=0.5),
+            AttrDef("min_box_size", "float", default=0.0),
+        ),
+    )
+    infer_shape = infer_nms_shape
+    infer_shape_with_attrs = infer_nms_shape_with_attrs
+    allowed_dtypes = VISION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_nms", library="model", source_template="nms_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_nms", library="model", source_template="nms_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_nms", library="model", source_template="nms_gpu.j2"),
+    }
+    frontend = FrontendBinding("nms")
+    description = "Batched dense NMS over [batch, num_boxes, 4] boxes and [batch, num_boxes] scores."
+
+    @classmethod
+    def forward(
+        cls,
+        boxes: Any,
+        scores: Any,
+        *,
+        pre_nms_top: int,
+        max_output: int,
+        iou_threshold: float = 0.5,
+        min_box_size: float = 0.0,
+    ) -> Tensor:
+        boxes_tensor = as_tensor(boxes)
+        scores_tensor = as_tensor(scores, dtype_hint=boxes_tensor.dtype)
+        if boxes_tensor.builder is not scores_tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if boxes_tensor.dtype not in VISION_DTYPES:
+            raise ValueError(f"nms does not support dtype {boxes_tensor.dtype}")
+        if scores_tensor.dtype != boxes_tensor.dtype:
+            raise ValueError("nms boxes and scores must share dtype")
+        if boxes_tensor.dynamic or scores_tensor.dynamic:
+            raise ValueError("nms currently supports only static input shapes")
+        attrs = normalize_nms_attrs(
+            pre_nms_top=pre_nms_top,
+            max_output=max_output,
+            iou_threshold=iou_threshold,
+            min_box_size=min_box_size,
+        )
+        out_shape = infer_nms_shape_with_attrs([boxes_tensor.shape, scores_tensor.shape], attrs)
+        return boxes_tensor.builder.emit("nms", [boxes_tensor, scores_tensor], out_shape, boxes_tensor.dtype, attrs, shape_spec=out_shape)
+
+
+@op_def
+class BatchedNms(OpDef):
+    name = "batched_nms"
+    schema = OpSchema(
+        inputs=("boxes",),
+        attrs=(
+            AttrDef("iou_threshold", "float", default=0.5),
+            AttrDef("keep_n", "int", default=-1),
+        ),
+    )
+    infer_shape = infer_batched_nms_shape
+    infer_shape_with_attrs = infer_batched_nms_shape_with_attrs
+    allowed_dtypes = VISION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_batched_nms", library="model", source_template="batched_nms_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_batched_nms", library="model", source_template="batched_nms_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_batched_nms", library="model", source_template="batched_nms_gpu.j2"),
+    }
+    frontend = FrontendBinding("batched_nms")
+    description = "Sorted-box batched_nms keep-mask over [num_boxes, 4] boxes."
+
+    @classmethod
+    def forward(
+        cls,
+        boxes: Any,
+        *,
+        iou_threshold: float = 0.5,
+        keep_n: int = -1,
+    ) -> Tensor:
+        boxes_tensor = as_tensor(boxes)
+        if boxes_tensor.dtype not in VISION_DTYPES:
+            raise ValueError(f"batched_nms does not support dtype {boxes_tensor.dtype}")
+        if boxes_tensor.dynamic:
+            raise ValueError("batched_nms currently supports only static input shapes")
+        attrs = normalize_batched_nms_attrs(iou_threshold=iou_threshold, keep_n=keep_n)
+        out_shape = infer_batched_nms_shape_with_attrs([boxes_tensor.shape], attrs)
+        return boxes_tensor.builder.emit("batched_nms", [boxes_tensor], out_shape, "int64", attrs, shape_spec=out_shape)
+
+
+@op_def
+class EfficientNms(OpDef):
+    name = "efficient_nms"
+    schema = OpSchema(
+        inputs=("boxes", "scores"),
+        attrs=(
+            AttrDef("pre_nms_top", "int", required=True),
+            AttrDef("max_output", "int", required=True),
+            AttrDef("iou_threshold", "float", default=0.5),
+            AttrDef("min_box_size", "float", default=0.0),
+        ),
+    )
+    infer_shape = lambda input_shapes: list(infer_efficient_nms_output_shapes(input_shapes, {"pre_nms_top": 1, "max_output": 1, "iou_threshold": 0.5, "min_box_size": 0.0})[1])  # type: ignore[assignment]
+    allowed_dtypes = VISION_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_efficient_nms", library="model", source_template="efficient_nms_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_efficient_nms", library="model", source_template="efficient_nms_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_efficient_nms", library="model", source_template="efficient_nms_gpu.j2"),
+    }
+    frontend = FrontendBinding("efficient_nms")
+    description = (
+        "Efficient_nms returning num_detections, boxes, scores, and class ids for "
+        "[batch, num_boxes, num_classes, 4] boxes plus [batch, num_boxes, num_classes] scores."
+    )
+
+    @classmethod
+    def forward(
+        cls,
+        boxes: Any,
+        scores: Any,
+        *,
+        pre_nms_top: int,
+        max_output: int,
+        iou_threshold: float = 0.5,
+        min_box_size: float = 0.0,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        boxes_tensor = as_tensor(boxes)
+        scores_tensor = as_tensor(scores, dtype_hint=boxes_tensor.dtype)
+        if boxes_tensor.builder is not scores_tensor.builder:
+            raise ValueError("Cannot combine tensors from different DinoML traces")
+        if boxes_tensor.dtype not in VISION_DTYPES:
+            raise ValueError(f"efficient_nms does not support dtype {boxes_tensor.dtype}")
+        if scores_tensor.dtype != boxes_tensor.dtype:
+            raise ValueError("efficient_nms boxes and scores must share dtype")
+        if boxes_tensor.dynamic or scores_tensor.dynamic:
+            raise ValueError("efficient_nms currently supports only static input shapes")
+        attrs = normalize_efficient_nms_attrs(
+            pre_nms_top=pre_nms_top,
+            max_output=max_output,
+            iou_threshold=iou_threshold,
+            min_box_size=min_box_size,
+        )
+        num_det_shape, det_boxes_shape, det_scores_shape, det_classes_shape = infer_efficient_nms_output_shapes(
+            [boxes_tensor.shape, scores_tensor.shape],
+            attrs,
+        )
+        return boxes_tensor.builder.emit_multi(
+            "efficient_nms",
+            [boxes_tensor, scores_tensor],
+            [
+                (num_det_shape, "int64", num_det_shape),
+                (det_boxes_shape, boxes_tensor.dtype, det_boxes_shape),
+                (det_scores_shape, boxes_tensor.dtype, det_scores_shape),
+                (det_classes_shape, "int64", det_classes_shape),
+            ],
+            attrs,
+        )
+
+
 def roi_align(
     x: Any,
     rois: Any,
@@ -387,15 +705,83 @@ def multi_level_roi_align(
     )
 
 
+def nms(
+    boxes: Any,
+    scores: Any,
+    *,
+    pre_nms_top: int,
+    max_output: int,
+    iou_threshold: float = 0.5,
+    min_box_size: float = 0.0,
+) -> Tensor:
+    return Nms.forward(
+        boxes,
+        scores,
+        pre_nms_top=pre_nms_top,
+        max_output=max_output,
+        iou_threshold=iou_threshold,
+        min_box_size=min_box_size,
+    )
+
+
+def batched_nms(
+    boxes: Any,
+    *,
+    iou_threshold: float = 0.5,
+    keep_n: int = -1,
+) -> Tensor:
+    return BatchedNms.forward(boxes, iou_threshold=iou_threshold, keep_n=keep_n)
+
+
+def efficient_nms(
+    boxes: Any,
+    scores: Any,
+    *,
+    pre_nms_top: int,
+    max_output: int,
+    iou_threshold: float = 0.5,
+    min_box_size: float = 0.0,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    return EfficientNms.forward(
+        boxes,
+        scores,
+        pre_nms_top=pre_nms_top,
+        max_output=max_output,
+        iou_threshold=iou_threshold,
+        min_box_size=min_box_size,
+    )
+
+
 __all__ = [
+    "BatchedNms",
+    "EfficientNms",
+    "Nms",
     "MultiLevelRoiAlign",
     "RoiAlign",
     "VISION_DTYPES",
+    "batched_nms",
+    "efficient_nms",
     "infer_multi_level_roi_align_shape",
     "infer_multi_level_roi_align_shape_with_attrs",
+    "infer_batched_nms_shape",
+    "infer_batched_nms_shape_with_attrs",
+    "infer_efficient_nms_output_shapes",
+    "infer_nms_shape",
+    "infer_nms_shape_with_attrs",
     "infer_roi_align_shape",
     "infer_roi_align_shape_with_attrs",
     "multi_level_roi_align",
+    "nms",
+    "normalize_batched_nms_attrs",
+    "normalize_batched_nms_shapes",
+    "normalize_efficient_nms_attrs",
+    "normalize_efficient_nms_shapes",
+    "normalize_nms_attrs",
+    "normalize_nms_keep_n",
+    "normalize_nms_non_negative",
+    "normalize_nms_positive_int",
+    "normalize_nms_shapes",
+    "normalize_nms_threshold",
     "normalize_multi_level_roi_align_attrs",
     "normalize_multi_level_roi_align_im_shape",
     "normalize_multi_level_roi_align_shapes",

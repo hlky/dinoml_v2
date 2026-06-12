@@ -226,7 +226,7 @@ from dinoml.ops.upsampling import (
     upsampling3d_add,
     upsampling3d_compress_time,
 )
-from dinoml.ops.vision import multi_level_roi_align, roi_align
+from dinoml.ops.vision import batched_nms, efficient_nms, multi_level_roi_align, nms, roi_align
 from dinoml.ops.where import where
 from dinoml.shapes import symbolic_int_expr
 
@@ -295,6 +295,7 @@ __all__ = [
     "argmax",
     "avg_pool1d",
     "avg_pool2d",
+    "batched_nms",
     "batch_gather",
     "batch_layernorm_sigmoid_mul",
     "bmm",
@@ -337,6 +338,7 @@ __all__ = [
     "div",
     "dynamic_slice",
     "elu",
+    "efficient_nms",
     "embedding",
     "eq",
     "exp",
@@ -443,6 +445,7 @@ __all__ = [
     "min",
     "mul",
     "nan_to_num",
+    "nms",
     "ne",
     "output",
     "pad",

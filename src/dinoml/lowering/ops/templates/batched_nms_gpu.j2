@@ -1,0 +1,72 @@
+__device__ inline float {{ func }}_iou(const float* lhs, const float* rhs) {
+  const float inter_x1 = max(lhs[0], rhs[0]);
+  const float inter_y1 = max(lhs[1], rhs[1]);
+  const float inter_x2 = min(lhs[2], rhs[2]);
+  const float inter_y2 = min(lhs[3], rhs[3]);
+  const float inter_w = max(inter_x2 - inter_x1, 0.0f);
+  const float inter_h = max(inter_y2 - inter_y1, 0.0f);
+  const float intersection = inter_w * inter_h;
+  const float lhs_area = max(lhs[2] - lhs[0], 0.0f) * max(lhs[3] - lhs[1], 0.0f);
+  const float rhs_area = max(rhs[2] - rhs[0], 0.0f) * max(rhs[3] - rhs[1], 0.0f);
+  const float union_area = lhs_area + rhs_area - intersection;
+  return union_area <= 0.0f ? 0.0f : (intersection / union_area);
+}
+
+__device__ inline void {{ func }}_load_box(const {{ storage_type }}* src, float* dst) {
+  for (int coord = 0; coord < 4; ++coord) {
+    dst[coord] = dinoml::math::cast<float>(src[coord]);
+  }
+}
+
+__global__ void {{ func }}_kernel(
+    const {{ storage_type }}* DINO_RESTRICT boxes,
+    {{ int_storage_type }}* DINO_RESTRICT out) {
+  if (blockIdx.x != 0 || threadIdx.x != 0) {
+    return;
+  }
+  constexpr int64_t num_boxes = {{ num_boxes }};
+  constexpr int64_t keep_n = {{ keep_n }};
+  for (int64_t idx = 0; idx < num_boxes; ++idx) {
+    out[idx] = {{ int_storage_type }}{0};
+  }
+  int64_t kept_idx[{{ num_boxes }}];
+  int64_t kept_count = 0;
+  for (int64_t idx = 0; idx < num_boxes; ++idx) {
+    if (keep_n >= 0 && kept_count >= keep_n) {
+      break;
+    }
+    float candidate[4];
+    {{ func }}_load_box(boxes + idx * 4, candidate);
+    bool suppressed = false;
+    for (int64_t kept_pos = 0; kept_pos < kept_count; ++kept_pos) {
+      float prior[4];
+      {{ func }}_load_box(boxes + kept_idx[kept_pos] * 4, prior);
+      if ({{ func }}_iou(candidate, prior) > {{ iou_threshold }}) {
+        suppressed = true;
+        break;
+      }
+    }
+    if (suppressed) {
+      continue;
+    }
+    out[idx] = {{ int_storage_type }}{1};
+    kept_idx[kept_count++] = idx;
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT boxes,
+    {{ int_storage_type }}* DINO_RESTRICT out,
+    int64_t runtime_boxes,
+    int64_t runtime_out,
+    {{ gpu_stream_type }} stream) {
+  if (boxes == nullptr || out == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_boxes != {{ num_boxes }} * 4 || runtime_out != {{ num_boxes }}) {
+    return dino_runtime_fail("{{ func }} received mismatched tensor sizes");
+  }
+  {{ func }}_kernel<<<1, {{ block_size }}, 0, stream>>>(boxes, out);
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

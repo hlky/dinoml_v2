@@ -166,6 +166,31 @@ def pixel_unshuffle(input: Any, downscale_factor: int) -> Tensor:
     return ops.pixel_unshuffle(input, downscale_factor)
 
 
+def scaled_dot_product_attention(
+    query: Any,
+    key: Any,
+    value: Any,
+    attn_mask: Any | None = None,
+    dropout_p: float = 0.0,
+    is_causal: bool = False,
+    scale: float | None = None,
+    enable_gqa: bool = False,
+) -> Tensor:
+    if attn_mask is not None:
+        raise NotImplementedError("scaled_dot_product_attention currently requires attn_mask=None")
+    if float(dropout_p) != 0.0:
+        raise NotImplementedError("scaled_dot_product_attention currently requires dropout_p=0.0")
+    if scale is not None:
+        raise NotImplementedError("scaled_dot_product_attention currently requires scale=None")
+    if enable_gqa:
+        raise NotImplementedError("scaled_dot_product_attention currently requires enable_gqa=False")
+    query_seq_major = ops.permute0213(query)
+    key_seq_major = ops.permute0213(key)
+    value_seq_major = ops.permute0213(value)
+    attended = ops.flash_attention(query_seq_major, key_seq_major, value_seq_major, causal=is_causal)
+    return ops.permute0213(attended)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
@@ -184,5 +209,6 @@ __all__ = [
     "conv_transpose2d",
     "pixel_shuffle",
     "pixel_unshuffle",
+    "scaled_dot_product_attention",
     "normalize",
 ]

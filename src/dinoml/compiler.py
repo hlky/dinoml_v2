@@ -669,16 +669,23 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
                     raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
             prepack_storage = None
             if constant["tensor"] in prepacked_cutlass_transposed_conv_weights:
-                if array.ndim != 3:
+                if array.ndim == 3:
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+                    logical_layout = "iow"
+                    storage_layout = "ihwo"
+                elif array.ndim == 4:
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
+                    logical_layout = "iohw"
+                    storage_layout = "ihwo"
+                else:
                     raise ValueError(
-                        f"CUTLASS transposed conv1d weight constant {name} must be rank-3 IOW before packing"
+                        f"CUTLASS transposed conv weight constant {name} must be rank-3 IOW or rank-4 IOHW before packing"
                     )
-                array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
                 prepack_storage = {
                     **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
                     "kind": "cutlass_conv_weight",
-                    "logical_layout": "iow",
-                    "storage_layout": "ihwo",
+                    "logical_layout": logical_layout,
+                    "storage_layout": storage_layout,
                 }
             elif constant["tensor"] in prepacked_cutlass_conv_weights:
                 if array.ndim == 4:
@@ -764,7 +771,7 @@ def _cuda_cutlass_transposed_conv_weight_constants(ir: Mapping[str, Any]) -> set
     constants = {str(item["tensor"]) for item in ir.get("constants", [])}
     result: set[str] = set()
     for node in ir.get("nodes", []):
-        if str(node.get("op", "")) != "transposed_conv1d":
+        if str(node.get("op", "")) not in {"transposed_conv1d", "transposed_conv2d"}:
             continue
         inputs = node.get("inputs", ())
         if not isinstance(inputs, Sequence) or len(inputs) < 2:

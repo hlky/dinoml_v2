@@ -276,6 +276,52 @@ class ConvTranspose1d(Module):
         )
 
 
+class ConvTranspose2d(Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int],
+        stride: int | Sequence[int] = 1,
+        padding: int | Sequence[int] = 0,
+        output_padding: int | Sequence[int] = 0,
+        groups: int = 1,
+        bias: bool = True,
+        dilation: int | Sequence[int] = 1,
+        dtype: str = "float32",
+    ):
+        self.in_channels = _positive_int(in_channels, "ConvTranspose2d in_channels")
+        self.out_channels = _positive_int(out_channels, "ConvTranspose2d out_channels")
+        self.kernel_size = _pair(kernel_size, "ConvTranspose2d kernel_size", positive=True)
+        self.stride = _pair(stride, "ConvTranspose2d stride", positive=True)
+        self.padding = _pair(padding, "ConvTranspose2d padding", non_negative=True)
+        self.output_padding = _pair(output_padding, "ConvTranspose2d output_padding", non_negative=True)
+        self.groups = _positive_int(groups, "ConvTranspose2d groups")
+        self.dilation = _pair(dilation, "ConvTranspose2d dilation", positive=True)
+        if self.in_channels % self.groups != 0:
+            raise ValueError("ConvTranspose2d in_channels must be divisible by groups")
+        if self.out_channels % self.groups != 0:
+            raise ValueError("ConvTranspose2d out_channels must be divisible by groups")
+        if bias:
+            raise NotImplementedError("ConvTranspose2d currently requires bias=False")
+        self.dtype = normalize_dtype(dtype)
+        self.weight = Parameter(
+            [self.in_channels, self.out_channels // self.groups, self.kernel_size[0], self.kernel_size[1]],
+            dtype=self.dtype,
+        )
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.transposed_conv2d(
+            x,
+            self.weight,
+            stride=self.stride,
+            padding=self.padding,
+            output_padding=self.output_padding,
+            dilation=self.dilation,
+            groups=self.groups,
+        )
+
+
 class Embedding(Module):
     def __init__(self, num_embeddings: int, embedding_dim: int, dtype: str = "float32"):
         self.num_embeddings = _positive_int(num_embeddings, "Embedding num_embeddings")
@@ -752,6 +798,7 @@ __all__ = [
     "Conv2d",
     "Conv3d",
     "ConvTranspose1d",
+    "ConvTranspose2d",
     "Dropout",
     "Embedding",
     "Flatten",

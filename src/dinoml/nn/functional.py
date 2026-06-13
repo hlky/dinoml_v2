@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from dinoml import ops
@@ -29,8 +30,22 @@ def silu(input: Any, inplace: bool = False) -> Tensor:
     return ops.silu(input)
 
 
+def layer_norm(
+    input: Any,
+    normalized_shape: int | Sequence[int],
+    weight: Any | None = None,
+    bias: Any | None = None,
+    eps: float = 1e-5,
+) -> Tensor:
+    if weight is None or bias is None:
+        raise NotImplementedError("layer_norm currently requires weight and bias tensors")
+    if isinstance(normalized_shape, int) and not isinstance(normalized_shape, bool):
+        normalized_shape = [int(normalized_shape)]
+    return ops.layer_norm(input, weight, bias, eps=eps, normalized_shape=normalized_shape)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "softmax", "silu", "normalize"]
+__all__ = ["one_hot", "pad", "softmax", "silu", "layer_norm", "normalize"]

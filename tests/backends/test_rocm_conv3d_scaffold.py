@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import numpy as np
+
+import dinoml as dml
+from dinoml import compiler as dml_compiler
 from dinoml.kernels.manifest import build_kernel_manifest
 from dinoml.kernels.profiling import _CkConvProfiler, build_profile_workloads
 from dinoml.kernels.providers.ck.conv import ck_conv_candidate_set_id
@@ -91,6 +95,67 @@ def test_ck_conv3d_profiler_passes_rank3_problem_metadata():
     assert calls[0]["out_depth"] == 5
     assert calls[0]["groups"] == 4
     assert rows[0]["samples_ms"] == [0.11, 0.10]
+
+
+def test_rocm_conv3d_constant_weight_prepack_is_recorded_in_metadata_and_launch_source(tmp_path):
+    spec, weight_value = _trace_rocm_constant_weight_conv3d_spec("float16")
+    ir = dml_compiler._write_constants(tmp_path, spec.ir, spec.constants, target=dml.Target("rocm"))
+    constants_by_name = {constant["name"]: constant for constant in ir["constants"]}
+    weight_constant = constants_by_name["weight"]
+
+    assert weight_constant["storage"]["kind"] == "ck_conv3d_weight"
+    assert weight_constant["storage"]["logical_layout"] == "oidhw"
+    assert weight_constant["storage"]["storage_layout"] == "kzyxc"
+
+    stored = np.frombuffer((tmp_path / "constants.bin").read_bytes(), dtype=np.float16)
+    stored = stored[
+        weight_constant["offset"] // np.dtype(np.float16).itemsize : (
+            weight_constant["offset"] + weight_constant["nbytes"]
+        )
+        // np.dtype(np.float16).itemsize
+    ].reshape(weight_value.shape[0], weight_value.shape[2], weight_value.shape[3], weight_value.shape[4], weight_value.shape[1])
+    expected = np.ascontiguousarray(np.transpose(weight_value, (0, 2, 3, 4, 1)))
+    np.testing.assert_array_equal(stored, expected)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = next(
+        kernel
+        for kernel in manifest["required_kernels"]
+        if kernel["op"] == "conv3d_bias" and kernel["kernel_library"] == "ck_conv"
+    )
+
+    assert item["ck_conv_runtime_plan"] == {
+        "node_id": "n0",
+        "weight_pack_mode": "constants_bin_prepacked_kzyxc",
+        "constant_tensor": "weight",
+    }
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert "dinoml_ck_conv3d_bias_float16_" in source
+    assert "ptr_x, ptr_weight, ptr_bias, ptr_t0" in source
+    assert ", 1, 1, session->stream" in source
+
+
+def _trace_rocm_constant_weight_conv3d_spec(dtype: str) -> tuple[dml.ModelSpec, np.ndarray]:
+    weight_value = (np.arange(5 * 3 * 2 * 3 * 2, dtype=np.float32).reshape(5, 3, 2, 3, 2) / 29.0).astype(np.float16)
+    bias_value = (np.arange(5, dtype=np.float32) / 19.0).astype(np.float16)
+
+    class TinyConstConv3d(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter(list(weight_value.shape), dtype=dtype, value=weight_value)
+            self.bias = dml.Parameter([5], dtype=dtype, value=bias_value)
+
+        def forward(self, x):
+            y = dml.ops.conv3d_bias(x, self.weight, self.bias, stride=(1, 1, 1), padding=(0, 1, 0))
+            return dml.ops.output(y, "y")
+
+    spec = dml.trace(
+        TinyConstConv3d(),
+        {"x": dml.TensorSpec([2, 3, 4, 6, 5], dtype)},
+        name=f"rocm_conv3d_constant_weight_{dtype}",
+    )
+    return spec, weight_value
 
 
 def _rocm_conv3d_ir(

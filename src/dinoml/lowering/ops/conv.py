@@ -194,6 +194,8 @@ def _render_rocm_launch(
         else get_op_def(op_name).backend_kernels["rocm"].resolve(dtype).symbol
     )
     kernel_library = str(item.get("kernel_library", "ck_conv")) if item is not None else "ck_conv"
+    runtime_plan = dict(item.get("ck_conv_runtime_plan", {})) if isinstance(item, Mapping) else {}
+    weight_pack_mode = str(runtime_plan.get("weight_pack_mode", ""))
     dispatches = _rocm_dispatch_selections(item, str(node.get("id", ""))) if kernel_library == "ck_conv" else []
     x_ident = _c_ident(x_name)
     weight_ident = _c_ident(weight_name)
@@ -205,8 +207,7 @@ def _render_rocm_launch(
         pad_w = attrs["padding"][0]
         output_pad_w = 0 if attrs["output_padding"] is None else attrs["output_padding"][0]
         dilation_w = attrs["dilation"][0]
-        runtime_plan = dict(item.get("ck_conv_runtime_plan", {})) if isinstance(item, Mapping) else {}
-        weight_is_prepacked = str(runtime_plan.get("weight_pack_mode", "")) == "constants_bin_prepacked_kxc"
+        weight_is_prepacked = weight_pack_mode == "constants_bin_prepacked_kxc"
         if attrs["transposed"]:
             expected_out_w = (
                 f"((shape_{x_ident}_2 - 1) * {stride_w} - {2 * pad_w} + {dilation_w} * (shape_{weight_ident}_2 - 1) + {output_pad_w} + 1)"
@@ -352,6 +353,7 @@ def _render_rocm_launch(
                 dilation_d=dilation_d,
                 dilation_h=dilation_h,
                 dilation_w=dilation_w,
+                weight_is_prepacked=weight_pack_mode == "constants_bin_prepacked_kzyxc",
                 groups=groups,
             )
         )
@@ -418,25 +420,46 @@ def _render_rocm_launch(
             )
         )
         residual_arg = f"ptr_{residual_ident}, "
+    weight_is_prepacked = kernel_library == "ck_conv" and weight_pack_mode == "constants_bin_prepacked_kyxc"
     default_launch = [
-        *_rocm_launch_lines(
-            op_name=op_name,
-            symbol=symbol,
-            failure_label="ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv",
-            x_ident=x_ident,
-            weight_ident=weight_ident,
-            bias_ident=bias_ident,
-            residual_ident=residual_ident,
-            out_ident=out_ident,
-            stride_h=stride_h,
-            stride_w=stride_w,
-            pad_h=pad_h,
-            pad_w=pad_w,
-            output_pad_h=output_pad_h,
-            output_pad_w=output_pad_w,
-            dilation_h=dilation_h,
-            dilation_w=dilation_w,
-            transposed=is_transposed,
+        *(
+            _rocm_launch_lines_2d_ck(
+                op_name=op_name,
+                symbol=symbol,
+                failure_label="CK Conv",
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_h=stride_h,
+                stride_w=stride_w,
+                pad_h=pad_h,
+                pad_w=pad_w,
+                dilation_h=dilation_h,
+                dilation_w=dilation_w,
+                weight_is_prepacked=weight_is_prepacked,
+            )
+            if kernel_library == "ck_conv" and not is_transposed
+            else _rocm_launch_lines(
+                op_name=op_name,
+                symbol=symbol,
+                failure_label="ROCm Tile" if kernel_library == "rocm_tile_conv" else "CK Conv",
+                x_ident=x_ident,
+                weight_ident=weight_ident,
+                bias_ident=bias_ident,
+                residual_ident=residual_ident,
+                out_ident=out_ident,
+                stride_h=stride_h,
+                stride_w=stride_w,
+                pad_h=pad_h,
+                pad_w=pad_w,
+                output_pad_h=output_pad_h,
+                output_pad_w=output_pad_w,
+                dilation_h=dilation_h,
+                dilation_w=dilation_w,
+                transposed=is_transposed,
+            )
         )
     ]
     if dispatches:
@@ -1162,24 +1185,44 @@ def _rocm_dispatch_lines(
                 dilation_w=dilation_w,
             )
         else:
-            body = _rocm_launch_lines(
-                op_name=op_name,
-                symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
-                failure_label="CK Conv",
-                x_ident=x_ident,
-                weight_ident=weight_ident,
-                bias_ident=bias_ident,
-                residual_ident=residual_ident,
-                out_ident=out_ident,
-                stride_h=stride_h,
-                stride_w=stride_w,
-                pad_h=pad_h,
-                pad_w=pad_w,
-                output_pad_h=output_pad_h,
-                output_pad_w=output_pad_w,
-                dilation_h=dilation_h,
-                dilation_w=dilation_w,
-                transposed=transposed,
+            body = (
+                _rocm_launch_lines(
+                    op_name=op_name,
+                    symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                    failure_label="CK Conv",
+                    x_ident=x_ident,
+                    weight_ident=weight_ident,
+                    bias_ident=bias_ident,
+                    residual_ident=residual_ident,
+                    out_ident=out_ident,
+                    stride_h=stride_h,
+                    stride_w=stride_w,
+                    pad_h=pad_h,
+                    pad_w=pad_w,
+                    output_pad_h=output_pad_h,
+                    output_pad_w=output_pad_w,
+                    dilation_h=dilation_h,
+                    dilation_w=dilation_w,
+                    transposed=transposed,
+                )
+                if transposed
+                else _rocm_launch_lines_2d_ck(
+                    op_name=op_name,
+                    symbol=str(dispatch.get("kernel_symbol") or candidate.get("kernel_symbol")),
+                    failure_label="CK Conv",
+                    x_ident=x_ident,
+                    weight_ident=weight_ident,
+                    bias_ident=bias_ident,
+                    residual_ident=residual_ident,
+                    out_ident=out_ident,
+                    stride_h=stride_h,
+                    stride_w=stride_w,
+                    pad_h=pad_h,
+                    pad_w=pad_w,
+                    dilation_h=dilation_h,
+                    dilation_w=dilation_w,
+                    weight_is_prepacked=weight_is_prepacked,
+                )
             )
         lines.extend(f"  {line}" for line in body)
         lines.append("}")
@@ -1335,6 +1378,59 @@ def _rocm_launch_lines_1d(
     ]
 
 
+def _rocm_launch_lines_2d_ck(
+    *,
+    op_name: str,
+    symbol: str,
+    failure_label: str,
+    x_ident: str,
+    weight_ident: str,
+    bias_ident: str | None,
+    residual_ident: str | None,
+    out_ident: str,
+    stride_h: int,
+    stride_w: int,
+    pad_h: int,
+    pad_w: int,
+    dilation_h: int,
+    dilation_w: int,
+    weight_is_prepacked: bool,
+) -> list[str]:
+    call_args = [f"ptr_{x_ident}", f"ptr_{weight_ident}"]
+    if bias_ident is not None:
+        call_args.append(f"ptr_{bias_ident}")
+    if residual_ident is not None:
+        call_args.append(f"ptr_{residual_ident}")
+    call_args.extend(
+        [
+            f"ptr_{out_ident}",
+            f"static_cast<int>(shape_{x_ident}_0)",
+            f"static_cast<int>(shape_{x_ident}_1)",
+            f"static_cast<int>(shape_{x_ident}_2)",
+            f"static_cast<int>(shape_{x_ident}_3)",
+            f"static_cast<int>(shape_{weight_ident}_0)",
+            f"static_cast<int>(shape_{weight_ident}_2)",
+            f"static_cast<int>(shape_{weight_ident}_3)",
+            f"static_cast<int>(shape_{out_ident}_2)",
+            f"static_cast<int>(shape_{out_ident}_3)",
+            str(stride_h),
+            str(stride_w),
+            str(pad_h),
+            str(pad_w),
+            str(dilation_h),
+            str(dilation_w),
+            "1" if weight_is_prepacked else "0",
+            "session->stream",
+        ]
+    )
+    return [
+        (
+            f"if (int err = {symbol}({', '.join(call_args)})) "
+            f'return dinoml::module::fail("{op_name} {failure_label} launcher failed");'
+        )
+    ]
+
+
 def _rocm_launch_lines_transposed_1d(
     *,
     op_name: str,
@@ -1397,6 +1493,7 @@ def _rocm_launch_lines_3d(
     dilation_d: int,
     dilation_h: int,
     dilation_w: int,
+    weight_is_prepacked: bool,
     groups: int,
 ) -> list[str]:
     call_args = [f"ptr_{x_ident}", f"ptr_{weight_ident}"]
@@ -1426,6 +1523,7 @@ def _rocm_launch_lines_3d(
             str(dilation_d),
             str(dilation_h),
             str(dilation_w),
+            "1" if weight_is_prepacked else "0",
             str(groups),
             "session->stream",
         ]

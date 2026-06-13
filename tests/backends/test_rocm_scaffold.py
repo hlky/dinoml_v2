@@ -4469,6 +4469,46 @@ def test_rocm_conv1d_constant_weight_prepack_is_recorded_in_metadata_and_launch_
     assert ", 2, 1, 1, 1, session->stream" in source
 
 
+def test_rocm_conv2d_constant_weight_prepack_is_recorded_in_metadata_and_launch_source(tmp_path):
+    spec, weight_value = _trace_rocm_constant_weight_conv2d_spec("float16")
+    ir = dml_compiler._write_constants(tmp_path, spec.ir, spec.constants, target=dml.Target("rocm"))
+    constants_by_name = {constant["name"]: constant for constant in ir["constants"]}
+    weight_constant = constants_by_name["weight"]
+
+    assert weight_constant["storage"]["kind"] == "ck_conv2d_weight"
+    assert weight_constant["storage"]["logical_layout"] == "oihw"
+    assert weight_constant["storage"]["storage_layout"] == "kyxc"
+
+    stored = np.frombuffer((tmp_path / "constants.bin").read_bytes(), dtype=np.float16)
+    stored = stored[
+        weight_constant["offset"] // np.dtype(np.float16).itemsize : (
+            weight_constant["offset"] + weight_constant["nbytes"]
+        )
+        // np.dtype(np.float16).itemsize
+    ].reshape(weight_value.shape[0], weight_value.shape[2], weight_value.shape[3], weight_value.shape[1])
+    expected = np.ascontiguousarray(np.transpose(weight_value, (0, 2, 3, 1)))
+    np.testing.assert_array_equal(stored, expected)
+
+    manifest = build_kernel_manifest(ir, {"name": "rocm", "arch": "gfx1201"})
+    item = next(
+        kernel
+        for kernel in manifest["required_kernels"]
+        if kernel["op"] == "conv2d_bias_add_relu" and kernel["kernel_library"] == "ck_conv"
+    )
+
+    assert item["ck_conv_runtime_plan"] == {
+        "node_id": "n0",
+        "weight_pack_mode": "constants_bin_prepacked_kyxc",
+        "constant_tensor": "weight",
+    }
+
+    source = render_rocm_module(ir, kernel_manifest=manifest)
+
+    assert "dinoml_ck_conv2d_bias_add_relu_float16_" in source
+    assert "ptr_x, ptr_weight, ptr_bias, ptr_residual, ptr_t0" in source
+    assert ", 1, 1, 1, session->stream" in source
+
+
 def test_rocm_transposed_conv2d_module_declares_and_calls_ck_symbol():
     ir = _rocm_transposed_conv2d_ir(
         "float16",
@@ -5305,6 +5345,31 @@ def _trace_rocm_constant_weight_conv1d_spec(dtype: str) -> dml.ModelSpec:
         },
         name=f"rocm_conv1d_constant_weight_{dtype}",
     )
+
+
+def _trace_rocm_constant_weight_conv2d_spec(dtype: str) -> tuple[dml.ModelSpec, np.ndarray]:
+    value_dtype = np.float16 if dtype == "float16" else np.float32
+    weight_value = (np.arange(5 * 3 * 3 * 2, dtype=np.float32).reshape(5, 3, 3, 2) / 41.0).astype(value_dtype)
+    bias_value = (np.arange(5, dtype=np.float32) / 17.0).astype(value_dtype)
+
+    class TinyConstConv2d(dml.Module):
+        def __init__(self):
+            self.weight = dml.Parameter(list(weight_value.shape), dtype=dtype, value=weight_value)
+            self.bias = dml.Parameter([5], dtype=dtype, value=bias_value)
+
+        def forward(self, x, residual):
+            y = dml.ops.conv2d_bias_add_relu(x, self.weight, self.bias, residual, stride=(1, 1), padding=(1, 0))
+            return dml.ops.output(y, "y")
+
+    spec = dml.trace(
+        TinyConstConv2d(),
+        {
+            "x": dml.TensorSpec([2, 3, 7, 6], dtype),
+            "residual": dml.TensorSpec([2, 5, 7, 5], dtype),
+        },
+        name=f"rocm_conv2d_constant_weight_{dtype}",
+    )
+    return spec, weight_value
 
 
 def _rocm_conv2d_bias_ir(

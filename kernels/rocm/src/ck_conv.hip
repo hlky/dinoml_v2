@@ -613,6 +613,69 @@ __global__ void dinoml_ck_conv_oidhw_to_kzyxc_kernel(
 }
 
 template <typename Storage>
+int launch_ck_conv_oihw_to_kyxc(
+    Storage const* src,
+    Storage* dst,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w,
+    hipStream_t stream);
+
+template <typename T>
+__global__ void dinoml_ck_conv_oihw_to_kyxc_kernel(
+    const T* src,
+    T* dst,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = out_c * in_c * kernel_h * kernel_w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % kernel_w;
+  int tmp = linear / kernel_w;
+  int y = tmp % kernel_h;
+  tmp /= kernel_h;
+  int in_channel = tmp % in_c;
+  int out_channel = tmp / in_c;
+  int dst_index = (((out_channel * kernel_h + y) * kernel_w + x) * in_c) + in_channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename Storage>
+int launch_ck_conv_oihw_to_kyxc(
+    Storage const* src,
+    Storage* dst,
+    int out_c,
+    int in_c,
+    int kernel_h,
+    int kernel_w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || out_c <= 0 || in_c <= 0 || kernel_h <= 0 || kernel_w <= 0) {
+    return 1;
+  }
+  int total = out_c * in_c * kernel_h * kernel_w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_oihw_to_kyxc_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      out_c,
+      in_c,
+      kernel_h,
+      kernel_w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename Storage>
 int launch_ck_conv_oidhw_to_kzyxc(
     Storage const* src,
     Storage* dst,
@@ -894,6 +957,7 @@ int launch_ck_conv2d_bias(
     int pad_w,
     int dilation_h,
     int dilation_w,
+    int weight_is_kyxc,
     hipStream_t stream) {
   if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
     return 1;
@@ -926,11 +990,11 @@ int launch_ck_conv2d_bias(
       ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
   const std::array<ck::index_t, NDimSpatial + 3> b_strides{
-      k * c * y * x_filter,
-      c * y * x_filter,
-      y * x_filter,
-      x_filter,
-      ck::index_t{1}};
+      weight_is_kyxc != 0 ? k * y * x_filter * c : k * c * y * x_filter,
+      weight_is_kyxc != 0 ? y * x_filter * c : c * y * x_filter,
+      weight_is_kyxc != 0 ? ck::index_t{1} : y * x_filter,
+      weight_is_kyxc != 0 ? x_filter * c : x_filter,
+      weight_is_kyxc != 0 ? c : ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
       k,
@@ -1017,6 +1081,7 @@ int launch_ck_conv3d_bias(
     int dilation_d,
     int dilation_h,
     int dilation_w,
+    int weight_is_kzyxc,
     int groups,
     hipStream_t stream) {
   if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
@@ -1059,6 +1124,11 @@ int launch_ck_conv3d_bias(
       static_cast<ck::index_t>(pad_h),
       static_cast<ck::index_t>(pad_w)};
 
+  if(groups != 1 && weight_is_kzyxc != 0)
+  {
+    return 2;
+  }
+
   if(groups == 1)
   {
     using DeviceOp = DeviceConv3dBiasXdl<Config, Storage, Element>;
@@ -1067,6 +1137,7 @@ int launch_ck_conv3d_bias(
     Storage* x_packed = nullptr;
     Storage* weight_packed = nullptr;
     Storage* output_packed = nullptr;
+    const bool weight_prepacked = weight_is_kzyxc != 0;
     const auto x_count = static_cast<std::size_t>(batch) * in_channels * in_depth * in_height * in_width;
     const auto weight_count = static_cast<std::size_t>(out_channels) * in_channels * kernel_d * kernel_h * kernel_w;
     const auto output_count = static_cast<std::size_t>(batch) * out_channels * out_depth * out_height * out_width;
@@ -1074,7 +1145,7 @@ int launch_ck_conv3d_bias(
     const auto weight_nbytes = weight_count * sizeof(Storage);
     const auto output_nbytes = output_count * sizeof(Storage);
     if (hipMalloc(reinterpret_cast<void**>(&x_packed), x_nbytes) != hipSuccess ||
-        hipMalloc(reinterpret_cast<void**>(&weight_packed), weight_nbytes) != hipSuccess ||
+        (!weight_prepacked && hipMalloc(reinterpret_cast<void**>(&weight_packed), weight_nbytes) != hipSuccess) ||
         hipMalloc(reinterpret_cast<void**>(&output_packed), output_nbytes) != hipSuccess) {
       if (x_packed != nullptr) {
         (void)hipFree(x_packed);
@@ -1096,7 +1167,10 @@ int launch_ck_conv3d_bias(
         in_height,
         in_width,
         stream);
-    if (pack_status == 0) {
+    if (pack_status == 0 && weight_prepacked) {
+      weight_packed = const_cast<Storage*>(weight);
+    }
+    if (pack_status == 0 && !weight_prepacked) {
       pack_status = launch_ck_conv_oidhw_to_kzyxc(
           weight,
           weight_packed,
@@ -1109,7 +1183,9 @@ int launch_ck_conv3d_bias(
     }
     if (pack_status != 0) {
       (void)hipFree(x_packed);
-      (void)hipFree(weight_packed);
+      if (!weight_prepacked) {
+        (void)hipFree(weight_packed);
+      }
       (void)hipFree(output_packed);
       return pack_status;
     }
@@ -1171,7 +1247,9 @@ int launch_ck_conv3d_bias(
     if(!DeviceOp::IsSupportedArgument(argument))
     {
       (void)hipFree(x_packed);
-      (void)hipFree(weight_packed);
+      if (!weight_prepacked) {
+        (void)hipFree(weight_packed);
+      }
       (void)hipFree(output_packed);
       return 4;
     }
@@ -1180,7 +1258,9 @@ int launch_ck_conv3d_bias(
     const hipError_t launch_err = hipGetLastError();
     if (launch_err != hipSuccess) {
       (void)hipFree(x_packed);
-      (void)hipFree(weight_packed);
+      if (!weight_prepacked) {
+        (void)hipFree(weight_packed);
+      }
       (void)hipFree(output_packed);
       return 3;
     }
@@ -1194,7 +1274,9 @@ int launch_ck_conv3d_bias(
         out_width,
         stream);
     (void)hipFree(x_packed);
-    (void)hipFree(weight_packed);
+    if (!weight_prepacked) {
+      (void)hipFree(weight_packed);
+    }
     (void)hipFree(output_packed);
     if (unpack_status != 0) {
       return unpack_status;
@@ -1294,6 +1376,7 @@ int launch_ck_conv2d_bias_relu(
     int pad_w,
     int dilation_h,
     int dilation_w,
+    int weight_is_kyxc,
     hipStream_t stream) {
   if (x == nullptr || weight == nullptr || bias == nullptr || output == nullptr) {
     return 1;
@@ -1326,11 +1409,11 @@ int launch_ck_conv2d_bias_relu(
       ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
   const std::array<ck::index_t, NDimSpatial + 3> b_strides{
-      k * c * y * x_filter,
-      c * y * x_filter,
-      y * x_filter,
-      x_filter,
-      ck::index_t{1}};
+      weight_is_kyxc != 0 ? k * y * x_filter * c : k * c * y * x_filter,
+      weight_is_kyxc != 0 ? y * x_filter * c : c * y * x_filter,
+      weight_is_kyxc != 0 ? ck::index_t{1} : y * x_filter,
+      weight_is_kyxc != 0 ? x_filter * c : x_filter,
+      weight_is_kyxc != 0 ? c : ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
       k,
@@ -1412,6 +1495,7 @@ int launch_ck_conv2d_bias_add(
     int pad_w,
     int dilation_h,
     int dilation_w,
+    int weight_is_kyxc,
     hipStream_t stream) {
   if (x == nullptr || weight == nullptr || bias == nullptr || residual == nullptr || output == nullptr) {
     return 1;
@@ -1444,11 +1528,11 @@ int launch_ck_conv2d_bias_add(
       ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
   const std::array<ck::index_t, NDimSpatial + 3> b_strides{
-      k * c * y * x_filter,
-      c * y * x_filter,
-      y * x_filter,
-      x_filter,
-      ck::index_t{1}};
+      weight_is_kyxc != 0 ? k * y * x_filter * c : k * c * y * x_filter,
+      weight_is_kyxc != 0 ? y * x_filter * c : c * y * x_filter,
+      weight_is_kyxc != 0 ? ck::index_t{1} : y * x_filter,
+      weight_is_kyxc != 0 ? x_filter * c : x_filter,
+      weight_is_kyxc != 0 ? c : ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
       k,
@@ -1532,6 +1616,7 @@ int launch_ck_conv2d_bias_add_relu(
     int pad_w,
     int dilation_h,
     int dilation_w,
+    int weight_is_kyxc,
     hipStream_t stream) {
   if (x == nullptr || weight == nullptr || bias == nullptr || residual == nullptr || output == nullptr) {
     return 1;
@@ -1564,11 +1649,11 @@ int launch_ck_conv2d_bias_add_relu(
       ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
   const std::array<ck::index_t, NDimSpatial + 3> b_strides{
-      k * c * y * x_filter,
-      c * y * x_filter,
-      y * x_filter,
-      x_filter,
-      ck::index_t{1}};
+      weight_is_kyxc != 0 ? k * y * x_filter * c : k * c * y * x_filter,
+      weight_is_kyxc != 0 ? y * x_filter * c : c * y * x_filter,
+      weight_is_kyxc != 0 ? ck::index_t{1} : y * x_filter,
+      weight_is_kyxc != 0 ? x_filter * c : x_filter,
+      weight_is_kyxc != 0 ? c : ck::index_t{1}};
   const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
       k,
@@ -1689,6 +1774,7 @@ float profile_ck_conv2d_bias(
             pad_w,
             dilation_h,
             dilation_w,
+            0,
             stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
@@ -1754,7 +1840,7 @@ float profile_ck_conv3d_bias(
     const int launch_status = launch_ck_conv3d_bias<Storage, Config>(
         x, weight, bias, output, batch, in_channels, in_depth, in_height, in_width, out_channels, kernel_d, kernel_h,
         kernel_w, out_depth, out_height, out_width, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d,
-        dilation_h, dilation_w, groups, stream);
+        dilation_h, dilation_w, 0, groups, stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
       (void)hipEventDestroy(end);
@@ -1831,6 +1917,7 @@ float profile_ck_conv2d_bias_add(
             pad_w,
             dilation_h,
             dilation_w,
+            0,
             stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
@@ -1908,6 +1995,7 @@ float profile_ck_conv2d_bias_add_relu(
             pad_w,
             dilation_h,
             dilation_w,
+            0,
             stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
@@ -1983,6 +2071,7 @@ float profile_ck_conv2d_bias_relu(
             pad_w,
             dilation_h,
             dilation_w,
+            0,
             stream);
     if (launch_status != 0) {
       (void)hipEventDestroy(start);
@@ -4032,10 +4121,11 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int pad_w, \
     int dilation_h, \
     int dilation_w, \
+    int weight_is_kyxc, \
     hipStream_t stream) { \
   return launch_ck_conv2d_bias<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
-      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, weight_is_kyxc, stream); \
 } \
 extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \
@@ -4091,12 +4181,13 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int dilation_d, \
     int dilation_h, \
     int dilation_w, \
+    int weight_is_kzyxc, \
     int groups, \
     hipStream_t stream) { \
   return launch_ck_conv3d_bias<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, output, batch, in_channels, in_depth, in_height, in_width, out_channels, kernel_d, kernel_h, \
       kernel_w, out_depth, out_height, out_width, stride_d, stride_h, stride_w, pad_d, pad_h, pad_w, dilation_d, \
-      dilation_h, dilation_w, groups, stream); \
+      dilation_h, dilation_w, weight_is_kzyxc, groups, stream); \
 } \
 extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \
@@ -4154,10 +4245,11 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int pad_w, \
     int dilation_h, \
     int dilation_w, \
+    int weight_is_kyxc, \
     hipStream_t stream) { \
   return launch_ck_conv2d_bias_relu<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
-      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, weight_is_kyxc, stream); \
 } \
 extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \
@@ -4208,10 +4300,11 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int pad_w, \
     int dilation_h, \
     int dilation_w, \
+    int weight_is_kyxc, \
     hipStream_t stream) { \
   return launch_ck_conv2d_bias_add<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
-      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, weight_is_kyxc, stream); \
 } \
 extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \
@@ -4263,10 +4356,11 @@ extern "C" int dinoml_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     int pad_w, \
     int dilation_h, \
     int dilation_w, \
+    int weight_is_kyxc, \
     hipStream_t stream) { \
   return launch_ck_conv2d_bias_add_relu<CTYPE, ConvConfig::CONFIG>( \
       x, weight, bias, residual, output, batch, in_channels, in_height, in_width, out_channels, kernel_h, kernel_w, \
-      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, stream); \
+      out_height, out_width, stride_h, stride_w, pad_h, pad_w, dilation_h, dilation_w, weight_is_kyxc, stream); \
 } \
 extern "C" DINO_EXPORT float dinoml_profile_ck_##OP##_##DTYPE_NAME##_##SYMBOL_ID( \
     CTYPE const* x, \

@@ -239,6 +239,7 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
     bias_arg = ""
     residual_arg = ""
     extra_shape_args = ""
+    weight_pack_arg = ""
     if launch_abi in {"dinoml_ck_conv1d_bias_v1", "dinoml_ck_conv1d_bias_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
         return (
@@ -312,12 +313,14 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
             "    int dilation_d,\n"
             "    int dilation_h,\n"
             "    int dilation_w,\n"
+            "    int weight_is_kzyxc,\n"
             "    int groups,\n"
             "    hipStream_t stream);"
         )
     elif launch_abi in {"dinoml_ck_conv2d_bias_add_v1", "dinoml_ck_conv2d_bias_add_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
         residual_arg = f"    const {cpp_type}* residual,\n"
+        weight_pack_arg = "    int weight_is_kyxc,\n"
     elif launch_abi in {
         "dinoml_ck_transposed_conv2d_v1",
         "dinoml_ck_transposed_conv2d_bias_v1",
@@ -330,7 +333,19 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         if launch_abi in {"dinoml_ck_transposed_conv2d_bias_add_v1", "dinoml_ck_transposed_conv2d_bias_add_relu_v1"}:
             residual_arg = f"    const {cpp_type}* residual,\n"
         extra_shape_args = "    int output_pad_h,\n    int output_pad_w,\n"
-    else:
+    elif launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
+        weight_pack_arg = "    int weight_is_kyxc,\n"
+    elif launch_abi not in {
+        "dinoml_ck_conv2d_bias_v1",
+        "dinoml_ck_conv2d_bias_relu_v1",
+        "dinoml_ck_conv2d_bias_add_v1",
+        "dinoml_ck_conv2d_bias_add_relu_v1",
+        "dinoml_ck_transposed_conv2d_v1",
+        "dinoml_ck_transposed_conv2d_bias_v1",
+        "dinoml_ck_transposed_conv2d_bias_relu_v1",
+        "dinoml_ck_transposed_conv2d_bias_add_v1",
+        "dinoml_ck_transposed_conv2d_bias_add_relu_v1",
+    }:
         raise ValueError(f"Unsupported CK Conv launch ABI: {launch_abi!r}")
     return (
         f'extern "C" int {symbol}(\n'
@@ -355,5 +370,6 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         f"{extra_shape_args}"
         "    int dilation_h,\n"
         "    int dilation_w,\n"
+        f"{weight_pack_arg}"
         "    hipStream_t stream);"
     )

@@ -20,6 +20,7 @@ from dinoml.kernels.providers.ck.bmm import (
 )
 from dinoml.kernels.providers.ck.conv import (
     CK_CONV1D_OPS,
+    CK_CONV2D_OPS,
     CK_CONV3D_OPS,
     ck_conv_candidate_set,
     ck_conv_candidates,
@@ -439,7 +440,7 @@ def _ck_conv_runtime_plan(
     if target.get("name") != "rocm":
         return None
     op_name = str(node.get("op", ""))
-    if op_name not in CK_CONV1D_OPS:
+    if op_name not in {*CK_CONV1D_OPS, *CK_CONV2D_OPS, *CK_CONV3D_OPS}:
         return None
     inputs = node.get("inputs", ())
     if not isinstance(inputs, Sequence) or len(inputs) < 2:
@@ -447,9 +448,20 @@ def _ck_conv_runtime_plan(
     weight_name = str(inputs[1])
     if weight_name not in constant_map:
         return None
+    groups = int(dict(node.get("attrs", {})).get("groups", 1) or 1)
+    if op_name in CK_CONV1D_OPS:
+        weight_pack_mode = "constants_bin_prepacked_kxc"
+    elif op_name in CK_CONV2D_OPS:
+        if groups != 1:
+            return None
+        weight_pack_mode = "constants_bin_prepacked_kyxc"
+    else:
+        if groups != 1:
+            return None
+        weight_pack_mode = "constants_bin_prepacked_kzyxc"
     return {
         "node_id": str(node.get("id", "")),
-        "weight_pack_mode": "constants_bin_prepacked_kxc",
+        "weight_pack_mode": weight_pack_mode,
         "constant_tensor": weight_name,
     }
 

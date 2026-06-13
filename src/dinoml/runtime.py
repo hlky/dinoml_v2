@@ -536,7 +536,7 @@ class RuntimeModule:
 
     def _autoloadable_constants_require_native_loader(self) -> bool:
         return any(
-            _constant_uses_ck_conv1d_weight_storage(constant_spec)
+            _constant_uses_ck_conv_weight_storage(constant_spec)
             or _constant_uses_cutlass_conv_weight_storage(constant_spec)
             for constant_spec in self._autoloadable_constant_specs()
         )
@@ -574,7 +574,7 @@ class RuntimeModule:
         array = array_to_storage(value, str(constant_spec["dtype"]))
         actual_shape = validate_runtime_shape(name, array.shape, constant_spec)
         array = _pack_cutlass_conv_weight_storage(array, constant_spec)
-        array = _pack_ck_conv1d_weight_storage(array, constant_spec)
+        array = _pack_ck_conv_weight_storage(array, constant_spec)
         dtype_enum = dtype_runtime_enum(constant_spec["dtype"])
         if self.target_name == "cpu":
             tensor, keepalive = _make_dino_tensor(
@@ -2012,9 +2012,13 @@ def _as_c_void_p(value: object | None) -> ctypes.c_void_p:
         return ctypes.cast(value, ctypes.c_void_p)
 
 
-def _constant_uses_ck_conv1d_weight_storage(constant_spec: Mapping[str, object]) -> bool:
+def _constant_uses_ck_conv_weight_storage(constant_spec: Mapping[str, object]) -> bool:
     storage = constant_spec.get("storage")
-    return isinstance(storage, MappingABC) and storage.get("kind") == "ck_conv1d_weight"
+    return isinstance(storage, MappingABC) and storage.get("kind") in {
+        "ck_conv1d_weight",
+        "ck_conv2d_weight",
+        "ck_conv3d_weight",
+    }
 
 
 def _constant_uses_cutlass_conv_weight_storage(constant_spec: Mapping[str, object]) -> bool:
@@ -2060,14 +2064,36 @@ def _pack_cutlass_conv_weight_storage(array: np.ndarray, constant_spec: Mapping[
     )
 
 
-def _pack_ck_conv1d_weight_storage(array: np.ndarray, constant_spec: Mapping[str, object]) -> np.ndarray:
-    if not _constant_uses_ck_conv1d_weight_storage(constant_spec):
+def _pack_ck_conv_weight_storage(array: np.ndarray, constant_spec: Mapping[str, object]) -> np.ndarray:
+    if not _constant_uses_ck_conv_weight_storage(constant_spec):
         return array
-    if array.ndim != 3:
-        raise ValueError(
-            f"CK conv1d weight constant {constant_spec.get('name', '<unknown>')} expected rank-3 OIW storage, got rank {array.ndim}"
-        )
-    return np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+    storage = constant_spec.get("storage")
+    if not isinstance(storage, MappingABC):
+        return array
+    logical_layout = str(storage.get("logical_layout", ""))
+    storage_layout = str(storage.get("storage_layout", ""))
+    if logical_layout == "oiw" and storage_layout == "kxc":
+        if array.ndim != 3:
+            raise ValueError(
+                f"CK conv1d weight constant {constant_spec.get('name', '<unknown>')} expected rank-3 OIW storage, got rank {array.ndim}"
+            )
+        return np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+    if logical_layout == "oihw" and storage_layout == "kyxc":
+        if array.ndim != 4:
+            raise ValueError(
+                f"CK conv2d weight constant {constant_spec.get('name', '<unknown>')} expected rank-4 OIHW storage, got rank {array.ndim}"
+            )
+        return np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
+    if logical_layout == "oidhw" and storage_layout == "kzyxc":
+        if array.ndim != 5:
+            raise ValueError(
+                f"CK conv3d weight constant {constant_spec.get('name', '<unknown>')} expected rank-5 OIDHW storage, got rank {array.ndim}"
+            )
+        return np.ascontiguousarray(np.transpose(array, (0, 2, 3, 4, 1)))
+    raise ValueError(
+        "Unsupported CK conv weight storage metadata for constant "
+        f"{constant_spec.get('name', '<unknown>')}: logical_layout={logical_layout!r}, storage_layout={storage_layout!r}"
+    )
 
 
 def _libgguf_cuda_dequant_api() -> tuple[object, object, object] | None:

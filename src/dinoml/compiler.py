@@ -646,7 +646,7 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
     prepacked_cutlass_transposed_conv_weights = (
         _cuda_cutlass_transposed_conv_weight_constants(ir) if target.name == "cuda" else set()
     )
-    prepacked_ck_conv1d_weights = _rocm_ck_conv1d_weight_constants(ir) if target.name == "rocm" else set()
+    prepacked_ck_conv_weights = _rocm_ck_conv_weight_storage(ir) if target.name == "rocm" else {}
     offset = 0
     constant_infos = []
     with (artifact_dir / "constants.bin").open("wb") as handle:
@@ -710,15 +710,30 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
                     "logical_layout": logical_layout,
                     "storage_layout": storage_layout,
                 }
-            elif constant["tensor"] in prepacked_ck_conv1d_weights:
-                if array.ndim != 3:
-                    raise ValueError(f"CK Conv1d weight constant {name} must be rank-3 OIW before packing")
-                array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+            elif constant["tensor"] in prepacked_ck_conv_weights:
+                kind, logical_layout, storage_layout = prepacked_ck_conv_weights[str(constant["tensor"])]
+                if logical_layout == "oiw" and storage_layout == "kxc":
+                    if array.ndim != 3:
+                        raise ValueError(f"CK Conv1d weight constant {name} must be rank-3 OIW before packing")
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+                elif logical_layout == "oihw" and storage_layout == "kyxc":
+                    if array.ndim != 4:
+                        raise ValueError(f"CK Conv2d weight constant {name} must be rank-4 OIHW before packing")
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
+                elif logical_layout == "oidhw" and storage_layout == "kzyxc":
+                    if array.ndim != 5:
+                        raise ValueError(f"CK Conv3d weight constant {name} must be rank-5 OIDHW before packing")
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 4, 1)))
+                else:
+                    raise ValueError(
+                        f"Unsupported CK conv weight storage metadata for {name}: "
+                        f"logical_layout={logical_layout!r}, storage_layout={storage_layout!r}"
+                    )
                 prepack_storage = {
                     **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
-                    "kind": "ck_conv1d_weight",
-                    "logical_layout": "oiw",
-                    "storage_layout": "kxc",
+                    "kind": kind,
+                    "logical_layout": logical_layout,
+                    "storage_layout": storage_layout,
                 }
             data = array.tobytes(order="C")
             constant = dict(constant)
@@ -782,18 +797,35 @@ def _cuda_cutlass_transposed_conv_weight_constants(ir: Mapping[str, Any]) -> set
     return result
 
 
-def _rocm_ck_conv1d_weight_constants(ir: Mapping[str, Any]) -> set[str]:
+def _rocm_ck_conv_weight_storage(ir: Mapping[str, Any]) -> dict[str, tuple[str, str, str]]:
     constants = {str(item["tensor"]) for item in ir.get("constants", [])}
-    result: set[str] = set()
+    result: dict[str, tuple[str, str, str]] = {}
     for node in ir.get("nodes", []):
-        if str(node.get("op", "")) not in {"conv1d_bias", "conv1d_bias_relu", "conv1d_bias_add", "conv1d_bias_add_relu"}:
+        op_name = str(node.get("op", ""))
+        if op_name not in {
+            "conv1d_bias",
+            "conv1d_bias_relu",
+            "conv1d_bias_add",
+            "conv1d_bias_add_relu",
+            "conv2d_bias",
+            "conv2d_bias_relu",
+            "conv2d_bias_add",
+            "conv2d_bias_add_relu",
+            "conv3d_bias",
+        }:
             continue
         inputs = node.get("inputs", ())
         if not isinstance(inputs, Sequence) or len(inputs) < 2:
             continue
         weight = str(inputs[1])
         if weight in constants:
-            result.add(weight)
+            groups = int(dict(node.get("attrs", {})).get("groups", 1) or 1)
+            if op_name.startswith("conv1d_"):
+                result[weight] = ("ck_conv1d_weight", "oiw", "kxc")
+            elif op_name.startswith("conv2d_") and groups == 1:
+                result[weight] = ("ck_conv2d_weight", "oihw", "kyxc")
+            elif op_name == "conv3d_bias" and groups == 1:
+                result[weight] = ("ck_conv3d_weight", "oidhw", "kzyxc")
     return result
 
 

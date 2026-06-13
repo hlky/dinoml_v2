@@ -44,8 +44,18 @@ def layer_norm(
     return ops.layer_norm(input, weight, bias, eps=eps, normalized_shape=normalized_shape)
 
 
+def group_norm(
+    input: Any,
+    num_groups: int,
+    weight: Any | None = None,
+    bias: Any | None = None,
+    eps: float = 1e-5,
+) -> Tensor:
+    return ops.group_norm(input, num_groups, weight=weight, bias=bias, eps=eps)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "softmax", "silu", "layer_norm", "normalize"]
+__all__ = ["one_hot", "pad", "softmax", "silu", "layer_norm", "group_norm", "normalize"]

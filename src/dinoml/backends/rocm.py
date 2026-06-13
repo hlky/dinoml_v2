@@ -1165,6 +1165,7 @@ def _ensure_cmake_flash_attn_ck_archives(arch: str, kernel_manifest: Mapping[str
     )
     if not archive.exists():
         raise RuntimeError(f"Expected CMake-built CK FlashAttention static archive, but it was not produced: {archive}")
+    modules = _required_flash_attn_ck_modules(kernel_manifest, archive=archive, target=target)
     write_json(
         lib_dir / "flash_attn_ck_manifest.json",
         {
@@ -1193,7 +1194,7 @@ def _required_flash_attn_ck_modules(
     archive: Path,
     target: str,
 ) -> list[dict[str, Any]]:
-    archive_digest = file_sha256(archive)
+    archive_digest = file_sha256(archive) if archive.exists() else None
     modules: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for item in kernel_manifest.get("required_kernels", []):
@@ -1213,7 +1214,7 @@ def _required_flash_attn_ck_modules(
                 "kernel_symbol": symbol,
                 "archive": archive.name,
                 "target": target,
-                "archive_sha256": archive_digest,
+                **({"archive_sha256": archive_digest} if archive_digest is not None else {}),
             }
         )
     return sorted(modules, key=lambda module: (str(module["op"]), str(module["dtype"]), str(module["kernel_symbol"])))

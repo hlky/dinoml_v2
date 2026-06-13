@@ -607,6 +607,28 @@ def test_flash_attention_rocm_support_manifest_records_requested_ck_dtype_module
     assert all(module["archive_sha256"] for module in modules)
 
 
+def test_flash_attention_rocm_support_manifest_allows_prebuild_module_enumeration(tmp_path: Path):
+    archive = tmp_path / "libdinoml_flash_attn_ck.a"
+    modules = rocm_backend._required_flash_attn_ck_modules(
+        {
+            "required_kernels": [
+                {
+                    "kernel_library": "flash_attn_ck",
+                    "op": "flash_attention",
+                    "dtype": "float16",
+                    "kernel_symbol": "dinoml_flash_attn_ck_fwd_float16_v1",
+                }
+            ]
+        },
+        archive=archive,
+        target="dinoml_flash_attn_ck",
+    )
+
+    assert len(modules) == 1
+    assert modules[0]["archive"] == archive.name
+    assert "archive_sha256" not in modules[0]
+
+
 def test_flash_attention_cuda_manifest_requests_flash_attn_archive():
     spec = dml.trace(
         _FlashAttentionModule(causal=False),

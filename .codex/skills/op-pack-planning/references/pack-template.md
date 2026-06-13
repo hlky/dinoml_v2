@@ -35,6 +35,7 @@ For thin frontend or rewrite-only packs, make `exact completion target`, `requir
 - name the API file or module to edit when known
 - name the upstream Torch spelling/signature being mirrored
 - name the existing DinoML op(s) or helper(s) the API must route to or rewrite into
+- say why this surface is worth adding instead of telling model integrations to call the existing DinoML op directly
 - say explicitly that no separate backend/kernel/runtime path should be added
 - avoid vague role wording such as `Torch-facing`, `frontend/export`, `binding path`, or `pipeline`
 
@@ -77,6 +78,7 @@ Short execution-oriented prompt that:
 For thin frontend or rewrite-only packs, prefer a concrete prompt such as:
 
 - `Add \`normalize\` in <file> for the admitted subset of \`torch.nn.functional.normalize\`, route admitted calls to the existing DinoML norm and elementwise ops, and do not add a new backend path.`
+- `Add \`torch.ones\` in <file>, route admitted calls to the existing DinoML \`full\` op with fill value 1, and do not add a new backend path.`
 
 Avoid prompts built around role words such as `Torch-facing path`, `frontend mapping`, or `export path`.
 
@@ -194,4 +196,5 @@ Keep it short and explicit:
 - If a real backend/provider/kernel implementation is required, say so plainly.
 - For any pack that is not `already-covered` or `thin-frontend-rewrite`, say plainly that composition through existing ops does not count as completion.
 - For thin frontend or rewrite-only tasks, prefer file names, module names, function names, and reused DinoML ops over subsystem labels.
+- Do not draft a thin frontend pack unless it clearly reduces repeated translation work or provides a named local convenience surface beyond calling the existing DinoML op directly.
 - Avoid overloaded trigger words such as `export` unless the task really is about `torch.export`.

@@ -13,8 +13,10 @@ Typical cases:
 - direct frontend op already exists
 - existing op family already covers the required semantics
 - current frontend spelling differs, but the requested behavior is already exposed in a nearby supported form
+- model integrations can already call the existing DinoML op directly without needing a new translation helper pack
 
 Do not mark a candidate `already-covered` only because a related op exists. Verify that the actual behavior is already available.
+For frontend-only planning, prefer `already-covered` when a new pack would add little beyond mirroring a Torch name that is already no easier than the existing DinoML call.
 
 ## `thin-frontend-rewrite`
 
@@ -25,6 +27,7 @@ Typical cases:
 - aliases of existing creation ops
 - view or layout helpers expressible through existing shape or collection ops
 - targeted decompositions into existing elementwise, reduction, reshape, split, gather, or concatenate ops
+- common Torch spellings whose main value is removing repeated translation rules in model integrations, such as creation helpers routed to `full` or `matmul` routed to the correct GEMM or BMM family
 
 Do not use this label when the rewrite would:
 
@@ -32,6 +35,7 @@ Do not use this label when the rewrite would:
 - require new runtime behavior
 - create misleading backend support claims
 - depend on unsupported dynamic outputs or unsupported dtypes
+- add almost no value beyond a Torch name for an operation that model code can already call directly through the existing DinoML op
 
 ## `new-ir-op`
 
@@ -102,9 +106,10 @@ Before finalizing a candidate:
 
 ## Common examples
 
-- `matmul`: often `already-covered` through existing GEMM or BMM surface
+- `matmul`: often `thin-frontend-rewrite` when the goal is to remove repeated routing from a Torch `matmul` spelling into the correct DinoML GEMM or BMM op family
 - `zeros`, `ones`, `*_like`: often `thin-frontend-rewrite`
 - `split_with_sizes`: often `already-covered` or `thin-frontend-rewrite` if existing `split` already accepts explicit sections
 - `einsum`: usually `thin-frontend-rewrite` for selected patterns, not a generic new backend op
+- `where`: often `already-covered` when the only proposed value is mirroring `torch.where` over an existing direct `ops.where` call
 - `view_as_complex`, `view_as_real`, `polar`: usually `broader-representation-work`
 - `nonzero`: often `broader-representation-work` because output shape depends on data

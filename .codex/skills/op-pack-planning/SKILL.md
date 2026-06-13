@@ -49,7 +49,7 @@ For each candidate op, record:
 - usage or commonality signal from the provided audit data
 - whether v2 already supports it directly
 - whether it is already covered by a thin rewrite or composition
-- whether it needs a new frontend mapping only
+- whether it needs a new frontend convenience or translation surface only
 - whether it needs a new IR op
 - whether it needs real lowering, runtime, or backend work
 - whether completion requires a real provider or kernel implementation
@@ -59,6 +59,7 @@ For each candidate op, record:
 - recommended pack shape
 
 Do not treat surface spelling differences as missing support until checked against the current v2 surface.
+For Torch-spelling candidates, also check whether the model author can already call the existing DinoML op directly with no extra translation rule. If yes, prefer `already-covered` over creating a frontend-only pack.
 
 ### 2) Classify each candidate
 
@@ -117,11 +118,20 @@ For thin frontend or rewrite-only packs, be stricter:
 
 - name the concrete user-visible API file or module to edit when known, especially under `src/dinoml/nn/` or another named local surface
 - name the exact existing DinoML op(s) or helper(s) that admitted calls must route to or rewrite into
+- say why the pack is worth having instead of calling the existing DinoML op directly from model integrations
 - say directly that no parallel backend, kernel, or duplicate runtime path should be added
 - avoid role words such as `frontend`, `export`, `binding`, `Torch-facing`, `integration`, or `pipeline` unless they are immediately anchored to a concrete local file or symbol
 - prefer `Add <api> in <file>` over `Add a Torch-facing path`
 - prefer `Route admitted calls to <existing op>` over `Wire the frontend mapping`
 - if the exact file is not yet known, say that the pack must identify the concrete local API file before implementation rather than inventing subsystem wording
+
+Use a frontend-only pack only when at least one of these is true:
+
+- the upstream Torch spelling is common enough that supporting it removes repeated translation work in model integrations
+- DinoML's canonical op name or calling convention differs materially from the common Torch spelling, such as creation helpers routed to `full` or `matmul` routed to the appropriate GEMM or BMM op family
+- the convenience surface belongs in an existing named local API module such as `src/dinoml/nn/functional.py` or `src/dinoml/nn/__init__.py`
+
+Do not create a frontend-only pack when the honest answer is just "call the existing DinoML op directly". For example, if `torch.where` adds no real convenience beyond `ops.where`, classify it as `already-covered` rather than drafting a new thin pack.
 
 For `new-ir-op` versus `real-backend-lowering-work`, be stricter about kernel truth:
 

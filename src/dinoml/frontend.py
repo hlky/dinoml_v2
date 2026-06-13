@@ -194,6 +194,11 @@ class Tensor:
 
         return ops.mode(self, dim=dim, keepdim=keepdim)
 
+    def movedim(self, source: Any, destination: Any) -> "Tensor":
+        from dinoml import ops
+
+        return ops.movedim(self, source, destination)
+
 
 class Module:
     def __setattr__(self, name: str, value: Any) -> None:

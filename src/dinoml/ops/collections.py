@@ -423,6 +423,48 @@ def normalize_transpose_dims(dim0: Any, dim1: Any, rank: int) -> tuple[int, int]
     return normalized0, normalized1
 
 
+def normalize_movedim_dims(source: Any, destination: Any, rank: int) -> tuple[list[int], list[int]]:
+    if rank <= 0:
+        raise ValueError("movedim input must have rank >= 1")
+    source_is_sequence = isinstance(source, Sequence) and not isinstance(source, (str, bytes, bytearray))
+    destination_is_sequence = isinstance(destination, Sequence) and not isinstance(destination, (str, bytes, bytearray))
+    source_dims = [source] if not source_is_sequence else list(source)
+    destination_dims = [destination] if not destination_is_sequence else list(destination)
+    if len(source_dims) != len(destination_dims):
+        raise ValueError(
+            f"movedim source and destination must have the same number of dims, got {len(source_dims)} and {len(destination_dims)}"
+        )
+    normalized_source: list[int] = []
+    normalized_destination: list[int] = []
+    seen_source: set[int] = set()
+    seen_destination: set[int] = set()
+    for dim in source_dims:
+        if not isinstance(dim, int) or isinstance(dim, bool):
+            raise ValueError(f"movedim source dims must be integers, got {source!r}")
+        normalized = int(dim)
+        if normalized < 0:
+            normalized += rank
+        if normalized < 0 or normalized >= rank:
+            raise ValueError(f"movedim source dim {dim} is out of range for rank {rank}")
+        if normalized in seen_source:
+            raise ValueError(f"movedim source dims must not contain duplicates: {source_dims!r}")
+        seen_source.add(normalized)
+        normalized_source.append(normalized)
+    for dim in destination_dims:
+        if not isinstance(dim, int) or isinstance(dim, bool):
+            raise ValueError(f"movedim destination dims must be integers, got {destination!r}")
+        normalized = int(dim)
+        if normalized < 0:
+            normalized += rank
+        if normalized < 0 or normalized >= rank:
+            raise ValueError(f"movedim destination dim {dim} is out of range for rank {rank}")
+        if normalized in seen_destination:
+            raise ValueError(f"movedim destination dims must not contain duplicates: {destination_dims!r}")
+        seen_destination.add(normalized)
+        normalized_destination.append(normalized)
+    return normalized_source, normalized_destination
+
+
 def normalize_dynamic_slice_attrs(
     start_indices: Any,
     slice_sizes: Any,
@@ -2092,6 +2134,17 @@ def transpose(x: Any, dim0: Any, dim1: Any) -> Tensor:
     return permute(tensor, dims)
 
 
+def movedim(x: Any, source: Any, destination: Any) -> Tensor:
+    tensor = as_tensor(x)
+    if tensor.dtype not in COLLECTION_DTYPES:
+        raise ValueError(f"movedim does not support dtype {tensor.dtype}")
+    normalized_source, normalized_destination = normalize_movedim_dims(source, destination, tensor.rank)
+    dims = [axis for axis in range(tensor.rank) if axis not in normalized_source]
+    for dest, src in sorted(zip(normalized_destination, normalized_source)):
+        dims.insert(dest, src)
+    return permute(tensor, dims)
+
+
 def _as_tensor_sequence(inputs: Any, op_name: str) -> list[Tensor]:
     if isinstance(inputs, (Tensor, Parameter)) or not isinstance(inputs, (list, tuple)):
         raise ValueError(f"{op_name} expects a non-empty sequence of tensors")
@@ -2384,6 +2437,7 @@ __all__ = [
     "split",
     "stack",
     "transpose",
+    "movedim",
     "chunk_sections",
     "normalize_batch_gather_attrs",
     "normalize_chunk_count",
@@ -2410,6 +2464,7 @@ __all__ = [
     "normalize_split_dim",
     "normalize_split_sections",
     "normalize_stack_dim",
+    "normalize_movedim_dims",
     "normalize_transpose_dims",
     "resolve_batch_gather_shape",
     "resolve_concatenate_shape",

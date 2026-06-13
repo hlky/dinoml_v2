@@ -240,7 +240,7 @@ from dinoml.ops.upsampling import (
     upsampling3d_compress_time,
 )
 from dinoml.ops.vision import batched_nms, efficient_nms, multi_level_roi_align, nms, roi_align
-from dinoml.ops.where import where
+from dinoml.ops.where import masked_fill, where
 from dinoml.shapes import symbolic_int_expr
 
 
@@ -467,6 +467,7 @@ __all__ = [
     "lt",
     "max",
     "max_pool2d",
+    "masked_fill",
     "meshgrid",
     "multi_level_roi_align",
     "min",

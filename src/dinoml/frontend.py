@@ -184,6 +184,11 @@ class Tensor:
 
         return ops.scatter_reduce(self, dim, index, src, reduce=reduce, include_self=include_self)
 
+    def masked_fill(self, mask: Any, value: Any) -> "Tensor":
+        from dinoml import ops
+
+        return ops.masked_fill(self, mask, value)
+
 
 class Module:
     def __setattr__(self, name: str, value: Any) -> None:

@@ -586,6 +586,14 @@ class Upsample(Module):
         )
 
 
+class PixelShuffle(Module):
+    def __init__(self, upscale_factor: int):
+        self.upscale_factor = _positive_int(upscale_factor, "PixelShuffle upscale_factor")
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.pixel_shuffle(x, self.upscale_factor)
+
+
 class ReLU(Module):
     def __init__(self, inplace: bool = False):
         if inplace:
@@ -885,6 +893,7 @@ __all__ = [
     "Module",
     "ModuleList",
     "Parameter",
+    "PixelShuffle",
     "RMSNorm",
     "ReLU",
     "Sequential",

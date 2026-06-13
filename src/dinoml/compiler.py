@@ -670,12 +670,18 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
                     array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
                     logical_layout = "oihw"
                     storage_layout = "ohwi"
+                elif array.ndim == 5:
+                    array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 4, 1)))
+                    logical_layout = "oidhw"
+                    storage_layout = "ktrsc"
                 elif array.ndim == 3:
                     array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
                     logical_layout = "oiw"
                     storage_layout = "owi"
                 else:
-                    raise ValueError(f"CUTLASS Conv weight constant {name} must be rank-3 OIW or rank-4 OIHW before packing")
+                    raise ValueError(
+                        f"CUTLASS Conv weight constant {name} must be rank-3 OIW, rank-4 OIHW, or rank-5 OIDHW before packing"
+                    )
                 prepack_storage = {
                     **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
                     "kind": "cutlass_conv_weight",
@@ -727,6 +733,7 @@ def _cuda_cutlass_conv_weight_constants(ir: Mapping[str, Any]) -> set[str]:
             "conv2d_bias_relu",
             "conv2d_bias_add",
             "conv2d_bias_add_relu",
+            "conv3d_bias",
         }:
             continue
         inputs = node.get("inputs", ())

@@ -183,6 +183,53 @@ class Conv1d(Module):
         )
 
 
+class Conv3d(Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int],
+        stride: int | Sequence[int] = 1,
+        padding: int | Sequence[int] = 0,
+        dilation: int | Sequence[int] = 1,
+        groups: int = 1,
+        bias: bool = True,
+        dtype: str = "float32",
+    ):
+        self.in_channels = _positive_int(in_channels, "Conv3d in_channels")
+        self.out_channels = _positive_int(out_channels, "Conv3d out_channels")
+        self.kernel_size = _triple(kernel_size, "Conv3d kernel_size", positive=True)
+        self.stride = _triple(stride, "Conv3d stride", positive=True)
+        self.padding = _triple(padding, "Conv3d padding", non_negative=True)
+        self.dilation = _triple(dilation, "Conv3d dilation", positive=True)
+        self.groups = _positive_int(groups, "Conv3d groups")
+        if self.in_channels % self.groups != 0:
+            raise ValueError("Conv3d in_channels must be divisible by groups")
+        self.dtype = normalize_dtype(dtype)
+        self.weight = Parameter(
+            [
+                self.out_channels,
+                self.in_channels // self.groups,
+                self.kernel_size[0],
+                self.kernel_size[1],
+                self.kernel_size[2],
+            ],
+            dtype=self.dtype,
+        )
+        self.bias = Parameter([self.out_channels], dtype=self.dtype) if bias else None
+
+    def forward(self, x: Any) -> Tensor:
+        kwargs = {
+            "stride": self.stride,
+            "padding": self.padding,
+            "dilation": self.dilation,
+            "groups": self.groups,
+        }
+        if self.bias is None:
+            return ops.conv3d(x, self.weight, **kwargs)
+        return ops.conv3d_bias(x, self.weight, self.bias, **kwargs)
+
+
 class Embedding(Module):
     def __init__(self, num_embeddings: int, embedding_dim: int, dtype: str = "float32"):
         self.num_embeddings = _positive_int(num_embeddings, "Embedding num_embeddings")
@@ -614,6 +661,18 @@ def _pair(
     return values[0], values[1]
 
 
+def _triple(
+    value: int | Sequence[int],
+    name: str,
+    *,
+    positive: bool = False,
+    non_negative: bool = False,
+) -> tuple[int, int, int]:
+    values = _sequence_of_ints(value, 3, name)
+    _validate_numeric_bounds(values, name, positive=positive, non_negative=non_negative)
+    return values[0], values[1], values[2]
+
+
 def _sequence_of_ints(value: int | Sequence[int], length: int, name: str) -> tuple[int, ...]:
     if isinstance(value, int) and not isinstance(value, bool):
         return tuple(int(value) for _ in range(length))
@@ -645,6 +704,7 @@ __all__ = [
     "AvgPool2d",
     "Conv1d",
     "Conv2d",
+    "Conv3d",
     "Dropout",
     "Embedding",
     "Flatten",

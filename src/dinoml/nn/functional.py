@@ -83,8 +83,37 @@ def conv1d(
     )
 
 
+def conv3d(
+    input: Any,
+    weight: Any,
+    bias: Any | None = None,
+    stride: int | Sequence[int] = 1,
+    padding: int | Sequence[int] = 0,
+    dilation: int | Sequence[int] = 1,
+    groups: int = 1,
+) -> Tensor:
+    if bias is None:
+        return ops.conv3d(
+            input,
+            weight,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+    return ops.conv3d_bias(
+        input,
+        weight,
+        bias,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "softmax", "log_softmax", "silu", "layer_norm", "group_norm", "conv1d", "normalize"]
+__all__ = ["one_hot", "pad", "softmax", "log_softmax", "silu", "layer_norm", "group_norm", "conv1d", "conv3d", "normalize"]

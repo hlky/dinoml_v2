@@ -470,6 +470,181 @@ int launch_ck_conv_nchw_to_nhwc(
   return hipGetLastError() == hipSuccess ? 0 : 3;
 }
 
+template <typename T>
+__global__ void dinoml_ck_conv_ncdhw_to_ndhwc_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int c,
+    int d,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * c * d * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int z = tmp % d;
+  tmp /= d;
+  int channel = tmp % c;
+  int batch = tmp / c;
+  int dst_index = ((((batch * d + z) * h + y) * w + x) * c) + channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename Storage>
+int launch_ck_conv_ncdhw_to_ndhwc(
+    Storage const* src,
+    Storage* dst,
+    int n,
+    int c,
+    int d,
+    int h,
+    int w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || c <= 0 || d <= 0 || h <= 0 || w <= 0) {
+    return 1;
+  }
+  int total = n * c * d * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_ncdhw_to_ndhwc_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      n,
+      c,
+      d,
+      h,
+      w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename T>
+__global__ void dinoml_ck_conv_ndhwk_to_ncdhw_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int c,
+    int d,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * c * d * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int z = tmp % d;
+  tmp /= d;
+  int channel = tmp % c;
+  int batch = tmp / c;
+  int src_index = ((((batch * d + z) * h + y) * w + x) * c) + channel;
+  dst[linear] = src[src_index];
+}
+
+template <typename Storage>
+int launch_ck_conv_ndhwk_to_ncdhw(
+    Storage const* src,
+    Storage* dst,
+    int n,
+    int c,
+    int d,
+    int h,
+    int w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || c <= 0 || d <= 0 || h <= 0 || w <= 0) {
+    return 1;
+  }
+  int total = n * c * d * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_ndhwk_to_ncdhw_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      n,
+      c,
+      d,
+      h,
+      w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename T>
+__global__ void dinoml_ck_conv_oidhw_to_kzyxc_kernel(
+    const T* src,
+    T* dst,
+    int out_c,
+    int in_c,
+    int kernel_d,
+    int kernel_h,
+    int kernel_w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = out_c * in_c * kernel_d * kernel_h * kernel_w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % kernel_w;
+  int tmp = linear / kernel_w;
+  int y = tmp % kernel_h;
+  tmp /= kernel_h;
+  int z = tmp % kernel_d;
+  tmp /= kernel_d;
+  int in_channel = tmp % in_c;
+  int out_channel = tmp / in_c;
+  int dst_index = ((((out_channel * kernel_d + z) * kernel_h + y) * kernel_w + x) * in_c) + in_channel;
+  dst[dst_index] = src[linear];
+}
+
+template <typename Storage>
+int launch_ck_conv_oidhw_to_kzyxc(
+    Storage const* src,
+    Storage* dst,
+    int out_c,
+    int in_c,
+    int kernel_d,
+    int kernel_h,
+    int kernel_w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || out_c <= 0 || in_c <= 0 || kernel_d <= 0 || kernel_h <= 0 ||
+      kernel_w <= 0) {
+    return 1;
+  }
+  int total = out_c * in_c * kernel_d * kernel_h * kernel_w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_oidhw_to_kzyxc_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      out_c,
+      in_c,
+      kernel_d,
+      kernel_h,
+      kernel_w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
 struct DinoConvBiasEpilogue {
   template <typename E, typename C, typename D0>
   __host__ __device__ void operator()(E& e, const C& c, const D0& bias) const {
@@ -886,25 +1061,74 @@ int launch_ck_conv3d_bias(
 
   if(groups == 1)
   {
-    using DeviceOp = DeviceConv3dBiasLegacyXdl<Config, Storage, Element>;
+    using DeviceOp = DeviceConv3dBiasXdl<Config, Storage, Element>;
     const auto c = static_cast<ck::index_t>(in_channels);
     const auto k = static_cast<ck::index_t>(out_channels);
+    Storage* x_packed = nullptr;
+    Storage* weight_packed = nullptr;
+    Storage* output_packed = nullptr;
+    const auto x_count = static_cast<std::size_t>(batch) * in_channels * in_depth * in_height * in_width;
+    const auto weight_count = static_cast<std::size_t>(out_channels) * in_channels * kernel_d * kernel_h * kernel_w;
+    const auto output_count = static_cast<std::size_t>(batch) * out_channels * out_depth * out_height * out_width;
+    const auto x_nbytes = x_count * sizeof(Storage);
+    const auto weight_nbytes = weight_count * sizeof(Storage);
+    const auto output_nbytes = output_count * sizeof(Storage);
+    if (hipMalloc(reinterpret_cast<void**>(&x_packed), x_nbytes) != hipSuccess ||
+        hipMalloc(reinterpret_cast<void**>(&weight_packed), weight_nbytes) != hipSuccess ||
+        hipMalloc(reinterpret_cast<void**>(&output_packed), output_nbytes) != hipSuccess) {
+      if (x_packed != nullptr) {
+        (void)hipFree(x_packed);
+      }
+      if (weight_packed != nullptr) {
+        (void)hipFree(weight_packed);
+      }
+      if (output_packed != nullptr) {
+        (void)hipFree(output_packed);
+      }
+      return 5;
+    }
+    int pack_status = launch_ck_conv_ncdhw_to_ndhwc(
+        x,
+        x_packed,
+        batch,
+        in_channels,
+        in_depth,
+        in_height,
+        in_width,
+        stream);
+    if (pack_status == 0) {
+      pack_status = launch_ck_conv_oidhw_to_kzyxc(
+          weight,
+          weight_packed,
+          out_channels,
+          in_channels,
+          kernel_d,
+          kernel_h,
+          kernel_w,
+          stream);
+    }
+    if (pack_status != 0) {
+      (void)hipFree(x_packed);
+      (void)hipFree(weight_packed);
+      (void)hipFree(output_packed);
+      return pack_status;
+    }
     const std::array<ck::index_t, NDimSpatial3 + 3> a_lengths{g, n, c, di, hi, wi};
     const std::array<ck::index_t, NDimSpatial3 + 3> a_strides{
-        n * c * di * hi * wi,
-        c * di * hi * wi,
-        di * hi * wi,
-        hi * wi,
-        wi,
-        ck::index_t{1}};
+        c,
+        di * hi * wi * c,
+        ck::index_t{1},
+        hi * wi * c,
+        wi * c,
+        c};
     const std::array<ck::index_t, NDimSpatial3 + 3> b_lengths{g, k, c, z, y, x_filter};
     const std::array<ck::index_t, NDimSpatial3 + 3> b_strides{
-        k * c * z * y * x_filter,
-        c * z * y * x_filter,
-        z * y * x_filter,
-        y * x_filter,
-        x_filter,
-        ck::index_t{1}};
+        k * z * y * x_filter * c,
+        z * y * x_filter * c,
+        ck::index_t{1},
+        y * x_filter * c,
+        x_filter * c,
+        c};
     const std::array<ck::index_t, NDimSpatial3 + 3> bias_lengths{g, n, k, do_, ho, wo};
     const std::array<ck::index_t, NDimSpatial3 + 3> bias_strides{
         k,
@@ -915,20 +1139,20 @@ int launch_ck_conv3d_bias(
         ck::index_t{0}};
     const std::array<ck::index_t, NDimSpatial3 + 3> e_lengths{g, n, k, do_, ho, wo};
     const std::array<ck::index_t, NDimSpatial3 + 3> e_strides{
-        n * k * do_ * ho * wo,
-        k * do_ * ho * wo,
-        do_ * ho * wo,
-        ho * wo,
-        wo,
-        ck::index_t{1}};
+        k,
+        do_ * ho * wo * k,
+        ck::index_t{1},
+        ho * wo * k,
+        wo * k,
+        k};
     const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_lengths{{bias_lengths}};
     const std::array<std::array<ck::index_t, NDimSpatial3 + 3>, 1> ds_strides{{bias_strides}};
     const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
     auto argument = DeviceOp::MakeArgument(
-        ck_ptr<Storage, Element>(x),
-        ck_ptr<Storage, Element>(weight),
+        ck_ptr<Storage, Element>(x_packed),
+        ck_ptr<Storage, Element>(weight_packed),
         ds_ptrs,
-        ck_ptr<Storage, Element>(output),
+        ck_ptr<Storage, Element>(output_packed),
         a_lengths,
         a_strides,
         b_lengths,
@@ -946,10 +1170,35 @@ int launch_ck_conv3d_bias(
         DinoConvBiasEpilogue{});
     if(!DeviceOp::IsSupportedArgument(argument))
     {
+      (void)hipFree(x_packed);
+      (void)hipFree(weight_packed);
+      (void)hipFree(output_packed);
       return 4;
     }
     auto invoker = DeviceOp::MakeInvoker();
     (void)invoker.Run(argument, StreamConfig{stream, false});
+    const hipError_t launch_err = hipGetLastError();
+    if (launch_err != hipSuccess) {
+      (void)hipFree(x_packed);
+      (void)hipFree(weight_packed);
+      (void)hipFree(output_packed);
+      return 3;
+    }
+    const int unpack_status = launch_ck_conv_ndhwk_to_ncdhw(
+        output_packed,
+        output,
+        batch,
+        out_channels,
+        out_depth,
+        out_height,
+        out_width,
+        stream);
+    (void)hipFree(x_packed);
+    (void)hipFree(weight_packed);
+    (void)hipFree(output_packed);
+    if (unpack_status != 0) {
+      return unpack_status;
+    }
   }
   else
   {

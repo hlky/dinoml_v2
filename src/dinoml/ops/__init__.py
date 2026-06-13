@@ -213,6 +213,7 @@ from dinoml.ops.positional import (
 from dinoml.ops.reductions import (
     argmax,
     mode,
+    normalize,
     reduce_max,
     reduce_mean,
     reduce_min,
@@ -501,6 +502,7 @@ __all__ = [
     "masked_select",
     "movedim",
     "mode",
+    "normalize",
     "one_hot",
     "reshape",
     "rms_norm",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Mapping, Sequence
 
 from dinoml.frontend import Tensor, as_tensor
@@ -485,6 +486,32 @@ def mode(x: object, dim: int = -1, keepdim: bool = False) -> tuple[Tensor, Tenso
     values_node["attrs"] = {**values_node["attrs"], "paired_indices_output": indices.name}
     indices_node["attrs"] = {**indices_node["attrs"], "paired_values_output": values.name}
     return values, indices
+
+
+def normalize(
+    x: object,
+    p: float = 2.0,
+    dim: int = -1,
+    eps: float = 1e-12,
+    out: object | None = None,
+) -> Tensor:
+    from dinoml.ops.elementwise import clamp, div
+
+    tensor = as_tensor(x, dtype_hint="float32")
+    if out is not None:
+        raise NotImplementedError("normalize currently does not support out=")
+    if float(p) != 2.0:
+        raise NotImplementedError("normalize currently supports only p=2")
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise NotImplementedError("normalize currently supports only a single integer dim")
+    if not isinstance(eps, (int, float)) or isinstance(eps, bool) or not isfinite(float(eps)) or float(eps) < 0.0:
+        raise ValueError(f"normalize eps must be a finite non-negative scalar, got {eps!r}")
+    axis = _normalize_axis(dim, tensor.rank)
+    if axis != tensor.rank - 1:
+        raise NotImplementedError("normalize currently supports only the last dimension")
+    norm = vector_norm(tensor, dim=axis, keepdim=True, ord=2.0)
+    denom = clamp(norm, min=float(eps))
+    return div(tensor, denom)
 
 
 def _reduction(op_name: str, x: object, dim: int, keepdim: bool, extra_attrs: dict[str, object] | None = None) -> Tensor:

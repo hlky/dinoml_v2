@@ -140,6 +140,49 @@ class Conv2d(Module):
         return y
 
 
+class Conv1d(Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int | Sequence[int],
+        stride: int | Sequence[int] = 1,
+        padding: int | Sequence[int] = 0,
+        dilation: int | Sequence[int] = 1,
+        groups: int = 1,
+        bias: bool = True,
+        dtype: str = "float32",
+    ):
+        self.in_channels = _positive_int(in_channels, "Conv1d in_channels")
+        self.out_channels = _positive_int(out_channels, "Conv1d out_channels")
+        self.kernel_size = _single(kernel_size, "Conv1d kernel_size", positive=True)
+        self.stride = _single(stride, "Conv1d stride", positive=True)
+        self.padding = _single(padding, "Conv1d padding", non_negative=True)
+        self.dilation = _single(dilation, "Conv1d dilation", positive=True)
+        self.groups = _positive_int(groups, "Conv1d groups")
+        if self.in_channels % self.groups != 0:
+            raise ValueError("Conv1d in_channels must be divisible by groups")
+        if not bias:
+            raise NotImplementedError("Conv1d currently requires bias=True")
+        self.dtype = normalize_dtype(dtype)
+        self.weight = Parameter(
+            [self.out_channels, self.in_channels // self.groups, self.kernel_size[0]],
+            dtype=self.dtype,
+        )
+        self.bias = Parameter([self.out_channels], dtype=self.dtype)
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.conv1d_bias(
+            x,
+            self.weight,
+            self.bias,
+            stride=self.stride,
+            padding=self.padding,
+            dilation=self.dilation,
+            groups=self.groups,
+        )
+
+
 class Embedding(Module):
     def __init__(self, num_embeddings: int, embedding_dim: int, dtype: str = "float32"):
         self.num_embeddings = _positive_int(num_embeddings, "Embedding num_embeddings")
@@ -600,6 +643,7 @@ def _validate_numeric_bounds(
 __all__ = [
     "AvgPool1d",
     "AvgPool2d",
+    "Conv1d",
     "Conv2d",
     "Dropout",
     "Embedding",

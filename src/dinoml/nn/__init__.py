@@ -5,7 +5,7 @@ from typing import Any
 
 from dinoml import ops
 from dinoml.frontend import Module as _FrontendModule
-from dinoml.frontend import Parameter, Tensor
+from dinoml.frontend import Parameter, Tensor, as_tensor
 from dinoml.ir import normalize_dtype
 from . import functional
 
@@ -550,6 +550,42 @@ class Upsampling3dCompressTime(Module):
         return ops.upsampling3d_compress_time(x)
 
 
+class Upsample(Module):
+    def __init__(
+        self,
+        size: int | Sequence[int] | None = None,
+        scale_factor: float | Sequence[float] | None = None,
+        mode: str = "nearest",
+        align_corners: bool | None = None,
+        recompute_scale_factor: bool | None = None,
+    ):
+        if size is None and scale_factor is None:
+            raise ValueError("Upsample requires either size= or scale_factor=")
+        if size is not None and scale_factor is not None:
+            raise NotImplementedError("Upsample does not support specifying both size= and scale_factor=")
+        if recompute_scale_factor not in (None, False):
+            raise NotImplementedError("Upsample does not support recompute_scale_factor=True")
+        self.size = size
+        self.scale_factor = scale_factor
+        self.mode = str(mode)
+        self.align_corners = align_corners
+        self.recompute_scale_factor = recompute_scale_factor
+
+    def forward(self, x: Any) -> Tensor:
+        scale_factor = self.scale_factor
+        if self.size is not None:
+            scale_factor = _upsample_scale_factor_from_size(x, self.size)
+        return ops.interpolate(
+            x,
+            size=None,
+            scale_factor=scale_factor,
+            mode=self.mode,
+            align_corners=self.align_corners,
+            recompute_scale_factor=self.recompute_scale_factor,
+            antialias=False,
+        )
+
+
 class ReLU(Module):
     def __init__(self, inplace: bool = False):
         if inplace:
@@ -791,6 +827,44 @@ def _validate_numeric_bounds(
         raise ValueError(f"{name} must contain non-negative integers")
 
 
+def _upsample_scale_factor_from_size(x: Any, size: int | Sequence[int]) -> float:
+    tensor = as_tensor(x)
+    if tensor.rank not in (3, 4, 5):
+        raise ValueError(f"Upsample expects rank-3, rank-4, or rank-5 dense tensors, got rank {tensor.rank}")
+    spatial_rank = tensor.rank - 2
+    target_sizes = _upsample_output_size(size, spatial_rank)
+    input_sizes = tensor.shape_spec[2:]
+    if any(not isinstance(dim, int) for dim in input_sizes):
+        raise NotImplementedError("Upsample size= currently requires static spatial input dimensions")
+    normalized_input_sizes = tuple(int(dim) for dim in input_sizes)
+    scale_factors = tuple(float(target) / float(source) for source, target in zip(normalized_input_sizes, target_sizes))
+    first = scale_factors[0]
+    if any(value <= 0.0 for value in scale_factors):
+        raise ValueError("Upsample size= must produce positive output extents")
+    if any(value != first for value in scale_factors[1:]):
+        raise NotImplementedError("Upsample size= currently requires a uniform scale_factor across spatial dims")
+    return first
+
+
+def _upsample_output_size(size: int | Sequence[int], spatial_rank: int) -> tuple[int, ...]:
+    name = "Upsample size"
+    if isinstance(size, int) and not isinstance(size, bool):
+        if size <= 0:
+            raise ValueError(f"{name} must contain positive integers")
+        return tuple(int(size) for _ in range(spatial_rank))
+    if isinstance(size, Sequence) and not isinstance(size, (str, bytes, bytearray)):
+        values = tuple(size)
+        if len(values) != spatial_rank:
+            raise ValueError(f"{name} must be an integer or a length-{spatial_rank} sequence")
+        if any(not isinstance(item, int) or isinstance(item, bool) for item in values):
+            raise TypeError(f"{name} must contain integers")
+        normalized = tuple(int(item) for item in values)
+        if any(item <= 0 for item in normalized):
+            raise ValueError(f"{name} must contain positive integers")
+        return normalized
+    raise TypeError(f"{name} must be an integer or a length-{spatial_rank} sequence")
+
+
 __all__ = [
     "AvgPool1d",
     "AvgPool2d",
@@ -827,5 +901,6 @@ __all__ = [
     "Upsampling3d",
     "Upsampling3dAdd",
     "Upsampling3dCompressTime",
+    "Upsample",
     "functional",
 ]

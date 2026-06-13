@@ -169,6 +169,21 @@ class Tensor:
 
         return ops.div(other, self)
 
+    def scatter(self, dim: Any, index: Any, src: Any) -> "Tensor":
+        from dinoml import ops
+
+        return ops.scatter(self, dim, index, src)
+
+    def scatter_add(self, dim: Any, index: Any, src: Any) -> "Tensor":
+        from dinoml import ops
+
+        return ops.scatter_add(self, dim, index, src)
+
+    def scatter_reduce(self, dim: Any, index: Any, src: Any, *, reduce: Any, include_self: Any = True) -> "Tensor":
+        from dinoml import ops
+
+        return ops.scatter_reduce(self, dim, index, src, reduce=reduce, include_self=include_self)
+
 
 class Module:
     def __setattr__(self, name: str, value: Any) -> None:

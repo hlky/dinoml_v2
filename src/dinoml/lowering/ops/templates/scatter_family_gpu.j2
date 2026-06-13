@@ -1,0 +1,78 @@
+#include <assert.h>
+#include <stdint.h>
+
+__global__ void {{ kernel }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT source,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t runtime_numel_source{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+    int64_t source_extent_{{ axis }}{% endfor %}) {
+  if (blockIdx.x != 0 || threadIdx.x != 0) {
+    return;
+  }
+  for (int64_t idx = 0; idx < runtime_numel; ++idx) {
+    y[idx] = x[idx];
+  }
+  for (int64_t src_idx = 0; src_idx < runtime_numel_source; ++src_idx) {
+    int64_t remaining = src_idx;
+    int64_t out_idx = 0;
+    int64_t out_stride = 1;
+    int64_t coord = 0;
+    int64_t selected_index = 0;
+{% for axis in range(rank - 1, -1, -1) %}
+    coord = remaining % source_extent_{{ axis }};
+    remaining = remaining / source_extent_{{ axis }};
+{% if axis == dim %}
+    selected_index = static_cast<int64_t>(index[src_idx]);
+    assert(selected_index >= 0 && selected_index < out_extent_{{ axis }});
+    if (selected_index < 0 || selected_index >= out_extent_{{ axis }}) {
+      return;
+    }
+    out_idx += selected_index * out_stride;
+{% else %}
+    out_idx += coord * out_stride;
+{% endif %}
+{% if axis > 0 %}
+    out_stride *= out_extent_{{ axis }};
+{% endif %}
+{% endfor %}
+{{ update_body }}
+  }
+}
+
+static int {{ func }}(
+    const {{ storage_type }}* DINO_RESTRICT x,
+    const {{ index_storage_type }}* DINO_RESTRICT index,
+    const {{ storage_type }}* DINO_RESTRICT source,
+    {{ storage_type }}* DINO_RESTRICT y,
+    int64_t runtime_numel,
+    int64_t runtime_numel_source{% for axis in range(rank) %},
+    int64_t out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+    int64_t source_extent_{{ axis }}{% endfor %},
+    {{ gpu_stream_type }} stream) {
+  if (x == nullptr || index == nullptr || source == nullptr || y == nullptr) {
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  if (runtime_numel <= 0 || runtime_numel_source <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% for axis in range(rank) %}
+  if (out_extent_{{ axis }} <= 0 || source_extent_{{ axis }} <= 0) {
+    return dino_runtime_fail("{{ func }} received invalid runtime shape");
+  }
+{% endfor %}
+  {{ kernel }}<<<1, 1, 0, stream>>>(
+      x,
+      index,
+      source,
+      y,
+      runtime_numel,
+      runtime_numel_source{% for axis in range(rank) %},
+      out_extent_{{ axis }}{% endfor %}{% for axis in range(rank) %},
+      source_extent_{{ axis }}{% endfor %});
+  {{ gpu_check_macro }}({{ gpu_last_error_call }});
+  return 0;
+}

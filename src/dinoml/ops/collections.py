@@ -12,7 +12,10 @@ from dinoml.shapes import max_shape, normalize_shape, normalize_symbolic_int, sh
 
 COLLECTION_DTYPES = ("float16", "float32", "bfloat16", "bool")
 INDEX_ADD_DTYPES = ("float16", "float32", "bfloat16")
+SCATTER_DTYPES = COLLECTION_DTYPES
+SCATTER_REDUCE_DTYPES = INDEX_ADD_DTYPES
 GATHER_INDEX_DTYPES = ("int64", "int32")
+SCATTER_REDUCE_NAMES = ("sum", "prod", "amax", "amin")
 ONE_HOT_INPUT_DTYPES = ("int64", "int32")
 PADDING_LAYOUT_HELPER_DTYPES = ("float16", "float32")
 PADDING_LAYOUT_HELPER_OPS = ("ndhwc3to8", "nhwc3to4", "nhwc3to8")
@@ -72,6 +75,24 @@ def infer_index_add_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
     if len(input_shapes) != 3:
         raise ValueError("index_add expects three tensor inputs")
     return infer_index_add_shape_with_attrs(input_shapes, {"dim": 0})
+
+
+def infer_scatter_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter expects three tensor inputs")
+    return infer_scatter_shape_with_attrs(input_shapes, {"dim": 0})
+
+
+def infer_scatter_add_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter_add expects three tensor inputs")
+    return infer_scatter_add_shape_with_attrs(input_shapes, {"dim": 0})
+
+
+def infer_scatter_reduce_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter_reduce expects three tensor inputs")
+    return infer_scatter_reduce_shape_with_attrs(input_shapes, {"dim": 0, "reduce": "sum", "include_self": True})
 
 
 def infer_masked_select_shape(input_shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -199,6 +220,31 @@ def infer_index_add_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attr
     if len(input_shapes) != 3:
         raise ValueError("index_add expects three tensor inputs")
     return resolve_index_add_shape(input_shapes[0], input_shapes[1], input_shapes[2], attrs.get("dim", 0))
+
+
+def infer_scatter_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter expects three tensor inputs")
+    return resolve_scatter_shape(input_shapes[0], input_shapes[1], input_shapes[2], attrs.get("dim", 0))
+
+
+def infer_scatter_add_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter_add expects three tensor inputs")
+    return resolve_scatter_add_shape(input_shapes[0], input_shapes[1], input_shapes[2], attrs.get("dim", 0))
+
+
+def infer_scatter_reduce_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(input_shapes) != 3:
+        raise ValueError("scatter_reduce expects three tensor inputs")
+    return resolve_scatter_reduce_shape(
+        input_shapes[0],
+        input_shapes[1],
+        input_shapes[2],
+        attrs.get("dim", 0),
+        attrs.get("reduce", "sum"),
+        attrs.get("include_self", True),
+    )
 
 
 def infer_masked_select_shape_with_attrs(input_shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
@@ -427,6 +473,19 @@ def normalize_index_add_dim(dim: Any, rank: int) -> int:
     return normalized
 
 
+def normalize_scatter_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"scatter dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("scatter input must have rank >= 1")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"scatter dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
 def normalize_one_hot_num_classes(num_classes: Any) -> int:
     if not isinstance(num_classes, int) or isinstance(num_classes, bool):
         raise ValueError(f"one_hot num_classes must be a positive integer, got {num_classes!r}")
@@ -489,6 +548,62 @@ def normalize_index_add_attrs(
         ):
             raise ValueError(
                 f"index_add source axis {axis} size {_shape_dim_debug(source_extent)} "
+                f"must match input dim {_shape_dim_debug(input_extent)}"
+            )
+    return normalized_dim
+
+
+def normalize_scatter_reduce_name(reduce: Any) -> str:
+    if not isinstance(reduce, str):
+        raise ValueError(f"scatter_reduce reduce must be a string, got {reduce!r}")
+    normalized = reduce.lower()
+    if normalized not in SCATTER_REDUCE_NAMES:
+        raise ValueError(
+            f"scatter_reduce reduce must be one of {list(SCATTER_REDUCE_NAMES)}, got {reduce!r}"
+        )
+    return normalized
+
+
+def normalize_scatter_reduce_include_self(include_self: Any) -> bool:
+    if not isinstance(include_self, bool):
+        raise ValueError(f"scatter_reduce include_self must be a bool, got {include_self!r}")
+    if not include_self:
+        raise ValueError("scatter_reduce currently supports only include_self=True")
+    return include_self
+
+
+def normalize_scatter_attrs(
+    dim: Any,
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+    *,
+    op_name: str,
+) -> int:
+    rank = len(input_shape)
+    normalized_dim = normalize_scatter_dim(dim, rank)
+    if len(index_shape) != rank:
+        raise ValueError(f"{op_name} index rank {len(index_shape)} must match input rank {rank}")
+    if len(source_shape) != rank:
+        raise ValueError(f"{op_name} source rank {len(source_shape)} must match input rank {rank}")
+    for axis, (index_extent, source_extent) in enumerate(zip(index_shape, source_shape)):
+        if normalize_symbolic_int(index_extent, f"{op_name} index.shape[{axis}]") != normalize_symbolic_int(
+            source_extent,
+            f"{op_name} source.shape[{axis}]",
+        ):
+            raise ValueError(
+                f"{op_name} source axis {axis} size {_shape_dim_debug(source_extent)} "
+                f"must match index dim {_shape_dim_debug(index_extent)}"
+            )
+    for axis, (index_extent, input_extent) in enumerate(zip(index_shape, input_shape)):
+        if axis == normalized_dim:
+            continue
+        if normalize_symbolic_int(index_extent, f"{op_name} index.shape[{axis}]") != normalize_symbolic_int(
+            input_extent,
+            f"{op_name} input.shape[{axis}]",
+        ):
+            raise ValueError(
+                f"{op_name} index axis {axis} size {_shape_dim_debug(index_extent)} "
                 f"must match input dim {_shape_dim_debug(input_extent)}"
             )
     return normalized_dim
@@ -767,6 +882,40 @@ def resolve_index_add_shape(
     dim: Any,
 ) -> list[int]:
     normalize_index_add_attrs(dim, input_shape, index_shape, source_shape)
+    return [int(axis) for axis in input_shape]
+
+
+def resolve_scatter_shape(
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+    dim: Any,
+) -> list[int]:
+    normalize_scatter_attrs(dim, input_shape, index_shape, source_shape, op_name="scatter")
+    return [int(axis) for axis in input_shape]
+
+
+def resolve_scatter_add_shape(
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+    dim: Any,
+) -> list[int]:
+    normalize_scatter_attrs(dim, input_shape, index_shape, source_shape, op_name="scatter_add")
+    return [int(axis) for axis in input_shape]
+
+
+def resolve_scatter_reduce_shape(
+    input_shape: Sequence[int],
+    index_shape: Sequence[int],
+    source_shape: Sequence[int],
+    dim: Any,
+    reduce: Any,
+    include_self: Any,
+) -> list[int]:
+    normalize_scatter_attrs(dim, input_shape, index_shape, source_shape, op_name="scatter_reduce")
+    normalize_scatter_reduce_name(reduce)
+    normalize_scatter_reduce_include_self(include_self)
     return [int(axis) for axis in input_shape]
 
 
@@ -1108,6 +1257,88 @@ class IndexAdd(OpDef):
     @classmethod
     def forward(cls, x: Any, dim: Any, index: Any, source: Any) -> Tensor:
         return index_add(x, dim, index, source)
+
+
+@op_def
+class Scatter(OpDef):
+    name = "scatter"
+    schema = OpSchema(
+        inputs=("x", "index", "source"),
+        attrs=(AttrDef("dim", "int", required=True),),
+    )
+    infer_shape = infer_scatter_shape
+    infer_shape_with_attrs = infer_scatter_shape_with_attrs
+    allowed_dtypes = SCATTER_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_scatter", library="model", source_template="scatter_family_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_scatter", library="model", source_template="scatter_family_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_scatter", library="model", source_template="scatter_family_gpu.j2"),
+    }
+    frontend = FrontendBinding("scatter")
+    description = (
+        "Materialize a dense scatter overwrite along one static dimension using "
+        "same-rank integer indices and same-shape source updates."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+        return scatter(x, dim, index, source)
+
+
+@op_def
+class ScatterAdd(OpDef):
+    name = "scatter_add"
+    schema = OpSchema(
+        inputs=("x", "index", "source"),
+        attrs=(AttrDef("dim", "int", required=True),),
+    )
+    infer_shape = infer_scatter_add_shape
+    infer_shape_with_attrs = infer_scatter_add_shape_with_attrs
+    allowed_dtypes = SCATTER_REDUCE_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_scatter_add", library="model", source_template="scatter_family_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_scatter_add", library="model", source_template="scatter_family_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_scatter_add", library="model", source_template="scatter_family_gpu.j2"),
+    }
+    frontend = FrontendBinding("scatter_add")
+    description = (
+        "Materialize a dense scatter accumulation along one static dimension using "
+        "same-rank integer indices and same-shape source updates."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+        return scatter_add(x, dim, index, source)
+
+
+@op_def
+class ScatterReduce(OpDef):
+    name = "scatter_reduce"
+    schema = OpSchema(
+        inputs=("x", "index", "source"),
+        attrs=(
+            AttrDef("dim", "int", required=True),
+            AttrDef("reduce", "str", required=True),
+            AttrDef("include_self", "bool", default=True),
+        ),
+    )
+    infer_shape = infer_scatter_reduce_shape
+    infer_shape_with_attrs = infer_scatter_reduce_shape_with_attrs
+    allowed_dtypes = SCATTER_REDUCE_DTYPES
+    backend_kernels = {
+        "cpu": KernelBinding(symbol="generated_scatter_reduce", library="model", source_template="scatter_family_cpu.cpp.j2"),
+        "cuda": KernelBinding(symbol="generated_scatter_reduce", library="model", source_template="scatter_family_gpu.j2"),
+        "rocm": KernelBinding(symbol="generated_scatter_reduce", library="model", source_template="scatter_family_gpu.j2"),
+    }
+    frontend = FrontendBinding("scatter_reduce", default_attrs={"include_self": True})
+    description = (
+        "Materialize a dense scatter reduction along one static dimension using "
+        "same-rank integer indices and explicitly admitted reductions."
+    )
+
+    @classmethod
+    def forward(cls, x: Any, dim: Any, index: Any, source: Any, reduce: Any, include_self: Any = True) -> Tensor:
+        return scatter_reduce(x, dim, index, source, reduce=reduce, include_self=include_self)
 
 
 @op_def
@@ -1557,6 +1788,107 @@ def index_add(x: Any, dim: Any, index: Any, source: Any) -> Tensor:
     )
 
 
+def scatter(x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    source_tensor = as_tensor(source, dtype_hint=tensor.dtype)
+    if tensor.builder is not index_tensor.builder or tensor.builder is not source_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in SCATTER_DTYPES:
+        raise ValueError(f"scatter does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"scatter index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if source_tensor.dtype != tensor.dtype:
+        raise ValueError(f"scatter dtype mismatch: {tensor.dtype} vs {source_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic or source_tensor.dynamic:
+        raise ValueError("scatter currently supports only static input, index, and source shapes")
+    normalized_dim = normalize_scatter_attrs(dim, tensor.shape, index_tensor.shape, source_tensor.shape, op_name="scatter")
+    out_shape = infer_scatter_shape_with_attrs(
+        [tensor.shape, index_tensor.shape, source_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "scatter",
+        [tensor, index_tensor, source_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec],
+    )
+
+
+def scatter_add(x: Any, dim: Any, index: Any, source: Any) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    source_tensor = as_tensor(source, dtype_hint=tensor.dtype)
+    if tensor.builder is not index_tensor.builder or tensor.builder is not source_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in SCATTER_REDUCE_DTYPES:
+        raise ValueError(f"scatter_add does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"scatter_add index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if source_tensor.dtype != tensor.dtype:
+        raise ValueError(f"scatter_add dtype mismatch: {tensor.dtype} vs {source_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic or source_tensor.dynamic:
+        raise ValueError("scatter_add currently supports only static input, index, and source shapes")
+    normalized_dim = normalize_scatter_attrs(
+        dim,
+        tensor.shape,
+        index_tensor.shape,
+        source_tensor.shape,
+        op_name="scatter_add",
+    )
+    out_shape = infer_scatter_add_shape_with_attrs(
+        [tensor.shape, index_tensor.shape, source_tensor.shape],
+        {"dim": normalized_dim},
+    )
+    return tensor.builder.emit(
+        "scatter_add",
+        [tensor, index_tensor, source_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim},
+        shape_spec=[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec],
+    )
+
+
+def scatter_reduce(x: Any, dim: Any, index: Any, source: Any, *, reduce: Any, include_self: Any = True) -> Tensor:
+    tensor = as_tensor(x)
+    index_tensor = as_tensor(index)
+    source_tensor = as_tensor(source, dtype_hint=tensor.dtype)
+    if tensor.builder is not index_tensor.builder or tensor.builder is not source_tensor.builder:
+        raise ValueError("Cannot combine tensors from different DinoML traces")
+    if tensor.dtype not in SCATTER_REDUCE_DTYPES:
+        raise ValueError(f"scatter_reduce does not support dtype {tensor.dtype}")
+    if index_tensor.dtype not in GATHER_INDEX_DTYPES:
+        raise ValueError(f"scatter_reduce index must have dtype int64 or int32, got {index_tensor.dtype}")
+    if source_tensor.dtype != tensor.dtype:
+        raise ValueError(f"scatter_reduce dtype mismatch: {tensor.dtype} vs {source_tensor.dtype}")
+    if tensor.dynamic or index_tensor.dynamic or source_tensor.dynamic:
+        raise ValueError("scatter_reduce currently supports only static input, index, and source shapes")
+    normalized_dim = normalize_scatter_attrs(
+        dim,
+        tensor.shape,
+        index_tensor.shape,
+        source_tensor.shape,
+        op_name="scatter_reduce",
+    )
+    normalized_reduce = normalize_scatter_reduce_name(reduce)
+    normalized_include_self = normalize_scatter_reduce_include_self(include_self)
+    out_shape = infer_scatter_reduce_shape_with_attrs(
+        [tensor.shape, index_tensor.shape, source_tensor.shape],
+        {"dim": normalized_dim, "reduce": normalized_reduce, "include_self": normalized_include_self},
+    )
+    return tensor.builder.emit(
+        "scatter_reduce",
+        [tensor, index_tensor, source_tensor],
+        out_shape,
+        tensor.dtype,
+        {"dim": normalized_dim, "reduce": normalized_reduce, "include_self": normalized_include_self},
+        shape_spec=[_copy_shape_dim(dim_spec) for dim_spec in tensor.shape_spec],
+    )
+
+
 def one_hot(x: Any, num_classes: Any) -> Tensor:
     tensor = as_tensor(x)
     if tensor.dtype not in ONE_HOT_INPUT_DTYPES:
@@ -1951,6 +2283,9 @@ __all__ = [
     "Flip",
     "GATHER_INDEX_DTYPES",
     "INDEX_ADD_DTYPES",
+    "SCATTER_DTYPES",
+    "SCATTER_REDUCE_DTYPES",
+    "SCATTER_REDUCE_NAMES",
     "Gather",
     "IndexAdd",
     "IndexSelect",
@@ -1969,6 +2304,9 @@ __all__ = [
     "Permute210",
     "RepeatInterleave",
     "RuntimeIndexSelect",
+    "Scatter",
+    "ScatterAdd",
+    "ScatterReduce",
     "SPECIALIZED_PERMUTE_DIMS",
     "SliceScatter",
     "Stack",
@@ -1999,6 +2337,12 @@ __all__ = [
     "infer_index_add_shape_with_attrs",
     "infer_index_select_shape",
     "infer_index_select_shape_with_attrs",
+    "infer_scatter_add_shape",
+    "infer_scatter_add_shape_with_attrs",
+    "infer_scatter_reduce_shape",
+    "infer_scatter_reduce_shape_with_attrs",
+    "infer_scatter_shape",
+    "infer_scatter_shape_with_attrs",
     "infer_masked_select_shape",
     "infer_masked_select_shape_with_attrs",
     "infer_one_hot_shape",
@@ -2032,6 +2376,9 @@ __all__ = [
     "pixel_unshuffle",
     "repeat_interleave",
     "runtime_index_select",
+    "scatter",
+    "scatter_add",
+    "scatter_reduce",
     "slice_reshape_scatter",
     "slice_scatter",
     "split",
@@ -2050,6 +2397,10 @@ __all__ = [
     "normalize_index_select_attrs",
     "normalize_index_select_dim",
     "normalize_index_select_indices",
+    "normalize_scatter_attrs",
+    "normalize_scatter_dim",
+    "normalize_scatter_reduce_include_self",
+    "normalize_scatter_reduce_name",
     "normalize_one_hot_num_classes",
     "normalize_pad_widths",
     "normalize_repeat_interleave_dim",
@@ -2067,6 +2418,9 @@ __all__ = [
     "resolve_gather_shape",
     "resolve_index_add_shape",
     "resolve_index_select_shape",
+    "resolve_scatter_add_shape",
+    "resolve_scatter_reduce_shape",
+    "resolve_scatter_shape",
     "resolve_masked_select_shape",
     "resolve_one_hot_shape",
     "resolve_padding_layout_shape",

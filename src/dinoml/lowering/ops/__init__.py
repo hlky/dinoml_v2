@@ -75,6 +75,7 @@ from dinoml.lowering.ops.repeat_interleave import REPEAT_INTERLEAVE_LOWERING
 from dinoml.lowering.ops.roi_align_family import MULTI_LEVEL_ROI_ALIGN_LOWERING, ROI_ALIGN_LOWERING
 from dinoml.lowering.ops.rotary_positional_fusions import ROTARY_POSITIONAL_FUSION_LOWERINGS
 from dinoml.lowering.ops.runtime_index_select import RUNTIME_INDEX_SELECT_LOWERING
+from dinoml.lowering.ops.scatter_family import SCATTER_ADD_LOWERING, SCATTER_LOWERING, SCATTER_REDUCE_LOWERING
 from dinoml.lowering.ops.shape_buffer_count_true import SHAPE_BUFFER_COUNT_TRUE_LOWERING
 from dinoml.lowering.ops.slice_scatter import SLICE_SCATTER_LOWERING
 from dinoml.lowering.ops.softmax import SOFTMAX_LOWERING
@@ -151,6 +152,9 @@ OP_LOWERINGS: dict[str, OpLowering] = {
     REPEAT_INTERLEAVE_LOWERING.op_name: REPEAT_INTERLEAVE_LOWERING,
     ROI_ALIGN_LOWERING.op_name: ROI_ALIGN_LOWERING,
     RUNTIME_INDEX_SELECT_LOWERING.op_name: RUNTIME_INDEX_SELECT_LOWERING,
+    SCATTER_LOWERING.op_name: SCATTER_LOWERING,
+    SCATTER_ADD_LOWERING.op_name: SCATTER_ADD_LOWERING,
+    SCATTER_REDUCE_LOWERING.op_name: SCATTER_REDUCE_LOWERING,
     SHAPE_BUFFER_COUNT_TRUE_LOWERING.op_name: SHAPE_BUFFER_COUNT_TRUE_LOWERING,
     SLICE_SCATTER_LOWERING.op_name: SLICE_SCATTER_LOWERING,
     SOFTMAX_LOWERING.op_name: SOFTMAX_LOWERING,

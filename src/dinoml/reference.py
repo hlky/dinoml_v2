@@ -525,6 +525,47 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
                 ),
                 output_dtype,
             )
+        elif node["op"] == "scatter":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_scatter(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    int(attrs.get("dim", 0)),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "scatter_add":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_scatter_add(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    int(attrs.get("dim", 0)),
+                ),
+                output_dtype,
+            )
+        elif node["op"] == "scatter_reduce":
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            attrs = node.get("attrs", {})
+            values[output_name] = _store_reference(
+                _execute_scatter_reduce(
+                    values[node["inputs"][0]],
+                    values[node["inputs"][1]],
+                    values[node["inputs"][2]],
+                    int(attrs.get("dim", 0)),
+                    str(attrs.get("reduce", "sum")),
+                    bool(attrs.get("include_self", True)),
+                ),
+                output_dtype,
+            )
         elif node["op"] == "one_hot":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -935,6 +976,67 @@ def _execute_index_add(x: np.ndarray, index: np.ndarray, source: np.ndarray, dim
         output_coord = list(source_coord)
         output_coord[dim] = selected
         result[tuple(output_coord)] = result[tuple(output_coord)] + source[source_coord]
+    return result
+
+
+def _execute_scatter(x: np.ndarray, index: np.ndarray, source: np.ndarray, dim: int) -> np.ndarray:
+    index_values = np.asarray(index, dtype=np.int64)
+    result = np.array(x, copy=True)
+    dim_extent = int(result.shape[dim])
+    for source_coord in np.ndindex(source.shape):
+        selected = int(index_values[source_coord])
+        if selected < 0 or selected >= dim_extent:
+            raise ValueError(f"scatter index {selected} is out of bounds for dim size {dim_extent}")
+        output_coord = list(source_coord)
+        output_coord[dim] = selected
+        result[tuple(output_coord)] = source[source_coord]
+    return result
+
+
+def _execute_scatter_add(x: np.ndarray, index: np.ndarray, source: np.ndarray, dim: int) -> np.ndarray:
+    index_values = np.asarray(index, dtype=np.int64)
+    result = np.array(x, copy=True)
+    dim_extent = int(result.shape[dim])
+    for source_coord in np.ndindex(source.shape):
+        selected = int(index_values[source_coord])
+        if selected < 0 or selected >= dim_extent:
+            raise ValueError(f"scatter_add index {selected} is out of bounds for dim size {dim_extent}")
+        output_coord = list(source_coord)
+        output_coord[dim] = selected
+        result[tuple(output_coord)] = result[tuple(output_coord)] + source[source_coord]
+    return result
+
+
+def _execute_scatter_reduce(
+    x: np.ndarray,
+    index: np.ndarray,
+    source: np.ndarray,
+    dim: int,
+    reduce: str,
+    include_self: bool,
+) -> np.ndarray:
+    if not include_self:
+        raise ValueError("scatter_reduce reference currently supports only include_self=True")
+    index_values = np.asarray(index, dtype=np.int64)
+    result = np.array(x, copy=True)
+    dim_extent = int(result.shape[dim])
+    for source_coord in np.ndindex(source.shape):
+        selected = int(index_values[source_coord])
+        if selected < 0 or selected >= dim_extent:
+            raise ValueError(f"scatter_reduce index {selected} is out of bounds for dim size {dim_extent}")
+        output_coord = list(source_coord)
+        output_coord[dim] = selected
+        output_coord_tuple = tuple(output_coord)
+        if reduce == "sum":
+            result[output_coord_tuple] = result[output_coord_tuple] + source[source_coord]
+        elif reduce == "prod":
+            result[output_coord_tuple] = result[output_coord_tuple] * source[source_coord]
+        elif reduce == "amax":
+            result[output_coord_tuple] = np.maximum(result[output_coord_tuple], source[source_coord])
+        elif reduce == "amin":
+            result[output_coord_tuple] = np.minimum(result[output_coord_tuple], source[source_coord])
+        else:
+            raise ValueError(f"Unsupported scatter_reduce reduction {reduce!r}")
     return result
 
 

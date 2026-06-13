@@ -13,6 +13,13 @@ from dinoml.ir import (
 )
 from dinoml.layout import validate_layout
 from dinoml.ops.collections import INDEX_ADD_DTYPES, broadcast_shape_spec, normalize_index_add_attrs, normalize_one_hot_num_classes
+from dinoml.ops.collections import (
+    SCATTER_DTYPES,
+    SCATTER_REDUCE_DTYPES,
+    normalize_scatter_attrs,
+    normalize_scatter_reduce_include_self,
+    normalize_scatter_reduce_name,
+)
 from dinoml.ops.definitions import get_op_def
 from dinoml.ops.elementwise import (
     CAST_ELEMENTWISE_DTYPES,
@@ -305,10 +312,13 @@ def _validate_node(node: Mapping[str, Any], tensors: Mapping[str, Mapping[str, A
         "permute102",
         "permute210",
         "dynamic_slice",
-        "index_select",
-        "runtime_index_select",
-        "index_add",
-        "one_hot",
+            "index_select",
+            "runtime_index_select",
+            "index_add",
+            "scatter",
+            "scatter_add",
+            "scatter_reduce",
+            "one_hot",
         "gather",
         "batch_gather",
         "slice_scatter",
@@ -1356,6 +1366,87 @@ def _validate_collection_node(
                 f"index_add output shape_spec must match input shape_spec {expected_shape_spec}, "
                 f"got {actual_shape_spec}"
             )
+        return
+    if op_name == "scatter":
+        if str(inputs[0]["dtype"]) not in SCATTER_DTYPES:
+            raise ValidationError(f"scatter does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"scatter index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(inputs[2]["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} has mismatched input dtypes for scatter: "
+                f"{inputs[0]['dtype']} vs {inputs[2]['dtype']}"
+            )
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        try:
+            normalize_scatter_attrs(
+                node.get("attrs", {}).get("dim", 0),
+                inputs[0]["shape"],
+                inputs[1]["shape"],
+                inputs[2]["shape"],
+                op_name="scatter",
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        return
+    if op_name == "scatter_add":
+        if str(inputs[0]["dtype"]) not in SCATTER_REDUCE_DTYPES:
+            raise ValidationError(f"scatter_add does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"scatter_add index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(inputs[2]["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} has mismatched input dtypes for scatter_add: "
+                f"{inputs[0]['dtype']} vs {inputs[2]['dtype']}"
+            )
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        try:
+            normalize_scatter_attrs(
+                node.get("attrs", {}).get("dim", 0),
+                inputs[0]["shape"],
+                inputs[1]["shape"],
+                inputs[2]["shape"],
+                op_name="scatter_add",
+            )
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+        return
+    if op_name == "scatter_reduce":
+        if str(inputs[0]["dtype"]) not in SCATTER_REDUCE_DTYPES:
+            raise ValidationError(f"scatter_reduce does not support dtype {inputs[0]['dtype']}")
+        if str(inputs[1]["dtype"]) not in {"int64", "int32"}:
+            raise ValidationError(f"scatter_reduce index must have dtype int64 or int32, got {inputs[1]['dtype']}")
+        if str(inputs[2]["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} has mismatched input dtypes for scatter_reduce: "
+                f"{inputs[0]['dtype']} vs {inputs[2]['dtype']}"
+            )
+        if str(output["dtype"]) != str(inputs[0]["dtype"]):
+            raise ValidationError(
+                f"Node {node['id']} output {output_name} has dtype {output['dtype']}, "
+                f"expected {inputs[0]['dtype']}"
+            )
+        attrs = node.get("attrs", {})
+        try:
+            normalize_scatter_attrs(
+                attrs.get("dim", 0),
+                inputs[0]["shape"],
+                inputs[1]["shape"],
+                inputs[2]["shape"],
+                op_name="scatter_reduce",
+            )
+            normalize_scatter_reduce_name(attrs.get("reduce", "sum"))
+            normalize_scatter_reduce_include_self(attrs.get("include_self", True))
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
         return
     if op_name == "one_hot":
         if len(inputs) != 1:

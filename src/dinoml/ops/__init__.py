@@ -211,6 +211,7 @@ from dinoml.ops.positional import (
 )
 from dinoml.ops.reductions import (
     argmax,
+    mode,
     reduce_max,
     reduce_mean,
     reduce_min,
@@ -497,6 +498,7 @@ __all__ = [
     "roi_align",
     "runtime_index_select",
     "masked_select",
+    "mode",
     "one_hot",
     "reshape",
     "rms_norm",

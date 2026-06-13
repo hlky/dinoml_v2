@@ -18,7 +18,7 @@ from dinoml.ops.positional import (
     normalize_get_3d_rotary_pos_embed_allegro_attrs,
     normalize_get_3d_rotary_pos_embed_attrs,
 )
-from dinoml.ops.reductions import REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
+from dinoml.ops.reductions import MODE_INTERNAL_OPS, REDUCTION_OPS, TOPK_INTERNAL_OPS, infer_reduction_with_attrs
 from dinoml.ops.vision import (
     infer_batched_nms_shape_with_attrs,
     infer_efficient_nms_output_shapes,
@@ -105,6 +105,8 @@ def shape_type_infer(ir: Dict[str, Any]) -> Dict[str, Any]:
         elif node["op"] == "argmax":
             expected_dtype = "int64"
         elif node["op"] == "topk_indices":
+            expected_dtype = "int64"
+        elif node["op"] == "mode_indices":
             expected_dtype = "int64"
         elif node["op"] in GET_1D_ROTARY_POS_EMBED_COMPONENT_OPS:
             expected_dtype = str(tensors[node["outputs"][0]]["dtype"])
@@ -248,6 +250,9 @@ def _infer_node_shape_spec(
         shape_spec = _copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]))
         shape_spec[-1] = int(node.get("attrs", {})["k"])
         return shape_spec
+    if node["op"] in MODE_INTERNAL_OPS:
+        keepdim = bool(node.get("attrs", {}).get("keepdim", False))
+        return _infer_reduction_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"]), keepdim)
     if node["op"] == "one_hot":
         num_classes = normalize_one_hot_num_classes(node.get("attrs", {}).get("num_classes"))
         return [*_copy_shape_spec(inputs[0].get("shape_spec", inputs[0]["shape"])), num_classes]

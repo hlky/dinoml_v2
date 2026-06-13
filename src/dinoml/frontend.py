@@ -189,6 +189,11 @@ class Tensor:
 
         return ops.masked_fill(self, mask, value)
 
+    def mode(self, dim: Any = -1, keepdim: bool = False) -> tuple["Tensor", "Tensor"]:
+        from dinoml import ops
+
+        return ops.mode(self, dim=dim, keepdim=keepdim)
+
 
 class Module:
     def __setattr__(self, name: str, value: Any) -> None:

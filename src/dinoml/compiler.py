@@ -940,6 +940,11 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
         for node in ir["nodes"]
         if node.get("op") == "topk_indices" and len(node.get("outputs", [])) == 1
     }
+    mode_index_output_tensors = {
+        node["outputs"][0]
+        for node in ir["nodes"]
+        if node.get("op") == "mode_indices" and len(node.get("outputs", [])) == 1
+    }
     one_hot_output_tensors = {
         node["outputs"][0]
         for node in ir["nodes"]
@@ -1238,6 +1243,20 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
                     f"Op {op_def.name} output dtype {output_dtype} must be {expected_output_dtype}"
                 )
             continue
+        if node.get("op") in {"mode_values", "mode_indices"}:
+            input_dtype = str(tensor_map[node["inputs"][0]]["dtype"])
+            output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
+            if input_dtype not in op_def.allowed_dtypes:
+                raise NotImplementedError(
+                    f"Op {op_def.name} supports input dtypes {list(op_def.allowed_dtypes)}; "
+                    f"unsupported compiled dtypes: {[input_dtype]}"
+                )
+            expected_output_dtype = input_dtype if node.get("op") == "mode_values" else "int64"
+            if output_dtype != expected_output_dtype:
+                raise NotImplementedError(
+                    f"Op {op_def.name} output dtype {output_dtype} must be {expected_output_dtype}"
+                )
+            continue
         if node.get("op") in {"get_1d_rotary_pos_embed_cos", "get_1d_rotary_pos_embed_sin"}:
             input_dtype = None if not node.get("inputs") else str(tensor_map[node["inputs"][0]]["dtype"])
             output_dtype = str(tensor_map[node["outputs"][0]]["dtype"])
@@ -1327,6 +1346,7 @@ def _validate_mvp_runtime_contract(ir: Dict, target: Target) -> None:
             and str(tensor["name"]) not in argmax_output_tensors
             and str(tensor["name"]) not in one_hot_output_tensors
             and str(tensor["name"]) not in topk_index_output_tensors
+            and str(tensor["name"]) not in mode_index_output_tensors
             and str(tensor["name"]) not in nms_int64_output_tensors
             and str(tensor["name"]) not in rotary_allegro_grid_output_tensors
             and str(tensor["name"]) not in flash_attention_static_kv_cache_seqlens_tensors

@@ -307,6 +307,12 @@ def reference_numpy(spec: ModelSpec, inputs: Mapping[str, np.ndarray]) -> Dict[s
             else:
                 result = np.take_along_axis(values[node["inputs"][0]], topk_indices, axis=-1)
             values[output_name] = _store_reference(result, output_dtype)
+        elif node["op"] in {"mode_values", "mode_indices"}:
+            output_name = node["outputs"][0]
+            output_dtype = _tensor_dtype(ir, output_name)
+            mode_values, mode_indices = _execute_mode(values[node["inputs"][0]], node.get("attrs", {}))
+            result = mode_values if node["op"] == "mode_values" else mode_indices
+            values[output_name] = _store_reference(result, output_dtype)
         elif node["op"] == "full":
             output_name = node["outputs"][0]
             output_dtype = _tensor_dtype(ir, output_name)
@@ -2209,6 +2215,62 @@ def _execute_topk_indices(value: np.ndarray, attrs: Mapping[str, object]) -> np.
             used[best_index] = True
             result[row, out_col] = best_index
     return np.reshape(result, (*value.shape[:-1], k))
+
+
+def _execute_mode(value: np.ndarray, attrs: Mapping[str, object]) -> tuple[np.ndarray, np.ndarray]:
+    dim = int(attrs.get("dim", -1))
+    if dim < 0:
+        dim += value.ndim
+    if dim != value.ndim - 1:
+        raise NotImplementedError("CPU reference mode currently supports only the last dimension")
+    keepdim = bool(attrs.get("keepdim", False))
+    rows = int(np.prod(value.shape[:-1], dtype=np.int64)) if value.ndim > 1 else 1
+    cols = int(value.shape[-1])
+    source = np.reshape(value, (rows, cols))
+    values_out = np.empty((rows,), dtype=value.dtype)
+    indices_out = np.empty((rows,), dtype=np.int64)
+    for row in range(rows):
+        best_count = -1
+        best_index = 0
+        best_value = source[row, 0]
+        for col in range(cols):
+            candidate = source[row, col]
+            count = 0
+            last_index = col
+            for other in range(cols):
+                if _mode_values_equal(candidate, source[row, other]):
+                    count += 1
+                    last_index = other
+            if (
+                count > best_count
+                or (count == best_count and _mode_value_less(candidate, best_value))
+            ):
+                best_count = count
+                best_index = last_index
+                best_value = candidate
+        values_out[row] = best_value
+        indices_out[row] = best_index
+    out_shape = list(value.shape[:-1]) or [1]
+    if keepdim:
+        out_shape = list(value.shape)
+        out_shape[-1] = 1
+    return np.reshape(values_out, out_shape), np.reshape(indices_out, out_shape)
+
+
+def _mode_values_equal(left: object, right: object) -> bool:
+    left_float = float(left)
+    right_float = float(right)
+    return (math.isnan(left_float) and math.isnan(right_float)) or left_float == right_float
+
+
+def _mode_value_less(candidate: object, current: object) -> bool:
+    candidate_float = float(candidate)
+    current_float = float(current)
+    candidate_is_nan = math.isnan(candidate_float)
+    current_is_nan = math.isnan(current_float)
+    if candidate_is_nan or current_is_nan:
+        return candidate_is_nan and not current_is_nan
+    return candidate_float < current_float
 
 
 def _topk_is_better(candidate: object, current: object) -> bool:

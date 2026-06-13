@@ -1,0 +1,87 @@
+namespace {
+{% if input_is_float %}
+inline bool {{ func }}_is_equal({{ input_storage_type }} left, {{ input_storage_type }} right) {
+  const float left_value = dinoml::math::cast<float>(left);
+  const float right_value = dinoml::math::cast<float>(right);
+  return (std::isnan(left_value) && std::isnan(right_value)) || left_value == right_value;
+}
+
+inline bool {{ func }}_is_less({{ input_storage_type }} left, {{ input_storage_type }} right) {
+  const float left_value = dinoml::math::cast<float>(left);
+  const float right_value = dinoml::math::cast<float>(right);
+  const bool left_is_nan = std::isnan(left_value);
+  const bool right_is_nan = std::isnan(right_value);
+  if (left_is_nan || right_is_nan) {
+    return left_is_nan && !right_is_nan;
+  }
+  return left_value < right_value;
+}
+{% endif %}
+}  // namespace
+
+static int {{ func }}(
+    const {{ input_storage_type }}* DINO_RESTRICT x,
+{% if output_kind == "values" %}
+    {{ value_output_storage_type }}* DINO_RESTRICT y,
+{% elif output_kind == "indices" %}
+    {{ index_output_storage_type }}* DINO_RESTRICT y,
+{% else %}
+    {{ value_output_storage_type }}* DINO_RESTRICT y_values,
+    {{ index_output_storage_type }}* DINO_RESTRICT y_indices,
+{% endif %}
+    int64_t runtime_rows) {
+{% if output_kind == "both" %}
+  if (x == nullptr || y_values == nullptr || y_indices == nullptr) {
+{% else %}
+  if (x == nullptr || y == nullptr) {
+{% endif %}
+    return dino_runtime_fail("{{ func }} received null pointer");
+  }
+  constexpr int64_t cols = {{ cols }};
+#if defined(_OPENMP)
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t row = 0; row < runtime_rows; ++row) {
+    const int64_t base = row * cols;
+    int64_t best_count = -1;
+    int64_t best_index = 0;
+    {{ input_storage_type }} best_value = x[base];
+    for (int64_t col = 0; col < cols; ++col) {
+      const {{ input_storage_type }} candidate = x[base + col];
+      int64_t candidate_count = 0;
+      int64_t candidate_index = col;
+      for (int64_t other = 0; other < cols; ++other) {
+{% if input_is_bool %}
+        if (x[base + other] == candidate) {
+{% elif input_is_float %}
+        if ({{ func }}_is_equal(x[base + other], candidate)) {
+{% else %}
+        if (x[base + other] == candidate) {
+{% endif %}
+          ++candidate_count;
+          candidate_index = other;
+        }
+      }
+{% if input_is_bool %}
+      if (candidate_count > best_count || (candidate_count == best_count && candidate < best_value)) {
+{% elif input_is_float %}
+      if (candidate_count > best_count || (candidate_count == best_count && {{ func }}_is_less(candidate, best_value))) {
+{% else %}
+      if (candidate_count > best_count || (candidate_count == best_count && candidate < best_value)) {
+{% endif %}
+        best_count = candidate_count;
+        best_index = candidate_index;
+        best_value = candidate;
+      }
+    }
+{% if output_kind == "values" %}
+    y[row] = best_value;
+{% elif output_kind == "indices" %}
+    y[row] = best_index;
+{% else %}
+    y_values[row] = best_value;
+    y_indices[row] = best_index;
+{% endif %}
+  }
+  return 0;
+}

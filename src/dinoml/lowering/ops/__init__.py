@@ -61,6 +61,7 @@ from dinoml.lowering.ops.layer_norm import LAYER_NORM_LOWERING
 from dinoml.lowering.ops.layernorm_sigmoid_mul import LAYERNORM_SIGMOID_MUL_LOWERING
 from dinoml.lowering.ops.masked_select import MASKED_SELECT_LOWERING
 from dinoml.lowering.ops.max_pool2d import MAX_POOL2D_LOWERING
+from dinoml.lowering.ops.mode import MODE_LOWERINGS
 from dinoml.lowering.ops.nms_family import BATCHED_NMS_LOWERING, EFFICIENT_NMS_LOWERING, NMS_LOWERING
 from dinoml.lowering.ops.one_hot import ONE_HOT_LOWERING
 from dinoml.lowering.ops.pad import PAD_LOWERING
@@ -166,6 +167,7 @@ OP_LOWERINGS: dict[str, OpLowering] = {
 OP_LOWERINGS.update(REDUCTION_LOWERINGS)
 OP_LOWERINGS.update(GEMM_LOWERINGS)
 OP_LOWERINGS.update(BMM_LOWERINGS)
+OP_LOWERINGS.update(MODE_LOWERINGS)
 OP_LOWERINGS.update(TOPK_LOWERINGS)
 OP_LOWERINGS.update(GET_1D_ROTARY_POS_EMBED_LOWERINGS)
 OP_LOWERINGS.update(POSITIONAL_HELPER_FUSION_LOWERINGS)

@@ -12,6 +12,8 @@ REDUCTION_DTYPES = ("float16", "float32", "bfloat16")
 ARGMAX_DTYPES = ("float16", "float32", "bfloat16", "bool", "int32", "int64")
 TOPK_DTYPES = ("float16", "float32", "bfloat16", "bool")
 TOPK_INTERNAL_OPS = ("topk_values", "topk_indices")
+MODE_DTYPES = TOPK_DTYPES
+MODE_INTERNAL_OPS = ("mode_values", "mode_indices")
 
 
 def infer_reduction(shapes: Sequence[Sequence[int]]) -> list[int]:
@@ -62,6 +64,16 @@ def infer_topk_shape_with_attrs(shapes: Sequence[Sequence[int]], attrs: Mapping[
         bool(attrs.get("largest", True)),
         bool(attrs.get("sorted", True)),
     )
+
+
+def infer_mode_shape(shapes: Sequence[Sequence[int]]) -> list[int]:
+    return infer_mode_shape_with_attrs(shapes, {"dim": -1, "keepdim": False})
+
+
+def infer_mode_shape_with_attrs(shapes: Sequence[Sequence[int]], attrs: Mapping[str, Any]) -> list[int]:
+    if len(shapes) != 1:
+        raise ValueError("mode expects exactly one input")
+    return resolve_mode_shape(shapes[0], attrs.get("dim", -1), bool(attrs.get("keepdim", False)))
 
 
 def normalize_argmax_dim(dim: Any, rank: int) -> int:
@@ -117,6 +129,19 @@ def normalize_topk_k(k: Any, last_dim: int) -> int:
     return normalized
 
 
+def normalize_mode_dim(dim: Any, rank: int) -> int:
+    if not isinstance(dim, int) or isinstance(dim, bool):
+        raise ValueError(f"mode dim must be an integer, got {dim!r}")
+    if rank <= 0:
+        raise ValueError("mode requires a ranked tensor")
+    normalized = int(dim)
+    if normalized < 0:
+        normalized += rank
+    if normalized < 0 or normalized >= rank:
+        raise ValueError(f"mode dim {dim} is out of range for rank {rank}")
+    return normalized
+
+
 def resolve_topk_shape(shape: Sequence[int], k: Any, dim: Any, largest: bool, sorted: bool) -> list[int]:
     axis = normalize_topk_dim(dim, len(shape))
     if axis != len(shape) - 1:
@@ -130,6 +155,22 @@ def resolve_topk_shape(shape: Sequence[int], k: Any, dim: Any, largest: bool, so
     normalized_k = normalize_topk_k(k, int(shape[axis]))
     out_shape = list(shape)
     out_shape[axis] = normalized_k
+    return [int(dim) for dim in out_shape]
+
+
+def resolve_mode_shape(shape: Sequence[int], dim: Any, keepdim: bool) -> list[int]:
+    axis = normalize_mode_dim(dim, len(shape))
+    if axis != len(shape) - 1:
+        raise NotImplementedError("mode currently supports only the last dimension")
+    if int(shape[axis]) <= 0:
+        raise ValueError("mode last dimension must be positive")
+    out_shape = list(shape)
+    if keepdim:
+        out_shape[axis] = 1
+    else:
+        del out_shape[axis]
+        if not out_shape:
+            out_shape = [1]
     return [int(dim) for dim in out_shape]
 
 
@@ -314,6 +355,29 @@ class TopkIndices(_TopkOp):
     name = "topk_indices"
 
 
+class _ModeOp(OpDef):
+    schema = OpSchema(inputs=("x",), attrs=(AttrDef("dim", "int", -1), AttrDef("keepdim", "bool", False)))
+    infer_shape = infer_mode_shape
+    infer_shape_with_attrs = infer_mode_shape_with_attrs
+    backend_kernels = {
+        "cuda": KernelBinding("generated_mode", "model", source_template="mode_gpu"),
+        "rocm": KernelBinding("generated_mode", "model", source_template="mode_gpu"),
+        "cpu": KernelBinding("generated_mode", "model", source_template="mode_cpu"),
+    }
+    allowed_dtypes = MODE_DTYPES
+    description = "Internal dense mode over a positive static last dimension."
+
+
+@op_def
+class ModeValues(_ModeOp):
+    name = "mode_values"
+
+
+@op_def
+class ModeIndices(_ModeOp):
+    name = "mode_indices"
+
+
 def reduce_sum(x: object, dim: int = -1, keepdim: bool = False) -> Tensor:
     return ReduceSum.forward(x, dim, keepdim)
 
@@ -367,6 +431,49 @@ def topk(x: object, k: int, dim: int = -1, largest: bool = True, sorted: bool = 
     )
     indices = tensor.builder.emit(
         "topk_indices",
+        [tensor],
+        out_shape,
+        "int64",
+        attrs,
+        shape_spec=out_shape_spec,
+    )
+    values_node = tensor.builder.nodes[-2]
+    indices_node = tensor.builder.nodes[-1]
+    values_node["attrs"] = {**values_node["attrs"], "paired_indices_output": indices.name}
+    indices_node["attrs"] = {**indices_node["attrs"], "paired_values_output": values.name}
+    return values, indices
+
+
+def mode(x: object, dim: int = -1, keepdim: bool = False) -> tuple[Tensor, Tensor]:
+    tensor = as_tensor(x, dtype_hint="float32")
+    if tensor.dtype not in MODE_DTYPES:
+        raise ValueError(f"mode does not support dtype {tensor.dtype}")
+    if tensor.dynamic:
+        raise ValueError("mode currently supports only static input shapes")
+    axis = normalize_mode_dim(dim, tensor.rank)
+    if axis != tensor.rank - 1:
+        raise NotImplementedError("mode currently supports only the last dimension")
+    if not isinstance(tensor.shape_spec[axis], int):
+        raise ValueError("mode currently requires a static last dimension")
+    out_shape = resolve_mode_shape(tensor.shape, axis, bool(keepdim))
+    out_shape_spec = list(tensor.shape_spec)
+    if keepdim:
+        out_shape_spec[axis] = 1
+    else:
+        del out_shape_spec[axis]
+        if not out_shape_spec:
+            out_shape_spec = [1]
+    attrs = {"dim": axis, "keepdim": bool(keepdim)}
+    values = tensor.builder.emit(
+        "mode_values",
+        [tensor],
+        out_shape,
+        tensor.dtype,
+        attrs,
+        shape_spec=out_shape_spec,
+    )
+    indices = tensor.builder.emit(
+        "mode_indices",
         [tensor],
         out_shape,
         "int64",

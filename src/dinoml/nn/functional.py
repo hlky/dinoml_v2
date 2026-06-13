@@ -158,6 +158,26 @@ def conv_transpose2d(
     )
 
 
+def interpolate(
+    input: Any,
+    size: Any = None,
+    scale_factor: Any = None,
+    mode: str = "nearest",
+    align_corners: bool | None = None,
+    recompute_scale_factor: Any = None,
+    antialias: bool = False,
+) -> Tensor:
+    return ops.interpolate(
+        input,
+        size=size,
+        scale_factor=scale_factor,
+        mode=mode,
+        align_corners=align_corners,
+        recompute_scale_factor=recompute_scale_factor,
+        antialias=antialias,
+    )
+
+
 def pixel_shuffle(input: Any, upscale_factor: int) -> Tensor:
     return ops.pixel_shuffle(input, upscale_factor)
 
@@ -207,6 +227,7 @@ __all__ = [
     "conv3d",
     "conv_transpose1d",
     "conv_transpose2d",
+    "interpolate",
     "pixel_shuffle",
     "pixel_unshuffle",
     "scaled_dot_product_attention",

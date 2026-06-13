@@ -23,8 +23,14 @@ def softmax(input: Any, dim: int | None = None, _stacklevel: int = 3, dtype: Any
     return ops.softmax(input, dim=-1 if dim is None else dim)
 
 
+def silu(input: Any, inplace: bool = False) -> Tensor:
+    if inplace:
+        raise NotImplementedError("silu currently does not support inplace=True")
+    return ops.silu(input)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "softmax", "normalize"]
+__all__ = ["one_hot", "pad", "softmax", "silu", "normalize"]

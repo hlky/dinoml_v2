@@ -16,8 +16,15 @@ def pad(input: Any, pad: Any, mode: str = "constant", value: Any | None = None) 
     return ops.pad(input, pad, value=0.0 if value is None else value)
 
 
+def softmax(input: Any, dim: int | None = None, _stacklevel: int = 3, dtype: Any | None = None) -> Tensor:
+    del _stacklevel
+    if dtype is not None:
+        raise NotImplementedError("softmax currently does not support dtype=")
+    return ops.softmax(input, dim=-1 if dim is None else dim)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "normalize"]
+__all__ = ["one_hot", "pad", "softmax", "normalize"]

@@ -108,6 +108,32 @@ def test_cuda_flash_attention_build_preserves_parallel_override(tmp_path, monkey
     assert calls[1][-2:] == ["--parallel", "3"]
 
 
+def test_rocm_flash_attention_build_uses_cmakelists_default_dims_and_no_extra_filter(tmp_path, monkeypatch):
+    cache_root = tmp_path / "cache"
+    calls = []
+
+    def fake_run_cmake(cmd, *, cwd):
+        del cwd
+        calls.append(cmd)
+        if "--build" in cmd:
+            lib_dir = cache_root / "support" / "rocm-gfx1201" / "flash-attn-ck" / "cmake-full" / "lib"
+            lib_dir.mkdir(parents=True, exist_ok=True)
+            (lib_dir / rocm_backend.flash_attn_ck_static_library_name("float16")).write_bytes(b"wrapper")
+
+    monkeypatch.setenv("DINOML_CACHE_DIR", str(cache_root))
+    monkeypatch.setattr(rocm_backend, "_prepare_cmake_build_dir", lambda _build_dir: None)
+    monkeypatch.setattr(rocm_backend, "_prepare_flash_attn_ck_cmake_build_dir", lambda _build_dir: None)
+    monkeypatch.setattr(rocm_backend, "_required_flash_attn_ck_modules", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(rocm_backend, "_flash_attn_ck_source_sha256", lambda _repo_root: "fake-sha")
+    monkeypatch.setattr(rocm_backend, "cmake_parallel_args", lambda parallel=None: ["--parallel", str(parallel or "7")])
+    monkeypatch.setattr(rocm_backend, "_run_cmake", fake_run_cmake)
+
+    rocm_backend._ensure_cmake_flash_attn_ck_archives("gfx1201", {"required_kernels": []})
+
+    assert any(arg == "-DDINOML_FLASH_ATTN_CK_FILTER=" for arg in calls[0])
+    assert any(arg == "-DDINOML_FLASH_ATTN_CK_OPTDIMS=32,64,128,192,256" for arg in calls[0])
+
+
 def test_cutlass_gemm_support_build_can_request_profiler_bindings(tmp_path, monkeypatch):
     cache_root = tmp_path / "cache"
     calls = []

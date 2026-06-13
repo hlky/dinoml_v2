@@ -892,9 +892,6 @@ if(DINOML_ENABLE_ROCM)
       set(_dinoml_flash_attn_ck_targets "gfx12")
     endif()
     set(_dinoml_flash_attn_ck_fwd_extra_filter "${DINOML_FLASH_ATTN_CK_FILTER}")
-    if(_dinoml_flash_attn_ck_fwd_extra_filter STREQUAL "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*")
-      set(_dinoml_flash_attn_ck_fwd_extra_filter "")
-    endif()
     file(MAKE_DIRECTORY "${_dinoml_flash_attn_ck_generated_dir}")
     execute_process(
       COMMAND

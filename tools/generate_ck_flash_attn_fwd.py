@@ -12,23 +12,11 @@ import argparse
 import fnmatch
 import sys
 from pathlib import Path
-from typing import Iterable, List, Optional
-
-
-_LEGACY_FWD_FILTER = (
-    "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*|"
-    "*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*|"
-    "*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*|"
-    "*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*|"
-    "*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|"
-    "*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*|"
-    "*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*|"
-    "*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
-)
+from typing import Iterable, List
 
 
 def _matches_extra_filter(name: str, extra_filter: str) -> bool:
-    if extra_filter in ("", _LEGACY_FWD_FILTER):
+    if extra_filter == "":
         return True
     return any(
         fnmatch.fnmatch(name, pattern.strip())
@@ -57,12 +45,14 @@ def _want_kernel(kernel, mask_impl: str, extra_filter: str) -> bool:
     if pipeline.F_logits != "f" or pipeline.F_lse != "f" or pipeline.F_dropout != "f":
         return False
 
-    if kernel.F_mode == "batch":
-        if pipeline.F_bias != "bias" or not _is_masked(mask_impl, pipeline.F_mask):
+    if kernel.F_mode not in {"batch", "group"}:
+        return False
+
+    if pipeline.F_bias == "bias":
+        if not _is_masked(mask_impl, pipeline.F_mask):
             return False
-    elif kernel.F_mode == "group":
-        if pipeline.F_bias != "no" or not _is_unmasked(mask_impl, pipeline.F_mask):
-            return False
+    elif pipeline.F_bias == "no":
+        pass
     else:
         return False
 

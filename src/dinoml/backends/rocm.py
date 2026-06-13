@@ -48,21 +48,12 @@ _CMAKE_ENV: dict[str, str] | None = None
 _ROCM_MODULE_CACHE_SCHEMA_VERSION = 3
 _ROCM_MODULE_FAST_CACHE_SCHEMA_VERSION = 3
 _ROCM_GENERATED_SOURCE_CHUNK_BYTES = 128 * 1024
-_FLASH_ATTN_CK_FILTER = (
-    "*d64_bf16_batch*nlogits*bias*mask*nlse*ndropout*"
-    "|*d128_bf16_batch*nlogits*bias*mask*nlse*ndropout*"
-    "|*d64_fp16_batch*nlogits*bias*mask*nlse*ndropout*"
-    "|*d128_fp16_batch*nlogits*bias*mask*nlse*ndropout*"
-    "|*d64_bf16_group*nlogits*nbias*nmask*nlse*ndropout*"
-    "|*d128_bf16_group*nlogits*nbias*nmask*nlse*ndropout*"
-    "|*d64_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
-    "|*d128_fp16_group*nlogits*nbias*nmask*nlse*ndropout*"
-)
+_FLASH_ATTN_CK_FILTER = ""
 _FLASH_ATTN_CK_SPLITKV_FILTER = (
     "*batch*ps_*lse_nsquant*@*batch*pssk_nlogits_*bias_nmask_lse_nsquant_npagedkv*"
 )
 _FLASH_ATTN_CK_APPENDKV_FILTER = "*vr_psskddv"
-_FLASH_ATTN_CK_OPTDIMS = "64,128"
+_FLASH_ATTN_CK_OPTDIMS = "32,64,128,192,256"
 
 _VISUAL_STUDIO_ENV_KEYS = frozenset(
     {

@@ -112,8 +112,43 @@ def conv3d(
     )
 
 
+def conv_transpose1d(
+    input: Any,
+    weight: Any,
+    bias: Any | None = None,
+    stride: int | Sequence[int] = 1,
+    padding: int | Sequence[int] = 0,
+    output_padding: int | Sequence[int] = 0,
+    groups: int = 1,
+    dilation: int | Sequence[int] = 1,
+) -> Tensor:
+    if bias is not None:
+        raise NotImplementedError("conv_transpose1d currently requires bias=None")
+    return ops.transposed_conv1d(
+        input,
+        weight,
+        stride=stride,
+        padding=padding,
+        output_padding=output_padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
 
-__all__ = ["one_hot", "pad", "softmax", "log_softmax", "silu", "layer_norm", "group_norm", "conv1d", "conv3d", "normalize"]
+__all__ = [
+    "one_hot",
+    "pad",
+    "softmax",
+    "log_softmax",
+    "silu",
+    "layer_norm",
+    "group_norm",
+    "conv1d",
+    "conv3d",
+    "conv_transpose1d",
+    "normalize",
+]

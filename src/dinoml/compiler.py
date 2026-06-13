@@ -643,6 +643,9 @@ def _requires_kernel_library(kernel_manifest: Dict, library: str) -> bool:
 
 def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any], *, target: Target) -> Dict:
     prepacked_cutlass_conv_weights = _cuda_cutlass_conv_weight_constants(ir) if target.name == "cuda" else set()
+    prepacked_cutlass_transposed_conv_weights = (
+        _cuda_cutlass_transposed_conv_weight_constants(ir) if target.name == "cuda" else set()
+    )
     prepacked_ck_conv1d_weights = _rocm_ck_conv1d_weight_constants(ir) if target.name == "rocm" else set()
     offset = 0
     constant_infos = []
@@ -665,7 +668,19 @@ def _write_constants(artifact_dir: Path, ir: Dict, constants: Mapping[str, Any],
                 if array.dtype != expected_dtype:
                     raise ValueError(f"Constant {name} has storage dtype {array.dtype}, expected {expected_dtype}")
             prepack_storage = None
-            if constant["tensor"] in prepacked_cutlass_conv_weights:
+            if constant["tensor"] in prepacked_cutlass_transposed_conv_weights:
+                if array.ndim != 3:
+                    raise ValueError(
+                        f"CUTLASS transposed conv1d weight constant {name} must be rank-3 IOW before packing"
+                    )
+                array = np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+                prepack_storage = {
+                    **(dict(constant.get("storage", {})) if isinstance(constant.get("storage"), Mapping) else {}),
+                    "kind": "cutlass_conv_weight",
+                    "logical_layout": "iow",
+                    "storage_layout": "ihwo",
+                }
+            elif constant["tensor"] in prepacked_cutlass_conv_weights:
                 if array.ndim == 4:
                     array = np.ascontiguousarray(np.transpose(array, (0, 2, 3, 1)))
                     logical_layout = "oihw"
@@ -735,6 +750,21 @@ def _cuda_cutlass_conv_weight_constants(ir: Mapping[str, Any]) -> set[str]:
             "conv2d_bias_add_relu",
             "conv3d_bias",
         }:
+            continue
+        inputs = node.get("inputs", ())
+        if not isinstance(inputs, Sequence) or len(inputs) < 2:
+            continue
+        weight = str(inputs[1])
+        if weight in constants:
+            result.add(weight)
+    return result
+
+
+def _cuda_cutlass_transposed_conv_weight_constants(ir: Mapping[str, Any]) -> set[str]:
+    constants = {str(item["tensor"]) for item in ir.get("constants", [])}
+    result: set[str] = set()
+    for node in ir.get("nodes", []):
+        if str(node.get("op", "")) != "transposed_conv1d":
             continue
         inputs = node.get("inputs", ())
         if not isinstance(inputs, Sequence) or len(inputs) < 2:

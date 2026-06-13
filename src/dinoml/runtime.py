@@ -2042,6 +2042,12 @@ def _pack_cutlass_conv_weight_storage(array: np.ndarray, constant_spec: Mapping[
                 f"CUTLASS conv1d weight constant {constant_spec.get('name', '<unknown>')} expected rank-3 OIW storage, got rank {array.ndim}"
             )
         return np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
+    if logical_layout == "iow" and storage_layout == "ihwo":
+        if array.ndim != 3:
+            raise ValueError(
+                f"CUTLASS transposed conv1d weight constant {constant_spec.get('name', '<unknown>')} expected rank-3 IOW storage, got rank {array.ndim}"
+            )
+        return np.ascontiguousarray(np.transpose(array, (0, 2, 1)))
     raise ValueError(
         "Unsupported CUTLASS conv weight storage metadata for constant "
         f"{constant_spec.get('name', '<unknown>')}: logical_layout={logical_layout!r}, storage_layout={storage_layout!r}"

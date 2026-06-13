@@ -471,6 +471,59 @@ int launch_ck_conv_nchw_to_nhwc(
 }
 
 template <typename T>
+__global__ void dinoml_ck_conv_nhwk_to_nchw_kernel(
+    const T* src,
+    T* dst,
+    int n,
+    int k,
+    int h,
+    int w) {
+  int linear = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+  int total = n * k * h * w;
+  if (linear >= total) {
+    return;
+  }
+  int x = linear % w;
+  int tmp = linear / w;
+  int y = tmp % h;
+  tmp /= h;
+  int channel = tmp % k;
+  int batch = tmp / k;
+  int src_index = ((batch * h + y) * w + x) * k + channel;
+  dst[linear] = src[src_index];
+}
+
+template <typename Storage>
+int launch_ck_conv_nhwk_to_nchw(
+    Storage const* src,
+    Storage* dst,
+    int n,
+    int k,
+    int h,
+    int w,
+    hipStream_t stream) {
+  if (src == nullptr || dst == nullptr || n <= 0 || k <= 0 || h <= 0 || w <= 0) {
+    return 1;
+  }
+  int total = n * k * h * w;
+  int threads = 256;
+  int blocks = (total + threads - 1) / threads;
+  hipLaunchKernelGGL(
+      HIP_KERNEL_NAME(dinoml_ck_conv_nhwk_to_nchw_kernel<Storage>),
+      dim3(blocks),
+      dim3(threads),
+      0,
+      stream,
+      src,
+      dst,
+      n,
+      k,
+      h,
+      w);
+  return hipGetLastError() == hipSuccess ? 0 : 3;
+}
+
+template <typename T>
 __global__ void dinoml_ck_conv_ncdhw_to_ndhwc_kernel(
     const T* src,
     T* dst,
@@ -970,6 +1023,10 @@ int launch_ck_conv2d_bias(
 
   using Element = typename CkElement<Storage>::Type;
   using DeviceOp = DeviceConv2dBiasXdl<Config, Storage, Element>;
+  Storage* packed_input = nullptr;
+  Storage* packed_output = nullptr;
+  Storage* packed_weight = nullptr;
+  const bool weight_prepacked = weight_is_kyxc != 0;
   const auto g = ck::index_t{1};
   const auto n = static_cast<ck::index_t>(batch);
   const auto c = static_cast<ck::index_t>(in_channels);
@@ -980,21 +1037,56 @@ int launch_ck_conv2d_bias(
   const auto x_filter = static_cast<ck::index_t>(kernel_w);
   const auto ho = static_cast<ck::index_t>(out_height);
   const auto wo = static_cast<ck::index_t>(out_width);
+  const auto input_count = static_cast<std::size_t>(batch) * in_channels * in_height * in_width;
+  const auto weight_count = static_cast<std::size_t>(out_channels) * in_channels * kernel_h * kernel_w;
+  const auto output_count = static_cast<std::size_t>(batch) * out_channels * out_height * out_width;
+  const auto input_nbytes = input_count * sizeof(Storage);
+  const auto weight_nbytes = weight_count * sizeof(Storage);
+  const auto output_nbytes = output_count * sizeof(Storage);
+  if (hipMalloc(reinterpret_cast<void**>(&packed_input), input_nbytes) != hipSuccess ||
+      hipMalloc(reinterpret_cast<void**>(&packed_output), output_nbytes) != hipSuccess ||
+      (!weight_prepacked && hipMalloc(reinterpret_cast<void**>(&packed_weight), weight_nbytes) != hipSuccess)) {
+    if (packed_input != nullptr) {
+      (void)hipFree(packed_input);
+    }
+    if (packed_output != nullptr) {
+      (void)hipFree(packed_output);
+    }
+    if (packed_weight != nullptr) {
+      (void)hipFree(packed_weight);
+    }
+    return 5;
+  }
+  int pack_status = launch_ck_conv_nchw_to_nhwc(x, packed_input, batch, in_channels, in_height, in_width, stream);
+  if (pack_status == 0 && weight_prepacked) {
+    packed_weight = const_cast<Storage*>(weight);
+  }
+  if (pack_status == 0 && !weight_prepacked) {
+    pack_status = launch_ck_conv_oihw_to_kyxc(weight, packed_weight, out_channels, in_channels, kernel_h, kernel_w, stream);
+  }
+  if (pack_status != 0) {
+    (void)hipFree(packed_input);
+    (void)hipFree(packed_output);
+    if (!weight_prepacked) {
+      (void)hipFree(packed_weight);
+    }
+    return pack_status;
+  }
 
   const std::array<ck::index_t, NDimSpatial + 3> a_lengths{g, n, c, hi, wi};
   const std::array<ck::index_t, NDimSpatial + 3> a_strides{
-      n * c * hi * wi,
-      c * hi * wi,
-      hi * wi,
-      wi,
-      ck::index_t{1}};
+      n * hi * wi * c,
+      hi * wi * c,
+      ck::index_t{1},
+      wi * c,
+      c};
   const std::array<ck::index_t, NDimSpatial + 3> b_lengths{g, k, c, y, x_filter};
   const std::array<ck::index_t, NDimSpatial + 3> b_strides{
-      weight_is_kyxc != 0 ? k * y * x_filter * c : k * c * y * x_filter,
-      weight_is_kyxc != 0 ? y * x_filter * c : c * y * x_filter,
-      weight_is_kyxc != 0 ? ck::index_t{1} : y * x_filter,
-      weight_is_kyxc != 0 ? x_filter * c : x_filter,
-      weight_is_kyxc != 0 ? c : ck::index_t{1}};
+      k * y * x_filter * c,
+      y * x_filter * c,
+      ck::index_t{1},
+      x_filter * c,
+      c};
   const std::array<ck::index_t, NDimSpatial + 3> bias_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> bias_strides{
       k,
@@ -1004,11 +1096,11 @@ int launch_ck_conv2d_bias(
       ck::index_t{0}};
   const std::array<ck::index_t, NDimSpatial + 3> e_lengths{g, n, k, ho, wo};
   const std::array<ck::index_t, NDimSpatial + 3> e_strides{
-      n * k * ho * wo,
-      k * ho * wo,
-      ho * wo,
-      wo,
-      ck::index_t{1}};
+      n * ho * wo * k,
+      ho * wo * k,
+      ck::index_t{1},
+      wo * k,
+      k};
   const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_lengths{{bias_lengths}};
   const std::array<std::array<ck::index_t, NDimSpatial + 3>, 1> ds_strides{{bias_strides}};
   const std::array<const void*, 1> ds_ptrs{ck_ptr<Storage, Element>(bias)};
@@ -1026,10 +1118,10 @@ int launch_ck_conv2d_bias(
       static_cast<ck::index_t>(pad_w)};
 
   auto argument = DeviceOp::MakeArgument(
-      ck_ptr<Storage, Element>(x),
-      ck_ptr<Storage, Element>(weight),
+      ck_ptr<Storage, Element>(packed_input),
+      ck_ptr<Storage, Element>(packed_weight),
       ds_ptrs,
-      ck_ptr<Storage, Element>(output),
+      ck_ptr<Storage, Element>(packed_output),
       a_lengths,
       a_strides,
       b_lengths,
@@ -1046,12 +1138,29 @@ int launch_ck_conv2d_bias(
       PassThrough{},
       DinoConvBiasEpilogue{});
   if (!DeviceOp::IsSupportedArgument(argument)) {
+    (void)hipFree(packed_input);
+    (void)hipFree(packed_output);
+    if (!weight_prepacked) {
+      (void)hipFree(packed_weight);
+    }
     return 4;
   }
   auto invoker = DeviceOp::MakeInvoker();
   (void)invoker.Run(argument, StreamConfig{stream, false});
   const hipError_t err = hipGetLastError();
-  return err == hipSuccess ? 0 : 3;
+  int unpack_status = 0;
+  if (err == hipSuccess) {
+    unpack_status = launch_ck_conv_nhwk_to_nchw(packed_output, output, batch, out_channels, out_height, out_width, stream);
+  }
+  (void)hipFree(packed_input);
+  (void)hipFree(packed_output);
+  if (!weight_prepacked) {
+    (void)hipFree(packed_weight);
+  }
+  if (err != hipSuccess) {
+    return 3;
+  }
+  return unpack_status;
 }
 
 template <typename Storage, ConvConfig Config>

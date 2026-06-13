@@ -284,6 +284,7 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         )
     elif launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
         bias_arg = f"    const {cpp_type}* bias,\n"
+        weight_pack_arg = "    int weight_is_kyxc,\n"
     elif launch_abi == "dinoml_ck_conv3d_bias_v1":
         bias_arg = f"    const {cpp_type}* bias,\n"
         return (
@@ -333,8 +334,6 @@ def _ck_conv_declaration(symbol: str, cpp_type: str, launch_abi: str) -> str:
         if launch_abi in {"dinoml_ck_transposed_conv2d_bias_add_v1", "dinoml_ck_transposed_conv2d_bias_add_relu_v1"}:
             residual_arg = f"    const {cpp_type}* residual,\n"
         extra_shape_args = "    int output_pad_h,\n    int output_pad_w,\n"
-    elif launch_abi in {"dinoml_ck_conv2d_bias_v1", "dinoml_ck_conv2d_bias_relu_v1"}:
-        weight_pack_arg = "    int weight_is_kyxc,\n"
     elif launch_abi not in {
         "dinoml_ck_conv2d_bias_v1",
         "dinoml_ck_conv2d_bias_relu_v1",

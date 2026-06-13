@@ -83,6 +83,35 @@ def conv1d(
     )
 
 
+def conv2d(
+    input: Any,
+    weight: Any,
+    bias: Any | None = None,
+    stride: int | Sequence[int] = 1,
+    padding: int | Sequence[int] = 0,
+    dilation: int | Sequence[int] = 1,
+    groups: int = 1,
+) -> Tensor:
+    if bias is None:
+        return ops.conv2d(
+            input,
+            weight,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+        )
+    return ops.conv2d_bias(
+        input,
+        weight,
+        bias,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+
 def conv3d(
     input: Any,
     weight: Any,
@@ -224,6 +253,7 @@ __all__ = [
     "layer_norm",
     "group_norm",
     "conv1d",
+    "conv2d",
     "conv3d",
     "conv_transpose1d",
     "conv_transpose2d",

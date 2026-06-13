@@ -162,6 +162,10 @@ def pixel_shuffle(input: Any, upscale_factor: int) -> Tensor:
     return ops.pixel_shuffle(input, upscale_factor)
 
 
+def pixel_unshuffle(input: Any, downscale_factor: int) -> Tensor:
+    return ops.pixel_unshuffle(input, downscale_factor)
+
+
 def normalize(input: Any, p: float = 2.0, dim: int = -1, eps: float = 1e-12, out: Any | None = None) -> Tensor:
     return ops.normalize(input, p=p, dim=dim, eps=eps, out=out)
 
@@ -179,5 +183,6 @@ __all__ = [
     "conv_transpose1d",
     "conv_transpose2d",
     "pixel_shuffle",
+    "pixel_unshuffle",
     "normalize",
 ]

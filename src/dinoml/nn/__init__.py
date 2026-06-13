@@ -594,6 +594,14 @@ class PixelShuffle(Module):
         return ops.pixel_shuffle(x, self.upscale_factor)
 
 
+class PixelUnshuffle(Module):
+    def __init__(self, downscale_factor: int):
+        self.downscale_factor = _positive_int(downscale_factor, "PixelUnshuffle downscale_factor")
+
+    def forward(self, x: Any) -> Tensor:
+        return ops.pixel_unshuffle(x, self.downscale_factor)
+
+
 class ReLU(Module):
     def __init__(self, inplace: bool = False):
         if inplace:
@@ -894,6 +902,7 @@ __all__ = [
     "ModuleList",
     "Parameter",
     "PixelShuffle",
+    "PixelUnshuffle",
     "RMSNorm",
     "ReLU",
     "Sequential",
